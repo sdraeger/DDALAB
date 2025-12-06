@@ -1,5 +1,7 @@
 // Tauri v2 API - properly integrated
 // Dynamic imports to avoid SSR issues
+import { loggers } from "@/lib/logger";
+
 const getTauriAPI = async () => {
   if (typeof window === "undefined") return null;
   const { invoke } = await import("@tauri-apps/api/core");
@@ -167,10 +169,12 @@ export class TauriService {
       });
 
       previewWindow.once("tauri://error", (e) => {
-        console.error("Failed to create analysis preview window:", e);
+        loggers.tauri.error("Failed to create analysis preview window", {
+          error: e,
+        });
       });
     } catch (error) {
-      console.error("Failed to open analysis preview window:", error);
+      loggers.tauri.error("Failed to open analysis preview window", { error });
     }
   }
 
@@ -180,7 +184,7 @@ export class TauriService {
       if (!api) throw new Error("Tauri API not available");
       return await api.invoke("get_app_state");
     } catch (error) {
-      console.error("Failed to get app state:", error);
+      loggers.tauri.error("Failed to get app state", { error });
       // Return default state
       return {
         file_manager: {
@@ -216,7 +220,7 @@ export class TauriService {
         fileManagerState: state,
       });
     } catch (error) {
-      console.error("Failed to update file manager state:", error);
+      loggers.tauri.error("Failed to update file manager state", { error });
     }
   }
 
@@ -226,7 +230,7 @@ export class TauriService {
       if (!api) return;
       await api.invoke("update_plot_state", { plotState: state });
     } catch (error) {
-      console.error("Failed to update plot state:", error);
+      loggers.tauri.error("Failed to update plot state", { error });
     }
   }
 
@@ -236,7 +240,7 @@ export class TauriService {
       if (!api) return;
       await api.invoke("update_dda_state", { ddaState: state });
     } catch (error) {
-      console.error("Failed to update DDA state:", error);
+      loggers.tauri.error("Failed to update DDA state", { error });
     }
   }
 
@@ -246,7 +250,7 @@ export class TauriService {
       if (!api) return;
       await api.invoke("update_ui_state", { uiUpdates: updates });
     } catch (error) {
-      console.error("Failed to update UI state:", error);
+      loggers.tauri.error("Failed to update UI state", { error });
     }
   }
 
@@ -256,7 +260,7 @@ export class TauriService {
       if (!api) return false;
       return await api.invoke("check_api_connection", { url });
     } catch (error) {
-      console.error("Failed to check API connection:", error);
+      loggers.api.error("Failed to check API connection", { error, url });
       return false;
     }
   }
@@ -267,7 +271,7 @@ export class TauriService {
       if (!api) throw new Error("Tauri API not available");
       return await api.invoke("get_app_preferences");
     } catch (error) {
-      console.error("Failed to get app preferences:", error);
+      loggers.tauri.error("Failed to get app preferences", { error });
       // Return consistent defaults where use_https matches the URL protocol
       return {
         api_config: {
@@ -288,7 +292,7 @@ export class TauriService {
       if (!api) throw new Error("Tauri API not available");
       await api.invoke("save_app_preferences", { preferences });
     } catch (error) {
-      console.error("Failed to save app preferences:", error);
+      loggers.tauri.error("Failed to save app preferences", { error });
       throw error;
     }
   }
@@ -303,7 +307,7 @@ export class TauriService {
       const result = await api.invoke<string | null>("open_file_dialog_sync");
       return result;
     } catch (error) {
-      console.error("Failed to open file dialog:", error);
+      loggers.tauri.error("Failed to open file dialog", { error });
       return null;
     }
   }
@@ -316,7 +320,10 @@ export class TauriService {
       // Use Rust command which implements tauri-plugin-notification v2 API
       await api.invoke("show_notification", { title, body });
     } catch (error) {
-      console.error("Failed to show notification:", error);
+      loggers.notifications.error("Failed to show notification", {
+        error,
+        title,
+      });
     }
   }
 
@@ -326,7 +333,7 @@ export class TauriService {
       if (!api) return;
       await api.appWindow.minimize();
     } catch (error) {
-      console.error("Failed to minimize window:", error);
+      loggers.tauri.error("Failed to minimize window", { error });
     }
   }
 
@@ -336,7 +343,7 @@ export class TauriService {
       if (!api) return;
       await api.appWindow.toggleMaximize();
     } catch (error) {
-      console.error("Failed to maximize window:", error);
+      loggers.tauri.error("Failed to maximize window", { error });
     }
   }
 
@@ -346,7 +353,7 @@ export class TauriService {
       if (!api) return;
       await api.appWindow.close();
     } catch (error) {
-      console.error("Failed to close window:", error);
+      loggers.tauri.error("Failed to close window", { error });
     }
   }
 
@@ -356,7 +363,7 @@ export class TauriService {
       if (!api) return;
       await api.appWindow.setTitle(title);
     } catch (error) {
-      console.error("Failed to set window title:", error);
+      loggers.tauri.error("Failed to set window title", { error, title });
     }
   }
 
@@ -377,7 +384,11 @@ export class TauriService {
       });
       return result;
     } catch (error) {
-      console.error("Failed to start local API server:", error);
+      loggers.api.error("Failed to start local API server", {
+        error,
+        port,
+        host,
+      });
       throw error;
     }
   }
@@ -388,7 +399,7 @@ export class TauriService {
       if (!api) throw new Error("Tauri API not available");
       await api.invoke("stop_local_api_server");
     } catch (error) {
-      console.error("Failed to stop local API server:", error);
+      loggers.api.error("Failed to stop local API server", { error });
       throw error;
     }
   }
@@ -399,7 +410,7 @@ export class TauriService {
       if (!api) throw new Error("Tauri API not available");
       return await api.invoke("get_api_status");
     } catch (error) {
-      console.error("Failed to get API status:", error);
+      loggers.api.error("Failed to get API status", { error });
       return null;
     }
   }
@@ -410,7 +421,7 @@ export class TauriService {
       if (!api) throw new Error("Tauri API not available");
       return await api.invoke("get_api_config");
     } catch (error) {
-      console.error("Failed to get API config:", error);
+      loggers.api.error("Failed to get API config", { error });
       return null;
     }
   }
@@ -421,7 +432,7 @@ export class TauriService {
       if (!api) throw new Error("Tauri API not available");
       return await api.invoke("load_api_config");
     } catch (error) {
-      console.error("Failed to load API config:", error);
+      loggers.api.error("Failed to load API config", { error });
       return null;
     }
   }
@@ -432,7 +443,7 @@ export class TauriService {
       if (!api) throw new Error("Tauri API not available");
       await api.invoke("save_api_config", { config });
     } catch (error) {
-      console.error("Failed to save API config:", error);
+      loggers.api.error("Failed to save API config", { error });
       throw error;
     }
   }
@@ -456,7 +467,7 @@ export class TauriService {
       await this.setDataDirectory(selected);
       return selected;
     } catch (error) {
-      console.error("Failed to select data directory:", error);
+      loggers.fileManager.error("Failed to select data directory", { error });
       throw error;
     }
   }
@@ -467,7 +478,7 @@ export class TauriService {
       if (!api) throw new Error("Tauri API not available");
       return await api.invoke("get_data_directory");
     } catch (error) {
-      console.error("Failed to get data directory:", error);
+      loggers.fileManager.error("Failed to get data directory", { error });
       throw error;
     }
   }
@@ -478,7 +489,10 @@ export class TauriService {
       if (!api) throw new Error("Tauri API not available");
       await api.invoke("set_data_directory", { path });
     } catch (error) {
-      console.error("Failed to set data directory:", error);
+      loggers.fileManager.error("Failed to set data directory", {
+        error,
+        path,
+      });
       throw error;
     }
   }
@@ -545,7 +559,7 @@ export class TauriService {
       const { open } = await import("@tauri-apps/plugin-shell");
       await open(url);
     } catch (error) {
-      console.error("Failed to open URL:", error);
+      loggers.tauri.error("Failed to open URL", { error, url });
       throw error;
     }
   }
@@ -726,7 +740,10 @@ export class TauriService {
         actionData,
       });
     } catch (error) {
-      console.error("[NOTIFICATIONS] Failed to create notification:", error);
+      loggers.notifications.error("Failed to create notification", {
+        error,
+        title,
+      });
       throw error;
     }
   }
@@ -739,7 +756,10 @@ export class TauriService {
       }
       return await api.invoke("list_notifications", { limit });
     } catch (error) {
-      console.error("[NOTIFICATIONS] Failed to list notifications:", error);
+      loggers.notifications.error("Failed to list notifications", {
+        error,
+        limit,
+      });
       throw error;
     }
   }
@@ -752,7 +772,7 @@ export class TauriService {
       }
       return await api.invoke("get_unread_count");
     } catch (error) {
-      console.error("[NOTIFICATIONS] Failed to get unread count:", error);
+      loggers.notifications.error("Failed to get unread count", { error });
       throw error;
     }
   }
@@ -765,10 +785,10 @@ export class TauriService {
       }
       return await api.invoke("mark_notification_read", { id });
     } catch (error) {
-      console.error(
-        "[NOTIFICATIONS] Failed to mark notification as read:",
+      loggers.notifications.error("Failed to mark notification as read", {
         error,
-      );
+        id,
+      });
       throw error;
     }
   }
@@ -781,10 +801,9 @@ export class TauriService {
       }
       return await api.invoke("mark_all_notifications_read");
     } catch (error) {
-      console.error(
-        "[NOTIFICATIONS] Failed to mark all notifications as read:",
+      loggers.notifications.error("Failed to mark all notifications as read", {
         error,
-      );
+      });
       throw error;
     }
   }
@@ -797,7 +816,10 @@ export class TauriService {
       }
       return await api.invoke("delete_notification", { id });
     } catch (error) {
-      console.error("[NOTIFICATIONS] Failed to delete notification:", error);
+      loggers.notifications.error("Failed to delete notification", {
+        error,
+        id,
+      });
       throw error;
     }
   }
@@ -810,10 +832,10 @@ export class TauriService {
       }
       return await api.invoke("delete_old_notifications", { days });
     } catch (error) {
-      console.error(
-        "[NOTIFICATIONS] Failed to delete old notifications:",
+      loggers.notifications.error("Failed to delete old notifications", {
         error,
-      );
+        days,
+      });
       throw error;
     }
   }
@@ -830,7 +852,11 @@ export class TauriService {
       }
       return await api.invoke("export_annotations", { filePath, format });
     } catch (error) {
-      console.error("[ANNOTATIONS] Failed to export annotations:", error);
+      loggers.annotations.error("Failed to export annotations", {
+        error,
+        filePath,
+        format,
+      });
       throw error;
     }
   }
@@ -845,7 +871,10 @@ export class TauriService {
       }
       return await api.invoke("export_all_annotations", { format });
     } catch (error) {
-      console.error("[ANNOTATIONS] Failed to export all annotations:", error);
+      loggers.annotations.error("Failed to export all annotations", {
+        error,
+        format,
+      });
       throw error;
     }
   }
@@ -883,7 +912,10 @@ export class TauriService {
       }
       return await api.invoke("preview_import_annotations", { targetFilePath });
     } catch (error) {
-      console.error("[ANNOTATIONS] Failed to preview annotations:", error);
+      loggers.annotations.error("Failed to preview annotations", {
+        error,
+        targetFilePath,
+      });
       throw error;
     }
   }
@@ -902,7 +934,10 @@ export class TauriService {
       }
       return await api.invoke("import_annotations", { targetFilePath });
     } catch (error) {
-      console.error("[ANNOTATIONS] Failed to import annotations:", error);
+      loggers.annotations.error("Failed to import annotations", {
+        error,
+        targetFilePath,
+      });
       throw error;
     }
   }
@@ -923,10 +958,11 @@ export class TauriService {
         selectedIds,
       });
     } catch (error) {
-      console.error(
-        "[ANNOTATIONS] Failed to import selected annotations:",
+      loggers.annotations.error("Failed to import selected annotations", {
         error,
-      );
+        importFilePath,
+        targetFilePath,
+      });
       throw error;
     }
   }
@@ -947,7 +983,11 @@ export class TauriService {
         defaultFilename,
       });
     } catch (error) {
-      console.error("[DDA] Failed to save DDA export:", error);
+      loggers.export.error("Failed to save DDA export", {
+        error,
+        format,
+        defaultFilename,
+      });
       throw error;
     }
   }
@@ -968,7 +1008,11 @@ export class TauriService {
         defaultFilename,
       });
     } catch (error) {
-      console.error("[DDA] Failed to save plot export:", error);
+      loggers.export.error("Failed to save plot export", {
+        error,
+        format,
+        defaultFilename,
+      });
       throw error;
     }
   }
@@ -981,7 +1025,10 @@ export class TauriService {
       }
       await api.invoke("delete_annotation", { annotationId });
     } catch (error) {
-      console.error("[ANNOTATIONS] Failed to delete annotation:", error);
+      loggers.annotations.error("Failed to delete annotation", {
+        error,
+        annotationId,
+      });
       throw error;
     }
   }
@@ -1019,7 +1066,7 @@ export class TauriService {
       }
       return await api.invoke("get_all_annotations");
     } catch (error) {
-      console.error("[ANNOTATIONS] Failed to get all annotations:", error);
+      loggers.annotations.error("Failed to get all annotations", { error });
       throw error;
     }
   }
@@ -1039,7 +1086,7 @@ export class TauriService {
 
       return selected;
     } catch (error) {
-      console.error("Failed to select directory:", error);
+      loggers.fileManager.error("Failed to select directory", { error });
       throw error;
     }
   }
@@ -1075,7 +1122,10 @@ export class TauriService {
         },
       });
     } catch (error) {
-      console.error("[FILE] Failed to segment file:", error);
+      loggers.fileManager.error("Failed to segment file", {
+        error,
+        filePath: params.filePath,
+      });
       throw error;
     }
   }
@@ -1086,7 +1136,7 @@ export class TauriService {
       if (!api) return;
       await api.invoke("cancel_segment_file");
     } catch (error) {
-      console.error("[FILE] Failed to cancel segment file:", error);
+      loggers.fileManager.error("Failed to cancel segment file", { error });
     }
   }
 
@@ -1097,7 +1147,10 @@ export class TauriService {
       if (!api) return false;
       return await api.invoke("check_annex_placeholder", { filePath });
     } catch (error) {
-      console.error("[GIT-ANNEX] Failed to check annex placeholder:", error);
+      loggers.fileManager.error("Failed to check annex placeholder", {
+        error,
+        filePath,
+      });
       return false;
     }
   }
