@@ -1,14 +1,15 @@
-import React, { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useCallback } from "react";
 import { ApiService } from "@/services/apiService";
 import { useICAWorkflow } from "@/hooks/useICAAnalysis";
 import { ICAAnalysisRequest, ICAParametersRequest } from "@/types/ica";
 import { ICAResults } from "./ICAResults";
+import { ICAConfigPanel, ICAConfig } from "./ICAConfigPanel";
 import { useAppStore } from "@/store/appStore";
 import { useShallow } from "zustand/react/shallow";
 import { TauriService, NotificationType } from "@/services/tauriService";
-import { ChannelSelector } from "@/components/ChannelSelector";
 import { useSearchableItems, createActionItem } from "@/hooks/useSearchable";
 import { handleError } from "@/utils/errorHandler";
+import { History, FolderOpen } from "lucide-react";
 
 interface ICAAnalysisPanelProps {
   apiService: ApiService;
@@ -23,11 +24,10 @@ export function ICAAnalysisPanel({ apiService }: ICAAnalysisPanelProps) {
   // Use global ICA state from store for persistence across tab switches
   const icaState = useAppStore(useShallow((state) => state.ica));
   const updateICAState = useAppStore((state) => state.updateICAState);
-  const resetICAChannels = useAppStore((state) => state.resetICAChannels);
 
   const ica = useICAWorkflow(apiService);
 
-  // Destructure ICA state for convenience
+  // Destructure ICA state
   const {
     selectedChannels: icaSelectedChannels,
     nComponents,
@@ -39,15 +39,10 @@ export function ICAAnalysisPanel({ apiService }: ICAAnalysisPanelProps) {
     isSubmitting: globalIsSubmitting,
   } = icaState;
 
-  // Helper functions to update state
-  const setNComponents = (n: number | undefined) =>
-    updateICAState({ nComponents: n });
-  const setMaxIterations = (n: number) => updateICAState({ maxIterations: n });
-  const setTolerance = (n: number) => updateICAState({ tolerance: n });
-  const setCentering = (b: boolean) => updateICAState({ centering: b });
-  const setWhitening = (b: boolean) => updateICAState({ whitening: b });
-  const setSelectedResultId = (id: string | null) =>
-    updateICAState({ selectedResultId: id });
+  const setSelectedResultId = useCallback(
+    (id: string | null) => updateICAState({ selectedResultId: id }),
+    [updateICAState],
+  );
 
   const selectedResult = ica.results.find((r) => r.id === selectedResultId);
 
@@ -59,38 +54,61 @@ export function ICAAnalysisPanel({ apiService }: ICAAnalysisPanelProps) {
       .map((idx) => selectedFile.channels[idx]);
   }, [icaSelectedChannels, selectedFile]);
 
-  // Handle channel selection changes from ChannelSelector
-  const handleChannelSelectionChange = (channelNames: string[]) => {
-    if (!selectedFile) return;
-    const indices = channelNames
-      .map((name) => selectedFile.channels.indexOf(name))
-      .filter((idx) => idx !== -1)
-      .sort((a, b) => a - b);
-    updateICAState({ selectedChannels: indices });
-  };
+  // Available channels from file
+  const availableChannels = useMemo(() => {
+    return selectedFile?.channels || [];
+  }, [selectedFile]);
 
-  // Auto-populate channels when file changes (default to first 20 channels)
-  // Only reset if channels are empty or if file changed
+  // Handle channel selection changes
+  const handleChannelSelectionChange = useCallback(
+    (channelNames: string[]) => {
+      if (!selectedFile) return;
+      const indices = channelNames
+        .map((name) => selectedFile.channels.indexOf(name))
+        .filter((idx) => idx !== -1)
+        .sort((a, b) => a - b);
+      updateICAState({ selectedChannels: indices });
+    },
+    [selectedFile, updateICAState],
+  );
+
+  // Handle config changes
+  const handleConfigChange = useCallback(
+    (config: Partial<ICAConfig>) => {
+      updateICAState(config);
+    },
+    [updateICAState],
+  );
+
+  // Current config for ICAConfigPanel
+  const currentConfig: ICAConfig = useMemo(
+    () => ({
+      nComponents,
+      maxIterations,
+      tolerance,
+      centering,
+      whitening,
+    }),
+    [nComponents, maxIterations, tolerance, centering, whitening],
+  );
+
+  // Note: ICA channel selection is persisted in the store and restored on app load.
+  // Users must explicitly select channels - no auto-population.
+
+  // Auto-select a result when results are loaded
   useEffect(() => {
-    if (selectedFile && selectedFile.channels.length > 0) {
-      // Only auto-populate if no channels selected yet (initial load or file change)
-      if (icaSelectedChannels.length === 0) {
-        const maxDefaultChannels = 20;
-        const defaultChannels = selectedFile.channels
-          .slice(0, Math.min(maxDefaultChannels, selectedFile.channels.length))
-          .map((_, index) => index);
-        resetICAChannels(defaultChannels);
-        console.log(
-          "[ICA] Auto-populated channels:",
-          defaultChannels.length,
-          "of",
-          selectedFile.channels.length,
-        );
+    if (ica.results.length > 0) {
+      // If no result is selected, or the selected result no longer exists, select the first/most recent
+      const currentSelectionValid =
+        selectedResultId && ica.results.some((r) => r.id === selectedResultId);
+      if (!currentSelectionValid) {
+        // Select the most recent result (results are ordered by created_at DESC)
+        setSelectedResultId(ica.results[0].id);
       }
     }
-  }, [selectedFile, icaSelectedChannels.length, resetICAChannels]);
+  }, [ica.results, selectedResultId, setSelectedResultId]);
 
-  // Register searchable items for ICA
+  // Register searchable items
   useSearchableItems(
     [
       createActionItem(
@@ -131,30 +149,21 @@ export function ICAAnalysisPanel({ apiService }: ICAAnalysisPanelProps) {
     [selectedFile?.file_path, selectedResult?.id],
   );
 
-  // Sync global isSubmitting state with actual mutation state
-  // This handles the case where mutation completes while component is unmounted
+  // Sync global isSubmitting state with mutation state
   useEffect(() => {
-    // If store says we're submitting but the mutation is not pending,
-    // check if we got results and update the store
     if (globalIsSubmitting && !ica.isSubmitting) {
-      // Look for a recent result (created in the last minute)
       const recentResult = ica.results.find((r) => {
         const createdAt = new Date(r.created_at).getTime();
         const now = Date.now();
-        return now - createdAt < 60000; // Within last minute
+        return now - createdAt < 60000;
       });
 
       if (recentResult) {
-        console.log(
-          "[ICA] Found recent result after remount, syncing state:",
-          recentResult.id,
-        );
         updateICAState({
           isSubmitting: false,
           selectedResultId: recentResult.id,
         });
 
-        // Send notification that was missed
         if (TauriService.isTauri()) {
           TauriService.createNotification(
             "ICA Analysis Complete",
@@ -168,17 +177,8 @@ export function ICAAnalysisPanel({ apiService }: ICAAnalysisPanelProps) {
           );
         }
       } else if (ica.submitError) {
-        // Mutation failed while unmounted
-        console.log("[ICA] Found error after remount, syncing state");
         updateICAState({ isSubmitting: false });
-      }
-      // If no recent result and no error, the analysis is still running on the server
-      // but the mutation was lost - we should reset the state
-      else if (ica.results.length > 0) {
-        // We have old results but nothing recent - mutation was lost
-        console.log(
-          "[ICA] Mutation state lost after remount, resetting isSubmitting",
-        );
+      } else if (ica.results.length > 0) {
         updateICAState({ isSubmitting: false });
       }
     }
@@ -190,42 +190,9 @@ export function ICAAnalysisPanel({ apiService }: ICAAnalysisPanelProps) {
     updateICAState,
   ]);
 
-  // Channel list for display
-  const availableChannels = useMemo(() => {
-    return selectedFile?.channels || [];
-  }, [selectedFile]);
-
-  // Warning for too many channels
-  const channelWarning = useMemo(() => {
-    if (icaSelectedChannels.length > 64) {
-      return `Warning: ${icaSelectedChannels.length} channels selected. ICA may take a very long time (several minutes).`;
-    } else if (icaSelectedChannels.length > 32) {
-      return `Note: ${icaSelectedChannels.length} channels selected. ICA may take 1-2 minutes.`;
-    }
-    return null;
-  }, [icaSelectedChannels.length]);
-
-  const handleRunAnalysis = () => {
-    console.log("[ICA] handleRunAnalysis called", {
-      selectedFile,
-      icaSelectedChannels,
-      timeWindow,
-    });
-
-    if (!selectedFile) {
-      console.error("[ICA] No file selected");
-      return;
-    }
-
-    if (icaSelectedChannels.length === 0) {
-      console.error("[ICA] No channels selected");
-      return;
-    }
-
-    if (icaSelectedChannels.length < 2) {
-      console.error("[ICA] At least 2 channels required for ICA");
-      return;
-    }
+  // Run analysis handler
+  const handleRunAnalysis = useCallback(() => {
+    if (!selectedFile || icaSelectedChannels.length < 2) return;
 
     const parameters: ICAParametersRequest = {
       n_components: nComponents,
@@ -240,21 +207,13 @@ export function ICAAnalysisPanel({ apiService }: ICAAnalysisPanelProps) {
       channels: icaSelectedChannels,
       time_range:
         timeWindow.start !== 0 || timeWindow.end !== selectedFile.duration
-          ? {
-              start: timeWindow.start,
-              end: timeWindow.end,
-            }
+          ? { start: timeWindow.start, end: timeWindow.end }
           : undefined,
       parameters,
     };
 
-    console.log("[ICA] Submitting analysis request:", request);
-    console.log("[ICA] Selected channels:", icaSelectedChannels.length);
-
-    // Set global submitting state
     updateICAState({ isSubmitting: true });
 
-    // Send native notification
     if (TauriService.isTauri()) {
       TauriService.createNotification(
         "ICA Analysis Started",
@@ -268,7 +227,6 @@ export function ICAAnalysisPanel({ apiService }: ICAAnalysisPanelProps) {
     try {
       ica.submit(request, {
         onSuccess: (result) => {
-          console.log("[ICA] Analysis completed:", result);
           updateICAState({ isSubmitting: false, selectedResultId: result.id });
 
           if (TauriService.isTauri()) {
@@ -285,7 +243,6 @@ export function ICAAnalysisPanel({ apiService }: ICAAnalysisPanelProps) {
           }
         },
         onError: (error) => {
-          console.error("[ICA] Analysis failed:", error);
           updateICAState({ isSubmitting: false });
 
           const errorMessage =
@@ -296,8 +253,8 @@ export function ICAAnalysisPanel({ apiService }: ICAAnalysisPanelProps) {
                 "ICA Analysis Cancelled",
                 "Analysis was cancelled by user.",
                 NotificationType.Warning,
-              ).catch((error) =>
-                handleError(error, {
+              ).catch((err) =>
+                handleError(err, {
                   source: "ICA Notification",
                   severity: "silent",
                 }),
@@ -307,8 +264,8 @@ export function ICAAnalysisPanel({ apiService }: ICAAnalysisPanelProps) {
                 "ICA Analysis Failed",
                 errorMessage,
                 NotificationType.Error,
-              ).catch((error) =>
-                handleError(error, {
+              ).catch((err) =>
+                handleError(err, {
                   source: "ICA Notification",
                   severity: "silent",
                 }),
@@ -317,9 +274,7 @@ export function ICAAnalysisPanel({ apiService }: ICAAnalysisPanelProps) {
           }
         },
       });
-      console.log("[ICA] submit() called successfully");
     } catch (err) {
-      console.error("[ICA] Error calling submit:", err);
       updateICAState({ isSubmitting: false });
 
       if (TauriService.isTauri()) {
@@ -335,10 +290,21 @@ export function ICAAnalysisPanel({ apiService }: ICAAnalysisPanelProps) {
         );
       }
     }
-  };
+  }, [
+    selectedFile,
+    icaSelectedChannels,
+    nComponents,
+    maxIterations,
+    tolerance,
+    centering,
+    whitening,
+    timeWindow,
+    updateICAState,
+    ica,
+  ]);
 
-  const handleCancel = () => {
-    console.log("[ICA] Cancel requested");
+  // Cancel handler
+  const handleCancel = useCallback(() => {
     ica.cancelSubmit();
 
     if (TauriService.isTauri()) {
@@ -350,196 +316,55 @@ export function ICAAnalysisPanel({ apiService }: ICAAnalysisPanelProps) {
         handleError(error, { source: "ICA Notification", severity: "silent" }),
       );
     }
-  };
+  }, [ica]);
 
-  const handleReconstruct = () => {
+  // Reconstruct handler
+  const handleReconstruct = useCallback(() => {
     if (!selectedResultId || ica.markedArray.length === 0) return;
 
     ica.reconstruct({
       analysis_id: selectedResultId,
       components_to_remove: ica.markedArray,
     });
-  };
+  }, [selectedResultId, ica]);
 
   return (
     <div className="flex flex-col h-full">
       {/* Configuration Panel */}
-      <div className="p-4 border-b space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">ICA Analysis</h2>
-          {selectedFile && (
-            <span className="text-sm text-muted-foreground">
-              {selectedFile.file_name}
-            </span>
-          )}
-        </div>
-
-        {/* Channel Selector */}
-        {selectedFile && (
-          <div className="space-y-2">
-            <ChannelSelector
-              channels={availableChannels}
-              selectedChannels={selectedChannelNames}
-              onSelectionChange={handleChannelSelectionChange}
-              disabled={globalIsSubmitting}
-              label="Channels for ICA"
-              description="Select channels to include in ICA analysis"
-              maxHeight="max-h-32"
-              variant="compact"
-            />
-
-            {/* Channel warning */}
-            {channelWarning && (
-              <div
-                className={`text-xs ${icaSelectedChannels.length > 64 ? "text-orange-500" : "text-yellow-500"}`}
-              >
-                {channelWarning}
-              </div>
-            )}
-          </div>
-        )}
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div>
-            <label className="text-sm font-medium">Components</label>
-            <input
-              type="number"
-              className="w-full mt-1 px-2 py-1 border rounded text-sm"
-              placeholder="Auto"
-              value={nComponents || ""}
-              onChange={(e) =>
-                setNComponents(
-                  e.target.value ? parseInt(e.target.value) : undefined,
-                )
-              }
-              min={1}
-              max={icaSelectedChannels.length || 64}
-            />
-            <span className="text-xs text-muted-foreground">
-              Max: {icaSelectedChannels.length || "N/A"}
-            </span>
-          </div>
-
-          <div>
-            <label className="text-sm font-medium">Max Iterations</label>
-            <input
-              type="number"
-              className="w-full mt-1 px-2 py-1 border rounded text-sm"
-              value={maxIterations}
-              onChange={(e) => setMaxIterations(parseInt(e.target.value))}
-              min={10}
-              max={1000}
-            />
-          </div>
-
-          <div>
-            <label className="text-sm font-medium">Tolerance</label>
-            <input
-              type="number"
-              className="w-full mt-1 px-2 py-1 border rounded text-sm"
-              value={tolerance}
-              onChange={(e) => setTolerance(parseFloat(e.target.value))}
-              step={0.0001}
-              min={0.00001}
-              max={0.1}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={centering}
-                onChange={(e) => setCentering(e.target.checked)}
-              />
-              Centering
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={whitening}
-                onChange={(e) => setWhitening(e.target.checked)}
-              />
-              Whitening
-            </label>
-          </div>
-        </div>
-
-        <div className="flex gap-2">
-          <button
-            className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            onClick={handleRunAnalysis}
-            disabled={
-              !selectedFile ||
-              globalIsSubmitting ||
-              icaSelectedChannels.length < 2
-            }
-          >
-            {globalIsSubmitting
-              ? `Running ICA on ${icaSelectedChannels.length} channels...`
-              : `Run ICA (${icaSelectedChannels.length} channels)`}
-          </button>
-
-          {globalIsSubmitting && (
-            <button
-              className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2"
-              onClick={handleCancel}
-            >
-              Cancel
-            </button>
-          )}
-
-          {selectedResultId &&
-            ica.markedArray.length > 0 &&
-            !globalIsSubmitting && (
-              <button
-                className="px-4 py-2 bg-orange-500 text-white rounded-md hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2"
-                onClick={handleReconstruct}
-                disabled={ica.isReconstructing}
-              >
-                {ica.isReconstructing
-                  ? "Reconstructing..."
-                  : `Remove ${ica.markedArray.length} Component(s)`}
-              </button>
-            )}
-        </div>
-
-        {icaSelectedChannels.length < 2 && selectedFile && (
-          <div className="text-sm text-yellow-500">
-            Select at least 2 channels to run ICA
-          </div>
-        )}
-
-        {ica.submitError && (
-          <div className="text-sm text-red-500">
-            Error: {ica.submitError.message}
-          </div>
-        )}
-
-        {globalIsSubmitting && (
-          <div className="text-sm text-muted-foreground">
-            Processing {icaSelectedChannels.length} channels with FastICA
-            algorithm...
-            {icaSelectedChannels.length > 32 &&
-              " This may take a minute or more."}
-          </div>
-        )}
-      </div>
+      <ICAConfigPanel
+        availableChannels={availableChannels}
+        selectedChannels={selectedChannelNames}
+        onChannelSelectionChange={handleChannelSelectionChange}
+        config={currentConfig}
+        onConfigChange={handleConfigChange}
+        isRunning={globalIsSubmitting}
+        onRunAnalysis={handleRunAnalysis}
+        onCancel={handleCancel}
+        markedCount={ica.markedArray.length}
+        onReconstruct={handleReconstruct}
+        isReconstructing={ica.isReconstructing}
+        disabled={!selectedFile}
+        error={ica.submitError?.message}
+        fileName={selectedFile?.file_name}
+      />
 
       {/* Results Panel */}
       <div className="flex-1 overflow-hidden">
         {ica.results.length > 0 && (
           <div className="flex h-full">
-            {/* Results List */}
-            <div className="w-48 border-r p-2 overflow-y-auto">
-              <h3 className="text-sm font-medium mb-2">History</h3>
+            {/* Results History Sidebar */}
+            <div className="w-48 border-r p-2 overflow-y-auto bg-muted/20">
+              <div className="flex items-center gap-2 text-sm font-medium mb-2 text-muted-foreground">
+                <History className="h-4 w-4" aria-hidden="true" />
+                History
+              </div>
               {ica.results.map((result) => (
-                <div
+                <button
                   key={result.id}
-                  className={`p-2 rounded cursor-pointer text-sm mb-1 transition-colors ${
+                  className={`w-full p-2 rounded cursor-pointer text-sm mb-1 transition-colors text-left ${
                     selectedResultId === result.id
                       ? "bg-primary/10 border border-primary"
-                      : "hover:bg-muted"
+                      : "hover:bg-muted border border-transparent"
                   }`}
                   onClick={() => setSelectedResultId(result.id)}
                 >
@@ -549,7 +374,7 @@ export function ICAAnalysisPanel({ apiService }: ICAAnalysisPanelProps) {
                   <div className="text-xs text-muted-foreground">
                     {new Date(result.created_at).toLocaleTimeString()}
                   </div>
-                </div>
+                </button>
               ))}
             </div>
 
@@ -571,8 +396,12 @@ export function ICAAnalysisPanel({ apiService }: ICAAnalysisPanelProps) {
         )}
 
         {ica.results.length === 0 && !globalIsSubmitting && (
-          <div className="h-full flex items-center justify-center text-muted-foreground">
-            No ICA analyses yet. Run analysis to see results.
+          <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-4">
+            <FolderOpen className="h-12 w-12 opacity-50" aria-hidden="true" />
+            <div className="text-center">
+              <p className="font-medium">No ICA analyses yet</p>
+              <p className="text-sm">Run analysis to see results</p>
+            </div>
           </div>
         )}
       </div>

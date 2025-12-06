@@ -776,8 +776,8 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
       grid: {
         left: "120px",
         right: "4%",
-        bottom: "10%",
-        top: "15%",
+        bottom: 60,
+        top: 70, // Fixed pixel value to stay constant relative to legend
         containLabel: false,
       },
       toolbox: {

@@ -110,7 +110,10 @@ export function LslStreamDiscovery({
       </CardHeader>
       <CardContent>
         {error && (
-          <div className="mb-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+          <div
+            className="mb-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive"
+            role="alert"
+          >
             <p className="font-medium">Discovery Error</p>
             <p className="text-xs mt-1">{error}</p>
           </div>

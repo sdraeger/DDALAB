@@ -29,7 +29,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 import {
   useDirectoryListing,
   useLoadFileInfo,
@@ -55,24 +54,17 @@ import {
   SortAsc,
   SortDesc,
   RefreshCw,
-  Download,
-  Calendar,
-  HardDrive,
   Eye,
   EyeOff,
   ChevronRight,
   Home,
-  Check,
   FolderOpen,
-  Upload,
-  CloudOff,
   AlertTriangle,
 } from "lucide-react";
 import { TauriService } from "@/services/tauriService";
-import { formatBytes, formatDate } from "@/lib/utils";
+import { formatBytes } from "@/lib/utils";
 import { useWorkflow } from "@/hooks/useWorkflow";
 import { createLoadFileAction } from "@/types/workflow";
-import { BIDSBrowser } from "@/components/BIDSBrowser";
 import { BIDSUploadDialog } from "@/components/BIDSUploadDialog";
 import { openNeuroService } from "@/services/openNeuroService";
 import { FileContextMenu } from "@/components/FileContextMenu";
@@ -175,8 +167,6 @@ export function FileManager({ apiService }: FileManagerProps) {
   const [pendingFileSelection, setPendingFileSelection] =
     useState<EDFFileInfo | null>(null);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
-  const [bidsDatasetPath, setBidsDatasetPath] = useState<string | null>(null);
-  const [showBidsBrowser, setShowBidsBrowser] = useState(false);
   const [showUploadDialog, setShowUploadDialog] = useState(false);
   const [uploadDatasetPath, setUploadDatasetPath] = useState<string | null>(
     null,
@@ -804,57 +794,6 @@ export function FileManager({ apiService }: FileManagerProps) {
     [dataDirectoryPath, setCurrentPath],
   );
 
-  const handleBidsFileSelect = async (filePath: string) => {
-    console.log("[FILEMANAGER] BIDS file selected:", filePath);
-
-    // Check if file format is supported
-    const extension = filePath.split(".").pop()?.toLowerCase();
-    const supportedFormats = [
-      "edf",
-      "fif",
-      "csv",
-      "txt",
-      "ascii",
-      "vhdr",
-      "set",
-    ];
-
-    if (extension && !supportedFormats.includes(extension)) {
-      console.error(
-        `File format .${extension} is not yet supported. Currently supported formats: EDF, FIFF (.fif), CSV, ASCII/TXT, BrainVision (.vhdr), EEGLAB (.set).`,
-      );
-      return;
-    }
-
-    // Load the selected file through the API using mutation
-    try {
-      loadFileInfoMutation.mutate(filePath, {
-        onSuccess: (fileInfo) => {
-          // Load file info and close BIDS browser
-          loadFileInfo(fileInfo);
-          setShowBidsBrowser(false);
-          setBidsDatasetPath(null);
-        },
-        onError: (error) => {
-          handleError(error, {
-            source: "FileManager",
-            severity: "warning",
-          });
-        },
-      });
-    } catch (error) {
-      handleError(error, {
-        source: "FileManager",
-        severity: "warning",
-      });
-    }
-  };
-
-  const handleCloseBidsBrowser = () => {
-    setShowBidsBrowser(false);
-    setBidsDatasetPath(null);
-  };
-
   const navigateUp = () => {
     if (currentPath.length > 0) {
       const newPath = currentPath.slice(0, -1);
@@ -1190,9 +1129,15 @@ export function FileManager({ apiService }: FileManagerProps) {
         style={scrollTrapProps.style}
       >
         {error && (
-          <div className="p-4 mb-4 text-sm bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 rounded-lg">
+          <div
+            className="p-4 mb-4 text-sm bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 rounded-lg"
+            role="alert"
+          >
             <div className="flex items-start gap-3">
-              <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+              <AlertTriangle
+                className="h-5 w-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5"
+                aria-hidden="true"
+              />
               <div className="space-y-2">
                 <p className="font-medium text-red-800 dark:text-red-200">
                   Could not load directory

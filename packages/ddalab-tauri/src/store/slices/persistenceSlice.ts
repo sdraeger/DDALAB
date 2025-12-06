@@ -167,6 +167,19 @@ export const createPersistenceSlice: ImmerStateCreator<
               persistedState.panel_sizes.sidebar * 100,
             25,
           ];
+
+          // Restore ICA state (using type assertion for backwards compatibility)
+          const icaState = (persistedState as any).ica;
+          if (icaState) {
+            state.ica.selectedChannels = icaState.selectedChannels || [];
+            state.ica.nComponents = icaState.nComponents;
+            state.ica.maxIterations =
+              icaState.maxIterations ?? state.ica.maxIterations;
+            state.ica.tolerance = icaState.tolerance ?? state.ica.tolerance;
+            state.ica.centering = icaState.centering ?? state.ica.centering;
+            state.ica.whitening = icaState.whitening ?? state.ica.whitening;
+            state.ica.selectedResultId = icaState.selectedResultId ?? null;
+          }
         });
 
         hasInitializedPersistence = true;
@@ -242,6 +255,15 @@ export const createPersistenceSlice: ImmerStateCreator<
           sidebar: (currentState.ui.panelSizes[0] || 25) / 100,
           main: (currentState.ui.panelSizes[1] || 50) / 100,
           "plot-height": 0.6,
+        },
+        ica: {
+          selectedChannels: currentState.ica.selectedChannels,
+          nComponents: currentState.ica.nComponents,
+          maxIterations: currentState.ica.maxIterations,
+          tolerance: currentState.ica.tolerance,
+          centering: currentState.ica.centering,
+          whitening: currentState.ica.whitening,
+          selectedResultId: currentState.ica.selectedResultId,
         },
       };
 

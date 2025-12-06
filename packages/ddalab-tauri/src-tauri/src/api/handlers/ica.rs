@@ -1,4 +1,5 @@
 use crate::api::state::ApiState;
+use crate::db::ica_db::ICAStoredResult;
 use crate::file_readers::FileReaderFactory;
 use crate::ica::{ICAAnalysisResult, ICAParameters, ICAProcessor};
 use axum::{
@@ -255,14 +256,40 @@ pub async fn run_ica_analysis(
         results: ica_result,
     };
 
-    // Store in history
+    // Store in history and persist to database
     {
         let mut history = state.ica_history.lock();
         history.push(result.clone());
 
-        // Keep only last 50 analyses
+        // Keep only last 50 analyses in memory
         if history.len() > 50 {
             history.remove(0);
+        }
+    }
+
+    // Persist to SQLite database
+    if let Some(ref db) = state.ica_db {
+        // Convert to storage type with results serialized as JSON Value
+        match serde_json::to_value(&result.results) {
+            Ok(results_json) => {
+                let stored = ICAStoredResult {
+                    id: result.id.clone(),
+                    name: result.name.clone(),
+                    file_path: result.file_path.clone(),
+                    channels: result.channels.clone(),
+                    created_at: result.created_at.clone(),
+                    status: result.status.clone(),
+                    results: results_json,
+                };
+                if let Err(e) = db.save_analysis(&stored) {
+                    log::error!("Failed to persist ICA analysis to database: {}", e);
+                } else {
+                    log::info!("✅ ICA analysis {} saved to database", result.id);
+                }
+            }
+            Err(e) => {
+                log::error!("Failed to serialize ICA results for storage: {}", e);
+            }
         }
     }
 
@@ -299,6 +326,16 @@ pub async fn delete_ica_result(
 
     if let Some(pos) = history.iter().position(|r| r.id == analysis_id) {
         history.remove(pos);
+
+        // Also delete from database
+        if let Some(ref db) = state.ica_db {
+            if let Err(e) = db.delete_analysis(&analysis_id) {
+                log::error!("Failed to delete ICA analysis from database: {}", e);
+            } else {
+                log::info!("✅ ICA analysis {} deleted from database", analysis_id);
+            }
+        }
+
         StatusCode::NO_CONTENT
     } else {
         StatusCode::NOT_FOUND
