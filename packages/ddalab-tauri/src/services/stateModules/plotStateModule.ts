@@ -13,35 +13,21 @@ export class PlotStateModule implements FileStateModule<FilePlotState> {
 
   async loadState(filePath: string): Promise<FilePlotState | null> {
     try {
-      const state = await invoke<FilePlotState>("get_file_plot_state", {
-        filePath,
-      });
-      return state;
-    } catch (error) {
-      console.log("[PlotStateModule] No saved state for file:", filePath);
+      return await invoke<FilePlotState>("get_file_plot_state", { filePath });
+    } catch {
       return null;
     }
   }
 
   async saveState(filePath: string, state: FilePlotState): Promise<void> {
-    try {
-      await invoke("save_file_plot_state", {
-        filePath,
-        state,
-      });
-    } catch (error) {
-      console.error("[PlotStateModule] Failed to save state:", error);
-      throw error;
-    }
+    await invoke("save_file_plot_state", { filePath, state });
   }
 
   async clearState(filePath: string): Promise<void> {
     try {
-      await invoke("clear_file_plot_state", {
-        filePath,
-      });
-    } catch (error) {
-      console.error("[PlotStateModule] Failed to clear state:", error);
+      await invoke("clear_file_plot_state", { filePath });
+    } catch {
+      // State may not exist, ignore
     }
   }
 
