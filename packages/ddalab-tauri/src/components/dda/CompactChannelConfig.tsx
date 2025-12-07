@@ -24,14 +24,13 @@ import { ChannelSelector } from "@/components/ChannelSelector";
 import { CTChannelPairPicker } from "@/components/CTChannelPairPicker";
 import { CDChannelPairPicker } from "@/components/CDChannelPairPicker";
 import { X } from "lucide-react";
+import type { VariantMetadata } from "@/types/variantConfig";
 
-interface VariantConfig {
-  id: string;
-  name: string;
-  abbreviation: string;
-  color: string;
-  rgb: string;
-}
+// Use shared VariantMetadata type - only need subset of fields for display
+type VariantConfig = Pick<
+  VariantMetadata,
+  "id" | "name" | "abbreviation" | "color" | "rgb"
+>;
 
 interface CompactChannelConfigProps {
   variant: VariantConfig;

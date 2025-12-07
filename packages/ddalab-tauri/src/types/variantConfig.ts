@@ -95,15 +95,35 @@ export const VARIANT_REGISTRY: VariantMetadata[] = [
     name: "Synchronization",
     abbreviation: "SY",
     description: "Phase synchronization analysis",
-    color: "#CC3300", // RGB(204, 51, 0) - Orange Red
-    rgb: "204, 51, 0",
-    bgColor: "bg-[#CC3300]/10",
-    borderColor: "border-l-[#CC3300]",
+    color: "#FF6600", // RGB(255, 102, 0) - Orange
+    rgb: "255, 102, 0",
+    bgColor: "bg-[#FF6600]/10",
+    borderColor: "border-l-[#FF6600]",
     channelType: "individual",
     requiresCTParameters: false,
     supportsPreprocessing: true,
   },
 ];
+
+/**
+ * Canonical order for variant display: ST, CT, CD, DE, SY
+ */
+export const VARIANT_ORDER: Record<string, number> = {
+  single_timeseries: 0,
+  cross_timeseries: 1,
+  cross_dynamical: 2,
+  dynamical_ergodicity: 3,
+  synchronization: 4,
+};
+
+/**
+ * Get the color for a variant by its ID.
+ * Returns a fallback color if the variant is not found.
+ */
+export function getVariantColor(variantId: string): string {
+  const variant = VARIANT_REGISTRY.find((v) => v.id === variantId);
+  return variant?.color ?? "#64748b"; // Default to slate if unknown
+}
 
 /**
  * Helper function to get variant metadata by ID

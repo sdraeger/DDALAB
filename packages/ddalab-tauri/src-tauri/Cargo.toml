@@ -1,6 +1,6 @@
 [package]
 name = "ddalab-tauri"
-version = "1.0.20"
+version = "1.0.23"
 description = "DDALAB Desktop Application"
 authors = ["DDALAB Team"]
 license = "MIT"
@@ -34,7 +34,7 @@ reqwest = { version = "0.12.24", features = ["json", "multipart"] }
 dirs = "6.0.0"
 parking_lot = "0.12.5"
 chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1.0", features = ["v4", "serde"] }
+uuid = { version = "1.19.0", features = ["v4", "serde"] }
 anyhow = "1.0"
 thiserror = "2.0"
 log = "0.4"
@@ -44,7 +44,11 @@ simple-logging = "2.0"
 axum = { version = "0.8.7", features = ["json", "tokio"] }
 axum-server = { version = "0.7.3", features = ["tls-rustls"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["cors", "compression-gzip", "compression-br"] }
+tower-http = { version = "0.6", features = [
+	"cors",
+	"compression-gzip",
+	"compression-br",
+] }
 hyper = { version = "1.8.1", features = ["full"] }
 bytes = "1.11.0"
 mime = "0.3"

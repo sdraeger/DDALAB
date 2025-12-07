@@ -37,6 +37,8 @@ import { AnnotationMarker } from "@/components/annotations/AnnotationMarker";
 import { PlotInfo } from "@/types/annotations";
 import { PlotLoadingSkeleton } from "@/components/dda/PlotLoadingSkeleton";
 import { NetworkMotifPlot } from "@/components/dda/NetworkMotifPlot";
+import { ResizeHandle } from "@/components/dda/ResizeHandle";
+import { getVariantColor, VARIANT_ORDER } from "@/types/variantConfig";
 import type { ViewMode } from "@/components/dda/ViewModeSelector";
 import type { ColorScheme } from "@/components/dda/ColorSchemePicker";
 import { COLOR_SCHEME_FUNCTIONS } from "@/utils/colorSchemes";
@@ -148,7 +150,6 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   const [linePlotHeight, setLinePlotHeight] = useState(() =>
     getPersistedHeight("dda-lineplot-height", 400),
   );
-  const [, setIsResizing] = useState<"heatmap" | "lineplot" | null>(null);
 
   // CRITICAL FIX: Progressive rendering - defer plot containers to prevent UI freeze
   // Render controls first, then mount heavy plot containers on next frame
@@ -206,19 +207,10 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   // CRITICAL FIX: Use result.id as dependency instead of result.results object
   // This prevents re-renders when parent passes new result object with same data
   const availableVariants = useMemo(() => {
-    // Canonical variant order: ST, CT, CD, DE, SY
-    const variantOrder: Record<string, number> = {
-      single_timeseries: 0,
-      cross_timeseries: 1,
-      cross_dynamical: 2,
-      dynamical_ergodicity: 3,
-      synchronization: 4,
-    };
-
     if (result.results.variants && result.results.variants.length > 0) {
       return [...result.results.variants].sort((a, b) => {
-        const orderA = variantOrder[a.variant_id] ?? 99;
-        const orderB = variantOrder[b.variant_id] ?? 99;
+        const orderA = VARIANT_ORDER[a.variant_id] ?? 99;
+        const orderB = VARIANT_ORDER[b.variant_id] ?? 99;
         return orderA - orderB;
       });
     }
@@ -1052,18 +1044,6 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     linePlotHeight,
   ]);
 
-  // Variant color mapping (matches DDAAnalysis.tsx variant colors)
-  const getVariantColor = (variantId: string): string => {
-    const colorMap: Record<string, string> = {
-      single_timeseries: "#00B0F0", // RGB(0, 176, 240) - Bright Blue
-      cross_timeseries: "#33CC33", // RGB(51, 204, 51) - Bright Green
-      cross_dynamical: "#ED2790", // RGB(237, 39, 144) - Magenta Pink
-      dynamical_ergodicity: "#9900CC", // RGB(153, 0, 204) - Purple
-      synchronization: "#CC3300", // RGB(204, 51, 0) - Orange Red
-    };
-    return colorMap[variantId] || "#64748b"; // Default to slate if unknown
-  };
-
   const getChannelColor = (index: number): string => {
     const colors = [
       "#3b82f6",
@@ -1119,88 +1099,6 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     heatmapAnnotations.annotations,
     linePlotAnnotations.annotations,
   ]);
-
-  // Handle resizing with drag (mouse)
-  const handleResizeStart = useCallback(
-    (plotType: "heatmap" | "lineplot", e: React.MouseEvent) => {
-      e.preventDefault();
-      setIsResizing(plotType);
-
-      const startY = e.clientY;
-      const startHeight =
-        plotType === "heatmap" ? heatmapHeight : linePlotHeight;
-
-      const handleMouseMove = (moveEvent: MouseEvent) => {
-        const deltaY = moveEvent.clientY - startY;
-        // Constrain height between 200px and 1200px
-        const newHeight = Math.max(200, Math.min(1200, startHeight + deltaY));
-
-        if (plotType === "heatmap") {
-          setHeatmapHeight(newHeight);
-          // Trigger re-render of heatmap with new height
-          if (uplotHeatmapRef.current) {
-            uplotHeatmapRef.current.setSize({
-              width: uplotHeatmapRef.current.width,
-              height: newHeight,
-            });
-          }
-        } else {
-          setLinePlotHeight(newHeight);
-          // Trigger re-render of line plot with new height
-          if (uplotLinePlotRef.current) {
-            uplotLinePlotRef.current.setSize({
-              width: uplotLinePlotRef.current.width,
-              height: newHeight,
-            });
-          }
-        }
-      };
-
-      const handleMouseUp = () => {
-        setIsResizing(null);
-        document.removeEventListener("mousemove", handleMouseMove);
-        document.removeEventListener("mouseup", handleMouseUp);
-      };
-
-      document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("mouseup", handleMouseUp);
-    },
-    [heatmapHeight, linePlotHeight],
-  );
-
-  // Handle resizing with keyboard (accessibility)
-  const handleResizeKeyDown = useCallback(
-    (plotType: "heatmap" | "lineplot", e: React.KeyboardEvent) => {
-      const step = e.shiftKey ? 50 : 10; // Larger step with Shift key
-
-      if (e.key === "ArrowUp" || e.key === "ArrowDown") {
-        e.preventDefault();
-        const delta = e.key === "ArrowUp" ? -step : step;
-        const currentHeight =
-          plotType === "heatmap" ? heatmapHeight : linePlotHeight;
-        const newHeight = Math.max(200, Math.min(1200, currentHeight + delta));
-
-        if (plotType === "heatmap") {
-          setHeatmapHeight(newHeight);
-          if (uplotHeatmapRef.current) {
-            uplotHeatmapRef.current.setSize({
-              width: uplotHeatmapRef.current.width,
-              height: newHeight,
-            });
-          }
-        } else {
-          setLinePlotHeight(newHeight);
-          if (uplotLinePlotRef.current) {
-            uplotLinePlotRef.current.setSize({
-              width: uplotLinePlotRef.current.width,
-              height: newHeight,
-            });
-          }
-        }
-      }
-    },
-    [heatmapHeight, linePlotHeight],
-  );
 
   const exportPlot = useCallback(
     async (format: "png" | "svg" | "pdf") => {
@@ -1896,22 +1794,19 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                             )}
                         </div>
 
-                        {/* Heatmap Resize Handle */}
-                        <div
-                          className="flex items-center justify-center py-3 mt-2 cursor-ns-resize hover:bg-accent focus:bg-accent focus:outline-none focus:ring-2 focus:ring-ring transition-colors border-t"
-                          onMouseDown={(e) => handleResizeStart("heatmap", e)}
-                          onKeyDown={(e) => handleResizeKeyDown("heatmap", e)}
-                          tabIndex={0}
-                          role="slider"
-                          aria-label="Resize heatmap height. Use up/down arrow keys to adjust."
-                          aria-valuenow={heatmapHeight}
-                          aria-valuemin={200}
-                          aria-valuemax={1200}
-                          aria-orientation="vertical"
-                          title="Drag or use arrow keys to resize heatmap height"
-                        >
-                          <div className="w-16 h-1.5 rounded-full bg-muted-foreground/40 hover:bg-muted-foreground/60 transition-colors" />
-                        </div>
+                        <ResizeHandle
+                          plotType="heatmap"
+                          currentHeight={heatmapHeight}
+                          onHeightChange={(newHeight) => {
+                            setHeatmapHeight(newHeight);
+                            if (uplotHeatmapRef.current) {
+                              uplotHeatmapRef.current.setSize({
+                                width: uplotHeatmapRef.current.width,
+                                height: newHeight,
+                              });
+                            }
+                          }}
+                        />
 
                         {/* Annotation context menu */}
                         {heatmapAnnotations.contextMenu && (
@@ -2049,22 +1944,19 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                             )}
                         </div>
 
-                        {/* Line Plot Resize Handle */}
-                        <div
-                          className="flex items-center justify-center py-3 mt-4 cursor-ns-resize hover:bg-accent focus:bg-accent focus:outline-none focus:ring-2 focus:ring-ring transition-colors border-t"
-                          onMouseDown={(e) => handleResizeStart("lineplot", e)}
-                          onKeyDown={(e) => handleResizeKeyDown("lineplot", e)}
-                          tabIndex={0}
-                          role="slider"
-                          aria-label="Resize line plot height. Use up/down arrow keys to adjust."
-                          aria-valuenow={linePlotHeight}
-                          aria-valuemin={200}
-                          aria-valuemax={1200}
-                          aria-orientation="vertical"
-                          title="Drag or use arrow keys to resize line plot height"
-                        >
-                          <div className="w-16 h-1.5 rounded-full bg-muted-foreground/40 hover:bg-muted-foreground/60 transition-colors" />
-                        </div>
+                        <ResizeHandle
+                          plotType="lineplot"
+                          currentHeight={linePlotHeight}
+                          onHeightChange={(newHeight) => {
+                            setLinePlotHeight(newHeight);
+                            if (uplotLinePlotRef.current) {
+                              uplotLinePlotRef.current.setSize({
+                                width: uplotLinePlotRef.current.width,
+                                height: newHeight,
+                              });
+                            }
+                          }}
+                        />
 
                         {/* Annotation context menu */}
                         {linePlotAnnotations.contextMenu && (
@@ -2098,25 +1990,23 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                   )}
 
                   {/* Network Motifs (CD-DDA only) */}
-                  {viewMode === "network" && variant.network_motifs && (
-                    <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-base">
-                          Network Motifs - {variant.variant_name}
-                        </CardTitle>
-                        <CardDescription>
-                          Directed network graphs showing cross-dynamical
-                          relationships between channels at different delays
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <NetworkMotifPlot
-                          data={variant.network_motifs}
-                          colorScheme="default"
-                        />
-                      </CardContent>
-                    </Card>
-                  )}
+                  {(viewMode === "network" || viewMode === "all") &&
+                    variant.network_motifs && (
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-base">
+                            Network Motifs - {variant.variant_name}
+                          </CardTitle>
+                          <CardDescription>
+                            Directed network graphs showing cross-dynamical
+                            relationships between channels at different delays
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <NetworkMotifPlot data={variant.network_motifs} />
+                        </CardContent>
+                      </Card>
+                    )}
                 </div>
               ) : (
                 <div className="p-4 text-center text-muted-foreground">
@@ -2238,22 +2128,19 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                     )}
                 </div>
 
-                {/* Heatmap Resize Handle */}
-                <div
-                  className="flex items-center justify-center py-3 mt-2 cursor-ns-resize hover:bg-accent focus:bg-accent focus:outline-none focus:ring-2 focus:ring-ring transition-colors border-t"
-                  onMouseDown={(e) => handleResizeStart("heatmap", e)}
-                  onKeyDown={(e) => handleResizeKeyDown("heatmap", e)}
-                  tabIndex={0}
-                  role="slider"
-                  aria-label="Resize heatmap height. Use up/down arrow keys to adjust."
-                  aria-valuenow={heatmapHeight}
-                  aria-valuemin={200}
-                  aria-valuemax={1200}
-                  aria-orientation="vertical"
-                  title="Drag or use arrow keys to resize heatmap height"
-                >
-                  <div className="w-16 h-1.5 rounded-full bg-muted-foreground/40 hover:bg-muted-foreground/60 transition-colors" />
-                </div>
+                <ResizeHandle
+                  plotType="heatmap"
+                  currentHeight={heatmapHeight}
+                  onHeightChange={(newHeight) => {
+                    setHeatmapHeight(newHeight);
+                    if (uplotHeatmapRef.current) {
+                      uplotHeatmapRef.current.setSize({
+                        width: uplotHeatmapRef.current.width,
+                        height: newHeight,
+                      });
+                    }
+                  }}
+                />
 
                 {/* Annotation context menu */}
                 {heatmapAnnotations.contextMenu && (
@@ -2382,22 +2269,19 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                     )}
                 </div>
 
-                {/* Line Plot Resize Handle */}
-                <div
-                  className="flex items-center justify-center py-3 mt-4 cursor-ns-resize hover:bg-accent focus:bg-accent focus:outline-none focus:ring-2 focus:ring-ring transition-colors border-t"
-                  onMouseDown={(e) => handleResizeStart("lineplot", e)}
-                  onKeyDown={(e) => handleResizeKeyDown("lineplot", e)}
-                  tabIndex={0}
-                  role="slider"
-                  aria-label="Resize line plot height. Use up/down arrow keys to adjust."
-                  aria-valuenow={linePlotHeight}
-                  aria-valuemin={200}
-                  aria-valuemax={1200}
-                  aria-orientation="vertical"
-                  title="Drag or use arrow keys to resize line plot height"
-                >
-                  <div className="w-16 h-1.5 rounded-full bg-muted-foreground/40 hover:bg-muted-foreground/60 transition-colors" />
-                </div>
+                <ResizeHandle
+                  plotType="lineplot"
+                  currentHeight={linePlotHeight}
+                  onHeightChange={(newHeight) => {
+                    setLinePlotHeight(newHeight);
+                    if (uplotLinePlotRef.current) {
+                      uplotLinePlotRef.current.setSize({
+                        width: uplotLinePlotRef.current.width,
+                        height: newHeight,
+                      });
+                    }
+                  }}
+                />
 
                 {/* Annotation context menu */}
                 {linePlotAnnotations.contextMenu && (
@@ -2427,6 +2311,28 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
               </CardContent>
             </Card>
           )}
+
+          {/* Network Motifs (CD-DDA only) - Single variant view */}
+          {(viewMode === "network" || viewMode === "all") &&
+            getCurrentVariantData()?.network_motifs && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">
+                    Network Motifs -{" "}
+                    {getCurrentVariantData()?.variant_name || "Unknown"}
+                  </CardTitle>
+                  <CardDescription>
+                    Directed network graphs showing cross-dynamical
+                    relationships between channels at different delays
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <NetworkMotifPlot
+                    data={getCurrentVariantData()!.network_motifs!}
+                  />
+                </CardContent>
+              </Card>
+            )}
         </div>
       ) : null}
 

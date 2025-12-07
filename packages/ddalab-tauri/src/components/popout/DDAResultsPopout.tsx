@@ -655,23 +655,21 @@ function DDAResultsPopoutContent({
         )}
 
         {/* Network Motifs (CD-DDA only) */}
-        {viewMode === "network" && getCurrentVariant()?.network_motifs && (
-          <Card className="flex-1">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">Network Motifs</CardTitle>
-              <CardDescription>
-                Directed network graphs showing cross-dynamical relationships
-                between channels at different delays
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="h-full min-h-[300px]">
-              <NetworkMotifPlot
-                data={getCurrentVariant()!.network_motifs!}
-                colorScheme="default"
-              />
-            </CardContent>
-          </Card>
-        )}
+        {(viewMode === "network" || viewMode === "all") &&
+          getCurrentVariant()?.network_motifs && (
+            <Card className="flex-1">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Network Motifs</CardTitle>
+                <CardDescription>
+                  Directed network graphs showing cross-dynamical relationships
+                  between channels at different delays
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="h-full min-h-[300px]">
+                <NetworkMotifPlot data={getCurrentVariant()!.network_motifs!} />
+              </CardContent>
+            </Card>
+          )}
       </div>
     </div>
   );

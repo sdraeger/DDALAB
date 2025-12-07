@@ -8,11 +8,16 @@ import React, {
   useRef,
 } from "react";
 import { useAppStore } from "@/store/appStore";
-import { useShallow } from "zustand/react/shallow";
 import { ApiService } from "@/services/apiService";
 import { EDFFileInfo } from "@/types/api";
 import { handleError, isGitAnnexError } from "@/utils/errorHandler";
 import { useScrollTrap } from "@/hooks/useScrollTrap";
+import {
+  useFileManagerSelectors,
+  useUISelectors,
+  useWorkflowSelectors,
+  usePersistenceSelectors,
+} from "@/hooks/useStoreSelectors";
 import {
   Card,
   CardContent,
@@ -91,53 +96,30 @@ interface FileManagerProps {
 export const FileManager = React.memo(function FileManager({
   apiService,
 }: FileManagerProps) {
-  const dataDirectoryPath = useAppStore(
-    (state) => state.fileManager.dataDirectoryPath,
-  );
-  const currentPath = useAppStore(
-    useShallow((state) => state.fileManager.currentPath),
-  );
-  const selectedFile = useAppStore((state) => state.fileManager.selectedFile);
-  const selectedChannels = useAppStore(
-    useShallow((state) => state.fileManager.selectedChannels),
-  );
-  const pendingFileSelectionPath = useAppStore(
-    (state) => state.fileManager.pendingFileSelection,
-  );
-  const searchQuery = useAppStore((state) => state.fileManager.searchQuery);
-  const showHidden = useAppStore((state) => state.fileManager.showHidden);
-  const sortBy = useAppStore((state) => state.fileManager.sortBy);
-  const sortOrder = useAppStore((state) => state.fileManager.sortOrder);
-  const highlightedFilePath = useAppStore(
-    (state) => state.fileManager.highlightedFilePath,
-  );
-  const isServerReady = useAppStore((state) => state.ui.isServerReady);
-  const isRecording = useAppStore(
-    (state) => state.workflowRecording.isRecording,
-  );
-  const isPersistenceRestored = useAppStore(
-    (state) => state.isPersistenceRestored,
-  );
+  // Use consolidated selector hooks instead of 20+ individual selectors
+  const {
+    dataDirectoryPath,
+    currentPath,
+    selectedFile,
+    selectedChannels,
+    pendingFileSelection: pendingFileSelectionPath,
+    searchQuery,
+    showHidden,
+    sortBy,
+    sortOrder,
+    highlightedFilePath,
+    setSelectedFile,
+    updateFileManagerState,
+    setSelectedChannels,
+    setCurrentPath,
+    setDataDirectoryPath,
+    resetCurrentPathSync,
+    clearPendingFileSelection,
+  } = useFileManagerSelectors();
 
-  // Action functions
-  const setSelectedFile = useAppStore((state) => state.setSelectedFile);
-  const updateFileManagerState = useAppStore(
-    (state) => state.updateFileManagerState,
-  );
-  const setSelectedChannels = useAppStore((state) => state.setSelectedChannels);
-  const setCurrentPath = useAppStore((state) => state.setCurrentPath);
-  const setDataDirectoryPath = useAppStore(
-    (state) => state.setDataDirectoryPath,
-  );
-  const resetCurrentPathSync = useAppStore(
-    (state) => state.resetCurrentPathSync,
-  );
-  const clearPendingFileSelection = useAppStore(
-    (state) => state.clearPendingFileSelection,
-  );
-  const incrementActionCount = useAppStore(
-    (state) => state.incrementActionCount,
-  );
+  const { isServerReady } = useUISelectors();
+  const { isRecording, incrementActionCount } = useWorkflowSelectors();
+  const { isPersistenceRestored } = usePersistenceSelectors();
 
   const { recordAction } = useWorkflow();
 
