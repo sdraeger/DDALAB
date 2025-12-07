@@ -595,6 +595,50 @@ pub async fn clear_file_annotation_state(
         .map_err(|e| e.to_string())
 }
 
+/// Save navigation state for a specific file
+#[tauri::command]
+pub async fn save_file_navigation_state(
+    state_manager: State<'_, AppStateManager>,
+    file_path: String,
+    state: serde_json::Value,
+) -> Result<(), String> {
+    log::debug!("save_file_navigation_state called for file: {}", file_path);
+
+    state_manager
+        .get_file_state_db()
+        .save_module_state(&file_path, "navigation", &state)
+        .map_err(|e| e.to_string())?;
+
+    state_manager
+        .get_file_state_db()
+        .update_file_metadata(&file_path)
+        .map_err(|e| e.to_string())
+}
+
+/// Get navigation state for a specific file
+#[tauri::command]
+pub async fn get_file_navigation_state(
+    state_manager: State<'_, AppStateManager>,
+    file_path: String,
+) -> Result<Option<serde_json::Value>, String> {
+    state_manager
+        .get_file_state_db()
+        .get_module_state(&file_path, "navigation")
+        .map_err(|e| e.to_string())
+}
+
+/// Clear navigation state for a specific file
+#[tauri::command]
+pub async fn clear_file_navigation_state(
+    state_manager: State<'_, AppStateManager>,
+    file_path: String,
+) -> Result<(), String> {
+    state_manager
+        .get_file_state_db()
+        .save_module_state(&file_path, "navigation", &serde_json::Value::Null)
+        .map_err(|e| e.to_string())
+}
+
 /// Get complete file-specific state (all modules + metadata)
 #[tauri::command]
 pub async fn get_file_specific_state(

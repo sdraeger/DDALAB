@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { useApiService } from "@/contexts/ApiServiceContext";
+import { ActiveFileProvider } from "@/contexts/ActiveFileContext";
 import { useAppStore } from "@/store/appStore";
 import {
   useUISelectors,
@@ -13,6 +14,10 @@ import { useDDAHistory, useAnalysisFromHistory } from "@/hooks/useDDAAnalysis";
 import { useUnreadNotificationCount } from "@/hooks/useNotifications";
 import { DDAProgressEvent } from "@/types/api";
 import { FileManager } from "@/components/FileManager";
+import { FileTabBar } from "@/components/FileTabBar";
+import { FileTabShortcuts } from "@/components/FileTabShortcuts";
+import { FileTabSync } from "@/components/FileTabSync";
+import { FileNavigationSync } from "@/components/FileNavigationSync";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import { HealthStatusBar } from "@/components/HealthStatusBar";
 import { PrimaryNavigation } from "@/components/navigation/PrimaryNavigation";
@@ -305,6 +310,11 @@ export function DashboardLayout() {
         </div>
       </div>
 
+      {/* File Tabs */}
+      <FileTabShortcuts />
+      <FileTabSync />
+      <FileTabBar />
+
       {/* Main Content Area */}
       <div className="flex-1 flex overflow-hidden">
         {/* Sidebar */}
@@ -335,21 +345,25 @@ export function DashboardLayout() {
         )}
 
         {/* Content Area */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Primary Navigation */}
-          <PrimaryNavigation />
+        <ActiveFileProvider>
+          {/* Sync navigation state with active file */}
+          <FileNavigationSync />
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {/* Primary Navigation */}
+            <PrimaryNavigation />
 
-          {/* Secondary Navigation (contextual) */}
-          <SecondaryNavigation />
+            {/* Secondary Navigation (contextual) */}
+            <SecondaryNavigation />
 
-          {/* Main Content */}
-          <div
-            className="flex-1 overflow-y-auto overflow-x-hidden"
-            data-testid="main-content"
-          >
-            <NavigationContent apiService={apiService} />
+            {/* Main Content */}
+            <div
+              className="flex-1 overflow-y-auto overflow-x-hidden"
+              data-testid="main-content"
+            >
+              <NavigationContent apiService={apiService} />
+            </div>
           </div>
-        </div>
+        </ActiveFileProvider>
       </div>
 
       {/* Health Status Bar */}
