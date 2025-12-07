@@ -243,17 +243,42 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
     !!(selectedFile && selectedChannels.length > 0 && isChartReady),
   );
 
+  const overviewEnabled = !!(selectedFile && selectedChannels.length > 0);
   const {
     data: overviewData,
     isLoading: overviewLoading,
     refetch: refetchOverview,
+    error: overviewError,
   } = useOverviewData(
     apiService,
     selectedFile?.file_path || "",
     selectedChannels,
     overviewMaxPoints,
-    !!(selectedFile && selectedChannels.length > 0), // Load in background regardless of active tab
+    overviewEnabled, // Load in background regardless of active tab
   );
+
+  // Debug logging for overview data loading
+  useEffect(() => {
+    console.log("[OVERVIEW-DEBUG] State:", {
+      enabled: overviewEnabled,
+      hasFile: !!selectedFile,
+      filePath: selectedFile?.file_path,
+      duration: selectedFile?.duration,
+      channelCount: selectedChannels.length,
+      channels: selectedChannels.slice(0, 3),
+      isLoading: overviewLoading,
+      hasData: !!overviewData,
+      dataPoints: overviewData?.data?.[0]?.length ?? 0,
+      error: overviewError ? String(overviewError) : null,
+    });
+  }, [
+    overviewEnabled,
+    selectedFile,
+    selectedChannels,
+    overviewLoading,
+    overviewData,
+    overviewError,
+  ]);
 
   // Poll for overview progress while loading
   const { data: overviewProgress } = useOverviewProgress(

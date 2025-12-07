@@ -17,10 +17,10 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [build-dependencies]
-tauri-build = { version = "2.5.2", features = [] }
+tauri-build = { version = "2.5.3", features = [] }
 
 [dependencies]
-tauri = { version = "2.9.3", features = ["tray-icon"] }
+tauri = { version = "2.9.4", features = ["tray-icon"] }
 tauri-plugin-shell = "2.3.3"
 tauri-plugin-dialog = "2.4.2"
 tauri-plugin-fs = "2.4.4"
@@ -102,7 +102,7 @@ nsg-cli = "0.1.3"
 crossbeam = "0.8" # Lock-free data structures
 async-trait = "0.1" # Async trait support
 tokio-serial = "5.4" # Serial port support for streaming
-num_cpus = "1.16" # CPU core detection for thread pools
+num_cpus = "1.17" # CPU core detection for thread pools
 lsl = { version = "0.1", optional = true } # Lab Streaming Layer support (optional due to build issues on some platforms)
 zeromq = { version = "0.4", default-features = false, features = [
 	"tokio-runtime",

@@ -25,12 +25,30 @@ export interface WindowConfig {
   alwaysOnTop?: boolean;
 }
 
+export interface WindowPosition {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface PopoutWindowState {
   id: string;
   type: WindowType;
   isLocked: boolean;
   data: any;
   lastUpdate: number;
+  position?: WindowPosition;
+  tauriLabel?: string;
+}
+
+/** Serializable state for persistence */
+export interface PersistedPopoutWindow {
+  id: string;
+  type: WindowType;
+  isLocked: boolean;
+  data: any;
+  position: WindowPosition;
 }
 
 class WindowManager {
@@ -101,6 +119,7 @@ class WindowManager {
     type: WindowType,
     id: string,
     data: any,
+    savedPosition?: WindowPosition,
   ): Promise<string> {
     const config = this.getWindowConfig(type, id);
     const windowId = `${type}-${id}-${Date.now()}`;
@@ -109,13 +128,15 @@ class WindowManager {
       const { invoke } = await import("@tauri-apps/api/core");
       const updatedUrl = config.url.replace(`id=${id}`, `id=${windowId}`);
 
-      await invoke("create_popout_window", {
+      const tauriLabel = await invoke<string>("create_popout_window", {
         windowType: type,
         windowId: id,
         title: config.title,
         url: updatedUrl,
-        width: config.width,
-        height: config.height,
+        width: savedPosition?.width ?? config.width,
+        height: savedPosition?.height ?? config.height,
+        x: savedPosition?.x,
+        y: savedPosition?.y,
       });
 
       const state: PopoutWindowState = {
@@ -124,6 +145,13 @@ class WindowManager {
         isLocked: false,
         data,
         lastUpdate: Date.now(),
+        position: savedPosition ?? {
+          x: 0,
+          y: 0,
+          width: config.width,
+          height: config.height,
+        },
+        tauriLabel,
       };
       this.windowStates.set(windowId, state);
 
@@ -141,6 +169,68 @@ class WindowManager {
       return windowId;
     } catch (error) {
       throw error;
+    }
+  }
+
+  /** Update the stored position of a window */
+  async updateWindowPosition(windowId: string): Promise<void> {
+    const state = this.windowStates.get(windowId);
+    if (!state?.tauriLabel) return;
+
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const [x, y, width, height] = await invoke<
+        [number, number, number, number]
+      >("get_window_position", { windowLabel: state.tauriLabel });
+      state.position = { x, y, width, height };
+      this.windowStates.set(windowId, state);
+    } catch {
+      // Position fetch failed silently
+    }
+  }
+
+  /** Get all open windows for persistence */
+  async getWindowsForPersistence(): Promise<PersistedPopoutWindow[]> {
+    const windows: PersistedPopoutWindow[] = [];
+
+    for (const [windowId, state] of this.windowStates.entries()) {
+      // Update position before saving
+      await this.updateWindowPosition(windowId);
+
+      const updatedState = this.windowStates.get(windowId);
+      if (updatedState?.position) {
+        windows.push({
+          id: windowId,
+          type: updatedState.type,
+          isLocked: updatedState.isLocked,
+          data: updatedState.data,
+          position: updatedState.position,
+        });
+      }
+    }
+
+    return windows;
+  }
+
+  /** Restore windows from persisted state */
+  async restoreWindows(windows: PersistedPopoutWindow[]): Promise<void> {
+    for (const saved of windows) {
+      try {
+        // Extract the original id from the saved window id
+        // Format is: type-id-timestamp
+        const parts = saved.id.split("-");
+        const originalId =
+          parts.slice(1, -1).join("-") || parts[1] || "restored";
+
+        await this.createPopoutWindow(
+          saved.type,
+          originalId,
+          saved.data,
+          saved.position,
+        );
+      } catch {
+        // Window restoration failed silently
+      }
     }
   }
 

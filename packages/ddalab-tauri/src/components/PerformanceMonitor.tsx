@@ -36,9 +36,6 @@ export function PerformanceMonitor() {
     return null;
   }
 
-  // Debug: Log that component is rendering
-  console.log("[PerformanceMonitor] Component rendering");
-
   const refreshReport = () => {
     setReport(profiler.generateReport(50));
     setMemoryUsage(profiler.getMemoryUsage());

@@ -592,12 +592,11 @@ export const FileTreeRenderer = memo(function FileTreeRenderer({
         children: children,
         icon: (
           <div
-            className="flex items-start gap-2 w-full"
+            className="flex items-start gap-2 w-full min-w-0"
             onContextMenu={(e) => {
               if (dir.isBIDS) {
                 e.preventDefault();
                 e.stopPropagation();
-                console.log("[BIDS] Right-click on BIDS dataset:", dir);
               }
             }}
           >
@@ -608,9 +607,11 @@ export const FileTreeRenderer = memo(function FileTreeRenderer({
                   : "text-blue-600"
               }`}
             />
-            <div className="flex-1 min-w-0 overflow-hidden">
-              <div className="flex items-center gap-2">
-                <span className="font-medium truncate">{dir.name}</span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="font-medium truncate min-w-0 flex-1">
+                  {dir.name}
+                </span>
                 {dir.isBIDS && (
                   <Badge
                     variant="secondary"
@@ -619,12 +620,27 @@ export const FileTreeRenderer = memo(function FileTreeRenderer({
                     BIDS
                   </Badge>
                 )}
+                {dir.isBIDS && isOpenNeuroAuthenticated && (
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onUploadClick(dir);
+                    }}
+                    className="h-6 w-6 flex-shrink-0"
+                    title="Upload to OpenNeuro"
+                    aria-label="Upload to OpenNeuro"
+                  >
+                    <Upload className="h-3 w-3" aria-hidden="true" />
+                  </Button>
+                )}
               </div>
               {dir.bidsInfo && (
-                <div className="flex items-center gap-2 mt-1 text-sm text-muted-foreground overflow-hidden">
+                <div className="flex items-center gap-2 mt-1 text-sm text-muted-foreground flex-wrap">
                   {dir.bidsInfo.datasetName && (
                     <span
-                      className={`font-medium truncate text-xs max-w-[200px] ${
+                      className={`font-medium text-xs ${
                         dir.isBIDS || dir.isInsideBIDS
                           ? "text-purple-700 dark:text-purple-400"
                           : "text-blue-700 dark:text-blue-400"
@@ -635,7 +651,7 @@ export const FileTreeRenderer = memo(function FileTreeRenderer({
                     </span>
                   )}
                   {dir.bidsInfo.subjectCount !== undefined && (
-                    <span className="flex-shrink-0 text-xs">
+                    <span className="text-xs">
                       {dir.bidsInfo.subjectCount}{" "}
                       {dir.isBIDS ? "subject" : "session"}
                       {dir.bidsInfo.subjectCount !== 1 ? "s" : ""}
@@ -643,21 +659,21 @@ export const FileTreeRenderer = memo(function FileTreeRenderer({
                   )}
                   {dir.bidsInfo.modalities &&
                     dir.bidsInfo.modalities.length > 0 && (
-                      <div className="flex items-center gap-1 flex-shrink-0">
-                        {dir.bidsInfo.modalities.slice(0, 3).map((modality) => (
+                      <div className="flex items-center gap-1">
+                        {dir.bidsInfo.modalities.slice(0, 2).map((modality) => (
                           <Badge
                             key={modality}
                             variant="outline"
-                            className={`text-xs font-medium ${getModalityBadgeClass(
+                            className={`text-[10px] px-1 py-0 font-medium ${getModalityBadgeClass(
                               modality,
                             )}`}
                           >
                             {modality.toUpperCase()}
                           </Badge>
                         ))}
-                        {dir.bidsInfo.modalities.length > 3 && (
-                          <span className="text-xs text-muted-foreground">
-                            +{dir.bidsInfo.modalities.length - 3}
+                        {dir.bidsInfo.modalities.length > 2 && (
+                          <span className="text-[10px] text-muted-foreground">
+                            +{dir.bidsInfo.modalities.length - 2}
                           </span>
                         )}
                       </div>
@@ -665,21 +681,6 @@ export const FileTreeRenderer = memo(function FileTreeRenderer({
                 </div>
               )}
             </div>
-            {dir.isBIDS && isOpenNeuroAuthenticated && (
-              <Button
-                size="icon"
-                variant="outline"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onUploadClick(dir);
-                }}
-                className="ml-2 flex-shrink-0"
-                title="Upload to OpenNeuro"
-                aria-label="Upload to OpenNeuro"
-              >
-                <Upload className="h-4 w-4" aria-hidden="true" />
-              </Button>
-            )}
           </div>
         ),
         metadata: { type: "directory", data: dir },

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { windowManager, WindowType } from "@/utils/windowManager";
 
@@ -102,6 +102,10 @@ export function usePopoutListener(
   const [isLocked, setIsLocked] = useState(false);
   const [windowId, setWindowId] = useState<string | null>(null);
 
+  // Use ref to track lock state to avoid stale closures in event listeners
+  const isLockedRef = useRef(isLocked);
+  isLockedRef.current = isLocked;
+
   useEffect(() => {
     // Get window ID from URL params if not provided
     let currentWindowId = expectedWindowId;
@@ -120,7 +124,8 @@ export function usePopoutListener(
       const unlisten = await listen(
         `data-update-${currentWindowId}`,
         (event: any) => {
-          if (!isLocked) {
+          // Use ref to get current lock state (avoids stale closure)
+          if (!isLockedRef.current) {
             setData(event.payload.data);
           }
         },
@@ -154,7 +159,7 @@ export function usePopoutListener(
     return () => {
       listeners.forEach((unlisten) => unlisten());
     };
-  }, [expectedWindowId, isLocked]);
+  }, [expectedWindowId]);
 
   return {
     data,

@@ -111,20 +111,55 @@ export function DDAHistorySidebar({
 
   if (isCollapsed) {
     return (
-      <div className="w-12 border-r bg-muted/30 flex flex-col items-center py-4">
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onToggleCollapse}
-          title="Expand history"
-          aria-label="Expand history"
-          className="mb-4"
-        >
-          <ChevronRight className="h-4 w-4" aria-hidden="true" />
-        </Button>
-        <div className="writing-mode-vertical text-xs text-muted-foreground">
-          History ({history.length})
+      <div
+        className="w-10 border-r bg-muted/20 flex flex-col items-center cursor-pointer hover:bg-muted/40 transition-colors group"
+        onClick={onToggleCollapse}
+        title={`Expand history (${history.length} analyses)`}
+      >
+        {/* Expand handle */}
+        <div className="h-10 flex items-center justify-center border-b w-full">
+          <ChevronRight
+            className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors"
+            aria-hidden="true"
+          />
         </div>
+
+        {/* Vertical label with count badge */}
+        <div className="flex-1 flex flex-col items-center justify-center py-3 gap-2">
+          {/* Count badge */}
+          {history.length > 0 && (
+            <Badge
+              variant="secondary"
+              className="h-5 w-5 p-0 flex items-center justify-center text-[10px] font-medium rounded-full"
+            >
+              {history.length > 99 ? "99+" : history.length}
+            </Badge>
+          )}
+
+          {/* Vertical text */}
+          <div
+            className="text-[10px] font-medium text-muted-foreground group-hover:text-foreground tracking-wider uppercase"
+            style={{
+              writingMode: "vertical-rl",
+              textOrientation: "mixed",
+              transform: "rotate(180deg)",
+            }}
+          >
+            History
+          </div>
+        </div>
+
+        {/* Visual indicator of recent activity */}
+        {history.length > 0 && (
+          <div className="w-full px-1.5 pb-3">
+            <div className="w-full h-1 bg-primary/20 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-primary/60 rounded-full"
+                style={{ width: `${Math.min(100, history.length * 10)}%` }}
+              />
+            </div>
+          </div>
+        )}
       </div>
     );
   }

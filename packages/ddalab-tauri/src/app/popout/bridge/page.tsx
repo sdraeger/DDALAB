@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, Suspense } from "react";
+import { useEffect, useState, Suspense, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 
 function PopoutBridgeContent() {
@@ -13,9 +13,50 @@ function PopoutBridgeContent() {
   const [currentData, setCurrentData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Ref to track lock state for event listeners (avoids stale closures)
+  const isLockedRef = useRef(isLocked);
+  isLockedRef.current = isLocked;
+
   useEffect(() => {
     setIsClient(true);
   }, []);
+
+  // Window control handlers
+  const handleClose = useCallback(async () => {
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const currentWindow = getCurrentWindow();
+      await currentWindow.close();
+    } catch (err) {
+      console.error("Failed to close window:", err);
+    }
+  }, []);
+
+  const handleMinimize = useCallback(async () => {
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const currentWindow = getCurrentWindow();
+      await currentWindow.minimize();
+    } catch (err) {
+      console.error("Failed to minimize window:", err);
+    }
+  }, []);
+
+  const handleToggleLock = useCallback(async () => {
+    const newLockState = !isLocked;
+    setIsLocked(newLockState);
+
+    try {
+      const { emit } = await import("@tauri-apps/api/event");
+      await emit(`toggle-lock-${windowId}`, {
+        windowId,
+        locked: newLockState,
+      });
+    } catch (err) {
+      console.error("Failed to toggle lock:", err);
+      setIsLocked(!newLockState);
+    }
+  }, [isLocked, windowId]);
 
   useEffect(() => {
     if (!isClient || !windowId) return;
@@ -25,58 +66,20 @@ function PopoutBridgeContent() {
 
     const setupTauriListeners = async () => {
       try {
-        const { listen, emit } = await import("@tauri-apps/api/event");
-        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        const { listen } = await import("@tauri-apps/api/event");
 
-        console.log(`Setting up listeners for window: ${windowId}`);
-
-        // Listen for data updates
         unlistenData = await listen(`data-update-${windowId}`, (event: any) => {
-          console.log("Received data:", event.payload);
-          if (!isLocked) {
+          if (!isLockedRef.current) {
             setCurrentData(event.payload.data);
           }
         });
 
-        // Listen for lock state changes
         unlistenLock = await listen(`lock-state-${windowId}`, (event: any) => {
           setIsLocked(event.payload.locked);
         });
-
-        // Setup window controls
-        const setupWindowControls = () => {
-          const closeBtn = document.getElementById("close-button");
-          const minimizeBtn = document.getElementById("minimize-button");
-          const lockBtn = document.getElementById("lock-button");
-
-          if (closeBtn) {
-            closeBtn.onclick = async () => {
-              const currentWindow = getCurrentWindow();
-              await currentWindow.close();
-            };
-          }
-
-          if (minimizeBtn) {
-            minimizeBtn.onclick = async () => {
-              const currentWindow = getCurrentWindow();
-              await currentWindow.minimize();
-            };
-          }
-
-          if (lockBtn) {
-            lockBtn.onclick = async () => {
-              const eventName = isLocked
-                ? `unlock-window-${windowId}`
-                : `lock-window-${windowId}`;
-              await emit(eventName);
-            };
-          }
-        };
-
-        setupWindowControls();
-      } catch (error) {
-        console.error("Failed to setup Tauri listeners:", error);
-        setError(`Failed to setup Tauri listeners: ${error}`);
+      } catch (err) {
+        console.error("Failed to setup Tauri listeners:", err);
+        setError(`Failed to setup Tauri listeners: ${err}`);
       }
     };
 
@@ -86,7 +89,7 @@ function PopoutBridgeContent() {
       if (unlistenData) unlistenData();
       if (unlistenLock) unlistenLock();
     };
-  }, [isClient, windowId, isLocked]);
+  }, [isClient, windowId]);
 
   const titleMap: Record<string, string> = {
     timeseries: "Time Series Plot",
@@ -174,7 +177,7 @@ function PopoutBridgeContent() {
 
         <div className="flex items-center space-x-1">
           <button
-            id="lock-button"
+            onClick={handleToggleLock}
             className="w-7 h-7 rounded hover:bg-gray-200 flex items-center justify-center text-xs"
             title={isLocked ? "Unlock window" : "Lock window"}
           >
@@ -182,7 +185,7 @@ function PopoutBridgeContent() {
           </button>
 
           <button
-            id="minimize-button"
+            onClick={handleMinimize}
             className="w-7 h-7 rounded hover:bg-gray-200 flex items-center justify-center text-xs"
             title="Minimize"
           >
@@ -190,7 +193,7 @@ function PopoutBridgeContent() {
           </button>
 
           <button
-            id="close-button"
+            onClick={handleClose}
             className="w-7 h-7 rounded hover:bg-red-500 hover:text-white flex items-center justify-center text-xs"
             title="Close"
           >

@@ -128,6 +128,8 @@ export interface UIState {
   isServerReady: boolean;
   zoom: number;
   expertMode: boolean;
+  /** Tracks which panels are collapsed by their ID */
+  collapsedPanels: Record<string, boolean>;
 }
 
 export interface AnnotationState {
@@ -220,6 +222,9 @@ export interface UIActions {
   setTheme: (theme: UIState["theme"]) => void;
   setServerReady: (ready: boolean) => void;
   setExpertMode: (enabled: boolean) => void;
+  setPanelCollapsed: (panelId: string, collapsed: boolean) => void;
+  togglePanelCollapsed: (panelId: string) => void;
+  isPanelCollapsed: (panelId: string) => boolean;
 }
 
 export interface AnnotationActions {

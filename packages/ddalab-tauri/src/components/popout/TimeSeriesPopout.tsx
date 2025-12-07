@@ -4,6 +4,7 @@ import { TimeSeriesPlotECharts } from "@/components/TimeSeriesPlotECharts";
 import { useAppStore } from "@/store/appStore";
 import { ApiService } from "@/services/apiService";
 import { TauriService } from "@/services/tauriService";
+import type { EDFFileInfo } from "@/types/api";
 
 interface TimeSeriesPopoutContentProps {
   data?: any;
@@ -37,9 +38,6 @@ function TimeSeriesPopoutContent({
         const url = `${protocol}://localhost:${port}`;
         const sessionToken = apiConfig?.session_token;
 
-        console.log("[POPOUT-TIMESERIES] Using API URL:", url);
-        console.log("[POPOUT-TIMESERIES] Has session token:", !!sessionToken);
-
         // CRITICAL: Pass session token to ApiService for authentication
         setApiService(new ApiService(url, sessionToken));
       } catch (error) {
@@ -54,14 +52,7 @@ function TimeSeriesPopoutContent({
 
   // Sync received data with store on initial load and updates
   useEffect(() => {
-    console.log("[POPOUT-TIMESERIES] Received data update:", {
-      hasData: !!data,
-      isLocked,
-      windowId,
-    });
-
     if (!data || isLocked) {
-      console.log("[POPOUT-TIMESERIES] Skipping data sync - no data or locked");
       return;
     }
 
@@ -70,28 +61,25 @@ function TimeSeriesPopoutContent({
 
     // If we have file information in the data, sync it to the store
     if (data.filePath || data.file_path) {
-      console.log(
-        "[POPOUT-TIMESERIES] Syncing file to store:",
-        data.filePath || data.file_path,
-      );
-
-      // Create a minimal file info object for the store
-      const duration = data.timeWindow || data.duration || 0;
+      const totalDuration = data.duration || data.timeWindow || 0;
       const sampleRate = data.sampleRate || data.sample_rate || 500;
-      const fileInfo = {
+
+      const fileInfo: EDFFileInfo = {
         file_path: data.filePath || data.file_path,
         file_name: data.fileName || data.file_name || "Unknown",
+        file_size: data.fileSize || data.file_size || 0,
         channels: data.channels || [],
-        duration: duration,
+        duration: totalDuration,
         sample_rate: sampleRate,
         total_samples:
           data.totalSamples ||
           data.total_samples ||
-          Math.floor(duration * sampleRate),
-        selected_channels: data.selectedChannels || data.channels || [],
+          Math.floor(totalDuration * sampleRate),
+        start_time: data.startTime || data.start_time || "",
+        end_time: data.endTime || data.end_time || "",
       };
 
-      setSelectedFile(fileInfo as any);
+      setSelectedFile(fileInfo);
 
       // Set selected channels if available
       if (data.selectedChannels && Array.isArray(data.selectedChannels)) {

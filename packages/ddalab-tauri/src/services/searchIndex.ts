@@ -206,10 +206,6 @@ export class SearchIndex {
 
     this.lastRebuildTime = performance.now() - startTime;
     this.isDirty = false;
-
-    console.log(
-      `[SearchIndex] Rebuilt index: ${this.items.size} items, ${this.invertedIndex.size} tokens, ${this.trigramIndex.size} trigrams (${this.lastRebuildTime.toFixed(2)}ms)`,
-    );
   }
 
   /**

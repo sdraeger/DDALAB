@@ -51,6 +51,23 @@ export interface FrontendState {
   };
 }
 
+/** Position and size of a popout window */
+export interface PersistedWindowPosition {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** State of a popout window for persistence */
+export interface PersistedPopoutWindowState {
+  id: string;
+  type: "timeseries" | "dda-results" | "eeg-visualization";
+  isLocked: boolean;
+  data: any;
+  position: PersistedWindowPosition;
+}
+
 /** UI state stored for persistence */
 export interface UIStateSettings {
   activeTab?: string;
@@ -63,8 +80,12 @@ export interface UIStateSettings {
   layout?: string;
   theme?: string;
   expertMode?: boolean;
+  /** Tracks which panels are collapsed by their ID */
+  collapsedPanels?: Record<string, boolean>;
   /** Nested frontend state from Tauri */
   frontend_state?: FrontendState;
+  /** Open popout windows to restore on next startup */
+  popoutWindows?: PersistedPopoutWindowState[];
 }
 
 /** DDA analysis results structure */

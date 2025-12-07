@@ -56,7 +56,10 @@ function OverviewPlotComponent({
   // Reset state when data changes (new file loaded)
   useEffect(() => {
     retryCountRef.current = 0;
-    setContainerReady(false);
+    // NOTE: Don't reset containerReady here - the container dimensions don't change
+    // when data changes, and the observer effect only runs once on mount.
+    // Resetting containerReady causes the plot to never render because the observer
+    // won't re-run to set it back to true.
     setPlotCreated(false);
   }, [overviewData, duration]);
 
@@ -86,7 +89,17 @@ function OverviewPlotComponent({
 
     initObserverRef.current.observe(container);
 
+    // Also check periodically in case resize observer doesn't fire (e.g., in popout windows)
+    const checkInterval = setInterval(() => {
+      if (container.clientWidth > 0 && container.clientHeight > 0) {
+        setContainerReady(true);
+        clearInterval(checkInterval);
+        initObserverRef.current?.disconnect();
+      }
+    }, 100);
+
     return () => {
+      clearInterval(checkInterval);
       initObserverRef.current?.disconnect();
       initObserverRef.current = null;
     };
@@ -168,11 +181,25 @@ function OverviewPlotComponent({
 
     const data: uPlot.AlignedData = [timeData, ...processedData];
 
+    // Define colors inline to avoid any closure issues
+    const channelColors = [
+      "#3b82f6",
+      "#ef4444",
+      "#10b981",
+      "#f59e0b",
+      "#8b5cf6",
+      "#06b6d4",
+      "#f97316",
+      "#84cc16",
+      "#ec4899",
+      "#6366f1",
+    ];
+
     const series: uPlot.Series[] = [
       {},
       ...overviewData.channels.map((channelName, idx) => ({
         label: channelName,
-        stroke: getChannelColor(idx),
+        stroke: channelColors[idx % channelColors.length],
         width: 1,
         points: { show: false },
         show: true,
@@ -348,14 +375,32 @@ function OverviewPlotComponent({
         const existingCanvas = uplotRef.current!.root?.querySelector("canvas");
         const canvasOk = existingCanvas && existingCanvas.width > 300;
 
-        if (canvasOk) {
+        // Check if series count matches - uPlot requires data arrays to match series count
+        const plotSeriesCount = uplotRef.current!.series.length;
+        const dataSeriesCount = data.length;
+        const seriesMatch = plotSeriesCount === dataSeriesCount;
+
+        if (canvasOk && seriesMatch) {
           uplotRef.current!.setData(data);
           uplotRef.current!.redraw();
+        } else if (!seriesMatch) {
+          // Series count mismatch - need to recreate plot
+          uplotRef.current!.destroy();
+          uplotRef.current = null;
         } else {
           // Canvas got corrupted, force recreation
           uplotRef.current!.destroy();
           uplotRef.current = null;
         }
+      } else if (uplotRef.current) {
+        // Stale uPlot instance exists but its DOM is detached - clean it up
+        // This happens when component remounts (e.g., in popout windows)
+        try {
+          uplotRef.current.destroy();
+        } catch {
+          // Ignore errors during cleanup of stale instance
+        }
+        uplotRef.current = null;
       }
 
       // Create new plot if needed
@@ -381,12 +426,11 @@ function OverviewPlotComponent({
         // Create the plot - uPlot will size canvases based on opts.width/height
         uplotRef.current = new uPlot(opts, data, container);
 
-        // Check if canvas was properly created
-        const canvas = uplotRef.current.root?.querySelector("canvas");
-
-        // If canvas has wrong dimensions, force a setSize after a frame
-        if (canvas && canvas.width <= 300) {
-          requestAnimationFrame(() => {
+        // CRITICAL: Force resize and redraw after a delay
+        // In popout windows, uPlot sometimes doesn't render content initially
+        // even when canvas dimensions are correct. A delayed setSize + redraw fixes this.
+        const forceResizeAndRedraw = (delay: number) => {
+          setTimeout(() => {
             if (uplotRef.current && container) {
               const w =
                 container.getBoundingClientRect().width ||
@@ -396,8 +440,16 @@ function OverviewPlotComponent({
                 uplotRef.current.redraw();
               }
             }
-          });
-        }
+          }, delay);
+        };
+
+        // Immediate RAF resize to handle initial render
+        requestAnimationFrame(() => {
+          if (uplotRef.current) {
+            uplotRef.current.setSize({ width, height: 100 });
+            uplotRef.current.redraw();
+          }
+        });
 
         setPlotCreated(true);
 
@@ -417,6 +469,10 @@ function OverviewPlotComponent({
           }
         });
         resizeObserverRef.current.observe(container);
+
+        // Single delayed resize check for popout windows
+        // This is the key fix: uPlot needs a delayed redraw to render in popout windows
+        forceResizeAndRedraw(500);
       }
     } catch (error) {
       console.error("[OverviewPlot] Error:", error);
@@ -524,22 +580,6 @@ function OverviewPlotComponent({
     observer.observe(plotRef.current);
     return () => observer.disconnect();
   }, [plotCreated]);
-
-  const getChannelColor = (index: number): string => {
-    const colors = [
-      "#3b82f6",
-      "#ef4444",
-      "#10b981",
-      "#f59e0b",
-      "#8b5cf6",
-      "#06b6d4",
-      "#f97316",
-      "#84cc16",
-      "#ec4899",
-      "#6366f1",
-    ];
-    return colors[index % colors.length];
-  };
 
   // Show progress bar when loading
   const progressPercentage = progress?.completion_percentage || 0;

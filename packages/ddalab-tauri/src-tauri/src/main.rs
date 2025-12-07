@@ -122,6 +122,7 @@ fn main() {
             force_close_window,
             focus_main_window,
             create_popout_window,
+            get_window_position,
             store_analysis_preview_data,
             get_analysis_preview_data,
             // Preference commands
