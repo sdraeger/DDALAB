@@ -109,10 +109,6 @@ export class ChunkCache {
         this.cache.delete(lruKey);
         this.currentSize -= entry.size;
         this.stats.evictions++;
-
-        console.log(
-          `[ChunkCache] Evicted LRU entry: ${lruKey}, freed ${(entry.size / 1024).toFixed(1)}KB`,
-        );
       }
     }
   }
@@ -132,16 +128,10 @@ export class ChunkCache {
     if (entry) {
       this.stats.hits++;
       this.touch(key);
-      console.log(
-        `[ChunkCache] HIT: ${key} (hit rate: ${this.getHitRate().toFixed(1)}%)`,
-      );
       return entry.data;
     }
 
     this.stats.misses++;
-    console.log(
-      `[ChunkCache] MISS: ${key} (hit rate: ${this.getHitRate().toFixed(1)}%)`,
-    );
     return null;
   }
 
@@ -160,9 +150,6 @@ export class ChunkCache {
 
     // Don't cache chunks larger than max size
     if (size > this.maxSize) {
-      console.warn(
-        `[ChunkCache] Chunk ${key} too large to cache: ${(size / 1024 / 1024).toFixed(1)}MB`,
-      );
       return;
     }
 
@@ -183,10 +170,6 @@ export class ChunkCache {
     this.currentSize += size;
     this.touch(key);
 
-    console.log(
-      `[ChunkCache] SET: ${key}, size: ${(size / 1024).toFixed(1)}KB, total: ${(this.currentSize / 1024 / 1024).toFixed(1)}MB/${(this.maxSize / 1024 / 1024).toFixed(0)}MB`,
-    );
-
     // Evict old entries if over limit
     this.evictIfNeeded();
 
@@ -199,15 +182,10 @@ export class ChunkCache {
    * Clear all entries for a specific file
    */
   clearFile(filePath: string): void {
-    let cleared = 0;
-    let freedSize = 0;
-
     for (const [key, entry] of this.cache.entries()) {
       if (key.startsWith(`${filePath}:`)) {
         this.cache.delete(key);
         this.currentSize -= entry.size;
-        freedSize += entry.size;
-        cleared++;
 
         // Remove from LRU order
         const index = this.accessOrder.indexOf(key);
@@ -217,10 +195,6 @@ export class ChunkCache {
       }
     }
 
-    console.log(
-      `[ChunkCache] Cleared ${cleared} entries for ${filePath}, freed ${(freedSize / 1024 / 1024).toFixed(1)}MB`,
-    );
-
     this.stats.totalSize = this.currentSize;
     this.stats.entryCount = this.cache.size;
   }
@@ -229,17 +203,9 @@ export class ChunkCache {
    * Clear entire cache
    */
   clear(): void {
-    const entries = this.cache.size;
-    const size = this.currentSize;
-
     this.cache.clear();
     this.accessOrder = [];
     this.currentSize = 0;
-
-    console.log(
-      `[ChunkCache] Cleared all ${entries} entries, freed ${(size / 1024 / 1024).toFixed(1)}MB`,
-    );
-
     this.stats.totalSize = 0;
     this.stats.entryCount = 0;
   }

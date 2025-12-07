@@ -53,10 +53,9 @@ export function PopoutLayout({
 
   const handleLockToggle = async () => {
     if (currentWindowId) {
-      const eventName = isLocked
-        ? `unlock-window-${currentWindowId}`
-        : `lock-window-${currentWindowId}`;
-      await emit(eventName);
+      const newLockState = !isLocked;
+      // Emit lock-state event that usePopoutListener listens for
+      await emit(`lock-state-${currentWindowId}`, { locked: newLockState });
     }
   };
 

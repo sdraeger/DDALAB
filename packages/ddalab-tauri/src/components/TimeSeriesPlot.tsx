@@ -681,7 +681,7 @@ function TimeSeriesPlotComponent({ apiService }: TimeSeriesPlotProps) {
   };
 
   const handlePopOut = useCallback(async () => {
-    if (!plot.currentChunk) return;
+    if (!plot.currentChunk || !fileManager.selectedFile) return;
 
     const timeSeriesData = {
       channels: plot.currentChunk.channels,
@@ -692,6 +692,11 @@ function TimeSeriesPlotComponent({ apiService }: TimeSeriesPlotProps) {
       timeWindow: timeWindow,
       currentTime: currentTime,
       filters: preprocessing,
+      // Include file info for popout to properly initialize
+      filePath: fileManager.selectedFile.file_path,
+      fileName: fileManager.selectedFile.file_name,
+      duration: fileManager.selectedFile.duration,
+      selectedChannels: selectedChannels,
     };
 
     try {
@@ -699,7 +704,15 @@ function TimeSeriesPlotComponent({ apiService }: TimeSeriesPlotProps) {
     } catch {
       // Window creation failed silently
     }
-  }, [plot.currentChunk, timeWindow, currentTime, preprocessing, createWindow]);
+  }, [
+    plot.currentChunk,
+    timeWindow,
+    currentTime,
+    preprocessing,
+    createWindow,
+    fileManager.selectedFile,
+    selectedChannels,
+  ]);
 
   // Track if we've loaded data for the current file
   const loadedFileRef = useRef<string | null>(null);
@@ -811,7 +824,7 @@ function TimeSeriesPlotComponent({ apiService }: TimeSeriesPlotProps) {
 
   // Update popout windows when data changes
   useEffect(() => {
-    if (plot.currentChunk) {
+    if (plot.currentChunk && fileManager.selectedFile) {
       const timeSeriesData = {
         channels: plot.currentChunk.channels,
         data: plot.currentChunk.data,
@@ -821,6 +834,11 @@ function TimeSeriesPlotComponent({ apiService }: TimeSeriesPlotProps) {
         timeWindow: timeWindow,
         currentTime: currentTime,
         filters: preprocessing,
+        // Include file info for popout to properly initialize
+        filePath: fileManager.selectedFile.file_path,
+        fileName: fileManager.selectedFile.file_name,
+        duration: fileManager.selectedFile.duration,
+        selectedChannels: selectedChannels,
       };
 
       broadcastToType("timeseries", timeSeriesData).catch(() => {});
@@ -831,6 +849,8 @@ function TimeSeriesPlotComponent({ apiService }: TimeSeriesPlotProps) {
     timeWindow,
     preprocessing,
     broadcastToType,
+    fileManager.selectedFile,
+    selectedChannels,
   ]);
 
   if (!fileManager.selectedFile) {

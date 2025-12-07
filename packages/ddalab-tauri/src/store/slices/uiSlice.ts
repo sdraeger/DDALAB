@@ -26,6 +26,7 @@ export const defaultUIState: UIState = {
   theme: "auto",
   isServerReady: false,
   expertMode: false,
+  collapsedPanels: {},
 };
 
 export const createUISlice: ImmerStateCreator<UISlice> = (set, get) => ({
@@ -220,5 +221,32 @@ export const createUISlice: ImmerStateCreator<UISlice> = (set, get) => ({
         }),
       );
     }
+  },
+
+  setPanelCollapsed: (panelId, collapsed) => {
+    set((state) => {
+      state.ui.collapsedPanels[panelId] = collapsed;
+    });
+
+    if (TauriService.isTauri()) {
+      debouncedUpdate(`ui:collapsedPanels:${panelId}`, () => {
+        const collapsedPanels = get().ui.collapsedPanels;
+        TauriService.updateUIState({ collapsedPanels }).catch((error) =>
+          handleError(error, {
+            source: "UI State Persistence",
+            severity: "silent",
+          }),
+        );
+      });
+    }
+  },
+
+  togglePanelCollapsed: (panelId) => {
+    const current = get().ui.collapsedPanels[panelId] ?? false;
+    get().setPanelCollapsed(panelId, !current);
+  },
+
+  isPanelCollapsed: (panelId) => {
+    return get().ui.collapsedPanels[panelId] ?? false;
   },
 });
