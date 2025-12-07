@@ -214,7 +214,17 @@ export const useOpenFilesStore = create<OpenFilesStore>()(
         if (fileIndex === -1) return;
 
         set((state) => {
+          // Count currently pinned tabs (before marking this one as pinned)
+          const pinnedCount = state.files.filter((f) => f.isPinned).length;
+
+          // Mark as pinned
           state.files[fileIndex].isPinned = true;
+
+          // Move to end of pinned tabs section (position = pinnedCount)
+          if (fileIndex !== pinnedCount) {
+            const [file] = state.files.splice(fileIndex, 1);
+            state.files.splice(pinnedCount, 0, file);
+          }
         });
       },
 
@@ -225,6 +235,17 @@ export const useOpenFilesStore = create<OpenFilesStore>()(
 
         set((state) => {
           state.files[fileIndex].isPinned = false;
+
+          // Count pinned tabs (excluding current file which is being unpinned)
+          const pinnedCount = state.files.filter(
+            (f, idx) => f.isPinned && idx !== fileIndex,
+          ).length;
+
+          // Move to right after the pinned section
+          if (fileIndex !== pinnedCount) {
+            const [file] = state.files.splice(fileIndex, 1);
+            state.files.splice(pinnedCount, 0, file);
+          }
         });
       },
 
@@ -252,8 +273,26 @@ export const useOpenFilesStore = create<OpenFilesStore>()(
 
       reorderFiles: (fromIndex: number, toIndex: number) => {
         set((state) => {
+          const file = state.files[fromIndex];
+          if (!file) return;
+
+          // Count pinned tabs
+          const pinnedCount = state.files.filter((f) => f.isPinned).length;
+
+          // Constrain movement to respect pinned/unpinned boundary
+          let constrainedTo = toIndex;
+          if (file.isPinned) {
+            // Pinned tabs can only move within pinned section (0 to pinnedCount-1)
+            constrainedTo = Math.min(Math.max(0, toIndex), pinnedCount - 1);
+          } else {
+            // Unpinned tabs can only move within unpinned section (pinnedCount to end)
+            constrainedTo = Math.max(pinnedCount, toIndex);
+          }
+
+          if (fromIndex === constrainedTo) return;
+
           const [removed] = state.files.splice(fromIndex, 1);
-          state.files.splice(toIndex, 0, removed);
+          state.files.splice(constrainedTo, 0, removed);
         });
       },
 

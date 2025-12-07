@@ -34,6 +34,10 @@ function PopoutContent() {
   const uplotHeatmapRef = useRef<uPlot | null>(null);
   const uplotLinePlotRef = useRef<uPlot | null>(null);
 
+  // Ref to track lock state for event listeners (avoids stale closures)
+  const isLockedRef = useRef(isLocked);
+  isLockedRef.current = isLocked;
+
   const titleMap: Record<string, string> = {
     timeseries: "Time Series Plot",
     "dda-results": "DDA Analysis Results",
@@ -52,65 +56,35 @@ function PopoutContent() {
 
     const initializeTauri = async () => {
       try {
-        console.log(
-          `[POPOUT] Initializing Tauri for window ID: ${windowId}, type: ${windowType}`,
-        );
         setStatus("Connecting to Tauri...");
 
-        // Dynamic import to avoid SSR issues
         const [{ listen, emit }, { getCurrentWindow }] = await Promise.all([
           import("@tauri-apps/api/event"),
           import("@tauri-apps/api/window"),
         ]);
 
-        console.log("[POPOUT] Tauri API imports successful");
-
         setStatus("Setting up event listeners...");
 
-        // Listen for data updates
         const eventName = `data-update-${windowId}`;
-        console.log(`Setting up listener for event: ${eventName}`);
 
         unlistenData = await listen(eventName, (event: any) => {
-          console.log(`[POPOUT] Received data update event: ${eventName}`, {
-            eventPayload: event.payload,
-            isLocked,
-            windowId,
-            dataKeys: event.payload?.data
-              ? Object.keys(event.payload.data)
-              : "no data",
-          });
-
-          if (!isLocked) {
+          if (!isLockedRef.current) {
             setCurrentData(event.payload.data);
             setStatus(`Last update: ${new Date().toLocaleTimeString()}`);
-            console.log("[POPOUT] Data updated in state");
-          } else {
-            console.log("[POPOUT] Window locked, ignoring data update");
           }
         });
 
-        console.log(`[POPOUT] Successfully set up listener for ${eventName}`);
-
-        // Listen for lock state changes
         unlistenLock = await listen(`lock-state-${windowId}`, (event: any) => {
           setIsLocked(event.payload.locked);
           setStatus(`Window ${event.payload.locked ? "locked" : "unlocked"}`);
         });
 
         setStatus(`Ready - Window ID: ${windowId}`);
-        console.log(
-          `[POPOUT] Initialization complete for window ${windowId}, waiting for data events`,
-        );
 
-        // Emit ready event to request initial data
         await emit(`popout-ready-${windowId}`, {
           windowId,
           timestamp: Date.now(),
         });
-        console.log(
-          `[POPOUT] Emitted popout-ready-${windowId} event to request initial data`,
-        );
 
         // Setup window controls
         const setupControls = () => {
@@ -317,24 +291,11 @@ function PopoutContent() {
       const selectedVariantIndex = uiState?.selectedVariant ?? 0;
       const variants = result.results?.variants;
 
-      console.log(
-        "[POPOUT HEATMAP] uiState:",
-        uiState,
-        "selectedVariantIndex:",
-        selectedVariantIndex,
-      );
-
       let dda_matrix, scales;
       if (variants && variants.length > 0) {
         const variant = variants[selectedVariantIndex] || variants[0];
         dda_matrix = variant.dda_matrix;
         scales = result.results?.scales;
-        console.log(
-          "[POPOUT] Using variant:",
-          variant.variant_name || variant.variant_id,
-          "at index:",
-          selectedVariantIndex,
-        );
       } else {
         // Fallback to legacy format
         dda_matrix = result.results?.dda_matrix;
@@ -350,19 +311,7 @@ function PopoutContent() {
       const channels =
         validChannels.length > 0 ? validChannels : variantChannels;
 
-      console.log("[POPOUT HEATMAP] Channel selection:", {
-        broadcastChannels,
-        variantChannels,
-        validChannels,
-        finalChannels: channels,
-      });
-
       if (!scales || !dda_matrix || channels.length === 0) {
-        console.warn("[POPOUT] Missing data for heatmap:", {
-          scales: !!scales,
-          dda_matrix: !!dda_matrix,
-          channels: channels.length,
-        });
         return;
       }
 
@@ -404,13 +353,6 @@ function PopoutContent() {
 
         minVal = median - 3 * std;
         maxVal = median + 3 * std;
-
-        console.log("[POPOUT HEATMAP] Color range:", {
-          median,
-          std,
-          minVal,
-          maxVal,
-        });
       }
 
       const colorRange: [number, number] = [minVal, maxVal];
@@ -581,25 +523,12 @@ function PopoutContent() {
       const selectedVariantIndex = uiState?.selectedVariant ?? 0;
       const variants = result.results?.variants;
 
-      console.log(
-        "[POPOUT LINEPLOT] uiState:",
-        uiState,
-        "selectedVariantIndex:",
-        selectedVariantIndex,
-      );
-
       let dda_matrix, scales, exponents;
       if (variants && variants.length > 0) {
         const variant = variants[selectedVariantIndex] || variants[0];
         dda_matrix = variant.dda_matrix;
         exponents = variant.exponents || {};
         scales = result.results?.scales;
-        console.log(
-          "[POPOUT] Using variant for lineplot:",
-          variant.variant_name || variant.variant_id,
-          "at index:",
-          selectedVariantIndex,
-        );
       } else {
         // Fallback to legacy format
         dda_matrix = result.results?.dda_matrix;
@@ -608,12 +537,9 @@ function PopoutContent() {
       }
 
       if (!scales || !dda_matrix) {
-        console.warn("[POPOUT] Missing scales or dda_matrix in result data");
         return;
       }
 
-      // Prepare data for line plot
-      // Use broadcast channels if they exist in the variant, otherwise use all variant channels
       const broadcastChannels = uiState?.selectedChannels || [];
       const variantChannels = Object.keys(dda_matrix);
       const validChannels = broadcastChannels.filter(
@@ -621,13 +547,6 @@ function PopoutContent() {
       );
       const channels =
         validChannels.length > 0 ? validChannels : variantChannels;
-
-      console.log("[POPOUT LINEPLOT] Channel selection:", {
-        broadcastChannels,
-        variantChannels,
-        validChannels,
-        finalChannels: channels,
-      });
 
       // Validate that we have data for the channels
       const channelData: number[][] = [];
@@ -642,19 +561,11 @@ function PopoutContent() {
       });
 
       if (channelData.length === 0) {
-        console.warn("[POPOUT] No valid channel data available");
         return;
       }
 
-      // Ensure scales matches the data length
       const dataLength = channelData[0].length;
       if (!Array.isArray(scales) || scales.length !== dataLength) {
-        console.warn(
-          "[POPOUT] Scales length mismatch:",
-          scales?.length,
-          "vs data length:",
-          dataLength,
-        );
         return;
       }
 
@@ -767,7 +678,9 @@ function PopoutContent() {
 
   // Lock toggle function
   const toggleLock = useCallback(async () => {
-    if (!windowId) return;
+    if (!windowId) {
+      return;
+    }
 
     const newLockState = !isLocked;
     setIsLocked(newLockState);
@@ -778,12 +691,8 @@ function PopoutContent() {
         windowId,
         locked: newLockState,
       });
-      console.log(
-        `[POPOUT] Lock toggled to: ${newLockState ? "locked" : "unlocked"}`,
-      );
-    } catch (error) {
-      console.error("Failed to toggle lock:", error);
-      // Revert lock state if emission failed
+    } catch {
+      // Revert on failure
       setIsLocked(!newLockState);
     }
   }, [windowId, isLocked]);
@@ -912,35 +821,6 @@ function PopoutContent() {
     if (!data || !data.result) {
       return <div className="p-4">No DDA results available</div>;
     }
-
-    console.log("[POPOUT] DDA Results data:");
-    console.log("  Annotations:", {
-      hasAnnotations: !!data.annotations,
-      heatmapCount: data.annotations?.heatmap?.length || 0,
-      lineplotCount: data.annotations?.lineplot?.length || 0,
-    });
-    console.log("  Ready states:", {
-      isHeatmapReady,
-      isLinePlotReady,
-      uplotHeatmapRefExists: !!uplotHeatmapRef.current,
-      uplotLinePlotRefExists: !!uplotLinePlotRef.current,
-    });
-    console.log("  Heatmap bbox:", uplotHeatmapRef.current?.bbox);
-    console.log("  Lineplot bbox:", uplotLinePlotRef.current?.bbox);
-    console.log(
-      "  Heatmap annotation will render:",
-      data.annotations?.heatmap &&
-        data.annotations.heatmap.length > 0 &&
-        isHeatmapReady &&
-        !!uplotHeatmapRef.current,
-    );
-    console.log(
-      "  Lineplot annotation will render:",
-      data.annotations?.lineplot &&
-        data.annotations.lineplot.length > 0 &&
-        isLinePlotReady &&
-        !!uplotLinePlotRef.current,
-    );
 
     const result = data.result;
     const uiState = data.uiState;

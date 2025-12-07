@@ -43,17 +43,25 @@ pub async fn create_popout_window(
     url: String,
     width: f64,
     height: f64,
+    x: Option<f64>,
+    y: Option<f64>,
 ) -> Result<String, String> {
     let label = format!("popout-{}-{}", window_type, window_id);
 
-    match WebviewWindowBuilder::new(&app, &label, WebviewUrl::App(url.into()))
+    let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App(url.into()))
         .title(&title)
         .inner_size(width, height)
         .min_inner_size(400.0, 300.0)
-        .center()
-        .resizable(true)
-        .build()
-    {
+        .resizable(true);
+
+    // Use saved position if provided, otherwise center the window
+    if let (Some(pos_x), Some(pos_y)) = (x, y) {
+        builder = builder.position(pos_x, pos_y);
+    } else {
+        builder = builder.center();
+    }
+
+    match builder.build() {
         Ok(_window) => {
             log::info!("Created popout window: {}", label);
             Ok(label)
@@ -62,6 +70,21 @@ pub async fn create_popout_window(
             log::error!("Failed to create popout window: {}", e);
             Err(format!("Failed to create window: {}", e))
         }
+    }
+}
+
+/// Get the current position and size of a window
+#[tauri::command]
+pub async fn get_window_position(
+    app: tauri::AppHandle,
+    window_label: String,
+) -> Result<(i32, i32, u32, u32), String> {
+    if let Some(window) = app.get_webview_window(&window_label) {
+        let position = window.outer_position().map_err(|e| e.to_string())?;
+        let size = window.outer_size().map_err(|e| e.to_string())?;
+        Ok((position.x, position.y, size.width, size.height))
+    } else {
+        Err(format!("Window not found: {}", window_label))
     }
 }
 

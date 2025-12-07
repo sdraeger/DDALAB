@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, lazy, Suspense } from "react";
+import type { LucideIcon } from "lucide-react";
 import { useAppStore } from "@/store/appStore";
 import { ApiService } from "@/services/apiService";
+import type { PrimaryNavTab, SecondaryNavTab } from "@/types/navigation";
 
 // Eagerly load lightweight components
 import { FileInfoCard } from "@/components/FileInfoCard";
@@ -84,9 +86,7 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
 
   // Handle navigation from notification clicks
   const handleNotificationNavigate = useCallback(
-    (actionType: string, actionData: any) => {
-      console.log("[NAV] Notification navigation:", actionType, actionData);
-
+    (actionType: string, _actionData: unknown) => {
       switch (actionType) {
         case "view-analysis":
           // Navigate to DDA analysis view
@@ -346,7 +346,10 @@ function OverviewDashboard() {
   const setPrimaryNav = useAppStore((state) => state.setPrimaryNav);
   const setSecondaryNav = useAppStore((state) => state.setSecondaryNav);
 
-  const handleQuickAction = (primary: any, secondary: any) => {
+  const handleQuickAction = (
+    primary: PrimaryNavTab,
+    secondary: SecondaryNavTab | null,
+  ) => {
     setPrimaryNav(primary);
     if (secondary) setSecondaryNav(secondary);
   };
@@ -436,7 +439,7 @@ function EmptyState({
   title,
   description,
 }: {
-  icon: any;
+  icon: LucideIcon;
   title: string;
   description: string;
 }) {

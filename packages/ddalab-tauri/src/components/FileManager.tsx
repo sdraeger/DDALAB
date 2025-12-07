@@ -917,32 +917,27 @@ export const FileManager = React.memo(function FileManager({
 
         {/* Current directory indicator - prominent display */}
         <div className="bg-muted/50 rounded-lg p-3 border">
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex items-center gap-2 min-w-0 flex-1">
-              <FolderOpen className="h-5 w-5 text-primary flex-shrink-0" />
-              <div className="min-w-0 flex-1">
-                <div className="text-xs text-muted-foreground font-medium uppercase tracking-wider">
-                  Current Directory
-                </div>
-                <div
-                  className="font-mono text-sm truncate"
-                  title={absolutePath}
-                >
-                  {currentPath.length > 0 ? (
-                    <span className="text-foreground">
-                      <span className="text-muted-foreground">
-                        {dataDirectoryPath}/
-                      </span>
-                      <span className="font-semibold">
-                        {currentPath.join("/")}
-                      </span>
+          <div className="flex items-start gap-2">
+            <FolderOpen className="h-5 w-5 text-primary flex-shrink-0 mt-0.5" />
+            <div className="min-w-0 flex-1">
+              <div className="text-xs text-muted-foreground font-medium uppercase tracking-wider">
+                Current Directory
+              </div>
+              <div className="font-mono text-sm truncate" title={absolutePath}>
+                {currentPath.length > 0 ? (
+                  <span className="text-foreground">
+                    <span className="text-muted-foreground">
+                      {dataDirectoryPath}/
                     </span>
-                  ) : (
-                    <span className="text-foreground font-semibold">
-                      {dataDirectoryPath || "No directory selected"}
+                    <span className="font-semibold">
+                      {currentPath.join("/")}
                     </span>
-                  )}
-                </div>
+                  </span>
+                ) : (
+                  <span className="text-foreground font-semibold">
+                    {dataDirectoryPath || "No directory selected"}
+                  </span>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-1 flex-shrink-0">
@@ -952,9 +947,9 @@ export const FileManager = React.memo(function FileManager({
                   size="sm"
                   onClick={handleChangeDataDirectory}
                   title="Change data directory"
+                  className="h-8 px-2"
                 >
-                  <FolderOpen className="h-4 w-4 sm:mr-2" />
-                  <span className="hidden sm:inline">Change</span>
+                  <FolderOpen className="h-4 w-4" />
                 </Button>
               )}
 
@@ -971,6 +966,7 @@ export const FileManager = React.memo(function FileManager({
                   showHidden ? "Hide hidden files" : "Show hidden files"
                 }
                 aria-pressed={showHidden}
+                className="h-8 w-8"
               >
                 {showHidden ? (
                   <EyeOff className="h-4 w-4" aria-hidden="true" />
@@ -986,6 +982,7 @@ export const FileManager = React.memo(function FileManager({
                 disabled={loading}
                 title="Refresh directory"
                 aria-label="Refresh directory"
+                className="h-8 w-8"
               >
                 <RefreshCw
                   className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}

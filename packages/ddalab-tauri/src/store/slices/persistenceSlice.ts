@@ -5,7 +5,9 @@
 import { TauriService } from "@/services/tauriService";
 import { getStatePersistenceService } from "@/services/statePersistenceService";
 import { initializeFileStateSystem } from "@/services/fileStateInitializer";
+import { windowManager } from "@/utils/windowManager";
 import type { PersistenceSlice, InitSlice, ImmerStateCreator } from "./types";
+import type { PersistedPopoutWindowState } from "@/types/persistence";
 
 // Module-level flags to prevent re-initialization during Hot Module Reload
 let isInitializingPersistence = false;
@@ -161,6 +163,7 @@ export const createPersistenceSlice: ImmerStateCreator<
           state.ui.sidebarWidth = persistedState.ui?.sidebarWidth || 320;
           state.ui.zoom = persistedState.ui?.zoom || 1.0;
           state.ui.expertMode = persistedState.ui?.expertMode ?? false;
+          state.ui.collapsedPanels = persistedState.ui?.collapsedPanels || {};
           state.ui.panelSizes = [
             persistedState.panel_sizes.sidebar * 100,
             persistedState.panel_sizes.main * 100 -
@@ -183,6 +186,16 @@ export const createPersistenceSlice: ImmerStateCreator<
         });
 
         hasInitializedPersistence = true;
+
+        // Restore popout windows after a short delay to allow UI to initialize
+        const savedPopoutWindows = persistedState.ui?.popoutWindows;
+        if (savedPopoutWindows && savedPopoutWindows.length > 0) {
+          setTimeout(() => {
+            windowManager.restoreWindows(savedPopoutWindows).catch((err) => {
+              console.error("Failed to restore popout windows:", err);
+            });
+          }, 1000);
+        }
       } catch (error) {
         console.error(
           "Failed to initialize persistence:",
@@ -248,6 +261,9 @@ export const createPersistenceSlice: ImmerStateCreator<
           layout: currentState.ui.layout,
           theme: currentState.ui.theme,
           expertMode: currentState.ui.expertMode,
+          collapsedPanels: currentState.ui.collapsedPanels,
+          popoutWindows:
+            (await windowManager.getWindowsForPersistence()) as PersistedPopoutWindowState[],
         },
         active_tab: currentState.ui.activeTab,
         sidebar_collapsed: !currentState.ui.sidebarOpen,

@@ -50,8 +50,12 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
   const setPendingAnalysisId = useAppStore(
     (state) => state.setPendingAnalysisId,
   );
-
-  const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(false);
+  const togglePanelCollapsed = useAppStore(
+    (state) => state.togglePanelCollapsed,
+  );
+  const isHistoryCollapsed = useAppStore(
+    (state) => state.ui.collapsedPanels["dda-history"] ?? false,
+  );
   const [selectedAnalysisId, setSelectedAnalysisId] = useState<string | null>(
     null,
   );
@@ -432,7 +436,7 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
         selectedAnalysisId={selectedAnalysisId}
         isLoading={historyLoading || isLoadingAnalysis || isFetchingAnalysis}
         isCollapsed={isHistoryCollapsed}
-        onToggleCollapse={() => setIsHistoryCollapsed(!isHistoryCollapsed)}
+        onToggleCollapse={() => togglePanelCollapsed("dda-history")}
         onSelectAnalysis={handleSelectAnalysis}
         onDeleteAnalysis={handleDeleteAnalysis}
         onRenameAnalysis={handleRenameAnalysis}
