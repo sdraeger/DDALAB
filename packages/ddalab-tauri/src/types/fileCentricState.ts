@@ -8,6 +8,7 @@
 
 import { PreprocessingOptions } from "./persistence";
 import { PlotAnnotation } from "./annotations";
+import { PrimaryNavTab, SecondaryNavTab } from "./navigation";
 
 /**
  * State module interface - implement this to create a new state module
@@ -111,6 +112,27 @@ export interface FileAnnotationState {
 }
 
 /**
+ * Navigation state for a specific file
+ * Each file remembers its navigation position for context restoration
+ */
+export interface FileNavigationState {
+  /** Current primary navigation tab */
+  primaryNav: PrimaryNavTab;
+
+  /** Current secondary navigation tab (if applicable) */
+  secondaryNav: SecondaryNavTab | null;
+
+  /** Sidebar section that was active */
+  sidebarSection: string | null;
+
+  /** Scroll positions for content areas */
+  scrollPositions?: Record<string, number>;
+
+  /** Last update timestamp */
+  lastUpdated: string;
+}
+
+/**
  * Complete file-specific state
  * This is the state saved/loaded for each file
  */
@@ -127,8 +149,11 @@ export interface FileSpecificState {
   /** Annotations state */
   annotations?: FileAnnotationState;
 
+  /** Navigation state - per-file navigation position */
+  navigation?: FileNavigationState;
+
   /** Extensible - allows future modules to add their state */
-  [moduleId: string]: any;
+  [moduleId: string]: unknown;
 
   /** Metadata */
   metadata: {

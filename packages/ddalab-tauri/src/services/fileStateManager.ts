@@ -297,13 +297,13 @@ export class FileStateManager {
   /**
    * Get state for a specific module and file
    */
-  getModuleState<T = any>(filePath: string, moduleId: string): T | null {
+  getModuleState<T = unknown>(filePath: string, moduleId: string): T | null {
     const fileState = this.registry.files[filePath];
     if (!fileState) {
       return null;
     }
 
-    return fileState[moduleId] || null;
+    return (fileState[moduleId] as T) || null;
   }
 
   /**
