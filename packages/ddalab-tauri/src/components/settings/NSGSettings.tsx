@@ -14,7 +14,19 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ErrorState } from "@/components/ui/error-state";
 import { TauriService } from "@/services/tauriService";
-import { Cloud, Lock, Shield, Link2, RefreshCw } from "lucide-react";
+import {
+  Cloud,
+  Lock,
+  Link2,
+  RefreshCw,
+  Pencil,
+  X,
+  Eye,
+  EyeOff,
+} from "lucide-react";
+
+// Placeholder for masked credentials
+const CREDENTIAL_MASK = "••••••••••••";
 
 export function NSGSettings() {
   const [nsgCredentials, setNsgCredentials] = useState({
@@ -23,11 +35,13 @@ export function NSGSettings() {
     appKey: "",
   });
   const [hasNsgCredentials, setHasNsgCredentials] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const [nsgConnectionStatus, setNsgConnectionStatus] = useState<
     "idle" | "testing" | "success" | "error"
   >("idle");
   const [nsgError, setNsgError] = useState<string | null>(null);
-  const [showNsgPassword, setShowNsgPassword] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showAppKey, setShowAppKey] = useState(false);
 
   // Load NSG credentials status on mount (never actual credentials)
   useEffect(() => {
@@ -79,7 +93,15 @@ export function NSGSettings() {
       );
 
       setHasNsgCredentials(true);
+      setIsEditing(false);
       setNsgConnectionStatus("success");
+
+      // Clear the password and appKey from state after saving
+      setNsgCredentials((prev) => ({
+        ...prev,
+        password: "",
+        appKey: "",
+      }));
 
       setTimeout(() => {
         setNsgConnectionStatus("idle");
@@ -124,6 +146,7 @@ export function NSGSettings() {
     try {
       await TauriService.deleteNSGCredentials();
       setHasNsgCredentials(false);
+      setIsEditing(false);
       setNsgCredentials({
         username: "",
         password: "",
@@ -136,6 +159,27 @@ export function NSGSettings() {
         error instanceof Error ? error.message : "Failed to delete credentials",
       );
     }
+  };
+
+  const handleStartEditing = () => {
+    setIsEditing(true);
+    // Clear password and appKey fields for re-entry
+    setNsgCredentials((prev) => ({
+      ...prev,
+      password: "",
+      appKey: "",
+    }));
+  };
+
+  const handleCancelEditing = () => {
+    setIsEditing(false);
+    setNsgError(null);
+    // Clear the fields since we're canceling
+    setNsgCredentials((prev) => ({
+      ...prev,
+      password: "",
+      appKey: "",
+    }));
   };
 
   if (!TauriService.isTauri()) {
@@ -153,6 +197,8 @@ export function NSGSettings() {
     );
   }
 
+  const isCredentialFieldsDisabled = hasNsgCredentials && !isEditing;
+
   return (
     <div className="space-y-6">
       <div>
@@ -162,18 +208,35 @@ export function NSGSettings() {
         </p>
       </div>
 
+      {/* Credentials Card */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Cloud className="h-5 w-5" />
-            NSG Credentials
-          </CardTitle>
-          <CardDescription>
-            Securely store your NSG credentials for HPC job submission
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Cloud className="h-5 w-5" />
+                NSG Credentials
+              </CardTitle>
+              <CardDescription>
+                Securely store your NSG credentials for HPC job submission
+              </CardDescription>
+            </div>
+            {hasNsgCredentials && !isEditing && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleStartEditing}
+                className="gap-2"
+              >
+                <Pencil className="h-4 w-4" />
+                Edit
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-4">
+            {/* Username */}
             <div className="space-y-2">
               <Label htmlFor="nsg-username">NSG Username</Label>
               <Input
@@ -187,58 +250,106 @@ export function NSGSettings() {
                     username: e.target.value,
                   })
                 }
-                disabled={hasNsgCredentials}
+                disabled={isCredentialFieldsDisabled}
               />
             </div>
 
+            {/* Password */}
             <div className="space-y-2">
               <Label htmlFor="nsg-password">NSG Password</Label>
               <div className="relative">
                 <Input
                   id="nsg-password"
-                  type={showNsgPassword ? "text" : "password"}
-                  placeholder="Enter your NSG password"
-                  value={nsgCredentials.password}
+                  type={showPassword ? "text" : "password"}
+                  placeholder={
+                    isCredentialFieldsDisabled
+                      ? CREDENTIAL_MASK
+                      : "Enter your NSG password"
+                  }
+                  value={
+                    isCredentialFieldsDisabled
+                      ? CREDENTIAL_MASK
+                      : nsgCredentials.password
+                  }
                   onChange={(e) =>
                     setNsgCredentials({
                       ...nsgCredentials,
                       password: e.target.value,
                     })
                   }
-                  disabled={hasNsgCredentials}
+                  disabled={isCredentialFieldsDisabled}
+                  className={
+                    isCredentialFieldsDisabled ? "text-muted-foreground" : ""
+                  }
                 />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="absolute right-0 top-0 h-full px-3"
-                  onClick={() => setShowNsgPassword(!showNsgPassword)}
-                  disabled={hasNsgCredentials}
-                >
-                  {showNsgPassword ? (
-                    <Lock className="h-4 w-4" />
-                  ) : (
-                    <Shield className="h-4 w-4" />
-                  )}
-                </Button>
+                {!isCredentialFieldsDisabled && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-0 top-0 h-full px-3"
+                    onClick={() => setShowPassword(!showPassword)}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </Button>
+                )}
+                {isCredentialFieldsDisabled && (
+                  <Lock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                )}
               </div>
             </div>
 
+            {/* App Key */}
             <div className="space-y-2">
               <Label htmlFor="nsg-appkey">NSG Application Key</Label>
-              <Input
-                id="nsg-appkey"
-                type="text"
-                placeholder="Enter your NSG app key"
-                value={nsgCredentials.appKey}
-                onChange={(e) =>
-                  setNsgCredentials({
-                    ...nsgCredentials,
-                    appKey: e.target.value,
-                  })
-                }
-                disabled={hasNsgCredentials}
-              />
+              <div className="relative">
+                <Input
+                  id="nsg-appkey"
+                  type={showAppKey ? "text" : "password"}
+                  placeholder={
+                    isCredentialFieldsDisabled
+                      ? CREDENTIAL_MASK
+                      : "Enter your NSG app key"
+                  }
+                  value={
+                    isCredentialFieldsDisabled
+                      ? CREDENTIAL_MASK
+                      : nsgCredentials.appKey
+                  }
+                  onChange={(e) =>
+                    setNsgCredentials({
+                      ...nsgCredentials,
+                      appKey: e.target.value,
+                    })
+                  }
+                  disabled={isCredentialFieldsDisabled}
+                  className={
+                    isCredentialFieldsDisabled ? "text-muted-foreground" : ""
+                  }
+                />
+                {!isCredentialFieldsDisabled && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-0 top-0 h-full px-3"
+                    onClick={() => setShowAppKey(!showAppKey)}
+                  >
+                    {showAppKey ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </Button>
+                )}
+                {isCredentialFieldsDisabled && (
+                  <Lock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                )}
+              </div>
             </div>
 
             {nsgError && (
@@ -251,15 +362,18 @@ export function NSGSettings() {
             )}
 
             {nsgConnectionStatus === "success" && (
-              <Alert className="bg-green-50 border-green-200">
-                <AlertDescription className="text-green-800">
-                  {hasNsgCredentials
-                    ? "Connection successful!"
-                    : "Credentials saved successfully!"}
+              <Alert className="bg-green-50 border-green-200 dark:bg-green-950 dark:border-green-800">
+                <AlertDescription className="text-green-800 dark:text-green-200">
+                  {isEditing
+                    ? "Credentials updated successfully!"
+                    : hasNsgCredentials
+                      ? "Connection successful!"
+                      : "Credentials saved successfully!"}
                 </AlertDescription>
               </Alert>
             )}
 
+            {/* Action Buttons */}
             <div className="flex gap-2">
               {!hasNsgCredentials ? (
                 <Button
@@ -280,6 +394,35 @@ export function NSGSettings() {
                     "Save Credentials"
                   )}
                 </Button>
+              ) : isEditing ? (
+                <>
+                  <Button
+                    onClick={handleSaveNsgCredentials}
+                    disabled={
+                      nsgConnectionStatus === "testing" ||
+                      !nsgCredentials.username ||
+                      !nsgCredentials.password ||
+                      !nsgCredentials.appKey
+                    }
+                  >
+                    {nsgConnectionStatus === "testing" ? (
+                      <>
+                        <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      "Update Credentials"
+                    )}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={handleCancelEditing}
+                    disabled={nsgConnectionStatus === "testing"}
+                  >
+                    <X className="mr-2 h-4 w-4" />
+                    Cancel
+                  </Button>
+                </>
               ) : (
                 <>
                   <Button

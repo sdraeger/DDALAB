@@ -3,6 +3,11 @@
 import { useEffect, useRef, useState, useCallback, useMemo, memo } from "react";
 import { useAppStore } from "@/store/appStore";
 import { useShallow } from "zustand/react/shallow";
+import {
+  useFileManagerSelectors,
+  usePlotSelectors,
+  usePersistenceSelectors,
+} from "@/hooks/useStoreSelectors";
 import { ApiService } from "@/services/apiService";
 import { ChunkData } from "@/types/api";
 import {
@@ -67,27 +72,24 @@ interface TimeSeriesPlotProps {
 function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
   const { decimate: wasmDecimate } = useWasm();
 
-  const selectedFile = useAppStore(
-    useShallow((state) => state.fileManager.selectedFile),
-  );
-  const selectedChannelsFromStore = useAppStore(
-    useShallow((state) => state.fileManager.selectedChannels),
-  );
-  const plotPreprocessing = useAppStore((state) => state.plot.preprocessing);
-  const plotChunkStart = useAppStore((state) => state.plot.chunkStart);
-  const plotChunkSize = useAppStore((state) => state.plot.chunkSize);
-  const plotCurrentChunk = useAppStore((state) => state.plot.currentChunk);
-  const chartHeight = useAppStore((state) => state.plot.chartHeight);
-  const isPersistenceRestored = useAppStore(
-    (state) => state.isPersistenceRestored,
-  );
+  // Consolidated selector hooks
+  const {
+    selectedFile,
+    selectedChannels: selectedChannelsFromStore,
+    setSelectedChannels: persistSelectedChannels,
+  } = useFileManagerSelectors();
 
-  // Actions
-  const updatePlotState = useAppStore((state) => state.updatePlotState);
-  const setCurrentChunk = useAppStore((state) => state.setCurrentChunk);
-  const persistSelectedChannels = useAppStore(
-    (state) => state.setSelectedChannels,
-  );
+  const {
+    preprocessing: plotPreprocessing,
+    chunkStart: plotChunkStart,
+    chunkSize: plotChunkSize,
+    currentChunk: plotCurrentChunk,
+    chartHeight,
+    updatePlotState,
+    setCurrentChunk,
+  } = usePlotSelectors();
+
+  const { isPersistenceRestored } = usePersistenceSelectors();
 
   const { createWindow, broadcastToType } = usePopoutWindows();
 

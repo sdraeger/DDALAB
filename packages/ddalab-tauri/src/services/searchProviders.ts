@@ -1,5 +1,8 @@
 import { SearchProvider, SearchResult } from "@/types/search";
-import { useAppStore } from "@/store/appStore";
+import {
+  getStateManager,
+  isStateManagerRegistered,
+} from "@/services/stateManager";
 import {
   navigationConfig,
   secondaryTabConfig,
@@ -10,6 +13,17 @@ import { RegisteredItemsSearchProvider } from "./searchRegistry";
 import { getQueryClient } from "@/providers/QueryProvider";
 import { ddaKeys } from "@/hooks/useDDAAnalysis";
 import { DDAResult } from "@/types/api";
+
+/**
+ * Helper to safely get state manager.
+ * Returns null if not registered (during SSR or early initialization).
+ */
+function getState() {
+  if (!isStateManagerRegistered()) {
+    return null;
+  }
+  return getStateManager();
+}
 
 export class NavigationSearchProvider implements SearchProvider {
   name = "Navigation";
@@ -35,7 +49,7 @@ export class NavigationSearchProvider implements SearchProvider {
           icon: nav.icon,
           keywords: [nav.id, nav.label, nav.description],
           action: () => {
-            useAppStore.getState().setPrimaryNav(nav.id as PrimaryNavTab);
+            getState()?.setPrimaryNav(nav.id as PrimaryNavTab);
           },
         });
       }
@@ -62,10 +76,10 @@ export class NavigationSearchProvider implements SearchProvider {
               icon: tab.icon,
               keywords: [tab.id, tab.label, tab.description || ""],
               action: () => {
-                useAppStore.getState().setPrimaryNav(nav.id as PrimaryNavTab);
-                useAppStore
-                  .getState()
-                  .setSecondaryNav(tabId as SecondaryNavTab);
+                const state = getState();
+                if (!state) return;
+                state.setPrimaryNav(nav.id as PrimaryNavTab);
+                state.setSecondaryNav(tabId as SecondaryNavTab);
               },
             });
           }
@@ -143,8 +157,8 @@ export class SettingsSearchProvider implements SearchProvider {
           icon: "Settings",
           keywords: section.keywords,
           action: () => {
-            useAppStore.getState().setPrimaryNav("manage");
-            useAppStore.getState().setSecondaryNav("settings");
+            getState()?.setPrimaryNav("manage");
+            getState()?.setSecondaryNav("settings");
             setTimeout(() => {
               const element = document.getElementById(
                 `settings-section-${section.id}`,
@@ -168,8 +182,9 @@ export class FileSearchProvider implements SearchProvider {
   search(query: string): SearchResult[] {
     const results: SearchResult[] = [];
     const lowerQuery = query.toLowerCase();
-    const state = useAppStore.getState();
-    const selectedFile = state.fileManager.selectedFile;
+    const state = getState();
+    if (!state) return results;
+    const selectedFile = state.getSelectedFile();
 
     if (selectedFile) {
       const matchesFileName = selectedFile.file_name
@@ -190,8 +205,8 @@ export class FileSearchProvider implements SearchProvider {
           icon: "File",
           keywords: [selectedFile.file_name, selectedFile.file_path],
           action: () => {
-            useAppStore.getState().setPrimaryNav("explore");
-            useAppStore.getState().setSecondaryNav("timeseries");
+            getState()?.setPrimaryNav("explore");
+            getState()?.setSecondaryNav("timeseries");
           },
         });
       }
@@ -207,8 +222,9 @@ export class ChannelSearchProvider implements SearchProvider {
   search(query: string): SearchResult[] {
     const results: SearchResult[] = [];
     const lowerQuery = query.toLowerCase();
-    const state = useAppStore.getState();
-    const selectedFile = state.fileManager.selectedFile;
+    const state = getState();
+    if (!state) return results;
+    const selectedFile = state.getSelectedFile();
 
     if (selectedFile?.channels) {
       selectedFile.channels.forEach((channel, index) => {
@@ -223,14 +239,13 @@ export class ChannelSearchProvider implements SearchProvider {
             icon: "Radio",
             keywords: [channel],
             action: () => {
-              useAppStore.getState().setPrimaryNav("explore");
-              useAppStore.getState().setSecondaryNav("timeseries");
-              const currentChannels =
-                useAppStore.getState().fileManager.selectedChannels;
+              const state = getState();
+              if (!state) return;
+              state.setPrimaryNav("explore");
+              state.setSecondaryNav("timeseries");
+              const currentChannels = state.getSelectedChannels();
               if (!currentChannels.includes(channel)) {
-                useAppStore
-                  .getState()
-                  .setSelectedChannels([...currentChannels, channel]);
+                state.setSelectedChannels([...currentChannels, channel]);
               }
             },
           });
@@ -248,10 +263,11 @@ export class AnalysisSearchProvider implements SearchProvider {
   search(query: string): SearchResult[] {
     const results: SearchResult[] = [];
     const lowerQuery = query.toLowerCase();
-    const state = useAppStore.getState();
+    const state = getState();
+    if (!state) return results;
 
     // Try Zustand store first, then fall back to TanStack Query cache
-    let analysisHistory = state.dda.analysisHistory;
+    let analysisHistory = state.getAnalysisHistory();
     if (analysisHistory.length === 0) {
       // Try to get from TanStack Query cache
       const queryClient = getQueryClient();
@@ -312,8 +328,8 @@ export class AnalysisSearchProvider implements SearchProvider {
           metadata: { analysis },
           action: () => {
             // Set pending analysis ID - DDAWithHistory will fetch the full data
-            useAppStore.getState().setPendingAnalysisId(analysis.id);
-            useAppStore.getState().setPrimaryNav("analyze");
+            getState()?.setPendingAnalysisId(analysis.id);
+            getState()?.setPrimaryNav("analyze");
           },
         });
       }
@@ -334,7 +350,7 @@ export class ActionSearchProvider implements SearchProvider {
       keywords: ["run", "start", "dda", "analysis", "analyze"],
       icon: "Play",
       action: () => {
-        useAppStore.getState().setPrimaryNav("analyze");
+        getState()?.setPrimaryNav("analyze");
       },
     },
     {
@@ -344,8 +360,8 @@ export class ActionSearchProvider implements SearchProvider {
       keywords: ["open", "file", "browse", "load"],
       icon: "FolderOpen",
       action: () => {
-        useAppStore.getState().setPrimaryNav("explore");
-        useAppStore.getState().setSidebarOpen(true);
+        getState()?.setPrimaryNav("explore");
+        getState()?.setSidebarOpen(true);
       },
     },
     {
@@ -355,7 +371,7 @@ export class ActionSearchProvider implements SearchProvider {
       keywords: ["notifications", "alerts", "messages"],
       icon: "Bell",
       action: () => {
-        useAppStore.getState().setPrimaryNav("notifications");
+        getState()?.setPrimaryNav("notifications");
       },
     },
     {
@@ -365,9 +381,11 @@ export class ActionSearchProvider implements SearchProvider {
       keywords: ["theme", "dark", "light", "mode", "appearance"],
       icon: "Palette",
       action: () => {
-        const currentTheme = useAppStore.getState().ui.theme;
+        const state = getState();
+        if (!state) return;
+        const currentTheme = state.getTheme();
         const newTheme = currentTheme === "dark" ? "light" : "dark";
-        useAppStore.getState().setTheme(newTheme);
+        state.setTheme(newTheme);
       },
     },
     {
@@ -377,8 +395,10 @@ export class ActionSearchProvider implements SearchProvider {
       keywords: ["sidebar", "file manager", "toggle", "hide", "show"],
       icon: "PanelLeft",
       action: () => {
-        const isOpen = useAppStore.getState().ui.sidebarOpen;
-        useAppStore.getState().setSidebarOpen(!isOpen);
+        const state = getState();
+        if (!state) return;
+        const isOpen = state.getSidebarOpen();
+        state.setSidebarOpen(!isOpen);
       },
     },
   ];
@@ -423,7 +443,8 @@ export class FileHistorySearchProvider implements SearchProvider {
   search(query: string): SearchResult[] {
     const results: SearchResult[] = [];
     const lowerQuery = query.toLowerCase();
-    const state = useAppStore.getState();
+    const state = getState();
+    if (!state) return results;
 
     // Search through analysis history to find all unique files
     const fileMap = new Map<
@@ -431,7 +452,7 @@ export class FileHistorySearchProvider implements SearchProvider {
       { name: string; path: string; lastUsed: string }
     >();
 
-    state.dda.analysisHistory.forEach((analysis) => {
+    state.getAnalysisHistory().forEach((analysis) => {
       const fileName =
         analysis.file_path.split("/").pop() || analysis.file_path;
       const matchesName = fileName.toLowerCase().includes(lowerQuery);
@@ -458,7 +479,7 @@ export class FileHistorySearchProvider implements SearchProvider {
         keywords: [file.name, file.path, "history"],
         action: () => {
           // Navigate to explore tab - user can load this file
-          useAppStore.getState().setPrimaryNav("explore");
+          getState()?.setPrimaryNav("explore");
         },
       });
     });
@@ -473,10 +494,11 @@ export class FileMetadataSearchProvider implements SearchProvider {
   search(query: string): SearchResult[] {
     const results: SearchResult[] = [];
     const lowerQuery = query.toLowerCase();
-    const state = useAppStore.getState();
+    const state = getState();
+    if (!state) return results;
 
     // Search current file metadata
-    const selectedFile = state.fileManager.selectedFile;
+    const selectedFile = state.getSelectedFile();
     if (!selectedFile) return results;
 
     // Infer format from file extension
@@ -503,8 +525,8 @@ export class FileMetadataSearchProvider implements SearchProvider {
         icon: "File",
         keywords: metadata,
         action: () => {
-          useAppStore.getState().setPrimaryNav("explore");
-          useAppStore.getState().setSecondaryNav("timeseries");
+          getState()?.setPrimaryNav("explore");
+          getState()?.setSecondaryNav("timeseries");
         },
       });
     }
@@ -583,7 +605,7 @@ export class FileFormatSearchProvider implements SearchProvider {
           keywords: format.keywords,
           action: () => {
             // Navigate to file manager
-            useAppStore.getState().setPrimaryNav("explore");
+            getState()?.setPrimaryNav("explore");
           },
         });
       }
@@ -654,7 +676,7 @@ export class DDAVariantSearchProvider implements SearchProvider {
           icon: "Brain",
           keywords: variant.keywords,
           action: () => {
-            useAppStore.getState().setPrimaryNav("analyze");
+            getState()?.setPrimaryNav("analyze");
           },
         });
       }
@@ -670,8 +692,9 @@ export class AnalysisParametersSearchProvider implements SearchProvider {
   search(query: string): SearchResult[] {
     const results: SearchResult[] = [];
     const lowerQuery = query.toLowerCase();
-    const state = useAppStore.getState();
-    const params = state.dda.analysisParameters;
+    const state = getState();
+    if (!state) return results;
+    const params = state.getAnalysisParameters();
 
     const paramDescriptions = [
       {
@@ -714,7 +737,7 @@ export class AnalysisParametersSearchProvider implements SearchProvider {
           icon: "Settings",
           keywords: param.keywords,
           action: () => {
-            useAppStore.getState().setPrimaryNav("analyze");
+            getState()?.setPrimaryNav("analyze");
           },
         });
       }
@@ -730,9 +753,10 @@ export class DelayPresetSearchProvider implements SearchProvider {
   search(query: string): SearchResult[] {
     const results: SearchResult[] = [];
     const lowerQuery = query.toLowerCase();
-    const state = useAppStore.getState();
+    const state = getState();
+    if (!state) return results;
 
-    state.dda.customDelayPresets.forEach((preset) => {
+    state.getCustomDelayPresets().forEach((preset) => {
       const matchesName = preset.name.toLowerCase().includes(lowerQuery);
       const matchesDescription = preset.description
         .toLowerCase()
@@ -752,7 +776,7 @@ export class DelayPresetSearchProvider implements SearchProvider {
           icon: "Brain",
           keywords: [preset.name, ...preset.delays.map((d) => d.toString())],
           action: () => {
-            useAppStore.getState().setPrimaryNav("analyze");
+            getState()?.setPrimaryNav("analyze");
           },
         });
       }
@@ -768,7 +792,8 @@ export class AnalysisStatusSearchProvider implements SearchProvider {
   search(query: string): SearchResult[] {
     const results: SearchResult[] = [];
     const lowerQuery = query.toLowerCase();
-    const state = useAppStore.getState();
+    const state = getState();
+    if (!state) return results;
 
     const statusKeywords = {
       pending: ["pending", "queued", "waiting"],
@@ -777,7 +802,7 @@ export class AnalysisStatusSearchProvider implements SearchProvider {
       failed: ["failed", "error", "failed"],
     };
 
-    state.dda.analysisHistory.forEach((analysis) => {
+    state.getAnalysisHistory().forEach((analysis) => {
       const status = analysis.status;
       const keywords = statusKeywords[status] || [];
       const matchesStatus = keywords.some((kw) => kw.includes(lowerQuery));
@@ -796,8 +821,8 @@ export class AnalysisStatusSearchProvider implements SearchProvider {
           icon: "Brain",
           keywords: [...keywords, fileName],
           action: () => {
-            useAppStore.getState().setCurrentAnalysis(analysis);
-            useAppStore.getState().setPrimaryNav("analyze");
+            getState()?.setCurrentAnalysis(analysis);
+            getState()?.setPrimaryNav("analyze");
           },
         });
       }
@@ -815,9 +840,10 @@ export class StreamSessionSearchProvider implements SearchProvider {
   search(query: string): SearchResult[] {
     const results: SearchResult[] = [];
     const lowerQuery = query.toLowerCase();
-    const state = useAppStore.getState();
+    const state = getState();
+    if (!state) return results;
 
-    Object.entries(state.streaming.sessions).forEach(([sessionId, session]) => {
+    Object.entries(state.getSessions()).forEach(([sessionId, session]) => {
       const matchesId = sessionId.toLowerCase().includes(lowerQuery);
       const sourceType = session.source_config.type;
       const matchesSource = sourceType.toLowerCase().includes(lowerQuery);
@@ -835,8 +861,8 @@ export class StreamSessionSearchProvider implements SearchProvider {
           icon: "Radio",
           keywords: [sourceType, status, "stream"],
           action: () => {
-            useAppStore.getState().setPrimaryNav("explore");
-            useAppStore.getState().setSecondaryNav("streaming");
+            getState()?.setPrimaryNav("explore");
+            getState()?.setSecondaryNav("streaming");
           },
         });
       }
@@ -854,10 +880,11 @@ export class AnnotationSearchProvider implements SearchProvider {
   search(query: string): SearchResult[] {
     const results: SearchResult[] = [];
     const lowerQuery = query.toLowerCase();
-    const state = useAppStore.getState();
+    const state = getState();
+    if (!state) return results;
 
     // Search time series annotations
-    Object.entries(state.annotations.timeSeries).forEach(
+    Object.entries(state.getTimeSeriesAnnotations()).forEach(
       ([fileId, annotations]) => {
         // Defensive check: ensure annotations exist
         if (!annotations) {
@@ -889,8 +916,8 @@ export class AnnotationSearchProvider implements SearchProvider {
                 icon: "Bell",
                 keywords: [annotation.label || "", "annotation", "global"],
                 action: () => {
-                  useAppStore.getState().setPrimaryNav("explore");
-                  useAppStore.getState().setSecondaryNav("timeseries");
+                  getState()?.setPrimaryNav("explore");
+                  getState()?.setSecondaryNav("timeseries");
                 },
               });
             }
@@ -927,8 +954,8 @@ export class AnnotationSearchProvider implements SearchProvider {
                       icon: "Bell",
                       keywords: [annotation.label || "", "annotation", channel],
                       action: () => {
-                        useAppStore.getState().setPrimaryNav("explore");
-                        useAppStore.getState().setSecondaryNav("timeseries");
+                        getState()?.setPrimaryNav("explore");
+                        getState()?.setSecondaryNav("timeseries");
                       },
                     });
                   }
@@ -978,8 +1005,8 @@ export class NSGJobSearchProvider implements SearchProvider {
         icon: "Cloud",
         keywords: nsgKeywords,
         action: () => {
-          useAppStore.getState().setPrimaryNav("manage");
-          useAppStore.getState().setSecondaryNav("jobs");
+          getState()?.setPrimaryNav("manage");
+          getState()?.setSecondaryNav("jobs");
         },
       });
 
@@ -993,8 +1020,8 @@ export class NSGJobSearchProvider implements SearchProvider {
         icon: "Upload",
         keywords: ["submit", "upload", "nsg", "job", "hpc"],
         action: () => {
-          useAppStore.getState().setPrimaryNav("manage");
-          useAppStore.getState().setSecondaryNav("jobs");
+          getState()?.setPrimaryNav("manage");
+          getState()?.setSecondaryNav("jobs");
         },
       });
     }
@@ -1034,8 +1061,8 @@ export class ICASearchProvider implements SearchProvider {
         icon: "Brain",
         keywords: icaKeywords,
         action: () => {
-          useAppStore.getState().setPrimaryNav("analyze");
-          useAppStore.getState().setSecondaryNav("ica");
+          getState()?.setPrimaryNav("analyze");
+          getState()?.setSecondaryNav("ica");
         },
       });
 
@@ -1048,8 +1075,8 @@ export class ICASearchProvider implements SearchProvider {
         icon: "Play",
         keywords: ["run", "start", ...icaKeywords],
         action: () => {
-          useAppStore.getState().setPrimaryNav("analyze");
-          useAppStore.getState().setSecondaryNav("ica");
+          getState()?.setPrimaryNav("analyze");
+          getState()?.setSecondaryNav("ica");
         },
       });
     }
@@ -1090,8 +1117,8 @@ export class DataSourceSearchProvider implements SearchProvider {
           "eeg",
         ],
         action: () => {
-          useAppStore.getState().setPrimaryNav("manage");
-          useAppStore.getState().setSecondaryNav("data-sources");
+          getState()?.setPrimaryNav("manage");
+          getState()?.setSecondaryNav("data-sources");
         },
       });
     }
@@ -1107,8 +1134,8 @@ export class DataSourceSearchProvider implements SearchProvider {
         icon: "FolderOpen",
         keywords: ["bids", "brain imaging", "dataset", "structure"],
         action: () => {
-          useAppStore.getState().setPrimaryNav("manage");
-          useAppStore.getState().setSecondaryNav("data-sources");
+          getState()?.setPrimaryNav("manage");
+          getState()?.setSecondaryNav("data-sources");
         },
       });
     }
@@ -1133,7 +1160,7 @@ export class QuickActionsSearchProvider implements SearchProvider {
         description: "Export analysis results to CSV or JSON",
         keywords: ["export", "save", "download", "results", "csv", "json"],
         action: () => {
-          useAppStore.getState().setPrimaryNav("analyze");
+          getState()?.setPrimaryNav("analyze");
         },
       },
       {
@@ -1142,7 +1169,7 @@ export class QuickActionsSearchProvider implements SearchProvider {
         description: "Export current plot as PNG, SVG, or PDF",
         keywords: ["export", "plot", "image", "png", "svg", "pdf", "figure"],
         action: () => {
-          useAppStore.getState().setPrimaryNav("analyze");
+          getState()?.setPrimaryNav("analyze");
         },
       },
       {
@@ -1151,8 +1178,8 @@ export class QuickActionsSearchProvider implements SearchProvider {
         description: "Clear application cache and temporary data",
         keywords: ["clear", "cache", "reset", "clean", "temporary"],
         action: () => {
-          useAppStore.getState().setPrimaryNav("manage");
-          useAppStore.getState().setSecondaryNav("settings");
+          getState()?.setPrimaryNav("manage");
+          getState()?.setSecondaryNav("settings");
         },
       },
       {
@@ -1161,8 +1188,8 @@ export class QuickActionsSearchProvider implements SearchProvider {
         description: "Open debug logs and diagnostics",
         keywords: ["logs", "debug", "diagnostics", "errors", "troubleshoot"],
         action: () => {
-          useAppStore.getState().setPrimaryNav("manage");
-          useAppStore.getState().setSecondaryNav("settings");
+          getState()?.setPrimaryNav("manage");
+          getState()?.setSecondaryNav("settings");
         },
       },
       {
@@ -1171,8 +1198,8 @@ export class QuickActionsSearchProvider implements SearchProvider {
         description: "Check if a newer version of DDALAB is available",
         keywords: ["update", "upgrade", "version", "new", "latest"],
         action: () => {
-          useAppStore.getState().setPrimaryNav("manage");
-          useAppStore.getState().setSecondaryNav("settings");
+          getState()?.setPrimaryNav("manage");
+          getState()?.setSecondaryNav("settings");
         },
       },
       {
@@ -1181,7 +1208,7 @@ export class QuickActionsSearchProvider implements SearchProvider {
         description: "View network motif analysis from DDA results",
         keywords: ["network", "motifs", "graph", "connectivity", "patterns"],
         action: () => {
-          useAppStore.getState().setPrimaryNav("analyze");
+          getState()?.setPrimaryNav("analyze");
         },
       },
       {
@@ -1190,8 +1217,8 @@ export class QuickActionsSearchProvider implements SearchProvider {
         description: "View and explore time series data from current file",
         keywords: ["time", "series", "view", "plot", "signal", "waveform"],
         action: () => {
-          useAppStore.getState().setPrimaryNav("explore");
-          useAppStore.getState().setSecondaryNav("timeseries");
+          getState()?.setPrimaryNav("explore");
+          getState()?.setSecondaryNav("timeseries");
         },
       },
       {
@@ -1200,7 +1227,7 @@ export class QuickActionsSearchProvider implements SearchProvider {
         description: "Choose which channels to analyze",
         keywords: ["channel", "select", "electrode", "choose"],
         action: () => {
-          useAppStore.getState().setPrimaryNav("analyze");
+          getState()?.setPrimaryNav("analyze");
         },
       },
     ];

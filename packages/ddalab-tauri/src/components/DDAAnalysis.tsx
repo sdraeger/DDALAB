@@ -4,6 +4,11 @@ import { useState, useEffect, useCallback, useMemo, useRef, memo } from "react";
 import { flushSync } from "react-dom";
 import { useAppStore } from "@/store/appStore";
 import { useShallow } from "zustand/react/shallow";
+import {
+  useDDASelectors,
+  useUISelectors,
+  useWorkflowSelectors,
+} from "@/hooks/useStoreSelectors";
 import { ApiService } from "@/services/apiService";
 import { DDAAnalysisRequest, DDAResult } from "@/types/api";
 import { useWorkflow } from "@/hooks/useWorkflow";
@@ -28,21 +33,9 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Progress } from "@/components/ui/progress";
-import {
-  Play,
-  AlertCircle,
-  CheckCircle,
-  Clock,
-  Cpu,
-  Brain,
-  RefreshCw,
-  Cloud,
-  XCircle,
-} from "lucide-react";
+import { AlertCircle, Brain, CheckCircle, Cloud, Server } from "lucide-react";
 import { TauriService, NotificationType } from "@/services/tauriService";
 import { loggers } from "@/lib/logger";
 import { WindowSizeSelector } from "@/components/dda/WindowSizeSelector";
@@ -65,12 +58,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Download, Upload } from "lucide-react";
 import { useSearchableItems, createActionItem } from "@/hooks/useSearchable";
 import { SensitivityAnalysisDialog } from "@/components/analysis/SensitivityAnalysisDialog";
-import { TrendingUp, Server } from "lucide-react";
 import { toast } from "@/components/ui/toaster";
 import { useSync } from "@/hooks/useSync";
+import { AnalysisToolbar } from "@/components/dda/AnalysisToolbar";
+import { AnalysisProgressOverlay } from "@/components/dda/AnalysisProgressOverlay";
+import { AnalysisStatusCard } from "@/components/dda/AnalysisStatusCard";
+import {
+  VariantSelector,
+  DDA_VARIANTS,
+} from "@/components/dda/VariantSelector";
 
 interface DDAAnalysisProps {
   apiService: ApiService;
@@ -125,32 +123,28 @@ interface DDAParameters {
 export const DDAAnalysis = memo(function DDAAnalysis({
   apiService,
 }: DDAAnalysisProps) {
+  // File manager state (keep separate for derived value optimization)
   const selectedFile = useAppStore(
     useShallow((state) => state.fileManager.selectedFile),
   );
-  const storedAnalysisParameters = useAppStore(
-    useShallow((state) => state.dda.analysisParameters),
-  );
-  const currentAnalysis = useAppStore(
-    useShallow((state) => state.dda.currentAnalysis),
-  );
-  const isWorkflowRecording = useAppStore(
-    (state) => state.workflowRecording.isRecording,
-  );
-  const setCurrentAnalysis = useAppStore((state) => state.setCurrentAnalysis);
-  const addAnalysisToHistory = useAppStore(
-    (state) => state.addAnalysisToHistory,
-  );
-  const updateAnalysisParameters = useAppStore(
-    (state) => state.updateAnalysisParameters,
-  );
-  const setDDARunning = useAppStore((state) => state.setDDARunning);
-  const ddaRunning = useAppStore((state) => state.dda.isRunning);
-  const incrementActionCount = useAppStore(
-    (state) => state.incrementActionCount,
-  );
-  const isServerReady = useAppStore((state) => state.ui.isServerReady);
-  const appExpertMode = useAppStore((state) => state.ui.expertMode);
+
+  // Consolidated DDA selectors
+  const {
+    currentAnalysis,
+    analysisParameters: storedAnalysisParameters,
+    isRunning: ddaRunning,
+    setCurrentAnalysis,
+    addAnalysisToHistory,
+    updateAnalysisParameters,
+    setDDARunning,
+  } = useDDASelectors();
+
+  // Consolidated UI selectors
+  const { isServerReady, expertMode: appExpertMode } = useUISelectors();
+
+  // Consolidated workflow selectors
+  const { isRecording: isWorkflowRecording, incrementActionCount } =
+    useWorkflowSelectors();
 
   const { recordAction } = useWorkflow();
 
@@ -833,58 +827,8 @@ export const DDAAnalysis = memo(function DDAAnalysis({
     };
   }, [setCurrentAnalysis]);
 
-  const availableVariants = [
-    {
-      id: "single_timeseries",
-      name: "Single Timeseries",
-      abbreviation: "ST",
-      description: "Standard temporal dynamics analysis",
-      color: "#00B0F0", // RGB(0, 176, 240) - Bright Blue
-      rgb: "0, 176, 240",
-      bgColor: "bg-[#00B0F0]/10",
-      borderColor: "border-l-[#00B0F0]",
-    },
-    {
-      id: "cross_timeseries",
-      name: "Cross Timeseries",
-      abbreviation: "CT",
-      description: "Inter-channel relationship analysis",
-      color: "#33CC33", // RGB(51, 204, 51) - Bright Green
-      rgb: "51, 204, 51",
-      bgColor: "bg-[#33CC33]/10",
-      borderColor: "border-l-[#33CC33]",
-    },
-    {
-      id: "cross_dynamical",
-      name: "Cross Dynamical",
-      abbreviation: "CD",
-      description: "Dynamic coupling pattern analysis",
-      color: "#ED2790", // RGB(237, 39, 144) - Magenta Pink
-      rgb: "237, 39, 144",
-      bgColor: "bg-[#ED2790]/10",
-      borderColor: "border-l-[#ED2790]",
-    },
-    {
-      id: "dynamical_ergodicity",
-      name: "Dynamical Ergodicity",
-      abbreviation: "DE",
-      description: "Temporal stationarity assessment",
-      color: "#9900CC", // RGB(153, 0, 204) - Purple
-      rgb: "153, 0, 204",
-      bgColor: "bg-[#9900CC]/10",
-      borderColor: "border-l-[#9900CC]",
-    },
-    {
-      id: "synchronization",
-      name: "Synchronization",
-      abbreviation: "SY",
-      description: "Phase synchronization analysis",
-      color: "#FF6600", // RGB(255, 102, 0) - Orange
-      rgb: "255, 102, 0",
-      bgColor: "bg-[#FF6600]/10",
-      borderColor: "border-l-[#FF6600]",
-    },
-  ];
+  // Use shared DDA_VARIANTS from VariantSelector component
+  const availableVariants = DDA_VARIANTS;
 
   // Initialize with file data - run when file changes or duration is loaded
   useEffect(() => {
@@ -1847,226 +1791,35 @@ export const DDAAnalysis = memo(function DDAAnalysis({
 
   return (
     <div className="h-full flex flex-col overflow-hidden relative">
-      {/* Disabled overlay with progress bar when DDA is running */}
-      {(ddaRunning || localIsRunning) && (
-        <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center animate-in fade-in-0 duration-200">
-          <div className="text-center space-y-4 w-full max-w-md px-8">
-            <Cpu className="h-12 w-12 animate-spin text-primary mx-auto" />
-            <div>
-              <p className="text-lg font-semibold">DDA Analysis Running</p>
-              <p className="text-sm text-muted-foreground">
-                {analysisStatus || "Processing..."}
-              </p>
-            </div>
-            {/* Progress bar */}
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm text-muted-foreground">
-                <span>Progress</span>
-                <span className="font-medium text-primary">
-                  {Math.round(progress)}%
-                </span>
-              </div>
-              <Progress value={progress} className="w-full h-2" />
-              <p className="text-xs text-muted-foreground">
-                ~{estimatedTime}s estimated • Configuration is locked
-              </p>
-            </div>
-            {/* Cancel button */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleCancelAnalysis}
-              disabled={isCancelling}
-              className="mt-4"
-            >
-              {isCancelling ? (
-                <>
-                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                  Cancelling...
-                </>
-              ) : (
-                <>
-                  <XCircle className="h-4 w-4 mr-2" />
-                  Cancel Analysis
-                </>
-              )}
-            </Button>
-          </div>
-        </div>
-      )}
+      <AnalysisProgressOverlay
+        isVisible={ddaRunning || localIsRunning}
+        progress={progress}
+        statusMessage={analysisStatus}
+        estimatedTime={estimatedTime}
+        isCancelling={isCancelling}
+        onCancel={handleCancelAnalysis}
+      />
 
       <div className="flex-1 flex flex-col min-h-0">
-        <div className="flex items-center justify-end flex-shrink-0 pb-4">
-          <div className="flex items-center space-x-2">
-            <div className="relative">
-              <Input
-                placeholder="Analysis name (optional)"
-                value={analysisName}
-                onChange={(e) => setAnalysisName(e.target.value)}
-                disabled={ddaRunning || localIsRunning}
-                className="w-48 pr-16"
-              />
-              {analysisName && !ddaRunning && !localIsRunning && (
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground bg-background px-1 rounded">
-                  unsaved
-                </span>
-              )}
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleImportConfig}
-              disabled={ddaRunning || localIsRunning}
-            >
-              <Upload className="h-4 w-4 mr-1" />
-              Import
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleExportConfig}
-              disabled={ddaRunning || localIsRunning}
-            >
-              <Download className="h-4 w-4 mr-1" />
-              Export
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowSensitivityDialog(true)}
-              disabled={ddaRunning || localIsRunning || !selectedFile}
-              title="Analyze how results change with different parameters"
-            >
-              <TrendingUp className="h-4 w-4 mr-1" />
-              Sensitivity
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowResetConfirmDialog(true)}
-              disabled={ddaRunning}
-              title="Reset all parameters to defaults"
-            >
-              Reset
-            </Button>
-            <Button
-              onClick={runAnalysis}
-              disabled={
-                ddaRunning ||
-                localIsRunning ||
-                !parameters.variants.some((variantId) => {
-                  const config = parameters.variantChannelConfigs[variantId];
-                  return (
-                    config &&
-                    ((config.selectedChannels &&
-                      config.selectedChannels.length > 0) ||
-                      (config.ctChannelPairs &&
-                        config.ctChannelPairs.length > 0) ||
-                      (config.cdChannelPairs &&
-                        config.cdChannelPairs.length > 0))
-                  );
-                })
-              }
-              className="min-w-[120px]"
-            >
-              {ddaRunning || localIsRunning ? (
-                <>
-                  <Cpu className="h-4 w-4 mr-2 animate-spin" />
-                  Running...
-                </>
-              ) : (
-                <>
-                  <Play className="h-4 w-4 mr-2" />
-                  Run DDA
-                </>
-              )}
-            </Button>
-            {TauriService.isTauri() && (
-              <Button
-                onClick={submitToServer}
-                disabled={
-                  ddaRunning ||
-                  isSubmittingToServer ||
-                  localIsRunning ||
-                  !isServerConnected ||
-                  !parameters.variants.some((variantId) => {
-                    const config = parameters.variantChannelConfigs[variantId];
-                    return (
-                      config &&
-                      ((config.selectedChannels &&
-                        config.selectedChannels.length > 0) ||
-                        (config.ctChannelPairs &&
-                          config.ctChannelPairs.length > 0) ||
-                        (config.cdChannelPairs &&
-                          config.cdChannelPairs.length > 0))
-                    );
-                  })
-                }
-                variant="outline"
-                className="min-w-[140px]"
-                title={
-                  !isServerConnected
-                    ? "Connect to a remote server in Settings → Sync"
-                    : "Submit analysis to remote server"
-                }
-              >
-                {isSubmittingToServer ? (
-                  <>
-                    <Server className="h-4 w-4 mr-2 animate-pulse" />
-                    Submitting...
-                  </>
-                ) : (
-                  <>
-                    <Server className="h-4 w-4 mr-2" />
-                    Submit to Server
-                  </>
-                )}
-              </Button>
-            )}
-            {TauriService.isTauri() && (
-              <Button
-                onClick={submitToNSG}
-                disabled={
-                  ddaRunning ||
-                  isSubmittingToNsg ||
-                  localIsRunning ||
-                  !hasNsgCredentials ||
-                  !parameters.variants.some((variantId) => {
-                    const config = parameters.variantChannelConfigs[variantId];
-                    return (
-                      config &&
-                      ((config.selectedChannels &&
-                        config.selectedChannels.length > 0) ||
-                        (config.ctChannelPairs &&
-                          config.ctChannelPairs.length > 0) ||
-                        (config.cdChannelPairs &&
-                          config.cdChannelPairs.length > 0))
-                    );
-                  })
-                }
-                variant="outline"
-                className="min-w-[140px]"
-                title={
-                  !hasNsgCredentials
-                    ? "Configure NSG credentials in Settings"
-                    : "Submit to Neuroscience Gateway"
-                }
-              >
-                {isSubmittingToNsg ? (
-                  <>
-                    <Cloud className="h-4 w-4 mr-2 animate-pulse" />
-                    Submitting...
-                  </>
-                ) : (
-                  <>
-                    <Cloud className="h-4 w-4 mr-2" />
-                    Submit to NSG
-                  </>
-                )}
-              </Button>
-            )}
-          </div>
-        </div>
+        <AnalysisToolbar
+          analysisName={analysisName}
+          onAnalysisNameChange={setAnalysisName}
+          isRunning={ddaRunning || localIsRunning}
+          isSubmittingToServer={isSubmittingToServer}
+          isSubmittingToNsg={isSubmittingToNsg}
+          isServerConnected={isServerConnected}
+          hasNsgCredentials={hasNsgCredentials}
+          hasSelectedFile={!!selectedFile}
+          variants={parameters.variants}
+          variantChannelConfigs={parameters.variantChannelConfigs}
+          onRun={runAnalysis}
+          onSubmitToServer={submitToServer}
+          onSubmitToNsg={submitToNSG}
+          onImport={handleImportConfig}
+          onExport={handleExportConfig}
+          onSensitivity={() => setShowSensitivityDialog(true)}
+          onReset={() => setShowResetConfirmDialog(true)}
+        />
 
         {serverSubmissionPhase && (
           <Alert className="mt-4 flex-shrink-0">
@@ -2101,124 +1854,35 @@ export const DDAAnalysis = memo(function DDAAnalysis({
           {(localIsRunning ||
             autoLoadingResults ||
             (results && !resultsFromPersistence)) && (
-            <Card>
-              <CardContent className="pt-6">
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      {localIsRunning ? (
-                        <Cpu className="h-4 w-4 animate-spin text-blue-600" />
-                      ) : autoLoadingResults ? (
-                        <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
-                      ) : results ? (
-                        <CheckCircle className="h-4 w-4 text-green-600" />
-                      ) : (
-                        <AlertCircle className="h-4 w-4 text-red-600" />
-                      )}
-                      <span className="text-sm font-medium">
-                        {localIsRunning
-                          ? analysisStatus
-                          : autoLoadingResults
-                            ? "Loading previous analysis results..."
-                            : analysisStatus}
-                      </span>
-                    </div>
-                    {localIsRunning && (
-                      <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-                        <Clock className="h-4 w-4" />
-                        <span>~{estimatedTime}s estimated</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {localIsRunning && (
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>Processing...</span>
-                        <span className="font-medium">
-                          {Math.round(progress)}%
-                        </span>
-                      </div>
-                      <Progress value={progress} className="w-full" />
-                    </div>
-                  )}
-
-                  {error && (
-                    <div className="flex items-center space-x-2 text-red-600">
-                      <AlertCircle className="h-4 w-4" />
-                      <span className="text-sm">{error}</span>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+            <AnalysisStatusCard
+              state={
+                localIsRunning
+                  ? "running"
+                  : autoLoadingResults
+                    ? "loading"
+                    : results
+                      ? "completed"
+                      : "error"
+              }
+              statusMessage={analysisStatus}
+              progress={progress}
+              estimatedTime={estimatedTime}
+              error={error}
+            />
           )}
 
           <div className="space-y-3">
             {/* Algorithm Selection */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm">Algorithm Selection</CardTitle>
-                <CardDescription className="text-xs">
-                  Choose DDA variants to compute
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {availableVariants.map((variant) => {
-                  const isSelected = parameters.variants.includes(variant.id);
-                  return (
-                    <div
-                      key={variant.id}
-                      className="flex items-start space-x-3 p-4 rounded-lg border-l-[6px] transition-all duration-200 hover:shadow-sm"
-                      style={{
-                        borderLeftColor: variant.color,
-                        backgroundColor: isSelected
-                          ? `rgba(${variant.rgb}, 0.25)`
-                          : `rgba(${variant.rgb}, 0.15)`,
-                        boxShadow: isSelected
-                          ? `0 0 0 1px rgba(${variant.rgb}, 0.4)`
-                          : "none",
-                      }}
-                    >
-                      <Checkbox
-                        checked={isSelected}
-                        onCheckedChange={(checked) => {
-                          const newVariants = checked
-                            ? [...parameters.variants, variant.id]
-                            : parameters.variants.filter(
-                                (v) => v !== variant.id,
-                              );
-                          setLocalParameters((prev) => ({
-                            ...prev,
-                            variants: newVariants,
-                          }));
-                        }}
-                        disabled={ddaRunning || localIsRunning}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <Label className="text-xs font-semibold">
-                            {variant.name}
-                          </Label>
-                          <span
-                            className="text-[10px] font-bold px-2 py-0.5 rounded shadow-sm"
-                            style={{
-                              backgroundColor: variant.color,
-                              color: "white",
-                            }}
-                          >
-                            {variant.abbreviation}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-1">
-                          {variant.description}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </CardContent>
-            </Card>
+            <VariantSelector
+              selectedVariants={parameters.variants}
+              onVariantsChange={(newVariants) =>
+                setLocalParameters((prev) => ({
+                  ...prev,
+                  variants: newVariants,
+                }))
+              }
+              disabled={ddaRunning || localIsRunning}
+            />
 
             {/* Time Range & Window Parameters - Combined for compactness */}
             <Card>

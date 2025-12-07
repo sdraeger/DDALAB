@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 import { QueryProvider } from "@/providers/QueryProvider";
+import { StateManagerProvider } from "@/providers/StateManagerProvider";
 import { ZoomWrapper } from "@/components/ZoomWrapper";
 import { ZoomKeyboardShortcuts } from "@/components/ZoomKeyboardShortcuts";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -37,16 +38,18 @@ export default function RootLayout({
           enableSystem={false}
           disableTransitionOnChange
         >
-          <QueryProvider>
-            <ZoomKeyboardShortcuts />
-            <GlobalSearchProvider>
-              <ZoomWrapper>
-                <div className="min-h-screen bg-background text-foreground">
-                  {children}
-                </div>
-              </ZoomWrapper>
-            </GlobalSearchProvider>
-          </QueryProvider>
+          <StateManagerProvider>
+            <QueryProvider>
+              <ZoomKeyboardShortcuts />
+              <GlobalSearchProvider>
+                <ZoomWrapper>
+                  <div className="min-h-screen bg-background text-foreground">
+                    {children}
+                  </div>
+                </ZoomWrapper>
+              </GlobalSearchProvider>
+            </QueryProvider>
+          </StateManagerProvider>
         </ThemeProvider>
       </body>
     </html>

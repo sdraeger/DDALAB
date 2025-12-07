@@ -7,7 +7,11 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
-import { useAppStore } from "@/store/appStore";
+import {
+  getStateManager,
+  isStateManagerRegistered,
+  type IStreamingStateManager,
+} from "@/services/stateManager";
 import {
   StreamEvent,
   DataChunk,
@@ -15,6 +19,16 @@ import {
   StreamStats,
   StreamState,
 } from "@/types/streaming";
+
+/**
+ * Helper to safely get state manager for streaming operations.
+ */
+function getStreamingState(): IStreamingStateManager | null {
+  if (!isStateManagerRegistered()) {
+    return null;
+  }
+  return getStateManager();
+}
 
 class StreamingService {
   private eventUnlistener: UnlistenFn | null = null;
@@ -77,10 +91,11 @@ class StreamingService {
    * Handle stream events from Tauri backend
    */
   private handleStreamEvent(event: StreamEvent): void {
-    const store = useAppStore.getState();
+    const state = getStreamingState();
+    if (!state) return;
 
     // Update store with event
-    store.handleStreamEvent(event);
+    state.handleStreamEvent(event);
 
     // Debounce non-critical events only (stats, data_received, results_ready)
     // State changes and errors should always go through
@@ -178,10 +193,12 @@ class StreamingService {
       });
 
       if (chunks.length > 0) {
-        const store = useAppStore.getState();
-        chunks.forEach((chunk) => {
-          store.addStreamData(streamId, chunk);
-        });
+        const state = getStreamingState();
+        if (state) {
+          chunks.forEach((chunk) => {
+            state.addStreamData(streamId, chunk);
+          });
+        }
       }
     } catch (error) {
       console.error(
@@ -205,10 +222,12 @@ class StreamingService {
       });
 
       if (results.length > 0) {
-        const store = useAppStore.getState();
-        results.forEach((result) => {
-          store.addStreamResult(streamId, result);
-        });
+        const state = getStreamingState();
+        if (state) {
+          results.forEach((result) => {
+            state.addStreamResult(streamId, result);
+          });
+        }
       }
     } catch (error) {
       console.error(
@@ -228,8 +247,10 @@ class StreamingService {
       });
 
       if (stats && typeof stats === "object") {
-        const store = useAppStore.getState();
-        store.updateStreamSession(streamId, { stats });
+        const state = getStreamingState();
+        if (state) {
+          state.updateStreamSession(streamId, { stats });
+        }
       }
     } catch (error) {
       console.error(
@@ -264,8 +285,10 @@ class StreamingService {
     try {
       await invoke("clear_stream_buffers", { streamId });
 
-      const store = useAppStore.getState();
-      store.clearStreamPlotData(streamId);
+      const state = getStreamingState();
+      if (state) {
+        state.clearStreamPlotData(streamId);
+      }
     } catch (error) {
       console.error(
         `[STREAMING] Failed to clear buffers for ${streamId}:`,
