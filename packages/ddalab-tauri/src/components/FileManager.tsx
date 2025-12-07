@@ -8,6 +8,7 @@ import React, {
   useRef,
 } from "react";
 import { useAppStore } from "@/store/appStore";
+import { useOpenFilesStore } from "@/store/openFilesStore";
 import { ApiService } from "@/services/apiService";
 import { EDFFileInfo } from "@/types/api";
 import { handleError, isGitAnnexError } from "@/utils/errorHandler";
@@ -43,16 +44,6 @@ import {
   useBIDSParentDetection,
 } from "@/hooks/useBIDSQuery";
 import type { DirectoryEntry } from "@/types/bids";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import {
   Search,
   Folder,
@@ -121,6 +112,9 @@ export const FileManager = React.memo(function FileManager({
   const { isRecording, incrementActionCount } = useWorkflowSelectors();
   const { isPersistenceRestored } = usePersistenceSelectors();
 
+  // Open files store for file tab management
+  const openFileInTabs = useOpenFilesStore((state) => state.openFile);
+
   const { recordAction } = useWorkflow();
 
   // Build absolute path for directory listing
@@ -148,9 +142,6 @@ export const FileManager = React.memo(function FileManager({
   // Use mutation for loading file info
   const loadFileInfoMutation = useLoadFileInfo(apiService);
 
-  const [pendingFileSelection, setPendingFileSelection] =
-    useState<EDFFileInfo | null>(null);
-  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [showUploadDialog, setShowUploadDialog] = useState(false);
   const [uploadDatasetPath, setUploadDatasetPath] = useState<string | null>(
     null,
@@ -584,6 +575,9 @@ export const FileManager = React.memo(function FileManager({
           // Update with full details
           setSelectedFile(fileInfo);
 
+          // Open file in tabs
+          openFileInTabs(file.file_path);
+
           // Record file load action if recording is active
           if (isRecording) {
             try {
@@ -656,6 +650,7 @@ export const FileManager = React.memo(function FileManager({
     [
       setSelectedFile,
       loadFileInfoMutation,
+      openFileInTabs,
       isRecording,
       recordAction,
       incrementActionCount,
@@ -668,10 +663,10 @@ export const FileManager = React.memo(function FileManager({
     (file: EDFFileInfo) => {
       // Prevent file selection while persisted file is being restored
       // This avoids race conditions and unintentional clicks during startup
-      if (pendingFileSelection) {
+      if (pendingFileSelectionPath) {
         console.log(
           "[FILEMANAGER] Ignoring file click - pending restoration:",
-          pendingFileSelection,
+          pendingFileSelectionPath,
         );
         return;
       }
@@ -687,30 +682,11 @@ export const FileManager = React.memo(function FileManager({
         return;
       }
 
-      // If a file is already selected and it's different from the new selection
-      if (selectedFile && selectedFile.file_path !== file.file_path) {
-        setPendingFileSelection(file);
-        setShowConfirmDialog(true);
-      } else {
-        // No file selected yet or clicking the same file
-        loadFileInfo(file);
-      }
+      // Load the file directly - file tabs handle multiple open files
+      loadFileInfo(file);
     },
-    [pendingFileSelection, selectedFile, loadFileInfo],
+    [loadFileInfo, pendingFileSelectionPath],
   );
-
-  const confirmFileSelection = () => {
-    if (pendingFileSelection) {
-      loadFileInfo(pendingFileSelection);
-      setPendingFileSelection(null);
-    }
-    setShowConfirmDialog(false);
-  };
-
-  const cancelFileSelection = () => {
-    setPendingFileSelection(null);
-    setShowConfirmDialog(false);
-  };
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent, file: EDFFileInfo) => {
@@ -1208,7 +1184,7 @@ export const FileManager = React.memo(function FileManager({
             files={searchQuery ? files : filteredAndSortedFiles}
             selectedFile={selectedFile}
             isOpenNeuroAuthenticated={isOpenNeuroAuthenticated}
-            pendingFileSelection={pendingFileSelection}
+            pendingFileSelection={null}
             loadFileInfoMutationPending={loadFileInfoMutation.isPending}
             onDirectorySelect={handleDirectorySelect}
             onFileSelect={handleFileSelect}
@@ -1220,45 +1196,6 @@ export const FileManager = React.memo(function FileManager({
           />
         )}
       </CardContent>
-
-      {/* Confirmation Dialog */}
-      <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Change Selected File?</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="text-sm text-muted-foreground">
-                <p>
-                  Are you sure you want to change the selected file? This will
-                  reset your current analysis workspace.
-                </p>
-                <div className="mt-4 space-y-2">
-                  <div className="p-2 bg-muted rounded">
-                    <span className="text-sm font-medium block">
-                      Current file:
-                    </span>
-                    <span className="text-sm">{selectedFile?.file_name}</span>
-                  </div>
-                  <div className="p-2 bg-muted rounded">
-                    <span className="text-sm font-medium block">New file:</span>
-                    <span className="text-sm">
-                      {pendingFileSelection?.file_name}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={cancelFileSelection}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction onClick={confirmFileSelection}>
-              Change File
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       {/* BIDS Upload Dialog */}
       {uploadDatasetPath && (

@@ -203,6 +203,22 @@ function TimeSeriesPlotComponent({ apiService }: TimeSeriesPlotProps) {
     timeWindowRef.current = timeWindow;
   }, [channelOffset, timeWindow]);
 
+  // Destroy uPlot when file changes to prevent cursor errors on stale data
+  useEffect(() => {
+    return () => {
+      if (uplotRef.current) {
+        uplotRef.current.destroy();
+        uplotRef.current = null;
+      }
+      // Clear the plot container
+      if (plotRef.current) {
+        while (plotRef.current.firstChild) {
+          plotRef.current.removeChild(plotRef.current.firstChild);
+        }
+      }
+    };
+  }, [filePath]);
+
   // Ref to track if this is the first time we're setting channels for a file
   const isInitialChannelSetRef = useRef<boolean>(true);
   // Ref to track which channels should be displayed (updated synchronously)
