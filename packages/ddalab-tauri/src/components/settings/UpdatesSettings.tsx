@@ -54,30 +54,12 @@ export function UpdatesSettings() {
 
   const handleCheckForUpdates = async () => {
     setInstallSuccess(false);
-    try {
-      console.log("[UPDATES] Checking for updates...");
-      const status = await checkForUpdatesMutation.mutateAsync();
-      console.log("[UPDATES] Update status:", status);
-
-      if (status.available) {
-        console.log(`[UPDATES] Update available: ${status.latest_version}`);
-      } else {
-        console.log("[UPDATES] No updates available");
-      }
-    } catch (err) {
-      console.error("[UPDATES] Error checking for updates:", err);
-    }
+    await checkForUpdatesMutation.mutateAsync();
   };
 
   const handleDownloadAndInstall = async () => {
-    try {
-      console.log("[UPDATES] Starting download and installation...");
-      await downloadAndInstallMutation.mutateAsync();
-      console.log("[UPDATES] Update installed successfully");
-      setInstallSuccess(true);
-    } catch (err) {
-      console.error("[UPDATES] Error installing update:", err);
-    }
+    await downloadAndInstallMutation.mutateAsync();
+    setInstallSuccess(true);
   };
 
   return (

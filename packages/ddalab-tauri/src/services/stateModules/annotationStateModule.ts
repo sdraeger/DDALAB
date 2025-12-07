@@ -15,38 +15,23 @@ export class AnnotationStateModule
 
   async loadState(filePath: string): Promise<FileAnnotationState | null> {
     try {
-      const state = await invoke<FileAnnotationState>(
-        "get_file_annotation_state",
-        {
-          filePath,
-        },
-      );
-      return state;
-    } catch (error) {
-      console.log("[AnnotationStateModule] No saved state for file:", filePath);
+      return await invoke<FileAnnotationState>("get_file_annotation_state", {
+        filePath,
+      });
+    } catch {
       return null;
     }
   }
 
   async saveState(filePath: string, state: FileAnnotationState): Promise<void> {
-    try {
-      await invoke("save_file_annotation_state", {
-        filePath,
-        state,
-      });
-    } catch (error) {
-      console.error("[AnnotationStateModule] Failed to save state:", error);
-      throw error;
-    }
+    await invoke("save_file_annotation_state", { filePath, state });
   }
 
   async clearState(filePath: string): Promise<void> {
     try {
-      await invoke("clear_file_annotation_state", {
-        filePath,
-      });
-    } catch (error) {
-      console.error("[AnnotationStateModule] Failed to clear state:", error);
+      await invoke("clear_file_annotation_state", { filePath });
+    } catch {
+      // State may not exist, ignore
     }
   }
 
