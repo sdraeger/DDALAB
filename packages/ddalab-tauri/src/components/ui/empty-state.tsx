@@ -228,6 +228,11 @@ export function NoAnalysisEmptyState({ onStart }: { onStart?: () => void }) {
             }
           : undefined
       }
+      tips={[
+        "First, select an EEG file from the Files panel",
+        "Configure analysis parameters in Settings if needed",
+        "Results will show variance, eigenvalues, and delay coordinates",
+      ]}
     />
   );
 }
@@ -266,6 +271,11 @@ export function NoNotificationsEmptyState() {
       title="All caught up!"
       description="You have no notifications at the moment."
       size="sm"
+      tips={[
+        "Notifications appear when analysis completes",
+        "File import results will show here",
+        "Sync status updates appear here when connected",
+      ]}
     />
   );
 }
@@ -291,6 +301,11 @@ export function ErrorEmptyState({
             }
           : undefined
       }
+      tips={[
+        "Check that the file format is supported",
+        "Ensure the file is not corrupted or empty",
+        "Try restarting the application if the issue persists",
+      ]}
     />
   );
 }

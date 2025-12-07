@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useId } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -47,6 +47,9 @@ export function ParameterInput({
   const [unit, setUnit] = useState<TimeUnit>(defaultUnit);
   const [displayValue, setDisplayValue] = useState<string>("");
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [constraintInfo, setConstraintInfo] = useState<string | null>(null);
+  const errorId = useId();
+  const inputId = useId();
 
   // Convert samples to the current unit
   const samplesToUnit = (samples: number, targetUnit: TimeUnit): number => {
@@ -113,12 +116,23 @@ export function ParameterInput({
       wasConstrained = true;
     }
 
+    setValidationError(null);
     if (wasConstrained) {
-      setValidationError(
-        `Value constrained to ${min !== undefined ? `min ${min}` : ""}${min !== undefined && max !== undefined ? " - " : ""}${max !== undefined ? `max ${max}` : ""} samples`,
+      const minDisplay =
+        min !== undefined
+          ? samplesToUnit(min, unit).toFixed(unit === "samples" ? 0 : 2)
+          : "";
+      const maxDisplay =
+        max !== undefined
+          ? samplesToUnit(max, unit).toFixed(unit === "samples" ? 0 : 2)
+          : "";
+      setConstraintInfo(
+        `Adjusted to ${min !== undefined && constrainedValue === min ? "minimum" : "maximum"} (${minDisplay && maxDisplay ? `${minDisplay}–${maxDisplay}` : minDisplay || maxDisplay} ${unit})`,
       );
+      // Clear the info message after 3 seconds
+      setTimeout(() => setConstraintInfo(null), 3000);
     } else {
-      setValidationError(null);
+      setConstraintInfo(null);
     }
 
     onChange(constrainedValue);
@@ -143,11 +157,14 @@ export function ParameterInput({
   return (
     <div className={cn("space-y-2", className)}>
       <div className="flex items-center gap-2">
-        <Label className="text-sm">{label}</Label>
+        <Label htmlFor={inputId} className="text-sm">
+          {label}
+        </Label>
         {tooltip && <InfoTooltip content={tooltip} />}
       </div>
       <div className="flex gap-2">
         <Input
+          id={inputId}
           type="number"
           value={displayValue}
           onChange={(e) => handleValueChange(e.target.value)}
@@ -159,6 +176,7 @@ export function ParameterInput({
               "border-destructive focus-visible:ring-destructive",
           )}
           aria-invalid={!!validationError}
+          aria-describedby={validationError ? errorId : undefined}
         />
         <Select
           value={unit}
@@ -180,7 +198,22 @@ export function ParameterInput({
         </Select>
       </div>
       {validationError ? (
-        <p className="text-xs text-destructive">{validationError}</p>
+        <p
+          id={errorId}
+          role="alert"
+          aria-live="polite"
+          className="text-xs text-destructive"
+        >
+          {validationError}
+        </p>
+      ) : constraintInfo ? (
+        <p
+          role="status"
+          aria-live="polite"
+          className="text-xs text-amber-700 dark:text-amber-300 animate-in fade-in duration-200"
+        >
+          {constraintInfo}
+        </p>
       ) : (
         <p className="text-xs text-muted-foreground">
           = {value} samples ({(value / sampleRate).toFixed(3)}s)

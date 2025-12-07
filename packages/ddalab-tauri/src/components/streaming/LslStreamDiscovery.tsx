@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { LoadingPlaceholder } from "@/components/ui/loading-overlay";
 import { Loader2, RefreshCw, Wifi, WifiOff } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
@@ -120,10 +121,10 @@ export function LslStreamDiscovery({
         )}
 
         {loading && streams.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-            <Loader2 className="h-8 w-8 animate-spin mb-2" />
-            <p className="text-sm">Searching for LSL streams...</p>
-          </div>
+          <LoadingPlaceholder
+            message="Searching for LSL streams..."
+            minHeight="150px"
+          />
         ) : streams.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
             <WifiOff className="h-8 w-8 mb-2" />
