@@ -4,6 +4,11 @@ import { useEffect } from "react";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { useApiService } from "@/contexts/ApiServiceContext";
 import { useAppStore } from "@/store/appStore";
+import {
+  useUISelectors,
+  useDDASelectors,
+  usePersistenceSelectors,
+} from "@/hooks/useStoreSelectors";
 import { useDDAHistory, useAnalysisFromHistory } from "@/hooks/useDDAAnalysis";
 import { useUnreadNotificationCount } from "@/hooks/useNotifications";
 import { DDAProgressEvent } from "@/types/api";
@@ -30,36 +35,38 @@ export function DashboardLayout() {
   // Event-based notification count (no polling)
   const unreadNotificationCount = useUnreadNotificationCount();
 
-  // FIX: Use specific selectors to prevent unnecessary re-renders
-  // Only select the specific properties we need, not entire objects
-  const isServerReady = useAppStore((state) => state.ui.isServerReady);
-  const sidebarOpen = useAppStore((state) => state.ui.sidebarOpen);
-  const sidebarWidth = useAppStore((state) => state.ui.sidebarWidth);
-  const primaryNav = useAppStore((state) => state.ui.primaryNav);
-  const secondaryNav = useAppStore((state) => state.ui.secondaryNav);
+  // Consolidated selector hooks for cleaner state access
+  const {
+    isServerReady,
+    sidebarOpen,
+    sidebarWidth,
+    primaryNav,
+    secondaryNav,
+    setSidebarOpen,
+    setSidebarWidth,
+    setPrimaryNav,
+    setSecondaryNav,
+    setLayout,
+  } = useUISelectors();
+
+  const {
+    currentAnalysis,
+    setCurrentAnalysis,
+    setAnalysisHistory,
+    setDDARunning,
+  } = useDDASelectors();
+
+  const { isPersistenceRestored } = usePersistenceSelectors();
+
+  // Derived values from selectors (computed inline for render optimization)
   const currentFilePath = useAppStore(
     (state) => state.fileManager.selectedFile?.file_path,
   );
   const selectedFileName = useAppStore(
     (state) => state.fileManager.selectedFile?.file_name,
   );
-  const hasCurrentAnalysis = useAppStore(
-    (state) => !!state.dda.currentAnalysis,
-  );
-  const currentAnalysisId = useAppStore(
-    (state) => state.dda.currentAnalysis?.id,
-  );
-  const isPersistenceRestored = useAppStore(
-    (state) => state.isPersistenceRestored,
-  );
-  const setSidebarOpen = useAppStore((state) => state.setSidebarOpen);
-  const setSidebarWidth = useAppStore((state) => state.setSidebarWidth);
-  const setPrimaryNav = useAppStore((state) => state.setPrimaryNav);
-  const setSecondaryNav = useAppStore((state) => state.setSecondaryNav);
-  const setLayout = useAppStore((state) => state.setLayout);
-  const setCurrentAnalysis = useAppStore((state) => state.setCurrentAnalysis);
-  const setAnalysisHistory = useAppStore((state) => state.setAnalysisHistory);
-  const setDDARunning = useAppStore((state) => state.setDDARunning);
+  const hasCurrentAnalysis = !!currentAnalysis;
+  const currentAnalysisId = currentAnalysis?.id;
 
   // Use Tanstack Query hook for async, non-blocking history loading
   // Only enable when server is ready and authenticated to avoid connection errors
