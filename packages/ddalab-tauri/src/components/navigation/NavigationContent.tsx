@@ -8,14 +8,8 @@ import { ApiService } from "@/services/apiService";
 import { FileInfoCard } from "@/components/FileInfoCard";
 import { BIDSContextIndicator } from "@/components/BIDSContextIndicator";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Brain,
-  Activity,
-  FileText,
-  Sparkles,
-  Filter,
-  Loader2,
-} from "lucide-react";
+import { Brain, Activity, FileText, Sparkles, Filter } from "lucide-react";
+import { LoadingPlaceholder } from "@/components/ui/loading-overlay";
 
 // Lazy load heavy components to reduce initial bundle size
 // These are only loaded when their respective navigation tabs are accessed
@@ -68,16 +62,9 @@ const NotificationHistory = lazy(() =>
   })),
 );
 
-// Loading fallback component
+// Loading fallback component using standardized LoadingPlaceholder
 function LoadingFallback() {
-  return (
-    <div className="flex items-center justify-center h-full min-h-[200px]">
-      <div className="flex flex-col items-center gap-3">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <p className="text-sm text-muted-foreground">Loading...</p>
-      </div>
-    </div>
-  );
+  return <LoadingPlaceholder message="Loading..." minHeight="200px" />;
 }
 
 interface NavigationContentProps {

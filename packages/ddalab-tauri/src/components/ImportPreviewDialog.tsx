@@ -177,7 +177,17 @@ export function ImportPreviewDialog({
         if (!open) onClose();
       }}
     >
-      <DialogContent className="max-w-6xl max-h-[90vh] flex flex-col">
+      <DialogContent
+        className="max-w-6xl max-h-[90vh] flex flex-col"
+        onOpenAutoFocus={(e) => {
+          // Focus the first actionable button for better keyboard navigation
+          e.preventDefault();
+          const firstButton = document.querySelector(
+            '[data-testid="select-all-button"]',
+          ) as HTMLButtonElement;
+          firstButton?.focus();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Preview Annotation Import</DialogTitle>
           <DialogDescription>
@@ -223,9 +233,12 @@ export function ImportPreviewDialog({
             </div>
           )}
 
-        {/* Summary */}
+        {/* Summary with explanations */}
         <div className="grid grid-cols-4 gap-4 py-4">
-          <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
+          <div
+            className="flex items-center gap-2 p-3 bg-muted rounded-lg"
+            title="Total annotations found in the import file"
+          >
             <div className="flex-1">
               <div className="text-2xl font-bold">
                 {previewData.summary.total}
@@ -233,15 +246,22 @@ export function ImportPreviewDialog({
               <div className="text-xs text-muted-foreground">Total</div>
             </div>
           </div>
-          <div className="flex items-center gap-2 p-3 bg-green-500/10 rounded-lg">
+          <div
+            className="flex items-center gap-2 p-3 bg-green-500/10 rounded-lg"
+            title="New annotations that don't exist in your current file - safe to import"
+          >
             <div className="flex-1">
               <div className="text-2xl font-bold text-green-600">
                 {previewData.summary.new}
               </div>
               <div className="text-xs text-muted-foreground">New</div>
+              <div className="text-[10px] text-green-600/70">Safe to add</div>
             </div>
           </div>
-          <div className="flex items-center gap-2 p-3 bg-yellow-500/10 rounded-lg">
+          <div
+            className="flex items-center gap-2 p-3 bg-yellow-500/10 rounded-lg"
+            title="Annotations at similar positions - may be slightly different versions"
+          >
             <div className="flex-1">
               <div className="text-2xl font-bold text-yellow-600">
                 {previewData.summary.near_duplicates}
@@ -249,16 +269,33 @@ export function ImportPreviewDialog({
               <div className="text-xs text-muted-foreground">
                 Near Duplicates
               </div>
+              <div className="text-[10px] text-yellow-600/70">Review first</div>
             </div>
           </div>
-          <div className="flex items-center gap-2 p-3 bg-red-500/10 rounded-lg">
+          <div
+            className="flex items-center gap-2 p-3 bg-red-500/10 rounded-lg"
+            title="Exact duplicates that already exist - importing will create copies"
+          >
             <div className="flex-1">
               <div className="text-2xl font-bold text-red-600">
                 {previewData.summary.duplicates}
               </div>
               <div className="text-xs text-muted-foreground">Duplicates</div>
+              <div className="text-[10px] text-red-600/70">Already exist</div>
             </div>
           </div>
+        </div>
+
+        {/* Import consequences info */}
+        <div className="bg-muted/50 border rounded-lg p-3 mb-4 text-sm">
+          <p className="text-muted-foreground">
+            <strong className="text-foreground">
+              What happens when you import:
+            </strong>{" "}
+            Selected annotations will be added to your current file. Duplicates
+            will create copies at the same position. This action cannot be
+            automatically undone.
+          </p>
         </div>
 
         {/* Warnings */}
@@ -283,7 +320,12 @@ export function ImportPreviewDialog({
             Selected: {selectedIds.size} / {previewData.annotations.length}
           </span>
           <div className="flex-1" />
-          <Button variant="outline" size="sm" onClick={selectAll}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={selectAll}
+            data-testid="select-all-button"
+          >
             Select All
           </Button>
           <Button variant="outline" size="sm" onClick={selectNone}>
@@ -398,13 +440,24 @@ export function ImportPreviewDialog({
           </table>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="flex items-center gap-2">
+          {selectedIds.size === 0 && !isImporting && (
+            <span className="text-sm text-muted-foreground mr-auto">
+              Select at least one annotation to import
+            </span>
+          )}
           <Button variant="outline" onClick={onClose} disabled={isImporting}>
             Cancel
           </Button>
           <Button
             onClick={handleConfirm}
             disabled={selectedIds.size === 0 || isImporting}
+            title={
+              selectedIds.size === 0
+                ? "Select at least one annotation to import"
+                : undefined
+            }
+            aria-disabled={selectedIds.size === 0 || isImporting}
           >
             {isImporting
               ? "Importing..."

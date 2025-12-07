@@ -215,10 +215,13 @@ export function ChunkNavigator({
 
   return (
     <div className={cn("space-y-3", className)}>
-      {/* View Presets */}
+      {/* View Presets - Quick window size shortcuts */}
       <div className="flex items-center gap-2">
-        <Label className="text-xs text-muted-foreground uppercase tracking-wide shrink-0">
-          View
+        <Label
+          className="text-xs text-muted-foreground uppercase tracking-wide shrink-0"
+          title="Quick presets for how much data to show at once"
+        >
+          Zoom
         </Label>
         <div className="flex gap-1 flex-1">
           {VIEW_PRESETS.map((preset) => (
@@ -339,104 +342,123 @@ export function ChunkNavigator({
           </div>
         </div>
 
-        {/* Navigation Controls */}
-        <div className="flex items-center gap-2">
-          {/* Skip to start */}
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-8 w-8 shrink-0"
-            onClick={() => onSeek(0)}
-            disabled={isDisabled || currentTime === 0}
-            title="Go to start"
-            aria-label="Go to start"
-          >
-            <SkipBack className="h-4 w-4" aria-hidden="true" />
-          </Button>
-
-          {/* Step back */}
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-8 w-8 shrink-0"
-            onClick={onPrev || handleStepBack}
-            disabled={isDisabled || currentTime <= 0}
-            title={`Step back ${stepSize.toFixed(1)}s`}
-            aria-label="Step back"
-          >
-            <ChevronLeft className="h-4 w-4" aria-hidden="true" />
-          </Button>
-
-          {/* Position Slider */}
-          <div className="flex-1 relative">
-            <Slider
-              value={[currentTime]}
-              onValueChange={([time]) => onSeek(time)}
-              min={0}
-              max={Math.max(0, duration - timeWindow)}
-              step={0.1}
-              disabled={isDisabled}
-              className="py-2"
-            />
-            {/* Visual indicator of viewing window on slider track */}
-            <div
-              className="absolute top-1/2 -translate-y-1/2 h-1.5 bg-primary/30 rounded pointer-events-none"
-              style={{
-                left: `${positionPercent}%`,
-                width: `${Math.min(viewPercent, 100 - positionPercent)}%`,
-              }}
-            />
+        {/* Navigation Controls - Position Slider */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <Label className="text-xs text-muted-foreground">
+              Position in Recording
+            </Label>
+            <span className="text-[10px] text-muted-foreground">
+              Drag to navigate through the file
+            </span>
           </div>
+          <div className="flex items-center gap-2">
+            {/* Skip to start */}
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              onClick={() => onSeek(0)}
+              disabled={isDisabled || currentTime === 0}
+              title="Go to start"
+              aria-label="Go to start"
+            >
+              <SkipBack className="h-4 w-4" aria-hidden="true" />
+            </Button>
 
-          {/* Step forward */}
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-8 w-8 shrink-0"
-            onClick={onNext || handleStepForward}
-            disabled={isDisabled || currentTime >= duration - timeWindow}
-            title={`Step forward ${stepSize.toFixed(1)}s`}
-            aria-label="Step forward"
-          >
-            <ChevronRight className="h-4 w-4" aria-hidden="true" />
-          </Button>
+            {/* Step back */}
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              onClick={onPrev || handleStepBack}
+              disabled={isDisabled || currentTime <= 0}
+              title={`Step back ${stepSize.toFixed(1)}s`}
+              aria-label="Step back"
+            >
+              <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+            </Button>
 
-          {/* Skip to end */}
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-8 w-8 shrink-0"
-            onClick={() => onSeek(Math.max(0, duration - timeWindow))}
-            disabled={isDisabled || currentTime >= duration - timeWindow}
-            title="Go to end"
-            aria-label="Go to end"
-          >
-            <SkipForward className="h-4 w-4" aria-hidden="true" />
-          </Button>
+            {/* Position Slider */}
+            <div className="flex-1 relative">
+              <Slider
+                value={[currentTime]}
+                onValueChange={([time]) => onSeek(time)}
+                min={0}
+                max={Math.max(0, duration - timeWindow)}
+                step={0.1}
+                disabled={isDisabled}
+                className="py-2"
+                aria-label="Position in recording"
+              />
+              {/* Visual indicator of viewing window on slider track */}
+              <div
+                className="absolute top-1/2 -translate-y-1/2 h-1.5 bg-primary/30 rounded pointer-events-none"
+                style={{
+                  left: `${positionPercent}%`,
+                  width: `${Math.min(viewPercent, 100 - positionPercent)}%`,
+                }}
+              />
+            </div>
+
+            {/* Step forward */}
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              onClick={onNext || handleStepForward}
+              disabled={isDisabled || currentTime >= duration - timeWindow}
+              title={`Step forward ${stepSize.toFixed(1)}s`}
+              aria-label="Step forward"
+            >
+              <ChevronRight className="h-4 w-4" aria-hidden="true" />
+            </Button>
+
+            {/* Skip to end */}
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              onClick={() => onSeek(Math.max(0, duration - timeWindow))}
+              disabled={isDisabled || currentTime >= duration - timeWindow}
+              title="Go to end"
+              aria-label="Go to end"
+            >
+              <SkipForward className="h-4 w-4" aria-hidden="true" />
+            </Button>
+          </div>
         </div>
 
         {/* Time Window Slider (fine control) */}
-        <div className="flex items-center gap-3 pt-1">
-          <Label className="text-xs text-muted-foreground shrink-0 w-16">
-            Window:
-          </Label>
-          <Slider
-            value={[timeWindow]}
-            onValueChange={([window]) => {
-              onTimeWindowChange(window);
-              // Adjust position if needed
-              if (currentTime + window > duration) {
-                onSeek(Math.max(0, duration - window));
-              }
-            }}
-            min={1}
-            max={Math.min(120, duration)}
-            step={1}
-            disabled={isDisabled}
-            className="flex-1"
-          />
-          <div className="text-xs font-mono text-muted-foreground w-12 text-right">
-            {timeWindow.toFixed(0)}s
+        <div className="space-y-1.5 pt-2 border-t border-border/50">
+          <div className="flex items-center justify-between">
+            <Label className="text-xs text-muted-foreground">
+              Window Size (seconds visible)
+            </Label>
+            <span className="text-[10px] text-muted-foreground">
+              Adjust how much data is shown at once
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            <Slider
+              value={[timeWindow]}
+              onValueChange={([window]) => {
+                onTimeWindowChange(window);
+                // Adjust position if needed
+                if (currentTime + window > duration) {
+                  onSeek(Math.max(0, duration - window));
+                }
+              }}
+              min={1}
+              max={Math.min(120, duration)}
+              step={1}
+              disabled={isDisabled}
+              className="flex-1"
+              aria-label="Window size - seconds of data visible"
+            />
+            <div className="text-xs font-mono text-muted-foreground w-14 text-right tabular-nums">
+              {timeWindow.toFixed(0)}s
+            </div>
           </div>
         </div>
       </div>

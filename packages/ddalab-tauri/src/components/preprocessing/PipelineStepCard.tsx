@@ -55,6 +55,16 @@ const STATUS_COLORS: Record<PipelineStepStatus, string> = {
   skipped: "bg-muted text-muted-foreground",
 };
 
+// User-friendly status labels (clearer than raw status values)
+const STATUS_LABELS: Record<PipelineStepStatus, string> = {
+  idle: "Not run",
+  pending: "Queued",
+  running: "Running",
+  completed: "Done",
+  error: "Failed",
+  skipped: "Skipped",
+};
+
 export function PipelineStepCard({
   stepNumber,
   title,
@@ -92,18 +102,26 @@ export function PipelineStepCard({
     >
       {/* Header */}
       <div
-        className={cn(
-          "flex items-center gap-3 p-3 cursor-pointer hover:bg-muted/50 transition-colors",
-          isExpanded && "border-b",
-        )}
-        onClick={() => setIsExpanded(!isExpanded)}
+        className={cn("flex items-center gap-3 p-3", isExpanded && "border-b")}
       >
-        {/* Expand/Collapse Icon */}
-        <button className="p-0.5 hover:bg-muted rounded">
+        {/* Expand/Collapse Button - keyboard accessible */}
+        <button
+          type="button"
+          onClick={() => setIsExpanded(!isExpanded)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              setIsExpanded(!isExpanded);
+            }
+          }}
+          className="p-0.5 hover:bg-muted rounded focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+          aria-expanded={isExpanded}
+          aria-label={`${isExpanded ? "Collapse" : "Expand"} ${title} step configuration`}
+        >
           {isExpanded ? (
-            <ChevronDown className="h-4 w-4" />
+            <ChevronDown className="h-4 w-4" aria-hidden="true" />
           ) : (
-            <ChevronRight className="h-4 w-4" />
+            <ChevronRight className="h-4 w-4" aria-hidden="true" />
           )}
         </button>
 
@@ -123,7 +141,7 @@ export function PipelineStepCard({
               variant="outline"
               className={cn("text-xs", STATUS_COLORS[status])}
             >
-              {status}
+              {STATUS_LABELS[status]}
             </Badge>
           </div>
           <p className="text-xs text-muted-foreground truncate">
