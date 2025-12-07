@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   useRecentFilesStore,
   formatFileSize,
@@ -17,6 +17,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Clock,
   Star,
@@ -204,6 +214,8 @@ export function RecentFilesPanel({
   const removeRecentFile = useRecentFilesStore((s) => s.removeRecentFile);
   const clearRecentFiles = useRecentFilesStore((s) => s.clearRecentFiles);
 
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+
   const displayedFiles = useMemo(
     () => recentFiles.slice(0, maxItems),
     [recentFiles, maxItems],
@@ -276,7 +288,7 @@ export function RecentFilesPanel({
               variant="ghost"
               size="sm"
               className="h-6 text-xs"
-              onClick={clearRecentFiles}
+              onClick={() => setShowClearConfirm(true)}
             >
               Clear all
             </Button>
@@ -315,6 +327,30 @@ export function RecentFilesPanel({
           </p>
         )}
       </div>
+
+      <AlertDialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear recent files?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove all {displayedFiles.length} files from your
+              recent files list. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                clearRecentFiles();
+                setShowClearConfirm(false);
+              }}
+            >
+              Clear all
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
