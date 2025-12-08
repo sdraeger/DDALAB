@@ -67,36 +67,21 @@ export function PopoutLayout({
   const handleClose = async () => {
     if (!isClient) return;
     try {
-      // Emit cleanup event to main window before closing
-      // This ensures the windowManager cleans up state BEFORE any blur-triggered save
       if (currentWindowId) {
-        console.log(
-          "[PopoutLayout] Emitting popout-closing event for:",
-          currentWindowId,
-        );
         await emit("popout-closing", { windowId: currentWindowId });
-        // Small delay to ensure cleanup happens in main window
         await new Promise((resolve) => setTimeout(resolve, 100));
-        console.log("[PopoutLayout] Delay complete, closing window");
       }
-
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
-      const currentWindow = getCurrentWindow();
-      await currentWindow.close();
-    } catch (error) {
-      console.error("Failed to close window:", error);
-    }
+      await getCurrentWindow().close();
+    } catch {}
   };
 
   const handleMinimize = async () => {
     if (!isClient) return;
     try {
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
-      const currentWindow = getCurrentWindow();
-      await currentWindow.minimize();
-    } catch (error) {
-      console.error("Failed to minimize window:", error);
-    }
+      await getCurrentWindow().minimize();
+    } catch {}
   };
 
   const handleMaximizeToggle = async () => {
@@ -104,19 +89,15 @@ export function PopoutLayout({
     try {
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
       const currentWindow = getCurrentWindow();
-
       if (isMaximized) {
         await currentWindow.unmaximize();
       } else {
         await currentWindow.maximize();
       }
       setIsMaximized(!isMaximized);
-    } catch (error) {
-      console.error("Failed to toggle maximize:", error);
-    }
+    } catch {}
   };
 
-  // Monitor window maximize state and handle close events
   useEffect(() => {
     if (!isClient) return;
 
@@ -125,55 +106,27 @@ export function PopoutLayout({
 
     const setupWindowListeners = async () => {
       try {
-        console.log(
-          "[PopoutLayout] Setting up window listeners, currentWindowId:",
-          currentWindowId,
-        );
         const { getCurrentWindow } = await import("@tauri-apps/api/window");
         const currentWindow = getCurrentWindow();
 
-        unlistenResize = await currentWindow.onResized(() => {
-          // Could check if window is maximized here, but it's complex
-          // For now, we'll rely on the toggle state
-        });
+        unlistenResize = await currentWindow.onResized(() => {});
 
-        // Listen for window close request (OS close button)
-        // This ensures cleanup happens even when using OS window controls
         unlistenClose = await currentWindow.onCloseRequested(async (event) => {
-          console.log(
-            "[PopoutLayout] OS close requested, windowId:",
-            currentWindowId,
-          );
-
-          // CRITICAL: Prevent the default close to allow cleanup to complete
           event.preventDefault();
-
           if (currentWindowId) {
-            console.log(
-              "[PopoutLayout] Emitting popout-closing event for:",
-              currentWindowId,
-            );
             await emit("popout-closing", { windowId: currentWindowId });
-            // Small delay to ensure main window receives and processes the event
             await new Promise((resolve) => setTimeout(resolve, 150));
           }
-
-          // Now manually close the window after cleanup
-          console.log("[PopoutLayout] Cleanup complete, closing window");
           await currentWindow.close();
         });
-
-        console.log("[PopoutLayout] Window listeners set up successfully");
-      } catch (error) {
-        console.error("Failed to setup window listeners:", error);
-      }
+      } catch {}
     };
 
     setupWindowListeners();
 
     return () => {
-      if (unlistenResize) unlistenResize();
-      if (unlistenClose) unlistenClose();
+      unlistenResize?.();
+      unlistenClose?.();
     };
   }, [isClient, currentWindowId]);
 
