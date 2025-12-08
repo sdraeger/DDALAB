@@ -1,4 +1,5 @@
 import { emit, listen, UnlistenFn } from "@tauri-apps/api/event";
+import type { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 export type WindowType = "timeseries" | "dda-results" | "eeg-visualization";
 
@@ -52,10 +53,20 @@ export interface PersistedPopoutWindow {
 }
 
 class WindowManager {
-  private windows: Map<string, any> = new Map();
+  private windows: Map<string, WebviewWindow> = new Map();
   private windowStates: Map<string, PopoutWindowState> = new Map();
   private listeners: Map<string, UnlistenFn> = new Map();
   private stateChangeListeners: Set<WindowStateChangeListener> = new Set();
+  private positionUpdateInterval: ReturnType<typeof setInterval> | null = null;
+  private isAppClosing: boolean = false;
+
+  /**
+   * Mark that the app is closing - prevents popout window cleanup
+   * so that window state can be persisted before windows are destroyed
+   */
+  setAppClosing(closing: boolean): void {
+    this.isAppClosing = closing;
+  }
 
   // Subscribe to window state changes (event-based, no polling needed)
   onStateChange(listener: WindowStateChangeListener): () => void {
@@ -126,6 +137,7 @@ class WindowManager {
 
     try {
       const { invoke } = await import("@tauri-apps/api/core");
+      const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
       const updatedUrl = config.url.replace(`id=${id}`, `id=${windowId}`);
 
       const tauriLabel = await invoke<string>("create_popout_window", {
@@ -138,6 +150,9 @@ class WindowManager {
         x: savedPosition?.x,
         y: savedPosition?.y,
       });
+
+      // Get reference to the created window for tracking
+      const webviewWindow = await WebviewWindow.getByLabel(tauriLabel);
 
       const state: PopoutWindowState = {
         id: windowId,
@@ -155,6 +170,30 @@ class WindowManager {
       };
       this.windowStates.set(windowId, state);
 
+      // Track the window reference
+      if (webviewWindow) {
+        this.windows.set(windowId, webviewWindow);
+
+        // Listen for window close event to clean up state
+        const closeListener = await webviewWindow.onCloseRequested(async () => {
+          // Update position one last time before closing
+          await this.updateWindowPosition(windowId);
+          this.cleanup(windowId);
+        });
+        this.listeners.set(`${windowId}-close`, closeListener);
+
+        // Listen for window move/resize to track position in real-time
+        const moveListener = await webviewWindow.onMoved(async () => {
+          await this.updateWindowPosition(windowId);
+        });
+        this.listeners.set(`${windowId}-move`, moveListener);
+
+        const resizeListener = await webviewWindow.onResized(async () => {
+          await this.updateWindowPosition(windowId);
+        });
+        this.listeners.set(`${windowId}-resize`, resizeListener);
+      }
+
       const readyListener = await listen(
         `popout-ready-${windowId}`,
         async () => {
@@ -166,9 +205,32 @@ class WindowManager {
       // Emit state change event for subscribers
       this.emitStateChange("created", windowId);
 
+      // Start periodic position updates if not already running
+      this.startPositionTracking();
+
       return windowId;
     } catch (error) {
       throw error;
+    }
+  }
+
+  /** Start periodic position tracking for all windows */
+  private startPositionTracking(): void {
+    if (this.positionUpdateInterval) return;
+
+    // Update positions every 5 seconds as a fallback
+    this.positionUpdateInterval = setInterval(async () => {
+      for (const windowId of this.windowStates.keys()) {
+        await this.updateWindowPosition(windowId);
+      }
+    }, 5000);
+  }
+
+  /** Stop position tracking */
+  private stopPositionTracking(): void {
+    if (this.positionUpdateInterval) {
+      clearInterval(this.positionUpdateInterval);
+      this.positionUpdateInterval = null;
     }
   }
 
@@ -194,8 +256,12 @@ class WindowManager {
     const windows: PersistedPopoutWindow[] = [];
 
     for (const [windowId, state] of this.windowStates.entries()) {
-      // Update position before saving
-      await this.updateWindowPosition(windowId);
+      // Try to update position, but use cached position if fetch fails
+      try {
+        await this.updateWindowPosition(windowId);
+      } catch {
+        // Position fetch may fail if window is closing - use cached position
+      }
 
       const updatedState = this.windowStates.get(windowId);
       if (updatedState?.position) {
@@ -228,8 +294,8 @@ class WindowManager {
           saved.data,
           saved.position,
         );
-      } catch {
-        // Window restoration failed silently
+      } catch (error) {
+        console.error(`[WindowManager] Failed to restore window:`, error);
       }
     }
   }
@@ -247,10 +313,23 @@ class WindowManager {
   }
 
   private cleanup(windowId: string): void {
+    // Skip cleanup if app is closing - we need to preserve window state for persistence
+    if (this.isAppClosing) {
+      return;
+    }
+
     this.windows.delete(windowId);
     this.windowStates.delete(windowId);
 
-    for (const suffix of ["close", "lock", "unlock", "ready"]) {
+    // Clean up all listeners for this window
+    for (const suffix of [
+      "close",
+      "lock",
+      "unlock",
+      "ready",
+      "move",
+      "resize",
+    ]) {
       const key = `${windowId}-${suffix}`;
       const listener = this.listeners.get(key);
       if (listener) {
@@ -260,6 +339,11 @@ class WindowManager {
     }
 
     this.emitStateChange("closed", windowId);
+
+    // Stop position tracking if no windows remain
+    if (this.windowStates.size === 0) {
+      this.stopPositionTracking();
+    }
   }
 
   async sendDataToWindow(windowId: string, data: any): Promise<void> {

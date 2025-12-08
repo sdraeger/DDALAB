@@ -182,9 +182,24 @@ export class StatePersistenceService {
 
   /**
    * Force immediate state save
+   * This will first flush any pending throttled save, then call force_save_state
    */
   async forceSave(): Promise<void> {
     try {
+      // Cancel any pending throttled save and execute immediately
+      if (this.throttleTimer) {
+        clearTimeout(this.throttleTimer);
+        this.throttleTimer = null;
+      }
+
+      // If there's a pending save, execute it immediately
+      if (this.pendingSave) {
+        console.log(
+          "[StatePersistenceService] Flushing pending save before force save",
+        );
+        await this.executeSave(this.pendingSave);
+      }
+
       await invoke("force_save_state");
     } catch (error) {
       console.error("Failed to force save state:", error);

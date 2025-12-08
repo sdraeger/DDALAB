@@ -41,6 +41,7 @@ function OverviewPlotComponent({
   const annotationsRef = useRef<PlotAnnotation[]>(annotations);
   const lastDurationRef = useRef<number | null>(null);
   const retryCountRef = useRef(0);
+  const forceRedrawTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [retryTrigger, setRetryTrigger] = useState(0);
   const [containerReady, setContainerReady] = useState(false);
   const [plotCreated, setPlotCreated] = useState(false);
@@ -69,9 +70,11 @@ function OverviewPlotComponent({
     if (!plotRef.current) return;
 
     const container = plotRef.current;
+    const width = container.clientWidth;
+    const height = container.clientHeight;
 
     // Check if already ready
-    if (container.clientWidth > 0 && container.clientHeight > 0) {
+    if (width > 0 && height > 0) {
       setContainerReady(true);
       return;
     }
@@ -98,8 +101,15 @@ function OverviewPlotComponent({
       }
     }, 100);
 
+    // Fallback: Force containerReady after 1 second even if dimensions seem 0
+    // This handles edge cases in popout windows where layout calculations fail
+    const fallbackTimeout = setTimeout(() => {
+      setContainerReady(true);
+    }, 1000);
+
     return () => {
       clearInterval(checkInterval);
+      clearTimeout(fallbackTimeout);
       initObserverRef.current?.disconnect();
       initObserverRef.current = null;
     };
@@ -159,6 +169,7 @@ function OverviewPlotComponent({
 
     // Calculate time array for overview (spans entire file duration)
     const numPoints = overviewData.data[0]?.length || 0;
+
     const timeData = Array.from(
       { length: numPoints },
       (_, i) => (i / numPoints) * duration,
@@ -178,6 +189,12 @@ function OverviewPlotComponent({
       });
     });
     const yPadding = (yMax - yMin) * 0.1 || 1;
+
+    // Safeguard against invalid scale values
+    if (!Number.isFinite(yMin) || !Number.isFinite(yMax)) {
+      yMin = 0;
+      yMax = (overviewData.data.length - 1) * channelOffset + 10;
+    }
 
     const data: uPlot.AlignedData = [timeData, ...processedData];
 
@@ -383,6 +400,20 @@ function OverviewPlotComponent({
         if (canvasOk && seriesMatch) {
           uplotRef.current!.setData(data);
           uplotRef.current!.redraw();
+
+          // CRITICAL: Also force delayed redraw for existing plots
+          // In popout windows, even setData + redraw may not render content properly
+          setTimeout(() => {
+            if (uplotRef.current && container) {
+              const w =
+                container.getBoundingClientRect().width ||
+                container.clientWidth;
+              if (w > 0) {
+                uplotRef.current.setSize({ width: w, height: 100 });
+                uplotRef.current.redraw();
+              }
+            }
+          }, 100);
         } else if (!seriesMatch) {
           // Series count mismatch - need to recreate plot
           uplotRef.current!.destroy();
@@ -423,33 +454,147 @@ function OverviewPlotComponent({
         // Update opts with accurate width
         opts.width = width;
 
-        // Create the plot - uPlot will size canvases based on opts.width/height
-        uplotRef.current = new uPlot(opts, data, container);
+        // Clear any existing timeout
+        if (forceRedrawTimeoutRef.current) {
+          clearTimeout(forceRedrawTimeoutRef.current);
+        }
 
-        // CRITICAL: Force resize and redraw after a delay
-        // In popout windows, uPlot sometimes doesn't render content initially
-        // even when canvas dimensions are correct. A delayed setSize + redraw fixes this.
-        const forceResizeAndRedraw = (delay: number) => {
-          setTimeout(() => {
-            if (uplotRef.current && container) {
-              const w =
-                container.getBoundingClientRect().width ||
-                container.clientWidth;
-              if (w > 0) {
+        // Check if we're in a popout window
+        const isPopout = window.location.pathname.includes("/popout/");
+
+        // Function to create the plot
+        const createPlot = () => {
+          if (!plotRef.current) return;
+
+          // Get fresh dimensions
+          const freshRect = plotRef.current.getBoundingClientRect();
+          const freshWidth = Math.max(
+            freshRect.width,
+            plotRef.current.clientWidth,
+            width,
+          );
+
+          // Update opts with fresh width
+          opts.width = freshWidth;
+
+          // Destroy any existing plot first
+          if (uplotRef.current) {
+            try {
+              uplotRef.current.destroy();
+            } catch {
+              // Ignore destroy errors
+            }
+            uplotRef.current = null;
+          }
+
+          // Clear container
+          while (container.firstChild) {
+            container.removeChild(container.firstChild);
+          }
+
+          // Create the plot
+          uplotRef.current = new uPlot(opts, data, container);
+
+          // In popout, schedule a redraw after paint cycle
+          if (isPopout) {
+            requestAnimationFrame(() => {
+              if (uplotRef.current && plotRef.current) {
+                const w =
+                  plotRef.current.getBoundingClientRect().width || freshWidth;
                 uplotRef.current.setSize({ width: w, height: 100 });
                 uplotRef.current.redraw();
               }
-            }
-          }, delay);
+            });
+          }
         };
 
-        // Immediate RAF resize to handle initial render
-        requestAnimationFrame(() => {
-          if (uplotRef.current) {
-            uplotRef.current.setSize({ width, height: 100 });
-            uplotRef.current.redraw();
-          }
-        });
+        if (isPopout) {
+          // POPOUT WINDOW STRATEGY:
+          // Wait for the browser to be truly ready before creating the plot.
+          // In popout webviews, the canvas context isn't ready until after:
+          // 1. Document is fully loaded (readyState === 'complete')
+          // 2. A paint cycle has occurred (double RAF)
+
+          const waitForBrowserReady = (callback: () => void) => {
+            // First, ensure document is fully loaded
+            if (document.readyState !== "complete") {
+              window.addEventListener(
+                "load",
+                () => waitForBrowserReady(callback),
+                {
+                  once: true,
+                },
+              );
+              return;
+            }
+
+            // Then wait for two animation frames (ensures a full paint cycle)
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => {
+                // Finally, use requestIdleCallback if available, otherwise small timeout
+                if ("requestIdleCallback" in window) {
+                  (
+                    window as typeof window & {
+                      requestIdleCallback: (cb: () => void) => void;
+                    }
+                  ).requestIdleCallback(callback);
+                } else {
+                  setTimeout(callback, 0);
+                }
+              });
+            });
+          };
+
+          waitForBrowserReady(() => {
+            createPlot();
+
+            // Verify content rendered, retry if needed
+            requestAnimationFrame(() => {
+              if (!uplotRef.current || !plotRef.current) return;
+
+              const canvas = uplotRef.current.root?.querySelector(
+                "canvas",
+              ) as HTMLCanvasElement | null;
+              if (canvas) {
+                const ctx = canvas.getContext("2d");
+                if (ctx) {
+                  try {
+                    const centerX = Math.floor(canvas.width / 2);
+                    const centerY = Math.floor(canvas.height / 2);
+                    const imgData = ctx.getImageData(
+                      centerX - 25,
+                      centerY - 10,
+                      50,
+                      20,
+                    );
+                    let hasContent = false;
+                    for (let i = 0; i < imgData.data.length; i += 4) {
+                      if (imgData.data[i + 3] > 50) {
+                        hasContent = true;
+                        break;
+                      }
+                    }
+
+                    // If still blank, retry once after another paint cycle
+                    if (!hasContent) {
+                      requestAnimationFrame(() => {
+                        requestAnimationFrame(() => {
+                          createPlot();
+                        });
+                      });
+                    }
+                  } catch {
+                    // Ignore getImageData errors
+                  }
+                }
+              }
+            });
+          });
+        } else {
+          // MAIN WINDOW STRATEGY:
+          // Create plot immediately - this works fine in main window
+          createPlot();
+        }
 
         setPlotCreated(true);
 
@@ -469,10 +614,6 @@ function OverviewPlotComponent({
           }
         });
         resizeObserverRef.current.observe(container);
-
-        // Single delayed resize check for popout windows
-        // This is the key fix: uPlot needs a delayed redraw to render in popout windows
-        forceResizeAndRedraw(500);
       }
     } catch (error) {
       console.error("[OverviewPlot] Error:", error);
@@ -491,6 +632,10 @@ function OverviewPlotComponent({
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      if (forceRedrawTimeoutRef.current) {
+        clearTimeout(forceRedrawTimeoutRef.current);
+        forceRedrawTimeoutRef.current = null;
+      }
       if (uplotRef.current) {
         uplotRef.current.destroy();
         uplotRef.current = null;
