@@ -22,17 +22,8 @@ export const createPersistenceSlice: ImmerStateCreator<
   // Access via getStatePersistenceService() singleton instead.
 
   initializePersistence: async () => {
-    console.log("[Persistence] initializePersistence called", {
-      isTauri: TauriService.isTauri(),
-      hasInitializedPersistence,
-      isInitializingPersistence,
-    });
-
     if (TauriService.isTauri()) {
       if (hasInitializedPersistence || isInitializingPersistence) {
-        console.log(
-          "[Persistence] Skipping - already initialized or initializing",
-        );
         return;
       }
 
@@ -50,12 +41,6 @@ export const createPersistenceSlice: ImmerStateCreator<
         });
 
         const persistedState = await service.initialize();
-
-        console.log("[Persistence] Loaded state from backend:", {
-          chartHeight: persistedState.plot?.filters?.chartHeight,
-          sidebarWidth: persistedState.ui?.sidebarWidth,
-          popoutWindowsCount: persistedState.ui?.popoutWindows?.length,
-        });
 
         let dataDirectoryPath = "";
         try {
@@ -244,38 +229,19 @@ export const createPersistenceSlice: ImmerStateCreator<
 
     const service = getStatePersistenceService();
     const currentState = get();
-    const saveId = Date.now();
 
     if (service && currentState.isPersistenceRestored) {
       await Promise.resolve();
 
-      // Capture cleanup version BEFORE getting windows
       const versionBefore = windowManager.getCleanupVersion();
-      console.log(
-        `[Persistence:${saveId}] Starting save, cleanup version:`,
-        versionBefore,
-      );
       let popoutWindows =
         (await windowManager.getWindowsForPersistence()) as PersistedPopoutWindowState[];
-      // Check if cleanup happened during the async operation
+
+      // Re-fetch if cleanup happened during async operation
       const versionAfter = windowManager.getCleanupVersion();
       if (versionBefore !== versionAfter) {
-        console.log(
-          `[Persistence:${saveId}] Cleanup happened during save. Version:`,
-          versionBefore,
-          "->",
-          versionAfter,
-          "Original windows:",
-          popoutWindows.length,
-        );
-        // Re-fetch windows with current state (cleanup already happened)
         popoutWindows =
           (await windowManager.getWindowsForPersistence()) as PersistedPopoutWindowState[];
-        console.log(
-          `[Persistence:${saveId}] Re-fetch returned:`,
-          popoutWindows.length,
-          "windows",
-        );
       }
 
       const stateToSave = {
@@ -335,24 +301,13 @@ export const createPersistenceSlice: ImmerStateCreator<
         },
       };
 
-      // Final check: if cleanup happened while building state, update popoutWindows
+      // Re-fetch if cleanup happened while building state
       const finalVersion = windowManager.getCleanupVersion();
       if (finalVersion !== versionAfter) {
-        console.log(
-          `[Persistence:${saveId}] Cleanup during state build, re-fetching. Version:`,
-          versionAfter,
-          "->",
-          finalVersion,
-        );
         stateToSave.ui.popoutWindows =
           (await windowManager.getWindowsForPersistence()) as PersistedPopoutWindowState[];
       }
 
-      console.log(`[Persistence:${saveId}] Saving state with:`, {
-        chartHeight: stateToSave.plot?.filters?.chartHeight,
-        sidebarWidth: stateToSave.ui?.sidebarWidth,
-        popoutWindowsCount: stateToSave.ui?.popoutWindows?.length,
-      });
       await service.saveCompleteState(stateToSave);
     }
   },
