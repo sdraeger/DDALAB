@@ -47,6 +47,9 @@ export function StatePersistenceProvider({
     // Set up window close handler
     const setupWindowCloseHandler = async () => {
       try {
+        // Initialize windowManager listeners for popout window cleanup events
+        await windowManager.initializeListeners();
+
         // Listen for window close events
         const unlistenClose = await listen(
           "tauri://close-requested",

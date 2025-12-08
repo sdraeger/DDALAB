@@ -484,4 +484,25 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
       state.fileManager.highlightedFilePath = null;
     });
   },
+
+  clearSelectedFile: () => {
+    set((state) => {
+      // Clear selected file
+      state.fileManager.selectedFile = null;
+      state.fileManager.selectedChannels = [];
+
+      // Reset plot state
+      state.plot.currentChunk = null;
+      state.plot.chunkStart = 0;
+
+      // Reset DDA state
+      state.dda.currentAnalysis = null;
+      state.dda.previousAnalysis = null;
+      state.dda.analysisHistory = [];
+
+      // Reset ICA state
+      state.ica.selectedChannels = [];
+      state.ica.selectedResultId = null;
+    });
+  },
 });

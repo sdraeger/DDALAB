@@ -351,6 +351,16 @@ export class FileStateManager {
   }
 
   /**
+   * Clear the active file path (called when all tabs are closed)
+   * This does not delete file state, just clears the active file tracking
+   */
+  clearActiveFile(): void {
+    console.log("[FileStateManager] Clearing active file");
+    this.registry.lastActiveFilePath = this.registry.activeFilePath;
+    this.registry.activeFilePath = null;
+  }
+
+  /**
    * Get all file paths that have state
    */
   getTrackedFiles(): string[] {

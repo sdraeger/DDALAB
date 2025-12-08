@@ -30,9 +30,7 @@ import {
   Zap,
   TrendingDown,
   RotateCcw,
-  ChevronRight,
 } from "lucide-react";
-import { useAppStore } from "@/store/appStore";
 
 interface QuickFiltersProps {
   preprocessing: PreprocessingOptions;
@@ -47,9 +45,6 @@ export function QuickFilters({
   sampleRate = 256,
   className,
 }: QuickFiltersProps) {
-  const setSecondaryNav = useAppStore((state) => state.setSecondaryNav);
-  const setPrimaryNav = useAppStore((state) => state.setPrimaryNav);
-
   // Check which filters are active
   const hasHighpass = !!preprocessing.highpass;
   const hasLowpass = !!preprocessing.lowpass;
@@ -88,11 +83,6 @@ export function QuickFilters({
       smoothing: undefined,
       outlierRemoval: undefined,
     });
-  };
-
-  const goToPreprocessingPipeline = () => {
-    setPrimaryNav("explore");
-    setSecondaryNav("preprocessing");
   };
 
   // Generate filter summary text
@@ -320,19 +310,6 @@ export function QuickFilters({
                     </Button>
                   </div>
                 </div>
-              </div>
-
-              {/* Link to full preprocessing pipeline */}
-              <div className="pt-2 border-t">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="w-full justify-between text-xs"
-                  onClick={goToPreprocessingPipeline}
-                >
-                  <span>Advanced preprocessing pipeline</span>
-                  <ChevronRight className="h-3 w-3" />
-                </Button>
               </div>
             </div>
           </PopoverContent>

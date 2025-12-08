@@ -244,12 +244,39 @@ export const createPersistenceSlice: ImmerStateCreator<
 
     const service = getStatePersistenceService();
     const currentState = get();
+    const saveId = Date.now();
 
     if (service && currentState.isPersistenceRestored) {
       await Promise.resolve();
 
-      const popoutWindows =
+      // Capture cleanup version BEFORE getting windows
+      const versionBefore = windowManager.getCleanupVersion();
+      console.log(
+        `[Persistence:${saveId}] Starting save, cleanup version:`,
+        versionBefore,
+      );
+      let popoutWindows =
         (await windowManager.getWindowsForPersistence()) as PersistedPopoutWindowState[];
+      // Check if cleanup happened during the async operation
+      const versionAfter = windowManager.getCleanupVersion();
+      if (versionBefore !== versionAfter) {
+        console.log(
+          `[Persistence:${saveId}] Cleanup happened during save. Version:`,
+          versionBefore,
+          "->",
+          versionAfter,
+          "Original windows:",
+          popoutWindows.length,
+        );
+        // Re-fetch windows with current state (cleanup already happened)
+        popoutWindows =
+          (await windowManager.getWindowsForPersistence()) as PersistedPopoutWindowState[];
+        console.log(
+          `[Persistence:${saveId}] Re-fetch returned:`,
+          popoutWindows.length,
+          "windows",
+        );
+      }
 
       const stateToSave = {
         version: "2.0.0",
@@ -308,7 +335,20 @@ export const createPersistenceSlice: ImmerStateCreator<
         },
       };
 
-      console.log("[Persistence] Saving state with:", {
+      // Final check: if cleanup happened while building state, update popoutWindows
+      const finalVersion = windowManager.getCleanupVersion();
+      if (finalVersion !== versionAfter) {
+        console.log(
+          `[Persistence:${saveId}] Cleanup during state build, re-fetching. Version:`,
+          versionAfter,
+          "->",
+          finalVersion,
+        );
+        stateToSave.ui.popoutWindows =
+          (await windowManager.getWindowsForPersistence()) as PersistedPopoutWindowState[];
+      }
+
+      console.log(`[Persistence:${saveId}] Saving state with:`, {
         chartHeight: stateToSave.plot?.filters?.chartHeight,
         sidebarWidth: stateToSave.ui?.sidebarWidth,
         popoutWindowsCount: stateToSave.ui?.popoutWindows?.length,
