@@ -54,6 +54,7 @@ pub mod intermediate_format; // Universal intermediate data format
 pub mod models;
 pub mod nsg;
 pub mod profiling;
+pub mod signal_processing; // Digital signal processing (filters, preprocessing)
 pub mod streaming; // Real-time data streaming and DDA processing
 pub mod sync;
 pub mod tasks; // Task management with cancellation support

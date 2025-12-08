@@ -7,6 +7,7 @@ use crate::api::utils::{
 };
 use crate::edf::EDFReader;
 use crate::file_readers::FileReaderFactory;
+use crate::signal_processing::{preprocess_batch, PreprocessingConfig};
 use crate::text_reader::TextFileReader;
 use axum::{
     extract::{Query, State},
@@ -18,6 +19,58 @@ use rayon::prelude::*;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+/// Preprocessing parameters parsed from query string
+#[derive(Debug, Clone, Default)]
+struct PreprocessingParams {
+    highpass: Option<f64>,
+    lowpass: Option<f64>,
+    notch: Option<Vec<f64>>,
+}
+
+impl PreprocessingParams {
+    fn from_query(params: &HashMap<String, String>) -> Self {
+        Self {
+            highpass: params.get("highpass").and_then(|s| s.parse().ok()),
+            lowpass: params.get("lowpass").and_then(|s| s.parse().ok()),
+            notch: params
+                .get("notch")
+                .map(|s| s.split(',').filter_map(|v| v.trim().parse().ok()).collect()),
+        }
+    }
+
+    fn is_enabled(&self) -> bool {
+        self.highpass.is_some()
+            || self.lowpass.is_some()
+            || self.notch.as_ref().is_some_and(|v| !v.is_empty())
+    }
+
+    fn cache_key_suffix(&self) -> String {
+        if !self.is_enabled() {
+            return String::new();
+        }
+        let mut parts = Vec::new();
+        if let Some(hp) = self.highpass {
+            parts.push(format!("hp{}", hp));
+        }
+        if let Some(lp) = self.lowpass {
+            parts.push(format!("lp{}", lp));
+        }
+        if let Some(ref notch) = self.notch {
+            if !notch.is_empty() {
+                parts.push(format!(
+                    "n{}",
+                    notch
+                        .iter()
+                        .map(|v| v.to_string())
+                        .collect::<Vec<_>>()
+                        .join("_")
+                ));
+            }
+        }
+        format!(":pp:{}", parts.join(","))
+    }
+}
 
 pub async fn get_edf_info(
     State(state): State<Arc<ApiState>>,
@@ -59,6 +112,11 @@ pub async fn get_edf_info(
 /// Get chunk data from EDF/CSV/ASCII files.
 /// Uses Arc<ChunkData> for zero-copy responses - serde serializes Arc<T> identically to T,
 /// avoiding ~5MB clones on every request (30s @ 256Hz, 16 channels).
+///
+/// Supports optional preprocessing via query params:
+/// - highpass: High-pass filter cutoff frequency (Hz)
+/// - lowpass: Low-pass filter cutoff frequency (Hz)
+/// - notch: Comma-separated notch filter frequencies (Hz), e.g., "60,120"
 pub async fn get_edf_data(
     State(state): State<Arc<ApiState>>,
     Query(params): Query<HashMap<String, String>>,
@@ -70,6 +128,9 @@ pub async fn get_edf_data(
     // Check for git-annex symlinks early
     let path = std::path::Path::new(file_path);
     check_git_annex_symlink(path)?;
+
+    // Parse preprocessing parameters
+    let preprocessing = PreprocessingParams::from_query(&params);
 
     let (start_time, duration, needs_sample_rate) =
         if let Some(chunk_start_str) = params.get("chunk_start") {
@@ -97,7 +158,8 @@ pub async fn get_edf_data(
         .get("channels")
         .map(|s| s.split(',').map(|c| c.trim().to_string()).collect());
 
-    let chunk_key = if let Some(ref channels) = selected_channels {
+    // Include preprocessing in cache key to ensure filtered data is cached separately
+    let base_key = if let Some(ref channels) = selected_channels {
         format!(
             "{}:{}:{}:{}",
             file_path,
@@ -108,6 +170,7 @@ pub async fn get_edf_data(
     } else {
         format!("{}:{}:{}", file_path, start_time, duration)
     };
+    let chunk_key = format!("{}{}", base_key, preprocessing.cache_key_suffix());
 
     {
         let chunk_cache = state.chunks_cache.read();
@@ -202,15 +265,149 @@ pub async fn get_edf_data(
         ApiError::ParseError(e)
     })?;
 
+    // Apply preprocessing filters if enabled
+    let processed_chunk = if preprocessing.is_enabled() {
+        apply_preprocessing_to_chunk(chunk, &preprocessing)?
+    } else {
+        chunk
+    };
+
     // ZERO-COPY: Wrap in Arc once, insert Arc clone into cache, return same Arc.
     // No ChunkData cloning - just Arc reference counting.
-    let chunk_arc = Arc::new(chunk);
+    let chunk_arc = Arc::new(processed_chunk);
     {
         let mut chunk_cache = state.chunks_cache.write();
         chunk_cache.insert_arc(chunk_key, Arc::clone(&chunk_arc));
     }
 
     Ok(Json(chunk_arc))
+}
+
+/// Apply preprocessing filters to chunk data
+fn apply_preprocessing_to_chunk(
+    mut chunk: ChunkData,
+    preprocessing: &PreprocessingParams,
+) -> Result<ChunkData, ApiError> {
+    log::info!(
+        "[PREPROCESSING] Input: {} channels, {} samples/channel, sample_rate={}",
+        chunk.channel_labels.len(),
+        chunk.data.first().map(|c| c.len()).unwrap_or(0),
+        chunk.sampling_frequency
+    );
+    log::info!(
+        "[PREPROCESSING] Params: highpass={:?}, lowpass={:?}, notch={:?}",
+        preprocessing.highpass,
+        preprocessing.lowpass,
+        preprocessing.notch
+    );
+
+    if chunk.data.is_empty() || chunk.sampling_frequency <= 0.0 {
+        log::warn!("[PREPROCESSING] Skipping: empty data or invalid sample rate");
+        return Ok(chunk);
+    }
+
+    let sample_rate = chunk.sampling_frequency;
+
+    // Build preprocessing config
+    let mut config = PreprocessingConfig {
+        sample_rate,
+        notch_enabled: false,
+        notch_frequency: 60.0,
+        notch_harmonics: 1,
+        notch_q: 30.0,
+        bandpass_enabled: false,
+        bandpass_low: 0.5,
+        bandpass_high: sample_rate / 2.0 - 1.0,
+        filter_order: 4,
+    };
+
+    // Configure notch filter
+    if let Some(ref notch_freqs) = preprocessing.notch {
+        if !notch_freqs.is_empty() {
+            config.notch_enabled = true;
+            config.notch_frequency = notch_freqs[0];
+            config.notch_harmonics = notch_freqs.len();
+        }
+    }
+
+    // Configure bandpass filter
+    let has_highpass = preprocessing.highpass.is_some();
+    let has_lowpass = preprocessing.lowpass.is_some();
+
+    if has_highpass || has_lowpass {
+        config.bandpass_enabled = true;
+        if let Some(hp) = preprocessing.highpass {
+            config.bandpass_low = hp;
+        }
+        if let Some(lp) = preprocessing.lowpass {
+            config.bandpass_high = lp;
+        }
+    }
+
+    // Apply filtering
+    if config.notch_enabled || config.bandpass_enabled {
+        let start_time = std::time::Instant::now();
+
+        log::info!(
+            "[PREPROCESSING] Config: notch={}@{}Hz (harmonics={}), bandpass={}@{}-{}Hz",
+            config.notch_enabled,
+            config.notch_frequency,
+            config.notch_harmonics,
+            config.bandpass_enabled,
+            config.bandpass_low,
+            config.bandpass_high
+        );
+
+        // Log input statistics for comparison
+        if let Some(first_channel) = chunk.data.first() {
+            let (min, max) = first_channel
+                .iter()
+                .fold((f64::MAX, f64::MIN), |(min, max), &v| {
+                    (min.min(v), max.max(v))
+                });
+            log::info!(
+                "[PREPROCESSING] Input ch0: min={:.4}, max={:.4}, range={:.4}",
+                min,
+                max,
+                max - min
+            );
+        }
+
+        let result =
+            preprocess_batch(&chunk.data, &chunk.channel_labels, &config).map_err(|e| {
+                log::error!("[PREPROCESSING] Filter error: {}", e);
+                ApiError::InternalError(format!("Preprocessing failed: {}", e))
+            })?;
+
+        // Log output statistics for debugging
+        let elapsed = start_time.elapsed();
+        if let Some(first_channel) = result.channels.first() {
+            let (min, max) = first_channel
+                .iter()
+                .fold((f64::MAX, f64::MIN), |(min, max), &v| {
+                    (min.min(v), max.max(v))
+                });
+            let has_nan = first_channel.iter().any(|v| v.is_nan());
+            let has_inf = first_channel.iter().any(|v| v.is_infinite());
+            log::info!(
+                "[PREPROCESSING] Output ch0: min={:.4}, max={:.4}, nan={}, inf={}",
+                min,
+                max,
+                has_nan,
+                has_inf
+            );
+        }
+
+        chunk.data = result.channels;
+
+        log::info!(
+            "[PREPROCESSING] Applied filters to {} channels in {:.1}ms",
+            chunk.channel_labels.len(),
+            elapsed.as_secs_f64() * 1000.0
+        );
+    }
+
+    Ok(chunk)
 }
 
 pub async fn get_overview_progress(

@@ -59,6 +59,102 @@ class WindowManager {
   private stateChangeListeners: Set<WindowStateChangeListener> = new Set();
   private positionUpdateInterval: ReturnType<typeof setInterval> | null = null;
   private isAppClosing: boolean = false;
+  private popoutClosingListener: UnlistenFn | null = null;
+  /** Version counter incremented on cleanup - used to detect stale saves */
+  private cleanupVersion: number = 0;
+
+  /**
+   * Initialize event listeners for popout window management
+   * Should be called once from the main window
+   */
+  async initializeListeners(): Promise<void> {
+    if (this.popoutClosingListener) return;
+
+    console.log("[WindowManager] Initializing popout-closing listener");
+    this.popoutClosingListener = await listen(
+      "popout-closing",
+      (event: any) => {
+        console.log("[WindowManager] Received popout-closing event:", event);
+        const { windowId } = event.payload;
+        if (windowId) {
+          console.log("[WindowManager] Cleaning up window:", windowId);
+          this.forceCleanup(windowId);
+          console.log(
+            "[WindowManager] After cleanup, windowStates size:",
+            this.windowStates.size,
+          );
+        }
+      },
+    );
+  }
+
+  /**
+   * Force cleanup of a window (used when popout notifies it's closing)
+   * Also triggers a state save to ensure the cleanup is persisted
+   */
+  forceCleanup(windowId: string): void {
+    // Increment cleanup version FIRST to invalidate any in-flight saves
+    this.cleanupVersion++;
+    console.log(
+      "[WindowManager] Cleanup version incremented to:",
+      this.cleanupVersion,
+    );
+
+    console.log(
+      "[WindowManager] forceCleanup deleting window:",
+      windowId,
+      "windowStates.size before:",
+      this.windowStates.size,
+    );
+    this.windows.delete(windowId);
+    this.windowStates.delete(windowId);
+    console.log(
+      "[WindowManager] forceCleanup after delete, windowStates.size:",
+      this.windowStates.size,
+    );
+
+    // Clean up all listeners for this window
+    for (const suffix of [
+      "close",
+      "lock",
+      "unlock",
+      "ready",
+      "move",
+      "resize",
+    ]) {
+      const key = `${windowId}-${suffix}`;
+      const listener = this.listeners.get(key);
+      if (listener) {
+        listener();
+        this.listeners.delete(key);
+      }
+    }
+
+    this.emitStateChange("closed", windowId);
+
+    // Stop position tracking if no windows remain
+    if (this.windowStates.size === 0) {
+      this.stopPositionTracking();
+    }
+
+    // Trigger a state save to persist the cleanup
+    // This uses dynamic import to avoid circular dependency
+    import("@/store/appStore").then(({ useAppStore }) => {
+      const saveCurrentState = useAppStore.getState().saveCurrentState;
+      if (saveCurrentState) {
+        console.log(
+          "[WindowManager] Triggering state save after cleanup, remaining windows:",
+          this.windowStates.size,
+        );
+        saveCurrentState().catch((err) =>
+          console.error(
+            "[WindowManager] Failed to save state after cleanup:",
+            err,
+          ),
+        );
+      }
+    });
+  }
 
   /**
    * Mark that the app is closing - prevents popout window cleanup
@@ -66,6 +162,11 @@ class WindowManager {
    */
   setAppClosing(closing: boolean): void {
     this.isAppClosing = closing;
+  }
+
+  /** Get current cleanup version - used to detect stale saves */
+  getCleanupVersion(): number {
+    return this.cleanupVersion;
   }
 
   // Subscribe to window state changes (event-based, no polling needed)
@@ -132,6 +233,12 @@ class WindowManager {
     data: any,
     savedPosition?: WindowPosition,
   ): Promise<string> {
+    // Prevent creating windows when app is closing
+    if (this.isAppClosing) {
+      console.log("[WindowManager] Skipping window creation - app is closing");
+      throw new Error("Cannot create window while app is closing");
+    }
+
     const config = this.getWindowConfig(type, id);
     const windowId = `${type}-${id}-${Date.now()}`;
 
@@ -168,7 +275,17 @@ class WindowManager {
         },
         tauriLabel,
       };
+      console.log(
+        "[WindowManager] Adding window to windowStates:",
+        windowId,
+        "windowStates.size before:",
+        this.windowStates.size,
+      );
       this.windowStates.set(windowId, state);
+      console.log(
+        "[WindowManager] After adding, windowStates.size:",
+        this.windowStates.size,
+      );
 
       // Track the window reference
       if (webviewWindow) {
@@ -244,8 +361,13 @@ class WindowManager {
       const [x, y, width, height] = await invoke<
         [number, number, number, number]
       >("get_window_position", { windowLabel: state.tauriLabel });
-      state.position = { x, y, width, height };
-      this.windowStates.set(windowId, state);
+
+      // CRITICAL: Check if window still exists before updating
+      // It may have been deleted during the async invoke call
+      if (this.windowStates.has(windowId)) {
+        state.position = { x, y, width, height };
+        this.windowStates.set(windowId, state);
+      }
     } catch {
       // Position fetch failed silently
     }
@@ -253,9 +375,31 @@ class WindowManager {
 
   /** Get all open windows for persistence */
   async getWindowsForPersistence(): Promise<PersistedPopoutWindow[]> {
+    // CRITICAL: Take a snapshot of window IDs at the start
+    // This prevents issues with concurrent modifications during async operations
+    const windowIds = Array.from(this.windowStates.keys());
+    const snapshotSize = windowIds.length;
+
+    console.log(
+      "[WindowManager] getWindowsForPersistence called, snapshot size:",
+      snapshotSize,
+      "keys:",
+      windowIds,
+    );
+
     const windows: PersistedPopoutWindow[] = [];
 
-    for (const [windowId, state] of this.windowStates.entries()) {
+    for (const windowId of windowIds) {
+      // Check if window still exists (may have been deleted during iteration)
+      const state = this.windowStates.get(windowId);
+      if (!state) {
+        console.log(
+          "[WindowManager] Window deleted during iteration:",
+          windowId,
+        );
+        continue;
+      }
+
       // Try to update position, but use cached position if fetch fails
       try {
         await this.updateWindowPosition(windowId);
@@ -263,6 +407,7 @@ class WindowManager {
         // Position fetch may fail if window is closing - use cached position
       }
 
+      // Re-check if window still exists after async operation
       const updatedState = this.windowStates.get(windowId);
       if (updatedState?.position) {
         windows.push({
@@ -275,12 +420,33 @@ class WindowManager {
       }
     }
 
+    console.log(
+      "[WindowManager] getWindowsForPersistence returning:",
+      windows.length,
+      "windows",
+    );
     return windows;
   }
 
   /** Restore windows from persisted state */
   async restoreWindows(windows: PersistedPopoutWindow[]): Promise<void> {
+    // Don't restore windows if app is closing
+    if (this.isAppClosing) {
+      console.log(
+        "[WindowManager] Skipping window restoration - app is closing",
+      );
+      return;
+    }
+
     for (const saved of windows) {
+      // Check again before each window creation
+      if (this.isAppClosing) {
+        console.log(
+          "[WindowManager] Stopping window restoration - app is closing",
+        );
+        break;
+      }
+
       try {
         // Extract the original id from the saved window id
         // Format is: type-id-timestamp
@@ -413,6 +579,37 @@ class WindowManager {
         }
       }
     });
+
+    Promise.all(promises).catch(() => {});
+  }
+
+  /**
+   * Broadcast empty state to all popout windows (called when all tabs are closed)
+   * This sends a special payload with isEmpty: true to trigger empty state in popouts
+   */
+  async broadcastEmptyState(): Promise<void> {
+    const emptyPayload = { isEmpty: true, timestamp: Date.now() };
+
+    const promises = Array.from(this.windowStates.keys()).map(
+      async (windowId) => {
+        const state = this.windowStates.get(windowId);
+        // Send even to locked windows - they should know there's no file
+        if (state) {
+          try {
+            await emit(`data-update-${windowId}`, {
+              windowId,
+              data: emptyPayload,
+              timestamp: Date.now(),
+            });
+            state.data = emptyPayload;
+            state.lastUpdate = Date.now();
+            this.windowStates.set(windowId, state);
+          } catch {
+            // Broadcast failed silently
+          }
+        }
+      },
+    );
 
     Promise.all(promises).catch(() => {});
   }

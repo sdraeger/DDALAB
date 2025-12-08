@@ -8,7 +8,6 @@ export type PrimaryNavTab =
 export type SecondaryNavTab =
   // Explore tabs
   | "timeseries"
-  | "preprocessing"
   | "annotations"
   | "streaming"
   | "spectrograms"
@@ -53,7 +52,7 @@ export const navigationConfig: Record<PrimaryNavTab, NavigationCategory> = {
     label: "Data Visualization",
     icon: "BarChart3",
     description: "Data visualization and inspection",
-    secondaryTabs: ["timeseries", "preprocessing", "annotations", "streaming"],
+    secondaryTabs: ["timeseries", "annotations", "streaming"],
   },
   analyze: {
     id: "analyze",
@@ -85,12 +84,6 @@ export const secondaryTabConfig: Record<SecondaryNavTab, SecondaryTabConfig> = {
     label: "Time Series",
     icon: "Activity",
     description: "View and explore time series data",
-  },
-  preprocessing: {
-    id: "preprocessing",
-    label: "Preprocessing",
-    icon: "Filter",
-    description: "Data preprocessing pipeline",
   },
   annotations: {
     id: "annotations",
