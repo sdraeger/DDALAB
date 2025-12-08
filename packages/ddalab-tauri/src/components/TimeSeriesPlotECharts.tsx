@@ -257,29 +257,6 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
     overviewEnabled, // Load in background regardless of active tab
   );
 
-  // Debug logging for overview data loading
-  useEffect(() => {
-    console.log("[OVERVIEW-DEBUG] State:", {
-      enabled: overviewEnabled,
-      hasFile: !!selectedFile,
-      filePath: selectedFile?.file_path,
-      duration: selectedFile?.duration,
-      channelCount: selectedChannels.length,
-      channels: selectedChannels.slice(0, 3),
-      isLoading: overviewLoading,
-      hasData: !!overviewData,
-      dataPoints: overviewData?.data?.[0]?.length ?? 0,
-      error: overviewError ? String(overviewError) : null,
-    });
-  }, [
-    overviewEnabled,
-    selectedFile,
-    selectedChannels,
-    overviewLoading,
-    overviewData,
-    overviewError,
-  ]);
-
   // Poll for overview progress while loading
   const { data: overviewProgress } = useOverviewProgress(
     apiService,

@@ -56,7 +56,7 @@ impl AppStateManager {
         );
 
         // Load UI state from JSON
-        let ui_state = if ui_state_path.exists() {
+        let ui_state: UIState = if ui_state_path.exists() {
             let content = fs::read_to_string(&ui_state_path)
                 .map_err(|e| format!("Failed to read UI state file: {}", e))?;
             serde_json::from_str(&content).unwrap_or_default()
@@ -218,6 +218,7 @@ impl AppStateManager {
 
     fn save_ui_state(&self) -> Result<(), String> {
         let ui_state = self.ui_state.read();
+
         let content = serde_json::to_string_pretty(&*ui_state)
             .map_err(|e| format!("Failed to serialize UI state: {}", e))?;
 

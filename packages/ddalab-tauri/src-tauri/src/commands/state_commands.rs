@@ -102,7 +102,21 @@ pub async fn save_ui_state_only(
     state_manager: State<'_, AppStateManager>,
     ui_updates: serde_json::Value,
 ) -> Result<(), String> {
-    log::debug!("save_ui_state_only called");
+    // Debug: Log incoming values
+    if let Some(obj) = ui_updates.as_object() {
+        if let Some(plot) = obj.get("plot") {
+            if let Some(filters) = plot.get("filters") {
+                if let Some(ch) = filters.get("chartHeight") {
+                    log::info!("[save_ui_state_only] Incoming chartHeight: {}", ch);
+                }
+            }
+        }
+        if let Some(ui) = obj.get("ui") {
+            if let Some(sw) = ui.get("sidebarWidth") {
+                log::info!("[save_ui_state_only] Incoming sidebarWidth: {}", sw);
+            }
+        }
+    }
 
     state_manager.update_ui_state(|ui_state| {
         if let Some(obj) = ui_updates.as_object() {
@@ -137,8 +151,27 @@ pub async fn save_ui_state_only(
                         .insert("plot_preprocessing".to_string(), preprocessing.clone());
                 }
             }
+            // Save UI extras including popout windows
+            if let Some(ui) = obj.get("ui") {
+                if let Some(ui_obj) = ui.as_object() {
+                    // Save popout windows
+                    if let Some(popout_windows) = ui_obj.get("popoutWindows") {
+                        ui_state
+                            .ui_extras
+                            .insert("popoutWindows".to_string(), popout_windows.clone());
+                    }
+                    // Save other UI extras
+                    for (key, value) in ui_obj {
+                        if key != "popoutWindows" {
+                            ui_state.ui_extras.insert(key.clone(), value.clone());
+                        }
+                    }
+                }
+            }
         }
-    })
+    })?;
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -156,10 +189,24 @@ pub async fn save_complete_state(
 pub async fn get_saved_state(
     state_manager: State<'_, AppStateManager>,
 ) -> Result<serde_json::Value, String> {
-    log::debug!("get_saved_state called");
-
     // Build a complete AppState for frontend compatibility
     let ui_state = state_manager.get_ui_state();
+
+    // Debug: Log loaded values
+    if let Some(plot_filters) = ui_state.ui_extras.get("plot_filters") {
+        if let Some(ch) = plot_filters.get("chartHeight") {
+            log::info!("[get_saved_state] Loaded chartHeight: {}", ch);
+        }
+    }
+    if let Some(sw) = ui_state.ui_extras.get("sidebarWidth") {
+        log::info!("[get_saved_state] Loaded sidebarWidth: {}", sw);
+    }
+    if let Some(pw) = ui_state.ui_extras.get("popoutWindows") {
+        log::info!(
+            "[get_saved_state] Loaded popoutWindows count: {}",
+            pw.as_array().map(|a| a.len()).unwrap_or(0)
+        );
+    }
 
     // Get saved plot filters from ui_extras, or use empty object as default
     let plot_filters = ui_state

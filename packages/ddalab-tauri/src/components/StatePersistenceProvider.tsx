@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { useAppStore } from "@/store/appStore";
 import { listen } from "@tauri-apps/api/event";
 import { TauriService } from "@/services/tauriService";
+import { windowManager } from "@/utils/windowManager";
 
 interface StatePersistenceProviderProps {
   children: React.ReactNode;
@@ -50,13 +51,32 @@ export function StatePersistenceProvider({
         const unlistenClose = await listen(
           "tauri://close-requested",
           async (event) => {
-            console.log("Window close requested, saving state...");
+            console.log(
+              "[StatePersistenceProvider] Window close requested, saving state...",
+            );
+            console.log("[StatePersistenceProvider] Event details:", event);
+
+            // Mark app as closing BEFORE saving - this prevents popout windows
+            // from cleaning up their state before we can persist it
+            windowManager.setAppClosing(true);
+
             try {
+              console.log(
+                "[StatePersistenceProvider] Calling saveCurrentState...",
+              );
               await saveCurrentState();
+              console.log(
+                "[StatePersistenceProvider] saveCurrentState complete, calling forceSave...",
+              );
               await forceSave();
-              console.log("State saved successfully before close");
+              console.log(
+                "[StatePersistenceProvider] State saved successfully before close",
+              );
             } catch (error) {
-              console.error("Failed to save state before close:", error);
+              console.error(
+                "[StatePersistenceProvider] Failed to save state before close:",
+                error,
+              );
             }
           },
         );
@@ -155,13 +175,23 @@ export function StatePersistenceProvider({
     // Set up beforeunload handler (for web version compatibility)
     const setupBeforeUnloadHandler = () => {
       const handleBeforeUnload = async (event: BeforeUnloadEvent) => {
-        console.log("Before unload, saving state...");
+        console.log(
+          "[StatePersistenceProvider] Before unload, saving state...",
+        );
+
+        // Mark app as closing to prevent popout cleanup
+        windowManager.setAppClosing(true);
+
         try {
-          // Note: This is synchronous in browsers, but we try async anyway
+          // Note: This is async but browsers may not wait for it
+          // The tauri://close-requested handler is the primary save mechanism
           await saveCurrentState();
           await forceSave();
         } catch (error) {
-          console.error("Failed to save state before unload:", error);
+          console.error(
+            "[StatePersistenceProvider] Failed to save state before unload:",
+            error,
+          );
         }
       };
 

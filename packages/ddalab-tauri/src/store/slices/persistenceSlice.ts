@@ -22,8 +22,17 @@ export const createPersistenceSlice: ImmerStateCreator<
   // Access via getStatePersistenceService() singleton instead.
 
   initializePersistence: async () => {
+    console.log("[Persistence] initializePersistence called", {
+      isTauri: TauriService.isTauri(),
+      hasInitializedPersistence,
+      isInitializingPersistence,
+    });
+
     if (TauriService.isTauri()) {
       if (hasInitializedPersistence || isInitializingPersistence) {
+        console.log(
+          "[Persistence] Skipping - already initialized or initializing",
+        );
         return;
       }
 
@@ -41,6 +50,12 @@ export const createPersistenceSlice: ImmerStateCreator<
         });
 
         const persistedState = await service.initialize();
+
+        console.log("[Persistence] Loaded state from backend:", {
+          chartHeight: persistedState.plot?.filters?.chartHeight,
+          sidebarWidth: persistedState.ui?.sidebarWidth,
+          popoutWindowsCount: persistedState.ui?.popoutWindows?.length,
+        });
 
         let dataDirectoryPath = "";
         try {
@@ -133,7 +148,7 @@ export const createPersistenceSlice: ImmerStateCreator<
           );
           state.plot.preprocessing = persistedState.plot?.preprocessing;
           state.plot.chartHeight =
-            persistedState.plot?.filters?.chartHeight || state.plot.chartHeight;
+            persistedState.plot?.filters?.chartHeight ?? state.plot.chartHeight;
 
           state.dda.analysisParameters.variants =
             persistedState.dda?.selected_variants ||
@@ -219,11 +234,22 @@ export const createPersistenceSlice: ImmerStateCreator<
   },
 
   saveCurrentState: async () => {
+    // Don't save from popout windows - they have their own state instances with defaults
+    if (
+      typeof window !== "undefined" &&
+      window.location.pathname.includes("/popout/")
+    ) {
+      return;
+    }
+
     const service = getStatePersistenceService();
     const currentState = get();
 
     if (service && currentState.isPersistenceRestored) {
       await Promise.resolve();
+
+      const popoutWindows =
+        (await windowManager.getWindowsForPersistence()) as PersistedPopoutWindowState[];
 
       const stateToSave = {
         version: "2.0.0",
@@ -262,8 +288,7 @@ export const createPersistenceSlice: ImmerStateCreator<
           theme: currentState.ui.theme,
           expertMode: currentState.ui.expertMode,
           collapsedPanels: currentState.ui.collapsedPanels,
-          popoutWindows:
-            (await windowManager.getWindowsForPersistence()) as PersistedPopoutWindowState[],
+          popoutWindows,
         },
         active_tab: currentState.ui.activeTab,
         sidebar_collapsed: !currentState.ui.sidebarOpen,
@@ -283,6 +308,11 @@ export const createPersistenceSlice: ImmerStateCreator<
         },
       };
 
+      console.log("[Persistence] Saving state with:", {
+        chartHeight: stateToSave.plot?.filters?.chartHeight,
+        sidebarWidth: stateToSave.ui?.sidebarWidth,
+        popoutWindowsCount: stateToSave.ui?.popoutWindows?.length,
+      });
       await service.saveCompleteState(stateToSave);
     }
   },
