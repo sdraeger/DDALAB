@@ -4,6 +4,8 @@ import { useEffect, useRef } from "react";
 import { useActiveFilePath } from "@/store/openFilesStore";
 import { useAppStore } from "@/store/appStore";
 import { useApiService } from "@/contexts/ApiServiceContext";
+import { getFileStateManager } from "@/services/fileStateManager";
+import { windowManager } from "@/utils/windowManager";
 import { createLogger } from "@/lib/logger";
 
 const logger = createLogger("FileTabSync");
@@ -12,6 +14,7 @@ const logger = createLogger("FileTabSync");
  * Component that syncs the active file tab with the main app store.
  * When a tab is clicked, this ensures the file info is loaded and
  * the main appStore.fileManager.selectedFile is updated.
+ * When all tabs are closed, this clears the selected file and resets state.
  */
 export function FileTabSync() {
   const activeFilePath = useActiveFilePath();
@@ -20,6 +23,7 @@ export function FileTabSync() {
     (state) => state.fileManager.selectedFile,
   );
   const setSelectedFile = useAppStore((state) => state.setSelectedFile);
+  const clearSelectedFile = useAppStore((state) => state.clearSelectedFile);
   const isServerReady = useAppStore((state) => state.ui.isServerReady);
 
   // Track the previous active file path to detect changes
@@ -27,8 +31,26 @@ export function FileTabSync() {
   const isLoadingRef = useRef(false);
 
   useEffect(() => {
-    // Skip if no active file or if it's the same as before
+    // Handle empty state - all tabs closed
     if (!activeFilePath) {
+      // Only clear if we had a file before (transition to empty state)
+      if (prevActivePathRef.current !== null || currentSelectedFile !== null) {
+        logger.debug("All tabs closed, clearing selected file");
+        clearSelectedFile();
+
+        // Clear active file in FileStateManager
+        try {
+          const fileStateManager = getFileStateManager();
+          fileStateManager.clearActiveFile();
+        } catch {
+          // FileStateManager may not be initialized yet
+        }
+
+        // Broadcast empty state to all popout windows
+        windowManager.broadcastEmptyState().catch(() => {
+          // Broadcast may fail if no windows are open
+        });
+      }
       prevActivePathRef.current = null;
       return;
     }

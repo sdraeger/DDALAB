@@ -406,7 +406,16 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
     };
   }, []);
 
+  // Check if server-side preprocessing was applied (via API call)
+  // When the API receives preprocessing params, it applies Butterworth filters in Rust
+  const serverSidePreprocessingApplied =
+    preprocessing.highpass ||
+    preprocessing.lowpass ||
+    (preprocessing.notch && preprocessing.notch.length > 0);
+
   // Memoize preprocessing to avoid redundant computation on re-renders
+  // IMPORTANT: Skip client-side preprocessing if server-side filtering was applied
+  // to avoid double-filtering which causes severe signal attenuation
   const preprocessedChunkData = useMemo(() => {
     if (
       !chunkData ||
@@ -417,6 +426,42 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
       return null;
     }
 
+    // If server-side preprocessing was applied, use the data as-is
+    // Only apply client-side preprocessing for non-filter options (smoothing, normalization, etc.)
+    if (serverSidePreprocessingApplied) {
+      // Apply only non-filter preprocessing (smoothing, baseline, outlier removal, etc.)
+      const clientOnlyOptions = {
+        ...preprocessing,
+        highpass: undefined, // Already applied server-side
+        lowpass: undefined, // Already applied server-side
+        notch: undefined, // Already applied server-side
+      };
+
+      // Check if any client-side processing is needed
+      const needsClientProcessing =
+        clientOnlyOptions.baselineCorrection !== "none" ||
+        clientOnlyOptions.smoothing?.enabled ||
+        clientOnlyOptions.outlierRemoval?.enabled ||
+        clientOnlyOptions.spikeRemoval?.enabled ||
+        (clientOnlyOptions.normalization &&
+          clientOnlyOptions.normalization !== "none");
+
+      if (needsClientProcessing) {
+        const preprocessedData = chunkData.data.map((channelData: number[]) =>
+          applyPreprocessing(
+            channelData,
+            selectedFile!.sample_rate,
+            clientOnlyOptions,
+          ),
+        );
+        return { ...chunkData, data: preprocessedData };
+      }
+
+      // No additional processing needed, use server-filtered data directly
+      return chunkData;
+    }
+
+    // No server-side preprocessing, apply all client-side preprocessing
     const preprocessedData = chunkData.data.map((channelData: number[]) =>
       applyPreprocessing(channelData, selectedFile!.sample_rate, preprocessing),
     );
@@ -425,7 +470,7 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
       ...chunkData,
       data: preprocessedData,
     };
-  }, [chunkData, selectedFile, preprocessing]);
+  }, [chunkData, selectedFile, preprocessing, serverSidePreprocessingApplied]);
 
   useEffect(() => {
     if (!preprocessedChunkData) return;
@@ -933,6 +978,28 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
   useEffect(() => {
     hasRespondedToPersistedChunkRef.current = false;
   }, [selectedFile?.file_path]);
+
+  // Reset scaling refs when preprocessing changes to recalculate amplitude ranges
+  // This is critical because filtered data has different amplitude than raw data
+  const prevPreprocessingRef = useRef(preprocessing);
+  useEffect(() => {
+    const prevPP = prevPreprocessingRef.current;
+    const currPP = preprocessing;
+
+    // Check if filter settings changed (not just reference)
+    const filtersChanged =
+      prevPP.highpass !== currPP.highpass ||
+      prevPP.lowpass !== currPP.lowpass ||
+      JSON.stringify(prevPP.notch) !== JSON.stringify(currPP.notch);
+
+    if (filtersChanged) {
+      // Reset scaling so it will be recalculated for the new filtered data
+      stableOffsetRef.current = null;
+      baseOffsetRef.current = null;
+    }
+
+    prevPreprocessingRef.current = currPP;
+  }, [preprocessing]);
 
   // Re-render chart when height changes to scale amplitudes appropriately
   const prevChartHeightRef = useRef(chartHeight);

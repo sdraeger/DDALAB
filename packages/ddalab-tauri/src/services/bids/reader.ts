@@ -111,18 +111,11 @@ async function discoverSessions(subjectPath: string): Promise<BIDSSession[]> {
   try {
     const { readDir } = await import("@tauri-apps/plugin-fs");
 
-    console.log(`[BIDS] Reading subject path: ${subjectPath}`);
     const entries = await readDir(subjectPath);
-    console.log(
-      `[BIDS] Found ${entries.length} entries in ${subjectPath}:`,
-      entries.map((e) => `${e.name} (dir: ${e.isDirectory})`),
-    );
 
     const sessionDirs = entries.filter(
       (entry) => entry.isDirectory && entry.name.startsWith("ses-"),
     );
-
-    console.log(`[BIDS] Found ${sessionDirs.length} session directories`);
 
     // If no session directories, check for modality directories directly
     if (sessionDirs.length === 0) {
@@ -162,10 +155,6 @@ async function discoverSessions(subjectPath: string): Promise<BIDSSession[]> {
       `[BIDS] Failed to discover sessions in ${subjectPath}:`,
       error,
     );
-    if (error instanceof Error) {
-      console.error(`[BIDS] Error message: ${error.message}`);
-      console.error(`[BIDS] Error stack: ${error.stack}`);
-    }
     return [];
   }
 }
@@ -225,7 +214,6 @@ async function discoverRuns(
         );
 
         if (!filenameMatch) {
-          console.warn(`Skipping non-BIDS filename: ${dataFile.name}`);
           continue;
         }
 
@@ -363,7 +351,6 @@ export async function readEvents(eventsPath: string): Promise<BIDSEvent[]> {
 
       // Ensure required fields
       if (event.onset === undefined) {
-        console.warn(`Event missing onset at line ${i + 1}`);
         continue;
       }
       if (event.duration === undefined) {
@@ -544,11 +531,8 @@ export async function getDatasetSummary(
           sessionFmriDirs.forEach((dir) => modalities.add(dir.name));
         }
       }
-    } catch (error) {
-      console.warn(
-        `[BIDS] Could not check for fMRI data in ${subject.id}:`,
-        error,
-      );
+    } catch {
+      // Silently skip if fMRI data check fails
     }
 
     for (const session of subject.sessions) {

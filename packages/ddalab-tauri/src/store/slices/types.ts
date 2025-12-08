@@ -165,6 +165,8 @@ export interface FileManagerActions {
   clearPendingFileSelection: () => void;
   navigateToFile: (filePath: string) => void;
   clearHighlightedFile: () => void;
+  /** Clear selected file and reset all file-dependent state (called when all tabs are closed) */
+  clearSelectedFile: () => void;
 }
 
 export interface PlotActions {

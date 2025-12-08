@@ -15,6 +15,7 @@ mod file_writers;
 mod intermediate_format;
 mod models;
 mod recording;
+mod signal_processing;
 mod state_manager;
 mod streaming;
 mod sync;
