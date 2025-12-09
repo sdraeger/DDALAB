@@ -259,8 +259,8 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       { id: "timeseries", label: "Data Visualization" },
     ];
 
-    // Add all DDA variant plots
-    availableVariants.forEach((variant) => {
+    // Add all DDA variant plots - use for...of for better performance
+    for (const variant of availableVariants) {
       plots.push({
         id: `dda:${variant.variant_id}:heatmap`,
         label: `${variant.variant_name} - Heatmap`,
@@ -269,7 +269,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         id: `dda:${variant.variant_id}:lineplot`,
         label: `${variant.variant_name} - Line Plot`,
       });
-    });
+    }
 
     return plots;
   }, [availableVariants]);
@@ -289,10 +289,9 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   }, [currentVariantData?.dda_matrix, result.channels]);
 
   // Update selectedChannels when variant changes
+  // Uses memoized availableChannels instead of recalculating Object.keys()
   useEffect(() => {
     if (!currentVariantData?.dda_matrix) return;
-
-    const channels = Object.keys(currentVariantData.dda_matrix);
 
     // Reset the prevHeatmapDataRef when variant changes to force recalculation
     prevHeatmapDataRef.current.range = [0, 1];
@@ -300,11 +299,11 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
     setSelectedChannels((prev) => {
       const hasChanged =
-        prev.length !== channels.length ||
-        prev.some((ch, i) => ch !== channels[i]);
-      return hasChanged ? channels : prev;
+        prev.length !== availableChannels.length ||
+        prev.some((ch, i) => ch !== availableChannels[i]);
+      return hasChanged ? availableChannels : prev;
     });
-  }, [currentVariantData?.variant_id, result.id, autoScale]);
+  }, [currentVariantData?.variant_id, result.id, autoScale, availableChannels]);
 
   // Clean up ResizeObservers when channels change to prevent stale callbacks
   useEffect(() => {
@@ -374,28 +373,34 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       let min = Infinity;
       let max = -Infinity;
 
-      // Process channels in parallel-friendly way (map is faster than forEach)
-      selectedChannels.forEach((channel) => {
-        if (dda_matrix[channel]) {
-          const rawChannelData = dda_matrix[channel];
-          const channelData = new Array(rawChannelData.length);
+      // Process channels with for...of (better performance than forEach)
+      // Pre-cache log10 for performance, pre-allocate result array
+      const log10 = Math.log10;
+      for (const channel of selectedChannels) {
+        const rawChannelData = dda_matrix[channel];
+        if (!rawChannelData) continue;
 
-          // Single-pass statistics collection with log transform
-          for (let i = 0; i < rawChannelData.length; i++) {
-            const logVal = Math.log10(Math.max(0.001, rawChannelData[i]));
-            channelData[i] = logVal;
+        const len = rawChannelData.length;
+        // Pre-allocate with known size for better performance
+        const channelData: number[] = new Array(len);
 
-            // Accumulate statistics in one pass
-            sum += logVal;
-            sumSquares += logVal * logVal;
-            count++;
-            if (logVal < min) min = logVal;
-            if (logVal > max) max = logVal;
-          }
+        // Single-pass statistics collection with log transform
+        // Using cached len and log10 for micro-optimization
+        for (let i = 0; i < len; i++) {
+          const raw = rawChannelData[i];
+          const logVal = log10(raw > 0.001 ? raw : 0.001);
+          channelData[i] = logVal;
 
-          data.push(channelData);
+          // Accumulate statistics in one pass
+          sum += logVal;
+          sumSquares += logVal * logVal;
+          count++;
+          if (logVal < min) min = logVal;
+          if (logVal > max) max = logVal;
         }
-      });
+
+        data.push(channelData);
+      }
 
       const elapsedTransform = performance.now() - startTime;
       loggers.plot.debug("Data transform completed", {

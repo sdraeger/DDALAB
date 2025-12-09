@@ -172,7 +172,7 @@ function TimeSeriesPlotComponent({ apiService }: TimeSeriesPlotProps) {
 
   // Overview plot state - using TanStack Query for better caching and loading states
   // IMPORTANT: These hooks must come AFTER selectedChannels is declared
-  const { data: overviewData, isLoading: overviewLoading } = useOverviewData(
+  const { data: rawOverviewData, isLoading: overviewLoading } = useOverviewData(
     apiService,
     fileManager.selectedFile?.file_path || "",
     selectedChannels,
@@ -193,6 +193,17 @@ function TimeSeriesPlotComponent({ apiService }: TimeSeriesPlotProps) {
   // Extract file path to use as stable dependency for effects
   const filePath = fileManager.selectedFile?.file_path;
 
+  // Guard: Only use overview data if it matches the current file
+  // This prevents stale data from previous files being displayed during file switches
+  const overviewData = useMemo(() => {
+    if (!rawOverviewData || !filePath) return null;
+    // Verify the data is for the current file
+    if (rawOverviewData.file_path !== filePath) {
+      return null;
+    }
+    return rawOverviewData;
+  }, [rawOverviewData, filePath]);
+
   // Initialize refs with default values after state is declared
   const channelOffsetRef = useRef(channelOffset);
   const timeWindowRef = useRef(timeWindow);
@@ -202,6 +213,14 @@ function TimeSeriesPlotComponent({ apiService }: TimeSeriesPlotProps) {
     channelOffsetRef.current = channelOffset;
     timeWindowRef.current = timeWindow;
   }, [channelOffset, timeWindow]);
+
+  // Log when filePath changes to debug OverviewPlot key
+  useEffect(() => {
+    console.log(
+      "[TimeSeriesPlot] filePath changed, OverviewPlot key should be:",
+      filePath || "no-file",
+    );
+  }, [filePath]);
 
   // Destroy uPlot when file changes to prevent cursor errors on stale data
   useEffect(() => {
@@ -554,6 +573,9 @@ function TimeSeriesPlotComponent({ apiService }: TimeSeriesPlotProps) {
       return;
     }
 
+    // Capture file path to verify it's still selected after async operation
+    const targetFilePath = fileManager.selectedFile.file_path;
+
     try {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
@@ -573,12 +595,19 @@ function TimeSeriesPlotComponent({ apiService }: TimeSeriesPlotProps) {
       );
 
       const chunkData = await apiService.getChunkData(
-        fileManager.selectedFile.file_path,
+        targetFilePath,
         chunkStart,
         chunkSize,
         selectedChannels,
         signal,
       );
+
+      // Guard: Verify file is still selected after async operation
+      // Prevents stale data from being rendered during file switches
+      if (fileManager.selectedFile?.file_path !== targetFilePath) {
+        setLoading(false);
+        return;
+      }
 
       if (!chunkData.data || chunkData.data.length === 0) {
         setError("No data received from server");
@@ -1429,10 +1458,11 @@ function TimeSeriesPlotComponent({ apiService }: TimeSeriesPlotProps) {
       {/* Overview/Minimap - Global navigation for entire file */}
       <div className="flex-shrink-0">
         <OverviewPlot
+          key={fileManager.selectedFile?.file_path || "no-file"}
           overviewData={overviewData || null}
           currentTime={currentTime}
           timeWindow={timeWindow}
-          duration={duration}
+          duration={fileManager.selectedFile?.duration || 0}
           onSeek={handleSeek}
           loading={overviewLoading}
           progress={overviewProgress}

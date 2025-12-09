@@ -1,10 +1,10 @@
 use crate::api::models::{parse_dda_parameters, DDAParameters, DDAResult};
 use crate::api::state::ApiState;
-use crate::api::utils::FileType;
+use crate::api::utils::{FileType, NegotiatedResponse};
 use crate::file_readers::FileReaderFactory;
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
@@ -251,8 +251,9 @@ fn map_variant_id(frontend_id: &str) -> Option<&str> {
 
 pub async fn run_dda_analysis(
     State(state): State<Arc<ApiState>>,
+    headers: HeaderMap,
     Json(request): Json<DDARequest>,
-) -> Result<Json<DDAResult>, StatusCode> {
+) -> Result<NegotiatedResponse<DDAResult>, StatusCode> {
     // SECURITY: Validate all parameters before processing to prevent DoS
     if let Err(e) = validate_dda_request(&request) {
         log::error!("DDA request validation failed: {}", e);
@@ -1041,7 +1042,8 @@ pub async fn run_dda_analysis(
     // Mark analysis as complete (clears from running state)
     state.complete_analysis();
 
-    Ok(Json(result))
+    // Use content negotiation - MessagePack for large responses (DDA results with Q matrices)
+    Ok(NegotiatedResponse::new(result, &headers))
 }
 
 pub async fn get_dda_results(
@@ -1053,8 +1055,9 @@ pub async fn get_dda_results(
 
 pub async fn get_analysis_result(
     State(state): State<Arc<ApiState>>,
+    headers: HeaderMap,
     Path(analysis_id): Path<String>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<NegotiatedResponse<serde_json::Value>, StatusCode> {
     if let Some(ref db) = state.analysis_db {
         match db.get_analysis(&analysis_id) {
             Ok(Some(analysis)) => {
@@ -1135,7 +1138,7 @@ pub async fn get_analysis_result(
                             "analysis_data": result
                         }
                     });
-                    return Ok(Json(response));
+                    return Ok(NegotiatedResponse::new(response, &headers));
                 }
             }
             Ok(None) => log::debug!("Analysis {} not found in database", analysis_id),
@@ -1152,7 +1155,7 @@ pub async fn get_analysis_result(
                 "analysis_data": result
             }
         });
-        Ok(Json(response))
+        Ok(NegotiatedResponse::new(response, &headers))
     } else {
         Err(StatusCode::NOT_FOUND)
     }

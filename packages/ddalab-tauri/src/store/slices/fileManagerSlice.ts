@@ -154,18 +154,101 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
     });
 
     if (file && TauriService.isTauri()) {
+      // Capture the file path at the start of the async operation
+      // This is used to verify the file is still selected before applying state updates
+      const targetFilePath = file.file_path;
+
+      // Helper to check if the file is still the selected file
+      // Prevents race conditions when user quickly switches between files
+      const isFileStillSelected = () => {
+        const currentFile = get().fileManager.selectedFile;
+        return currentFile?.file_path === targetFilePath;
+      };
+
       (async () => {
         try {
           const fileStateManager = getInitializedFileStateManager();
+
+          // Skip loadFileState if ActiveFileContext already loaded it
+          // This prevents duplicate loads when switching tabs
+          if (fileStateManager.isActiveFile(targetFilePath)) {
+            console.log(
+              `[FileManager] File already active in FileStateManager, using cached state for: ${targetFilePath}`,
+            );
+            // Get the cached state instead of loading again
+            const cachedState = fileStateManager.getFileState(targetFilePath);
+            if (cachedState) {
+              // Guard: Check if file is still selected
+              if (!isFileStillSelected()) {
+                console.log(
+                  `[FileManager] File changed during cache read, discarding state for: ${targetFilePath}`,
+                );
+                return;
+              }
+
+              // Apply the cached state
+              if (cachedState.plot) {
+                const plotState = cachedState.plot as FilePlotState;
+                const chunkStartTime =
+                  (plotState.chunkStart || 0) / file.sample_rate;
+                const isOutOfBounds = chunkStartTime >= file.duration;
+
+                set((state) => {
+                  state.plot.chunkStart = isOutOfBounds
+                    ? 0
+                    : plotState.chunkStart || 0;
+                  state.plot.chunkSize = plotState.chunkSize || 8192;
+                  state.plot.amplitude = plotState.amplitude || 1.0;
+                  state.plot.showAnnotations =
+                    plotState.showAnnotations ?? true;
+                  state.plot.preprocessing = plotState.preprocessing;
+                  state.plot.selectedChannelColors =
+                    plotState.channelColors || {};
+                  state.fileManager.selectedChannels =
+                    plotState.selectedChannels || [];
+                });
+              }
+
+              if (cachedState.dda) {
+                const ddaState = cachedState.dda as FileDDAState;
+                if (!isFileStillSelected()) return;
+
+                set((state) => {
+                  if (ddaState.lastParameters) {
+                    Object.assign(
+                      state.dda.analysisParameters,
+                      ddaState.lastParameters,
+                    );
+                  }
+                  state.dda.currentAnalysis = null;
+                  state.dda.analysisHistory = [];
+                });
+              }
+
+              return; // Skip the full loadFileState below
+            }
+          }
+
           const fileState = await fileStateManager.loadFileState(
             file.file_path,
           );
+
+          // Guard: Check if file is still selected after async operation
+          if (!isFileStillSelected()) {
+            console.log(
+              `[FileManager] File changed during load, discarding state for: ${targetFilePath}`,
+            );
+            return;
+          }
 
           if (fileState.plot) {
             const plotState = fileState.plot as FilePlotState;
             const chunkStartTime =
               (plotState.chunkStart || 0) / file.sample_rate;
             const isOutOfBounds = chunkStartTime >= file.duration;
+
+            // Guard: Check again before applying plot state
+            if (!isFileStillSelected()) return;
 
             set((state) => {
               state.plot.chunkStart = isOutOfBounds
@@ -180,6 +263,9 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
                 plotState.selectedChannels || [];
             });
           } else {
+            // Guard: Check before applying default state
+            if (!isFileStillSelected()) return;
+
             set((state) => {
               state.plot.chunkStart = 0;
               state.plot.chunkSize = state.plot.chunkSize || 8192;
@@ -189,6 +275,9 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
 
           if (fileState.dda) {
             const ddaState = fileState.dda as FileDDAState;
+
+            // Guard: Check before applying DDA state
+            if (!isFileStillSelected()) return;
 
             set((state) => {
               if (ddaState.lastParameters) {
@@ -201,6 +290,9 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
               state.dda.analysisHistory = [];
             });
           } else {
+            // Guard: Check before applying default DDA state
+            if (!isFileStillSelected()) return;
+
             set((state) => {
               state.dda.currentAnalysis = null;
               state.dda.analysisHistory = [];
@@ -230,6 +322,14 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
                 "get_file_annotations",
                 { filePath: file.file_path },
               );
+
+              // Guard: Check if file is still selected after annotation fetch
+              if (!isFileStillSelected()) {
+                console.log(
+                  `[FileManager] File changed during annotation load, discarding for: ${targetFilePath}`,
+                );
+                return;
+              }
 
               if (sqliteAnnotations) {
                 const sqliteGlobal = sqliteAnnotations.global_annotations || [];
@@ -282,6 +382,9 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
                 }
               }
 
+              // Guard: Final check before applying annotation state
+              if (!isFileStillSelected()) return;
+
               set((state) => {
                 state.annotations.timeSeries[file.file_path] = {
                   filePath: file.file_path,
@@ -319,6 +422,9 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
                 severity: "silent",
               });
 
+              // Guard: Check before applying fallback annotation state
+              if (!isFileStillSelected()) return;
+
               if (annotationState?.timeSeries) {
                 set((state) => {
                   state.annotations.timeSeries[file.file_path] = {
@@ -339,6 +445,9 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
               }
             }
           })();
+
+          // Guard: Check before persisting state
+          if (!isFileStillSelected()) return;
 
           const { fileManager: updatedFileManager, isPersistenceRestored } =
             get();
