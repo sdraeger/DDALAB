@@ -130,10 +130,6 @@ path = "src/lib.rs"
 name = "ddalab-tauri"
 path = "src/main.rs"
 
-[[bin]]
-name = "api-server"
-path = "src/bin/api_server.rs"
-
 [features]
 default = [
 	"custom-protocol",
