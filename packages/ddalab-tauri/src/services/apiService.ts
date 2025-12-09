@@ -430,9 +430,9 @@ export class ApiService {
       }
 
       const chunkData: ChunkData = {
-        data: data,
-        channels: channels,
-        timestamps: timestamps,
+        data,
+        channels,
+        timestamps,
         sample_rate: sampleRate,
         chunk_start: responseData.chunk_start || chunkStart,
         chunk_size: actualChunkSize,

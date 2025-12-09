@@ -41,19 +41,7 @@ impl AppStateManager {
         let secrets_db_path = app_config_dir.join("secrets.db");
         let notifications_db_path = app_config_dir.join("notifications.db");
 
-        eprintln!(
-            "📂 [STATE_MANAGER] Using config directory: {:?}",
-            app_config_dir
-        );
-        eprintln!("📄 [STATE_MANAGER] UI state file: {:?}", ui_state_path);
-        eprintln!("📊 [STATE_MANAGER] Analysis DB: {:?}", analysis_db_path);
-        eprintln!("📌 [STATE_MANAGER] Annotation DB: {:?}", annotation_db_path);
-        eprintln!("📁 [STATE_MANAGER] File State DB: {:?}", file_state_db_path);
-        eprintln!("🔐 [STATE_MANAGER] Secrets DB: {:?}", secrets_db_path);
-        eprintln!(
-            "🔔 [STATE_MANAGER] Notifications DB: {:?}",
-            notifications_db_path
-        );
+        log::debug!("Using config directory: {:?}", app_config_dir);
 
         // Load UI state from JSON
         let ui_state: UIState = if ui_state_path.exists() {
@@ -84,32 +72,22 @@ impl AppStateManager {
         let nsg_jobs_db_path = app_config_dir.join("nsg_jobs.db");
         let nsg_output_dir = app_config_dir.join("nsg_output");
 
-        eprintln!("🚀 [STATE_MANAGER] NSG Jobs DB: {:?}", nsg_jobs_db_path);
-        eprintln!("📁 [STATE_MANAGER] NSG Output Dir: {:?}", nsg_output_dir);
-
         let (nsg_manager_opt, nsg_poller_opt) = match secrets_db.has_nsg_credentials() {
             Ok(true) => {
-                eprintln!(
-                    "🔑 [STATE_MANAGER] NSG credentials found, initializing NSG components..."
-                );
+                log::debug!("NSG credentials found, initializing NSG components...");
                 match Self::init_nsg_components(&secrets_db, &nsg_jobs_db_path, &nsg_output_dir) {
                     Ok((manager, poller)) => {
-                        eprintln!("✅ [STATE_MANAGER] NSG components initialized successfully");
+                        log::debug!("NSG components initialized successfully");
                         (Some(manager), Some(poller))
                     }
                     Err(e) => {
-                        eprintln!(
-                            "⚠️  [STATE_MANAGER] Failed to initialize NSG components: {}",
-                            e
-                        );
+                        log::warn!("Failed to initialize NSG components: {}", e);
                         (None, None)
                     }
                 }
             }
             _ => {
-                eprintln!(
-                    "ℹ️  [STATE_MANAGER] No NSG credentials found, skipping NSG initialization"
-                );
+                log::debug!("No NSG credentials found, skipping NSG initialization");
                 (None, None)
             }
         };
@@ -383,7 +361,7 @@ impl AppStateManager {
     }
 
     pub fn reinitialize_nsg_components(&self) -> Result<(), String> {
-        eprintln!("🔄 [STATE_MANAGER] Reinitializing NSG components...");
+        log::debug!("Reinitializing NSG components...");
 
         let nsg_jobs_db_path = self.app_config_dir.join("nsg_jobs.db");
         let nsg_output_dir = self.app_config_dir.join("nsg_output");
@@ -392,14 +370,11 @@ impl AppStateManager {
             Ok((manager, poller)) => {
                 *self.nsg_manager.write() = Some(manager);
                 *self.nsg_poller.write() = Some(poller);
-                eprintln!("✅ [STATE_MANAGER] NSG components reinitialized successfully");
+                log::debug!("NSG components reinitialized successfully");
                 Ok(())
             }
             Err(e) => {
-                eprintln!(
-                    "❌ [STATE_MANAGER] Failed to reinitialize NSG components: {}",
-                    e
-                );
+                log::error!("Failed to reinitialize NSG components: {}", e);
                 *self.nsg_manager.write() = None;
                 *self.nsg_poller.write() = None;
                 Err(e)

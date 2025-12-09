@@ -99,16 +99,8 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
     filePath: selectedFile?.file_path || "",
   });
 
-  // Generate available plots for annotation visibility
   const availablePlots = useMemo<PlotInfo[]>(() => {
-    const plots: PlotInfo[] = [
-      { id: "timeseries", label: "Data Visualization" },
-    ];
-
-    // TODO: Add DDA results for this file if they exist
-    // This would require access to the DDA results from the store
-
-    return plots;
+    return [{ id: "timeseries", label: "Data Visualization" }];
   }, []);
 
   // Subscribe to annotation changes directly from store for instant re-renders

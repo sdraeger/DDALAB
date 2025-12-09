@@ -50,8 +50,7 @@ export function useApiStatus(options?: {
               is_local_server_running: status.is_local_server_running,
             }
           : null;
-      } catch (error) {
-        console.error("Failed to get API status:", error);
+      } catch {
         return null;
       }
     },
@@ -118,8 +117,7 @@ export function useApiConfig() {
       try {
         const config = await TauriService.getApiConfig();
         return config;
-      } catch (error) {
-        console.error("Failed to get API config:", error);
+      } catch {
         return null;
       }
     },

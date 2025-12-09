@@ -57,7 +57,6 @@ class StreamingService {
 
       this.isInitialized = true;
     } catch (error) {
-      console.error("[STREAMING SERVICE] Failed to initialize:", error);
       throw error;
     }
   }
@@ -135,7 +134,6 @@ class StreamingService {
         break;
 
       case "error":
-        console.error(`[STREAMING] Error for ${event.stream_id}:`, event.error);
         break;
 
       case "stats_update":
@@ -160,8 +158,8 @@ class StreamingService {
           this.fetchStreamData(streamId, 20),
           this.fetchStreamResults(streamId, 20),
         ]);
-      } catch (error) {
-        console.error(`[STREAMING] Polling error for ${streamId}:`, error);
+      } catch {
+        // Polling errors are non-critical
       }
     }, 100);
 
@@ -200,11 +198,8 @@ class StreamingService {
           });
         }
       }
-    } catch (error) {
-      console.error(
-        `[STREAMING SERVICE] Failed to fetch data for ${streamId}:`,
-        error,
-      );
+    } catch {
+      // Fetch errors handled silently - will retry on next poll
     }
   }
 
@@ -229,11 +224,8 @@ class StreamingService {
           });
         }
       }
-    } catch (error) {
-      console.error(
-        `[STREAMING SERVICE] Failed to fetch results for ${streamId}:`,
-        error,
-      );
+    } catch {
+      // Fetch errors handled silently - will retry on next poll
     }
   }
 
@@ -252,11 +244,8 @@ class StreamingService {
           state.updateStreamSession(streamId, { stats });
         }
       }
-    } catch (error) {
-      console.error(
-        `[STREAMING] Failed to fetch stats for ${streamId}:`,
-        error,
-      );
+    } catch {
+      // Stats fetch errors handled silently
     }
   }
 
@@ -269,11 +258,7 @@ class StreamingService {
         streamId,
       });
       return state;
-    } catch (error) {
-      console.error(
-        `[STREAMING] Failed to fetch state for ${streamId}:`,
-        error,
-      );
+    } catch {
       return null;
     }
   }
@@ -290,10 +275,6 @@ class StreamingService {
         state.clearStreamPlotData(streamId);
       }
     } catch (error) {
-      console.error(
-        `[STREAMING] Failed to clear buffers for ${streamId}:`,
-        error,
-      );
       throw error;
     }
   }
@@ -305,8 +286,7 @@ class StreamingService {
     try {
       const streamIds = await invoke<string[]>("list_streams");
       return streamIds;
-    } catch (error) {
-      console.error("[STREAMING] Failed to list streams:", error);
+    } catch {
       return [];
     }
   }

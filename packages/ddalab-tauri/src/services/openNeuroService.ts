@@ -126,23 +126,13 @@ class OpenNeuroService {
     // Track if we're in SSR
     this.isSSR = typeof window === "undefined";
 
-    // Only load API key in browser environment (not during SSR)
     if (!this.isSSR) {
-      console.log(
-        "[OPENNEURO] Constructor called in browser - starting key load",
-      );
       this.initPromise = this.loadApiKey();
-    } else {
-      console.log("[OPENNEURO] Constructor called in SSR - skipping key load");
     }
   }
 
   private async loadApiKey(): Promise<void> {
-    // Check if we're in a browser environment (not SSR)
     if (typeof window === "undefined") {
-      console.log(
-        "[OPENNEURO] Skipping API key load - not in browser environment",
-      );
       this.apiKey = null;
       this.isInitialized = true;
       return;
@@ -152,44 +142,25 @@ class OpenNeuroService {
       const key = await invoke<string>("get_openneuro_api_key");
       this.apiKey = key;
       this.updateClientHeaders();
-      console.log(
-        "[OPENNEURO] API key loaded from keyring:",
-        key ? `${key.substring(0, 8)}...` : "NULL",
-      );
-    } catch (error) {
-      console.log("[OPENNEURO] No API key found in keyring:", error);
+    } catch {
       this.apiKey = null;
     } finally {
       this.isInitialized = true;
-      console.log(
-        "[OPENNEURO] Initialization complete. apiKey set:",
-        this.apiKey !== null,
-      );
     }
   }
 
-  // Ensure initialization is complete before checking authentication
   private async ensureInitialized(): Promise<void> {
-    // If instance was created during SSR but we're now in browser, initialize now
     if (this.isSSR && typeof window !== "undefined") {
-      console.log(
-        "[OPENNEURO] ensureInitialized: Instance was created in SSR, now in browser - loading key",
-      );
       this.isSSR = false;
       this.initPromise = this.loadApiKey();
       await this.initPromise;
       return;
     }
 
-    // If we're in the browser and haven't initialized yet, load now
     if (!this.isSSR && !this.isInitialized && !this.initPromise) {
-      console.log(
-        "[OPENNEURO] ensureInitialized: Loading key in browser (first call)",
-      );
       this.initPromise = this.loadApiKey();
     }
 
-    // Wait for initialization if in progress
     if (this.initPromise && !this.isInitialized) {
       await this.initPromise;
     }
@@ -253,21 +224,13 @@ class OpenNeuroService {
 
   async isAuthenticated(): Promise<boolean> {
     await this.ensureInitialized();
-    const isAuth = this.apiKey !== null;
-    console.log(
-      "[OPENNEURO] isAuthenticated check:",
-      isAuth,
-      "apiKey:",
-      this.apiKey ? `${this.apiKey.substring(0, 8)}...` : "NULL",
-    );
-    return isAuth;
+    return this.apiKey !== null;
   }
 
   async checkGitAvailable(): Promise<boolean> {
     try {
       return await invoke<boolean>("check_git_available");
-    } catch (error) {
-      console.error("Failed to check git availability:", error);
+    } catch {
       return false;
     }
   }
@@ -275,8 +238,7 @@ class OpenNeuroService {
   async checkGitAnnexAvailable(): Promise<boolean> {
     try {
       return await invoke<boolean>("check_git_annex_available");
-    } catch (error) {
-      console.error("Failed to check git-annex availability:", error);
+    } catch {
       return false;
     }
   }
@@ -336,10 +298,6 @@ class OpenNeuroService {
         });
       } catch (error: any) {
         if (error.response?.data?.datasets) {
-          console.warn(
-            "[OPENNEURO] Partial error in batch, continuing:",
-            error.response.errors?.[0]?.message,
-          );
           data = error.response.data;
         } else {
           throw error;
@@ -378,79 +336,43 @@ class OpenNeuroService {
       hasNextPage = data.datasets.pageInfo.hasNextPage;
       afterCursor = data.datasets.pageInfo.endCursor;
 
-      console.log(
-        `[OPENNEURO] Loaded ${batch.length} datasets (total: ${allDatasets.length})`,
-      );
-
       if (allDatasets.length > 10000) {
-        console.warn("[OPENNEURO] Hit safety limit of 10000 datasets");
         break;
       }
     }
 
-    console.log(
-      `[OPENNEURO] Finished loading all datasets: ${allDatasets.length}`,
-    );
     return allDatasets;
   }
 
-  // Search datasets filtered by modality (EEG, MEG, iEEG - NEMAR subset)
   async searchNEMARDatasets(query?: string): Promise<OpenNeuroDataset[]> {
-    try {
-      console.log(
-        "[OPENNEURO] Searching NEMAR datasets (EEG/MEG/iEEG only)...",
-      );
-      const allDatasets = await this.searchDatasets(query);
+    const allDatasets = await this.searchDatasets(query);
 
-      // Filter to only datasets with EEG, MEG, or iEEG modalities
-      const nemarDatasets = allDatasets.filter((dataset) => {
-        const modalities = dataset.summary?.modalities || [];
-        return modalities.some((m) =>
-          ["eeg", "meg", "ieeg"].includes(m.toLowerCase()),
-        );
-      });
-
-      console.log(
-        `[OPENNEURO] Found ${nemarDatasets.length} NEMAR datasets out of ${allDatasets.length} total`,
+    return allDatasets.filter((dataset) => {
+      const modalities = dataset.summary?.modalities || [];
+      return modalities.some((m) =>
+        ["eeg", "meg", "ieeg"].includes(m.toLowerCase()),
       );
-      return nemarDatasets;
-    } catch (error) {
-      console.error("Failed to search NEMAR datasets:", error);
-      throw error;
-    }
+    });
   }
 
-  // Search datasets by specific modalities
   async searchDatasetsByModality(
     modalities: string[],
     query?: string,
   ): Promise<OpenNeuroDataset[]> {
-    try {
-      console.log("[OPENNEURO] Searching datasets by modality:", modalities);
-      const allDatasets = await this.searchDatasets(query);
+    const allDatasets = await this.searchDatasets(query);
 
-      if (modalities.length === 0) {
-        return allDatasets;
-      }
-
-      // Filter to only datasets with specified modalities
-      const filteredDatasets = allDatasets.filter((dataset) => {
-        const datasetModalities = dataset.summary?.modalities || [];
-        return datasetModalities.some((m) =>
-          modalities.some(
-            (filterMod) => filterMod.toLowerCase() === m.toLowerCase(),
-          ),
-        );
-      });
-
-      console.log(
-        `[OPENNEURO] Found ${filteredDatasets.length} datasets with modalities ${modalities.join(", ")}`,
-      );
-      return filteredDatasets;
-    } catch (error) {
-      console.error("Failed to search datasets by modality:", error);
-      throw error;
+    if (modalities.length === 0) {
+      return allDatasets;
     }
+
+    return allDatasets.filter((dataset) => {
+      const datasetModalities = dataset.summary?.modalities || [];
+      return datasetModalities.some((m) =>
+        modalities.some(
+          (filterMod) => filterMod.toLowerCase() === m.toLowerCase(),
+        ),
+      );
+    });
   }
 
   // Fetch datasets in a single batch (for incremental loading)
@@ -501,12 +423,7 @@ class OpenNeuroService {
           first: limit,
         });
       } catch (error: any) {
-        // Handle partial errors
         if (error.response?.data?.datasets) {
-          console.warn(
-            "[OPENNEURO] Partial error in batch:",
-            error.response.errors?.[0]?.message,
-          );
           data = error.response.data;
         } else {
           throw error;
@@ -547,7 +464,6 @@ class OpenNeuroService {
         endCursor: data.datasets.pageInfo.endCursor,
       };
     } catch (error) {
-      console.error("Failed to fetch datasets batch:", error);
       throw error;
     }
   }
@@ -606,7 +522,6 @@ class OpenNeuroService {
           })) || [],
       };
     } catch (error) {
-      console.error(`Failed to get dataset ${datasetId}:`, error);
       throw error;
     }
   }
@@ -639,11 +554,7 @@ class OpenNeuroService {
         fileCount,
         annexedSize,
       };
-    } catch (error) {
-      console.error(
-        `Failed to calculate size for dataset ${datasetId}:`,
-        error,
-      );
+    } catch {
       return {
         totalSize: 0,
         fileCount: 0,
@@ -699,7 +610,6 @@ class OpenNeuroService {
         return data.dataset.draft?.files || [];
       }
     } catch (error) {
-      console.error(`Failed to get files for dataset ${datasetId}:`, error);
       throw error;
     }
   }
@@ -751,7 +661,6 @@ class OpenNeuroService {
 
       return data.createDataset.id;
     } catch (error) {
-      console.error("Failed to create dataset:", error);
       throw error;
     }
   }
@@ -777,7 +686,6 @@ class OpenNeuroService {
         files,
       });
     } catch (error) {
-      console.error("Failed to update files:", error);
       throw error;
     }
   }
@@ -799,7 +707,6 @@ class OpenNeuroService {
         datasetId,
       });
     } catch (error) {
-      console.error("Failed to finish upload:", error);
       throw error;
     }
   }
@@ -850,7 +757,6 @@ class OpenNeuroService {
         changes,
       });
     } catch (error) {
-      console.error("Failed to create snapshot:", error);
       throw error;
     }
   }
