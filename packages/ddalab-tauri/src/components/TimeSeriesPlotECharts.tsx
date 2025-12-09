@@ -70,7 +70,8 @@ interface TimeSeriesPlotProps {
 
 // Internal component - wrapped with memo at export
 function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
-  const { decimate: wasmDecimate } = useWasm();
+  const { decimate: wasmDecimate, decimateMulti: wasmDecimateChannels } =
+    useWasm();
 
   // Consolidated selector hooks
   const {
@@ -245,7 +246,7 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
 
   const overviewEnabled = !!(selectedFile && selectedChannels.length > 0);
   const {
-    data: overviewData,
+    data: rawOverviewData,
     isLoading: overviewLoading,
     refetch: refetchOverview,
     error: overviewError,
@@ -256,6 +257,17 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
     overviewMaxPoints,
     overviewEnabled, // Load in background regardless of active tab
   );
+
+  // Guard: Only use overview data if it matches the current file
+  // This prevents stale data from previous files being displayed during file switches
+  const overviewData = useMemo(() => {
+    if (!rawOverviewData || !selectedFile?.file_path) return null;
+    // Verify the data is for the current file
+    if (rawOverviewData.file_path !== selectedFile.file_path) {
+      return null;
+    }
+    return rawOverviewData;
+  }, [rawOverviewData, selectedFile?.file_path]);
 
   // Poll for overview progress while loading
   const { data: overviewProgress } = useOverviewProgress(
@@ -423,6 +435,12 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
       !chunkData.data ||
       chunkData.data.length === 0
     ) {
+      return null;
+    }
+
+    // Guard: Verify chunk data matches current file to prevent stale data
+    // from previous files being rendered during file switches
+    if (chunkData.file_path !== selectedFile.file_path) {
       return null;
     }
 
@@ -697,45 +715,34 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
       autoOffset = stableOffsetRef.current || 0;
     }
 
-    // Prepare series data with aggressive decimation for better performance
+    // Batch-decimate all channels at once for better performance
+    const maxPoints = 4000;
+    const needsDecimation = chunkData.data[0]?.length > maxPoints;
+    const originalStep = 1 / chunkData.sample_rate;
+
+    // Use batch decimation when needed (single WASM call for all channels)
+    const decimatedChannels = needsDecimation
+      ? wasmDecimateChannels(chunkData.data, maxPoints, "lttb")
+      : chunkData.data;
+
+    const decimationRatio = needsDecimation
+      ? chunkData.data[0].length / (decimatedChannels[0]?.length || 1)
+      : 1;
+
+    // Prepare series data with pre-decimated channels
     const series = chunkData.channels.map((channelName, channelIndex) => {
-      const channelData = chunkData.data[channelIndex];
+      const channelData = decimatedChannels[channelIndex];
 
-      // Decimate data intelligently based on visible pixels
-      // For a typical 2000px wide chart, we don't need more than 4000 points
-      const maxPoints = 4000;
-      let decimatedData;
-
-      if (channelData.length > maxPoints) {
-        // Use WASM-based LTTB decimation for better visual preservation
-        // LTTB (Largest Triangle Three Buckets) maintains the visual shape
-        // much better than simple step-based decimation
-        const decimatedValues = wasmDecimate(channelData, maxPoints, "lttb");
-
-        // Calculate time step for decimated data
-        // The decimated data preserves important points, but we need to map them to time
-        const originalStep = 1 / chunkData.sample_rate;
-        const decimationRatio = channelData.length / decimatedValues.length;
-
-        decimatedData = decimatedValues.map((value, idx) => {
-          // Approximate the time position based on the decimation ratio
-          const originalIdx = Math.round(idx * decimationRatio);
-          const time = startTime + originalIdx * originalStep;
-          // Scale amplitude to optimally fill available space between channels
-          const scaledValue = value * amplitudeScaleFactor;
-          const offsetValue = scaledValue + channelIndex * autoOffset;
-          return [time, offsetValue];
-        });
-      } else {
-        // Apply stacking offset without decimation
-        decimatedData = channelData.map((value, idx) => {
-          const time = startTime + idx / chunkData.sample_rate;
-          // Scale amplitude to optimally fill available space between channels
-          const scaledValue = value * amplitudeScaleFactor;
-          const offsetValue = scaledValue + channelIndex * autoOffset;
-          return [time, offsetValue];
-        });
-      }
+      // Transform to [time, value] pairs with offset
+      const decimatedData = channelData.map((value, idx) => {
+        const originalIdx = needsDecimation
+          ? Math.round(idx * decimationRatio)
+          : idx;
+        const time = startTime + originalIdx * originalStep;
+        const scaledValue = value * amplitudeScaleFactor;
+        const offsetValue = scaledValue + channelIndex * autoOffset;
+        return [time, offsetValue];
+      });
 
       let markLine = undefined;
       if (channelIndex === 0 && annotationsFromStore.length > 0) {
@@ -887,10 +894,12 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
       series: series,
     };
 
-    // Use setOption with notMerge: false for better performance when updating
+    // Use setOption with replaceMerge to ensure legend/series are fully replaced
+    // This prevents stale channel names from previous files persisting in the legend
     chart.setOption(option, {
-      notMerge: false, // Merge with existing option for better performance
+      notMerge: false, // Merge for performance
       lazyUpdate: false,
+      replaceMerge: ["legend", "series"], // Fully replace legend and series data
     });
 
     // Store label data and update labels after chart is rendered (so convertToPixel works)
@@ -934,9 +943,11 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
         currentLabelsRef.current = null;
 
         if (chartInstanceRef.current) {
+          // Clear legend data along with graphic/series to prevent stale channel names
+          // from appearing when switching between files with different channel sets
           chartInstanceRef.current.setOption(
-            { graphic: [], series: [] },
-            { replaceMerge: ["graphic", "series"] },
+            { graphic: [], series: [], legend: { data: [] } },
+            { replaceMerge: ["graphic", "series", "legend"] },
           );
         }
       }

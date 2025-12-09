@@ -2,6 +2,8 @@
 //
 // Processes incoming data chunks with sliding window DDA analysis,
 // utilizing all available CPU cores for maximum throughput.
+//
+// Uses ringbuffer for memory-efficient sliding window storage.
 
 use crate::streaming::source::DataChunk;
 use crate::streaming::types::{StreamError, StreamResult};
@@ -13,8 +15,146 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
+
+/// Resource limits for streaming processor to prevent DoS
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamingResourceLimits {
+    /// Maximum buffer size in samples per channel (prevents OOM)
+    pub max_buffer_samples: usize,
+    /// Maximum number of threads in thread pool
+    pub max_threads: usize,
+    /// Maximum windows to process in single batch
+    pub max_windows_per_batch: usize,
+}
+
+impl Default for StreamingResourceLimits {
+    fn default() -> Self {
+        Self {
+            max_buffer_samples: 1_000_000,       // ~4MB per channel at f32
+            max_threads: num_cpus::get().min(8), // Cap at 8 threads
+            max_windows_per_batch: 100,
+        }
+    }
+}
+
+/// Memory-efficient ringbuffer for streaming samples
+/// Avoids repeated allocations by using fixed-size circular buffer
+#[derive(Debug)]
+pub struct ChannelRingBuffer {
+    /// Fixed-size buffer for each channel
+    buffers: Vec<Vec<f32>>,
+    /// Write position (wraps around)
+    write_pos: usize,
+    /// Number of valid samples (up to capacity)
+    count: usize,
+    /// Buffer capacity per channel
+    capacity: usize,
+}
+
+impl ChannelRingBuffer {
+    pub fn new(num_channels: usize, capacity: usize) -> Self {
+        let buffers = (0..num_channels).map(|_| vec![0.0f32; capacity]).collect();
+        Self {
+            buffers,
+            write_pos: 0,
+            count: 0,
+            capacity,
+        }
+    }
+
+    /// Push samples for all channels (assumes samples[ch].len() is same for all channels)
+    pub fn push_samples(&mut self, samples: &[Vec<f32>]) -> Result<(), &'static str> {
+        if samples.is_empty() || samples[0].is_empty() {
+            return Ok(());
+        }
+
+        let num_new = samples[0].len();
+
+        // Check if we'd overflow buffer
+        if num_new > self.capacity {
+            return Err("Samples exceed buffer capacity");
+        }
+
+        for (ch_idx, channel_samples) in samples.iter().enumerate() {
+            if ch_idx >= self.buffers.len() {
+                continue;
+            }
+
+            for &sample in channel_samples {
+                self.buffers[ch_idx][self.write_pos] = sample;
+                self.write_pos = (self.write_pos + 1) % self.capacity;
+            }
+        }
+
+        // Update count (saturates at capacity)
+        self.count = (self.count + num_new).min(self.capacity);
+        // Adjust write_pos for multi-sample push
+        self.write_pos = (self.write_pos + num_new - samples[0].len()) % self.capacity;
+        self.write_pos = (self.write_pos + samples[0].len()) % self.capacity;
+
+        Ok(())
+    }
+
+    /// Extract a window of samples starting at given offset from the oldest sample
+    pub fn extract_window(&self, start_offset: usize, window_size: usize) -> Option<Vec<Vec<f32>>> {
+        if start_offset + window_size > self.count {
+            return None;
+        }
+
+        // Calculate actual start position in circular buffer
+        let buffer_start = if self.count < self.capacity {
+            // Buffer not yet full, starts at 0
+            start_offset
+        } else {
+            // Buffer full, oldest sample is at write_pos
+            (self.write_pos + start_offset) % self.capacity
+        };
+
+        let mut result = Vec::with_capacity(self.buffers.len());
+        for buffer in &self.buffers {
+            let mut window = Vec::with_capacity(window_size);
+            for i in 0..window_size {
+                let idx = (buffer_start + i) % self.capacity;
+                window.push(buffer[idx]);
+            }
+            result.push(window);
+        }
+
+        Some(result)
+    }
+
+    /// Discard oldest samples (after processing windows)
+    pub fn discard_oldest(&mut self, num_samples: usize) {
+        if num_samples >= self.count {
+            self.count = 0;
+        } else {
+            self.count -= num_samples;
+        }
+    }
+
+    /// Get number of valid samples
+    pub fn len(&self) -> usize {
+        self.count
+    }
+
+    /// Check if buffer is empty
+    pub fn is_empty(&self) -> bool {
+        self.count == 0
+    }
+
+    /// Clear the buffer
+    pub fn clear(&mut self) {
+        self.count = 0;
+        self.write_pos = 0;
+    }
+
+    /// Get buffer capacity
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
+}
 
 /// Configuration for streaming DDA processing
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,6 +183,10 @@ pub struct StreamingDDAConfig {
 
     /// Channels to process (None = all channels)
     pub selected_channels: Option<Vec<usize>>,
+
+    /// Resource limits to prevent DoS
+    #[serde(default)]
+    pub resource_limits: StreamingResourceLimits,
 }
 
 impl Default for StreamingDDAConfig {
@@ -66,6 +210,7 @@ impl Default for StreamingDDAConfig {
             model_parameters: None,
             include_q_matrices: false,
             selected_channels: None,
+            resource_limits: StreamingResourceLimits::default(),
         }
     }
 }
@@ -126,16 +271,20 @@ pub struct VariantSummary {
 
 /// Streaming DDA processor
 ///
-/// Processes data chunks in sliding windows using Rayon for parallelization
+/// Processes data chunks in sliding windows using Rayon for parallelization.
+/// Uses ringbuffer for memory-efficient sample storage with configurable limits.
 pub struct StreamingDDAProcessor {
     /// Configuration wrapped in Arc to avoid cloning on each window
     config: Arc<StreamingDDAConfig>,
     dda_runner: Arc<DDARunner>,
     thread_pool: rayon::ThreadPool,
 
-    // Accumulator for buffering samples across chunks
-    sample_buffer: Arc<parking_lot::Mutex<Vec<Vec<f32>>>>,
+    /// Ringbuffer for memory-efficient sample storage (replaces Vec<Vec<f32>>)
+    sample_buffer: Arc<parking_lot::Mutex<ChannelRingBuffer>>,
     current_offset: Arc<AtomicU64>,
+
+    /// Counter for rejected samples due to buffer overflow
+    rejected_samples: Arc<AtomicUsize>,
 
     // Temporary directory for DDA input files
     temp_dir: PathBuf,
@@ -157,9 +306,10 @@ impl StreamingDDAProcessor {
             StreamError::DDAProcessing(format!("Failed to create DDA runner: {}", e))
         })?;
 
-        // Create thread pool for parallel processing
+        // Create thread pool with resource-limited thread count
+        let num_threads = config.resource_limits.max_threads;
         let thread_pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(num_cpus::get())
+            .num_threads(num_threads)
             .thread_name(|i| format!("dda-stream-worker-{}", i))
             .build()
             .map_err(|e| {
@@ -169,18 +319,25 @@ impl StreamingDDAProcessor {
         let temp_dir = std::env::temp_dir().join("ddalab_streaming");
         std::fs::create_dir_all(&temp_dir).map_err(|e| StreamError::Io(e))?;
 
-        // Pre-allocate buffer with known channel count to avoid reallocation
+        // Create ringbuffer with resource-limited capacity
         let num_channels = channel_names.len();
-        let initial_buffer: Vec<Vec<f32>> = (0..num_channels)
-            .map(|_| Vec::with_capacity(config.window_size * 2))
-            .collect();
+        let buffer_capacity = config.resource_limits.max_buffer_samples;
+        let ring_buffer = ChannelRingBuffer::new(num_channels, buffer_capacity);
+
+        log::info!(
+            "📊 StreamingDDAProcessor created: {} channels, buffer capacity={}, threads={}",
+            num_channels,
+            buffer_capacity,
+            num_threads
+        );
 
         Ok(Self {
             config: Arc::new(config),
             dda_runner: Arc::new(dda_runner),
             thread_pool,
-            sample_buffer: Arc::new(parking_lot::Mutex::new(initial_buffer)),
+            sample_buffer: Arc::new(parking_lot::Mutex::new(ring_buffer)),
             current_offset: Arc::new(AtomicU64::new(0)),
+            rejected_samples: Arc::new(AtomicUsize::new(0)),
             temp_dir,
             channel_names: Arc::new(channel_names),
             sample_rate,
@@ -189,31 +346,31 @@ impl StreamingDDAProcessor {
 
     /// Process a single data chunk
     ///
-    /// Adds the chunk to the internal buffer and processes any complete windows
+    /// Adds the chunk to the internal ringbuffer and processes any complete windows.
+    /// Rejects data if buffer would overflow (DoS protection).
     pub fn process_chunk(&self, chunk: &DataChunk) -> StreamResult<Vec<StreamingDDAResult>> {
-        // Add chunk samples to buffer
+        // Add chunk samples to ringbuffer
         let mut buffer = self.sample_buffer.lock();
 
-        // Initialize buffer with correct number of channels if empty (fallback for edge cases)
-        if buffer.is_empty() {
-            *buffer = (0..chunk.num_channels())
-                .map(|_| Vec::with_capacity(self.config.window_size * 2))
-                .collect();
-        }
-
-        // Append samples from chunk
-        for (ch_idx, channel_samples) in chunk.samples.iter().enumerate() {
-            if ch_idx < buffer.len() {
-                buffer[ch_idx].extend(channel_samples);
+        // Try to push samples to ringbuffer
+        if let Err(e) = buffer.push_samples(&chunk.samples) {
+            let rejected = self.rejected_samples.fetch_add(1, Ordering::Relaxed);
+            if rejected % 100 == 0 {
+                log::warn!(
+                    "⚠️ Ringbuffer overflow: {} (total rejected: {})",
+                    e,
+                    rejected + 1
+                );
             }
+            return Ok(Vec::new()); // Gracefully drop data instead of crashing
         }
 
-        let total_samples = buffer[0].len();
+        let total_samples = buffer.len();
         drop(buffer); // Release lock
 
         // Calculate how many windows we can process
         let stride = (self.config.window_size as f64 * (1.0 - self.config.window_overlap)) as usize;
-        let stride = stride.max(1); // Ensure at least 1 sample stride
+        let stride = stride.max(1);
 
         let windows = self.create_windows_from_buffer()?;
 
@@ -221,11 +378,26 @@ impl StreamingDDAProcessor {
             return Ok(Vec::new());
         }
 
-        // Process windows in parallel using Rayon
-        log::info!("Processing {} windows in parallel", windows.len());
+        // Limit windows per batch (DoS protection)
+        let max_windows = self.config.resource_limits.max_windows_per_batch;
+        let windows_to_process = if windows.len() > max_windows {
+            log::warn!(
+                "⚠️ Limiting windows from {} to {} (max_windows_per_batch)",
+                windows.len(),
+                max_windows
+            );
+            &windows[..max_windows]
+        } else {
+            &windows[..]
+        };
+
+        log::info!(
+            "Processing {} windows in parallel",
+            windows_to_process.len()
+        );
 
         let results: Vec<StreamingDDAResult> = self.thread_pool.install(|| {
-            windows
+            windows_to_process
                 .par_iter()
                 .filter_map(|window| match self.process_window(window) {
                     Ok(result) => Some(result),
@@ -237,19 +409,15 @@ impl StreamingDDAProcessor {
                 .collect()
         });
 
-        // Clean up processed samples from buffer (keep overlap for next window)
+        // Discard processed samples from ringbuffer (keep overlap for next window)
         let mut buffer = self.sample_buffer.lock();
         let samples_to_keep = self.config.window_size - stride;
+        let samples_to_discard = total_samples.saturating_sub(samples_to_keep);
 
-        if total_samples > samples_to_keep {
-            for channel in buffer.iter_mut() {
-                *channel = channel.split_off(channel.len().saturating_sub(samples_to_keep));
-            }
-
-            // Update offset
-            let samples_processed = total_samples - samples_to_keep;
+        if samples_to_discard > 0 {
+            buffer.discard_oldest(samples_to_discard);
             self.current_offset
-                .fetch_add(samples_processed as u64, Ordering::Relaxed);
+                .fetch_add(samples_to_discard as u64, Ordering::Relaxed);
         }
 
         Ok(results)
@@ -267,10 +435,10 @@ impl StreamingDDAProcessor {
         Ok(all_results)
     }
 
-    /// Create windows from the current buffer
+    /// Create windows from the current ringbuffer
     fn create_windows_from_buffer(&self) -> StreamResult<Vec<WindowData>> {
         let buffer = self.sample_buffer.lock();
-        let total_samples = buffer.first().map(|ch| ch.len()).unwrap_or(0);
+        let total_samples = buffer.len();
 
         if total_samples < self.config.window_size {
             return Ok(Vec::new()); // Not enough data yet
@@ -278,35 +446,24 @@ impl StreamingDDAProcessor {
 
         let stride = (self.config.window_size as f64 * (1.0 - self.config.window_overlap)) as usize;
         let stride = stride.max(1);
+        let window_size = self.config.window_size;
 
         // Pre-calculate number of windows to avoid reallocation
-        let num_windows = if total_samples >= self.config.window_size {
-            (total_samples - self.config.window_size) / stride + 1
-        } else {
-            0
-        };
+        let num_windows = (total_samples - window_size) / stride + 1;
 
         let mut windows = Vec::with_capacity(num_windows);
         let current_offset = self.current_offset.load(Ordering::Relaxed) as usize;
-        let window_size = self.config.window_size;
 
         let mut start = 0;
         while start + window_size <= total_samples {
-            // Extract window samples - pre-allocate inner vectors
-            let window_samples: Vec<Vec<f32>> = buffer
-                .iter()
-                .map(|channel| {
-                    let mut window = Vec::with_capacity(window_size);
-                    window.extend_from_slice(&channel[start..start + window_size]);
-                    window
-                })
-                .collect();
-
-            windows.push(WindowData {
-                samples: window_samples,
-                start_idx: current_offset + start,
-                timestamp: chrono::Utc::now().timestamp() as f64,
-            });
+            // Extract window samples from ringbuffer
+            if let Some(window_samples) = buffer.extract_window(start, window_size) {
+                windows.push(WindowData {
+                    samples: window_samples,
+                    start_idx: current_offset + start,
+                    timestamp: chrono::Utc::now().timestamp() as f64,
+                });
+            }
 
             start += stride;
         }
@@ -457,12 +614,13 @@ impl StreamingDDAProcessor {
         let mut buffer = self.sample_buffer.lock();
         buffer.clear();
         self.current_offset.store(0, Ordering::Relaxed);
+        self.rejected_samples.store(0, Ordering::Relaxed);
     }
 
     /// Get current buffer status
     pub fn get_buffer_status(&self) -> BufferStatus {
         let buffer = self.sample_buffer.lock();
-        let num_samples = buffer.first().map(|ch| ch.len()).unwrap_or(0);
+        let num_samples = buffer.len();
 
         BufferStatus {
             num_samples_buffered: num_samples,
@@ -470,6 +628,16 @@ impl StreamingDDAProcessor {
             can_process: num_samples >= self.config.window_size,
             current_offset: self.current_offset.load(Ordering::Relaxed),
         }
+    }
+
+    /// Get number of rejected samples due to buffer overflow
+    pub fn get_rejected_samples(&self) -> usize {
+        self.rejected_samples.load(Ordering::Relaxed)
+    }
+
+    /// Get buffer capacity
+    pub fn get_buffer_capacity(&self) -> usize {
+        self.sample_buffer.lock().capacity()
     }
 }
 

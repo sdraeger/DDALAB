@@ -122,17 +122,22 @@ impl TextFileReader {
 
         let num_samples = parsed_rows.len();
 
-        // Transpose: rows -> columns (samples -> channels)
-        let mut data: Vec<Vec<f64>> = vec![Vec::with_capacity(num_samples); num_channels];
-        for row in parsed_rows {
-            for (ch_idx, value) in row.into_iter().enumerate() {
-                data[ch_idx].push(value);
-            }
-        }
-
         if num_samples == 0 {
             return Err("No data rows found in file".to_string());
         }
+
+        // Parallel transpose: rows -> columns (samples -> channels)
+        // Each channel is processed independently for better cache locality
+        let data: Vec<Vec<f64>> = (0..num_channels)
+            .into_par_iter()
+            .map(|ch_idx| {
+                let mut channel_data = Vec::with_capacity(num_samples);
+                for row in &parsed_rows {
+                    channel_data.push(row[ch_idx]);
+                }
+                channel_data
+            })
+            .collect();
 
         let info = TextFileInfo {
             num_channels,

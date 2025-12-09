@@ -591,3 +591,125 @@ pub async fn create_file_info_result(path: PathBuf) -> Result<EDFFileInfo, ApiEr
     .await
     .map_err(|e| ApiError::InternalError(format!("Task join error: {}", e)))?
 }
+
+// ============================================================================
+// MessagePack Response Support
+// ============================================================================
+
+use axum::{
+    body::Body,
+    http::{header, HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
+};
+use serde::Serialize;
+
+/// Content type for MessagePack
+pub const MSGPACK_CONTENT_TYPE: &str = "application/msgpack";
+
+/// Response format based on Accept header
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResponseFormat {
+    Json,
+    MessagePack,
+}
+
+impl ResponseFormat {
+    /// Determine response format from Accept header
+    pub fn from_headers(headers: &HeaderMap) -> Self {
+        if let Some(accept) = headers.get(header::ACCEPT) {
+            if let Ok(accept_str) = accept.to_str() {
+                // Check for MessagePack preference
+                if accept_str.contains("application/msgpack")
+                    || accept_str.contains("application/x-msgpack")
+                {
+                    return ResponseFormat::MessagePack;
+                }
+            }
+        }
+        ResponseFormat::Json
+    }
+}
+
+/// A response that can serialize to either JSON or MessagePack
+/// Use this for large responses where MessagePack provides significant size reduction
+pub struct NegotiatedResponse<T: Serialize> {
+    data: T,
+    format: ResponseFormat,
+}
+
+impl<T: Serialize> NegotiatedResponse<T> {
+    pub fn new(data: T, headers: &HeaderMap) -> Self {
+        Self {
+            data,
+            format: ResponseFormat::from_headers(headers),
+        }
+    }
+
+    pub fn json(data: T) -> Self {
+        Self {
+            data,
+            format: ResponseFormat::Json,
+        }
+    }
+
+    pub fn msgpack(data: T) -> Self {
+        Self {
+            data,
+            format: ResponseFormat::MessagePack,
+        }
+    }
+}
+
+impl<T: Serialize> IntoResponse for NegotiatedResponse<T> {
+    fn into_response(self) -> Response {
+        match self.format {
+            ResponseFormat::Json => match serde_json::to_vec(&self.data) {
+                Ok(body) => Response::builder()
+                    .status(StatusCode::OK)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body))
+                    .unwrap_or_else(|_| {
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            "Failed to build response",
+                        )
+                            .into_response()
+                    }),
+                Err(e) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("JSON serialization error: {}", e),
+                )
+                    .into_response(),
+            },
+            ResponseFormat::MessagePack => match rmp_serde::to_vec(&self.data) {
+                Ok(body) => Response::builder()
+                    .status(StatusCode::OK)
+                    .header(header::CONTENT_TYPE, MSGPACK_CONTENT_TYPE)
+                    .body(Body::from(body))
+                    .unwrap_or_else(|_| {
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            "Failed to build response",
+                        )
+                            .into_response()
+                    }),
+                Err(e) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("MessagePack serialization error: {}", e),
+                )
+                    .into_response(),
+            },
+        }
+    }
+}
+
+/// Estimate if MessagePack would provide significant benefit
+/// Returns true for responses likely to be >100KB as JSON
+pub fn should_use_msgpack_hint<T: Serialize>(data: &T) -> bool {
+    // Quick heuristic: serialize to JSON and check size
+    if let Ok(json) = serde_json::to_vec(data) {
+        json.len() > 100_000 // 100KB threshold
+    } else {
+        false
+    }
+}

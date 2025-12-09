@@ -15,6 +15,9 @@ pub struct EDFFileReader {
     /// This avoids re-opening the file on every read_chunk() call.
     edf: Mutex<CoreEDFReader>,
     path: String,
+    /// Cached channel name to index map for O(1) lookups.
+    /// Built once on file open and reused for all read_chunk calls.
+    channel_map: HashMap<String, usize>,
 }
 
 impl EDFFileReader {
@@ -22,9 +25,18 @@ impl EDFFileReader {
         let edf = CoreEDFReader::new(path)
             .map_err(|e| FileReaderError::ParseError(format!("Failed to open EDF: {}", e)))?;
 
+        // Build channel map once at construction time
+        let channel_map: HashMap<String, usize> = edf
+            .signal_headers
+            .iter()
+            .enumerate()
+            .map(|(i, sh)| (sh.label.clone(), i))
+            .collect();
+
         Ok(Self {
             edf: Mutex::new(edf),
             path: path.to_string_lossy().to_string(),
+            channel_map,
         })
     }
 }
@@ -97,18 +109,11 @@ impl FileReader for EDFFileReader {
         let mut edf = self.edf.lock();
         let signal_headers = &edf.signal_headers;
 
-        // Build channel name to index map for O(1) lookups
-        let channel_map: HashMap<&str, usize> = signal_headers
-            .iter()
-            .enumerate()
-            .map(|(i, sh)| (sh.label.as_str(), i))
-            .collect();
-
-        // Determine which channels to read using O(1) HashMap lookup
+        // Use cached channel_map for O(1) lookups (built once at construction)
         let channel_indices: Vec<usize> = if let Some(selected) = channels {
             selected
                 .iter()
-                .filter_map(|ch| channel_map.get(ch.as_str()).copied())
+                .filter_map(|ch| self.channel_map.get(ch).copied())
                 .collect()
         } else {
             (0..signal_headers.len()).collect()

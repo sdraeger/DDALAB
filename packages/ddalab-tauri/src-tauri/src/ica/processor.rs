@@ -5,7 +5,13 @@ use ndarray::{Array2, Axis};
 use rayon::prelude::*;
 use rustfft::{num_complex::Complex, FftPlanner};
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use std::f64::consts::PI;
+
+// Thread-local FFT planner for efficient reuse across parallel computations
+thread_local! {
+    static FFT_PLANNER: RefCell<FftPlanner<f64>> = RefCell::new(FftPlanner::new());
+}
 
 use crate::intermediate_format::IntermediateData;
 
@@ -586,7 +592,7 @@ impl ICAProcessor {
         Ok(result.t().to_owned())
     }
 
-    /// Compute power spectrum using FFT
+    /// Compute power spectrum using FFT (uses thread-local planner for efficiency)
     fn compute_power_spectrum(signal: &[f64], sample_rate: f64) -> PowerSpectrum {
         let n = signal.len();
         let n_fft = n.next_power_of_two();
@@ -601,10 +607,11 @@ impl ICAProcessor {
             *val = Complex::new(val.re * window, 0.0);
         }
 
-        // Perform FFT
-        let mut planner = FftPlanner::new();
-        let fft = planner.plan_fft_forward(n_fft);
-        fft.process(&mut input);
+        // Perform FFT using thread-local planner (caches FFT plans per thread)
+        FFT_PLANNER.with(|planner| {
+            let fft = planner.borrow_mut().plan_fft_forward(n_fft);
+            fft.process(&mut input);
+        });
 
         // Compute power spectrum (only positive frequencies)
         let n_positive = n_fft / 2 + 1;

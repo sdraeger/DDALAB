@@ -21,6 +21,9 @@ interface OverviewPlotProps {
   annotations?: PlotAnnotation[];
 }
 
+// Generate unique ID for each component instance
+let instanceCounter = 0;
+
 function OverviewPlotComponent({
   overviewData,
   currentTime,
@@ -31,6 +34,12 @@ function OverviewPlotComponent({
   progress,
   annotations = [],
 }: OverviewPlotProps) {
+  // Track component instance for debugging
+  const instanceIdRef = useRef<number | null>(null);
+  if (instanceIdRef.current === null) {
+    instanceIdRef.current = ++instanceCounter;
+  }
+
   const plotRef = useRef<HTMLDivElement>(null);
   const uplotRef = useRef<uPlot | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
@@ -40,6 +49,7 @@ function OverviewPlotComponent({
   const timeWindowRef = useRef(timeWindow);
   const annotationsRef = useRef<PlotAnnotation[]>(annotations);
   const lastDurationRef = useRef<number | null>(null);
+  const lastFilePathRef = useRef<string | null>(null);
   const retryCountRef = useRef(0);
   const forceRedrawTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [retryTrigger, setRetryTrigger] = useState(0);
@@ -57,11 +67,17 @@ function OverviewPlotComponent({
   // Reset state when data changes (new file loaded)
   useEffect(() => {
     retryCountRef.current = 0;
-    // NOTE: Don't reset containerReady here - the container dimensions don't change
-    // when data changes, and the observer effect only runs once on mount.
-    // Resetting containerReady causes the plot to never render because the observer
-    // won't re-run to set it back to true.
     setPlotCreated(false);
+
+    // Destroy the old plot instance when data changes to prevent stale state
+    if (uplotRef.current) {
+      try {
+        uplotRef.current.destroy();
+      } catch {
+        // Ignore errors during cleanup
+      }
+      uplotRef.current = null;
+    }
   }, [overviewData, duration]);
 
   // Watch for container to become ready (have valid dimensions)
@@ -154,49 +170,97 @@ function OverviewPlotComponent({
     // Reset retry count on successful render
     retryCountRef.current = 0;
 
+    // Check if file changed - always destroy and recreate for new file
+    const currentFilePath = overviewData.file_path;
+    const fileChanged =
+      lastFilePathRef.current !== null &&
+      lastFilePathRef.current !== currentFilePath;
+
     // Check if duration changed significantly (indicates file switch)
     // If so, destroy the existing plot to force recreation with correct scale
     const durationChanged =
       lastDurationRef.current !== null &&
       Math.abs(lastDurationRef.current - duration) > 0.1;
 
-    if (durationChanged && uplotRef.current) {
+    if ((durationChanged || fileChanged) && uplotRef.current) {
       uplotRef.current.destroy();
       uplotRef.current = null;
     }
 
     lastDurationRef.current = duration;
+    lastFilePathRef.current = currentFilePath;
 
-    // Calculate time array for overview (spans entire file duration)
-    const numPoints = overviewData.data[0]?.length || 0;
+    // The backend uses min-max decimation: data is [min1, max1, min2, max2, ...]
+    // Overlay all channels on the same vertical space for better visibility
+    const numChannels = overviewData.data.length;
 
-    const timeData = Array.from(
-      { length: numPoints },
-      (_, i) => (i / numPoints) * duration,
+    // Calculate per-channel min/max for individual scaling
+    const channelRanges = overviewData.data.map((channelData) => {
+      let min = Infinity;
+      let max = -Infinity;
+      for (const v of channelData) {
+        if (Number.isFinite(v)) {
+          if (v < min) min = v;
+          if (v > max) max = v;
+        }
+      }
+      if (!Number.isFinite(min)) min = 0;
+      if (!Number.isFinite(max)) max = 1;
+      return { min, max, range: max - min || 1 };
+    });
+
+    // Extract min and max series - all channels normalized to [0, 1] range (overlaid)
+    const processedMinData = overviewData.data.map(
+      (channelData, channelIndex) => {
+        const { min: globalMin, range } = channelRanges[channelIndex];
+        const mins: number[] = [];
+
+        for (let i = 0; i < channelData.length; i += 2) {
+          const minVal = channelData[i];
+          if (!Number.isFinite(minVal)) {
+            mins.push(0.5);
+          } else {
+            // Normalize to [0, 1] - all channels share same vertical space
+            const normalized = (minVal - globalMin) / range;
+            mins.push(normalized);
+          }
+        }
+        return mins;
+      },
     );
 
-    // Stack channels with offset and track min/max in single pass
-    const channelOffset = 10;
-    let yMin = Infinity;
-    let yMax = -Infinity;
-    const processedData = overviewData.data.map((channelData, channelIndex) => {
-      const offset = channelIndex * channelOffset;
-      return channelData.map((value) => {
-        const v = value + offset;
-        if (v < yMin) yMin = v;
-        if (v > yMax) yMax = v;
-        return v;
-      });
-    });
-    const yPadding = (yMax - yMin) * 0.1 || 1;
+    const processedMaxData = overviewData.data.map(
+      (channelData, channelIndex) => {
+        const { min: globalMin, range } = channelRanges[channelIndex];
+        const maxs: number[] = [];
 
-    // Safeguard against invalid scale values
-    if (!Number.isFinite(yMin) || !Number.isFinite(yMax)) {
-      yMin = 0;
-      yMax = (overviewData.data.length - 1) * channelOffset + 10;
-    }
+        for (let i = 1; i < channelData.length; i += 2) {
+          const maxVal = channelData[i];
+          if (!Number.isFinite(maxVal)) {
+            maxs.push(0.5);
+          } else {
+            // Normalize to [0, 1] - all channels share same vertical space
+            const normalized = (maxVal - globalMin) / range;
+            maxs.push(normalized);
+          }
+        }
+        return maxs;
+      },
+    );
 
-    const data: uPlot.AlignedData = [timeData, ...processedData];
+    // All channels share the same [0, 1] vertical range
+    const yMin = -0.05;
+    const yMax = 1.05;
+
+    // Time data needs to match the extracted series length (half of original)
+    const extractedNumPoints = processedMinData[0]?.length || 0;
+    const extractedTimeData = Array.from(
+      { length: extractedNumPoints },
+      (_, i) => (i / extractedNumPoints) * duration,
+    );
+
+    // For uPlot data, we'll pass mins - the draw hook will handle drawing bars between min and max
+    const data: uPlot.AlignedData = [extractedTimeData, ...processedMinData];
 
     // Define colors inline to avoid any closure issues
     const channelColors = [
@@ -213,7 +277,7 @@ function OverviewPlotComponent({
     ];
 
     const series: uPlot.Series[] = [
-      {},
+      {}, // x-axis series (time)
       ...overviewData.channels.map((channelName, idx) => ({
         label: channelName,
         stroke: channelColors[idx % channelColors.length],
@@ -221,12 +285,13 @@ function OverviewPlotComponent({
         points: { show: false },
         show: true,
         scale: "y",
+        spanGaps: true, // Handle any gaps in data
       })),
     ];
 
     const opts: uPlot.Options = {
       width: container.clientWidth,
-      height: 100, // Compact height for overview
+      height: 130, // Compact height for overview (includes x-axis)
       series,
       scales: {
         x: {
@@ -235,21 +300,36 @@ function OverviewPlotComponent({
           max: duration,
         },
         y: {
-          auto: false,
-          min: yMin - yPadding,
-          max: yMax + yPadding,
+          auto: true, // Let uPlot auto-scale since data is already normalized
+          range: [yMin, yMax], // Suggest range but allow auto adjustment
         },
       },
       axes: [
         {
-          label: "",
-          size: 40,
-          values: (u, vals) => vals.map((v) => v.toFixed(0) + "s"),
+          show: true,
+          scale: "x",
+          side: 2, // Bottom
+          size: 24,
+          gap: 2,
+          stroke: "#666",
+          grid: { show: false },
+          ticks: { show: true, stroke: "#666", width: 1, size: 4 },
+          values: (u, vals) =>
+            vals.map((v) => {
+              if (v >= 60) {
+                const mins = Math.floor(v / 60);
+                const secs = Math.floor(v % 60);
+                return `${mins}m${secs > 0 ? secs + "s" : ""}`;
+              }
+              return v.toFixed(0) + "s";
+            }),
+          font: "bold 10px system-ui, -apple-system, sans-serif",
+          space: 80,
         },
         {
-          label: "",
-          size: 0, // Hide Y axis
           show: false,
+          scale: "y",
+          size: 0,
         },
       ],
       legend: {
@@ -275,19 +355,177 @@ function OverviewPlotComponent({
                 const mouseEvent = e as MouseEvent;
                 const rect = canvas.getBoundingClientRect();
                 const x = mouseEvent.clientX - rect.left;
+                const canvasWidth = rect.width;
 
-                // Convert pixel position to time
-                const timeValue = u.posToVal(x, "x");
+                // Convert pixel position to time using direct calculation
+                // (don't use u.posToVal which doesn't work correctly)
+                const timeValue = (x / canvasWidth) * duration;
 
                 // Seek to clicked position (center the view around clicked time)
                 const seekTime = Math.max(
                   0,
-                  Math.min(timeValue - timeWindow / 2, duration - timeWindow),
+                  Math.min(
+                    timeValue - timeWindowRef.current / 2,
+                    duration - timeWindowRef.current,
+                  ),
                 );
 
                 onSeekRef.current(seekTime);
               });
             }
+          },
+        ],
+        ready: [
+          (u) => {
+            // Force redraw after uPlot is fully initialized
+            u.redraw();
+          },
+        ],
+        draw: [
+          (u) => {
+            // Draw min-max envelope as vertical bars for each time point
+            const ctx = u.ctx;
+            const plotData = u.data;
+
+            if (!ctx || !plotData || plotData.length < 2) return;
+
+            const xData = plotData[0];
+            const colors = [
+              "#3b82f6",
+              "#ef4444",
+              "#10b981",
+              "#f59e0b",
+              "#8b5cf6",
+              "#06b6d4",
+              "#f97316",
+              "#84cc16",
+            ];
+
+            const plotLeft = u.bbox.left;
+            const plotTop = u.bbox.top;
+            const plotWidth = u.bbox.width;
+            const dprVal = window.devicePixelRatio || 1;
+            // Reserve 30px at bottom for x-axis labels (increased from 25 to prevent overlap)
+            const axisHeight = 30 * dprVal;
+            const plotHeight = u.bbox.height - axisHeight;
+
+            const xMinVal = 0;
+            const xMaxVal = duration;
+            const yMinVal = yMin;
+            const yMaxVal = yMax;
+
+            // Draw each channel's min-max envelope
+            for (let s = 1; s < plotData.length; s++) {
+              const minData = plotData[s]; // Min values from uPlot data
+              const maxData = processedMaxData[s - 1]; // Max values from closure
+
+              if (!minData || !maxData || minData.length === 0) continue;
+
+              ctx.save();
+              ctx.strokeStyle = colors[(s - 1) % colors.length];
+              ctx.fillStyle = colors[(s - 1) % colors.length];
+              ctx.globalAlpha = 0.8;
+              ctx.lineWidth = 1.5;
+
+              // Draw vertical bars from min to max at each time point
+              const step = Math.max(1, Math.floor(xData.length / 2000));
+
+              for (let i = 0; i < xData.length; i += step) {
+                const xVal = xData[i];
+                const yMinData = minData[i];
+                const yMaxData = maxData[i];
+
+                if (
+                  xVal == null ||
+                  yMinData == null ||
+                  yMaxData == null ||
+                  !Number.isFinite(xVal) ||
+                  !Number.isFinite(yMinData) ||
+                  !Number.isFinite(yMaxData)
+                )
+                  continue;
+
+                const x =
+                  plotLeft +
+                  ((xVal - xMinVal) / (xMaxVal - xMinVal)) * plotWidth;
+                const yBottom =
+                  plotTop +
+                  plotHeight -
+                  ((yMinData - yMinVal) / (yMaxVal - yMinVal)) * plotHeight;
+                const yTop =
+                  plotTop +
+                  plotHeight -
+                  ((yMaxData - yMinVal) / (yMaxVal - yMinVal)) * plotHeight;
+
+                if (
+                  !Number.isFinite(x) ||
+                  !Number.isFinite(yBottom) ||
+                  !Number.isFinite(yTop)
+                )
+                  continue;
+
+                // Draw vertical line from min to max
+                ctx.beginPath();
+                ctx.moveTo(x, yBottom);
+                ctx.lineTo(x, yTop);
+                ctx.stroke();
+              }
+
+              ctx.restore();
+            }
+
+            // Draw custom x-axis labels at bottom of plot area (not canvas)
+            // The axis area starts at plotTop + plotHeight
+            const axisTopY = plotTop + plotHeight;
+
+            ctx.save();
+            ctx.fillStyle = "#666";
+            ctx.font = `${10 * dprVal}px system-ui, -apple-system, sans-serif`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "top";
+
+            // Calculate nice tick intervals
+            const targetTicks = Math.max(
+              3,
+              Math.floor(plotWidth / (100 * dprVal)),
+            );
+            const rawInterval = duration / targetTicks;
+            const niceIntervals = [
+              1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600,
+            ];
+            const interval =
+              niceIntervals.find((i) => i >= rawInterval) || rawInterval;
+
+            for (let t = 0; t <= duration; t += interval) {
+              const x = plotLeft + (t / duration) * plotWidth;
+
+              // Format time label
+              let label: string;
+              if (t >= 3600) {
+                const hrs = Math.floor(t / 3600);
+                const mins = Math.floor((t % 3600) / 60);
+                label = mins > 0 ? `${hrs}h${mins}m` : `${hrs}h`;
+              } else if (t >= 60) {
+                const mins = Math.floor(t / 60);
+                const secs = Math.floor(t % 60);
+                label = secs > 0 ? `${mins}m${secs}s` : `${mins}m`;
+              } else {
+                label = `${t}s`;
+              }
+
+              // Draw tick mark (starts at top of axis area)
+              ctx.strokeStyle = "#666";
+              ctx.lineWidth = dprVal;
+              ctx.beginPath();
+              ctx.moveTo(x, axisTopY + 2 * dprVal);
+              ctx.lineTo(x, axisTopY + 6 * dprVal);
+              ctx.stroke();
+
+              // Draw label below tick
+              ctx.fillText(label, x, axisTopY + 8 * dprVal);
+            }
+
+            ctx.restore();
           },
         ],
       },
@@ -298,37 +536,45 @@ function OverviewPlotComponent({
             draw: [
               (u) => {
                 const ctx = u.ctx;
+                if (!ctx) return;
 
                 // Use refs to get current values (not stale closure values)
                 const currentTimeValue = currentTimeRef.current;
                 const timeWindowValue = timeWindowRef.current;
 
-                // Draw current chunk position as a highlighted region
-                const startPixel = u.valToPos(currentTimeValue, "x", true);
-                const endPixel = u.valToPos(
-                  currentTimeValue + timeWindowValue,
-                  "x",
-                  true,
-                );
+                // Use direct pixel calculation (don't use u.valToPos which doesn't work)
+                const plotLeft = u.bbox.left;
+                const plotWidth = u.bbox.width;
+                const dprVal = window.devicePixelRatio || 1;
+                // Match the axis height from waveform drawing
+                const axisHeightVal = 30 * dprVal;
+                const plotHeightVal = u.bbox.height - axisHeightVal;
 
-                if (startPixel !== null && endPixel !== null) {
+                // Calculate pixel positions using direct mapping
+                const startPixel =
+                  plotLeft + (currentTimeValue / duration) * plotWidth;
+                const endPixel =
+                  plotLeft +
+                  ((currentTimeValue + timeWindowValue) / duration) * plotWidth;
+
+                if (Number.isFinite(startPixel) && Number.isFinite(endPixel)) {
                   ctx.save();
                   ctx.fillStyle = "rgba(59, 130, 246, 0.2)"; // Blue highlight
                   ctx.fillRect(
                     startPixel,
                     u.bbox.top,
                     endPixel - startPixel,
-                    u.bbox.height,
+                    plotHeightVal,
                   );
 
                   // Draw border around current chunk
-                  ctx.strokeStyle = "rgba(59, 130, 246, 0.8)";
-                  ctx.lineWidth = 2;
+                  ctx.strokeStyle = "rgba(59, 130, 246, 0.9)";
+                  ctx.lineWidth = 1;
                   ctx.strokeRect(
-                    startPixel,
-                    u.bbox.top,
-                    endPixel - startPixel,
-                    u.bbox.height,
+                    startPixel + 0.5,
+                    u.bbox.top + 0.5,
+                    endPixel - startPixel - 1,
+                    plotHeightVal - 1,
                   );
 
                   ctx.restore();
@@ -343,19 +589,30 @@ function OverviewPlotComponent({
             draw: [
               (u) => {
                 const ctx = u.ctx;
+                if (!ctx) return;
+
                 const currentAnnotations = annotationsRef.current;
 
                 if (!currentAnnotations || currentAnnotations.length === 0) {
                   return;
                 }
 
+                const plotLeft = u.bbox.left;
+                const plotWidth = u.bbox.width;
+                const dprVal = window.devicePixelRatio || 1;
+                // Match the axis height from waveform drawing
+                const axisHeightVal = 30 * dprVal;
+                const plotHeightVal = u.bbox.height - axisHeightVal;
+
                 ctx.save();
 
                 // Draw each annotation as a vertical line
                 currentAnnotations.forEach((annotation) => {
-                  const pixelX = u.valToPos(annotation.position, "x", true);
+                  // Use direct pixel calculation (don't use u.valToPos)
+                  const pixelX =
+                    plotLeft + (annotation.position / duration) * plotWidth;
 
-                  if (pixelX !== null) {
+                  if (Number.isFinite(pixelX)) {
                     // Use the annotation's color or default to red
                     const color = annotation.color || "#ef4444";
 
@@ -365,7 +622,7 @@ function OverviewPlotComponent({
                     ctx.globalAlpha = 0.8;
                     ctx.beginPath();
                     ctx.moveTo(pixelX, u.bbox.top);
-                    ctx.lineTo(pixelX, u.bbox.top + u.bbox.height);
+                    ctx.lineTo(pixelX, u.bbox.top + plotHeightVal);
                     ctx.stroke();
                   }
                 });
@@ -381,7 +638,6 @@ function OverviewPlotComponent({
     // Create or update plot
     try {
       // Check if existing uPlot instance is still valid (its root element is in the DOM)
-      // This handles the case where the component was unmounted and remounted (tab switch)
       const isExistingPlotValid =
         uplotRef.current &&
         uplotRef.current.root &&
@@ -401,15 +657,14 @@ function OverviewPlotComponent({
           uplotRef.current!.setData(data);
           uplotRef.current!.redraw();
 
-          // CRITICAL: Also force delayed redraw for existing plots
-          // In popout windows, even setData + redraw may not render content properly
+          // Force delayed redraw for existing plots (helps in popout windows)
           setTimeout(() => {
             if (uplotRef.current && container) {
               const w =
                 container.getBoundingClientRect().width ||
                 container.clientWidth;
               if (w > 0) {
-                uplotRef.current.setSize({ width: w, height: 100 });
+                uplotRef.current.setSize({ width: w, height: 130 });
                 uplotRef.current.redraw();
               }
             }
@@ -424,12 +679,11 @@ function OverviewPlotComponent({
           uplotRef.current = null;
         }
       } else if (uplotRef.current) {
-        // Stale uPlot instance exists but its DOM is detached - clean it up
-        // This happens when component remounts (e.g., in popout windows)
+        // Stale uPlot instance - clean it up
         try {
           uplotRef.current.destroy();
         } catch {
-          // Ignore errors during cleanup of stale instance
+          // Ignore errors during cleanup
         }
         uplotRef.current = null;
       }
@@ -441,7 +695,7 @@ function OverviewPlotComponent({
           container.removeChild(container.firstChild);
         }
 
-        // Get actual dimensions - use getBoundingClientRect for more accurate values
+        // Get actual dimensions
         const rect = container.getBoundingClientRect();
         const width = Math.max(rect.width, container.clientWidth);
 
@@ -495,13 +749,19 @@ function OverviewPlotComponent({
           // Create the plot
           uplotRef.current = new uPlot(opts, data, container);
 
+          // Force immediate size update and redraw - this is critical for proper rendering
+          // when the component doesn't remount on file switch
+          uplotRef.current.setSize({ width: opts.width, height: 130 });
+          uplotRef.current.setData(data);
+          uplotRef.current.redraw();
+
           // In popout, schedule a redraw after paint cycle
           if (isPopout) {
             requestAnimationFrame(() => {
               if (uplotRef.current && plotRef.current) {
                 const w =
                   plotRef.current.getBoundingClientRect().width || freshWidth;
-                uplotRef.current.setSize({ width: w, height: 100 });
+                uplotRef.current.setSize({ width: w, height: 130 });
                 uplotRef.current.redraw();
               }
             });
@@ -592,8 +852,17 @@ function OverviewPlotComponent({
           });
         } else {
           // MAIN WINDOW STRATEGY:
-          // Create plot immediately - this works fine in main window
+          // Create plot and force redraw after paint cycle
           createPlot();
+
+          // Force redraw after paint cycle
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              if (uplotRef.current && plotRef.current) {
+                uplotRef.current.redraw();
+              }
+            });
+          });
         }
 
         setPlotCreated(true);
@@ -608,7 +877,7 @@ function OverviewPlotComponent({
             if (entry && entry.contentRect.width > 0) {
               uplotRef.current.setSize({
                 width: entry.contentRect.width,
-                height: 100,
+                height: 130,
               });
             }
           }
@@ -672,7 +941,7 @@ function OverviewPlotComponent({
             if (container.clientWidth > 0) {
               uplotRef.current.setSize({
                 width: container.clientWidth,
-                height: 100,
+                height: 130,
               });
               uplotRef.current.redraw();
             }
@@ -713,7 +982,7 @@ function OverviewPlotComponent({
               (canvas.width <= 300 ||
                 Math.abs(uplotRef.current.width - width) > 10)
             ) {
-              uplotRef.current.setSize({ width, height: 100 });
+              uplotRef.current.setSize({ width, height: 130 });
             }
             uplotRef.current.redraw();
           }
@@ -739,12 +1008,27 @@ function OverviewPlotComponent({
     return "Starting generation...";
   };
 
+  // Check if channel data is valid (not empty arrays) - matches validation in plot creation effect
+  const hasValidChannelData =
+    overviewData?.data &&
+    overviewData.data.length > 0 &&
+    overviewData.data.every(
+      (channelData) => channelData && channelData.length > 0,
+    );
+
   // Show initializing state when we have data but plot hasn't rendered yet
+  // Also require valid duration and valid channel data - during file transitions,
+  // duration may briefly be 0 or data may be stale/incomplete
   const isInitializing =
-    overviewData && !plotCreated && !loading && containerReady;
+    overviewData &&
+    !plotCreated &&
+    !loading &&
+    containerReady &&
+    duration > 0 &&
+    hasValidChannelData;
 
   return (
-    <div className="relative w-full h-[100px] border-2 border-primary rounded-md bg-background">
+    <div className="relative w-full h-[130px] border-2 border-primary rounded-md bg-background">
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10 animate-in fade-in-0 duration-200">
           <div className="flex flex-col items-center gap-3 w-full px-8">
@@ -780,6 +1064,13 @@ function OverviewPlotComponent({
           </div>
         </div>
       )}
+      {overviewData && !hasValidChannelData && !loading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-background animate-in fade-in-0 duration-200">
+          <div className="text-xs text-muted-foreground animate-pulse">
+            Loading channel data...
+          </div>
+        </div>
+      )}
       {isInitializing && (
         <div className="absolute inset-0 flex items-center justify-center bg-background z-10 animate-in fade-in-0 duration-200">
           <div className="text-xs text-muted-foreground animate-pulse">
@@ -789,7 +1080,7 @@ function OverviewPlotComponent({
       )}
       <div
         ref={plotRef}
-        className="w-full h-full [&_.uplot]:bg-transparent [&_.u-wrap]:bg-transparent"
+        className="w-full h-[130px] [&_.uplot]:bg-transparent [&_.u-wrap]:bg-transparent"
       />
       <div className="absolute bottom-1 right-2 text-[10px] text-muted-foreground pointer-events-none">
         Click to navigate • Blue region = current view
