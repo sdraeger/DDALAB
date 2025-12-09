@@ -108,6 +108,29 @@ export class FileStateManager {
   }
 
   /**
+   * Check if a file is already the active file
+   * Used to prevent duplicate loadFileState calls
+   */
+  isActiveFile(filePath: string): boolean {
+    return this.registry.activeFilePath === filePath;
+  }
+
+  /**
+   * Get the currently active file path
+   */
+  getActiveFilePath(): string | null {
+    return this.registry.activeFilePath;
+  }
+
+  /**
+   * Get cached state for a file without loading from modules
+   * Returns null if file state doesn't exist in cache
+   */
+  getFileState(filePath: string): FileSpecificState | null {
+    return this.registry.files[filePath] || null;
+  }
+
+  /**
    * Register a state module
    * Modules are loaded in priority order (lower priority = loaded first)
    */
@@ -157,6 +180,11 @@ export class FileStateManager {
   async loadFileState(filePath: string): Promise<FileSpecificState> {
     console.log("[FileStateManager] Loading state for file:", filePath);
 
+    // Set active file immediately to prevent race conditions
+    // This ensures subsequent calls know which file we're loading for
+    this.registry.lastActiveFilePath = this.registry.activeFilePath;
+    this.registry.activeFilePath = filePath;
+
     // Check if we have cached state
     let fileState = this.registry.files[filePath];
 
@@ -184,6 +212,15 @@ export class FileStateManager {
         );
         const moduleState = await module.loadState(filePath);
 
+        // Guard: Verify file is still active before storing module state
+        // This prevents race conditions when user switches files quickly
+        if (this.registry.activeFilePath !== filePath) {
+          console.log(
+            `[FileStateManager] File changed during module load, discarding ${moduleId} state for: ${filePath}`,
+          );
+          continue;
+        }
+
         if (moduleState) {
           fileState[moduleId] = moduleState;
         } else {
@@ -196,14 +233,12 @@ export class FileStateManager {
           moduleId,
           error,
         );
-        // Use default state on error
-        fileState[moduleId] = module.getDefaultState();
+        // Use default state on error (but still check if file is active)
+        if (this.registry.activeFilePath === filePath) {
+          fileState[moduleId] = module.getDefaultState();
+        }
       }
     }
-
-    // Update active file
-    this.registry.lastActiveFilePath = this.registry.activeFilePath;
-    this.registry.activeFilePath = filePath;
 
     // Save registry (debounced)
     this.scheduleSave(filePath);

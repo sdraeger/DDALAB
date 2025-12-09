@@ -1356,6 +1356,157 @@ pub fn moving_average_channels(
     result
 }
 
+// ============================================================================
+// HEATMAP OPTIMIZATION - Batch Statistics for DDA Results
+// ============================================================================
+
+/// Batch statistics result for heatmap rendering
+#[wasm_bindgen]
+pub struct HeatmapStats {
+    pub min: f64,
+    pub max: f64,
+    pub mean: f64,
+    pub std: f64,
+    pub count: u32,
+    /// Mean - 3*std (for auto-scaling)
+    pub scale_min: f64,
+    /// Mean + 3*std (for auto-scaling)
+    pub scale_max: f64,
+}
+
+/// Compute log10-transformed statistics for heatmap data in a single pass
+/// This is optimized for the DDAResults component heatmap rendering.
+/// data: flattened DDA Q matrix data [ch0_scale0, ch0_scale1, ..., ch1_scale0, ...]
+/// floor_value: minimum value before log10 (default 0.001)
+/// Returns: HeatmapStats with log-transformed statistics
+#[wasm_bindgen]
+pub fn compute_heatmap_stats(data: &[f64], floor_value: f64) -> HeatmapStats {
+    #[cfg(feature = "console_error_panic_hook")]
+    set_panic_hook();
+
+    if data.is_empty() {
+        return HeatmapStats {
+            min: 0.0,
+            max: 0.0,
+            mean: 0.0,
+            std: 0.0,
+            count: 0,
+            scale_min: 0.0,
+            scale_max: 0.0,
+        };
+    }
+
+    let floor = if floor_value > 0.0 { floor_value } else { 0.001 };
+
+    // Single-pass Welford's algorithm for numerically stable statistics
+    let mut min = f64::INFINITY;
+    let mut max = f64::NEG_INFINITY;
+    let mut mean = 0.0;
+    let mut m2 = 0.0;
+    let mut count = 0u32;
+
+    for &value in data {
+        if !value.is_finite() {
+            continue;
+        }
+
+        // Apply log10 transform with floor
+        let log_val = (value.max(floor)).log10();
+
+        count += 1;
+        min = min.min(log_val);
+        max = max.max(log_val);
+
+        // Welford's online algorithm
+        let delta = log_val - mean;
+        mean += delta / count as f64;
+        let delta2 = log_val - mean;
+        m2 += delta * delta2;
+    }
+
+    let variance = if count > 1 {
+        m2 / (count - 1) as f64
+    } else {
+        0.0
+    };
+    let std = variance.sqrt();
+
+    // Compute auto-scale range (mean ± 3*std)
+    let scale_min = mean - 3.0 * std;
+    let scale_max = mean + 3.0 * std;
+
+    HeatmapStats {
+        min,
+        max,
+        mean,
+        std,
+        count,
+        scale_min,
+        scale_max,
+    }
+}
+
+/// Transform heatmap data with log10 and return with computed statistics
+/// This combines transform and statistics in a single pass for efficiency.
+/// Returns: flattened log-transformed data
+#[wasm_bindgen]
+pub fn transform_heatmap_log10(data: &[f64], floor_value: f64) -> Vec<f64> {
+    #[cfg(feature = "console_error_panic_hook")]
+    set_panic_hook();
+
+    let floor = if floor_value > 0.0 { floor_value } else { 0.001 };
+
+    data.iter()
+        .map(|&v| if v.is_finite() { (v.max(floor)).log10() } else { 0.0 })
+        .collect()
+}
+
+/// Batch transform and compute statistics for multi-channel heatmap data
+/// Processes each channel separately and returns per-channel statistics.
+/// data: flattened [ch0_s0, ch0_s1, ..., ch1_s0, ...]
+/// num_channels: number of channels
+/// points_per_channel: number of scale points per channel
+/// floor_value: minimum value before log10
+/// Returns: [min0, max0, mean0, std0, scale_min0, scale_max0, min1, ...]
+#[wasm_bindgen]
+pub fn compute_heatmap_channel_stats(
+    data: &[f64],
+    num_channels: usize,
+    points_per_channel: usize,
+    floor_value: f64,
+) -> Vec<f64> {
+    #[cfg(feature = "console_error_panic_hook")]
+    set_panic_hook();
+
+    if num_channels == 0 || points_per_channel == 0 {
+        return vec![];
+    }
+
+    let expected_len = num_channels * points_per_channel;
+    if data.len() < expected_len {
+        return vec![];
+    }
+
+    let floor = if floor_value > 0.0 { floor_value } else { 0.001 };
+    let mut result = Vec::with_capacity(num_channels * 6); // 6 stats per channel
+
+    for ch in 0..num_channels {
+        let start = ch * points_per_channel;
+        let end = start + points_per_channel;
+        let channel_data = &data[start..end];
+
+        let stats = compute_heatmap_stats(channel_data, floor);
+        result.push(stats.min);
+        result.push(stats.max);
+        result.push(stats.mean);
+        result.push(stats.std);
+        result.push(stats.scale_min);
+        result.push(stats.scale_max);
+    }
+
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

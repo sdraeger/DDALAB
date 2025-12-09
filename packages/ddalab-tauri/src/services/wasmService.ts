@@ -1064,6 +1064,46 @@ export function trigramSimilarityBatch(
   return Array.from(result);
 }
 
+/**
+ * Async batch Levenshtein distance using worker pool when WASM unavailable
+ * Use this for large target lists (>500) when WASM is not available
+ */
+export async function levenshteinBatchAsync(
+  query: string,
+  targets: string[],
+): Promise<number[]> {
+  if (wasmFunctions) {
+    const joinedTargets = targets.join("\0");
+    const result = wasmFunctions.levenshtein_batch(query, joinedTargets);
+    return Array.from(result);
+  }
+
+  // Use worker pool for parallelized fallback
+  const { levenshteinBatchParallel } = await import(
+    "@/hooks/useFuzzySearchPool"
+  );
+  return levenshteinBatchParallel(query, targets);
+}
+
+/**
+ * Async batch trigram similarity using worker pool when WASM unavailable
+ * Use this for large target lists (>500) when WASM is not available
+ */
+export async function trigramSimilarityBatchAsync(
+  query: string,
+  targets: string[],
+): Promise<number[]> {
+  if (wasmFunctions) {
+    const joinedTargets = targets.join("\0");
+    const result = wasmFunctions.trigram_similarity_batch(query, joinedTargets);
+    return Array.from(result);
+  }
+
+  // Use worker pool for parallelized fallback
+  const { trigramBatchParallel } = await import("@/hooks/useFuzzySearchPool");
+  return trigramBatchParallel(query, targets);
+}
+
 // JS Fallback implementations for fuzzy search
 
 function levenshteinDistanceJS(a: string, b: string): number {
