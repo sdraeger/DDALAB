@@ -86,8 +86,7 @@ export const useUndoRedoStore = create<UndoRedoState>()(
         });
 
         return true;
-      } catch (error) {
-        console.error("Undo failed:", error);
+      } catch {
         set((state) => {
           state.isUndoing = false;
         });
@@ -117,8 +116,7 @@ export const useUndoRedoStore = create<UndoRedoState>()(
         });
 
         return true;
-      } catch (error) {
-        console.error("Redo failed:", error);
+      } catch {
         set((state) => {
           state.isRedoing = false;
         });

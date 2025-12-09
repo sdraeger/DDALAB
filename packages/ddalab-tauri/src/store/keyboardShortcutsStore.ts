@@ -61,12 +61,10 @@ interface KeyboardShortcutsState {
   resetBinding: (id: string) => void;
 }
 
-// Helper to normalize modifier keys for comparison
 const normalizeModifiers = (modifiers: ModifierKey[]): string[] => {
   return [...modifiers].sort();
 };
 
-// Helper to check if modifiers match
 const modifiersMatch = (
   required: ModifierKey[],
   pressed: ModifierKey[],
@@ -79,7 +77,6 @@ const modifiersMatch = (
   );
 };
 
-// Helper to format shortcut for display
 const formatShortcutDisplay = (
   key: string,
   modifiers: ModifierKey[],
@@ -153,8 +150,8 @@ export const useKeyboardShortcutsStore = create<KeyboardShortcutsState>()(
             try {
               shortcut.action();
               return true;
-            } catch (error) {
-              console.error(`Error executing shortcut ${id}:`, error);
+            } catch {
+              // Shortcut action failed silently
             }
           }
         }

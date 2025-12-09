@@ -78,8 +78,8 @@ export const useModelPresets = () => {
         const parsed = JSON.parse(stored);
         setCustomPresets(parsed);
       }
-    } catch (error) {
-      console.error("Failed to load model presets:", error);
+    } catch {
+      // Ignore localStorage errors
     }
   }, []);
 
@@ -87,8 +87,8 @@ export const useModelPresets = () => {
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(customPresets));
-    } catch (error) {
-      console.error("Failed to save model presets:", error);
+    } catch {
+      // Ignore localStorage errors
     }
   }, [customPresets]);
 

@@ -85,8 +85,6 @@ export default function Home() {
     if (TauriService.isTauri()) {
       try {
         const preferences = await TauriService.getAppPreferences();
-
-        // Mark as loaded
         setHasLoadedPreferences(true);
 
         // Get API config to determine protocol (http vs https)

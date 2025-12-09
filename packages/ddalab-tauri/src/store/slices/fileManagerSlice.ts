@@ -170,19 +170,10 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
           const fileStateManager = getInitializedFileStateManager();
 
           // Skip loadFileState if ActiveFileContext already loaded it
-          // This prevents duplicate loads when switching tabs
           if (fileStateManager.isActiveFile(targetFilePath)) {
-            console.log(
-              `[FileManager] File already active in FileStateManager, using cached state for: ${targetFilePath}`,
-            );
-            // Get the cached state instead of loading again
             const cachedState = fileStateManager.getFileState(targetFilePath);
             if (cachedState) {
-              // Guard: Check if file is still selected
               if (!isFileStillSelected()) {
-                console.log(
-                  `[FileManager] File changed during cache read, discarding state for: ${targetFilePath}`,
-                );
                 return;
               }
 
@@ -233,11 +224,7 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
             file.file_path,
           );
 
-          // Guard: Check if file is still selected after async operation
           if (!isFileStillSelected()) {
-            console.log(
-              `[FileManager] File changed during load, discarding state for: ${targetFilePath}`,
-            );
             return;
           }
 
@@ -323,11 +310,7 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
                 { filePath: file.file_path },
               );
 
-              // Guard: Check if file is still selected after annotation fetch
               if (!isFileStillSelected()) {
-                console.log(
-                  `[FileManager] File changed during annotation load, discarding for: ${targetFilePath}`,
-                );
                 return;
               }
 

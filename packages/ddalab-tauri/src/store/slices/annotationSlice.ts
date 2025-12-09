@@ -207,8 +207,8 @@ export const createAnnotationSlice: ImmerStateCreator<AnnotationSlice> = (
               fileAnnotationState,
             );
           }
-        } catch (err) {
-          console.error("Failed to delete annotation:", err);
+        } catch {
+          // Silent fail - annotation will be deleted on next save
         }
       }
     }, 100);
@@ -309,8 +309,8 @@ export const createAnnotationSlice: ImmerStateCreator<AnnotationSlice> = (
       set((state) => {
         state.annotations.timeSeries = mergedAnnotations;
       });
-    } catch (err) {
-      console.error("Failed to load annotations:", err);
+    } catch {
+      // Silent fail - annotations unavailable
     }
   },
 
