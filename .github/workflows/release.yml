@@ -123,7 +123,12 @@ jobs:
       - name: Rust setup
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.target }},wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: 'latest'
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -143,6 +148,12 @@ jobs:
 
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
+
+      - name: Build WASM module
+        working-directory: packages/ddalab-wasm
+        run: |
+          wasm-pack build --target web --release
+          echo "✅ WASM module built successfully"
 
       - name: Update Tauri config version
         working-directory: packages/ddalab-tauri
