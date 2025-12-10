@@ -38,8 +38,8 @@ pub use xdf_reader::XDFFileReader;
 
 // Re-export lazy reader types for convenience
 pub use lazy_reader::{
-    CacheStats, DataWindow, LazyEDFReader, LazyFileReader, LazyReaderConfig, LazyReaderFactory,
-    WindowCache, WindowKey, WindowRequest, global_cache, init_global_cache,
+    global_cache, init_global_cache, CacheStats, DataWindow, LazyEDFReader, LazyFileReader,
+    LazyReaderConfig, LazyReaderFactory, WindowCache, WindowKey, WindowRequest,
 };
 
 /// Parse EDF datetime from date (dd.mm.yy) and time (hh.mm.ss) strings to RFC3339 format

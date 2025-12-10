@@ -58,7 +58,12 @@ function OverviewPlotComponent({
   // Track cursor position for the vertical dashed line
   // We store both the screen X position (for fixed positioning) and the container bounds (for clipping)
   const [cursorScreenX, setCursorScreenX] = useState<number | null>(null);
-  const [cursorBounds, setCursorBounds] = useState<{ left: number; right: number; top: number; height: number } | null>(null);
+  const [cursorBounds, setCursorBounds] = useState<{
+    left: number;
+    right: number;
+    top: number;
+    height: number;
+  } | null>(null);
   const cursorFractionRef = useRef<number | null>(null);
   // Store reference to outer container for cursor positioning
   const containerRef = useRef<HTMLDivElement>(null);
@@ -270,9 +275,8 @@ function OverviewPlotComponent({
     const extractedNumPoints = processedMinData[0]?.length || 0;
     const extractedTimeData = Array.from(
       { length: extractedNumPoints },
-      (_, i) => extractedNumPoints > 1
-        ? (i / (extractedNumPoints - 1)) * duration
-        : 0,
+      (_, i) =>
+        extractedNumPoints > 1 ? (i / (extractedNumPoints - 1)) * duration : 0,
     );
 
     // For uPlot data, we'll pass mins - the draw hook will handle drawing bars between min and max
@@ -399,7 +403,10 @@ function OverviewPlotComponent({
 
                 // Seek to clicked position (center the view around clicked time)
                 const currentDuration = durationRef.current;
-                const clampedTime = Math.max(0, Math.min(currentDuration, timeValue));
+                const clampedTime = Math.max(
+                  0,
+                  Math.min(currentDuration, timeValue),
+                );
                 const seekTime = Math.max(
                   0,
                   Math.min(
@@ -431,15 +438,20 @@ function OverviewPlotComponent({
                 // Position cursor based on the corrected fraction to align with waveforms
                 // The waveforms are drawn at positions that need the scale factor correction,
                 // so the cursor line should also use the corrected position
-                const overlayLeftInContainer = overlayRect.left - containerRect.left;
+                const overlayLeftInContainer =
+                  overlayRect.left - containerRect.left;
                 // Use corrected fraction to calculate cursor position within overlay
                 const correctedOffsetX = clampedFraction * overlayRect.width;
-                const cursorLeftInContainer = overlayLeftInContainer + correctedOffsetX;
+                const cursorLeftInContainer =
+                  overlayLeftInContainer + correctedOffsetX;
 
                 // Content area dimensions
                 const contentWidth = containerRect.width - 4; // 2px border on each side
                 const plotAreaHeightCSS = overlayRect.height;
-                const clampedCursorLeft = Math.max(0, Math.min(contentWidth, cursorLeftInContainer));
+                const clampedCursorLeft = Math.max(
+                  0,
+                  Math.min(contentWidth, cursorLeftInContainer),
+                );
 
                 setCursorScreenX(clampedCursorLeft);
                 setCursorBounds({
@@ -642,7 +654,8 @@ function OverviewPlotComponent({
                   plotLeft + (currentTimeValue / currentDur) * plotWidth;
                 const endPixel =
                   plotLeft +
-                  ((currentTimeValue + timeWindowValue) / currentDur) * plotWidth;
+                  ((currentTimeValue + timeWindowValue) / currentDur) *
+                    plotWidth;
 
                 if (Number.isFinite(startPixel) && Number.isFinite(endPixel)) {
                   ctx.save();
@@ -969,7 +982,6 @@ function OverviewPlotComponent({
                 width: entry.contentRect.width,
                 height: 130,
               });
-
             }
           }
         });
@@ -1119,7 +1131,10 @@ function OverviewPlotComponent({
     hasValidChannelData;
 
   return (
-    <div ref={containerRef} className="relative w-full h-[130px] border-2 border-primary rounded-md bg-background">
+    <div
+      ref={containerRef}
+      className="relative w-full h-[130px] border-2 border-primary rounded-md bg-background"
+    >
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10 animate-in fade-in-0 duration-200">
           <div className="flex flex-col items-center gap-3 w-full px-8">

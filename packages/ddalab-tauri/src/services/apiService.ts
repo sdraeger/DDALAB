@@ -1118,9 +1118,10 @@ export class ApiService {
    * Clear the lazy file reader cache.
    */
   async clearEdfCache(): Promise<{ status: string; message: string }> {
-    const response = await this.client.post<{ status: string; message: string }>(
-      "/api/edf/cache/clear",
-    );
+    const response = await this.client.post<{
+      status: string;
+      message: string;
+    }>("/api/edf/cache/clear");
     return response.data;
   }
 }

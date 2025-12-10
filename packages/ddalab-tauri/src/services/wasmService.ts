@@ -817,9 +817,7 @@ function transformHeatmapWithStatsJS(
 
     for (let i = 0; i < channelData.length; i++) {
       const raw = channelData[i];
-      const logVal = Number.isFinite(raw)
-        ? log10(Math.max(raw, floor))
-        : 0;
+      const logVal = Number.isFinite(raw) ? log10(Math.max(raw, floor)) : 0;
 
       transformed[i] = logVal;
 
@@ -875,12 +873,18 @@ function normalizeAndColormapJS(
       case "plasma":
         r = Math.min(0.05 + clamped * 2.5, 1);
         g = Math.min(clamped * clamped * 0.8, 1);
-        b = Math.max(0, Math.min(0.533 - clamped * 0.533 + clamped * clamped * 0.5, 1));
+        b = Math.max(
+          0,
+          Math.min(0.533 - clamped * 0.533 + clamped * clamped * 0.5, 1),
+        );
         break;
       case "inferno":
         r = Math.min(clamped * 2, 1);
         g = Math.min(clamped * clamped * 1.5, 1);
-        b = Math.max(0, Math.min(0.2 + clamped * 0.6 - clamped * clamped * 0.8, 1));
+        b = Math.max(
+          0,
+          Math.min(0.2 + clamped * 0.6 - clamped * clamped * 0.8, 1),
+        );
         break;
       case "magma":
         r = Math.min(clamped * 1.8, 1);
@@ -904,7 +908,10 @@ function normalizeAndColormapJS(
   return result;
 }
 
-function computeHeatmapStatsJS(data: number[], floorValue: number): HeatmapStats {
+function computeHeatmapStatsJS(
+  data: number[],
+  floorValue: number,
+): HeatmapStats {
   const floor = floorValue > 0 ? floorValue : 0.001;
   let min = Infinity;
   let max = -Infinity;
@@ -1021,7 +1028,9 @@ export function computeChannelRangesBatch(data: number[][]): ChannelRange[] {
  * @param data - Raw overview data where each channel has alternating min/max pairs
  * @returns Normalized mins, maxs, and channel ranges
  */
-export function normalizeOverviewData(data: number[][]): NormalizedOverviewData {
+export function normalizeOverviewData(
+  data: number[][],
+): NormalizedOverviewData {
   if (data.length === 0) {
     return { normalizedMins: [], normalizedMaxs: [], channelRanges: [] };
   }
@@ -1084,12 +1093,16 @@ export function normalizeOverviewData(data: number[][]): NormalizedOverviewData 
 
   let offset = 0;
   for (let ch = 0; ch < numChannels; ch++) {
-    normalizedMins.push(Array.from(result.slice(offset, offset + pairsPerChannel)));
+    normalizedMins.push(
+      Array.from(result.slice(offset, offset + pairsPerChannel)),
+    );
     offset += pairsPerChannel;
   }
 
   for (let ch = 0; ch < numChannels; ch++) {
-    normalizedMaxs.push(Array.from(result.slice(offset, offset + pairsPerChannel)));
+    normalizedMaxs.push(
+      Array.from(result.slice(offset, offset + pairsPerChannel)),
+    );
     offset += pairsPerChannel;
   }
 
@@ -1142,12 +1155,22 @@ export function prepareOverviewCoordinates(
       const yMinVal = minData[i];
       const yMaxVal = maxData[i];
 
-      if (Number.isFinite(xVal) && Number.isFinite(yMinVal) && Number.isFinite(yMaxVal)) {
+      if (
+        Number.isFinite(xVal) &&
+        Number.isFinite(yMinVal) &&
+        Number.isFinite(yMaxVal)
+      ) {
         const x = plotLeft + ((xVal - xMin) / xRange) * plotWidth;
-        const yBottom = plotTop + plotHeight - ((yMinVal - yMin) / yRange) * plotHeight;
-        const yTop = plotTop + plotHeight - ((yMaxVal - yMin) / yRange) * plotHeight;
+        const yBottom =
+          plotTop + plotHeight - ((yMinVal - yMin) / yRange) * plotHeight;
+        const yTop =
+          plotTop + plotHeight - ((yMaxVal - yMin) / yRange) * plotHeight;
 
-        if (Number.isFinite(x) && Number.isFinite(yBottom) && Number.isFinite(yTop)) {
+        if (
+          Number.isFinite(x) &&
+          Number.isFinite(yBottom) &&
+          Number.isFinite(yTop)
+        ) {
           result[resultIdx++] = x;
           result[resultIdx++] = yBottom;
           result[resultIdx++] = yTop;
