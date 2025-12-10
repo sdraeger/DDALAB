@@ -484,6 +484,101 @@ impl AnnotationDatabase {
         Ok((with_hash as usize, without_hash as usize))
     }
 
+    /// Get annotations with pagination support for large annotation sets
+    /// Returns (annotations, total_count) where total_count is the total number of annotations
+    pub fn get_annotations_paginated(
+        &self,
+        file_path: &str,
+        offset: usize,
+        limit: usize,
+    ) -> Result<(Vec<Annotation>, usize)> {
+        let conn = self.conn.lock();
+
+        let total_count: usize = conn
+            .query_row(
+                "SELECT COUNT(*) FROM annotations WHERE file_path = ?1",
+                params![file_path],
+                |row| row.get(0),
+            )
+            .context("Failed to count annotations")?;
+
+        let mut stmt = conn.prepare(
+            "SELECT id, position, label, color, description, visible_in_plots
+             FROM annotations
+             WHERE file_path = ?1
+             ORDER BY position
+             LIMIT ?2 OFFSET ?3",
+        )?;
+
+        let annotations = stmt
+            .query_map(params![file_path, limit as i64, offset as i64], |row| {
+                let visible_in_plots_json: Option<String> = row.get(5)?;
+                let visible_in_plots = visible_in_plots_json
+                    .and_then(|json| serde_json::from_str(&json).ok())
+                    .unwrap_or_else(Vec::new);
+
+                Ok(Annotation {
+                    id: row.get(0)?,
+                    position: row.get(1)?,
+                    label: row.get(2)?,
+                    color: row.get(3)?,
+                    description: row.get(4)?,
+                    visible_in_plots,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()
+            .context("Failed to get paginated annotations")?;
+
+        Ok((annotations, total_count))
+    }
+
+    /// Get annotations by hash with pagination support
+    pub fn get_annotations_by_hash_paginated(
+        &self,
+        file_hash: &str,
+        offset: usize,
+        limit: usize,
+    ) -> Result<(Vec<Annotation>, usize)> {
+        let conn = self.conn.lock();
+
+        let total_count: usize = conn
+            .query_row(
+                "SELECT COUNT(*) FROM annotations WHERE file_hash = ?1",
+                params![file_hash],
+                |row| row.get(0),
+            )
+            .context("Failed to count annotations")?;
+
+        let mut stmt = conn.prepare(
+            "SELECT id, position, label, color, description, visible_in_plots
+             FROM annotations
+             WHERE file_hash = ?1
+             ORDER BY position
+             LIMIT ?2 OFFSET ?3",
+        )?;
+
+        let annotations = stmt
+            .query_map(params![file_hash, limit as i64, offset as i64], |row| {
+                let visible_in_plots_json: Option<String> = row.get(5)?;
+                let visible_in_plots = visible_in_plots_json
+                    .and_then(|json| serde_json::from_str(&json).ok())
+                    .unwrap_or_else(Vec::new);
+
+                Ok(Annotation {
+                    id: row.get(0)?,
+                    position: row.get(1)?,
+                    label: row.get(2)?,
+                    color: row.get(3)?,
+                    description: row.get(4)?,
+                    visible_in_plots,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()
+            .context("Failed to get paginated annotations")?;
+
+        Ok((annotations, total_count))
+    }
+
     pub fn get_annotations_in_range(
         &self,
         file_path: &str,

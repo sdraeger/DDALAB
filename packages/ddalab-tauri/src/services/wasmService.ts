@@ -948,6 +948,237 @@ function transformHeatmapLog10JS(data: number[], floorValue: number): number[] {
 }
 
 // ============================================================================
+// OVERVIEW PLOT OPTIMIZATION
+// ============================================================================
+
+export interface ChannelRange {
+  min: number;
+  max: number;
+  range: number;
+}
+
+export interface NormalizedOverviewData {
+  normalizedMins: number[][];
+  normalizedMaxs: number[][];
+  channelRanges: ChannelRange[];
+}
+
+/**
+ * Compute min, max, and range for all channels in a single batch operation.
+ * Optimized for OverviewPlot channel normalization.
+ */
+export function computeChannelRangesBatch(data: number[][]): ChannelRange[] {
+  if (data.length === 0) return [];
+
+  const numChannels = data.length;
+  const pointsPerChannel = data[0].length;
+
+  if (!wasmFunctions) {
+    return data.map((channelData) => {
+      let min = Infinity;
+      let max = -Infinity;
+      for (const v of channelData) {
+        if (Number.isFinite(v)) {
+          if (v < min) min = v;
+          if (v > max) max = v;
+        }
+      }
+      if (!Number.isFinite(min)) min = 0;
+      if (!Number.isFinite(max)) max = 1;
+      const range = Math.abs(max - min) < 1e-10 ? 1 : max - min;
+      return { min, max, range };
+    });
+  }
+
+  const flatData = new Float64Array(numChannels * pointsPerChannel);
+  for (let ch = 0; ch < numChannels; ch++) {
+    flatData.set(data[ch], ch * pointsPerChannel);
+  }
+
+  const result = wasmFunctions.compute_channel_ranges_batch(
+    flatData,
+    numChannels,
+    pointsPerChannel,
+  );
+
+  const ranges: ChannelRange[] = [];
+  for (let ch = 0; ch < numChannels; ch++) {
+    const offset = ch * 3;
+    ranges.push({
+      min: result[offset],
+      max: result[offset + 1],
+      range: result[offset + 2],
+    });
+  }
+
+  return ranges;
+}
+
+/**
+ * Normalize overview min-max data for all channels and extract min/max series.
+ * Combines range calculation, normalization, and min/max extraction in one WASM call.
+ *
+ * @param data - Raw overview data where each channel has alternating min/max pairs
+ * @returns Normalized mins, maxs, and channel ranges
+ */
+export function normalizeOverviewData(data: number[][]): NormalizedOverviewData {
+  if (data.length === 0) {
+    return { normalizedMins: [], normalizedMaxs: [], channelRanges: [] };
+  }
+
+  const numChannels = data.length;
+  const pointsPerChannel = data[0].length;
+  const pairsPerChannel = Math.floor(pointsPerChannel / 2);
+
+  if (!wasmFunctions) {
+    const channelRanges: ChannelRange[] = [];
+    const normalizedMins: number[][] = [];
+    const normalizedMaxs: number[][] = [];
+
+    for (let ch = 0; ch < numChannels; ch++) {
+      const channelData = data[ch];
+      let min = Infinity;
+      let max = -Infinity;
+
+      for (const v of channelData) {
+        if (Number.isFinite(v)) {
+          if (v < min) min = v;
+          if (v > max) max = v;
+        }
+      }
+
+      if (!Number.isFinite(min)) min = 0;
+      if (!Number.isFinite(max)) max = 1;
+      const range = Math.abs(max - min) < 1e-10 ? 1 : max - min;
+      channelRanges.push({ min, max, range });
+
+      const mins: number[] = [];
+      const maxs: number[] = [];
+      for (let i = 0; i < channelData.length; i += 2) {
+        const minVal = channelData[i];
+        const maxVal = channelData[i + 1];
+        mins.push(Number.isFinite(minVal) ? (minVal - min) / range : 0.5);
+        maxs.push(Number.isFinite(maxVal) ? (maxVal - min) / range : 0.5);
+      }
+      normalizedMins.push(mins);
+      normalizedMaxs.push(maxs);
+    }
+
+    return { normalizedMins, normalizedMaxs, channelRanges };
+  }
+
+  const flatData = new Float64Array(numChannels * pointsPerChannel);
+  for (let ch = 0; ch < numChannels; ch++) {
+    flatData.set(data[ch], ch * pointsPerChannel);
+  }
+
+  const result = wasmFunctions.normalize_overview_data(
+    flatData,
+    numChannels,
+    pairsPerChannel,
+  );
+
+  const normalizedMins: number[][] = [];
+  const normalizedMaxs: number[][] = [];
+  const channelRanges: ChannelRange[] = [];
+
+  let offset = 0;
+  for (let ch = 0; ch < numChannels; ch++) {
+    normalizedMins.push(Array.from(result.slice(offset, offset + pairsPerChannel)));
+    offset += pairsPerChannel;
+  }
+
+  for (let ch = 0; ch < numChannels; ch++) {
+    normalizedMaxs.push(Array.from(result.slice(offset, offset + pairsPerChannel)));
+    offset += pairsPerChannel;
+  }
+
+  for (let ch = 0; ch < numChannels; ch++) {
+    channelRanges.push({
+      min: result[offset],
+      max: result[offset + 1],
+      range: result[offset + 2],
+    });
+    offset += 3;
+  }
+
+  return { normalizedMins, normalizedMaxs, channelRanges };
+}
+
+/**
+ * Prepare canvas coordinates for overview plot rendering.
+ * Pre-calculates all x,y pixel positions for vertical bars.
+ *
+ * @returns Array of [x, yBottom, yTop] coordinates for each point
+ */
+export function prepareOverviewCoordinates(
+  xData: number[],
+  minData: number[],
+  maxData: number[],
+  plotLeft: number,
+  plotTop: number,
+  plotWidth: number,
+  plotHeight: number,
+  xMin: number,
+  xMax: number,
+  yMin: number,
+  yMax: number,
+  step: number,
+): Float64Array {
+  if (!wasmFunctions) {
+    const len = Math.min(xData.length, minData.length, maxData.length);
+    const numPoints = Math.ceil(len / step);
+    const result = new Float64Array(numPoints * 3);
+    const xRange = xMax - xMin;
+    const yRange = yMax - yMin;
+
+    if (Math.abs(xRange) < 1e-10 || Math.abs(yRange) < 1e-10) {
+      return new Float64Array(0);
+    }
+
+    let resultIdx = 0;
+    for (let i = 0; i < len; i += step) {
+      const xVal = xData[i];
+      const yMinVal = minData[i];
+      const yMaxVal = maxData[i];
+
+      if (Number.isFinite(xVal) && Number.isFinite(yMinVal) && Number.isFinite(yMaxVal)) {
+        const x = plotLeft + ((xVal - xMin) / xRange) * plotWidth;
+        const yBottom = plotTop + plotHeight - ((yMinVal - yMin) / yRange) * plotHeight;
+        const yTop = plotTop + plotHeight - ((yMaxVal - yMin) / yRange) * plotHeight;
+
+        if (Number.isFinite(x) && Number.isFinite(yBottom) && Number.isFinite(yTop)) {
+          result[resultIdx++] = x;
+          result[resultIdx++] = yBottom;
+          result[resultIdx++] = yTop;
+        }
+      }
+    }
+
+    return result.slice(0, resultIdx);
+  }
+
+  const float64X = new Float64Array(xData);
+  const float64Min = new Float64Array(minData);
+  const float64Max = new Float64Array(maxData);
+
+  return wasmFunctions.prepare_overview_coordinates(
+    float64X,
+    float64Min,
+    float64Max,
+    plotLeft,
+    plotTop,
+    plotWidth,
+    plotHeight,
+    xMin,
+    xMax,
+    yMin,
+    yMax,
+    step,
+  );
+}
+
+// ============================================================================
 // DATA COMPRESSION
 // ============================================================================
 
