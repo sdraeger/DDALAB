@@ -309,6 +309,15 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     });
   }, [currentVariantData?.variant_id, result.id, autoScale, availableChannels]);
 
+  // Reset view mode to default when switching to a variant that doesn't support the current view
+  // "network" view is only available for variants with network_motifs (CD-DDA)
+  useEffect(() => {
+    const hasNetworkMotifs = !!currentVariantData?.network_motifs;
+    if (viewMode === "network" && !hasNetworkMotifs) {
+      setViewMode("all");
+    }
+  }, [currentVariantData?.variant_id, currentVariantData?.network_motifs, viewMode]);
+
   // Clean up ResizeObservers when channels change to prevent stale callbacks
   useEffect(() => {
     return () => {
