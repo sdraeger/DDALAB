@@ -6,6 +6,11 @@ import { profiler } from "@/utils/performance";
 import { throttle } from "@/utils/debounce";
 import { DDAResult } from "@/types/api";
 import {
+  transformHeatmapWithStats,
+  normalizeAndColormap,
+  type Colormap,
+} from "@/services/wasmService";
+import {
   Card,
   CardContent,
   CardDescription,
@@ -41,7 +46,6 @@ import { ResizeHandle } from "@/components/dda/ResizeHandle";
 import { getVariantColor, VARIANT_ORDER } from "@/types/variantConfig";
 import type { ViewMode } from "@/components/dda/ViewModeSelector";
 import type { ColorScheme } from "@/components/dda/ColorSchemePicker";
-import { COLOR_SCHEME_FUNCTIONS } from "@/utils/colorSchemes";
 import { toast } from "@/components/ui/toaster";
 import { useSync } from "@/hooks/useSync";
 import type { AccessPolicy, AccessPolicyType } from "@/types/sync";
@@ -344,7 +348,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     return current;
   };
 
-  // Memoized heatmap data processing - only recompute when inputs change
+  // Memoized heatmap data processing using WASM for efficiency
   // CRITICAL FIX: Defer processing until showPlots is true to prevent UI freeze
   const { heatmapData: processedHeatmapData, colorRange: computedColorRange } =
     useMemo(() => {
@@ -354,7 +358,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       }
 
       const startTime = performance.now();
-      loggers.plot.debug("Starting heatmap data processing", {
+      loggers.plot.debug("Starting heatmap data processing (WASM)", {
         channelCount: selectedChannels.length,
       });
 
@@ -364,67 +368,35 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       }
 
       const dda_matrix = currentVariantData.dda_matrix;
-      const data: number[][] = [];
 
-      // Optimized: Pre-allocate array and avoid intermediate allValues array
-      let count = 0;
-      let sum = 0;
-      let sumSquares = 0;
-      let min = Infinity;
-      let max = -Infinity;
-
-      // Process channels with for...of (better performance than forEach)
-      // Pre-cache log10 for performance, pre-allocate result array
-      const log10 = Math.log10;
+      // Collect raw channel data for WASM processing
+      const rawChannelData: number[][] = [];
       for (const channel of selectedChannels) {
-        const rawChannelData = dda_matrix[channel];
-        if (!rawChannelData) continue;
-
-        const len = rawChannelData.length;
-        // Pre-allocate with known size for better performance
-        const channelData: number[] = new Array(len);
-
-        // Single-pass statistics collection with log transform
-        // Using cached len and log10 for micro-optimization
-        for (let i = 0; i < len; i++) {
-          const raw = rawChannelData[i];
-          const logVal = log10(raw > 0.001 ? raw : 0.001);
-          channelData[i] = logVal;
-
-          // Accumulate statistics in one pass
-          sum += logVal;
-          sumSquares += logVal * logVal;
-          count++;
-          if (logVal < min) min = logVal;
-          if (logVal > max) max = logVal;
+        const channelData = dda_matrix[channel];
+        if (channelData) {
+          rawChannelData.push(channelData);
         }
-
-        data.push(channelData);
       }
+
+      if (rawChannelData.length === 0) {
+        loggers.plot.debug("No valid channel data found");
+        return { heatmapData: [], colorRange: [0, 1] as [number, number] };
+      }
+
+      // Use WASM to transform data and compute statistics in a single pass
+      const { data, stats } = transformHeatmapWithStats(rawChannelData, 0.001);
 
       const elapsedTransform = performance.now() - startTime;
-      loggers.plot.debug("Data transform completed", {
+      loggers.plot.debug("WASM transform completed", {
         elapsedMs: elapsedTransform.toFixed(2),
+        channelCount: data.length,
+        stats: { min: stats.min, max: stats.max, mean: stats.mean, std: stats.std },
       });
 
-      // Optimized statistics: single-pass mean and std (no sorting needed)
-      let minVal = min;
-      let maxVal = max;
-
-      if (count > 0 && autoScale) {
-        const mean = sum / count;
-        const variance = sumSquares / count - mean * mean;
-        const std = Math.sqrt(Math.max(0, variance)); // Prevent negative due to float precision
-
-        // Use mean ± 3 * std instead of median (avoids expensive sorting)
-        minVal = mean - 3 * std;
-        maxVal = mean + 3 * std;
-
-        const elapsedStats = performance.now() - startTime;
-        loggers.plot.debug("Statistics calculated", {
-          elapsedMs: elapsedStats.toFixed(2),
-        });
-      }
+      // Use auto-scale range from WASM stats (mean ± 3*std)
+      const colorRangeResult: [number, number] = autoScale
+        ? [stats.scaleMin, stats.scaleMax]
+        : [stats.min, stats.max];
 
       const totalElapsed = performance.now() - startTime;
       loggers.plot.debug("Heatmap data processing completed", {
@@ -433,7 +405,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
       return {
         heatmapData: data,
-        colorRange: [minVal, maxVal] as [number, number],
+        colorRange: colorRangeResult,
       };
     }, [showPlots, selectedChannels, currentVariantData, autoScale]);
 
@@ -690,27 +662,43 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                 const cellWidth = plotWidth / safeScales.length;
                 const cellHeight = plotHeight / selectedChannels.length;
 
-                // Pre-compute normalization factor (optimization: avoid repeated division)
-                const colorRangeDiff = colorRange[1] - colorRange[0];
-                const normFactor =
-                  colorRangeDiff !== 0 ? 1 / colorRangeDiff : 0;
-                const colorMin = colorRange[0];
-
-                // Optimized rendering: batch operations and reduce function calls
+                // Use WASM to pre-compute all colors in one pass
+                // Flatten heatmap data for WASM processing
+                const flatData: number[] = [];
                 for (let y = 0; y < selectedChannels.length; y++) {
                   const rowData = heatmapData[y];
+                  if (rowData) {
+                    for (let x = 0; x < safeScales.length; x++) {
+                      flatData.push(rowData[x] || 0);
+                    }
+                  } else {
+                    // Fill with zeros for missing rows
+                    for (let x = 0; x < safeScales.length; x++) {
+                      flatData.push(0);
+                    }
+                  }
+                }
+
+                // Get RGB values from WASM colormap
+                const rgbData = normalizeAndColormap(
+                  flatData,
+                  colorRange[0],
+                  colorRange[1],
+                  colorScheme as Colormap,
+                );
+
+                // Render using pre-computed colors
+                let rgbIndex = 0;
+                for (let y = 0; y < selectedChannels.length; y++) {
                   const yPos = top + y * cellHeight;
 
-                  if (!rowData) continue;
-
                   for (let x = 0; x < safeScales.length; x++) {
-                    const value = rowData[x] || 0;
-                    // Optimized normalization with pre-computed factor
-                    const normalized = (value - colorMin) * normFactor;
-                    const clamped = Math.max(0, Math.min(1, normalized));
+                    const r = rgbData[rgbIndex];
+                    const g = rgbData[rgbIndex + 1];
+                    const b = rgbData[rgbIndex + 2];
+                    rgbIndex += 3;
 
-                    ctx.fillStyle =
-                      COLOR_SCHEME_FUNCTIONS[colorScheme](clamped);
+                    ctx.fillStyle = `rgb(${r},${g},${b})`;
                     ctx.fillRect(
                       left + x * cellWidth,
                       yPos,
@@ -721,8 +709,9 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                 }
 
                 const renderElapsed = performance.now() - renderStartTime;
-                loggers.plot.debug("Heatmap render completed", {
+                loggers.plot.debug("Heatmap render completed (WASM colormap)", {
                   elapsedMs: renderElapsed.toFixed(2),
+                  cells: flatData.length,
                 });
 
                 ctx.restore();

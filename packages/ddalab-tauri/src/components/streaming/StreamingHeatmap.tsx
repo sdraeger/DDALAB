@@ -3,6 +3,7 @@
 import { useEffect, useRef, useMemo, useState } from "react";
 import { useAppStore } from "@/store/appStore";
 import { useStreamingData } from "@/hooks/useStreamingData";
+import { computeChannelStats } from "@/services/wasmService";
 import {
   Card,
   CardContent,
@@ -147,30 +148,40 @@ function StreamingHeatmapContent({
     const cellWidth = width / qMatrices.length;
     const cellHeight = plotHeight / numChannels;
 
-    // Find global min/max for color scaling
-    let minQ = Infinity;
-    let maxQ = -Infinity;
+    // Flatten all Q values and use WASM to compute global min/max efficiently
+    const allValues: number[] = [];
+    const channelAverages: number[][] = []; // [windowIdx][channelIdx] = avgQ
 
-    qMatrices.forEach((matrix) => {
-      matrix.forEach((row) => {
-        row.forEach((val) => {
-          minQ = Math.min(minQ, val);
-          maxQ = Math.max(maxQ, val);
-        });
-      });
-    });
+    for (const matrix of qMatrices) {
+      const windowAvgs: number[] = [];
+      for (const channelData of matrix) {
+        // Compute channel average while collecting all values
+        let sum = 0;
+        for (const val of channelData) {
+          allValues.push(val);
+          sum += val;
+        }
+        windowAvgs.push(sum / channelData.length);
+      }
+      channelAverages.push(windowAvgs);
+    }
 
-    // Draw each window
-    qMatrices.forEach((matrix, windowIdx) => {
+    // Use WASM to compute global statistics (much faster for large datasets)
+    const stats = computeChannelStats(allValues);
+    const minQ = stats.min;
+    const maxQ = stats.max;
+    const range = maxQ - minQ || 1;
+
+    // Draw each window using pre-computed averages
+    for (let windowIdx = 0; windowIdx < qMatrices.length; windowIdx++) {
       const x = windowIdx * cellWidth;
+      const windowAvgs = channelAverages[windowIdx];
 
-      // For each channel, average across timepoints to get single color
-      matrix.forEach((channelData, chIdx) => {
-        const avgQ =
-          channelData.reduce((sum, val) => sum + val, 0) / channelData.length;
+      for (let chIdx = 0; chIdx < windowAvgs.length; chIdx++) {
+        const avgQ = windowAvgs[chIdx];
 
         // Normalize to [0, 1]
-        const normalized = (avgQ - minQ) / (maxQ - minQ || 1);
+        const normalized = (avgQ - minQ) / range;
 
         // Color map: blue (low) -> green -> yellow -> red (high)
         const hue = (1 - normalized) * 240; // 240 = blue, 0 = red
@@ -178,8 +189,8 @@ function StreamingHeatmapContent({
 
         ctx.fillStyle = color;
         ctx.fillRect(x, chIdx * cellHeight, cellWidth, cellHeight);
-      });
-    });
+      }
+    }
 
     // Draw grid lines
     ctx.strokeStyle = "rgba(0, 0, 0, 0.1)";

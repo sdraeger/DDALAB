@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useCallback } from "react";
+import React, { useEffect, useRef, useCallback, useState } from "react";
 import { EDFFileInfo } from "@/types/api";
 import { Scissors, ExternalLink, Info } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface FileContextMenuProps {
   x: number;
@@ -56,7 +57,9 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({
   );
 
   // Adjusted position to prevent viewport overflow
-  const [adjustedPosition, setAdjustedPosition] = React.useState({ x, y });
+  const [adjustedPosition, setAdjustedPosition] = useState({ x, y });
+  // Track if menu is mounted for animation
+  const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -67,6 +70,11 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({
 
     document.addEventListener("mousedown", handleClickOutside);
     document.addEventListener("keydown", handleKeyDown);
+
+    // Trigger entrance animation after mount
+    requestAnimationFrame(() => {
+      setIsVisible(true);
+    });
 
     // Focus first menu item on mount
     const firstMenuItem =
@@ -117,14 +125,21 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({
       ref={menuRef}
       role="menu"
       aria-label={`Actions for ${file.file_name}`}
-      className="fixed bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-lg z-50 py-1 min-w-[200px]"
+      className={cn(
+        "fixed z-50 min-w-[200px] overflow-hidden rounded-md border bg-popover py-1 text-popover-foreground shadow-md",
+        // Animation classes consistent with dropdown-menu
+        "transition-all duration-150 ease-out",
+        isVisible
+          ? "animate-in fade-in-0 zoom-in-95 slide-in-from-top-2"
+          : "opacity-0 scale-95"
+      )}
       style={{
         left: `${adjustedPosition.x}px`,
         top: `${adjustedPosition.y}px`,
       }}
     >
-      <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700">
-        <div className="text-xs font-medium text-gray-500 dark:text-gray-400 truncate">
+      <div className="px-3 py-2 border-b border-border">
+        <div className="text-xs font-medium text-muted-foreground truncate">
           {file.file_name}
         </div>
       </div>
@@ -134,7 +149,7 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({
         <button
           role="menuitem"
           onClick={() => handleMenuItemClick(() => onSegmentFile(file))}
-          className="w-full px-3 py-2 text-sm text-left hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 transition-colors focus:outline-none focus:bg-gray-100 dark:focus:bg-gray-700"
+          className="relative w-full flex cursor-default select-none items-center rounded-sm px-3 py-2 text-sm outline-none transition-colors duration-150 hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground gap-2"
         >
           <Scissors className="h-4 w-4" aria-hidden="true" />
           Cut/Extract File
@@ -145,7 +160,7 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({
       {(onOpenInSystemViewer || onShowFileInfo) && (
         <>
           <div
-            className="h-px bg-gray-200 dark:bg-gray-700 my-1"
+            className="-mx-1 my-1 h-px bg-muted"
             role="separator"
           />
           <div className="py-1">
@@ -155,7 +170,7 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({
                 onClick={() =>
                   handleMenuItemClick(() => onOpenInSystemViewer(file))
                 }
-                className="w-full px-3 py-2 text-sm text-left hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 transition-colors focus:outline-none focus:bg-gray-100 dark:focus:bg-gray-700"
+                className="relative w-full flex cursor-default select-none items-center rounded-sm px-3 py-2 text-sm outline-none transition-colors duration-150 hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground gap-2"
               >
                 <ExternalLink className="h-4 w-4" aria-hidden="true" />
                 Open in System Viewer
@@ -166,7 +181,7 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({
               <button
                 role="menuitem"
                 onClick={() => handleMenuItemClick(() => onShowFileInfo(file))}
-                className="w-full px-3 py-2 text-sm text-left hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 transition-colors focus:outline-none focus:bg-gray-100 dark:focus:bg-gray-700"
+                className="relative w-full flex cursor-default select-none items-center rounded-sm px-3 py-2 text-sm outline-none transition-colors duration-150 hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground gap-2"
               >
                 <Info className="h-4 w-4" aria-hidden="true" />
                 File Info

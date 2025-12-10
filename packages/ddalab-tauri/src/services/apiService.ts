@@ -25,6 +25,27 @@ interface FileEntry {
   last_modified?: string;
 }
 
+/** Window data response for lazy file reading (100GB+ files) */
+export interface WindowData {
+  data: number[][];
+  channel_labels: string[];
+  sample_rate: number;
+  start_time_sec: number;
+  duration_sec: number;
+  num_samples: number;
+  from_cache: boolean;
+}
+
+/** Cache statistics for lazy reader */
+export interface CacheStats {
+  num_windows: number;
+  total_size_bytes: number;
+  total_size_mb: number;
+  max_windows: number;
+  max_size_bytes: number;
+  max_size_mb: number;
+}
+
 /** File list API response */
 interface FileListResponse {
   files: FileEntry[];
@@ -1054,6 +1075,51 @@ export class ApiService {
     const response = await this.client.post<ReconstructResponse>(
       "/api/ica/reconstruct",
       request,
+    );
+    return response.data;
+  }
+
+  // ============================================================================
+  // LAZY FILE READING (100GB+ files)
+  // ============================================================================
+
+  /**
+   * Get data window using lazy loading (optimized for large files).
+   * Only the requested time window is loaded into memory with LRU caching.
+   */
+  async getEdfWindow(
+    filePath: string,
+    startTime: number = 0,
+    duration: number = 30,
+    channels?: string[],
+  ): Promise<WindowData> {
+    const params: QueryParams = {
+      file_path: filePath,
+      start_time: startTime,
+      duration: duration,
+      channels: channels?.join(","),
+    };
+
+    const response = await this.client.get<WindowData>("/api/edf/window", {
+      params,
+    });
+    return response.data;
+  }
+
+  /**
+   * Get cache statistics for the lazy file reader.
+   */
+  async getEdfCacheStats(): Promise<CacheStats> {
+    const response = await this.client.get<CacheStats>("/api/edf/cache/stats");
+    return response.data;
+  }
+
+  /**
+   * Clear the lazy file reader cache.
+   */
+  async clearEdfCache(): Promise<{ status: string; message: string }> {
+    const response = await this.client.post<{ status: string; message: string }>(
+      "/api/edf/cache/clear",
     );
     return response.data;
   }

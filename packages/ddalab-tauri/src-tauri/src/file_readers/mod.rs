@@ -7,6 +7,9 @@ use crate::intermediate_format::{ChannelData, DataMetadata, IntermediateData};
 ///
 /// Data Pipeline:
 /// File Format → FileReader → IntermediateData → ASCII/CSV for DDA or direct use
+///
+/// For very large files (100GB+), use the lazy_reader module which provides
+/// window-based access with LRU caching.
 use std::path::Path;
 
 pub mod ascii_reader;
@@ -15,6 +18,7 @@ pub mod csv_reader;
 pub mod edf_reader;
 pub mod eeglab_reader; // EEGLAB .set files (supports .set+.fdt pairs and some single .set files)
 pub mod fif_reader; // FIF/FIFF reader (uses external fiff crate)
+pub mod lazy_reader; // Lazy/windowed file reading for large files (100GB+)
 pub mod nifti_reader; // NIfTI reader (uses external nifti crate)
 #[cfg(feature = "nwb-support")]
 pub mod nwb_reader; // NWB (Neurodata Without Borders) reader (HDF5-based)
@@ -31,6 +35,12 @@ pub use nifti_reader::NIfTIFileReader;
 #[cfg(feature = "nwb-support")]
 pub use nwb_reader::NWBFileReader;
 pub use xdf_reader::XDFFileReader;
+
+// Re-export lazy reader types for convenience
+pub use lazy_reader::{
+    CacheStats, DataWindow, LazyEDFReader, LazyFileReader, LazyReaderConfig, LazyReaderFactory,
+    WindowCache, WindowKey, WindowRequest, global_cache, init_global_cache,
+};
 
 /// Parse EDF datetime from date (dd.mm.yy) and time (hh.mm.ss) strings to RFC3339 format
 pub fn parse_edf_datetime(date_str: &str, time_str: &str) -> Option<String> {

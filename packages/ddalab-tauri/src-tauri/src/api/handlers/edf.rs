@@ -6,7 +6,9 @@ use crate::api::utils::{
     read_edf_file_chunk, FileType,
 };
 use crate::edf::EDFReader;
-use crate::file_readers::FileReaderFactory;
+use crate::file_readers::{
+    global_cache, FileReaderFactory, LazyReaderFactory, WindowRequest,
+};
 use crate::signal_processing::{preprocess_batch, PreprocessingConfig};
 use crate::text_reader::TextFileReader;
 use axum::{
@@ -16,6 +18,7 @@ use axum::{
     Json,
 };
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -1024,4 +1027,159 @@ fn generate_text_file_overview(
         chunk_start: 0,
         total_samples: Some(total_samples as u64),
     })
+}
+
+// ============================================================================
+// LAZY WINDOW-BASED ACCESS (for 100GB+ files)
+// ============================================================================
+
+/// Response for window-based data access
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WindowData {
+    /// Channel data: channels x samples
+    pub data: Vec<Vec<f64>>,
+    /// Channel labels (in same order as data)
+    pub channel_labels: Vec<String>,
+    /// Sample rate in Hz
+    pub sample_rate: f64,
+    /// Start time in seconds from file start
+    pub start_time_sec: f64,
+    /// Duration in seconds
+    pub duration_sec: f64,
+    /// Number of samples per channel
+    pub num_samples: usize,
+    /// Whether this data came from cache
+    pub from_cache: bool,
+}
+
+/// Cache statistics response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CacheStatsResponse {
+    pub num_windows: usize,
+    pub total_size_bytes: usize,
+    pub total_size_mb: f64,
+    pub max_windows: usize,
+    pub max_size_bytes: usize,
+    pub max_size_mb: f64,
+}
+
+/// Get data window using lazy loading (optimized for large files)
+///
+/// This endpoint uses the lazy file reader with LRU caching, making it
+/// suitable for files of any size (100GB+). Only the requested time
+/// window is loaded into memory.
+///
+/// Query Parameters:
+/// - file_path: Path to the EDF/BDF file
+/// - start_time: Start time in seconds (default: 0)
+/// - duration: Duration in seconds (default: 30)
+/// - channels: Comma-separated channel names (optional, default: all)
+pub async fn get_edf_window(
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<WindowData>, ApiError> {
+    let file_path = params
+        .get("file_path")
+        .ok_or_else(|| ApiError::BadRequest("Missing file_path parameter".to_string()))?;
+
+    let path = std::path::Path::new(file_path);
+
+    // Check for git-annex symlinks
+    check_git_annex_symlink(path)?;
+
+    // Check if lazy reading is supported for this file type
+    if !LazyReaderFactory::supports_lazy_reading(path) {
+        return Err(ApiError::BadRequest(format!(
+            "Lazy reading not supported for file type: {}",
+            path.extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("unknown")
+        )));
+    }
+
+    // Parse request parameters
+    let start_time: f64 = params
+        .get("start_time")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0.0);
+
+    let duration: f64 = params
+        .get("duration")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(30.0);
+
+    let channels: Option<Vec<String>> = params.get("channels").map(|s| {
+        s.split(',')
+            .map(|c| c.trim().to_string())
+            .filter(|c| !c.is_empty())
+            .collect()
+    });
+
+    // Create lazy reader
+    let reader = LazyReaderFactory::create_reader(path).map_err(|e| {
+        ApiError::InternalError(format!("Failed to create lazy reader: {}", e))
+    })?;
+
+    // Build window request
+    let mut request = WindowRequest::new(start_time, duration);
+    if let Some(ch) = channels {
+        request = request.with_channels(ch);
+    }
+
+    // Use global cache for window data
+    let cache = global_cache();
+
+    // Check if we have a cache hit before reading
+    let metadata = reader.metadata().map_err(|e| {
+        ApiError::InternalError(format!("Failed to read metadata: {}", e))
+    })?;
+
+    let channels_for_key = request
+        .channels
+        .clone()
+        .unwrap_or_else(|| metadata.channels.clone());
+
+    use crate::file_readers::WindowKey;
+    let key = WindowKey::new(file_path, start_time, duration, &channels_for_key);
+    let from_cache = cache.get(&key).is_some();
+
+    // Read window (will use cache if available)
+    let window = reader.read_window_cached(&request, cache).map_err(|e| {
+        ApiError::InternalError(format!("Failed to read window: {}", e))
+    })?;
+
+    Ok(Json(WindowData {
+        data: window.data.clone(),
+        channel_labels: window.channel_labels.clone(),
+        sample_rate: window.sample_rate,
+        start_time_sec: window.start_time_sec,
+        duration_sec: window.duration_sec,
+        num_samples: window.num_samples,
+        from_cache,
+    }))
+}
+
+/// Get cache statistics for the lazy file reader
+pub async fn get_edf_cache_stats() -> Json<CacheStatsResponse> {
+    let cache = global_cache();
+    let stats = cache.stats();
+
+    Json(CacheStatsResponse {
+        num_windows: stats.num_windows,
+        total_size_bytes: stats.total_size_bytes,
+        total_size_mb: stats.total_size_bytes as f64 / (1024.0 * 1024.0),
+        max_windows: stats.max_windows,
+        max_size_bytes: stats.max_size_bytes,
+        max_size_mb: stats.max_size_bytes as f64 / (1024.0 * 1024.0),
+    })
+}
+
+/// Clear the lazy file reader cache
+pub async fn clear_edf_cache() -> Json<serde_json::Value> {
+    let cache = global_cache();
+    cache.clear();
+
+    Json(serde_json::json!({
+        "status": "ok",
+        "message": "Cache cleared successfully"
+    }))
 }

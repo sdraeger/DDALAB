@@ -1507,6 +1507,144 @@ pub fn compute_heatmap_channel_stats(
     result
 }
 
+/// Combined transform and statistics computation for multi-channel heatmap data
+/// This is the most efficient function for DDA heatmap rendering as it:
+/// 1. Transforms all data with log10 in a single pass
+/// 2. Computes global statistics across all channels
+/// 3. Returns both transformed data and stats
+///
+/// data: flattened raw DDA matrix [ch0_s0, ch0_s1, ..., ch1_s0, ...]
+/// num_channels: number of channels
+/// points_per_channel: number of scale points per channel
+/// floor_value: minimum value before log10 (default 0.001)
+///
+/// Returns: Combined result as flattened array:
+/// [transformed_data..., global_min, global_max, global_mean, global_std, scale_min, scale_max]
+/// The last 6 values are the global statistics for color range calculation
+#[wasm_bindgen]
+pub fn transform_heatmap_with_stats(
+    data: &[f64],
+    num_channels: usize,
+    points_per_channel: usize,
+    floor_value: f64,
+) -> Vec<f64> {
+    #[cfg(feature = "console_error_panic_hook")]
+    set_panic_hook();
+
+    if num_channels == 0 || points_per_channel == 0 {
+        return vec![];
+    }
+
+    let expected_len = num_channels * points_per_channel;
+    if data.len() < expected_len {
+        return vec![];
+    }
+
+    let floor = if floor_value > 0.0 { floor_value } else { 0.001 };
+
+    // Allocate result: transformed data + 6 stats values
+    let mut result = Vec::with_capacity(expected_len + 6);
+
+    // Single-pass Welford's algorithm for global statistics
+    let mut min = f64::INFINITY;
+    let mut max = f64::NEG_INFINITY;
+    let mut mean = 0.0;
+    let mut m2 = 0.0;
+    let mut count = 0u32;
+
+    // Transform and compute stats in a single pass
+    for &value in &data[..expected_len] {
+        let log_val = if value.is_finite() {
+            (value.max(floor)).log10()
+        } else {
+            0.0
+        };
+
+        result.push(log_val);
+
+        if value.is_finite() {
+            count += 1;
+            min = min.min(log_val);
+            max = max.max(log_val);
+
+            // Welford's online algorithm
+            let delta = log_val - mean;
+            mean += delta / count as f64;
+            let delta2 = log_val - mean;
+            m2 += delta * delta2;
+        }
+    }
+
+    let variance = if count > 1 {
+        m2 / (count - 1) as f64
+    } else {
+        0.0
+    };
+    let std = variance.sqrt();
+
+    // Compute auto-scale range (mean ± 3*std)
+    let scale_min = mean - 3.0 * std;
+    let scale_max = mean + 3.0 * std;
+
+    // Append stats to result
+    result.push(min);
+    result.push(max);
+    result.push(mean);
+    result.push(std);
+    result.push(scale_min);
+    result.push(scale_max);
+
+    result
+}
+
+/// Normalize values and apply colormap in a single pass
+/// This is optimized for heatmap rendering where we need to:
+/// 1. Normalize values to [0, 1] based on color range
+/// 2. Apply colormap to get RGB values
+///
+/// data: log-transformed heatmap data
+/// color_min, color_max: color range for normalization
+/// colormap: 0 = viridis, 1 = plasma, 2 = inferno, 3 = magma, 4 = coolwarm
+///
+/// Returns: RGB values as [r0, g0, b0, r1, g1, b1, ...] in 0-255 range
+#[wasm_bindgen]
+pub fn normalize_and_colormap(
+    data: &[f64],
+    color_min: f64,
+    color_max: f64,
+    colormap: u8,
+) -> Vec<u8> {
+    #[cfg(feature = "console_error_panic_hook")]
+    set_panic_hook();
+
+    let range = color_max - color_min;
+    let norm_factor = if range.abs() > 1e-10 { 1.0 / range } else { 0.0 };
+
+    let mut result = Vec::with_capacity(data.len() * 3);
+
+    for &value in data {
+        // Normalize to [0, 1]
+        let normalized = (value - color_min) * norm_factor;
+        let clamped = normalized.clamp(0.0, 1.0);
+
+        // Apply colormap
+        let (r, g, b) = match colormap {
+            0 => colormap_viridis(clamped),
+            1 => colormap_plasma(clamped),
+            2 => colormap_inferno(clamped),
+            3 => colormap_magma(clamped),
+            4 => colormap_coolwarm(clamped),
+            _ => colormap_viridis(clamped),
+        };
+
+        result.push(r);
+        result.push(g);
+        result.push(b);
+    }
+
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

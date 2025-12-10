@@ -1,11 +1,11 @@
 use crate::api::auth::auth_middleware;
 use crate::api::handlers::{
-    cancel_dda_analysis, delete_analysis_result, delete_ica_result, get_analysis_result,
-    get_analysis_status, get_dda_results, get_edf_data, get_edf_info, get_edf_overview,
-    get_file_chunk, get_file_info, get_ica_result, get_ica_results, get_overview_progress,
-    get_running_analysis_status, health, list_analysis_history, list_files,
-    reconstruct_without_components, rename_analysis_result, run_dda_analysis, run_ica_analysis,
-    save_analysis_to_history,
+    cancel_dda_analysis, clear_edf_cache, delete_analysis_result, delete_ica_result,
+    get_analysis_result, get_analysis_status, get_dda_results, get_edf_cache_stats, get_edf_data,
+    get_edf_info, get_edf_overview, get_edf_window, get_file_chunk, get_file_info, get_ica_result,
+    get_ica_results, get_overview_progress, get_running_analysis_status, health,
+    list_analysis_history, list_files, reconstruct_without_components, rename_analysis_result,
+    run_dda_analysis, run_ica_analysis, save_analysis_to_history,
 };
 use crate::api::state::ApiState;
 use axum::{
@@ -30,6 +30,10 @@ pub fn create_router(state: Arc<ApiState>) -> Router {
         .route("/api/edf/data", get(get_edf_data))
         .route("/api/edf/overview", get(get_edf_overview))
         .route("/api/edf/overview/progress", get(get_overview_progress))
+        // Lazy window-based access (optimized for 100GB+ files)
+        .route("/api/edf/window", get(get_edf_window))
+        .route("/api/edf/cache/stats", get(get_edf_cache_stats))
+        .route("/api/edf/cache/clear", post(clear_edf_cache))
         .route("/api/dda", post(run_dda_analysis))
         .route("/api/dda/analyze", post(run_dda_analysis))
         .route("/api/dda/cancel", post(cancel_dda_analysis))
