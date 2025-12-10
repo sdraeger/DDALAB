@@ -61,25 +61,50 @@ interface DropdownMenuContentProps
   extends React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content> {
   /** Keep content mounted in DOM when closed (prevents unmount/remount flicker) */
   keepMounted?: boolean;
+  /** Skip portal rendering to fix HiDPI positioning issues in Tauri WebView */
+  noPortal?: boolean;
 }
 
 const DropdownMenuContent = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.Content>,
   DropdownMenuContentProps
->(({ className, sideOffset = 4, keepMounted, ...props }, ref) => (
-  <DropdownMenuPrimitive.Portal forceMount={keepMounted ? true : undefined}>
-    <DropdownMenuPrimitive.Content
-      ref={ref}
-      sideOffset={sideOffset}
-      forceMount={keepMounted ? true : undefined}
-      className={cn(
-        "z-50 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:opacity-0 data-[state=open]:opacity-100 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
-        className,
-      )}
-      {...props}
-    />
-  </DropdownMenuPrimitive.Portal>
-));
+>(
+  (
+    {
+      className,
+      sideOffset = 0,
+      alignOffset = 0,
+      keepMounted,
+      noPortal,
+      ...props
+    },
+    ref,
+  ) => {
+    const content = (
+      <DropdownMenuPrimitive.Content
+        ref={ref}
+        sideOffset={sideOffset}
+        alignOffset={alignOffset}
+        forceMount={keepMounted ? true : undefined}
+        className={cn(
+          "z-50 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:opacity-0 data-[state=open]:opacity-100 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+          className,
+        )}
+        {...props}
+      />
+    );
+
+    if (noPortal) {
+      return content;
+    }
+
+    return (
+      <DropdownMenuPrimitive.Portal forceMount={keepMounted ? true : undefined}>
+        {content}
+      </DropdownMenuPrimitive.Portal>
+    );
+  },
+);
 DropdownMenuContent.displayName = DropdownMenuPrimitive.Content.displayName;
 
 const DropdownMenuItem = React.forwardRef<
