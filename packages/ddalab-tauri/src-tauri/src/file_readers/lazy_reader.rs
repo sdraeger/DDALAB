@@ -566,8 +566,7 @@ impl LazyFileReader for LazyTextReader {
     }
 
     fn read_window(&self, request: &WindowRequest) -> FileResult<DataWindow> {
-        let start_sample =
-            (request.start_time_sec * self.assumed_sample_rate).floor() as usize;
+        let start_sample = (request.start_time_sec * self.assumed_sample_rate).floor() as usize;
         let num_samples_requested =
             (request.duration_sec * self.assumed_sample_rate).ceil() as usize;
 
@@ -775,5 +774,4 @@ mod tests {
         assert!(cache.get(&key1).is_some());
         assert!(cache.get(&key2).is_some());
     }
-
 }
