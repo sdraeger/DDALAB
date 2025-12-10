@@ -215,46 +215,45 @@ impl PreprocessingPipeline {
 
     /// Process all channels in parallel (for batch processing)
     pub fn process_all_channels(&mut self, channels: &mut [Vec<f64>]) {
-        // Use parallel iteration with mutable references
-        channels
-            .par_iter_mut()
-            .enumerate()
-            .for_each(|(idx, channel)| {
-                // Create temporary filters for parallel processing
-                // (we can't share mutable state across threads)
-                let mut notch = if self.config.notch_enabled {
-                    let notch_config = FilterConfig {
-                        filter_type: FilterType::Notch,
-                        frequency: self.config.notch_frequency,
-                        frequency_high: Some(self.config.notch_frequency / self.config.notch_q),
-                        order: 2,
-                        sample_rate: self.config.sample_rate,
-                    };
-                    create_filter(&notch_config).ok()
-                } else {
-                    None
-                };
+        // Pre-create template filters once (computing coefficients is expensive)
+        // Each parallel thread will clone_fresh() to get independent state
+        let notch_template = if self.config.notch_enabled {
+            let notch_config = FilterConfig {
+                filter_type: FilterType::Notch,
+                frequency: self.config.notch_frequency,
+                frequency_high: Some(self.config.notch_frequency / self.config.notch_q),
+                order: 2,
+                sample_rate: self.config.sample_rate,
+            };
+            create_filter(&notch_config).ok()
+        } else {
+            None
+        };
 
-                let mut bandpass = if self.config.bandpass_enabled {
-                    let bp_config = FilterConfig {
-                        filter_type: FilterType::Bandpass,
-                        frequency: self.config.bandpass_low,
-                        frequency_high: Some(self.config.bandpass_high),
-                        order: self.config.filter_order,
-                        sample_rate: self.config.sample_rate,
-                    };
-                    create_filter(&bp_config).ok()
-                } else {
-                    None
-                };
+        let bandpass_template = if self.config.bandpass_enabled {
+            let bp_config = FilterConfig {
+                filter_type: FilterType::Bandpass,
+                frequency: self.config.bandpass_low,
+                frequency_high: Some(self.config.bandpass_high),
+                order: self.config.filter_order,
+                sample_rate: self.config.sample_rate,
+            };
+            create_filter(&bp_config).ok()
+        } else {
+            None
+        };
 
-                if let Some(ref mut n) = notch {
-                    n.process_signal(channel);
-                }
-                if let Some(ref mut bp) = bandpass {
-                    bp.process_signal(channel);
-                }
-            });
+        // Process channels in parallel, cloning filters with fresh state per channel
+        channels.par_iter_mut().for_each(|channel| {
+            if let Some(ref template) = notch_template {
+                let mut notch = template.clone_fresh();
+                notch.process_signal(channel);
+            }
+            if let Some(ref template) = bandpass_template {
+                let mut bandpass = template.clone_fresh();
+                bandpass.process_signal(channel);
+            }
+        });
     }
 
     /// Process a batch of data and return the result (original data unchanged)
@@ -265,42 +264,43 @@ impl PreprocessingPipeline {
     ) -> PreprocessingResult {
         let start = std::time::Instant::now();
 
-        // Clone and process
+        // Pre-create template filters once (computing coefficients is expensive)
+        let notch_template = if self.config.notch_enabled {
+            let notch_config = FilterConfig {
+                filter_type: FilterType::Notch,
+                frequency: self.config.notch_frequency,
+                frequency_high: Some(self.config.notch_frequency / self.config.notch_q),
+                order: 2,
+                sample_rate: self.config.sample_rate,
+            };
+            create_filter(&notch_config).ok()
+        } else {
+            None
+        };
+
+        let bandpass_template = if self.config.bandpass_enabled {
+            let bp_config = FilterConfig {
+                filter_type: FilterType::Bandpass,
+                frequency: self.config.bandpass_low,
+                frequency_high: Some(self.config.bandpass_high),
+                order: self.config.filter_order,
+                sample_rate: self.config.sample_rate,
+            };
+            create_filter(&bp_config).ok()
+        } else {
+            None
+        };
+
+        // Clone and process in parallel
         let mut processed: Vec<Vec<f64>> = channels.to_vec();
-
-        // Process in parallel
         processed.par_iter_mut().for_each(|channel| {
-            let mut notch = if self.config.notch_enabled {
-                let notch_config = FilterConfig {
-                    filter_type: FilterType::Notch,
-                    frequency: self.config.notch_frequency,
-                    frequency_high: Some(self.config.notch_frequency / self.config.notch_q),
-                    order: 2,
-                    sample_rate: self.config.sample_rate,
-                };
-                create_filter(&notch_config).ok()
-            } else {
-                None
-            };
-
-            let mut bandpass = if self.config.bandpass_enabled {
-                let bp_config = FilterConfig {
-                    filter_type: FilterType::Bandpass,
-                    frequency: self.config.bandpass_low,
-                    frequency_high: Some(self.config.bandpass_high),
-                    order: self.config.filter_order,
-                    sample_rate: self.config.sample_rate,
-                };
-                create_filter(&bp_config).ok()
-            } else {
-                None
-            };
-
-            if let Some(ref mut n) = notch {
-                n.process_signal(channel);
+            if let Some(ref template) = notch_template {
+                let mut notch = template.clone_fresh();
+                notch.process_signal(channel);
             }
-            if let Some(ref mut bp) = bandpass {
-                bp.process_signal(channel);
+            if let Some(ref template) = bandpass_template {
+                let mut bandpass = template.clone_fresh();
+                bandpass.process_signal(channel);
             }
         });
 
