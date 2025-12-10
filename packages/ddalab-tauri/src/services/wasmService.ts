@@ -20,6 +20,21 @@ export interface IQRResult {
   iqr: number;
 }
 
+export interface HeatmapStats {
+  min: number;
+  max: number;
+  mean: number;
+  std: number;
+  count: number;
+  scaleMin: number;
+  scaleMax: number;
+}
+
+export interface HeatmapTransformResult {
+  data: number[][];
+  stats: HeatmapStats;
+}
+
 export type DecimationMethod = "lttb" | "minmax" | "average";
 export type Colormap = "viridis" | "plasma" | "inferno" | "magma" | "coolwarm";
 
@@ -611,6 +626,325 @@ export function computeCorrelationMatrix(data: number[][]): number[][] {
   }
 
   return matrix;
+}
+
+// ============================================================================
+// HEATMAP OPTIMIZATION - DDA Results
+// ============================================================================
+
+/**
+ * Transform DDA matrix data with log10 and compute statistics in a single pass.
+ * This is the most efficient function for DDA heatmap rendering.
+ *
+ * @param rawChannelData - Array of raw channel data arrays from DDA matrix
+ * @param floorValue - Minimum value before log10 (default 0.001)
+ * @returns Transformed data and global statistics for color range calculation
+ */
+export function transformHeatmapWithStats(
+  rawChannelData: number[][],
+  floorValue: number = 0.001,
+): HeatmapTransformResult {
+  if (rawChannelData.length === 0) {
+    return {
+      data: [],
+      stats: {
+        min: 0,
+        max: 0,
+        mean: 0,
+        std: 0,
+        count: 0,
+        scaleMin: 0,
+        scaleMax: 1,
+      },
+    };
+  }
+
+  const numChannels = rawChannelData.length;
+  const pointsPerChannel = rawChannelData[0].length;
+
+  if (!wasmFunctions) {
+    return transformHeatmapWithStatsJS(rawChannelData, floorValue);
+  }
+
+  // Flatten data for WASM (row-major: ch0_s0, ch0_s1, ..., ch1_s0, ...)
+  const flatData = new Float64Array(numChannels * pointsPerChannel);
+  for (let ch = 0; ch < numChannels; ch++) {
+    flatData.set(rawChannelData[ch], ch * pointsPerChannel);
+  }
+
+  const result = wasmFunctions.transform_heatmap_with_stats(
+    flatData,
+    numChannels,
+    pointsPerChannel,
+    floorValue,
+  );
+
+  // Extract transformed data and stats from result
+  // Result format: [transformed_data..., min, max, mean, std, scale_min, scale_max]
+  const dataLength = numChannels * pointsPerChannel;
+  const transformedFlat = result.slice(0, dataLength);
+
+  // Split back into channels
+  const data: number[][] = [];
+  for (let ch = 0; ch < numChannels; ch++) {
+    const start = ch * pointsPerChannel;
+    const end = start + pointsPerChannel;
+    data.push(Array.from(transformedFlat.slice(start, end)));
+  }
+
+  // Extract stats (last 6 values)
+  const stats: HeatmapStats = {
+    min: result[dataLength],
+    max: result[dataLength + 1],
+    mean: result[dataLength + 2],
+    std: result[dataLength + 3],
+    scaleMin: result[dataLength + 4],
+    scaleMax: result[dataLength + 5],
+    count: dataLength,
+  };
+
+  return { data, stats };
+}
+
+/**
+ * Normalize and apply colormap to heatmap data in a single pass.
+ * Returns RGB values ready for canvas rendering.
+ *
+ * @param data - Log-transformed heatmap data (flattened or 2D)
+ * @param colorMin - Minimum value for normalization
+ * @param colorMax - Maximum value for normalization
+ * @param colormap - Colormap name
+ * @returns Uint8Array of RGB values [r0, g0, b0, r1, g1, b1, ...]
+ */
+export function normalizeAndColormap(
+  data: number[] | number[][],
+  colorMin: number,
+  colorMax: number,
+  colormap: Colormap,
+): Uint8Array {
+  // Flatten 2D data if needed
+  const flatData = Array.isArray(data[0])
+    ? (data as number[][]).flat()
+    : (data as number[]);
+
+  const colormapIndex = {
+    viridis: 0,
+    plasma: 1,
+    inferno: 2,
+    magma: 3,
+    coolwarm: 4,
+  }[colormap];
+
+  if (!wasmFunctions) {
+    return normalizeAndColormapJS(flatData, colorMin, colorMax, colormap);
+  }
+
+  const float64Data = new Float64Array(flatData);
+  return wasmFunctions.normalize_and_colormap(
+    float64Data,
+    colorMin,
+    colorMax,
+    colormapIndex,
+  );
+}
+
+/**
+ * Compute log10-transformed statistics for heatmap data.
+ * Use this when you only need stats without the transformed data.
+ */
+export function computeHeatmapStats(
+  data: number[],
+  floorValue: number = 0.001,
+): HeatmapStats {
+  if (!wasmFunctions) {
+    return computeHeatmapStatsJS(data, floorValue);
+  }
+
+  const float64Data = new Float64Array(data);
+  const stats = wasmFunctions.compute_heatmap_stats(float64Data, floorValue);
+
+  const result: HeatmapStats = {
+    min: stats.min,
+    max: stats.max,
+    mean: stats.mean,
+    std: stats.std,
+    count: stats.count,
+    scaleMin: stats.scale_min,
+    scaleMax: stats.scale_max,
+  };
+
+  // Clean up WASM memory
+  stats.free();
+
+  return result;
+}
+
+/**
+ * Transform data with log10 (without statistics).
+ * Use transformHeatmapWithStats when you need both.
+ */
+export function transformHeatmapLog10(
+  data: number[],
+  floorValue: number = 0.001,
+): number[] {
+  if (!wasmFunctions) {
+    return transformHeatmapLog10JS(data, floorValue);
+  }
+
+  const float64Data = new Float64Array(data);
+  const result = wasmFunctions.transform_heatmap_log10(float64Data, floorValue);
+  return Array.from(result);
+}
+
+// JS Fallback implementations for heatmap functions
+
+function transformHeatmapWithStatsJS(
+  rawChannelData: number[][],
+  floorValue: number,
+): HeatmapTransformResult {
+  const data: number[][] = [];
+  let min = Infinity;
+  let max = -Infinity;
+  let mean = 0;
+  let m2 = 0;
+  let count = 0;
+
+  const log10 = Math.log10;
+  const floor = floorValue > 0 ? floorValue : 0.001;
+
+  for (const channelData of rawChannelData) {
+    const transformed: number[] = new Array(channelData.length);
+
+    for (let i = 0; i < channelData.length; i++) {
+      const raw = channelData[i];
+      const logVal = Number.isFinite(raw)
+        ? log10(Math.max(raw, floor))
+        : 0;
+
+      transformed[i] = logVal;
+
+      if (Number.isFinite(raw)) {
+        count++;
+        min = Math.min(min, logVal);
+        max = Math.max(max, logVal);
+
+        // Welford's online algorithm
+        const delta = logVal - mean;
+        mean += delta / count;
+        const delta2 = logVal - mean;
+        m2 += delta * delta2;
+      }
+    }
+
+    data.push(transformed);
+  }
+
+  const variance = count > 1 ? m2 / (count - 1) : 0;
+  const std = Math.sqrt(variance);
+  const scaleMin = mean - 3 * std;
+  const scaleMax = mean + 3 * std;
+
+  return {
+    data,
+    stats: { min, max, mean, std, count, scaleMin, scaleMax },
+  };
+}
+
+function normalizeAndColormapJS(
+  data: number[],
+  colorMin: number,
+  colorMax: number,
+  colormap: Colormap,
+): Uint8Array {
+  const result = new Uint8Array(data.length * 3);
+  const range = colorMax - colorMin;
+  const normFactor = Math.abs(range) > 1e-10 ? 1 / range : 0;
+
+  for (let i = 0; i < data.length; i++) {
+    const normalized = (data[i] - colorMin) * normFactor;
+    const clamped = Math.max(0, Math.min(1, normalized));
+
+    let r: number, g: number, b: number;
+
+    switch (colormap) {
+      case "viridis":
+        r = 0.267 + clamped * (0.329 + clamped * (1.452 - clamped * 1.046));
+        g = Math.pow(clamped, 0.5);
+        b = 0.329 + clamped * (1.452 - clamped * 1.781);
+        break;
+      case "plasma":
+        r = Math.min(0.05 + clamped * 2.5, 1);
+        g = Math.min(clamped * clamped * 0.8, 1);
+        b = Math.max(0, Math.min(0.533 - clamped * 0.533 + clamped * clamped * 0.5, 1));
+        break;
+      case "inferno":
+        r = Math.min(clamped * 2, 1);
+        g = Math.min(clamped * clamped * 1.5, 1);
+        b = Math.max(0, Math.min(0.2 + clamped * 0.6 - clamped * clamped * 0.8, 1));
+        break;
+      case "magma":
+        r = Math.min(clamped * 1.8, 1);
+        g = Math.min(clamped * clamped * 1.2, 1);
+        b = Math.min(0.4 + clamped * 0.6, 1);
+        break;
+      case "coolwarm":
+        r = clamped < 0.5 ? clamped * 2 : 1;
+        g = clamped < 0.5 ? clamped * 2 : 2 - clamped * 2;
+        b = clamped < 0.5 ? 1 : 2 - clamped * 2;
+        break;
+      default:
+        r = g = b = clamped;
+    }
+
+    result[i * 3] = Math.round(Math.max(0, Math.min(1, r)) * 255);
+    result[i * 3 + 1] = Math.round(Math.max(0, Math.min(1, g)) * 255);
+    result[i * 3 + 2] = Math.round(Math.max(0, Math.min(1, b)) * 255);
+  }
+
+  return result;
+}
+
+function computeHeatmapStatsJS(data: number[], floorValue: number): HeatmapStats {
+  const floor = floorValue > 0 ? floorValue : 0.001;
+  let min = Infinity;
+  let max = -Infinity;
+  let mean = 0;
+  let m2 = 0;
+  let count = 0;
+
+  for (const value of data) {
+    if (!Number.isFinite(value)) continue;
+
+    const logVal = Math.log10(Math.max(value, floor));
+    count++;
+    min = Math.min(min, logVal);
+    max = Math.max(max, logVal);
+
+    const delta = logVal - mean;
+    mean += delta / count;
+    const delta2 = logVal - mean;
+    m2 += delta * delta2;
+  }
+
+  const variance = count > 1 ? m2 / (count - 1) : 0;
+  const std = Math.sqrt(variance);
+
+  return {
+    min,
+    max,
+    mean,
+    std,
+    count,
+    scaleMin: mean - 3 * std,
+    scaleMax: mean + 3 * std,
+  };
+}
+
+function transformHeatmapLog10JS(data: number[], floorValue: number): number[] {
+  const floor = floorValue > 0 ? floorValue : 0.001;
+  return data.map((v) =>
+    Number.isFinite(v) ? Math.log10(Math.max(v, floor)) : 0,
+  );
 }
 
 // ============================================================================

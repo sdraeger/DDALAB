@@ -47,11 +47,21 @@ function OverviewPlotComponent({
   const onSeekRef = useRef(onSeek);
   const currentTimeRef = useRef(currentTime);
   const timeWindowRef = useRef(timeWindow);
+  const durationRef = useRef(duration);
   const annotationsRef = useRef<PlotAnnotation[]>(annotations);
   const lastDurationRef = useRef<number | null>(null);
   const lastFilePathRef = useRef<string | null>(null);
   const retryCountRef = useRef(0);
   const forceRedrawTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Store processed max data in ref so draw hooks always access current data (not stale closures)
+  const processedMaxDataRef = useRef<number[][]>([]);
+  // Track cursor position for the vertical dashed line
+  // We store both the screen X position (for fixed positioning) and the container bounds (for clipping)
+  const [cursorScreenX, setCursorScreenX] = useState<number | null>(null);
+  const [cursorBounds, setCursorBounds] = useState<{ left: number; right: number; top: number; height: number } | null>(null);
+  const cursorFractionRef = useRef<number | null>(null);
+  // Store reference to outer container for cursor positioning
+  const containerRef = useRef<HTMLDivElement>(null);
   const [retryTrigger, setRetryTrigger] = useState(0);
   const [containerReady, setContainerReady] = useState(false);
   const [plotCreated, setPlotCreated] = useState(false);
@@ -61,8 +71,9 @@ function OverviewPlotComponent({
     onSeekRef.current = onSeek;
     currentTimeRef.current = currentTime;
     timeWindowRef.current = timeWindow;
+    durationRef.current = duration;
     annotationsRef.current = annotations;
-  }, [onSeek, currentTime, timeWindow, annotations]);
+  }, [onSeek, currentTime, timeWindow, duration, annotations]);
 
   // Reset state when data changes (new file loaded)
   useEffect(() => {
@@ -192,7 +203,6 @@ function OverviewPlotComponent({
 
     // The backend uses min-max decimation: data is [min1, max1, min2, max2, ...]
     // Overlay all channels on the same vertical space for better visibility
-    const numChannels = overviewData.data.length;
 
     // Calculate per-channel min/max for individual scaling
     const channelRanges = overviewData.data.map((channelData) => {
@@ -247,16 +257,31 @@ function OverviewPlotComponent({
         return maxs;
       },
     );
+    // Store in ref so draw hooks can access current data (not stale closures)
+    processedMaxDataRef.current = processedMaxData;
 
     // All channels share the same [0, 1] vertical range
     const yMin = -0.05;
     const yMax = 1.05;
 
     // Time data needs to match the extracted series length (half of original)
+    // IMPORTANT: Use (i / (extractedNumPoints - 1)) so the last point is at exactly 'duration'
+    // This ensures the waveforms align with the time axis labels
     const extractedNumPoints = processedMinData[0]?.length || 0;
     const extractedTimeData = Array.from(
       { length: extractedNumPoints },
-      (_, i) => (i / extractedNumPoints) * duration,
+      (_, i) => extractedNumPoints > 1
+        ? (i / (extractedNumPoints - 1)) * duration
+        : 0,
+    );
+
+    // Log as individual values so they're visible without expanding
+    console.log(
+      "[OverviewPlot] Time data: points=" + extractedNumPoints +
+      ", first=" + extractedTimeData[0]?.toFixed(2) +
+      ", last=" + extractedTimeData[extractedNumPoints - 1]?.toFixed(2) +
+      ", duration=" + duration.toFixed(2) +
+      ", lastEqualsDuration=" + (Math.abs((extractedTimeData[extractedNumPoints - 1] || 0) - duration) < 0.01)
     );
 
     // For uPlot data, we'll pass mins - the draw hook will handle drawing bars between min and max
@@ -336,8 +361,8 @@ function OverviewPlotComponent({
         show: false, // No legend in overview
       },
       cursor: {
-        show: true,
-        x: true,
+        show: false, // Disable default cursor to avoid offset issues
+        x: false,
         y: false,
         lock: false,
         drag: {
@@ -349,28 +374,95 @@ function OverviewPlotComponent({
         init: [
           (u) => {
             // Add click handler to the canvas overlay
-            const canvas = u.root.querySelector(".u-over");
-            if (canvas) {
-              canvas.addEventListener("click", (e: Event) => {
-                const mouseEvent = e as MouseEvent;
-                const rect = canvas.getBoundingClientRect();
-                const x = mouseEvent.clientX - rect.left;
-                const canvasWidth = rect.width;
+            const overlay = u.root.querySelector(".u-over") as HTMLElement;
+            const canvas = u.root.querySelector("canvas") as HTMLCanvasElement;
+            if (overlay && canvas) {
+              // Use overlay for mouse events - it's positioned exactly over the plot area
+              overlay.style.cursor = "pointer";
+              overlay.style.pointerEvents = "auto";
 
-                // Convert pixel position to time using direct calculation
-                // (don't use u.posToVal which doesn't work correctly)
-                const timeValue = (x / canvasWidth) * duration;
+              // Click handler - uses fraction-based calculation with DPR correction
+              overlay.addEventListener("click", (e: MouseEvent) => {
+                const overlayRect = overlay.getBoundingClientRect();
+                const dpr = window.devicePixelRatio || 1;
+
+                // Get the actual time range from uPlot's data
+                const timeData = u.data?.[0];
+                if (!timeData || timeData.length < 2) return;
+
+                const dataMinTime = timeData[0];
+                const dataMaxTime = timeData[timeData.length - 1];
+                const dataRange = dataMaxTime - dataMinTime;
+
+                // Calculate fraction using offsetX (position relative to overlay element)
+                // On Retina displays (DPR > 1), visual content is scaled to ~90% of overlay width
+                // The offset increases linearly from left (0) to right (max), so we need to MULTIPLY
+                // Scale factor: clicking at 695px to hit 50% (773px) means scale = 773/695 = 1.112
+                const rawFraction = e.offsetX / overlayRect.width;
+                const scaleFactor = dpr > 1 ? 1.112 : 1;
+                const fraction = rawFraction * scaleFactor;
+                const clampedFraction = Math.max(0, Math.min(1, fraction));
+
+                // Convert to time using actual data range
+                const timeValue = dataMinTime + clampedFraction * dataRange;
 
                 // Seek to clicked position (center the view around clicked time)
+                const currentDuration = durationRef.current;
+                const clampedTime = Math.max(0, Math.min(currentDuration, timeValue));
                 const seekTime = Math.max(
                   0,
                   Math.min(
-                    timeValue - timeWindowRef.current / 2,
-                    duration - timeWindowRef.current,
+                    clampedTime - timeWindowRef.current / 2,
+                    currentDuration - timeWindowRef.current,
                   ),
                 );
 
                 onSeekRef.current(seekTime);
+              });
+
+              // Track mouse position for vertical cursor line
+              overlay.addEventListener("mousemove", (e: MouseEvent) => {
+                const overlayRect = overlay.getBoundingClientRect();
+                const container = containerRef.current;
+                if (!container) return;
+
+                const containerRect = container.getBoundingClientRect();
+                const dpr = window.devicePixelRatio || 1;
+
+                // Same multiplicative scale factor as click handler for consistent data fraction
+                // On Retina displays (DPR > 1), visual content is scaled to ~90% of overlay width
+                const rawFraction = e.offsetX / overlayRect.width;
+                const scaleFactor = dpr > 1 ? 1.112 : 1;
+                const fraction = rawFraction * scaleFactor;
+                const clampedFraction = Math.max(0, Math.min(1, fraction));
+                cursorFractionRef.current = clampedFraction;
+
+                // Position cursor based on the corrected fraction to align with waveforms
+                // The waveforms are drawn at positions that need the scale factor correction,
+                // so the cursor line should also use the corrected position
+                const overlayLeftInContainer = overlayRect.left - containerRect.left;
+                // Use corrected fraction to calculate cursor position within overlay
+                const correctedOffsetX = clampedFraction * overlayRect.width;
+                const cursorLeftInContainer = overlayLeftInContainer + correctedOffsetX;
+
+                // Content area dimensions
+                const contentWidth = containerRect.width - 4; // 2px border on each side
+                const plotAreaHeightCSS = overlayRect.height;
+                const clampedCursorLeft = Math.max(0, Math.min(contentWidth, cursorLeftInContainer));
+
+                setCursorScreenX(clampedCursorLeft);
+                setCursorBounds({
+                  left: 0,
+                  right: contentWidth,
+                  top: 0,
+                  height: plotAreaHeightCSS,
+                });
+              });
+
+              overlay.addEventListener("mouseleave", () => {
+                cursorFractionRef.current = null;
+                setCursorScreenX(null);
+                setCursorBounds(null);
               });
             }
           },
@@ -410,14 +502,16 @@ function OverviewPlotComponent({
             const plotHeight = u.bbox.height - axisHeight;
 
             const xMinVal = 0;
-            const xMaxVal = duration;
+            const xMaxVal = durationRef.current;
             const yMinVal = yMin;
             const yMaxVal = yMax;
 
             // Draw each channel's min-max envelope
+            // Use ref to get current max data (not stale closure data)
+            const currentMaxData = processedMaxDataRef.current;
             for (let s = 1; s < plotData.length; s++) {
               const minData = plotData[s]; // Min values from uPlot data
-              const maxData = processedMaxData[s - 1]; // Max values from closure
+              const maxData = currentMaxData[s - 1]; // Max values from ref (always current)
 
               if (!minData || !maxData || minData.length === 0) continue;
 
@@ -485,19 +579,20 @@ function OverviewPlotComponent({
             ctx.textBaseline = "top";
 
             // Calculate nice tick intervals
+            const currentDur = durationRef.current;
             const targetTicks = Math.max(
               3,
               Math.floor(plotWidth / (100 * dprVal)),
             );
-            const rawInterval = duration / targetTicks;
+            const rawInterval = currentDur / targetTicks;
             const niceIntervals = [
               1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600,
             ];
             const interval =
               niceIntervals.find((i) => i >= rawInterval) || rawInterval;
 
-            for (let t = 0; t <= duration; t += interval) {
-              const x = plotLeft + (t / duration) * plotWidth;
+            for (let t = 0; t <= currentDur; t += interval) {
+              const x = plotLeft + (t / currentDur) * plotWidth;
 
               // Format time label
               let label: string;
@@ -551,11 +646,12 @@ function OverviewPlotComponent({
                 const plotHeightVal = u.bbox.height - axisHeightVal;
 
                 // Calculate pixel positions using direct mapping
+                const currentDur = durationRef.current;
                 const startPixel =
-                  plotLeft + (currentTimeValue / duration) * plotWidth;
+                  plotLeft + (currentTimeValue / currentDur) * plotWidth;
                 const endPixel =
                   plotLeft +
-                  ((currentTimeValue + timeWindowValue) / duration) * plotWidth;
+                  ((currentTimeValue + timeWindowValue) / currentDur) * plotWidth;
 
                 if (Number.isFinite(startPixel) && Number.isFinite(endPixel)) {
                   ctx.save();
@@ -607,10 +703,11 @@ function OverviewPlotComponent({
                 ctx.save();
 
                 // Draw each annotation as a vertical line
+                const currentDur = durationRef.current;
                 currentAnnotations.forEach((annotation) => {
                   // Use direct pixel calculation (don't use u.valToPos)
                   const pixelX =
-                    plotLeft + (annotation.position / duration) * plotWidth;
+                    plotLeft + (annotation.position / currentDur) * plotWidth;
 
                   if (Number.isFinite(pixelX)) {
                     // Use the annotation's color or default to red
@@ -632,6 +729,8 @@ function OverviewPlotComponent({
             ],
           },
         },
+        // Note: Cursor line is now rendered as an HTML element (see JSX below)
+        // This avoids canvas coordinate system issues with high-DPI displays
       ],
     };
 
@@ -879,6 +978,7 @@ function OverviewPlotComponent({
                 width: entry.contentRect.width,
                 height: 130,
               });
+
             }
           }
         });
@@ -1028,7 +1128,7 @@ function OverviewPlotComponent({
     hasValidChannelData;
 
   return (
-    <div className="relative w-full h-[130px] border-2 border-primary rounded-md bg-background">
+    <div ref={containerRef} className="relative w-full h-[130px] border-2 border-primary rounded-md bg-background">
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10 animate-in fade-in-0 duration-200">
           <div className="flex flex-col items-center gap-3 w-full px-8">
@@ -1082,6 +1182,23 @@ function OverviewPlotComponent({
         ref={plotRef}
         className="w-full h-[130px] [&_.uplot]:bg-transparent [&_.u-wrap]:bg-transparent"
       />
+      {/* HTML-based cursor line - positioned within the plot area */}
+      {cursorScreenX !== null && cursorBounds !== null && (
+        <div
+          className="absolute pointer-events-none"
+          style={{
+            // cursorScreenX is position relative to content area (after border)
+            // left:0 in absolute positioning = container's padding edge (after border)
+            // So we use cursorScreenX directly without adding border offset
+            left: `${cursorScreenX}px`,
+            top: "2px", // Account for top border
+            height: `${cursorBounds.height}px`,
+            borderLeft: "1.5px dashed white",
+            transform: "translateX(-0.75px)", // Center the line on the cursor
+            zIndex: 50,
+          }}
+        />
+      )}
       <div className="absolute bottom-1 right-2 text-[10px] text-muted-foreground pointer-events-none">
         Click to navigate • Blue region = current view
       </div>
