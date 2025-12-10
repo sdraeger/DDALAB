@@ -275,15 +275,6 @@ function OverviewPlotComponent({
         : 0,
     );
 
-    // Log as individual values so they're visible without expanding
-    console.log(
-      "[OverviewPlot] Time data: points=" + extractedNumPoints +
-      ", first=" + extractedTimeData[0]?.toFixed(2) +
-      ", last=" + extractedTimeData[extractedNumPoints - 1]?.toFixed(2) +
-      ", duration=" + duration.toFixed(2) +
-      ", lastEqualsDuration=" + (Math.abs((extractedTimeData[extractedNumPoints - 1] || 0) - duration) < 0.01)
-    );
-
     // For uPlot data, we'll pass mins - the draw hook will handle drawing bars between min and max
     const data: uPlot.AlignedData = [extractedTimeData, ...processedMinData];
 
