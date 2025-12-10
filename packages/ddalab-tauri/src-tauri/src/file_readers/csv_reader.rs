@@ -1,10 +1,12 @@
 use super::{FileMetadata, FileReader, FileReaderError, FileResult};
 use crate::text_reader::TextFileReader as CoreTextReader;
 use rayon::prelude::*;
+use std::collections::HashMap;
+use std::path::Path;
+
 /// CSV File Reader
 ///
 /// Implementation of FileReader trait for CSV files.
-use std::path::Path;
 
 pub struct CSVFileReader {
     reader: CoreTextReader,
@@ -59,11 +61,17 @@ impl FileReader for CSVFileReader {
     ) -> FileResult<Vec<Vec<f64>>> {
         let all_channels = &self.reader.info.channel_labels;
 
-        // Determine which channels to read
+        // Determine which channels to read using O(1) HashMap lookup
         let channel_indices: Vec<usize> = if let Some(selected) = channels {
+            // Build channel name -> index map for O(1) lookups
+            let channel_map: HashMap<&str, usize> = all_channels
+                .iter()
+                .enumerate()
+                .map(|(i, name)| (name.as_str(), i))
+                .collect();
             selected
-                .par_iter()
-                .filter_map(|ch| all_channels.iter().position(|c| c == ch))
+                .iter()
+                .filter_map(|ch| channel_map.get(ch.as_str()).copied())
                 .collect()
         } else {
             (0..all_channels.len()).collect()

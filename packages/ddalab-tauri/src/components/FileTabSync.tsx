@@ -55,8 +55,17 @@ export function FileTabSync() {
       return;
     }
 
-    // Skip if this is the same file
-    if (activeFilePath === prevActivePathRef.current) {
+    // Wait for server and API to be ready before processing
+    if (!isServerReady || !isApiReady) {
+      logger.debug("Server or API not ready, waiting...");
+      return;
+    }
+
+    // Skip if this is the same file AND already loaded
+    if (
+      activeFilePath === prevActivePathRef.current &&
+      currentSelectedFile?.file_path === activeFilePath
+    ) {
       return;
     }
 
@@ -71,15 +80,8 @@ export function FileTabSync() {
       return;
     }
 
-    prevActivePathRef.current = activeFilePath;
-
     // Load file info and update main store
     const loadFileInfo = async () => {
-      if (!isServerReady || !isApiReady) {
-        logger.debug("Server or API not ready, skipping file load");
-        return;
-      }
-
       isLoadingRef.current = true;
 
       try {
@@ -93,6 +95,8 @@ export function FileTabSync() {
             fileName: fileInfo.file_name,
           });
           setSelectedFile(fileInfo);
+          // Only mark as processed after successful load
+          prevActivePathRef.current = activeFilePath;
         } else {
           logger.warn("Failed to get file info", { activeFilePath });
         }

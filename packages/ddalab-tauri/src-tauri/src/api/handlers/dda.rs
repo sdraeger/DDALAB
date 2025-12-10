@@ -253,7 +253,7 @@ pub async fn run_dda_analysis(
     State(state): State<Arc<ApiState>>,
     headers: HeaderMap,
     Json(request): Json<DDARequest>,
-) -> Result<NegotiatedResponse<DDAResult>, StatusCode> {
+) -> Result<NegotiatedResponse<Arc<DDAResult>>, StatusCode> {
     // SECURITY: Validate all parameters before processing to prevent DoS
     if let Err(e) = validate_dda_request(&request) {
         log::error!("DDA request validation failed: {}", e);
@@ -1019,9 +1019,11 @@ pub async fn run_dda_analysis(
         status: "completed".to_string(),
     };
 
+    // Use Arc to avoid cloning the entire result (especially the large q_matrix)
+    let result = Arc::new(result);
     {
         let mut analysis_cache = state.analysis_results.write();
-        analysis_cache.insert(analysis_id, result.clone());
+        analysis_cache.insert(analysis_id, Arc::clone(&result));
     }
 
     log::info!("⏱️  [TIMING] Saving result to disk...");
@@ -1236,7 +1238,7 @@ pub async fn list_analysis_history(State(state): State<Arc<ApiState>>) -> Json<V
 
     log::warn!("⚠️ Using in-memory cache for analysis history");
     let analysis_cache = state.analysis_results.read();
-    let mut results: Vec<DDAResult> = analysis_cache.values().cloned().collect();
+    let mut results: Vec<DDAResult> = analysis_cache.values().map(|arc| (**arc).clone()).collect();
     results.sort_by(|a, b| b.created_at.cmp(&a.created_at));
     Json(results)
 }
