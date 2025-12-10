@@ -316,7 +316,11 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     if (viewMode === "network" && !hasNetworkMotifs) {
       setViewMode("all");
     }
-  }, [currentVariantData?.variant_id, currentVariantData?.network_motifs, viewMode]);
+  }, [
+    currentVariantData?.variant_id,
+    currentVariantData?.network_motifs,
+    viewMode,
+  ]);
 
   // Clean up ResizeObservers when channels change to prevent stale callbacks
   useEffect(() => {
