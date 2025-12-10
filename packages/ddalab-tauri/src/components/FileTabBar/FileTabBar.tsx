@@ -256,7 +256,7 @@ export function FileTabBar({ className }: FileTabBarProps) {
         >
           <div
             ref={scrollContainerRef}
-            className="flex flex-1 items-end gap-0.5 overflow-x-auto scrollbar-none"
+            className="flex flex-1 items-end gap-0.5 overflow-x-auto overflow-y-hidden scrollbar-none"
           >
             {files.map((file) => (
               <SortableFileTab

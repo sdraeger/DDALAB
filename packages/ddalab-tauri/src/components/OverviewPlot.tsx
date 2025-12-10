@@ -1184,7 +1184,7 @@ function OverviewPlotComponent({
             left: `${cursorScreenX}px`,
             top: "2px", // Account for top border
             height: `${cursorBounds.height}px`,
-            borderLeft: "1.5px dashed white",
+            borderLeft: "1.5px dashed rgba(156, 163, 175, 0.9)",
             transform: "translateX(-0.75px)", // Center the line on the cursor
             zIndex: 50,
           }}

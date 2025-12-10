@@ -351,9 +351,11 @@ impl EDFReader {
             ((start_time_sec % record_duration) * sample_rate) as usize;
         let total_samples_needed = (duration_sec * sample_rate).ceil() as usize;
 
-        let mut result = Vec::with_capacity(total_samples_needed);
         let gain = signal_header.gain();
         let offset = signal_header.offset();
+
+        // Collect all digital samples first (I/O bound, must be sequential)
+        let mut digital_samples = Vec::with_capacity(total_samples_needed);
 
         for record_idx in start_record..end_record {
             let record = self.read_record(record_idx)?;
@@ -365,16 +367,21 @@ impl EDFReader {
                 0
             };
 
-            let end_idx = samples_per_record.min(start_idx + (total_samples_needed - result.len()));
+            let end_idx =
+                samples_per_record.min(start_idx + (total_samples_needed - digital_samples.len()));
 
-            for &digital in &signal_samples[start_idx..end_idx] {
-                result.push(gain * digital as f64 + offset);
-            }
+            digital_samples.extend_from_slice(&signal_samples[start_idx..end_idx]);
 
-            if result.len() >= total_samples_needed {
+            if digital_samples.len() >= total_samples_needed {
                 break;
             }
         }
+
+        // Parallel conversion from digital to physical values
+        let result: Vec<f64> = digital_samples
+            .par_iter()
+            .map(|&digital| gain * digital as f64 + offset)
+            .collect();
 
         Ok(result)
     }

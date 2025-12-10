@@ -12,9 +12,12 @@
 /// - Decouple file format parsing from analysis/visualization
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::fmt::Write as FmtWrite;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
+
+const WRITE_BATCH_SIZE: usize = 1000;
 
 /// Universal intermediate representation for time-series data
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -161,20 +164,30 @@ impl IntermediateData {
         writeln!(writer, "# Duration: {} s", self.metadata.duration)
             .map_err(|e| format!("Write error: {}", e))?;
 
-        // Write data rows
+        // Write data rows in batches for better I/O performance
         let num_samples = channels_to_export[0].samples.len();
+        let num_channels = channels_to_export.len();
+        let mut batch_buffer = String::with_capacity(WRITE_BATCH_SIZE * num_channels * 16);
 
-        for sample_idx in 0..num_samples {
-            for (ch_idx, channel) in channels_to_export.iter().enumerate() {
-                if ch_idx > 0 {
-                    write!(writer, " ").map_err(|e| format!("Write error: {}", e))?;
+        for batch_start in (0..num_samples).step_by(WRITE_BATCH_SIZE) {
+            batch_buffer.clear();
+            let batch_end = (batch_start + WRITE_BATCH_SIZE).min(num_samples);
+
+            for sample_idx in batch_start..batch_end {
+                for (ch_idx, channel) in channels_to_export.iter().enumerate() {
+                    if ch_idx > 0 {
+                        batch_buffer.push(' ');
+                    }
+                    let value = channel.samples.get(sample_idx).unwrap_or(&0.0);
+                    write!(batch_buffer, "{:.6}", value)
+                        .map_err(|e| format!("Format error: {}", e))?;
                 }
-
-                // Get sample value, handle channels with different lengths
-                let value = channel.samples.get(sample_idx).unwrap_or(&0.0);
-                write!(writer, "{:.6}", value).map_err(|e| format!("Write error: {}", e))?;
+                batch_buffer.push('\n');
             }
-            writeln!(writer).map_err(|e| format!("Write error: {}", e))?;
+
+            writer
+                .write_all(batch_buffer.as_bytes())
+                .map_err(|e| format!("Write error: {}", e))?;
         }
 
         writer.flush().map_err(|e| format!("Flush error: {}", e))?;
@@ -216,19 +229,30 @@ impl IntermediateData {
         }
         writeln!(writer).map_err(|e| format!("Write error: {}", e))?;
 
-        // Write data rows
+        // Write data rows in batches for better I/O performance
         let num_samples = channels_to_export[0].samples.len();
+        let num_channels = channels_to_export.len();
+        let mut batch_buffer = String::with_capacity(WRITE_BATCH_SIZE * num_channels * 16);
 
-        for sample_idx in 0..num_samples {
-            for (ch_idx, channel) in channels_to_export.iter().enumerate() {
-                if ch_idx > 0 {
-                    write!(writer, ",").map_err(|e| format!("Write error: {}", e))?;
+        for batch_start in (0..num_samples).step_by(WRITE_BATCH_SIZE) {
+            batch_buffer.clear();
+            let batch_end = (batch_start + WRITE_BATCH_SIZE).min(num_samples);
+
+            for sample_idx in batch_start..batch_end {
+                for (ch_idx, channel) in channels_to_export.iter().enumerate() {
+                    if ch_idx > 0 {
+                        batch_buffer.push(',');
+                    }
+                    let value = channel.samples.get(sample_idx).unwrap_or(&0.0);
+                    write!(batch_buffer, "{:.6}", value)
+                        .map_err(|e| format!("Format error: {}", e))?;
                 }
-
-                let value = channel.samples.get(sample_idx).unwrap_or(&0.0);
-                write!(writer, "{:.6}", value).map_err(|e| format!("Write error: {}", e))?;
+                batch_buffer.push('\n');
             }
-            writeln!(writer).map_err(|e| format!("Write error: {}", e))?;
+
+            writer
+                .write_all(batch_buffer.as_bytes())
+                .map_err(|e| format!("Write error: {}", e))?;
         }
 
         writer.flush().map_err(|e| format!("Flush error: {}", e))?;

@@ -67,40 +67,38 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
       const analysisParameters = dda.analysisParameters;
 
       setTimeout(async () => {
-        try {
-          await TauriService.updateDDAState(ddaState);
-        } catch {
-          // DDA state update failed silently
-        }
+        // Run all persistence operations in parallel for better performance
+        const persistencePromises: Promise<void>[] = [
+          TauriService.updateDDAState(ddaState).catch(() => {}),
+        ];
 
         if (persistenceService) {
-          try {
-            await persistenceService.saveDDAState(ddaState);
-          } catch {
-            // DDA state persistence failed silently
-          }
+          persistencePromises.push(
+            persistenceService.saveDDAState(ddaState).catch(() => {}),
+          );
         }
 
         if (selectedFilePath && analysis) {
-          try {
-            const fileStateManager = getInitializedFileStateManager();
-            const fileDDAState: FileDDAState = {
-              currentAnalysisId: analysis.id,
-              analysisHistory: analysisHistory.map((a) => a.id),
-              lastParameters: analysisParameters,
-              selectedVariants: analysisParameters.variants,
-              lastUpdated: new Date().toISOString(),
-            };
-
-            await fileStateManager.updateModuleState(
-              selectedFilePath,
-              "dda",
-              fileDDAState,
-            );
-          } catch {
-            // Silent fail - file state save is non-critical
-          }
+          persistencePromises.push(
+            (async () => {
+              const fileStateManager = getInitializedFileStateManager();
+              const fileDDAState: FileDDAState = {
+                currentAnalysisId: analysis.id,
+                analysisHistory: analysisHistory.map((a) => a.id),
+                lastParameters: analysisParameters,
+                selectedVariants: analysisParameters.variants,
+                lastUpdated: new Date().toISOString(),
+              };
+              await fileStateManager.updateModuleState(
+                selectedFilePath,
+                "dda",
+                fileDDAState,
+              );
+            })().catch(() => {}),
+          );
         }
+
+        await Promise.all(persistencePromises);
       }, 0);
     }
   },
@@ -124,7 +122,7 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
     });
 
     if (TauriService.isTauri()) {
-      setTimeout(() => {
+      setTimeout(async () => {
         const { dda, fileManager } = get();
         const persistenceService = getStatePersistenceService();
         const ddaState: PersistedDDAState = {
@@ -140,26 +138,32 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
           analysis_parameters: dda.analysisParameters,
           running: dda.isRunning,
         };
-        TauriService.updateDDAState(ddaState).catch((error) =>
-          handleError(error, {
-            source: "DDA State Persistence",
-            severity: "silent",
-          }),
-        );
 
-        if (persistenceService) {
-          persistenceService.saveDDAState(ddaState).catch((error) =>
+        // Run all persistence operations in parallel for better performance
+        const persistencePromises: Promise<void>[] = [
+          TauriService.updateDDAState(ddaState).catch((error) =>
             handleError(error, {
               source: "DDA State Persistence",
               severity: "silent",
             }),
+          ),
+        ];
+
+        if (persistenceService) {
+          persistencePromises.push(
+            persistenceService.saveDDAState(ddaState).catch((error) =>
+              handleError(error, {
+                source: "DDA State Persistence",
+                severity: "silent",
+              }),
+            ),
           );
         }
 
         const selectedFilePath = fileManager.selectedFile?.file_path;
         if (selectedFilePath) {
-          (async () => {
-            try {
+          persistencePromises.push(
+            (async () => {
               const fileStateManager = getInitializedFileStateManager();
               const fileDDAState: FileDDAState = {
                 currentAnalysisId: dda.currentAnalysis?.id || null,
@@ -168,17 +172,16 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
                 selectedVariants: dda.analysisParameters.variants,
                 lastUpdated: new Date().toISOString(),
               };
-
               await fileStateManager.updateModuleState(
                 selectedFilePath,
                 "dda",
                 fileDDAState,
               );
-            } catch {
-              // Silent fail - file state save is non-critical
-            }
-          })();
+            })().catch(() => {}),
+          );
         }
+
+        await Promise.all(persistencePromises);
       }, 0);
     }
   },

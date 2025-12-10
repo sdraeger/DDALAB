@@ -1645,9 +1645,272 @@ pub fn normalize_and_colormap(
     result
 }
 
+// ============================================================================
+// OVERVIEW PLOT OPTIMIZATION - Batch Channel Range Computation
+// ============================================================================
+
+/// Compute min, max, and range for all channels in a single batch operation.
+/// This is optimized for OverviewPlot channel normalization.
+///
+/// data: flattened channel data [ch0_pt0, ch0_pt1, ..., ch1_pt0, ...]
+/// num_channels: number of channels
+/// points_per_channel: samples per channel
+///
+/// Returns: [min0, max0, range0, min1, max1, range1, ...]
+#[wasm_bindgen]
+pub fn compute_channel_ranges_batch(
+    data: &[f64],
+    num_channels: usize,
+    points_per_channel: usize,
+) -> Vec<f64> {
+    #[cfg(feature = "console_error_panic_hook")]
+    set_panic_hook();
+
+    if num_channels == 0 || points_per_channel == 0 {
+        return vec![];
+    }
+
+    let expected_len = num_channels * points_per_channel;
+    if data.len() < expected_len {
+        return vec![];
+    }
+
+    let mut result = Vec::with_capacity(num_channels * 3);
+
+    for ch in 0..num_channels {
+        let start = ch * points_per_channel;
+        let end = start + points_per_channel;
+        let channel_data = &data[start..end];
+
+        let mut min = f64::INFINITY;
+        let mut max = f64::NEG_INFINITY;
+
+        for &v in channel_data {
+            if v.is_finite() {
+                if v < min {
+                    min = v;
+                }
+                if v > max {
+                    max = v;
+                }
+            }
+        }
+
+        if !min.is_finite() {
+            min = 0.0;
+        }
+        if !max.is_finite() {
+            max = 1.0;
+        }
+
+        let range = if (max - min).abs() < 1e-10 { 1.0 } else { max - min };
+
+        result.push(min);
+        result.push(max);
+        result.push(range);
+    }
+
+    result
+}
+
+/// Normalize overview min-max data for all channels and extract min/max series.
+/// Combines range calculation, normalization, and min/max extraction in a single WASM call.
+///
+/// data: flattened raw overview data [ch0_minmax0, ch0_minmax1, ..., ch1_minmax0, ...]
+///       where each channel has alternating min/max pairs
+/// num_channels: number of channels
+/// pairs_per_channel: number of min-max pairs per channel (data points / 2)
+///
+/// Returns: flattened result containing:
+/// - normalized_mins: [ch0_min0, ch0_min1, ..., ch1_min0, ...]
+/// - normalized_maxs: [ch0_max0, ch0_max1, ..., ch1_max0, ...]
+/// - channel_ranges: [min0, max0, range0, min1, max1, range1, ...]
+///
+/// Total length: (num_channels * pairs_per_channel * 2) + (num_channels * 3)
+#[wasm_bindgen]
+pub fn normalize_overview_data(
+    data: &[f64],
+    num_channels: usize,
+    pairs_per_channel: usize,
+) -> Vec<f64> {
+    #[cfg(feature = "console_error_panic_hook")]
+    set_panic_hook();
+
+    if num_channels == 0 || pairs_per_channel == 0 {
+        return vec![];
+    }
+
+    let points_per_channel = pairs_per_channel * 2;
+    let expected_len = num_channels * points_per_channel;
+    if data.len() < expected_len {
+        return vec![];
+    }
+
+    // First pass: compute ranges for each channel
+    let mut ranges: Vec<(f64, f64, f64)> = Vec::with_capacity(num_channels);
+
+    for ch in 0..num_channels {
+        let start = ch * points_per_channel;
+        let end = start + points_per_channel;
+        let channel_data = &data[start..end];
+
+        let mut min = f64::INFINITY;
+        let mut max = f64::NEG_INFINITY;
+
+        for &v in channel_data {
+            if v.is_finite() {
+                if v < min {
+                    min = v;
+                }
+                if v > max {
+                    max = v;
+                }
+            }
+        }
+
+        if !min.is_finite() {
+            min = 0.0;
+        }
+        if !max.is_finite() {
+            max = 1.0;
+        }
+
+        let range = if (max - min).abs() < 1e-10 { 1.0 } else { max - min };
+        ranges.push((min, max, range));
+    }
+
+    // Allocate result: mins + maxs + ranges
+    let result_len = num_channels * pairs_per_channel * 2 + num_channels * 3;
+    let mut result = Vec::with_capacity(result_len);
+
+    // Second pass: normalize and extract mins
+    for ch in 0..num_channels {
+        let start = ch * points_per_channel;
+        let (global_min, _, range) = ranges[ch];
+
+        for i in 0..pairs_per_channel {
+            let min_val = data[start + i * 2];
+            let normalized = if min_val.is_finite() {
+                (min_val - global_min) / range
+            } else {
+                0.5
+            };
+            result.push(normalized);
+        }
+    }
+
+    // Third pass: normalize and extract maxs
+    for ch in 0..num_channels {
+        let start = ch * points_per_channel;
+        let (global_min, _, range) = ranges[ch];
+
+        for i in 0..pairs_per_channel {
+            let max_val = data[start + i * 2 + 1];
+            let normalized = if max_val.is_finite() {
+                (max_val - global_min) / range
+            } else {
+                0.5
+            };
+            result.push(normalized);
+        }
+    }
+
+    // Append channel ranges
+    for (min, max, range) in ranges {
+        result.push(min);
+        result.push(max);
+        result.push(range);
+    }
+
+    result
+}
+
+/// Prepare canvas coordinates for overview plot rendering.
+/// Pre-calculates all x,y pixel positions for vertical bars.
+///
+/// x_data: time values for each point
+/// min_data: normalized min values for a channel
+/// max_data: normalized max values for a channel
+/// plot_left, plot_top, plot_width, plot_height: plot area bounds
+/// x_min, x_max: time axis range
+/// y_min, y_max: y-axis range (typically -0.05 to 1.05 for normalized data)
+/// step: sampling step (skip every N points for performance)
+///
+/// Returns: [x0, y_bottom0, y_top0, x1, y_bottom1, y_top1, ...]
+/// Returns empty array for points with invalid coordinates
+#[wasm_bindgen]
+pub fn prepare_overview_coordinates(
+    x_data: &[f64],
+    min_data: &[f64],
+    max_data: &[f64],
+    plot_left: f64,
+    plot_top: f64,
+    plot_width: f64,
+    plot_height: f64,
+    x_min: f64,
+    x_max: f64,
+    y_min: f64,
+    y_max: f64,
+    step: usize,
+) -> Vec<f64> {
+    #[cfg(feature = "console_error_panic_hook")]
+    set_panic_hook();
+
+    let len = x_data.len().min(min_data.len()).min(max_data.len());
+    if len == 0 || step == 0 {
+        return vec![];
+    }
+
+    let x_range = x_max - x_min;
+    let y_range = y_max - y_min;
+
+    if x_range.abs() < 1e-10 || y_range.abs() < 1e-10 {
+        return vec![];
+    }
+
+    let num_points = (len + step - 1) / step;
+    let mut result = Vec::with_capacity(num_points * 3);
+
+    let mut i = 0;
+    while i < len {
+        let x_val = x_data[i];
+        let y_min_val = min_data[i];
+        let y_max_val = max_data[i];
+
+        if x_val.is_finite() && y_min_val.is_finite() && y_max_val.is_finite() {
+            let x = plot_left + ((x_val - x_min) / x_range) * plot_width;
+            let y_bottom = plot_top + plot_height - ((y_min_val - y_min) / y_range) * plot_height;
+            let y_top = plot_top + plot_height - ((y_max_val - y_min) / y_range) * plot_height;
+
+            if x.is_finite() && y_bottom.is_finite() && y_top.is_finite() {
+                result.push(x);
+                result.push(y_bottom);
+                result.push(y_top);
+            }
+        }
+
+        i += step;
+    }
+
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_channel_ranges_batch() {
+        let data = vec![1.0, 5.0, 2.0, 4.0, 3.0, 3.0, 10.0, 20.0, 15.0, 15.0, 12.0, 18.0];
+        let result = compute_channel_ranges_batch(&data, 2, 6);
+        assert_eq!(result.len(), 6);
+        assert_eq!(result[0], 1.0); // ch0 min
+        assert_eq!(result[1], 5.0); // ch0 max
+        assert_eq!(result[2], 4.0); // ch0 range
+        assert_eq!(result[3], 10.0); // ch1 min
+        assert_eq!(result[4], 20.0); // ch1 max
+        assert_eq!(result[5], 10.0); // ch1 range
+    }
 
     #[test]
     fn test_lttb_basic() {
