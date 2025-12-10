@@ -8,6 +8,14 @@ import { getStatePersistenceService } from "@/services/statePersistenceService";
 import { handleError } from "@/utils/errorHandler";
 import type { FilePlotState } from "@/types/fileCentricState";
 import type { PlotSlice, PlotState, ImmerStateCreator } from "./types";
+import type { PreprocessingOptions } from "@/types/persistence";
+
+/** Default preprocessing options with no filters active */
+const defaultPreprocessing: PreprocessingOptions = {
+  highpass: undefined,
+  lowpass: undefined,
+  notch: [],
+};
 
 export const defaultPlotState: PlotState = {
   currentChunk: null,
@@ -18,6 +26,7 @@ export const defaultPlotState: PlotState = {
   amplitude: 1.0,
   showAnnotations: true,
   selectedChannelColors: {},
+  preprocessing: defaultPreprocessing,
   chartHeight: 400,
 };
 

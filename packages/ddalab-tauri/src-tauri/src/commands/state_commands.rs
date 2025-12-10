@@ -41,11 +41,24 @@ pub async fn update_file_manager_state(
 
 #[tauri::command]
 pub async fn update_plot_state(
-    _state_manager: State<'_, AppStateManager>,
-    _plot_state: serde_json::Value,
+    state_manager: State<'_, AppStateManager>,
+    plot_state: serde_json::Value,
 ) -> Result<(), String> {
-    // Plot state is now ephemeral - no need to persist
-    Ok(())
+    // Persist preprocessing and filters immediately for reliable state restoration
+    state_manager.update_ui_state(|ui_state| {
+        // Save preprocessing (notch, highpass, lowpass filters)
+        if let Some(preprocessing) = plot_state.get("preprocessing") {
+            ui_state
+                .ui_extras
+                .insert("plot_preprocessing".to_string(), preprocessing.clone());
+        }
+        // Save plot filters (chunkSize, amplitude, chartHeight, etc.)
+        if let Some(filters) = plot_state.get("filters") {
+            ui_state
+                .ui_extras
+                .insert("plot_filters".to_string(), filters.clone());
+        }
+    })
 }
 
 #[tauri::command]
