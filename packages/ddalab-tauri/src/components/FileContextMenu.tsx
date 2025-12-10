@@ -131,7 +131,7 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({
         "transition-all duration-150 ease-out",
         isVisible
           ? "animate-in fade-in-0 zoom-in-95 slide-in-from-top-2"
-          : "opacity-0 scale-95"
+          : "opacity-0 scale-95",
       )}
       style={{
         left: `${adjustedPosition.x}px`,
@@ -159,10 +159,7 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({
       {/* View actions - separated by divider */}
       {(onOpenInSystemViewer || onShowFileInfo) && (
         <>
-          <div
-            className="-mx-1 my-1 h-px bg-muted"
-            role="separator"
-          />
+          <div className="-mx-1 my-1 h-px bg-muted" role="separator" />
           <div className="py-1">
             {onOpenInSystemViewer && (
               <button

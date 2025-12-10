@@ -390,7 +390,12 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       loggers.plot.debug("WASM transform completed", {
         elapsedMs: elapsedTransform.toFixed(2),
         channelCount: data.length,
-        stats: { min: stats.min, max: stats.max, mean: stats.mean, std: stats.std },
+        stats: {
+          min: stats.min,
+          max: stats.max,
+          mean: stats.mean,
+          std: stats.std,
+        },
       });
 
       // Use auto-scale range from WASM stats (mean ± 3*std)

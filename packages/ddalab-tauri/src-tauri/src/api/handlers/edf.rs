@@ -6,9 +6,7 @@ use crate::api::utils::{
     read_edf_file_chunk, FileType,
 };
 use crate::edf::EDFReader;
-use crate::file_readers::{
-    global_cache, FileReaderFactory, LazyReaderFactory, WindowRequest,
-};
+use crate::file_readers::{global_cache, FileReaderFactory, LazyReaderFactory, WindowRequest};
 use crate::signal_processing::{preprocess_batch, PreprocessingConfig};
 use crate::text_reader::TextFileReader;
 use axum::{
@@ -1115,9 +1113,8 @@ pub async fn get_edf_window(
     });
 
     // Create lazy reader
-    let reader = LazyReaderFactory::create_reader(path).map_err(|e| {
-        ApiError::InternalError(format!("Failed to create lazy reader: {}", e))
-    })?;
+    let reader = LazyReaderFactory::create_reader(path)
+        .map_err(|e| ApiError::InternalError(format!("Failed to create lazy reader: {}", e)))?;
 
     // Build window request
     let mut request = WindowRequest::new(start_time, duration);
@@ -1129,9 +1126,9 @@ pub async fn get_edf_window(
     let cache = global_cache();
 
     // Check if we have a cache hit before reading
-    let metadata = reader.metadata().map_err(|e| {
-        ApiError::InternalError(format!("Failed to read metadata: {}", e))
-    })?;
+    let metadata = reader
+        .metadata()
+        .map_err(|e| ApiError::InternalError(format!("Failed to read metadata: {}", e)))?;
 
     let channels_for_key = request
         .channels
@@ -1143,9 +1140,9 @@ pub async fn get_edf_window(
     let from_cache = cache.get(&key).is_some();
 
     // Read window (will use cache if available)
-    let window = reader.read_window_cached(&request, cache).map_err(|e| {
-        ApiError::InternalError(format!("Failed to read window: {}", e))
-    })?;
+    let window = reader
+        .read_window_cached(&request, cache)
+        .map_err(|e| ApiError::InternalError(format!("Failed to read window: {}", e)))?;
 
     Ok(Json(WindowData {
         data: window.data.clone(),
