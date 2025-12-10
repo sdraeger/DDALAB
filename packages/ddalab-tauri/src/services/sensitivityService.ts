@@ -16,6 +16,7 @@ import {
   ParameterRange,
 } from "@/types/sensitivity";
 import { DDAAnalysisRequest } from "@/types/api";
+import { computeChannelStats } from "./wasmService";
 
 type ProgressCallback = (analysis: SensitivityAnalysis) => void;
 
@@ -67,7 +68,7 @@ function generateParameterCombinations(
 }
 
 /**
- * Extract summary statistics from DDA result
+ * Extract summary statistics from DDA result using WASM for efficient computation
  */
 function extractResultSummary(
   result: any,
@@ -81,7 +82,7 @@ function extractResultSummary(
       const allValues: number[] = [];
       const channelMeans: Record<string, number> = {};
 
-      // Extract Q matrix values
+      // Extract Q matrix values and compute per-channel means using WASM
       if (variant.dda_matrix) {
         for (const [channel, values] of Object.entries(variant.dda_matrix)) {
           if (Array.isArray(values)) {
@@ -89,37 +90,38 @@ function extractResultSummary(
               (v) => !isNaN(v) && isFinite(v),
             );
             if (validValues.length > 0) {
-              const mean =
-                validValues.reduce((a, b) => a + b, 0) / validValues.length;
-              channelMeans[channel] = mean;
+              // Use WASM for efficient per-channel statistics
+              const channelStats = computeChannelStats(validValues);
+              channelMeans[channel] = channelStats.mean;
               allValues.push(...validValues);
             }
           }
         }
       }
 
-      // Calculate statistics
-      const mean_q =
-        allValues.length > 0
-          ? allValues.reduce((a, b) => a + b, 0) / allValues.length
-          : 0;
-      const std_q =
-        allValues.length > 1
-          ? Math.sqrt(
-              allValues.reduce((sum, v) => sum + Math.pow(v - mean_q, 2), 0) /
-                (allValues.length - 1),
-            )
-          : 0;
-
-      variantResults.push({
-        variant_id: variant.variant_id,
-        variant_name: variant.variant_name || variant.variant_id,
-        mean_q,
-        std_q,
-        min_q: allValues.length > 0 ? Math.min(...allValues) : 0,
-        max_q: allValues.length > 0 ? Math.max(...allValues) : 0,
-        channel_means: channelMeans,
-      });
+      // Use WASM for global statistics computation (much faster than reduce loops)
+      if (allValues.length > 0) {
+        const globalStats = computeChannelStats(allValues);
+        variantResults.push({
+          variant_id: variant.variant_id,
+          variant_name: variant.variant_name || variant.variant_id,
+          mean_q: globalStats.mean,
+          std_q: globalStats.std,
+          min_q: globalStats.min,
+          max_q: globalStats.max,
+          channel_means: channelMeans,
+        });
+      } else {
+        variantResults.push({
+          variant_id: variant.variant_id,
+          variant_name: variant.variant_name || variant.variant_id,
+          mean_q: 0,
+          std_q: 0,
+          min_q: 0,
+          max_q: 0,
+          channel_means: channelMeans,
+        });
+      }
     }
   }
 
