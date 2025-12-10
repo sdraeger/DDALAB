@@ -1895,6 +1895,141 @@ pub fn prepare_overview_coordinates(
     result
 }
 
+// ============================================================================
+// BATCH PREPROCESSING - Multi-channel signal processing
+// ============================================================================
+
+/// Apply preprocessing to multiple channels in a single WASM call.
+/// This avoids the overhead of multiple JS->WASM boundary crossings.
+///
+/// data: flattened channel data [ch0_sample0, ch0_sample1, ..., ch1_sample0, ...]
+/// num_channels: number of channels
+/// samples_per_channel: number of samples per channel
+/// highpass_freq: highpass cutoff in Hz (0 or negative to skip)
+/// lowpass_freq: lowpass cutoff in Hz (0 or negative to skip)
+/// notch_freqs: frequencies to notch out (empty to skip)
+/// sample_rate: sample rate in Hz
+///
+/// Returns: flattened processed data in same format
+#[wasm_bindgen]
+pub fn preprocess_channels(
+    data: &[f64],
+    num_channels: usize,
+    samples_per_channel: usize,
+    highpass_freq: f64,
+    lowpass_freq: f64,
+    notch_freqs: &[f64],
+    sample_rate: f64,
+) -> Vec<f64> {
+    #[cfg(feature = "console_error_panic_hook")]
+    set_panic_hook();
+
+    if num_channels == 0 || samples_per_channel == 0 || sample_rate <= 0.0 {
+        return data.to_vec();
+    }
+
+    let expected_len = num_channels * samples_per_channel;
+    if data.len() < expected_len {
+        return data.to_vec();
+    }
+
+    let mut result = Vec::with_capacity(expected_len);
+
+    for ch in 0..num_channels {
+        let start = ch * samples_per_channel;
+        let end = start + samples_per_channel;
+        let mut channel_data: Vec<f64> = data[start..end].to_vec();
+
+        // Apply highpass if specified
+        if highpass_freq > 0.0 {
+            channel_data = filter_highpass(&channel_data, highpass_freq, sample_rate);
+        }
+
+        // Apply lowpass if specified
+        if lowpass_freq > 0.0 {
+            channel_data = filter_lowpass(&channel_data, lowpass_freq, sample_rate);
+        }
+
+        // Apply notch filters if specified
+        if !notch_freqs.is_empty() {
+            channel_data = filter_notch_multi(&channel_data, notch_freqs, sample_rate);
+        }
+
+        result.extend(channel_data);
+    }
+
+    result
+}
+
+/// Detect artifacts in multiple channels.
+/// Returns indices of artifact samples for each channel.
+///
+/// data: flattened channel data
+/// num_channels: number of channels
+/// samples_per_channel: samples per channel
+/// threshold_std: number of standard deviations for artifact detection
+///
+/// Returns: flattened result [num_artifacts_ch0, idx0, idx1, ..., num_artifacts_ch1, ...]
+#[wasm_bindgen]
+pub fn detect_artifacts_batch(
+    data: &[f64],
+    num_channels: usize,
+    samples_per_channel: usize,
+    threshold_std: f64,
+) -> Vec<u32> {
+    #[cfg(feature = "console_error_panic_hook")]
+    set_panic_hook();
+
+    if num_channels == 0 || samples_per_channel == 0 {
+        return vec![];
+    }
+
+    let expected_len = num_channels * samples_per_channel;
+    if data.len() < expected_len {
+        return vec![];
+    }
+
+    let threshold = if threshold_std > 0.0 { threshold_std } else { 3.0 };
+    let mut result = Vec::new();
+
+    for ch in 0..num_channels {
+        let start = ch * samples_per_channel;
+        let end = start + samples_per_channel;
+        let channel_data = &data[start..end];
+
+        // Calculate mean and std using only finite values
+        let finite_values: Vec<f64> = channel_data.iter().copied().filter(|v| v.is_finite()).collect();
+        let n = finite_values.len();
+        if n == 0 {
+            // All values are non-finite, mark all as artifacts
+            result.push(samples_per_channel as u32);
+            result.extend((0..samples_per_channel).map(|i| i as u32));
+            continue;
+        }
+        let n_f64 = n as f64;
+        let mean: f64 = finite_values.iter().sum::<f64>() / n_f64;
+        let variance: f64 = finite_values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n_f64;
+        let std = variance.sqrt();
+
+        // Find artifacts
+        let mut artifacts = Vec::new();
+        let upper = mean + threshold * std;
+        let lower = mean - threshold * std;
+
+        for (i, &v) in channel_data.iter().enumerate() {
+            if !v.is_finite() || v > upper || v < lower {
+                artifacts.push(i as u32);
+            }
+        }
+
+        // Store count followed by indices
+        result.push(artifacts.len() as u32);
+        result.extend(artifacts);
+    }
+
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -127,6 +127,15 @@ impl SosFilter {
             section.reset();
         }
     }
+
+    /// Clone this filter with fresh (zeroed) state.
+    /// Useful for parallel processing where each channel needs its own filter instance
+    /// with the same coefficients but independent state.
+    pub fn clone_fresh(&self) -> Self {
+        let mut cloned = self.clone();
+        cloned.reset();
+        cloned
+    }
 }
 
 /// Butterworth filter designer

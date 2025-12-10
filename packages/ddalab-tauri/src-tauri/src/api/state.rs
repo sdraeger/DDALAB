@@ -111,7 +111,7 @@ impl Default for CancellationToken {
 #[derive(Debug)]
 pub struct ApiState {
     pub files: Arc<RwLock<LruCache<EDFFileInfo>>>,
-    pub analysis_results: Arc<RwLock<HashMap<String, DDAResult>>>,
+    pub analysis_results: Arc<RwLock<HashMap<String, Arc<DDAResult>>>>,
     pub chunks_cache: Arc<RwLock<LruCache<ChunkData>>>,
     pub data_directory: PathBuf,
     pub history_directory: PathBuf,

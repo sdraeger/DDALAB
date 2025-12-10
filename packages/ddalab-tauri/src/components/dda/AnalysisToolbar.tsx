@@ -85,19 +85,23 @@ export const AnalysisToolbar = memo(function AnalysisToolbar({
   return (
     <div className="flex items-center justify-end flex-shrink-0 pb-4">
       <div className="flex items-center space-x-2">
-        <div className="relative">
-          <Input
-            placeholder="Analysis name (optional)"
-            value={analysisName}
-            onChange={(e) => onAnalysisNameChange(e.target.value)}
-            disabled={isRunning}
-            className="w-48 pr-16"
-          />
-          {analysisName && !isRunning && (
-            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground bg-background px-1 rounded">
-              unsaved
-            </span>
-          )}
+        <div className="flex items-center gap-2">
+          <label
+            htmlFor="analysis-name"
+            className="text-sm font-medium text-muted-foreground whitespace-nowrap"
+          >
+            Name:
+          </label>
+          <div className="relative">
+            <Input
+              id="analysis-name"
+              placeholder="Enter analysis name"
+              value={analysisName}
+              onChange={(e) => onAnalysisNameChange(e.target.value)}
+              disabled={isRunning}
+              className="w-56 h-9 text-sm"
+            />
+          </div>
         </div>
         <Button
           variant="outline"
