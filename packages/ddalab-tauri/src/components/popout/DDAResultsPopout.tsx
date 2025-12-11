@@ -210,6 +210,11 @@ function DDAResultsPopoutContent({
     if (!heatmapRef.current || !result || heatmapData.length === 0 || isLocked)
       return;
 
+    // Get window indices (use window_indices or fallback to legacy scales)
+    const windowIndices =
+      result.results.window_indices || result.results.scales || [];
+    if (windowIndices.length === 0) return;
+
     // Clean up existing plot
     if (uplotHeatmapRef.current) {
       uplotHeatmapRef.current.destroy();
@@ -221,7 +226,7 @@ function DDAResultsPopoutContent({
 
     // Create canvas for heatmap rendering
     const canvas = document.createElement("canvas");
-    canvas.width = result.results.scales.length;
+    canvas.width = windowIndices.length;
     canvas.height = selectedChannels.length;
     const ctx = canvas.getContext("2d")!;
 
@@ -230,7 +235,7 @@ function DDAResultsPopoutContent({
     const data = imageData.data;
 
     for (let y = 0; y < selectedChannels.length; y++) {
-      for (let x = 0; x < result.results.scales.length; x++) {
+      for (let x = 0; x < windowIndices.length; x++) {
         const value = heatmapData[y]?.[x] || 0;
         const normalized =
           (value - colorRange[0]) / (colorRange[1] - colorRange[0]);
@@ -254,7 +259,7 @@ function DDAResultsPopoutContent({
 
     // Prepare data for uPlot (just coordinates for image positioning)
     const plotData: uPlot.AlignedData = [
-      [0, result.results.scales[result.results.scales.length - 1]],
+      [0, windowIndices[windowIndices.length - 1]],
       [0, selectedChannels.length - 1],
     ];
 
@@ -264,10 +269,7 @@ function DDAResultsPopoutContent({
       scales: {
         x: {
           time: false,
-          range: [
-            result.results.scales[0],
-            result.results.scales[result.results.scales.length - 1],
-          ],
+          range: [windowIndices[0], windowIndices[windowIndices.length - 1]],
         },
         y: {
           range: [-0.5, selectedChannels.length - 0.5],
@@ -341,16 +343,24 @@ function DDAResultsPopoutContent({
       uplotLinePlotRef.current = null;
     }
 
-    // Prepare data for line plot
-    const scales = result?.results.scales;
+    // Prepare data for line plot (use window_indices or fallback to legacy scales)
+    const windowIndices =
+      result?.results.window_indices || result?.results.scales;
 
-    // Defensive check for scales data
-    if (!scales || !Array.isArray(scales) || scales.length === 0) {
-      console.error("Invalid scales data for line plot:", scales);
+    // Defensive check for window indices data
+    if (
+      !windowIndices ||
+      !Array.isArray(windowIndices) ||
+      windowIndices.length === 0
+    ) {
+      console.error(
+        "Invalid window indices data for line plot:",
+        windowIndices,
+      );
       return;
     }
 
-    const data: uPlot.AlignedData = [scales];
+    const data: uPlot.AlignedData = [windowIndices];
 
     // Add DDA matrix data for selected channels
     selectedChannels.forEach((channel) => {

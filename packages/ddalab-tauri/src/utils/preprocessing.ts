@@ -13,7 +13,10 @@ import {
   movingAverage as wasmMovingAverage,
   savitzkyGolay as wasmSavitzkyGolay,
   removeOutliers as wasmRemoveOutliers,
+  baselineCorrection as wasmBaselineCorrection,
+  removeSpikes as wasmRemoveSpikes,
   type OutlierRemovalMethod,
+  type BaselineCorrectionMethod,
 } from "@/services/wasmService";
 
 /**
@@ -31,9 +34,12 @@ export function applyPreprocessing(
 ): number[] {
   let processed = [...data]; // Copy to avoid mutation
 
-  // 1. Baseline correction (before filtering)
+  // 1. Baseline correction (before filtering) - WASM-accelerated
   if (options.baselineCorrection && options.baselineCorrection !== "none") {
-    processed = applyBaselineCorrection(processed, options.baselineCorrection);
+    processed = wasmBaselineCorrection(
+      processed,
+      options.baselineCorrection as BaselineCorrectionMethod,
+    );
   }
 
   // 2. Filters (order: highpass -> lowpass -> notch)
@@ -51,12 +57,12 @@ export function applyPreprocessing(
     processed = filterNotchMulti(processed, options.notch, sampleRate);
   }
 
-  // 3. Spike removal
+  // 3. Spike removal - WASM-accelerated
   if (options.spikeRemoval?.enabled) {
-    processed = removeSpikesSafe(
+    processed = wasmRemoveSpikes(
       processed,
-      options.spikeRemoval.threshold,
       options.spikeRemoval.windowSize,
+      options.spikeRemoval.threshold,
     );
   }
 

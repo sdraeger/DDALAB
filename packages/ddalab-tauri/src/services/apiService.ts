@@ -820,7 +820,8 @@ export class ApiService {
         channels: request.channels,
         parameters: request,
         results: {
-          scales,
+          window_indices: scales,
+          scales, // deprecated, for backward compatibility
           variants:
             variants.length > 0
               ? variants
