@@ -117,6 +117,8 @@ pub struct VariantResult {
     pub q_matrix: Vec<Vec<f64>>, // Q matrix for this variant [channels × timepoints]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub channel_labels: Option<Vec<String>>, // Optional channel labels specific to this variant
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_values: Option<Vec<f64>>, // Error/rho values per window from DDA output
 }
 
 /// DDA analysis result
@@ -131,6 +133,8 @@ pub struct DDAResult {
     pub window_parameters: WindowParameters,
     pub delay_parameters: DelayParameters,
     pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_values: Option<Vec<f64>>, // Error/rho values per window from DDA output
 }
 
 impl DDAResult {
@@ -152,6 +156,7 @@ impl DDAResult {
             window_parameters,
             delay_parameters,
             created_at: chrono::Utc::now().to_rfc3339(),
+            error_values: None,
         }
     }
 
@@ -162,6 +167,11 @@ impl DDAResult {
 
     pub fn with_variant_results(mut self, variant_results: Vec<VariantResult>) -> Self {
         self.variant_results = Some(variant_results);
+        self
+    }
+
+    pub fn with_error_values(mut self, error_values: Vec<f64>) -> Self {
+        self.error_values = Some(error_values);
         self
     }
 }

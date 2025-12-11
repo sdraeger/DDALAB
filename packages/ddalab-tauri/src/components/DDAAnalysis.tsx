@@ -2215,9 +2215,6 @@ export const DDAAnalysis = memo(function DDAAnalysis({
             start_time: parameters.timeStart,
             end_time: parameters.timeEnd,
             variants: parameters.variants,
-            window_length: parameters.windowLength,
-            window_step: parameters.windowStep,
-            delay_list: parameters.delays,
           }}
         />
       )}
@@ -2239,7 +2236,7 @@ export const DDAAnalysis = memo(function DDAAnalysis({
             <li>Selected variants and channel configurations</li>
             <li>Window length and step size</li>
             <li>Time range settings</li>
-            <li>Scale parameters</li>
+            <li>Polynomial order and model dimension</li>
             <li>Delay list configuration</li>
           </ul>
           <p className="text-sm text-muted-foreground">

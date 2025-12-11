@@ -113,12 +113,16 @@ export interface DDAVariantResult {
   exponents: Record<string, number>;
   quality_metrics: Record<string, number>;
   network_motifs?: NetworkMotifData; // Network motif data for CD-DDA
+  error_values?: number[]; // Error/rho values per window from DDA output
 }
 
 /** Plot data for DDA visualization */
 export interface DDAPlotData {
   heatmapData?: number[][];
   lineData?: Record<string, number[]>;
+  /** Window indices for x-axis (deprecated name: scales) */
+  window_indices?: number[];
+  /** @deprecated Use window_indices instead */
   scales?: number[];
 }
 
@@ -129,8 +133,13 @@ export interface DDAResult {
   channels: string[];
   parameters: DDAAnalysisRequest;
   results: {
-    scales: number[];
+    /** Window indices for x-axis positioning */
+    window_indices: number[];
+    /** @deprecated Use window_indices instead */
+    scales?: number[];
     variants: DDAVariantResult[];
+    /** Error/rho values per window from DDA output (from primary variant) */
+    error_values?: number[];
     // Legacy fields for backward compatibility
     dda_matrix?: Record<string, number[]>;
     exponents?: Record<string, number>;

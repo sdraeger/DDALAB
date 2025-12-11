@@ -1213,7 +1213,6 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
           content = exportDDAToCSV(result, {
             variant: variantId,
             channels: selectedChannels,
-            includeMetadata: true,
           });
         } else {
           content = exportDDAToJSON(result, {
@@ -1248,6 +1247,48 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       }
     },
     [result, selectedVariant, selectedChannels, availableVariants],
+  );
+
+  const exportAllData = useCallback(
+    async (format: "csv" | "json") => {
+      try {
+        let content: string;
+
+        // Don't pass channels filter when exporting all variants
+        // Each variant has its own channel naming (e.g., CT has "CH1 ⟷ CH2", CD has "CH1 → CH2")
+        if (format === "csv") {
+          content = exportDDAToCSV(result, {});
+        } else {
+          content = exportDDAToJSON(result, {});
+        }
+
+        const filename = getDefaultExportFilename(result, format);
+        const savedPath = await TauriService.saveDDAExportFile(
+          content,
+          format,
+          filename,
+        );
+
+        if (savedPath) {
+          loggers.export.info("All variants exported successfully", {
+            savedPath,
+            format,
+            variantCount: availableVariants.length,
+          });
+          toast.success(
+            "All variants exported",
+            `Saved ${availableVariants.length} variants as ${format.toUpperCase()} to ${savedPath.split("/").pop()}`,
+          );
+        }
+      } catch (error) {
+        loggers.export.error("Failed to export all data", { format, error });
+        toast.error(
+          "Export failed",
+          `Could not export all variants as ${format.toUpperCase()}`,
+        );
+      }
+    },
+    [result, availableVariants.length],
   );
 
   // Open share dialog
@@ -1583,10 +1624,12 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
             <ExportMenu
               onExportData={exportData}
               onExportPlot={exportPlot}
+              onExportAllData={exportAllData}
               onShare={openShareDialog}
               onPopOut={handlePopOut}
               showShare={isSyncConnected}
               showPopOut={true}
+              showExportAll={availableVariants.length > 1}
             />
           </div>
         </CardHeader>

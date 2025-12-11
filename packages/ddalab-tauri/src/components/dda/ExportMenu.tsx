@@ -6,6 +6,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -16,24 +17,29 @@ import {
   Image,
   Share2,
   ExternalLink,
+  FolderDown,
 } from "lucide-react";
 
 interface ExportMenuProps {
   onExportData: (format: "csv" | "json") => void;
   onExportPlot: (format: "png" | "svg" | "pdf") => void;
+  onExportAllData?: (format: "csv" | "json") => void;
   onShare?: () => void;
   onPopOut?: () => void;
   showShare?: boolean;
   showPopOut?: boolean;
+  showExportAll?: boolean;
 }
 
 export const ExportMenu = memo(function ExportMenu({
   onExportData,
   onExportPlot,
+  onExportAllData,
   onShare,
   onPopOut,
   showShare = false,
   showPopOut = true,
+  showExportAll = false,
 }: ExportMenuProps) {
   return (
     <div className="flex items-center space-x-2">
@@ -53,6 +59,19 @@ export const ExportMenu = memo(function ExportMenu({
             <FileCode className="h-4 w-4 mr-2" />
             Export as JSON
           </DropdownMenuItem>
+          {showExportAll && onExportAllData && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => onExportAllData("csv")}>
+                <FolderDown className="h-4 w-4 mr-2" />
+                Export All Variants (CSV)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onExportAllData("json")}>
+                <FolderDown className="h-4 w-4 mr-2" />
+                Export All Variants (JSON)
+              </DropdownMenuItem>
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 

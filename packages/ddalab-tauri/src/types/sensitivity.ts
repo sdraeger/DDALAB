@@ -1,68 +1,88 @@
 /**
  * Parameter Sensitivity Analysis Types
  *
- * Allows users to see how DDA results change with different parameter settings
+ * Allows users to run DDA with multiple explicit parameter configurations
+ * to understand how results change with different settings.
  */
 
-export type SweepParameter =
-  | "window_length"
-  | "window_step"
-  | "delay_min"
-  | "delay_max"
-  | "delay_num";
-
-export interface ParameterRange {
-  parameter: SweepParameter;
-  min: number;
-  max: number;
-  steps: number;
+/** DDA model parameters for sensitivity analysis */
+export interface DDAModelParams {
+  /** Window length in samples */
+  window_length: number;
+  /** Window step in samples */
+  window_step: number;
+  /** Explicit list of delay values (tau) */
+  delays: number[];
+  /** Model dimension (dm parameter) */
+  model_dimension?: number;
+  /** Polynomial order */
+  polynomial_order?: number;
+  /** Number of tau values (nr_tau) */
+  nr_tau?: number;
 }
 
-/** Base DDA parameters for sensitivity analysis */
+/** A single parameter configuration set to test */
+export interface ParameterSet {
+  /** Unique identifier for this parameter set */
+  id: string;
+  /** Human-readable name/description */
+  name: string;
+  /** The DDA parameters to use */
+  params: DDAModelParams;
+}
+
+/** Base configuration for sensitivity analysis (file, channels, time range) */
 export interface SensitivityBaseConfig {
   file_path: string;
   channels: string[];
   start_time: number;
   end_time: number;
   variants: string[];
-  window_length: number;
-  window_step: number;
-  delay_list: number[]; // Explicit list of delay values
 }
 
+/** Configuration for running sensitivity analysis */
 export interface SensitivityConfig {
-  /** Base DDA parameters to start from */
+  /** Base configuration (file, channels, time range, variants) */
   baseConfig: SensitivityBaseConfig;
-  /** Parameters to sweep */
-  sweepParameters: ParameterRange[];
+  /** Parameter sets to evaluate */
+  parameterSets: ParameterSet[];
   /** Maximum concurrent analyses */
   maxConcurrent?: number;
 }
 
+/** Result statistics for a single variant */
+export interface VariantResultStats {
+  variant_id: string;
+  variant_name: string;
+  /** Mean Q value across all channels */
+  mean_q: number;
+  /** Standard deviation of Q values */
+  std_q: number;
+  /** Min Q value */
+  min_q: number;
+  /** Max Q value */
+  max_q: number;
+  /** Per-channel mean Q values */
+  channel_means: Record<string, number>;
+}
+
+/** Result of running a single parameter set */
 export interface SensitivityResult {
-  /** Parameter values used for this run (only includes varied parameters) */
-  parameterValues: Partial<Record<SweepParameter, number>>;
-  /** Summary statistics for each variant */
-  variantResults: {
-    variant_id: string;
-    variant_name: string;
-    /** Mean Q value across all channels */
-    mean_q: number;
-    /** Standard deviation of Q values */
-    std_q: number;
-    /** Min Q value */
-    min_q: number;
-    /** Max Q value */
-    max_q: number;
-    /** Per-channel mean Q values */
-    channel_means: Record<string, number>;
-  }[];
+  /** Parameter set ID */
+  parameter_set_id: string;
+  /** Parameter set name */
+  parameter_set_name: string;
+  /** Parameters used */
+  params: DDAModelParams;
+  /** Results for each variant */
+  variantResults: VariantResultStats[];
   /** Analysis duration in ms */
   duration_ms: number;
   /** Any errors encountered */
   error?: string;
 }
 
+/** Overall sensitivity analysis state */
 export interface SensitivityAnalysis {
   id: string;
   config: SensitivityConfig;
@@ -78,38 +98,103 @@ export interface SensitivityAnalysis {
   error?: string;
 }
 
-export interface SensitivitySummary {
-  /** Parameter that was varied */
-  parameter: SweepParameter;
-  /** How much results changed when this parameter varied */
-  sensitivity_score: number;
-  /** Correlation between parameter value and mean Q */
-  correlation: number;
-  /** Parameter value that gave optimal results */
-  optimal_value: number;
-  /** Variance in results across parameter range */
-  result_variance: number;
+/** Comparison of parameter sets for a specific metric */
+export interface ParameterComparison {
+  parameter_set_id: string;
+  parameter_set_name: string;
+  params: DDAModelParams;
+  mean_q: number;
+  std_q: number;
 }
 
+/** Sensitivity analysis report */
 export interface SensitivityReport {
   analysis_id: string;
-  /** Overall sensitivity rankings */
-  parameter_rankings: SensitivitySummary[];
-  /** Recommended parameter values */
-  recommendations: {
-    parameter: SweepParameter;
-    recommended_value: number;
-    reason: string;
-  }[];
-  /** Stability assessment */
-  stability: {
+  /** Comparison across all parameter sets */
+  comparisons: ParameterComparison[];
+  /** Best performing parameter set */
+  best_params: ParameterSet | null;
+  /** Summary statistics */
+  summary: {
+    /** Mean Q across all parameter sets */
+    overall_mean_q: number;
+    /** Variance in Q across parameter sets */
+    variance_across_sets: number;
+    /** Is performance stable across parameter sets? */
     is_stable: boolean;
-    stability_score: number;
-    unstable_parameters: SweepParameter[];
   };
 }
 
-/** Predefined sensitivity presets */
+/** Predefined parameter set templates */
+export const PARAMETER_SET_TEMPLATES: Record<string, DDAModelParams> = {
+  default: {
+    window_length: 100,
+    window_step: 10,
+    delays: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    model_dimension: 4,
+    polynomial_order: 4,
+    nr_tau: 2,
+  },
+  short_window: {
+    window_length: 50,
+    window_step: 5,
+    delays: [1, 2, 3, 4, 5],
+    model_dimension: 4,
+    polynomial_order: 4,
+    nr_tau: 2,
+  },
+  long_window: {
+    window_length: 200,
+    window_step: 20,
+    delays: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20],
+    model_dimension: 4,
+    polynomial_order: 4,
+    nr_tau: 2,
+  },
+  fine_delays: {
+    window_length: 100,
+    window_step: 10,
+    delays: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    model_dimension: 4,
+    polynomial_order: 4,
+    nr_tau: 2,
+  },
+  coarse_delays: {
+    window_length: 100,
+    window_step: 10,
+    delays: [2, 5, 10, 15, 20],
+    model_dimension: 4,
+    polynomial_order: 4,
+    nr_tau: 2,
+  },
+};
+
+// ============================================================================
+// Legacy types for backward compatibility
+// ============================================================================
+
+export type SweepParameter =
+  | "window_length"
+  | "window_step"
+  | "delay_min"
+  | "delay_max"
+  | "delay_num";
+
+export interface ParameterRange {
+  parameter: SweepParameter;
+  min: number;
+  max: number;
+  steps: number;
+}
+
+export interface SensitivitySummary {
+  parameter: SweepParameter;
+  sensitivity_score: number;
+  correlation: number;
+  optimal_value: number;
+  result_variance: number;
+}
+
 export const SENSITIVITY_PRESETS = {
   quick: {
     name: "Quick Scan",
@@ -128,7 +213,6 @@ export const SENSITIVITY_PRESETS = {
   },
 } as const;
 
-/** Default parameter ranges for sensitivity analysis */
 export const DEFAULT_PARAMETER_RANGES: Record<
   SweepParameter,
   { min: number; max: number; description: string }

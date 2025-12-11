@@ -454,55 +454,98 @@ impl ICAProcessor {
         Ok((mixing, unmixing))
     }
 
-    /// Invert a square matrix using Gauss-Jordan elimination
+    /// Invert a square matrix using Gauss-Jordan elimination with parallel row elimination
+    /// Uses rayon for parallel row operations when matrix size warrants it
     fn invert_matrix(matrix: &Array2<f64>) -> Result<Array2<f64>> {
         let n = matrix.nrows();
         if n != matrix.ncols() {
             return Err(anyhow!("Matrix must be square"));
         }
 
-        // Augmented matrix [A | I]
-        let mut aug = Array2::<f64>::zeros((n, 2 * n));
+        // Use parallel algorithm for matrices larger than threshold
+        const PAR_THRESHOLD: usize = 8;
+
+        // Augmented matrix [A | I] - stored as flat Vec for better cache locality
+        let width = 2 * n;
+        let mut aug: Vec<f64> = vec![0.0; n * width];
+
+        // Initialize augmented matrix
         for i in 0..n {
             for j in 0..n {
-                aug[[i, j]] = matrix[[i, j]];
+                aug[i * width + j] = matrix[[i, j]];
             }
-            aug[[i, n + i]] = 1.0;
+            aug[i * width + n + i] = 1.0;
         }
 
         // Gauss-Jordan elimination
         for i in 0..n {
-            // Find pivot
+            // Find pivot (sequential - small operation)
             let mut max_row = i;
+            let mut max_val = aug[i * width + i].abs();
             for k in (i + 1)..n {
-                if aug[[k, i]].abs() > aug[[max_row, i]].abs() {
+                let val = aug[k * width + i].abs();
+                if val > max_val {
+                    max_val = val;
                     max_row = k;
                 }
             }
 
-            // Swap rows
-            for j in 0..(2 * n) {
-                let temp = aug[[i, j]];
-                aug[[i, j]] = aug[[max_row, j]];
-                aug[[max_row, j]] = temp;
+            // Swap rows if needed
+            if max_row != i {
+                for j in 0..width {
+                    aug.swap(i * width + j, max_row * width + j);
+                }
             }
 
-            let pivot = aug[[i, i]];
+            let pivot = aug[i * width + i];
             if pivot.abs() < 1e-10 {
                 return Err(anyhow!("Matrix is singular or nearly singular"));
             }
 
-            // Scale row
-            for j in 0..(2 * n) {
-                aug[[i, j]] /= pivot;
+            // Scale pivot row
+            let inv_pivot = 1.0 / pivot;
+            for j in 0..width {
+                aug[i * width + j] *= inv_pivot;
             }
 
-            // Eliminate column
-            for k in 0..n {
-                if k != i {
-                    let factor = aug[[k, i]];
-                    for j in 0..(2 * n) {
-                        aug[[k, j]] -= factor * aug[[i, j]];
+            // Eliminate column - this is the parallelizable part
+            // Each row's elimination is independent
+            if n >= PAR_THRESHOLD {
+                // Extract pivot row for parallel access
+                let pivot_row: Vec<f64> = aug[i * width..(i + 1) * width].to_vec();
+
+                // Parallel row elimination
+                let rows_to_update: Vec<(usize, f64)> = (0..n)
+                    .filter(|&k| k != i)
+                    .map(|k| (k, aug[k * width + i]))
+                    .collect();
+
+                // Process rows in parallel
+                let updates: Vec<(usize, Vec<f64>)> = rows_to_update
+                    .into_par_iter()
+                    .map(|(k, factor)| {
+                        let mut new_row = vec![0.0; width];
+                        for j in 0..width {
+                            new_row[j] = aug[k * width + j] - factor * pivot_row[j];
+                        }
+                        (k, new_row)
+                    })
+                    .collect();
+
+                // Apply updates (sequential but very fast)
+                for (k, new_row) in updates {
+                    for j in 0..width {
+                        aug[k * width + j] = new_row[j];
+                    }
+                }
+            } else {
+                // Sequential for small matrices (avoids parallel overhead)
+                for k in 0..n {
+                    if k != i {
+                        let factor = aug[k * width + i];
+                        for j in 0..width {
+                            aug[k * width + j] -= factor * aug[i * width + j];
+                        }
                     }
                 }
             }
@@ -512,7 +555,7 @@ impl ICAProcessor {
         let mut inv = Array2::<f64>::zeros((n, n));
         for i in 0..n {
             for j in 0..n {
-                inv[[i, j]] = aug[[i, n + j]];
+                inv[[i, j]] = aug[i * width + n + j];
             }
         }
 

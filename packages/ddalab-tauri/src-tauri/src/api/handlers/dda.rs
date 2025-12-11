@@ -473,6 +473,7 @@ pub async fn run_dda_analysis(
 
                         // For CT, we need to run each pair separately and combine results
                         let mut combined_ct_results: Vec<Vec<f64>> = Vec::new();
+                        let mut ct_error_values: Option<Vec<f64>> = None;
 
                         for (pair_idx, pair) in pairs.iter().enumerate() {
                             // Check for cancellation between CT pairs
@@ -504,6 +505,10 @@ pub async fn run_dda_analysis(
                                 })?;
 
                             combined_ct_results.extend(pair_result.q_matrix);
+                            // Capture error values from first pair (all pairs have same windows)
+                            if ct_error_values.is_none() {
+                                ct_error_values = pair_result.error_values;
+                            }
                         }
 
                         // Create combined CT variant result
@@ -533,6 +538,7 @@ pub async fn run_dda_analysis(
                                     None
                                 }
                             },
+                            error_values: ct_error_values,
                         };
                         variant_results.push(variant_result);
                     } else {
@@ -618,6 +624,7 @@ pub async fn run_dda_analysis(
                         );
 
                         let mut combined_results: Vec<Vec<f64>> = Vec::new();
+                        let mut variant_error_values: Option<Vec<f64>> = None;
 
                         for (ch_idx, channel) in channels.iter().enumerate() {
                             // Check for cancellation between channel iterations
@@ -650,6 +657,10 @@ pub async fn run_dda_analysis(
                                 })?;
 
                             combined_results.extend(channel_result.q_matrix);
+                            // Capture error values from first channel (all channels have same windows)
+                            if variant_error_values.is_none() {
+                                variant_error_values = channel_result.error_values;
+                            }
                         }
 
                         // Create combined variant result
@@ -679,6 +690,7 @@ pub async fn run_dda_analysis(
                                     None
                                 }
                             },
+                            error_values: variant_error_values,
                         };
                         variant_results.push(variant_result);
                     } else {
@@ -964,6 +976,13 @@ pub async fn run_dda_analysis(
                     }
                 }
 
+                // Add error_values if available
+                if let Some(ref error_vals) = vr.error_values {
+                    if let Some(obj) = result.as_object_mut() {
+                        obj.insert("error_values".to_string(), serde_json::json!(error_vals));
+                    }
+                }
+
                 result
             })
             .collect()
@@ -982,7 +1001,7 @@ pub async fn run_dda_analysis(
         variants_array.len()
     );
 
-    let results = serde_json::json!({
+    let mut results = serde_json::json!({
         "summary": {
             "total_windows": num_timepoints,
             "processed_windows": num_timepoints,
@@ -998,6 +1017,13 @@ pub async fn run_dda_analysis(
         "variants": variants_array,
         "dda_matrix": dda_matrix.clone()
     });
+
+    // Add error_values to results if available
+    if let Some(ref error_vals) = dda_result.error_values {
+        if let Some(obj) = results.as_object_mut() {
+            obj.insert("error_values".to_string(), serde_json::json!(error_vals));
+        }
+    }
 
     let plot_data = serde_json::json!({
         "time_series": {

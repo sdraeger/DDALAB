@@ -802,16 +802,13 @@ export const NSGJobManager = memo(function NSGJobManager() {
             channels.push(channelName);
           });
 
-          // Generate scales array (actual time values, not just indices)
-          // Match local results format: 0.0, 0.1, 0.2, ...
+          // Generate window indices array (actual time points, not just indices)
           const numTimepoints =
             resultsData.num_timepoints || qMatrixArray[0]?.length || 0;
-          const scales =
+          const windowIndices =
+            resultsData.window_indices ||
             resultsData.scales ||
-            Array.from(
-              { length: numTimepoints },
-              (_, i) => i * 0.1, // Match local results: time in 0.1s increments
-            );
+            Array.from({ length: numTimepoints }, (_, i) => i);
 
           // Transform NSG results to match DDA Results component expected format
           // DDAResults expects: result.results.variants to be an ARRAY of variant objects
@@ -827,7 +824,8 @@ export const NSGJobManager = memo(function NSGJobManager() {
                   quality_metrics: resultsData.quality_metrics || {},
                 },
               ],
-              scales: scales, // Required: x-axis values for plots
+              window_indices: windowIndices, // Required: x-axis values for plots
+              scales: windowIndices, // Deprecated, for backward compatibility
               Q: qMatrixArray, // Original 2D array format
               channels: channels,
               plot_data: qMatrixArray, // Original 2D array format

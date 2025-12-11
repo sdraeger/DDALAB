@@ -280,19 +280,22 @@ export const useDDAAnnotations = ({
       description?: string,
       visibleInPlots?: string[],
     ) => {
-      // Convert DDA position (scale value) to timeseries position (seconds)
-      // Find the nearest window index for this scale value
-      const scales = ddaResult.results.scales || [];
+      // Convert DDA position (window index) to timeseries position (seconds)
+      // Use window_indices (preferred) or legacy scales for backward compatibility
+      const windowIndices =
+        ddaResult.results.window_indices || ddaResult.results.scales || [];
 
-      // Find the index of the closest scale value
+      // Find the index of the closest window position
       let windowIndex = 0;
-      let minDistance = Math.abs(scales[0] - position);
+      if (windowIndices.length > 0) {
+        let minDistance = Math.abs(windowIndices[0] - position);
 
-      for (let i = 1; i < scales.length; i++) {
-        const distance = Math.abs(scales[i] - position);
-        if (distance < minDistance) {
-          minDistance = distance;
-          windowIndex = i;
+        for (let i = 1; i < windowIndices.length; i++) {
+          const distance = Math.abs(windowIndices[i] - position);
+          if (distance < minDistance) {
+            minDistance = distance;
+            windowIndex = i;
+          }
         }
       }
 
