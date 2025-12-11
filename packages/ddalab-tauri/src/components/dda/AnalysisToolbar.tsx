@@ -5,7 +5,7 @@
  * Extracted from DDAAnalysis.tsx to reduce component complexity.
  */
 
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -18,6 +18,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { TauriService } from "@/services/tauriService";
+import { TooltipButton } from "@/components/ui/tooltip-button";
 
 interface VariantChannelConfig {
   selectedChannels?: string[];
@@ -82,6 +83,36 @@ export const AnalysisToolbar = memo(function AnalysisToolbar({
   const hasValidConfig = hasValidChannelConfig(variants, variantChannelConfigs);
   const isTauri = TauriService.isTauri();
 
+  // Compute tooltip reasons for disabled buttons
+  const runTooltip = useMemo(() => {
+    if (isRunning) return "Analysis is currently running";
+    if (!hasValidConfig) return "Configure channels for at least one variant";
+    return "Run DDA analysis locally";
+  }, [isRunning, hasValidConfig]);
+
+  const sensitivityTooltip = useMemo(() => {
+    if (isRunning) return "Analysis is currently running";
+    if (!hasSelectedFile) return "Select a file first";
+    return "Analyze how DDA results change with different parameters";
+  }, [isRunning, hasSelectedFile]);
+
+  const serverTooltip = useMemo(() => {
+    if (isRunning) return "Analysis is currently running";
+    if (isSubmittingToServer) return "Submitting to server...";
+    if (!isServerConnected)
+      return "Connect to a remote server in Settings → Sync";
+    if (!hasValidConfig) return "Configure channels for at least one variant";
+    return "Submit analysis to remote server for processing";
+  }, [isRunning, isSubmittingToServer, isServerConnected, hasValidConfig]);
+
+  const nsgTooltip = useMemo(() => {
+    if (isRunning) return "Analysis is currently running";
+    if (isSubmittingToNsg) return "Submitting to NSG...";
+    if (!hasNsgCredentials) return "Configure NSG credentials in Settings";
+    if (!hasValidConfig) return "Configure channels for at least one variant";
+    return "Submit analysis to Neuroscience Gateway for HPC processing";
+  }, [isRunning, isSubmittingToNsg, hasNsgCredentials, hasValidConfig]);
+
   return (
     <div className="flex items-center justify-end flex-shrink-0 pb-4">
       <div className="flex items-center space-x-2">
@@ -103,47 +134,62 @@ export const AnalysisToolbar = memo(function AnalysisToolbar({
             />
           </div>
         </div>
-        <Button
+        <TooltipButton
           variant="outline"
           size="sm"
           onClick={onImport}
           disabled={isRunning}
+          tooltip={
+            isRunning
+              ? "Analysis is currently running"
+              : "Import DDA configuration"
+          }
         >
           <Upload className="h-4 w-4 mr-1" />
           Import
-        </Button>
-        <Button
+        </TooltipButton>
+        <TooltipButton
           variant="outline"
           size="sm"
           onClick={onExport}
           disabled={isRunning}
+          tooltip={
+            isRunning
+              ? "Analysis is currently running"
+              : "Export DDA configuration"
+          }
         >
           <Download className="h-4 w-4 mr-1" />
           Export
-        </Button>
-        <Button
+        </TooltipButton>
+        <TooltipButton
           variant="outline"
           size="sm"
           onClick={onSensitivity}
           disabled={isRunning || !hasSelectedFile}
-          title="Analyze how results change with different parameters"
+          tooltip={sensitivityTooltip}
         >
           <TrendingUp className="h-4 w-4 mr-1" />
           Sensitivity
-        </Button>
-        <Button
+        </TooltipButton>
+        <TooltipButton
           variant="outline"
           size="sm"
           onClick={onReset}
           disabled={isRunning}
-          title="Reset all parameters to defaults"
+          tooltip={
+            isRunning
+              ? "Analysis is currently running"
+              : "Reset all parameters to defaults"
+          }
         >
           Reset
-        </Button>
-        <Button
+        </TooltipButton>
+        <TooltipButton
           onClick={onRun}
           disabled={isRunning || !hasValidConfig}
           className="min-w-[120px]"
+          tooltip={runTooltip}
         >
           {isRunning ? (
             <>
@@ -156,9 +202,9 @@ export const AnalysisToolbar = memo(function AnalysisToolbar({
               Run DDA
             </>
           )}
-        </Button>
+        </TooltipButton>
         {isTauri && (
-          <Button
+          <TooltipButton
             onClick={onSubmitToServer}
             disabled={
               isRunning ||
@@ -168,11 +214,7 @@ export const AnalysisToolbar = memo(function AnalysisToolbar({
             }
             variant="outline"
             className="min-w-[140px]"
-            title={
-              !isServerConnected
-                ? "Connect to a remote server in Settings → Sync"
-                : "Submit analysis to remote server"
-            }
+            tooltip={serverTooltip}
           >
             {isSubmittingToServer ? (
               <>
@@ -185,10 +227,10 @@ export const AnalysisToolbar = memo(function AnalysisToolbar({
                 Submit to Server
               </>
             )}
-          </Button>
+          </TooltipButton>
         )}
         {isTauri && (
-          <Button
+          <TooltipButton
             onClick={onSubmitToNsg}
             disabled={
               isRunning ||
@@ -198,11 +240,7 @@ export const AnalysisToolbar = memo(function AnalysisToolbar({
             }
             variant="outline"
             className="min-w-[140px]"
-            title={
-              !hasNsgCredentials
-                ? "Configure NSG credentials in Settings"
-                : "Submit to Neuroscience Gateway"
-            }
+            tooltip={nsgTooltip}
           >
             {isSubmittingToNsg ? (
               <>
@@ -215,7 +253,7 @@ export const AnalysisToolbar = memo(function AnalysisToolbar({
                 Submit to NSG
               </>
             )}
-          </Button>
+          </TooltipButton>
         )}
       </div>
     </div>
