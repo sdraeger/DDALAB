@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback, useRef } from "react";
 import { useAppStore } from "@/store/appStore";
 import {
   navigationConfig,
@@ -54,9 +55,64 @@ export function SecondaryNavigation() {
   const primaryNav = useAppStore((state) => state.ui.primaryNav);
   const secondaryNav = useAppStore((state) => state.ui.secondaryNav);
   const setSecondaryNav = useAppStore((state) => state.setSecondaryNav);
+  const tabListRef = useRef<HTMLDivElement>(null);
 
   const currentCategory = navigationConfig[primaryNav];
   const secondaryTabs = currentCategory.secondaryTabs;
+
+  // Get only enabled tabs for keyboard navigation
+  const enabledTabs =
+    secondaryTabs?.filter(
+      (tabId) =>
+        secondaryTabConfig[tabId as SecondaryNavTab]?.enabled !== false,
+    ) || [];
+
+  // Handle keyboard navigation
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (!enabledTabs.length) return;
+
+      const currentIndex = secondaryNav
+        ? enabledTabs.indexOf(secondaryNav)
+        : -1;
+      let newIndex = currentIndex;
+
+      switch (e.key) {
+        case "ArrowRight":
+        case "ArrowDown":
+          e.preventDefault();
+          newIndex =
+            currentIndex < enabledTabs.length - 1 ? currentIndex + 1 : 0;
+          break;
+        case "ArrowLeft":
+        case "ArrowUp":
+          e.preventDefault();
+          newIndex =
+            currentIndex > 0 ? currentIndex - 1 : enabledTabs.length - 1;
+          break;
+        case "Home":
+          e.preventDefault();
+          newIndex = 0;
+          break;
+        case "End":
+          e.preventDefault();
+          newIndex = enabledTabs.length - 1;
+          break;
+        default:
+          return;
+      }
+
+      const newTabId = enabledTabs[newIndex] as SecondaryNavTab;
+      setSecondaryNav(newTabId);
+
+      // Focus the new tab button
+      const newButton = tabListRef.current?.querySelector(
+        `[data-nav="${newTabId}"]`,
+      ) as HTMLButtonElement | null;
+      newButton?.focus();
+    },
+    [enabledTabs, secondaryNav, setSecondaryNav],
+  );
 
   if (!secondaryTabs || secondaryTabs.length === 0) {
     return null;
@@ -70,14 +126,24 @@ export function SecondaryNavigation() {
     const isActive = secondaryNav === tabId;
     const isEnabled = config.enabled !== false;
 
+    // Only the active tab or first enabled tab should be tabbable
+    const isFirstEnabled = enabledTabs[0] === tabId;
+    const tabIndex = isActive
+      ? 0
+      : isEnabled && isFirstEnabled && !secondaryNav
+        ? 0
+        : -1;
+
     const button = (
       <button
         role="tab"
         onClick={() => isEnabled && setSecondaryNav(tabId as SecondaryNavTab)}
         disabled={!isEnabled}
+        tabIndex={isEnabled ? tabIndex : -1}
         className={cn(
           "flex items-center gap-2 px-3 py-1.5 rounded text-sm font-medium transition-colors whitespace-nowrap",
           "disabled:opacity-50 disabled:cursor-not-allowed",
+          "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
           isEnabled && "hover:bg-accent/50",
           isActive && isEnabled && "bg-background shadow-sm border",
         )}
@@ -124,7 +190,13 @@ export function SecondaryNavigation() {
         aria-label={`${currentCategory.label} navigation`}
       >
         <div className="flex items-center px-6 py-1.5 overflow-x-auto">
-          <div role="tablist" className="flex items-center gap-1">
+          <div
+            ref={tabListRef}
+            role="tablist"
+            className="flex items-center gap-1"
+            onKeyDown={handleKeyDown}
+            aria-orientation="horizontal"
+          >
             {secondaryTabs.map(renderTabButton)}
           </div>
         </div>

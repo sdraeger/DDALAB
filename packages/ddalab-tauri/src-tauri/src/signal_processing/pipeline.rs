@@ -125,6 +125,9 @@ pub struct PreprocessingResult {
     pub config: PreprocessingConfig,
     /// Processing time in milliseconds
     pub processing_time_ms: f64,
+    /// Warnings about skipped filters (e.g., notch skipped due to low sample rate)
+    #[serde(default)]
+    pub warnings: Vec<String>,
 }
 
 /// Per-channel filter state
@@ -146,15 +149,34 @@ impl Clone for ChannelFilters {
 pub struct PreprocessingPipeline {
     config: PreprocessingConfig,
     channel_filters: Vec<ChannelFilters>,
+    /// Warnings generated during pipeline creation (e.g., skipped filters)
+    warnings: Vec<String>,
 }
 
 impl PreprocessingPipeline {
     /// Create a new preprocessing pipeline
+    ///
+    /// Note: This method gracefully handles filters that cannot be applied
+    /// (e.g., notch filter when sample rate is too low). Such filters are
+    /// skipped with a warning instead of causing a hard failure.
     pub fn new(config: PreprocessingConfig, num_channels: usize) -> Result<Self, String> {
         let mut channel_filters = Vec::with_capacity(num_channels);
+        let mut warnings = Vec::new();
+        let nyquist = config.sample_rate / 2.0;
 
-        for _ in 0..num_channels {
-            let notch = if config.notch_enabled {
+        // Pre-validate filters and create templates
+        let notch_template = if config.notch_enabled {
+            // Check if notch frequency is valid
+            if config.notch_frequency >= nyquist {
+                let warning = format!(
+                    "Notch filter skipped: frequency ({} Hz) exceeds Nyquist limit ({:.1} Hz) for sample rate {} Hz. \
+                     Consider increasing your file's sample rate or disabling the notch filter.",
+                    config.notch_frequency, nyquist, config.sample_rate
+                );
+                log::warn!("[PREPROCESSING] {}", warning);
+                warnings.push(warning);
+                None
+            } else {
                 let notch_config = FilterConfig {
                     filter_type: FilterType::Notch,
                     frequency: config.notch_frequency,
@@ -162,12 +184,31 @@ impl PreprocessingPipeline {
                     order: 2, // Notch is always 2nd order per harmonic
                     sample_rate: config.sample_rate,
                 };
-                Some(create_filter(&notch_config)?)
-            } else {
-                None
-            };
+                match create_filter(&notch_config) {
+                    Ok(filter) => Some(filter),
+                    Err(e) => {
+                        let warning = format!("Notch filter skipped: {}", e);
+                        log::warn!("[PREPROCESSING] {}", warning);
+                        warnings.push(warning);
+                        None
+                    }
+                }
+            }
+        } else {
+            None
+        };
 
-            let bandpass = if config.bandpass_enabled {
+        let bandpass_template = if config.bandpass_enabled {
+            // Check if bandpass frequencies are valid
+            if config.bandpass_high >= nyquist {
+                let warning = format!(
+                    "Bandpass filter skipped: high cutoff ({} Hz) exceeds Nyquist limit ({:.1} Hz) for sample rate {} Hz.",
+                    config.bandpass_high, nyquist, config.sample_rate
+                );
+                log::warn!("[PREPROCESSING] {}", warning);
+                warnings.push(warning);
+                None
+            } else {
                 let bp_config = FilterConfig {
                     filter_type: FilterType::Bandpass,
                     frequency: config.bandpass_low,
@@ -175,23 +216,42 @@ impl PreprocessingPipeline {
                     order: config.filter_order,
                     sample_rate: config.sample_rate,
                 };
-                Some(create_filter(&bp_config)?)
-            } else {
-                None
-            };
+                match create_filter(&bp_config) {
+                    Ok(filter) => Some(filter),
+                    Err(e) => {
+                        let warning = format!("Bandpass filter skipped: {}", e);
+                        log::warn!("[PREPROCESSING] {}", warning);
+                        warnings.push(warning);
+                        None
+                    }
+                }
+            }
+        } else {
+            None
+        };
 
+        // Create per-channel filters by cloning templates
+        for _ in 0..num_channels {
+            let notch = notch_template.as_ref().map(|t| t.clone_fresh());
+            let bandpass = bandpass_template.as_ref().map(|t| t.clone_fresh());
             channel_filters.push(ChannelFilters { notch, bandpass });
         }
 
         Ok(Self {
             config,
             channel_filters,
+            warnings,
         })
     }
 
     /// Get the current configuration
     pub fn config(&self) -> &PreprocessingConfig {
         &self.config
+    }
+
+    /// Get warnings generated during pipeline creation
+    pub fn warnings(&self) -> &[String] {
+        &self.warnings
     }
 
     /// Process a single channel (for streaming)
@@ -311,6 +371,7 @@ impl PreprocessingPipeline {
             channel_names: channel_names.to_vec(),
             config: self.config.clone(),
             processing_time_ms,
+            warnings: self.warnings.clone(),
         }
     }
 
@@ -372,5 +433,43 @@ mod tests {
         let result = result.unwrap();
         assert_eq!(result.channels.len(), 4);
         assert_eq!(result.channel_names.len(), 4);
+    }
+
+    #[test]
+    fn test_graceful_handling_low_sample_rate() {
+        // Simulate CSV file with sample_rate=1 Hz (common default when no metadata)
+        let config = PreprocessingConfig {
+            sample_rate: 1.0, // Very low sample rate
+            notch_enabled: true,
+            notch_frequency: 60.0, // 60 Hz notch is impossible with 1 Hz sample rate
+            bandpass_enabled: true,
+            bandpass_low: 0.1,
+            bandpass_high: 100.0, // Also impossible
+            ..Default::default()
+        };
+
+        let channels: Vec<Vec<f64>> = (0..2)
+            .map(|_| (0..100).map(|i| (i as f64 * 0.1).sin()).collect())
+            .collect();
+        let names: Vec<String> = vec!["Ch1".to_string(), "Ch2".to_string()];
+
+        // Should NOT error - should gracefully skip invalid filters
+        let result = preprocess_batch(&channels, &names, &config);
+        assert!(result.is_ok(), "Should not error on low sample rate");
+
+        let result = result.unwrap();
+        // Should have warnings about skipped filters
+        assert!(
+            !result.warnings.is_empty(),
+            "Should have warnings about skipped filters"
+        );
+        assert!(result
+            .warnings
+            .iter()
+            .any(|w| w.contains("Notch filter skipped")));
+        assert!(result
+            .warnings
+            .iter()
+            .any(|w| w.contains("Bandpass filter skipped")));
     }
 }

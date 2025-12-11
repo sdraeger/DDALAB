@@ -15,14 +15,29 @@ export interface Toast {
 let toastIdCounter = 0;
 const toastListeners: Set<(toast: Toast) => void> = new Set();
 
+// Default durations by type - errors/warnings need more reading time
+const DEFAULT_DURATIONS: Record<ToastType, number> = {
+  success: 4000, // Quick acknowledgment
+  info: 4000, // Quick acknowledgment
+  warning: 6000, // Users need time to understand
+  error: 8000, // Users need time to read and possibly take action
+};
+
 export function toast(
   type: ToastType,
   title: string,
   description?: string,
-  duration: number = 5000,
+  duration?: number,
 ) {
   const id = `toast-${++toastIdCounter}`;
-  const newToast: Toast = { id, type, title, description, duration };
+  const effectiveDuration = duration ?? DEFAULT_DURATIONS[type];
+  const newToast: Toast = {
+    id,
+    type,
+    title,
+    description,
+    duration: effectiveDuration,
+  };
 
   toastListeners.forEach((listener) => listener(newToast));
 }

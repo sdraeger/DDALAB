@@ -10,6 +10,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Database,
   FileText,
   FileCode,
@@ -98,29 +104,35 @@ export const ExportMenu = memo(function ExportMenu({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {showShare && onShare && (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onShare}
-          title="Share this result with colleagues"
-        >
-          <Share2 className="h-4 w-4 mr-2" />
-          Share
-        </Button>
-      )}
+      <TooltipProvider delayDuration={300}>
+        {showShare && onShare && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="outline" size="sm" onClick={onShare}>
+                <Share2 className="h-4 w-4 mr-2" />
+                Share
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Share this DDA result with colleagues on the sync server</p>
+            </TooltipContent>
+          </Tooltip>
+        )}
 
-      {showPopOut && onPopOut && (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onPopOut}
-          title="Pop out to separate window"
-        >
-          <ExternalLink className="h-4 w-4 mr-2" />
-          Pop Out
-        </Button>
-      )}
+        {showPopOut && onPopOut && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="outline" size="sm" onClick={onPopOut}>
+                <ExternalLink className="h-4 w-4 mr-2" />
+                Pop Out
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Open in a separate window for side-by-side comparison</p>
+            </TooltipContent>
+          </Tooltip>
+        )}
+      </TooltipProvider>
     </div>
   );
 });
