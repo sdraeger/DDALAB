@@ -45,12 +45,13 @@ export function timeSeriesAnnotationToDDA(
     sampleRate,
   );
 
-  // Get the scale value at this window index
-  const scales = ddaResult.results.scales || [];
-  const scaleValue = scales[windowIndex];
+  // Get the window position at this index
+  const windowIndices =
+    ddaResult.results.window_indices || ddaResult.results.scales || [];
+  const windowPosition = windowIndices[windowIndex];
 
-  // If no valid scale value, return null position (will be filtered out)
-  if (scaleValue === undefined) {
+  // If no valid window position, return null position (will be filtered out)
+  if (windowPosition === undefined) {
     return {
       ...annotation,
       position: -1, // Invalid position
@@ -60,14 +61,14 @@ export function timeSeriesAnnotationToDDA(
 
   return {
     ...annotation,
-    position: scaleValue, // Use scale value, not window index
+    position: windowPosition, // Use window position
     id: `${annotation.id}_dda`, // Suffix to avoid ID collision
   };
 }
 
 /**
  * Convert a DDA annotation to timeseries coordinates
- * Expects annotation.position to be a SCALE VALUE, converts to seconds
+ * Expects annotation.position to be a window index, converts to seconds
  */
 export function ddaAnnotationToTimeSeries(
   annotation: PlotAnnotation,
@@ -76,10 +77,11 @@ export function ddaAnnotationToTimeSeries(
 ): PlotAnnotation {
   const windowStep = ddaResult.parameters.window_step || 1;
 
-  // Find the nearest window index for this scale value
-  const scales = ddaResult.results.scales || [];
+  // Use window_indices or fallback to legacy scales
+  const windowIndices =
+    ddaResult.results.window_indices || ddaResult.results.scales || [];
 
-  if (scales.length === 0) {
+  if (windowIndices.length === 0) {
     return {
       ...annotation,
       position: -1,
@@ -87,12 +89,12 @@ export function ddaAnnotationToTimeSeries(
     };
   }
 
-  // Find the index of the closest scale value
+  // Find the index of the closest window position
   let windowIndex = 0;
-  let minDistance = Math.abs(scales[0] - annotation.position);
+  let minDistance = Math.abs(windowIndices[0] - annotation.position);
 
-  for (let i = 1; i < scales.length; i++) {
-    const distance = Math.abs(scales[i] - annotation.position);
+  for (let i = 1; i < windowIndices.length; i++) {
+    const distance = Math.abs(windowIndices[i] - annotation.position);
     if (distance < minDistance) {
       minDistance = distance;
       windowIndex = i;
@@ -122,18 +124,19 @@ export function isAnnotationInDDARange(
 }
 
 /**
- * Check if a DDA annotation (scale value) falls within valid range
+ * Check if a DDA annotation (window position) falls within valid range
  */
 export function isDDAAnnotationValid(
   annotation: PlotAnnotation,
   ddaResult: DDAResult,
 ): boolean {
-  // Check if this scale value exists in the scales array
-  const scales = ddaResult.results.scales || [];
-  const scaleIndex = scales.findIndex(
-    (s) => Math.abs(s - annotation.position) < 0.01,
+  // Check if this window position exists in the window_indices array
+  const windowIndices =
+    ddaResult.results.window_indices || ddaResult.results.scales || [];
+  const positionIndex = windowIndices.findIndex(
+    (idx) => Math.abs(idx - annotation.position) < 0.01,
   );
-  return scaleIndex !== -1;
+  return positionIndex !== -1;
 }
 
 /**

@@ -1,5 +1,5 @@
 use crate::error::{DDAError, Result};
-use crate::parser::parse_dda_output;
+use crate::parser::parse_dda_output_with_error;
 use crate::profiling::ProfileScope;
 use crate::types::*;
 use std::path::{Path, PathBuf};
@@ -519,7 +519,8 @@ impl DDARunner {
             .ok_or_else(|| DDAError::ExecutionFailed("Invalid output directory".to_string()))?;
 
         // Read all variants from first execution
-        let mut variant_matrices: Vec<(String, Vec<Vec<f64>>)> = Vec::new();
+        // Each entry: (variant_id, q_matrix, error_values)
+        let mut variant_matrices: Vec<(String, Vec<Vec<f64>>, Vec<f64>)> = Vec::new();
 
         for variant in &first_execution_variants {
             // Each variant has a specific output file suffix:
@@ -594,19 +595,24 @@ impl DDARunner {
                 "SY" => Some(1),
                 _ => None, // Default stride=4 for ST, CT
             };
-            let q_matrix = parse_dda_output(&output_content, stride)?;
+            let parsed = parse_dda_output_with_error(&output_content, stride)?;
 
-            if !q_matrix.is_empty() {
-                let num_channels = q_matrix.len();
-                let num_timepoints = q_matrix[0].len();
+            if !parsed.q_matrix.is_empty() {
+                let num_channels = parsed.q_matrix.len();
+                let num_timepoints = parsed.q_matrix[0].len();
                 log::info!(
                     "Q matrix dimensions for {}: {} channels × {} timepoints",
                     variant,
                     num_channels,
                     num_timepoints
                 );
+                log::info!(
+                    "Extracted {} error/rho values for variant {}",
+                    parsed.error_values.len(),
+                    variant
+                );
 
-                variant_matrices.push((variant.to_string(), q_matrix));
+                variant_matrices.push((variant.to_string(), parsed.q_matrix, parsed.error_values));
             } else {
                 log::warn!("No data extracted from DDA output for variant {}", variant);
             }
@@ -619,6 +625,7 @@ impl DDARunner {
 
             let pairs = request.ct_channel_pairs.as_ref().unwrap();
             let mut combined_ct_matrix: Vec<Vec<f64>> = Vec::new();
+            let mut ct_error_values: Vec<f64> = Vec::new();
 
             // Process all CT pairs sequentially (parallel processing causes excessive memory consumption)
             let _profile = ProfileScope::new(format!("ct_pair_processing_{}_pairs", num_pairs));
@@ -756,17 +763,21 @@ impl DDARunner {
                     .map_err(|e| DDAError::IoError(e))?;
 
                 // CT uses default stride=4
-                let pair_q_matrix = parse_dda_output(&pair_content, None)?;
+                let pair_parsed = parse_dda_output_with_error(&pair_content, None)?;
 
                 // Append this pair's channel to the combined CT matrix
-                if !pair_q_matrix.is_empty() {
+                if !pair_parsed.q_matrix.is_empty() {
                     log::info!(
                         "Adding CT pair {} results: {} channels × {} timepoints",
                         pair_idx,
-                        pair_q_matrix.len(),
-                        pair_q_matrix[0].len()
+                        pair_parsed.q_matrix.len(),
+                        pair_parsed.q_matrix[0].len()
                     );
-                    combined_ct_matrix.extend(pair_q_matrix);
+                    combined_ct_matrix.extend(pair_parsed.q_matrix);
+                    // Use error values from first pair (all pairs have same windows)
+                    if ct_error_values.is_empty() {
+                        ct_error_values = pair_parsed.error_values;
+                    }
                 }
 
                 // Clean up pair output files
@@ -783,7 +794,7 @@ impl DDARunner {
                     num_channels,
                     num_timepoints
                 );
-                variant_matrices.push(("CT".to_string(), combined_ct_matrix));
+                variant_matrices.push(("CT".to_string(), combined_ct_matrix, ct_error_values));
             } else {
                 log::warn!("No CT data extracted from any pair");
             }
@@ -912,17 +923,21 @@ impl DDARunner {
                         .map_err(|e| DDAError::IoError(e))?;
 
                     // CD uses stride=1: each column after window bounds is one directed pair
-                    let cd_q_matrix = crate::parser::parse_dda_output(&cd_content, Some(1))?;
+                    let cd_parsed = parse_dda_output_with_error(&cd_content, Some(1))?;
 
-                    let num_channels = cd_q_matrix.len();
-                    let num_timepoints = cd_q_matrix.get(0).map(|r| r.len()).unwrap_or(0);
+                    let num_channels = cd_parsed.q_matrix.len();
+                    let num_timepoints = cd_parsed.q_matrix.get(0).map(|r| r.len()).unwrap_or(0);
                     log::info!(
                         "CD Q matrix dimensions: {} channels × {} timepoints",
                         num_channels,
                         num_timepoints
                     );
 
-                    variant_matrices.push(("CD".to_string(), cd_q_matrix));
+                    variant_matrices.push((
+                        "CD".to_string(),
+                        cd_parsed.q_matrix,
+                        cd_parsed.error_values,
+                    ));
 
                     // Clean up CD output files
                     let _ = tokio::fs::remove_file(&cd_file_with_special_suffix).await;
@@ -966,7 +981,7 @@ impl DDARunner {
         }
 
         // Use the first variant's matrix as the primary result (for backward compatibility)
-        let (primary_variant_name, primary_q_matrix) = variant_matrices
+        let (primary_variant_name, primary_q_matrix, primary_error_values) = variant_matrices
             .first()
             .ok_or_else(|| DDAError::ExecutionFailed("No variant results available".to_string()))?;
 
@@ -1001,7 +1016,7 @@ impl DDARunner {
         // Build variant results for all variants with appropriate channel labels
         let variant_results: Vec<crate::types::VariantResult> = variant_matrices
             .iter()
-            .map(|(variant_id, q_matrix)| {
+            .map(|(variant_id, q_matrix, error_values)| {
                 // Generate variant-specific channel labels
                 let channel_labels = if variant_id == "CD" && request.cd_channel_pairs.is_some() {
                     // For CD, generate directed pair labels like "LAT2 → LPT1"
@@ -1080,6 +1095,11 @@ impl DDARunner {
                     variant_name: variant_display_names(variant_id),
                     q_matrix: q_matrix.clone(),
                     channel_labels,
+                    error_values: if error_values.is_empty() {
+                        None
+                    } else {
+                        Some(error_values.clone())
+                    },
                 }
             })
             .collect();
@@ -1093,7 +1113,8 @@ impl DDARunner {
             request.window_parameters.clone(),
             request.delay_parameters.clone(),
         )
-        .with_variant_results(variant_results);
+        .with_variant_results(variant_results)
+        .with_error_values(primary_error_values.clone());
 
         Ok(result)
     }
@@ -1365,7 +1386,9 @@ impl DDARunner {
             "SY" => Some(1),
             _ => None,
         };
-        let q_matrix = parse_dda_output(&output_content, stride)?;
+        let parsed = parse_dda_output_with_error(&output_content, stride)?;
+        let q_matrix = parsed.q_matrix;
+        let error_values = parsed.error_values;
 
         // Generate channel labels
         let channel_labels = match variant_id {
@@ -1449,6 +1472,11 @@ impl DDARunner {
             variant_name,
             q_matrix,
             channel_labels,
+            error_values: if error_values.is_empty() {
+                None
+            } else {
+                Some(error_values)
+            },
         })
     }
 

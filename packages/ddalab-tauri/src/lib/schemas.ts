@@ -125,7 +125,8 @@ export const DDAVariantResultSchema = z.object({
 export const DDAPlotDataSchema = z.object({
   heatmapData: z.array(z.array(z.number())).optional(),
   lineData: z.record(z.string(), z.array(z.number())).optional(),
-  scales: z.array(z.number()).optional(),
+  window_indices: z.array(z.number()).optional(),
+  scales: z.array(z.number()).optional(), // deprecated, use window_indices
 });
 
 export const DDAStatusSchema = z.enum([
@@ -142,7 +143,8 @@ export const DDAResultSchema = z.object({
   channels: z.array(z.string()),
   parameters: DDAAnalysisRequestSchema,
   results: z.object({
-    scales: z.array(z.number()),
+    window_indices: z.array(z.number()),
+    scales: z.array(z.number()).optional(), // deprecated, use window_indices
     variants: z.array(DDAVariantResultSchema),
     dda_matrix: z.record(z.string(), z.array(z.number())).optional(),
     exponents: z.record(z.string(), z.number()).optional(),

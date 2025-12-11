@@ -2030,9 +2030,445 @@ pub fn detect_artifacts_batch(
     result
 }
 
+// ============================================================================
+// CORRELATION & SENSITIVITY ANALYSIS
+// ============================================================================
+
+/// Compute Pearson correlation coefficient between two arrays
+/// Returns a value between -1.0 (perfect negative) and 1.0 (perfect positive)
+/// This is optimized for sensitivity analysis parameter sweeps
+#[wasm_bindgen]
+pub fn pearson_correlation(x: &[f64], y: &[f64]) -> f64 {
+    #[cfg(feature = "console_error_panic_hook")]
+    set_panic_hook();
+
+    let n = x.len().min(y.len());
+    if n < 2 {
+        return 0.0;
+    }
+
+    // Calculate means
+    let mut sum_x = 0.0;
+    let mut sum_y = 0.0;
+    let mut count = 0usize;
+
+    for i in 0..n {
+        if x[i].is_finite() && y[i].is_finite() {
+            sum_x += x[i];
+            sum_y += y[i];
+            count += 1;
+        }
+    }
+
+    if count < 2 {
+        return 0.0;
+    }
+
+    let mean_x = sum_x / count as f64;
+    let mean_y = sum_y / count as f64;
+
+    // Calculate correlation coefficient
+    let mut numerator = 0.0;
+    let mut denom_x = 0.0;
+    let mut denom_y = 0.0;
+
+    for i in 0..n {
+        if x[i].is_finite() && y[i].is_finite() {
+            let diff_x = x[i] - mean_x;
+            let diff_y = y[i] - mean_y;
+            numerator += diff_x * diff_y;
+            denom_x += diff_x * diff_x;
+            denom_y += diff_y * diff_y;
+        }
+    }
+
+    if denom_x > 1e-10 && denom_y > 1e-10 {
+        numerator / (denom_x.sqrt() * denom_y.sqrt())
+    } else {
+        0.0
+    }
+}
+
+/// Compute Pearson correlation between parameter values and result values
+/// param_values: parameter values for each run
+/// result_values: result values (e.g., mean Q) for each run
+/// Returns: correlation coefficient
+#[wasm_bindgen]
+pub fn compute_sensitivity_correlation(param_values: &[f64], result_values: &[f64]) -> f64 {
+    pearson_correlation(param_values, result_values)
+}
+
+/// Compute sensitivity score for a parameter sweep
+/// param_values: parameter values for each run
+/// result_values: result values for each run
+/// Returns: [correlation, variance, sensitivity_score]
+#[wasm_bindgen]
+pub fn compute_sensitivity_metrics(param_values: &[f64], result_values: &[f64]) -> Vec<f64> {
+    #[cfg(feature = "console_error_panic_hook")]
+    set_panic_hook();
+
+    let n = param_values.len().min(result_values.len());
+    if n < 2 {
+        return vec![0.0, 0.0, 0.0];
+    }
+
+    // Calculate means
+    let mut sum_result = 0.0;
+    let mut count = 0usize;
+
+    for i in 0..n {
+        if param_values[i].is_finite() && result_values[i].is_finite() {
+            sum_result += result_values[i];
+            count += 1;
+        }
+    }
+
+    if count < 2 {
+        return vec![0.0, 0.0, 0.0];
+    }
+
+    let mean_result = sum_result / count as f64;
+
+    // Calculate correlation
+    let correlation = pearson_correlation(param_values, result_values);
+
+    // Calculate variance
+    let mut variance_sum = 0.0;
+    for i in 0..n {
+        if result_values[i].is_finite() {
+            let diff = result_values[i] - mean_result;
+            variance_sum += diff * diff;
+        }
+    }
+    let variance = variance_sum / (count - 1) as f64;
+
+    // Sensitivity score: |correlation| * sqrt(variance)
+    let sensitivity_score = correlation.abs() * variance.sqrt();
+
+    vec![correlation, variance, sensitivity_score]
+}
+
+/// Batch compute sensitivity metrics for multiple parameters
+/// param_values_flat: flattened array [param0_run0, param0_run1, ..., param1_run0, ...]
+/// result_values: result values for each run
+/// num_params: number of parameters
+/// runs_per_param: number of runs per parameter
+/// Returns: [corr0, var0, score0, corr1, var1, score1, ...]
+#[wasm_bindgen]
+pub fn compute_sensitivity_batch(
+    param_values_flat: &[f64],
+    result_values: &[f64],
+    num_params: usize,
+    runs_per_param: usize,
+) -> Vec<f64> {
+    #[cfg(feature = "console_error_panic_hook")]
+    set_panic_hook();
+
+    if num_params == 0 || runs_per_param == 0 {
+        return vec![];
+    }
+
+    let expected_len = num_params * runs_per_param;
+    if param_values_flat.len() < expected_len {
+        return vec![];
+    }
+
+    let mut result = Vec::with_capacity(num_params * 3);
+
+    for p in 0..num_params {
+        let start = p * runs_per_param;
+        let end = start + runs_per_param;
+        let param_slice = &param_values_flat[start..end];
+
+        let metrics = compute_sensitivity_metrics(param_slice, result_values);
+        result.extend(metrics);
+    }
+
+    result
+}
+
+// ============================================================================
+// BASELINE CORRECTION
+// ============================================================================
+
+/// Apply baseline correction by subtracting median
+/// This is more robust to outliers than mean subtraction
+#[wasm_bindgen]
+pub fn baseline_correction_median(data: &[f64]) -> Vec<f64> {
+    #[cfg(feature = "console_error_panic_hook")]
+    set_panic_hook();
+
+    if data.is_empty() {
+        return vec![];
+    }
+
+    // Sort for median calculation
+    let mut sorted: Vec<f64> = data.iter().copied().filter(|v| v.is_finite()).collect();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    let median = if sorted.is_empty() {
+        0.0
+    } else {
+        let mid = sorted.len() / 2;
+        if sorted.len() % 2 == 0 {
+            (sorted[mid - 1] + sorted[mid]) / 2.0
+        } else {
+            sorted[mid]
+        }
+    };
+
+    data.iter().map(|&v| v - median).collect()
+}
+
+/// Apply baseline correction by subtracting mean
+#[wasm_bindgen]
+pub fn baseline_correction_mean(data: &[f64]) -> Vec<f64> {
+    #[cfg(feature = "console_error_panic_hook")]
+    set_panic_hook();
+
+    if data.is_empty() {
+        return vec![];
+    }
+
+    let stats = compute_channel_stats(data);
+    data.iter().map(|&v| v - stats.mean).collect()
+}
+
+/// Apply baseline correction to multiple channels
+/// method: 0 = mean, 1 = median
+#[wasm_bindgen]
+pub fn baseline_correction_channels(
+    data: &[f64],
+    num_channels: usize,
+    samples_per_channel: usize,
+    method: u32,
+) -> Vec<f64> {
+    #[cfg(feature = "console_error_panic_hook")]
+    set_panic_hook();
+
+    if num_channels == 0 || samples_per_channel == 0 {
+        return vec![];
+    }
+
+    let expected_len = num_channels * samples_per_channel;
+    if data.len() < expected_len {
+        return vec![];
+    }
+
+    let mut result = Vec::with_capacity(expected_len);
+
+    for ch in 0..num_channels {
+        let start = ch * samples_per_channel;
+        let end = start + samples_per_channel;
+        let channel_data = &data[start..end];
+
+        let corrected = match method {
+            0 => baseline_correction_mean(channel_data),
+            _ => baseline_correction_median(channel_data),
+        };
+        result.extend(corrected);
+    }
+
+    result
+}
+
+// ============================================================================
+// SPIKE REMOVAL
+// ============================================================================
+
+/// Remove spikes using local statistics (sliding window)
+/// window_size: size of the sliding window for local statistics
+/// threshold_std: number of standard deviations to consider as spike
+/// Returns: data with spikes replaced by local median
+#[wasm_bindgen]
+pub fn remove_spikes(data: &[f64], window_size: usize, threshold_std: f64) -> Vec<f64> {
+    #[cfg(feature = "console_error_panic_hook")]
+    set_panic_hook();
+
+    if data.is_empty() || window_size < 3 {
+        return data.to_vec();
+    }
+
+    let len = data.len();
+    let half_window = window_size / 2;
+    let mut result = data.to_vec();
+
+    for i in 0..len {
+        let start = i.saturating_sub(half_window);
+        let end = (i + half_window + 1).min(len);
+
+        // Get window data (excluding current point for robust stats)
+        let window_data: Vec<f64> = (start..end)
+            .filter(|&j| j != i)
+            .map(|j| data[j])
+            .filter(|v| v.is_finite())
+            .collect();
+
+        if window_data.len() < 3 {
+            continue;
+        }
+
+        // Calculate local statistics
+        let mean: f64 = window_data.iter().sum::<f64>() / window_data.len() as f64;
+        let variance: f64 = window_data.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
+            / window_data.len() as f64;
+        let std = variance.sqrt();
+
+        // Check if current point is a spike
+        if std > 1e-10 {
+            let z_score = (data[i] - mean).abs() / std;
+            if z_score > threshold_std {
+                // Replace with local median
+                let mut sorted = window_data.clone();
+                sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                let mid = sorted.len() / 2;
+                result[i] = if sorted.len() % 2 == 0 {
+                    (sorted[mid - 1] + sorted[mid]) / 2.0
+                } else {
+                    sorted[mid]
+                };
+            }
+        }
+    }
+
+    result
+}
+
+/// Remove spikes from multiple channels
+#[wasm_bindgen]
+pub fn remove_spikes_channels(
+    data: &[f64],
+    num_channels: usize,
+    samples_per_channel: usize,
+    window_size: usize,
+    threshold_std: f64,
+) -> Vec<f64> {
+    #[cfg(feature = "console_error_panic_hook")]
+    set_panic_hook();
+
+    if num_channels == 0 || samples_per_channel == 0 {
+        return vec![];
+    }
+
+    let expected_len = num_channels * samples_per_channel;
+    if data.len() < expected_len {
+        return vec![];
+    }
+
+    let mut result = Vec::with_capacity(expected_len);
+
+    for ch in 0..num_channels {
+        let start = ch * samples_per_channel;
+        let end = start + samples_per_channel;
+        let channel_data = &data[start..end];
+
+        let cleaned = remove_spikes(channel_data, window_size, threshold_std);
+        result.extend(cleaned);
+    }
+
+    result
+}
+
+// ============================================================================
+// GRADIENT-BASED SPIKE DETECTION
+// ============================================================================
+
+/// Detect and remove gradient-based spikes (sudden jumps)
+/// threshold_factor: multiplier for median absolute gradient
+/// Returns: data with gradient spikes interpolated
+#[wasm_bindgen]
+pub fn remove_gradient_spikes(data: &[f64], threshold_factor: f64) -> Vec<f64> {
+    #[cfg(feature = "console_error_panic_hook")]
+    set_panic_hook();
+
+    if data.len() < 3 {
+        return data.to_vec();
+    }
+
+    // Calculate gradients
+    let gradients: Vec<f64> = (1..data.len())
+        .map(|i| (data[i] - data[i - 1]).abs())
+        .collect();
+
+    // Calculate median absolute gradient
+    let mut sorted_gradients = gradients.clone();
+    sorted_gradients.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let median_gradient = sorted_gradients[sorted_gradients.len() / 2];
+
+    let threshold = median_gradient * threshold_factor;
+    let mut result = data.to_vec();
+
+    // Find and interpolate spike points
+    for i in 1..data.len() {
+        if gradients[i - 1] > threshold {
+            // Spike detected, interpolate
+            let prev_valid = (0..i).rev().find(|&j| {
+                if j == 0 {
+                    return true;
+                }
+                gradients[j - 1] <= threshold
+            });
+            let next_valid = (i + 1..data.len()).find(|&j| {
+                if j >= gradients.len() {
+                    return true;
+                }
+                gradients[j - 1] <= threshold
+            });
+
+            if let (Some(prev), Some(next)) = (prev_valid, next_valid) {
+                if next > prev {
+                    let alpha = (i - prev) as f64 / (next - prev) as f64;
+                    result[i] = data[prev] + alpha * (data[next] - data[prev]);
+                }
+            }
+        }
+    }
+
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_pearson_correlation() {
+        // Perfect positive correlation
+        let x = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let y = vec![2.0, 4.0, 6.0, 8.0, 10.0];
+        let r = pearson_correlation(&x, &y);
+        assert!((r - 1.0).abs() < 1e-10);
+
+        // Perfect negative correlation
+        let y_neg = vec![10.0, 8.0, 6.0, 4.0, 2.0];
+        let r_neg = pearson_correlation(&x, &y_neg);
+        assert!((r_neg - (-1.0)).abs() < 1e-10);
+
+        // No correlation
+        let y_zero = vec![5.0, 5.0, 5.0, 5.0, 5.0];
+        let r_zero = pearson_correlation(&x, &y_zero);
+        assert!(r_zero.abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_baseline_correction() {
+        let data = vec![10.0, 20.0, 30.0, 40.0, 50.0];
+        let corrected = baseline_correction_mean(&data);
+
+        // Mean should be zero after correction
+        let mean: f64 = corrected.iter().sum::<f64>() / corrected.len() as f64;
+        assert!(mean.abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_spike_removal() {
+        // Data with a spike
+        let data = vec![1.0, 1.1, 1.0, 100.0, 1.0, 0.9, 1.1];
+        let cleaned = remove_spikes(&data, 5, 2.0);
+
+        // Spike should be reduced
+        assert!(cleaned[3] < 10.0);
+    }
 
     #[test]
     fn test_channel_ranges_batch() {

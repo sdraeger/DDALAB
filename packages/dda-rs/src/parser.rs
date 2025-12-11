@@ -1,6 +1,38 @@
 use crate::error::{DDAError, Result};
 
+/// Parsed DDA output containing Q matrix and error values
+#[derive(Debug, Clone)]
+pub struct ParsedDDAOutput {
+    /// Q matrix in [channels × timepoints] format
+    pub q_matrix: Vec<Vec<f64>>,
+    /// Error/rho values per window (from column 1 of raw output)
+    pub error_values: Vec<f64>,
+}
+
+/// Parse DDA binary output and return Q matrix and error values
+///
+/// Based on dda-py _process_output: skip first 2 columns, take every Nth column, then transpose
+/// The first 2 columns contain: [0] = window index, [1] = error/rho value
+///
+/// # Arguments
+/// * `content` - Raw text output from run_DDA_AsciiEdf binary
+/// * `column_stride` - Optional stride for column extraction (default 4 for ST/CT/DE, use 2 for CD, use 1 for SY)
+///
+/// # Returns
+/// ParsedDDAOutput containing Q matrix and error values
+pub fn parse_dda_output_with_error(
+    content: &str,
+    column_stride: Option<usize>,
+) -> Result<ParsedDDAOutput> {
+    let (q_matrix, error_values) = parse_dda_output_internal(content, column_stride)?;
+    Ok(ParsedDDAOutput {
+        q_matrix,
+        error_values,
+    })
+}
+
 /// Parse DDA binary output and return as 2D matrix [channels × timepoints]
+/// (Legacy function for backward compatibility)
 ///
 /// Based on dda-py _process_output: skip first 2 columns, take every Nth column, then transpose
 ///
@@ -11,6 +43,15 @@ use crate::error::{DDAError, Result};
 /// # Returns
 /// Processed matrix in [channels/scales × timepoints] format
 pub fn parse_dda_output(content: &str, column_stride: Option<usize>) -> Result<Vec<Vec<f64>>> {
+    let (q_matrix, _) = parse_dda_output_internal(content, column_stride)?;
+    Ok(q_matrix)
+}
+
+/// Internal parser that returns both Q matrix and error values
+fn parse_dda_output_internal(
+    content: &str,
+    column_stride: Option<usize>,
+) -> Result<(Vec<Vec<f64>>, Vec<f64>)> {
     let stride = column_stride.unwrap_or(4);
     let mut matrix: Vec<Vec<f64>> = Vec::new();
 
@@ -52,6 +93,15 @@ pub fn parse_dda_output(content: &str, column_stride: Option<usize>) -> Result<V
             &matrix[0][0..10]
         );
     }
+
+    // Extract error/rho values from column 1 (index 1) before skipping
+    // Column 0 = window index, Column 1 = error/rho value
+    let error_values: Vec<f64> = matrix
+        .iter()
+        .filter_map(|row| row.get(1).copied())
+        .collect();
+
+    log::info!("Extracted {} error/rho values", error_values.len());
 
     // Process according to DDA format: skip first 2 columns, then take every 4th column
     // Python does: Q[:, 2:] then Q[:, 1::4]
@@ -147,10 +197,10 @@ pub fn parse_dda_output(content: &str, column_stride: Option<usize>) -> Result<V
             transposed[0].len()
         );
 
-        Ok(transposed)
+        Ok((transposed, error_values))
     } else {
         // If we have <= 2 columns, return as single channel
-        Ok(vec![matrix.into_iter().flatten().collect()])
+        Ok((vec![matrix.into_iter().flatten().collect()], error_values))
     }
 }
 

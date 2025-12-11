@@ -1,7 +1,7 @@
 /**
  * Sensitivity Analysis Service
  *
- * Runs multiple DDA analyses with varying parameters to understand
+ * Runs multiple DDA analyses with explicit parameter sets to understand
  * how results change with different settings.
  */
 
@@ -10,69 +10,21 @@ import {
   SensitivityConfig,
   SensitivityResult,
   SensitivityAnalysis,
-  SensitivitySummary,
   SensitivityReport,
-  SweepParameter,
-  ParameterRange,
+  ParameterSet,
+  ParameterComparison,
 } from "@/types/sensitivity";
 import { DDAAnalysisRequest } from "@/types/api";
 import { computeChannelStats } from "./wasmService";
 
 type ProgressCallback = (analysis: SensitivityAnalysis) => void;
 
-/** Partial parameter values for sensitivity sweep */
-type PartialParameterValues = Partial<Record<SweepParameter, number>>;
-
-/**
- * Generate parameter combinations from ranges
- */
-function generateParameterCombinations(
-  ranges: ParameterRange[],
-): PartialParameterValues[] {
-  if (ranges.length === 0) return [{}];
-
-  const combinations: PartialParameterValues[] = [];
-
-  // Generate values for each parameter
-  const parameterValues: Map<SweepParameter, number[]> = new Map();
-  for (const range of ranges) {
-    const values: number[] = [];
-    const step = (range.max - range.min) / Math.max(range.steps - 1, 1);
-    for (let i = 0; i < range.steps; i++) {
-      values.push(Math.round(range.min + step * i));
-    }
-    parameterValues.set(range.parameter, values);
-  }
-
-  // Generate all combinations
-  function generateCombinations(
-    index: number,
-    current: PartialParameterValues,
-  ) {
-    if (index >= ranges.length) {
-      combinations.push({ ...current });
-      return;
-    }
-
-    const param = ranges[index].parameter;
-    const values = parameterValues.get(param) || [];
-
-    for (const value of values) {
-      current[param] = value;
-      generateCombinations(index + 1, current);
-    }
-  }
-
-  generateCombinations(0, {});
-  return combinations;
-}
-
 /**
  * Extract summary statistics from DDA result using WASM for efficient computation
  */
 function extractResultSummary(
   result: any,
-  parameterValues: PartialParameterValues,
+  parameterSet: ParameterSet,
   duration_ms: number,
 ): SensitivityResult {
   const variantResults = [];
@@ -126,165 +78,83 @@ function extractResultSummary(
   }
 
   return {
-    parameterValues,
+    parameter_set_id: parameterSet.id,
+    parameter_set_name: parameterSet.name,
+    params: parameterSet.params,
     variantResults,
     duration_ms,
   };
 }
 
 /**
- * Calculate sensitivity summary for a parameter
- */
-function calculateSensitivitySummary(
-  parameter: SweepParameter,
-  results: SensitivityResult[],
-): SensitivitySummary {
-  // Filter results that have this parameter varied
-  const relevantResults = results.filter(
-    (r) => r.parameterValues[parameter] !== undefined,
-  );
-
-  if (relevantResults.length < 2) {
-    return {
-      parameter,
-      sensitivity_score: 0,
-      correlation: 0,
-      optimal_value: relevantResults[0]?.parameterValues[parameter] || 0,
-      result_variance: 0,
-    };
-  }
-
-  // Get parameter values and corresponding mean Q values, filtering out undefined
-  const dataPoints = relevantResults
-    .map((r) => ({
-      paramValue: r.parameterValues[parameter],
-      meanQ:
-        r.variantResults.length > 0
-          ? r.variantResults.reduce((sum, v) => sum + v.mean_q, 0) /
-            r.variantResults.length
-          : 0,
-    }))
-    .filter(
-      (d): d is { paramValue: number; meanQ: number } =>
-        d.paramValue !== undefined,
-    );
-
-  if (dataPoints.length === 0) {
-    return {
-      parameter,
-      sensitivity_score: 0,
-      correlation: 0,
-      optimal_value: 0,
-      result_variance: 0,
-    };
-  }
-
-  // Calculate mean of parameter values and mean Q
-  const meanParam =
-    dataPoints.reduce((sum, d) => sum + d.paramValue, 0) / dataPoints.length;
-  const meanQ =
-    dataPoints.reduce((sum, d) => sum + d.meanQ, 0) / dataPoints.length;
-
-  // Calculate correlation coefficient
-  let numerator = 0;
-  let denomParam = 0;
-  let denomQ = 0;
-
-  for (const point of dataPoints) {
-    const diffParam = point.paramValue - meanParam;
-    const diffQ = point.meanQ - meanQ;
-    numerator += diffParam * diffQ;
-    denomParam += diffParam * diffParam;
-    denomQ += diffQ * diffQ;
-  }
-
-  const correlation =
-    denomParam > 0 && denomQ > 0
-      ? numerator / Math.sqrt(denomParam * denomQ)
-      : 0;
-
-  // Calculate variance in results
-  const variance =
-    dataPoints.length > 1
-      ? dataPoints.reduce((sum, d) => sum + Math.pow(d.meanQ - meanQ, 2), 0) /
-        (dataPoints.length - 1)
-      : 0;
-
-  // Sensitivity score: combination of correlation strength and variance
-  const sensitivity_score = Math.abs(correlation) * Math.sqrt(variance);
-
-  // Find optimal value (highest mean Q)
-  const optimalPoint = dataPoints.reduce((best, current) =>
-    current.meanQ > best.meanQ ? current : best,
-  );
-
-  return {
-    parameter,
-    sensitivity_score,
-    correlation,
-    optimal_value: optimalPoint.paramValue,
-    result_variance: variance,
-  };
-}
-
-/**
- * Generate sensitivity report from analysis
+ * Generate sensitivity report from analysis results
  */
 export function generateSensitivityReport(
   analysis: SensitivityAnalysis,
 ): SensitivityReport {
-  const sweepParameters = analysis.config.sweepParameters.map(
-    (p) => p.parameter,
+  const comparisons: ParameterComparison[] = analysis.results
+    .filter((r) => !r.error)
+    .map((r) => {
+      const overallMeanQ =
+        r.variantResults.length > 0
+          ? r.variantResults.reduce((sum, v) => sum + v.mean_q, 0) /
+            r.variantResults.length
+          : 0;
+      const overallStdQ =
+        r.variantResults.length > 0
+          ? r.variantResults.reduce((sum, v) => sum + v.std_q, 0) /
+            r.variantResults.length
+          : 0;
+
+      return {
+        parameter_set_id: r.parameter_set_id,
+        parameter_set_name: r.parameter_set_name,
+        params: r.params,
+        mean_q: overallMeanQ,
+        std_q: overallStdQ,
+      };
+    });
+
+  // Find best performing parameter set (highest mean Q)
+  const bestComparison = comparisons.reduce(
+    (best, current) => (current.mean_q > best.mean_q ? current : best),
+    comparisons[0],
   );
 
-  // Calculate sensitivity for each parameter
-  const parameter_rankings = sweepParameters
-    .map((param) => calculateSensitivitySummary(param, analysis.results))
-    .sort((a, b) => b.sensitivity_score - a.sensitivity_score);
+  const bestParams: ParameterSet | null = bestComparison
+    ? {
+        id: bestComparison.parameter_set_id,
+        name: bestComparison.parameter_set_name,
+        params: bestComparison.params,
+      }
+    : null;
 
-  // Generate recommendations
-  const recommendations = parameter_rankings.map((summary) => {
-    let reason = "";
-    if (Math.abs(summary.correlation) > 0.7) {
-      reason =
-        summary.correlation > 0
-          ? `Higher values tend to improve results`
-          : `Lower values tend to improve results`;
-    } else if (summary.result_variance < 0.01) {
-      reason = `Results are stable across this parameter range`;
-    } else {
-      reason = `Moderate sensitivity - value chosen for balance`;
-    }
-
-    return {
-      parameter: summary.parameter,
-      recommended_value: summary.optimal_value,
-      reason,
-    };
-  });
-
-  // Assess stability
-  const highSensitivityParams = parameter_rankings.filter(
-    (p) => p.sensitivity_score > 0.5,
-  );
-  const avgVariance =
-    parameter_rankings.reduce((sum, p) => sum + p.result_variance, 0) /
-    parameter_rankings.length;
+  // Calculate overall statistics
+  const allMeanQs = comparisons.map((c) => c.mean_q);
+  const overallMeanQ =
+    allMeanQs.length > 0
+      ? allMeanQs.reduce((sum, v) => sum + v, 0) / allMeanQs.length
+      : 0;
+  const varianceAcrossSets =
+    allMeanQs.length > 1
+      ? allMeanQs.reduce((sum, v) => sum + Math.pow(v - overallMeanQ, 2), 0) /
+        allMeanQs.length
+      : 0;
 
   return {
     analysis_id: analysis.id,
-    parameter_rankings,
-    recommendations,
-    stability: {
-      is_stable: highSensitivityParams.length === 0 && avgVariance < 0.1,
-      stability_score: 1 / (1 + avgVariance),
-      unstable_parameters: highSensitivityParams.map((p) => p.parameter),
+    comparisons,
+    best_params: bestParams,
+    summary: {
+      overall_mean_q: overallMeanQ,
+      variance_across_sets: varianceAcrossSets,
+      is_stable: varianceAcrossSets < 0.1,
     },
   };
 }
 
 /**
- * Run sensitivity analysis
+ * Run sensitivity analysis with explicit parameter sets
  */
 export async function runSensitivityAnalysis(
   apiService: ApiService,
@@ -292,14 +162,14 @@ export async function runSensitivityAnalysis(
   onProgress?: ProgressCallback,
 ): Promise<SensitivityAnalysis> {
   const analysisId = `sensitivity_${Date.now()}`;
-  const combinations = generateParameterCombinations(config.sweepParameters);
+  const parameterSets = config.parameterSets;
 
   const analysis: SensitivityAnalysis = {
     id: analysisId,
     config,
     status: "running",
     progress: {
-      total: combinations.length,
+      total: parameterSets.length,
       completed: 0,
       failed: 0,
     },
@@ -309,55 +179,52 @@ export async function runSensitivityAnalysis(
 
   onProgress?.(analysis);
 
+  // Check for cancellation
+  if (isCancelled(analysisId)) {
+    analysis.status = "cancelled";
+    return analysis;
+  }
+
   const maxConcurrent = config.maxConcurrent || 2;
 
-  // Process combinations in batches
-  for (let i = 0; i < combinations.length; i += maxConcurrent) {
-    const batch = combinations.slice(i, i + maxConcurrent);
+  // Process parameter sets in batches
+  for (let i = 0; i < parameterSets.length; i += maxConcurrent) {
+    // Check for cancellation between batches
+    if (isCancelled(analysisId)) {
+      analysis.status = "cancelled";
+      clearCancellation(analysisId);
+      onProgress?.({ ...analysis });
+      return analysis;
+    }
 
-    const batchPromises = batch.map(async (paramValues) => {
+    const batch = parameterSets.slice(i, i + maxConcurrent);
+
+    const batchPromises = batch.map(async (parameterSet) => {
       const startTime = performance.now();
 
-      // Build DDA request with modified parameters
-      // Generate delay_list from swept delay parameters or use base config
-      let delayList = config.baseConfig.delay_list;
-      if (
-        paramValues.delay_min !== undefined ||
-        paramValues.delay_max !== undefined ||
-        paramValues.delay_num !== undefined
-      ) {
-        // Generate delay_list from swept parameters
-        const delayMin = paramValues.delay_min ?? 1;
-        const delayMax = paramValues.delay_max ?? 20;
-        const delayNum = paramValues.delay_num ?? 20;
-        delayList = Array.from({ length: delayNum }, (_, i) =>
-          Math.round(
-            delayMin + (delayMax - delayMin) * (i / Math.max(delayNum - 1, 1)),
-          ),
-        );
-      }
-
+      // Build DDA request with parameter set values
       const request: DDAAnalysisRequest = {
         file_path: config.baseConfig.file_path,
         channels: config.baseConfig.channels,
         start_time: config.baseConfig.start_time,
         end_time: config.baseConfig.end_time,
         variants: config.baseConfig.variants,
-        window_length:
-          paramValues.window_length ?? config.baseConfig.window_length,
-        window_step: paramValues.window_step ?? config.baseConfig.window_step,
-        delay_list: delayList,
+        window_length: parameterSet.params.window_length,
+        window_step: parameterSet.params.window_step,
+        delay_list: parameterSet.params.delays,
       };
 
       try {
         const result = await apiService.submitDDAAnalysis(request);
         const duration_ms = performance.now() - startTime;
 
-        return extractResultSummary(result, paramValues, duration_ms);
+        return extractResultSummary(result, parameterSet, duration_ms);
       } catch (error) {
         const duration_ms = performance.now() - startTime;
         return {
-          parameterValues: paramValues,
+          parameter_set_id: parameterSet.id,
+          parameter_set_name: parameterSet.name,
+          params: parameterSet.params,
           variantResults: [],
           duration_ms,
           error: error instanceof Error ? error.message : "Unknown error",
@@ -386,6 +253,7 @@ export async function runSensitivityAnalysis(
   analysis.completed_at = new Date().toISOString();
 
   onProgress?.(analysis);
+  clearCancellation(analysisId);
 
   return analysis;
 }
@@ -393,7 +261,7 @@ export async function runSensitivityAnalysis(
 /**
  * Cancel a running sensitivity analysis
  */
-let cancellationTokens = new Map<string, boolean>();
+const cancellationTokens = new Map<string, boolean>();
 
 export function cancelSensitivityAnalysis(analysisId: string): void {
   cancellationTokens.set(analysisId, true);

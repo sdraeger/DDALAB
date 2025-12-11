@@ -291,15 +291,18 @@ function PopoutContent() {
       const selectedVariantIndex = uiState?.selectedVariant ?? 0;
       const variants = result.results?.variants;
 
-      let dda_matrix, scales;
+      let dda_matrix;
+      let windowIndices: number[];
       if (variants && variants.length > 0) {
         const variant = variants[selectedVariantIndex] || variants[0];
         dda_matrix = variant.dda_matrix;
-        scales = result.results?.scales;
+        windowIndices =
+          result.results?.window_indices || result.results?.scales || [];
       } else {
         // Fallback to legacy format
         dda_matrix = result.results?.dda_matrix;
-        scales = result.results?.scales;
+        windowIndices =
+          result.results?.window_indices || result.results?.scales || [];
       }
 
       // Use broadcast channels if they exist in the variant, otherwise use all variant channels
@@ -311,7 +314,7 @@ function PopoutContent() {
       const channels =
         validChannels.length > 0 ? validChannels : variantChannels;
 
-      if (!scales || !dda_matrix || channels.length === 0) {
+      if (windowIndices.length === 0 || !dda_matrix || channels.length === 0) {
         return;
       }
 
@@ -362,8 +365,8 @@ function PopoutContent() {
 
       // Prepare data for uPlot
       const plotData: uPlot.AlignedData = [
-        scales,
-        new Array(scales.length).fill(0), // Dummy data for positioning
+        windowIndices,
+        new Array(windowIndices.length).fill(0), // Dummy data for positioning
       ];
 
       const opts: uPlot.Options = {
@@ -372,7 +375,7 @@ function PopoutContent() {
         scales: {
           x: {
             time: false,
-            range: [scales[0], scales[scales.length - 1]],
+            range: [windowIndices[0], windowIndices[windowIndices.length - 1]],
           },
           y: {
             range: [-0.5, channels.length - 0.5],
@@ -426,12 +429,12 @@ function PopoutContent() {
               ctx.rect(left, top, plotWidth, plotHeight);
               ctx.clip();
 
-              const cellWidth = plotWidth / scales.length;
+              const cellWidth = plotWidth / windowIndices.length;
               const cellHeight = plotHeight / channels.length;
 
               // Draw heatmap cells
               for (let y = 0; y < channels.length; y++) {
-                for (let x = 0; x < scales.length; x++) {
+                for (let x = 0; x < windowIndices.length; x++) {
                   const value = heatmapData[y]?.[x] || 0;
                   const normalized =
                     (value - colorRange[0]) / (colorRange[1] - colorRange[0]);
@@ -523,20 +526,23 @@ function PopoutContent() {
       const selectedVariantIndex = uiState?.selectedVariant ?? 0;
       const variants = result.results?.variants;
 
-      let dda_matrix, scales, exponents;
+      let dda_matrix, exponents;
+      let windowIndices: number[];
       if (variants && variants.length > 0) {
         const variant = variants[selectedVariantIndex] || variants[0];
         dda_matrix = variant.dda_matrix;
         exponents = variant.exponents || {};
-        scales = result.results?.scales;
+        windowIndices =
+          result.results?.window_indices || result.results?.scales || [];
       } else {
         // Fallback to legacy format
         dda_matrix = result.results?.dda_matrix;
         exponents = result.results?.exponents || {};
-        scales = result.results?.scales;
+        windowIndices =
+          result.results?.window_indices || result.results?.scales || [];
       }
 
-      if (!scales || !dda_matrix) {
+      if (windowIndices.length === 0 || !dda_matrix) {
         return;
       }
 
@@ -565,11 +571,14 @@ function PopoutContent() {
       }
 
       const dataLength = channelData[0].length;
-      if (!Array.isArray(scales) || scales.length !== dataLength) {
+      if (
+        !Array.isArray(windowIndices) ||
+        windowIndices.length !== dataLength
+      ) {
         return;
       }
 
-      const plotData: uPlot.AlignedData = [scales, ...channelData];
+      const plotData: uPlot.AlignedData = [windowIndices, ...channelData];
 
       // Create series configuration - only for channels that have data
       const channelsForPlot: string[] = [];

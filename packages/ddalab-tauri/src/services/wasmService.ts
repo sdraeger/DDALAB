@@ -2013,3 +2013,456 @@ function removeOutliersJS(
     return result;
   }
 }
+
+// ============================================================================
+// CORRELATION & SENSITIVITY ANALYSIS
+// ============================================================================
+
+export interface SensitivityMetrics {
+  correlation: number;
+  variance: number;
+  sensitivityScore: number;
+}
+
+/**
+ * Compute Pearson correlation coefficient between two arrays
+ * Returns a value between -1.0 (perfect negative) and 1.0 (perfect positive)
+ * Uses WASM for ~3-5x performance improvement
+ */
+export function pearsonCorrelation(x: number[], y: number[]): number {
+  if (!wasmFunctions) {
+    return pearsonCorrelationJS(x, y);
+  }
+
+  const float64X = new Float64Array(x);
+  const float64Y = new Float64Array(y);
+  return wasmFunctions.pearson_correlation(float64X, float64Y);
+}
+
+/**
+ * Compute sensitivity metrics for parameter sweep analysis
+ * Returns correlation, variance, and sensitivity score
+ * Uses WASM for efficient computation
+ */
+export function computeSensitivityMetrics(
+  paramValues: number[],
+  resultValues: number[],
+): SensitivityMetrics {
+  if (!wasmFunctions) {
+    return computeSensitivityMetricsJS(paramValues, resultValues);
+  }
+
+  const float64Params = new Float64Array(paramValues);
+  const float64Results = new Float64Array(resultValues);
+  const result = wasmFunctions.compute_sensitivity_metrics(
+    float64Params,
+    float64Results,
+  );
+
+  return {
+    correlation: result[0],
+    variance: result[1],
+    sensitivityScore: result[2],
+  };
+}
+
+/**
+ * Batch compute sensitivity metrics for multiple parameters
+ */
+export function computeSensitivityBatch(
+  paramValuesByParameter: number[][],
+  resultValues: number[],
+): SensitivityMetrics[] {
+  if (paramValuesByParameter.length === 0) return [];
+
+  const numParams = paramValuesByParameter.length;
+  const runsPerParam = paramValuesByParameter[0].length;
+
+  if (!wasmFunctions) {
+    return paramValuesByParameter.map((paramValues) =>
+      computeSensitivityMetricsJS(paramValues, resultValues),
+    );
+  }
+
+  // Flatten param values
+  const flatParams = new Float64Array(numParams * runsPerParam);
+  for (let p = 0; p < numParams; p++) {
+    flatParams.set(paramValuesByParameter[p], p * runsPerParam);
+  }
+
+  const float64Results = new Float64Array(resultValues);
+  const flatResult = wasmFunctions.compute_sensitivity_batch(
+    flatParams,
+    float64Results,
+    numParams,
+    runsPerParam,
+  );
+
+  // Parse results: [corr0, var0, score0, corr1, var1, score1, ...]
+  const results: SensitivityMetrics[] = [];
+  for (let p = 0; p < numParams; p++) {
+    const offset = p * 3;
+    results.push({
+      correlation: flatResult[offset],
+      variance: flatResult[offset + 1],
+      sensitivityScore: flatResult[offset + 2],
+    });
+  }
+
+  return results;
+}
+
+// JS Fallback for Pearson correlation
+function pearsonCorrelationJS(x: number[], y: number[]): number {
+  const n = Math.min(x.length, y.length);
+  if (n < 2) return 0;
+
+  let sumX = 0,
+    sumY = 0,
+    count = 0;
+  for (let i = 0; i < n; i++) {
+    if (Number.isFinite(x[i]) && Number.isFinite(y[i])) {
+      sumX += x[i];
+      sumY += y[i];
+      count++;
+    }
+  }
+
+  if (count < 2) return 0;
+
+  const meanX = sumX / count;
+  const meanY = sumY / count;
+
+  let numerator = 0,
+    denomX = 0,
+    denomY = 0;
+  for (let i = 0; i < n; i++) {
+    if (Number.isFinite(x[i]) && Number.isFinite(y[i])) {
+      const diffX = x[i] - meanX;
+      const diffY = y[i] - meanY;
+      numerator += diffX * diffY;
+      denomX += diffX * diffX;
+      denomY += diffY * diffY;
+    }
+  }
+
+  if (denomX > 1e-10 && denomY > 1e-10) {
+    return numerator / (Math.sqrt(denomX) * Math.sqrt(denomY));
+  }
+  return 0;
+}
+
+// JS Fallback for sensitivity metrics
+function computeSensitivityMetricsJS(
+  paramValues: number[],
+  resultValues: number[],
+): SensitivityMetrics {
+  const n = Math.min(paramValues.length, resultValues.length);
+  if (n < 2) return { correlation: 0, variance: 0, sensitivityScore: 0 };
+
+  // Calculate mean of results
+  let sumResult = 0,
+    count = 0;
+  for (let i = 0; i < n; i++) {
+    if (Number.isFinite(resultValues[i])) {
+      sumResult += resultValues[i];
+      count++;
+    }
+  }
+  if (count < 2) return { correlation: 0, variance: 0, sensitivityScore: 0 };
+
+  const meanResult = sumResult / count;
+
+  // Calculate correlation
+  const correlation = pearsonCorrelationJS(paramValues, resultValues);
+
+  // Calculate variance
+  let varianceSum = 0;
+  for (let i = 0; i < n; i++) {
+    if (Number.isFinite(resultValues[i])) {
+      const diff = resultValues[i] - meanResult;
+      varianceSum += diff * diff;
+    }
+  }
+  const variance = varianceSum / (count - 1);
+
+  // Sensitivity score: |correlation| * sqrt(variance)
+  const sensitivityScore = Math.abs(correlation) * Math.sqrt(variance);
+
+  return { correlation, variance, sensitivityScore };
+}
+
+// ============================================================================
+// BASELINE CORRECTION
+// ============================================================================
+
+export type BaselineCorrectionMethod = "mean" | "median";
+
+/**
+ * Apply baseline correction by subtracting mean or median
+ * Uses WASM for ~3-5x performance improvement
+ */
+export function baselineCorrection(
+  data: number[],
+  method: BaselineCorrectionMethod = "mean",
+): number[] {
+  if (!wasmFunctions) {
+    return baselineCorrectionJS(data, method);
+  }
+
+  const float64Data = new Float64Array(data);
+  const result =
+    method === "median"
+      ? wasmFunctions.baseline_correction_median(float64Data)
+      : wasmFunctions.baseline_correction_mean(float64Data);
+  return Array.from(result);
+}
+
+/**
+ * Apply baseline correction to multiple channels
+ */
+export function baselineCorrectionChannels(
+  data: number[][],
+  method: BaselineCorrectionMethod = "mean",
+): number[][] {
+  if (data.length === 0) return [];
+
+  const pointsPerChannel = data[0].length;
+  const numChannels = data.length;
+
+  if (!wasmFunctions) {
+    return data.map((channelData) => baselineCorrectionJS(channelData, method));
+  }
+
+  // Flatten data for WASM
+  const flatData = new Float64Array(numChannels * pointsPerChannel);
+  for (let ch = 0; ch < numChannels; ch++) {
+    flatData.set(data[ch], ch * pointsPerChannel);
+  }
+
+  const methodCode = method === "median" ? 1 : 0;
+  const flatResult = wasmFunctions.baseline_correction_channels(
+    flatData,
+    numChannels,
+    pointsPerChannel,
+    methodCode,
+  );
+
+  // Split results back into channels
+  const results: number[][] = [];
+  for (let ch = 0; ch < numChannels; ch++) {
+    const start = ch * pointsPerChannel;
+    const end = start + pointsPerChannel;
+    results.push(Array.from(flatResult.slice(start, end)));
+  }
+
+  return results;
+}
+
+// JS Fallback for baseline correction
+function baselineCorrectionJS(
+  data: number[],
+  method: BaselineCorrectionMethod,
+): number[] {
+  if (data.length === 0) return [];
+
+  if (method === "median") {
+    const sorted = data.filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    const median =
+      sorted.length % 2 === 0
+        ? (sorted[mid - 1] + sorted[mid]) / 2
+        : sorted[mid];
+    return data.map((v) => v - median);
+  } else {
+    const stats = computeChannelStatsJS(data);
+    return data.map((v) => v - stats.mean);
+  }
+}
+
+// ============================================================================
+// SPIKE REMOVAL
+// ============================================================================
+
+/**
+ * Remove spikes using local statistics (sliding window)
+ * Replaces spike values with local median
+ * Uses WASM for ~4-6x performance improvement
+ */
+export function removeSpikes(
+  data: number[],
+  windowSize: number,
+  thresholdStd: number,
+): number[] {
+  if (!wasmFunctions) {
+    return removeSpikesJS(data, windowSize, thresholdStd);
+  }
+
+  const float64Data = new Float64Array(data);
+  const result = wasmFunctions.remove_spikes(
+    float64Data,
+    windowSize,
+    thresholdStd,
+  );
+  return Array.from(result);
+}
+
+/**
+ * Remove spikes from multiple channels
+ */
+export function removeSpikesChannels(
+  data: number[][],
+  windowSize: number,
+  thresholdStd: number,
+): number[][] {
+  if (data.length === 0) return [];
+
+  const pointsPerChannel = data[0].length;
+  const numChannels = data.length;
+
+  if (!wasmFunctions) {
+    return data.map((channelData) =>
+      removeSpikesJS(channelData, windowSize, thresholdStd),
+    );
+  }
+
+  // Flatten data for WASM
+  const flatData = new Float64Array(numChannels * pointsPerChannel);
+  for (let ch = 0; ch < numChannels; ch++) {
+    flatData.set(data[ch], ch * pointsPerChannel);
+  }
+
+  const flatResult = wasmFunctions.remove_spikes_channels(
+    flatData,
+    numChannels,
+    pointsPerChannel,
+    windowSize,
+    thresholdStd,
+  );
+
+  // Split results back into channels
+  const results: number[][] = [];
+  for (let ch = 0; ch < numChannels; ch++) {
+    const start = ch * pointsPerChannel;
+    const end = start + pointsPerChannel;
+    results.push(Array.from(flatResult.slice(start, end)));
+  }
+
+  return results;
+}
+
+/**
+ * Remove gradient-based spikes (sudden jumps)
+ * Interpolates spike regions
+ * Uses WASM for ~4-6x performance improvement
+ */
+export function removeGradientSpikes(
+  data: number[],
+  thresholdFactor: number,
+): number[] {
+  if (!wasmFunctions) {
+    return removeGradientSpikesJS(data, thresholdFactor);
+  }
+
+  const float64Data = new Float64Array(data);
+  const result = wasmFunctions.remove_gradient_spikes(
+    float64Data,
+    thresholdFactor,
+  );
+  return Array.from(result);
+}
+
+// JS Fallback for spike removal
+function removeSpikesJS(
+  data: number[],
+  windowSize: number,
+  thresholdStd: number,
+): number[] {
+  if (data.length === 0 || windowSize < 3) return [...data];
+
+  const halfWindow = Math.floor(windowSize / 2);
+  const result = [...data];
+
+  for (let i = 0; i < data.length; i++) {
+    const start = Math.max(0, i - halfWindow);
+    const end = Math.min(data.length, i + halfWindow + 1);
+
+    // Get window data excluding current point
+    const windowData: number[] = [];
+    for (let j = start; j < end; j++) {
+      if (j !== i && Number.isFinite(data[j])) {
+        windowData.push(data[j]);
+      }
+    }
+
+    if (windowData.length < 3) continue;
+
+    // Calculate local statistics
+    const mean = windowData.reduce((a, b) => a + b, 0) / windowData.length;
+    const variance =
+      windowData.reduce((sum, v) => sum + (v - mean) ** 2, 0) /
+      windowData.length;
+    const std = Math.sqrt(variance);
+
+    if (std > 1e-10) {
+      const zScore = Math.abs(data[i] - mean) / std;
+      if (zScore > thresholdStd) {
+        // Replace with local median
+        const sorted = windowData.sort((a, b) => a - b);
+        const mid = Math.floor(sorted.length / 2);
+        result[i] =
+          sorted.length % 2 === 0
+            ? (sorted[mid - 1] + sorted[mid]) / 2
+            : sorted[mid];
+      }
+    }
+  }
+
+  return result;
+}
+
+// JS Fallback for gradient spike removal
+function removeGradientSpikesJS(
+  data: number[],
+  thresholdFactor: number,
+): number[] {
+  if (data.length < 3) return [...data];
+
+  // Calculate gradients
+  const gradients: number[] = [];
+  for (let i = 1; i < data.length; i++) {
+    gradients.push(Math.abs(data[i] - data[i - 1]));
+  }
+
+  // Calculate median gradient
+  const sortedGradients = [...gradients].sort((a, b) => a - b);
+  const medianGradient =
+    sortedGradients[Math.floor(sortedGradients.length / 2)];
+  const threshold = medianGradient * thresholdFactor;
+
+  const result = [...data];
+
+  // Find and interpolate spike points
+  for (let i = 1; i < data.length; i++) {
+    if (gradients[i - 1] > threshold) {
+      // Find previous valid point
+      let prev = i - 1;
+      while (prev > 0 && gradients[prev - 1] > threshold) {
+        prev--;
+      }
+
+      // Find next valid point
+      let next = i + 1;
+      while (next < data.length - 1 && gradients[next - 1] > threshold) {
+        next++;
+      }
+
+      if (prev >= 0 && next < data.length && next > prev) {
+        const alpha = (i - prev) / (next - prev);
+        result[i] = data[prev] + alpha * (data[next] - data[prev]);
+      }
+    }
+  }
+
+  return result;
+}

@@ -100,7 +100,8 @@ export const AnalysisPreviewWindow = memo(function AnalysisPreviewWindow({
     const channels = Object.keys(currentVariant.dda_matrix);
     if (channels.length === 0) return;
 
-    const scales = analysis.results.scales || [];
+    const windowIndices =
+      analysis.results.window_indices || analysis.results.scales || [];
 
     // Clear any existing content in the containers
     if (heatmapRef.current) {
