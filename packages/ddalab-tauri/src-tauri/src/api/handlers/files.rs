@@ -83,9 +83,15 @@ fn validate_path_within_data_dir(
 
 /// Check if a path is a git-annex symlink that hasn't been downloaded.
 ///
-/// SECURITY: This function validates that symlink targets stay within the
+/// This function validates that symlink targets stay within the
 /// repository bounds by ensuring they point to .git/annex/objects within
 /// the same repository, preventing path traversal attacks via malicious symlinks.
+///
+/// The validation performs these security checks:
+/// 1. Verifies symlink target contains .git/annex/objects pattern
+/// 2. Limits ../ traversal depth to prevent escaping repository bounds
+/// 3. Canonicalizes the resolved path and verifies it stays within repository
+/// 4. Double-checks canonical path contains expected .git/annex/objects pattern
 fn is_git_annex_placeholder(path: &std::path::Path) -> bool {
     // Use symlink_metadata to check if it's a symlink without following it
     if let Ok(metadata) = std::fs::symlink_metadata(path) {
@@ -101,12 +107,24 @@ fn is_git_annex_placeholder(path: &std::path::Path) -> bool {
                     return false;
                 }
 
-                // SECURITY: Validate that the resolved symlink target stays within bounds
+                // Validate that the resolved symlink target stays within bounds
                 // For git-annex symlinks, the target should resolve to a path that:
                 // 1. Contains the .git/annex/objects pattern
                 // 2. When canonicalized relative to the symlink's directory, stays within
                 //    the repository (doesn't escape via excessive ../ sequences)
                 if let Some(parent) = path.parent() {
+                    // First canonicalize the parent directory to get absolute base
+                    let canonical_parent = match parent.canonicalize() {
+                        Ok(p) => p,
+                        Err(_) => {
+                            log::warn!(
+                                "Cannot canonicalize parent directory for symlink: {:?}",
+                                path
+                            );
+                            return false;
+                        }
+                    };
+
                     // Resolve the relative symlink target
                     let resolved = parent.join(&target);
 
@@ -128,15 +146,48 @@ fn is_git_annex_placeholder(path: &std::path::Path) -> bool {
                         return false;
                     }
 
-                    // Validate the resolved path contains .git/annex in the expected location
-                    // The canonical path should contain .git/annex/objects
-                    let resolved_str = resolved.to_string_lossy();
-                    if !resolved_str.contains(".git/annex/objects") {
-                        log::warn!(
-                            "Symlink claims to be git-annex but resolved path doesn't contain .git/annex/objects: {:?}",
-                            resolved
-                        );
-                        return false;
+                    // Canonicalize the resolved symlink target BEFORE all other checks
+                    // This ensures we're validating the actual filesystem path, not just strings
+                    if let Ok(canonical_resolved) = resolved.canonicalize() {
+                        let canonical_str = canonical_resolved.to_string_lossy();
+
+                        // Verify canonical path contains .git/annex/objects
+                        if !canonical_str.contains(".git/annex/objects") {
+                            log::warn!(
+                                "Canonicalized symlink target doesn't contain .git/annex/objects: {:?} -> {:?}",
+                                path,
+                                canonical_resolved
+                            );
+                            return false;
+                        }
+
+                        // Verify the canonical path shares a common ancestor with
+                        // the symlink's parent directory (prevents escape to unrelated paths)
+                        // Find the git repository root (parent of .git directory)
+                        if let Some(git_idx) = canonical_str.find(".git/annex/objects") {
+                            let repo_root = &canonical_str[..git_idx];
+                            let parent_str = canonical_parent.to_string_lossy();
+                            if !parent_str.starts_with(repo_root) {
+                                log::warn!(
+                                    "Symlink escapes repository bounds: {:?} resolves to {:?} (repo: {})",
+                                    path,
+                                    canonical_resolved,
+                                    repo_root
+                                );
+                                return false;
+                            }
+                        }
+                    } else {
+                        // Symlink target doesn't exist - this is expected for git-annex placeholders
+                        // But we still need to validate the string pattern
+                        let resolved_str = resolved.to_string_lossy();
+                        if !resolved_str.contains(".git/annex/objects") {
+                            log::warn!(
+                                "Symlink claims to be git-annex but resolved path doesn't contain .git/annex/objects: {:?}",
+                                resolved
+                            );
+                            return false;
+                        }
                     }
 
                     // Additional check: if the file exists (symlink is valid), verify it's

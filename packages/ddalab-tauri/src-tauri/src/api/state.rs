@@ -10,8 +10,9 @@ use parking_lot::{Mutex, RwLock};
 use serde_json::json;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 /// Maximum number of entries in the chunks cache before eviction
 const MAX_CHUNKS_CACHE_SIZE: usize = 50;
@@ -108,6 +109,68 @@ impl Default for CancellationToken {
     }
 }
 
+/// Simple token bucket rate limiter for DDA analysis requests
+/// Prevents DoS by limiting how many concurrent analyses can run
+#[derive(Debug)]
+pub struct RateLimiter {
+    /// Maximum number of requests allowed in the window
+    max_requests: u32,
+    /// Time window for rate limiting (in seconds)
+    window_secs: u64,
+    /// Current request count in this window
+    request_count: AtomicU64,
+    /// Timestamp when the current window started
+    window_start: Mutex<Instant>,
+}
+
+impl RateLimiter {
+    pub fn new(max_requests: u32, window_secs: u64) -> Self {
+        Self {
+            max_requests,
+            window_secs,
+            request_count: AtomicU64::new(0),
+            window_start: Mutex::new(Instant::now()),
+        }
+    }
+
+    /// Check if a request is allowed under the rate limit.
+    /// Returns true if allowed, false if rate limited.
+    pub fn check_and_increment(&self) -> bool {
+        let now = Instant::now();
+        let mut window_start = self.window_start.lock();
+
+        // Check if we need to reset the window
+        if now.duration_since(*window_start) > Duration::from_secs(self.window_secs) {
+            *window_start = now;
+            self.request_count.store(1, Ordering::SeqCst);
+            return true;
+        }
+
+        // Increment and check count
+        let count = self.request_count.fetch_add(1, Ordering::SeqCst) + 1;
+        count <= self.max_requests as u64
+    }
+
+    /// Get current request count (for monitoring)
+    pub fn current_count(&self) -> u64 {
+        self.request_count.load(Ordering::SeqCst)
+    }
+
+    /// Get seconds until the rate limit window resets
+    pub fn seconds_until_reset(&self) -> u64 {
+        let window_start = self.window_start.lock();
+        let elapsed = Instant::now().duration_since(*window_start).as_secs();
+        self.window_secs.saturating_sub(elapsed)
+    }
+}
+
+impl Default for RateLimiter {
+    fn default() -> Self {
+        // Default: 10 DDA analysis requests per minute
+        Self::new(10, 60)
+    }
+}
+
 #[derive(Debug)]
 pub struct ApiState {
     pub files: Arc<RwLock<LruCache<EDFFileInfo>>>,
@@ -128,6 +191,8 @@ pub struct ApiState {
     pub cancellation_token: Arc<CancellationToken>,
     /// Set of cancelled analysis IDs (to track cancelled analyses)
     pub cancelled_analyses: Arc<RwLock<HashSet<String>>>,
+    /// Rate limiter for DDA analysis requests (prevents DoS)
+    pub dda_rate_limiter: Arc<RateLimiter>,
 }
 
 impl ApiState {
@@ -258,6 +323,8 @@ impl ApiState {
             current_analysis_id: Arc::new(RwLock::new(None)),
             cancellation_token: Arc::new(CancellationToken::new()),
             cancelled_analyses: Arc::new(RwLock::new(HashSet::new())),
+            // Rate limiter: 10 DDA analyses per minute (prevents DoS)
+            dda_rate_limiter: Arc::new(RateLimiter::new(10, 60)),
         };
 
         state

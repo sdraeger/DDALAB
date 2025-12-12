@@ -80,6 +80,13 @@ pub async fn generate_localhost_certs(cert_dir: &Path) -> Result<()> {
     log::warn!("Self-signed certificate will NOT be trusted by your browser");
     log::warn!("You will need to manually trust it in your system keychain or install mkcert");
 
+    let key_path_str = key_path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("Key path contains invalid UTF-8 characters"))?;
+    let cert_path_str = cert_path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("Certificate path contains invalid UTF-8 characters"))?;
+
     let output = tokio::process::Command::new("openssl")
         .args(&[
             "req",
@@ -87,9 +94,9 @@ pub async fn generate_localhost_certs(cert_dir: &Path) -> Result<()> {
             "-newkey",
             "rsa:4096",
             "-keyout",
-            key_path.to_str().unwrap(),
+            key_path_str,
             "-out",
-            cert_path.to_str().unwrap(),
+            cert_path_str,
             "-days",
             "365",
             "-nodes",
@@ -176,6 +183,13 @@ pub async fn generate_lan_certs(cert_dir: &Path, hostname: &str, ip: &str) -> Re
         hostname, ip
     );
 
+    let key_path_str = key_path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("Key path contains invalid UTF-8 characters"))?;
+    let cert_path_str = cert_path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("Certificate path contains invalid UTF-8 characters"))?;
+
     let output = tokio::process::Command::new("openssl")
         .args(&[
             "req",
@@ -183,9 +197,9 @@ pub async fn generate_lan_certs(cert_dir: &Path, hostname: &str, ip: &str) -> Re
             "-newkey",
             "rsa:4096",
             "-keyout",
-            key_path.to_str().unwrap(),
+            key_path_str,
             "-out",
-            cert_path.to_str().unwrap(),
+            cert_path_str,
             "-days",
             "365",
             "-nodes",
@@ -248,15 +262,12 @@ pub fn check_certificates(cert_dir: &Path) -> Result<bool> {
 pub fn get_certificate_info(cert_path: &Path) -> Result<CertificateInfo> {
     use std::process::Command;
 
+    let cert_path_str = cert_path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("Certificate path contains invalid UTF-8 characters"))?;
+
     let output = Command::new("openssl")
-        .args(&[
-            "x509",
-            "-in",
-            cert_path.to_str().unwrap(),
-            "-noout",
-            "-dates",
-            "-subject",
-        ])
+        .args(&["x509", "-in", cert_path_str, "-noout", "-dates", "-subject"])
         .output()
         .context("Failed to get certificate info")?;
 

@@ -130,18 +130,26 @@ impl FileReader for EDFFileReader {
         let duration_sec = num_samples as f64 / sample_rate;
 
         // Read data using cached reader (no file re-open!)
-        let mut result = Vec::with_capacity(channel_indices.len());
+        // Note: EDF reading is sequential due to Mutex, but we collect results for potential
+        // parallel post-processing. The actual I/O is disk-bound anyway.
+        let channel_results: Vec<Result<Vec<f64>, FileReaderError>> = channel_indices
+            .iter()
+            .map(|&ch_idx| {
+                edf.read_signal_window(ch_idx, start_time_sec, duration_sec)
+                    .map_err(|e| {
+                        FileReaderError::ParseError(format!(
+                            "Failed to read channel {}: {}",
+                            ch_idx, e
+                        ))
+                    })
+            })
+            .collect();
 
-        for &ch_idx in &channel_indices {
-            let channel_data = edf
-                .read_signal_window(ch_idx, start_time_sec, duration_sec)
-                .map_err(|e| {
-                    FileReaderError::ParseError(format!("Failed to read channel {}: {}", ch_idx, e))
-                })?;
-            result.push(channel_data);
-        }
+        // Release lock before error handling to minimize lock duration
+        drop(edf);
 
-        Ok(result)
+        // Collect results, returning first error if any
+        channel_results.into_iter().collect()
     }
 
     fn read_overview(
