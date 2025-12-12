@@ -60,6 +60,6 @@ pub async fn auth_middleware(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    log::debug!("✅ Token verified successfully");
+    log::debug!("Token verified successfully");
     Ok(next.run(request).await)
 }

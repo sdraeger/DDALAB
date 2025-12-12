@@ -113,12 +113,11 @@ impl AppStateManager {
         // Migrate from old state.json if exists
         let old_state_path = app_config_dir.join("state.json");
         if old_state_path.exists() {
-            log::info!("📦 Found old state.json, migrating to new database structure...");
+            log::info!("Found old state.json, migrating to new database structure...");
             if let Err(e) = manager.migrate_from_old_state(&old_state_path) {
-                log::error!("❌ Migration failed: {}, continuing with defaults", e);
+                log::error!("Migration failed: {}, continuing with defaults", e);
             } else {
-                log::info!("✅ Migration completed successfully");
-                // Backup old state file
+                log::info!("Migration completed successfully");
                 let backup_path = app_config_dir.join("state.json.backup");
                 if let Err(e) = fs::rename(&old_state_path, &backup_path) {
                     log::warn!("Failed to backup old state.json: {}", e);

@@ -284,7 +284,7 @@ pub async fn run_ica_analysis(
                 if let Err(e) = db.save_analysis(&stored) {
                     log::error!("Failed to persist ICA analysis to database: {}", e);
                 } else {
-                    log::info!("✅ ICA analysis {} saved to database", result.id);
+                    log::info!("ICA analysis {} saved to database", result.id);
                 }
             }
             Err(e) => {
@@ -332,7 +332,7 @@ pub async fn delete_ica_result(
             if let Err(e) = db.delete_analysis(&analysis_id) {
                 log::error!("Failed to delete ICA analysis from database: {}", e);
             } else {
-                log::info!("✅ ICA analysis {} deleted from database", analysis_id);
+                log::info!("ICA analysis {} deleted from database", analysis_id);
             }
         }
 

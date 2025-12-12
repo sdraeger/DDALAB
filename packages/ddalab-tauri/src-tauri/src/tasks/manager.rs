@@ -180,7 +180,7 @@ impl TaskManager {
         if let Some(task) = self.tasks.write().get_mut(task_id) {
             task.state = TaskState::Completed;
             task.completed_at = Some(Utc::now());
-            log::info!("✅ Task {} completed", task_id);
+            log::info!("Task {} completed", task_id);
         }
     }
 
@@ -198,7 +198,7 @@ impl TaskManager {
             task.state = TaskState::Failed;
             task.completed_at = Some(Utc::now());
             task.error = Some(error_str.clone());
-            log::error!("❌ Task {} failed: {}", task_id, error_str);
+            log::error!("Task {} failed: {}", task_id, error_str);
         }
     }
 
