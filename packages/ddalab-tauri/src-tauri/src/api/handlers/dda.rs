@@ -96,7 +96,7 @@ struct VariantConfig {
     cd_channel_pairs: Option<Vec<[usize; 2]>>,
 }
 
-/// SECURITY: Maximum allowed values for DDA parameters to prevent DoS
+/// Maximum allowed values for DDA parameters to prevent DoS
 const MAX_WINDOW_LENGTH: usize = 1_000_000; // 1 million samples max
 const MAX_WINDOW_STEP: usize = 1_000_000;
 const MAX_SCALE_NUM: usize = 1000;
@@ -195,7 +195,7 @@ fn validate_dda_request(request: &DDARequest) -> Result<(), String> {
         ));
     }
 
-    // SECURITY: Validate vector sizes to prevent DoS
+    // Validate vector sizes to prevent DoS
     if let Some(ref channels) = request.channels {
         if channels.len() > MAX_CHANNELS {
             return Err(format!(
@@ -254,14 +254,52 @@ pub async fn run_dda_analysis(
     headers: HeaderMap,
     Json(request): Json<DDARequest>,
 ) -> Result<NegotiatedResponse<Arc<DDAResult>>, StatusCode> {
-    // SECURITY: Validate all parameters before processing to prevent DoS
+    // Rate limiting: prevent DoS by limiting analysis requests
+    if !state.dda_rate_limiter.check_and_increment() {
+        let reset_secs = state.dda_rate_limiter.seconds_until_reset();
+        log::warn!(
+            "DDA rate limit exceeded. Current count: {}, reset in {} seconds",
+            state.dda_rate_limiter.current_count(),
+            reset_secs
+        );
+        return Err(StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    // Validate all parameters before processing
     if let Err(e) = validate_dda_request(&request) {
         log::error!("DDA request validation failed: {}", e);
         return Err(StatusCode::BAD_REQUEST);
     }
 
     let file_path = PathBuf::from(&request.file_path);
-    let file_type = FileType::from_path(&file_path);
+
+    // Canonicalize path and validate it's within allowed data directory
+    // This prevents path traversal attacks via symlinks or ../ sequences
+    let canonical_file_path = match file_path.canonicalize() {
+        Ok(p) => p,
+        Err(e) => {
+            log::error!(
+                "Failed to canonicalize file path '{}': {}",
+                request.file_path,
+                e
+            );
+            return Err(StatusCode::NOT_FOUND);
+        }
+    };
+
+    // Validate the file is within the configured data directory
+    if let Ok(canonical_data_dir) = state.data_directory.canonicalize() {
+        if !canonical_file_path.starts_with(&canonical_data_dir) {
+            log::warn!(
+                "Path traversal attempt detected - file '{}' is outside data directory '{}'",
+                canonical_file_path.display(),
+                canonical_data_dir.display()
+            );
+            return Err(StatusCode::FORBIDDEN);
+        }
+    }
+
+    let file_type = FileType::from_path(&canonical_file_path);
     if !matches!(
         file_type,
         FileType::EDF
@@ -281,16 +319,14 @@ pub async fn run_dda_analysis(
     log::info!(
         "Starting DDA analysis {} for file: {}",
         analysis_id,
-        request.file_path
+        canonical_file_path.display()
     );
 
     let dda_binary_path = get_dda_binary_path(&state)?;
     log::info!("Using DDA binary at: {}", dda_binary_path.display());
 
-    if !file_path.exists() {
-        log::error!("Input file not found: {}", request.file_path);
-        return Err(StatusCode::NOT_FOUND);
-    }
+    // File existence already verified by canonicalize() above
+    let file_path = canonical_file_path;
 
     let start_time = std::time::Instant::now();
     log::info!("Starting file metadata read...");

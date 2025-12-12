@@ -67,7 +67,7 @@ pub fn create_router(state: Arc<ApiState>) -> Router {
             auth_middleware,
         ));
 
-    // SECURITY: Restrict CORS to localhost only
+    // Restrict CORS to localhost only
     // This embedded API server only runs locally and should not accept cross-origin
     // requests from external domains
     let cors = CorsLayer::new()

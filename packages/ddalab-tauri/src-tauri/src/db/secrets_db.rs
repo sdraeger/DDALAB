@@ -1,4 +1,5 @@
 use aes_gcm::aead::generic_array::{typenum, GenericArray};
+use aes_gcm::aead::rand_core::RngCore;
 use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit, OsRng},
     Aes256Gcm, Nonce,
@@ -10,7 +11,7 @@ use sha2::{Digest, Sha256};
 use std::path::Path;
 
 /// Secure secrets database with AES-256-GCM encryption
-/// Uses machine-specific key derivation to avoid password prompts
+/// Uses machine-specific key derivation combined with a per-installation random salt
 pub struct SecretsDatabase {
     conn: Mutex<Connection>,
     cipher: Aes256Gcm,
@@ -34,8 +35,21 @@ impl SecretsDatabase {
         )
         .context("Failed to create secrets table")?;
 
-        // Derive encryption key from machine-specific identifier
-        let encryption_key = Self::derive_encryption_key()?;
+        // Create metadata table for storing the installation salt
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS secrets_metadata (
+                key TEXT PRIMARY KEY,
+                value BLOB NOT NULL
+            )",
+            [],
+        )
+        .context("Failed to create secrets_metadata table")?;
+
+        // Get or generate the installation-specific random salt
+        let installation_salt = Self::get_or_create_installation_salt(&conn)?;
+
+        // Derive encryption key from machine-specific identifier + random salt
+        let encryption_key = Self::derive_encryption_key(&installation_salt)?;
         let cipher = Aes256Gcm::new(&encryption_key);
 
         Ok(Self {
@@ -44,20 +58,61 @@ impl SecretsDatabase {
         })
     }
 
-    /// Derive a 256-bit encryption key from machine-specific data
-    /// This avoids password prompts while still providing encryption at rest
-    fn derive_encryption_key() -> Result<GenericArray<u8, typenum::U32>> {
+    /// Get existing installation salt or generate a new one
+    /// The salt is stored in the database and persists across restarts
+    fn get_or_create_installation_salt(conn: &Connection) -> Result<Vec<u8>> {
+        let salt_key = "installation_salt";
+
+        // Try to retrieve existing salt
+        let existing_salt: Option<Vec<u8>> = conn
+            .query_row(
+                "SELECT value FROM secrets_metadata WHERE key = ?1",
+                params![salt_key],
+                |row| row.get(0),
+            )
+            .ok();
+
+        if let Some(salt) = existing_salt {
+            if salt.len() == 32 {
+                log::debug!("[SECRETS_DB] Using existing installation salt");
+                return Ok(salt);
+            }
+        }
+
+        // Generate new random salt (32 bytes = 256 bits)
+        let mut salt = vec![0u8; 32];
+        OsRng.fill_bytes(&mut salt);
+
+        // Store the salt
+        conn.execute(
+            "INSERT OR REPLACE INTO secrets_metadata (key, value) VALUES (?1, ?2)",
+            params![salt_key, &salt],
+        )
+        .context("Failed to store installation salt")?;
+
+        log::info!("[SECRETS_DB] Generated new installation salt");
+        Ok(salt)
+    }
+
+    /// Derive a 256-bit encryption key from machine-specific data + installation salt
+    /// This strengthens key derivation by combining:
+    /// 1. Machine-unique identifier (ties secrets to this machine)
+    /// 2. Per-installation random salt (prevents rainbow table attacks)
+    /// 3. Application-specific context (domain separation)
+    fn derive_encryption_key(installation_salt: &[u8]) -> Result<GenericArray<u8, typenum::U32>> {
         // Get machine-specific identifier
         let machine_id =
             machine_uid::get().map_err(|e| anyhow::anyhow!("Failed to get machine ID: {}", e))?;
 
-        // Add application-specific salt
-        let app_salt = b"ddalab-secrets-v1";
+        // Application-specific context for domain separation
+        let app_context = b"ddalab-secrets-v2";
 
-        // Derive key using SHA-256
+        // Derive key using SHA-256 with all inputs
+        // Order: app_context || machine_id || installation_salt
         let mut hasher = Sha256::new();
+        hasher.update(app_context);
         hasher.update(machine_id.as_bytes());
-        hasher.update(app_salt);
+        hasher.update(installation_salt);
         let hash = hasher.finalize();
 
         Ok(*GenericArray::from_slice(&hash))

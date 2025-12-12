@@ -332,12 +332,17 @@ impl FIFFileReader {
             log::info!("FIF buffer copy: buf_offset={}, samples_to_copy={}, current_sample={}, all_samples_len={}",
                 buf_offset, samples_to_copy, current_sample, if all_samples.is_empty() { 0 } else { all_samples[0].len() });
 
-            // Copy selected channels
-            for (out_ch_idx, &orig_ch_idx) in channel_indices.iter().enumerate() {
-                let src = &all_samples[orig_ch_idx][buf_offset..buf_offset + samples_to_copy];
-                let dst = &mut result[out_ch_idx][current_sample..current_sample + samples_to_copy];
-                dst.copy_from_slice(src);
-            }
+            // Copy selected channels in parallel for better performance on many-channel files
+            // Use indexed parallel iteration on result for safe mutable access
+            result
+                .par_iter_mut()
+                .enumerate()
+                .for_each(|(out_ch_idx, channel_data)| {
+                    let orig_ch_idx = channel_indices[out_ch_idx];
+                    let src = &all_samples[orig_ch_idx][buf_offset..buf_offset + samples_to_copy];
+                    let dst = &mut channel_data[current_sample..current_sample + samples_to_copy];
+                    dst.copy_from_slice(src);
+                });
 
             log::info!(
                 "FIF buffer copied {} samples for {} channels",
@@ -366,16 +371,21 @@ impl FIFFileReader {
         );
 
         // Apply calibration (cal × range) to convert from raw ADC counts to physical units
-        for (out_ch_idx, &orig_ch_idx) in channel_indices.iter().enumerate() {
-            let ch_info = &self.meas_info.channels[orig_ch_idx];
-            let scaling = ch_info.calibration(); // Returns f64: cal * range
+        // Parallelize across channels for better performance on many-channel MEG files
+        let meas_channels = &self.meas_info.channels;
+        result
+            .par_iter_mut()
+            .zip(channel_indices.par_iter())
+            .for_each(|(channel_data, &orig_ch_idx)| {
+                let ch_info = &meas_channels[orig_ch_idx];
+                let scaling = ch_info.calibration(); // Returns f64: cal * range
 
-            if scaling != 1.0 {
-                for sample in &mut result[out_ch_idx] {
-                    *sample *= scaling;
+                if scaling != 1.0 {
+                    for sample in channel_data.iter_mut() {
+                        *sample *= scaling;
+                    }
                 }
-            }
-        }
+            });
 
         log::info!("FIF read_data_range total: {:?}", start_read.elapsed());
         Ok(result)
