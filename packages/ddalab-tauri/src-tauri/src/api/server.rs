@@ -51,11 +51,11 @@ pub async fn start_api_server(
         let test_addr = format!("{}:{}", config.bind_address, port_to_use);
         match tokio::net::TcpListener::bind(&test_addr).await {
             Ok(listener) => {
-                log::info!("✅ Port {} is available", port_to_use);
+                log::info!("Port {} is available", port_to_use);
                 break listener;
             }
             Err(e) => {
-                log::warn!("⚠️ Port {} is not available: {}", port_to_use, e);
+                log::warn!("Port {} is not available: {}", port_to_use, e);
                 attempts += 1;
                 if attempts >= 3 {
                     return Err(anyhow::anyhow!(
@@ -76,7 +76,7 @@ pub async fn start_api_server(
     log::info!("🔑 Generated session token");
 
     // Create API state
-    log::info!("🏗️  Creating API state and router...");
+    log::info!("Creating API state and router...");
     let mut api_state = ApiState::new(data_directory);
     if let Some(binary_path) = dda_binary_path {
         api_state.set_dda_binary_path(binary_path);
@@ -89,7 +89,7 @@ pub async fn start_api_server(
 
     let state = Arc::new(api_state);
     let app = create_router(state);
-    log::info!("✅ Router created successfully");
+    log::info!("Router created successfully");
 
     let bind_addr = format!("{}:{}", config.bind_address, port_to_use);
 
@@ -144,7 +144,7 @@ pub async fn start_api_server(
             .await;
 
             if let Err(e) = result {
-                log::error!("❌ HTTPS server error: {}", e);
+                log::error!("HTTPS server error: {}", e);
             }
             log::info!("🛑 HTTPS server stopped");
         });
@@ -152,11 +152,11 @@ pub async fn start_api_server(
         // Give the server a moment to start
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        log::info!("✅ HTTPS server started on port {}", port_to_use);
+        log::info!("HTTPS server started on port {}", port_to_use);
         Ok((token_to_return, port_to_use, server_handle))
     } else {
         // HTTP mode (not recommended)
-        log::warn!("⚠️ Starting HTTP server (INSECURE)");
+        log::warn!("Starting HTTP server (INSECURE)");
         log::info!("🌐 Server listening on http://{}", bind_addr);
         log::info!("🎯 Health endpoint: http://{}/api/health", bind_addr);
 
@@ -168,7 +168,7 @@ pub async fn start_api_server(
             let result = axum::serve(listener, app).await;
 
             if let Err(e) = result {
-                log::error!("❌ HTTP server error: {}", e);
+                log::error!("HTTP server error: {}", e);
             }
             log::info!("🛑 HTTP server stopped");
         });
@@ -176,7 +176,7 @@ pub async fn start_api_server(
         // Give the server a moment to start
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        log::info!("✅ HTTP server started on port {}", port_to_use);
+        log::info!("HTTP server started on port {}", port_to_use);
         Ok((token_to_return, port_to_use, server_handle))
     }
 }

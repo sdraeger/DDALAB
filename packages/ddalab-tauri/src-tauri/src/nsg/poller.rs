@@ -76,11 +76,11 @@ impl NSGJobPoller {
                     }
                 }
                 Err(e) => {
-                    log::error!("❌ Failed to update job {}: {}", job.id, e);
+                    log::error!("Failed to update job {}: {}", job.id, e);
                     error_count += 1;
 
                     if error_count >= MAX_POLL_ERRORS {
-                        log::error!("❌ Too many polling errors, stopping this round");
+                        log::error!("Too many polling errors, stopping this round");
                         break;
                     }
                 }
@@ -125,14 +125,14 @@ impl NSGJobPoller {
                     Ok(updated_jobs) => {
                         if !updated_jobs.is_empty() {
                             log::info!(
-                                "✅ Updated {} jobs in iteration #{}",
+                                "Updated {} jobs in iteration #{}",
                                 updated_jobs.len(),
                                 iteration
                             );
                         }
                     }
                     Err(e) => {
-                        log::error!("❌ Polling error in iteration #{}: {}", iteration, e);
+                        log::error!("Polling error in iteration #{}: {}", iteration, e);
                     }
                 }
 

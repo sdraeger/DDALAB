@@ -6,12 +6,12 @@
  * This implementation focuses on reading 4D volumes (x, y, z, time) for time series analysis.
  *
  * # Features
- * - ✅ Reading .nii and .nii.gz files
- * - ✅ 3D volume support (single time point)
- * - ✅ 4D volume support (time series)
- * - ✅ Automatic voxel flattening (spatial dims → channels)
- * - ✅ Header metadata extraction (dimensions, voxel size, etc.)
- * - ✅ Integration with DDALAB's IntermediateData pipeline
+ * - Reading .nii and .nii.gz files
+ * - 3D volume support (single time point)
+ * - 4D volume support (time series)
+ * - Automatic voxel flattening (spatial dims → channels)
+ * - Header metadata extraction (dimensions, voxel size, etc.)
+ * - Integration with DDALAB's IntermediateData pipeline
  *
  * # Limitations
  * - Each voxel is treated as a separate "channel"

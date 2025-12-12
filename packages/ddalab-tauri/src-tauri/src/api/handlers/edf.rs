@@ -621,7 +621,7 @@ fn read_chunk_with_file_reader(
     let start = std::time::Instant::now();
     let mut reader = FileReaderFactory::create_reader(path)
         .map_err(|e| format!("Failed to create file reader: {}", e))?;
-    log::warn!("⏱️ FileReaderFactory::create_reader: {:?}", start.elapsed());
+    log::warn!("FileReaderFactory::create_reader: {:?}", start.elapsed());
 
     let metadata = reader
         .metadata()
@@ -700,7 +700,7 @@ fn read_chunk_with_file_reader(
     };
 
     log::warn!(
-        "⏱️ read_chunk_with_file_reader TOTAL: {:?}",
+        "read_chunk_with_file_reader TOTAL: {:?}",
         start_total.elapsed()
     );
     Ok(result)

@@ -39,14 +39,11 @@ fn main() {
     let log_file = std::env::temp_dir().join("ddalab.log");
     let log_file_str = log_file.to_string_lossy().to_string();
 
-    // Try to initialize file logging, fall back to env_logger if it fails
     if let Err(_) = simple_logging::log_to_file(&log_file_str, log::LevelFilter::Debug) {
         env_logger::init();
-        eprintln!("⚠️  Failed to initialize file logging, using stderr instead");
+        eprintln!("Failed to initialize file logging, using stderr instead");
     } else {
-        // Also log to stderr for terminal users
-        eprintln!("📝 Logging to: {}", log_file_str);
-        eprintln!("📝 Use this file to debug DDA failures on Windows");
+        eprintln!("Logging to: {}", log_file_str);
     }
 
     tauri::Builder::default()
@@ -319,7 +316,7 @@ fn main() {
                 let mut handle_guard = api_state.server_handle.write();
                 if let Some(handle) = handle_guard.take() {
                     handle.abort();
-                    log::info!("✅ API server task aborted");
+                    log::info!("API server task aborted");
                 }
 
                 // Reset state

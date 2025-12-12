@@ -7,16 +7,16 @@
  * is based on MNE-Python's FIFF parser but written in pure Rust.
  *
  * # Features
- * - ✅ Calibrated data (applies cal × range scaling)
- * - ✅ Real channel names from FIFF metadata
- * - ✅ Channel type detection (MEG, EEG, EOG, STIM, etc.)
- * - ✅ Channel filtering by type
- * - ✅ Sequential tag reading (handles files without directory pointers)
- * - ✅ Integration with DDALAB's IntermediateData pipeline
+ * - Calibrated data (applies cal × range scaling)
+ * - Real channel names from FIFF metadata
+ * - Channel type detection (MEG, EEG, EOG, STIM, etc.)
+ * - Channel filtering by type
+ * - Sequential tag reading (handles files without directory pointers)
+ * - Integration with DDALAB's IntermediateData pipeline
  *
  * # Limitations
  *
- * ⚠️ **The underlying `fiff` crate is a minimal implementation.**
+ * **The underlying `fiff` crate is a minimal implementation.**
  *
  * **Not supported:**
  * - CTF compensation (CTF data may be incorrect)
@@ -78,14 +78,14 @@ impl FIFFileReader {
         let start = std::time::Instant::now();
         let (mut reader, tree) = open_fiff(path)
             .map_err(|e| FileReaderError::ParseError(format!("Failed to open FIF file: {}", e)))?;
-        log::info!("⏱️ FIF open_fiff: {:?}", start.elapsed());
+        log::info!("FIF open_fiff: {:?}", start.elapsed());
 
         // Read measurement info
         let start = std::time::Instant::now();
         let meas_info = MeasInfo::read(&mut reader, &tree).map_err(|e| {
             FileReaderError::ParseError(format!("Failed to read measurement info: {}", e))
         })?;
-        log::info!("⏱️ FIF MeasInfo::read: {:?}", start.elapsed());
+        log::info!("FIF MeasInfo::read: {:?}", start.elapsed());
 
         // Find raw data block
         let start = std::time::Instant::now();
@@ -102,7 +102,7 @@ impl FIFFileReader {
         } else {
             raw_nodes[0].clone()
         };
-        log::info!("⏱️ FIF find raw data block: {:?}", start.elapsed());
+        log::info!("FIF find raw data block: {:?}", start.elapsed());
 
         // Parse raw data info
         let directory = &raw_node.directory;
@@ -170,7 +170,7 @@ impl FIFFileReader {
             file_type: "FIF".to_string(),
         };
 
-        log::info!("⏱️ FIF total initialization: {:?}", start_total.elapsed());
+        log::info!("FIF total initialization: {:?}", start_total.elapsed());
 
         Ok(Self {
             file_path,
@@ -255,7 +255,7 @@ impl FIFFileReader {
         let directory = &self.raw_node.directory;
 
         log::info!(
-            "⏱️ FIF read_data_range request: start={}, num={}, channels={:?}",
+            "FIF read_data_range request: start={}, num={}, channels={:?}",
             start_sample,
             num_samples,
             channels.map(|c| c.len())
@@ -292,7 +292,7 @@ impl FIFFileReader {
             let buffer_end = buffer_start + buffer_nsamp;
 
             log::info!(
-                "⏱️ FIF buffer {}: start={}, end={}, nsamp={}, requested=[{}, {}]",
+                "FIF buffer {}: start={}, end={}, nsamp={}, requested=[{}, {}]",
                 entry_idx,
                 buffer_start,
                 buffer_end,
@@ -303,7 +303,7 @@ impl FIFFileReader {
 
             // Check if this buffer overlaps with requested range
             let overlaps = buffer_end > start_sample && buffer_start < start_sample + num_samples;
-            log::info!("⏱️ FIF buffer {} overlaps: {}", entry_idx, overlaps);
+            log::info!("FIF buffer {} overlaps: {}", entry_idx, overlaps);
 
             if !overlaps {
                 buffer_start = buffer_end;
@@ -329,7 +329,7 @@ impl FIFFileReader {
 
             let samples_to_copy = (buffer_nsamp - buf_offset).min(num_samples - current_sample);
 
-            log::info!("⏱️ FIF buffer copy: buf_offset={}, samples_to_copy={}, current_sample={}, all_samples_len={}",
+            log::info!("FIF buffer copy: buf_offset={}, samples_to_copy={}, current_sample={}, all_samples_len={}",
                 buf_offset, samples_to_copy, current_sample, if all_samples.is_empty() { 0 } else { all_samples[0].len() });
 
             // Copy selected channels
@@ -340,7 +340,7 @@ impl FIFFileReader {
             }
 
             log::info!(
-                "⏱️ FIF buffer copied {} samples for {} channels",
+                "FIF buffer copied {} samples for {} channels",
                 samples_to_copy,
                 channel_indices.len()
             );
@@ -349,7 +349,7 @@ impl FIFFileReader {
 
             if current_sample >= num_samples {
                 log::info!(
-                    "⏱️ FIF finished reading: current_sample={} >= num_samples={}",
+                    "FIF finished reading: current_sample={} >= num_samples={}",
                     current_sample,
                     num_samples
                 );
@@ -360,7 +360,7 @@ impl FIFFileReader {
         }
 
         log::info!(
-            "⏱️ FIF read_data_range completed: filled {}/{} samples",
+            "FIF read_data_range completed: filled {}/{} samples",
             current_sample,
             num_samples
         );
@@ -377,7 +377,7 @@ impl FIFFileReader {
             }
         }
 
-        log::info!("⏱️ FIF read_data_range total: {:?}", start_read.elapsed());
+        log::info!("FIF read_data_range total: {:?}", start_read.elapsed());
         Ok(result)
     }
 }
@@ -460,7 +460,7 @@ mod tests {
         for candidate in &candidates {
             let path = std::path::PathBuf::from(candidate);
             if path.exists() {
-                eprintln!("✓ Found test FIF file: {:?}", path);
+                eprintln!("Found test FIF file: {:?}", path);
                 return path;
             }
         }
@@ -507,7 +507,7 @@ mod tests {
 
         let raw = FIFFileReader::new(&fif_path);
         if let Err(ref e) = raw {
-            eprintln!("❌ Error opening FIF file: {:?}", e);
+            eprintln!("Error opening FIF file: {:?}", e);
         }
         assert!(
             raw.is_ok(),

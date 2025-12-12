@@ -24,7 +24,7 @@ pub async fn generate_localhost_certs(cert_dir: &Path) -> Result<()> {
 
     // Try mkcert first (generates trusted certificates)
     if let Ok(mkcert_path) = which::which("mkcert") {
-        log::info!("📦 Using mkcert to generate trusted certificates");
+        log::info!("Using mkcert to generate trusted certificates");
 
         // Install mkcert CA root first (makes certificates trusted)
         log::info!("🔐 Installing mkcert CA root certificate...");
@@ -35,16 +35,16 @@ pub async fn generate_localhost_certs(cert_dir: &Path) -> Result<()> {
 
         match install_output {
             Ok(output) if output.status.success() => {
-                log::info!("✅ mkcert CA root installed successfully");
+                log::info!("mkcert CA root installed successfully");
             }
             Ok(output) => {
                 log::warn!(
-                    "⚠️ mkcert -install failed (may already be installed): {}",
+                    "mkcert -install failed (may already be installed): {}",
                     String::from_utf8_lossy(&output.stderr)
                 );
             }
             Err(e) => {
-                log::warn!("⚠️ Failed to run mkcert -install: {}", e);
+                log::warn!("Failed to run mkcert -install: {}", e);
             }
         }
 
@@ -62,16 +62,13 @@ pub async fn generate_localhost_certs(cert_dir: &Path) -> Result<()> {
             .context("Failed to run mkcert")?;
 
         if output.status.success() {
-            log::info!("✅ Generated trusted certificates with mkcert");
+            log::info!("Generated trusted certificates with mkcert");
             return Ok(());
         } else {
-            log::warn!(
-                "⚠️ mkcert failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
+            log::warn!("mkcert failed: {}", String::from_utf8_lossy(&output.stderr));
         }
     } else {
-        log::warn!("⚠️ mkcert not found in PATH");
+        log::warn!("mkcert not found in PATH");
         log::warn!("   Install mkcert for automatic trusted certificate generation:");
         log::warn!("   macOS: brew install mkcert");
         log::warn!("   Windows: choco install mkcert");
@@ -79,9 +76,9 @@ pub async fn generate_localhost_certs(cert_dir: &Path) -> Result<()> {
     }
 
     // Fallback to self-signed with openssl
-    log::info!("📦 Falling back to openssl for self-signed certificate");
-    log::warn!("⚠️ Self-signed certificate will NOT be trusted by your browser");
-    log::warn!("⚠️ You will need to manually trust it in your system keychain or install mkcert");
+    log::info!("Falling back to openssl for self-signed certificate");
+    log::warn!("Self-signed certificate will NOT be trusted by your browser");
+    log::warn!("You will need to manually trust it in your system keychain or install mkcert");
 
     let output = tokio::process::Command::new("openssl")
         .args(&[
@@ -106,8 +103,8 @@ pub async fn generate_localhost_certs(cert_dir: &Path) -> Result<()> {
         .context("Failed to run openssl")?;
 
     if output.status.success() {
-        log::info!("✅ Generated self-signed certificate with openssl");
-        log::warn!("⚠️ Browser will show security warnings for self-signed certificates");
+        log::info!("Generated self-signed certificate with openssl");
+        log::warn!("Browser will show security warnings for self-signed certificates");
         Ok(())
     } else {
         Err(anyhow::anyhow!(
@@ -126,7 +123,7 @@ pub async fn generate_lan_certs(cert_dir: &Path, hostname: &str, ip: &str) -> Re
 
     // Try mkcert first
     if let Ok(mkcert_path) = which::which("mkcert") {
-        log::info!("📦 Using mkcert to generate trusted LAN certificates");
+        log::info!("Using mkcert to generate trusted LAN certificates");
 
         // Install mkcert CA root first (makes certificates trusted)
         log::info!("🔐 Installing mkcert CA root certificate...");
@@ -137,16 +134,16 @@ pub async fn generate_lan_certs(cert_dir: &Path, hostname: &str, ip: &str) -> Re
 
         match install_output {
             Ok(output) if output.status.success() => {
-                log::info!("✅ mkcert CA root installed successfully");
+                log::info!("mkcert CA root installed successfully");
             }
             Ok(output) => {
                 log::warn!(
-                    "⚠️ mkcert -install failed (may already be installed): {}",
+                    "mkcert -install failed (may already be installed): {}",
                     String::from_utf8_lossy(&output.stderr)
                 );
             }
             Err(e) => {
-                log::warn!("⚠️ Failed to run mkcert -install: {}", e);
+                log::warn!("Failed to run mkcert -install: {}", e);
             }
         }
 
@@ -166,13 +163,13 @@ pub async fn generate_lan_certs(cert_dir: &Path, hostname: &str, ip: &str) -> Re
             .context("Failed to run mkcert")?;
 
         if output.status.success() {
-            log::info!("✅ Generated trusted LAN certificates with mkcert");
+            log::info!("Generated trusted LAN certificates with mkcert");
             return Ok(());
         }
     }
 
     // Fallback to openssl with SAN
-    log::info!("📦 Falling back to openssl for self-signed LAN certificate");
+    log::info!("Falling back to openssl for self-signed LAN certificate");
 
     let san = format!(
         "subjectAltName=DNS:localhost,DNS:{},DNS:*.local,IP:127.0.0.1,IP:{},IP:::1",
@@ -202,7 +199,7 @@ pub async fn generate_lan_certs(cert_dir: &Path, hostname: &str, ip: &str) -> Re
         .context("Failed to run openssl")?;
 
     if output.status.success() {
-        log::info!("✅ Generated self-signed LAN certificate");
+        log::info!("Generated self-signed LAN certificate");
         Ok(())
     } else {
         Err(anyhow::anyhow!(
@@ -224,7 +221,7 @@ pub async fn load_tls_config(
         .await
         .context("Failed to load TLS configuration from PEM files")?;
 
-    log::info!("✅ TLS configuration loaded successfully");
+    log::info!("TLS configuration loaded successfully");
 
     Ok(config)
 }

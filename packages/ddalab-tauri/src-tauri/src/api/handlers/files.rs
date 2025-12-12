@@ -287,11 +287,7 @@ pub async fn list_files(
                     .filter_map(|entry| process_directory_entry(entry))
                     .collect();
 
-                log::info!(
-                    "✅ Listed {} items from {} entries",
-                    items.len(),
-                    num_entries
-                );
+                log::info!("Listed {} items from {} entries", items.len(), num_entries);
             }
             Err(e) => {
                 log::error!("Failed to read directory: {}", e);

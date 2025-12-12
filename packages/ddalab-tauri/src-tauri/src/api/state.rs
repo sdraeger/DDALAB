@@ -146,17 +146,17 @@ impl ApiState {
                 log::info!("Initializing API analysis database at: {:?}", db_path);
                 match AnalysisDatabase::new(&db_path) {
                     Ok(db) => {
-                        log::info!("✅ API analysis database initialized successfully");
+                        log::info!("API analysis database initialized successfully");
                         Some(Arc::new(db))
                     }
                     Err(e) => {
-                        log::error!("❌ Failed to initialize API analysis database: {}", e);
+                        log::error!("Failed to initialize API analysis database: {}", e);
                         None
                     }
                 }
             }
             Err(e) => {
-                log::error!("❌ Cannot determine API analysis database path: {}", e);
+                log::error!("Cannot determine API analysis database path: {}", e);
                 None
             }
         };
@@ -168,17 +168,17 @@ impl ApiState {
                 log::info!("Initializing overview cache database at: {:?}", db_path);
                 match OverviewCacheDatabase::new(&db_path) {
                     Ok(db) => {
-                        log::info!("✅ Overview cache database initialized successfully");
+                        log::info!("Overview cache database initialized successfully");
                         Some(Arc::new(db))
                     }
                     Err(e) => {
-                        log::error!("❌ Failed to initialize overview cache database: {}", e);
+                        log::error!("Failed to initialize overview cache database: {}", e);
                         None
                     }
                 }
             }
             Err(e) => {
-                log::error!("❌ Cannot determine overview cache database path: {}", e);
+                log::error!("Cannot determine overview cache database path: {}", e);
                 None
             }
         };
@@ -193,7 +193,7 @@ impl ApiState {
                         let history: Vec<ICAResultResponse> = match db.get_all_analyses(50) {
                             Ok(analyses) => {
                                 log::info!(
-                                    "✅ ICA database initialized, loaded {} analyses",
+                                    "ICA database initialized, loaded {} analyses",
                                     analyses.len()
                                 );
                                 // Convert from ICAStoredResult to ICAResultResponse
@@ -213,7 +213,7 @@ impl ApiState {
                                             }),
                                             Err(e) => {
                                                 log::warn!(
-                                                    "⚠️ Failed to deserialize ICA result {}: {}",
+                                                    "Failed to deserialize ICA result {}: {}",
                                                     stored.id,
                                                     e
                                                 );
@@ -224,20 +224,20 @@ impl ApiState {
                                     .collect()
                             }
                             Err(e) => {
-                                log::error!("❌ Failed to load ICA history: {}", e);
+                                log::error!("Failed to load ICA history: {}", e);
                                 Vec::new()
                             }
                         };
                         (Some(Arc::new(db)), history)
                     }
                     Err(e) => {
-                        log::error!("❌ Failed to initialize ICA database: {}", e);
+                        log::error!("Failed to initialize ICA database: {}", e);
                         (None, Vec::new())
                     }
                 }
             }
             Err(e) => {
-                log::error!("❌ Cannot determine ICA database path: {}", e);
+                log::error!("Cannot determine ICA database path: {}", e);
                 (None, Vec::new())
             }
         };
@@ -344,10 +344,10 @@ impl ApiState {
             db.save_analysis(&analysis_result)
                 .map_err(|e| format!("Failed to save analysis to database: {}", e))?;
 
-            log::info!("✅ Saved analysis {} to SQLite database", result.id);
+            log::info!("Saved analysis {} to SQLite database", result.id);
             Ok(())
         } else {
-            log::warn!("⚠️ Analysis database not available, skipping persistence");
+            log::warn!("Analysis database not available, skipping persistence");
             Ok(())
         }
     }
@@ -371,7 +371,7 @@ impl ApiState {
     pub fn complete_analysis(&self) {
         let analysis_id = self.current_analysis_id.write().take();
         if let Some(id) = analysis_id {
-            log::info!("✅ Analysis {} completed", id);
+            log::info!("Analysis {} completed", id);
         }
     }
 
@@ -410,7 +410,7 @@ impl ApiState {
             match cache_db.get_incomplete_caches() {
                 Ok(incomplete_caches) => {
                     if incomplete_caches.is_empty() {
-                        log::info!("✅ No incomplete overview caches found");
+                        log::info!("No incomplete overview caches found");
                     } else {
                         log::info!(
                             "📊 Found {} incomplete overview cache(s) - they will resume on next request:",
@@ -427,13 +427,13 @@ impl ApiState {
                     }
                 }
                 Err(e) => {
-                    log::error!("❌ Failed to check incomplete caches: {}", e);
+                    log::error!("Failed to check incomplete caches: {}", e);
                 }
             }
 
-            log::info!("✅ Overview cache initialization complete");
+            log::info!("Overview cache initialization complete");
         } else {
-            log::info!("⚠️ Overview cache database not available, skipping initialization");
+            log::info!("Overview cache database not available, skipping initialization");
         }
     }
 }

@@ -102,7 +102,7 @@ impl<'a> MigrationRunner<'a> {
             self.mark_applied(*migration)?;
             report.applied += 1;
 
-            log::info!("✅ Migration {} applied successfully", migration.version());
+            log::info!("Migration {} applied successfully", migration.version());
         }
 
         Ok(report)
@@ -196,7 +196,7 @@ impl Migration for MigrateLegacyDDAParameters {
             log::debug!("Migrated analysis {}", id);
         }
 
-        log::info!("✅ Successfully migrated {} analyses", count);
+        log::info!("Successfully migrated {} analyses", count);
 
         Ok(())
     }

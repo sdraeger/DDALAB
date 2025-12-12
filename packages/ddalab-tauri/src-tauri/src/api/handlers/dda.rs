@@ -293,7 +293,7 @@ pub async fn run_dda_analysis(
     }
 
     let start_time = std::time::Instant::now();
-    log::info!("⏱️  [TIMING] Starting file metadata read...");
+    log::info!("Starting file metadata read...");
     let file_path_for_reader = file_path.clone();
     let request_start = request.time_range.start;
     let request_end = request.time_range.end;
@@ -334,7 +334,7 @@ pub async fn run_dda_analysis(
     })?;
 
     log::info!(
-        "⏱️  [TIMING] File metadata read completed in {:.2}s",
+        "File metadata read completed in {:.2}s",
         start_time.elapsed().as_secs_f64()
     );
 
@@ -396,7 +396,7 @@ pub async fn run_dda_analysis(
             .map(|info| info.channels.clone())
     };
 
-    log::info!("⏱️  [TIMING] Running DDA analysis via dda-rs...");
+    log::info!("Running DDA analysis via dda-rs...");
     let dda_start = std::time::Instant::now();
 
     // Variable to hold CD channel pairs for network motif computation
@@ -753,10 +753,7 @@ pub async fn run_dda_analysis(
     };
 
     let dda_time = dda_start.elapsed();
-    log::info!(
-        "⏱️  [TIMING] DDA analysis completed in {:.2}s",
-        dda_time.as_secs_f64()
-    );
+    log::info!("DDA analysis completed in {:.2}s", dda_time.as_secs_f64());
 
     // Use reference to avoid 51MB+ clone - q_matrix is only read, not mutated
     let q_matrix = &dda_result.q_matrix;
@@ -830,7 +827,7 @@ pub async fn run_dda_analysis(
             serde_json::to_string_pretty(vc).unwrap_or_else(|_| "error serializing".to_string())
         );
     } else {
-        log::info!("⚠️  No variant_configs received (using legacy format)");
+        log::info!("No variant_configs received (using legacy format)");
     }
 
     let parameters = DDAParameters {
@@ -1052,18 +1049,18 @@ pub async fn run_dda_analysis(
         analysis_cache.insert(analysis_id, Arc::clone(&result));
     }
 
-    log::info!("⏱️  [TIMING] Saving result to disk...");
+    log::info!("Saving result to disk...");
     let save_start = std::time::Instant::now();
     if let Err(e) = state.save_to_disk(&result) {
         log::error!("Failed to save analysis to disk: {}", e);
     }
     log::info!(
-        "⏱️  [TIMING] Save completed in {:.2}s",
+        "Save completed in {:.2}s",
         save_start.elapsed().as_secs_f64()
     );
 
     log::info!(
-        "⏱️  [TIMING] ✅ Total DDA analysis completed in {:.2}s",
+        "Total DDA analysis completed in {:.2}s",
         start_time.elapsed().as_secs_f64()
     );
 
@@ -1089,7 +1086,7 @@ pub async fn get_analysis_result(
     if let Some(ref db) = state.analysis_db {
         match db.get_analysis(&analysis_id) {
             Ok(Some(analysis)) => {
-                log::info!("✅ Retrieved analysis {} from SQLite database", analysis_id);
+                log::info!("Retrieved analysis {} from SQLite database", analysis_id);
 
                 // Use parse_dda_parameters for migration from legacy format
                 if let Ok(parameters) = parse_dda_parameters(analysis.parameters.clone()) {
@@ -1210,10 +1207,7 @@ pub async fn list_analysis_history(State(state): State<Arc<ApiState>>) -> Json<V
     if let Some(ref db) = state.analysis_db {
         match db.get_recent_analyses(50) {
             Ok(analyses) => {
-                log::info!(
-                    "✅ Retrieved {} analyses from SQLite database",
-                    analyses.len()
-                );
+                log::info!("Retrieved {} analyses from SQLite database", analyses.len());
 
                 // We only need lightweight metadata for the history list
                 let results: Vec<DDAResult> = analyses
@@ -1257,12 +1251,12 @@ pub async fn list_analysis_history(State(state): State<Arc<ApiState>>) -> Json<V
                 return Json(results);
             }
             Err(e) => {
-                log::error!("❌ Failed to retrieve analyses from database: {}", e);
+                log::error!("Failed to retrieve analyses from database: {}", e);
             }
         }
     }
 
-    log::warn!("⚠️ Using in-memory cache for analysis history");
+    log::warn!("Using in-memory cache for analysis history");
     let analysis_cache = state.analysis_results.read();
     let mut results: Vec<DDAResult> = analysis_cache.values().map(|arc| (**arc).clone()).collect();
     results.sort_by(|a, b| b.created_at.cmp(&a.created_at));
@@ -1286,7 +1280,7 @@ pub async fn delete_analysis_result(
     if let Some(ref db) = state.analysis_db {
         match db.delete_analysis(&analysis_id) {
             Ok(_) => {
-                log::info!("✅ Deleted analysis {} from SQLite database", analysis_id);
+                log::info!("Deleted analysis {} from SQLite database", analysis_id);
 
                 let mut analysis_cache = state.analysis_results.write();
                 analysis_cache.remove(&analysis_id);
@@ -1294,7 +1288,7 @@ pub async fn delete_analysis_result(
                 return StatusCode::NO_CONTENT;
             }
             Err(e) => {
-                log::error!("❌ Failed to delete analysis from database: {}", e);
+                log::error!("Failed to delete analysis from database: {}", e);
                 return StatusCode::INTERNAL_SERVER_ERROR;
             }
         }
@@ -1357,7 +1351,7 @@ pub async fn rename_analysis_result(
         match db.rename_analysis(&analysis_id, &sanitized_name) {
             Ok(_) => {
                 log::info!(
-                    "✅ Renamed analysis {} to '{}' in SQLite database",
+                    "Renamed analysis {} to '{}' in SQLite database",
                     analysis_id,
                     sanitized_name
                 );
@@ -1371,7 +1365,7 @@ pub async fn rename_analysis_result(
                     .into_response();
             }
             Err(e) => {
-                log::error!("❌ Failed to rename analysis in database: {}", e);
+                log::error!("Failed to rename analysis in database: {}", e);
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(json!({
@@ -1614,7 +1608,7 @@ pub async fn cancel_dda_analysis(
 
     match cancelled_id {
         Some(id) => {
-            log::info!("✅ Successfully requested cancellation of analysis: {}", id);
+            log::info!("Successfully requested cancellation of analysis: {}", id);
             Ok(Json(CancelDDAResponse {
                 success: true,
                 message: format!("Cancellation requested for analysis {}", id),
@@ -1622,7 +1616,7 @@ pub async fn cancel_dda_analysis(
             }))
         }
         None => {
-            log::info!("⚠️ No running analysis to cancel");
+            log::info!("No running analysis to cancel");
             Ok(Json(CancelDDAResponse {
                 success: false,
                 message: "No running analysis to cancel".to_string(),
