@@ -34,14 +34,14 @@ impl AnalysisDatabase {
             Ok(report) => {
                 if report.applied > 0 {
                     log::info!(
-                        "📦 Database migrations: {} applied, {} skipped",
+                        "Database migrations: {} applied, {} skipped",
                         report.applied,
                         report.skipped
                     );
                 }
             }
             Err(e) => {
-                log::error!("❌ Database migration failed: {}", e);
+                log::error!("Database migration failed: {}", e);
                 return Err(e);
             }
         }
@@ -212,7 +212,7 @@ impl AnalysisDatabase {
 
         let elapsed = start_time.elapsed();
         log::info!(
-            "✅ get_analyses_by_file_paginated fetched {} analyses in {:.2}ms (no plot_data)",
+            "get_analyses_by_file_paginated fetched {} analyses in {:.2}ms (no plot_data)",
             analyses.len(),
             elapsed.as_millis()
         );
@@ -269,7 +269,7 @@ impl AnalysisDatabase {
 
         let elapsed = start_time.elapsed();
         log::info!(
-            "✅ get_recent_analyses fetched {} analyses in {:.2}ms (no plot_data)",
+            "get_recent_analyses fetched {} analyses in {:.2}ms (no plot_data)",
             analyses.len(),
             elapsed.as_millis()
         );

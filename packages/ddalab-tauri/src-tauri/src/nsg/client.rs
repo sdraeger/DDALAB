@@ -108,7 +108,7 @@ impl NSGClient {
             .await
         {
             Ok(resp) => {
-                log::info!("✓ Received response from NSG");
+                log::info!("Received response from NSG");
                 resp
             }
             Err(e) => {
@@ -193,7 +193,7 @@ impl NSGClient {
                 }
             };
 
-        log::info!("✅ NSG job submitted: {}", job_response.job_id());
+        log::info!("NSG job submitted: {}", job_response.job_id());
 
         Ok(job_response)
     }
@@ -342,7 +342,7 @@ impl NSGClient {
         file.flush().await.context("Failed to flush file")?;
 
         log::info!(
-            "✅ Downloaded output file: {} ({} bytes)",
+            "Downloaded output file: {} ({} bytes)",
             output_path.display(),
             downloaded
         );
@@ -371,7 +371,7 @@ impl NSGClient {
             return Err(anyhow!("Failed to cancel job: {} - {}", status, error_text));
         }
 
-        log::info!("✅ NSG job cancelled");
+        log::info!("NSG job cancelled");
 
         Ok(())
     }
@@ -398,7 +398,7 @@ impl NSGClient {
                 .text()
                 .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
-            log::error!("❌ NSG list jobs failed: {} - {}", status, error_text);
+            log::error!("NSG list jobs failed: {} - {}", status, error_text);
             return Err(anyhow!("Failed to list jobs: {} - {}", status, error_text));
         }
 
@@ -470,10 +470,7 @@ impl NSGClient {
             }
         }
 
-        log::info!(
-            "✅ Successfully parsed {} jobs from NSG API (XML)",
-            jobs.len()
-        );
+        log::info!("Successfully parsed {} jobs from NSG API (XML)", jobs.len());
 
         Ok(jobs)
     }
@@ -595,7 +592,7 @@ impl NSGClient {
             }
         }
 
-        log::info!("✅ Found {} output files", files.len());
+        log::info!("Found {} output files", files.len());
 
         Ok(files)
     }

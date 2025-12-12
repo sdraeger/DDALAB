@@ -114,8 +114,6 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   const heatmapCleanupRef = useRef<(() => void) | null>(null);
   const linePlotCleanupRef = useRef<(() => void) | null>(null);
 
-  // SAFETY NET: Unconditional cleanup on unmount
-  // This ensures cleanup runs even if conditional effects' early returns prevent cleanup
   useEffect(() => {
     return () => {
       if (heatmapCleanupRef.current) {
@@ -186,15 +184,10 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   // Get available channels from the CURRENT variant's dda_matrix (source of truth)
   // NOTE: This needs to be computed AFTER currentVariantData, so we'll move it later
 
-  // Initialize selectedChannels from actual dda_matrix keys, not result.channels
-  // This ensures we only select channels that actually have data
   const [selectedChannels, setSelectedChannels] = useState<string[]>(() => {
     const firstVariant = result.results.variants[0];
     if (firstVariant && firstVariant.dda_matrix) {
-      const channels = Object.keys(firstVariant.dda_matrix);
-      // Use ALL channels from dda_matrix since those are the ones that were actually analyzed
-      // result.channels might be outdated or incomplete from persistence
-      return channels;
+      return Object.keys(firstVariant.dda_matrix);
     }
     return result.channels;
   });
@@ -207,9 +200,6 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   const [isRenderingHeatmap, setIsRenderingHeatmap] = useState(false);
   const [isRenderingLinePlot, setIsRenderingLinePlot] = useState(false);
 
-  // Get available variants - memoized to prevent recreation
-  // CRITICAL FIX: Use result.id as dependency instead of result.results object
-  // This prevents re-renders when parent passes new result object with same data
   const availableVariants = useMemo(() => {
     if (result.results.variants && result.results.variants.length > 0) {
       return [...result.results.variants].sort((a, b) => {
@@ -1348,10 +1338,6 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       (viewMode === "heatmap" || viewMode === "all") &&
       heatmapData.length > 0
     ) {
-      // Create a unique key for this render configuration FIRST
-      // CRITICAL: Must include variant ID to distinguish between variants with same channels (e.g., DE vs SY)
-      // CRITICAL: Don't include colorRange in key when autoScale is on, as it changes during processing
-      // This prevents the effect from running again when colorRange updates automatically
       const variantId = currentVariantData?.variant_id || "unknown";
       const renderKey = autoScale
         ? `${result.id}_${variantId}_${selectedChannels.join(",")}_auto_${colorScheme}`
@@ -1359,42 +1345,14 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
             colorRange[1]
           }_${colorScheme}`;
 
-      // CRITICAL: Ensure heatmapData and selectedChannels are in sync
-      // If not, the data hasn't finished processing yet
       if (heatmapData.length !== selectedChannels.length) {
-        loggers.plot.debug("HEATMAP data not in sync yet", {
-          heatmapDataLength: heatmapData.length,
-          selectedChannelsLength: selectedChannels.length,
-          variant: currentVariantData?.variant_id,
-          lastRenderedKey: lastRenderedHeatmapKey.current,
-        });
-
-        // Clear the old plot so user doesn't see stale labels
         if (heatmapCleanupRef.current) {
-          loggers.plot.debug(
-            "HEATMAP clearing stale plot while waiting for data",
-          );
           heatmapCleanupRef.current();
           heatmapCleanupRef.current = null;
         }
-
-        // CRITICAL FIX: Reset the render key so we'll re-render when data syncs
-        // Without this, when effect re-runs with synced data, it thinks it already rendered
         lastRenderedHeatmapKey.current = "";
-
         return;
       }
-
-      loggers.plot.debug("HEATMAP data IN SYNC", {
-        heatmapDataLength: heatmapData.length,
-        selectedChannelsLength: selectedChannels.length,
-        variant: currentVariantData?.variant_id,
-        renderKey,
-        lastRenderedKey: lastRenderedHeatmapKey.current,
-      });
-
-      // CRITICAL: Check if DOM element is available FIRST
-      // When switching tabs, the effect runs before new tab's DOM is mounted
       if (!heatmapRef.current) {
         loggers.plot.debug("HEATMAP DOM element not ready, waiting for mount", {
           renderKey,
@@ -1414,34 +1372,19 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         return;
       }
 
-      loggers.plot.debug("HEATMAP DOM element ready, scheduling render", {
-        renderKey,
-      });
-
-      // FINAL FIX: Use single requestAnimationFrame to yield to browser for painting
-      // This prevents UI freeze while keeping rendering fast and avoiding cascading delays
       const rafId = requestAnimationFrame(() => {
         if (lastRenderedHeatmapKey.current === renderKey) {
-          loggers.plot.debug("HEATMAP already rendered, skipping");
           return;
         }
-
         renderHeatmap();
         lastRenderedHeatmapKey.current = renderKey;
-        loggers.plot.debug("HEATMAP plot created successfully", { renderKey });
       });
 
       return () => {
-        // Cancel pending animation frame
         cancelAnimationFrame(rafId);
-
-        // Clean up heatmap ResizeObserver when effect re-runs
         if (heatmapCleanupRef.current) {
           heatmapCleanupRef.current();
           heatmapCleanupRef.current = null;
-          // CRITICAL: Reset render key when cleanup destroys the plot
-          // This ensures we re-render when the effect runs again
-          // (handles case where DOM stays mounted but plot is destroyed)
           lastRenderedHeatmapKey.current = "";
         }
       };
@@ -1460,74 +1403,36 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   ]);
 
   useEffect(() => {
-    loggers.plot.debug("LINEPLOT EFFECT running", {
-      viewMode,
-      availableVariantsLength: availableVariants.length,
-      linePlotRefExists: !!linePlotRef.current,
-      variant: currentVariantData?.variant_id,
-    });
-
     if (
       (viewMode === "lineplot" || viewMode === "all") &&
       availableVariants.length > 0
     ) {
-      // Create a unique key for this render configuration FIRST
       const variantId = currentVariantData?.variant_id || "unknown";
       const renderKey = `${result.id}_${variantId}_${selectedChannels.join(",")}`;
 
-      loggers.plot.debug("LINEPLOT preparing to render", {
-        renderKey,
-        lastRenderedKey: lastRenderedLinePlotKey.current,
-      });
-
-      // CRITICAL: Check if DOM element is available FIRST
-      // When switching tabs, the effect runs before new tab's DOM is mounted
       if (!linePlotRef.current) {
-        loggers.plot.debug(
-          "LINEPLOT DOM element not ready, waiting for mount",
-          { renderKey },
-        );
-        // Reset render key so effect will retry when ref becomes available
         lastRenderedLinePlotKey.current = "";
         return;
       }
 
-      // Skip if we've already rendered this exact configuration
       if (lastRenderedLinePlotKey.current === renderKey) {
-        loggers.plot.debug(
-          "LINEPLOT already rendered this configuration, skipping",
-        );
         return;
       }
 
-      loggers.plot.debug("LINEPLOT DOM element ready, scheduling render", {
-        renderKey,
-      });
-
-      // FINAL FIX: Use single requestAnimationFrame to yield to browser for painting
-      // This prevents UI freeze while keeping rendering fast and avoiding cascading delays
       const rafId = requestAnimationFrame(() => {
         if (lastRenderedLinePlotKey.current === renderKey) {
-          loggers.plot.debug("LINEPLOT already rendered, skipping");
           return;
         }
 
         renderLinePlot();
         lastRenderedLinePlotKey.current = renderKey;
-        loggers.plot.debug("LINEPLOT plot created successfully", { renderKey });
       });
 
       return () => {
-        // Cancel pending animation frame
         cancelAnimationFrame(rafId);
-
-        // Clean up line plot ResizeObserver when effect re-runs
         if (linePlotCleanupRef.current) {
           linePlotCleanupRef.current();
           linePlotCleanupRef.current = null;
-          // CRITICAL: Reset render key when cleanup destroys the plot
-          // This ensures we re-render when the effect runs again
-          // (handles case where DOM stays mounted but plot is destroyed)
           lastRenderedLinePlotKey.current = "";
         }
       };
@@ -1563,8 +1468,6 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       lineplot: currentLineplotCount,
     };
 
-    // Only broadcast if there are actually pop-out windows of this type
-    // This prevents unnecessary work when no windows are listening
     const ddaResultsData = {
       result,
       uiState: {
@@ -1581,18 +1484,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       },
     };
 
-    loggers.dda.debug("Broadcasting data with annotations", {
-      resultId: result.id,
-      variantIndex: selectedVariant,
-      heatmapCount: heatmapAnnotations.annotations.length,
-      lineplotCount: linePlotAnnotations.annotations.length,
-      bypassedThrottle: annotationsChanged,
-    });
-
-    // Fire and forget - don't block on broadcast
-    broadcastToType("dda-results", ddaResultsData).catch((error) =>
-      loggers.ui.error("Failed to broadcast DDA results", { error }),
-    );
+    broadcastToType("dda-results", ddaResultsData).catch(() => {});
   }, [
     result.id,
     selectedVariant,

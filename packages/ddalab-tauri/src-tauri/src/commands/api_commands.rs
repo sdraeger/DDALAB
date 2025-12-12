@@ -230,10 +230,10 @@ pub async fn start_local_api_server(
         .ok()
         .and_then(|path| {
             if path.exists() {
-                log::info!("✅ Resolved DDA binary path: {:?}", path);
+                log::info!("Resolved DDA binary path: {:?}", path);
                 Some(path)
             } else {
-                log::warn!("⚠️ Tauri resolved path doesn't exist: {:?}", path);
+                log::warn!("Tauri resolved path doesn't exist: {:?}", path);
                 None
             }
         });
@@ -269,7 +269,7 @@ pub async fn start_local_api_server(
     match start_api_server(server_config, data_dir, dda_binary_path).await {
         Ok((session_token, actual_port, task_handle)) => {
             log::info!(
-                "✅ Local API server started successfully on port {}",
+                "Local API server started successfully on port {}",
                 actual_port
             );
 
@@ -310,7 +310,7 @@ pub async fn start_local_api_server(
             Ok(config)
         }
         Err(e) => {
-            log::error!("❌ Failed to start local API server: {}", e);
+            log::error!("Failed to start local API server: {}", e);
             {
                 let mut is_running = state.is_local_server_running.lock();
                 *is_running = false;
@@ -334,7 +334,7 @@ pub async fn stop_local_api_server(state: State<'_, ApiServerState>) -> Result<(
             handle.abort();
             true
         } else {
-            log::warn!("⚠️ No server task handle found");
+            log::warn!("No server task handle found");
             false
         }
     };
@@ -355,10 +355,10 @@ pub async fn stop_local_api_server(state: State<'_, ApiServerState>) -> Result<(
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     if had_handle {
-        log::info!("✅ Stopped local API server");
+        log::info!("Stopped local API server");
         Ok(())
     } else {
-        log::warn!("⚠️ Server was not tracked, but state has been cleared");
+        log::warn!("Server was not tracked, but state has been cleared");
         Ok(()) // Return Ok anyway since we've cleared the state
     }
 }
@@ -487,7 +487,7 @@ pub async fn connect_to_remote_api(
 
     match client.get(&format!("{}/api/health", url)).send().await {
         Ok(response) if response.status().is_success() => {
-            log::info!("✅ Successfully connected to remote API server");
+            log::info!("Successfully connected to remote API server");
 
             // Update state
             {

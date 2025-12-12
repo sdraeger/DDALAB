@@ -357,7 +357,7 @@ impl StreamingDDAProcessor {
             let rejected = self.rejected_samples.fetch_add(1, Ordering::Relaxed);
             if rejected % 100 == 0 {
                 log::warn!(
-                    "⚠️ Ringbuffer overflow: {} (total rejected: {})",
+                    "Ringbuffer overflow: {} (total rejected: {})",
                     e,
                     rejected + 1
                 );
@@ -382,7 +382,7 @@ impl StreamingDDAProcessor {
         let max_windows = self.config.resource_limits.max_windows_per_batch;
         let windows_to_process = if windows.len() > max_windows {
             log::warn!(
-                "⚠️ Limiting windows from {} to {} (max_windows_per_batch)",
+                "Limiting windows from {} to {} (max_windows_per_batch)",
                 windows.len(),
                 max_windows
             );

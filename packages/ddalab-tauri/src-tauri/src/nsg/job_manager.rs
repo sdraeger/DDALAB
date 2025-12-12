@@ -84,7 +84,7 @@ impl NSGJobManager {
             .save_job(&job)
             .context("Failed to save job to database")?;
 
-        log::info!("📝 Created NSG job: {}", job.id);
+        log::info!("Created NSG job: {}", job.id);
 
         Ok(job)
     }
@@ -110,7 +110,7 @@ impl NSGJobManager {
             .context("Failed to parse DDA parameters")?;
 
         // Create ZIP package with modeldir structure, input file, wrapper script, and params.json
-        log::info!("📦 Creating job package for: {}", job.id);
+        log::info!("Creating job package for: {}", job.id);
         let zip_path = self
             .create_job_package(&job.id, &dda_params, input_path)
             .context("Failed to create job package")?;
@@ -144,7 +144,7 @@ impl NSGJobManager {
             .context("Failed to update job in database")?;
 
         log::info!(
-            "✅ Submitted NSG job: {} -> {}",
+            "Submitted NSG job: {} -> {}",
             job.id,
             job.nsg_job_id.as_deref().unwrap_or("unknown")
         );
@@ -229,13 +229,13 @@ impl NSGJobManager {
                     Ok(files) => {
                         job.output_files = files.iter().map(|f| f.filename.clone()).collect();
                         log::info!(
-                            "✅ Found {} output files for job {}",
+                            "Found {} output files for job {}",
                             job.output_files.len(),
                             job_id
                         );
                     }
                     Err(e) => {
-                        log::error!("❌ Failed to list output files for job {}: {}", job_id, e);
+                        log::error!("Failed to list output files for job {}: {}", job_id, e);
                     }
                 }
             }
@@ -276,7 +276,7 @@ impl NSGJobManager {
                 .await
                 .context("Failed to cancel external job on NSG")?;
 
-            log::info!("✅ Cancelled external NSG job: {}", nsg_job_id);
+            log::info!("Cancelled external NSG job: {}", nsg_job_id);
 
             // Return a dummy job object since we don't store external jobs in DB
             return Err(anyhow!(
@@ -397,7 +397,7 @@ impl NSGJobManager {
             let output_path = job_output_dir.join(&output_file.filename);
 
             log::info!(
-                "⬇️  Downloading file {}/{}: {} ({} bytes)",
+                "Downloading file {}/{}: {} ({} bytes)",
                 index + 1,
                 total_files,
                 output_file.filename,
@@ -443,7 +443,7 @@ impl NSGJobManager {
             downloaded_paths.push(output_path);
 
             log::info!(
-                "✅ Downloaded file {}/{}: {}",
+                "Downloaded file {}/{}: {}",
                 index + 1,
                 total_files,
                 output_file.filename
@@ -451,7 +451,7 @@ impl NSGJobManager {
         }
 
         log::info!(
-            "✅ Downloaded {} result files for job {}",
+            "Downloaded {} result files for job {}",
             downloaded_paths.len(),
             job_id
         );
@@ -483,7 +483,7 @@ impl NSGJobManager {
         const MAX_EXTRACTED_FILES: usize = 10_000;
         const MAX_EXTRACTED_SIZE: u64 = 10 * 1024 * 1024 * 1024; // 10 GB
 
-        log::info!("📦 Extracting tarball: {}", tar_path);
+        log::info!("Extracting tarball: {}", tar_path);
 
         let tar_path_buf = Path::new(tar_path);
         if !tar_path_buf.exists() {
@@ -551,7 +551,7 @@ impl NSGJobManager {
                 .any(|c| matches!(c, std::path::Component::ParentDir))
             {
                 log::warn!(
-                    "⚠️ Skipping suspicious tar entry with path traversal: {}",
+                    "Skipping suspicious tar entry with path traversal: {}",
                     entry_path.display()
                 );
                 continue;
@@ -575,7 +575,7 @@ impl NSGJobManager {
         }
 
         log::info!(
-            "✅ Extracted {} files ({:.2} MB) from tarball",
+            "Extracted {} files ({:.2} MB) from tarball",
             extracted_paths.len(),
             total_extracted_size as f64 / (1024.0 * 1024.0)
         );
@@ -624,7 +624,7 @@ impl NSGJobManager {
             }
             Err(e) => {
                 log::warn!(
-                    "⚠️ Failed to fetch remote NSG jobs: {}. Showing local jobs only.",
+                    "Failed to fetch remote NSG jobs: {}. Showing local jobs only.",
                     e
                 );
                 return Ok(local_jobs);
@@ -723,7 +723,7 @@ impl NSGJobManager {
         let local_count = local_jobs.len() - external_count;
 
         log::info!(
-            "✅ Merged jobs: {} local + {} external = {} total",
+            "Merged jobs: {} local + {} external = {} total",
             local_count,
             external_count,
             local_jobs.len()
@@ -743,7 +743,7 @@ impl NSGJobManager {
             .delete_job(job_id)
             .context("Failed to delete job from database")?;
 
-        log::info!("🗑️  Deleted job: {}", job_id);
+        log::info!("Deleted job: {}", job_id);
 
         Ok(())
     }
@@ -758,7 +758,7 @@ impl NSGJobManager {
             .delete_jobs_by_status(&NSGJobStatus::Pending)
             .context("Failed to delete pending jobs from database")?;
 
-        log::info!("🗑️  Deleted {} pending jobs", deleted);
+        log::info!("Deleted {} pending jobs", deleted);
 
         Ok(deleted)
     }
@@ -793,7 +793,7 @@ impl NSGJobManager {
 
         // NSG PY_EXPANSE tool expects the main script to be named input.py
         // Always use Python wrapper for NSG execution (serial only)
-        log::info!("📦 Using Python wrapper for NSG execution");
+        log::info!("Using Python wrapper for NSG execution");
         let wrapper_script = embedded::WRAPPER_SCRIPT;
 
         let wrapper_path = package_dir.join("input.py");
@@ -883,7 +883,7 @@ impl NSGJobManager {
 
         std::fs::remove_dir_all(&package_dir).context("Failed to clean up package directory")?;
 
-        log::info!("📦 Created job package: {}", zip_path.display());
+        log::info!("Created job package: {}", zip_path.display());
 
         Ok(zip_path)
     }
