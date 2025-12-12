@@ -538,6 +538,40 @@ fn parse_file_size_from_annex(line: &str) -> Option<u64> {
     None
 }
 
+/// Validate that a filename is safe for use with git commands.
+/// Returns Ok if safe, Err with explanation if not.
+fn validate_git_filename(filename: &str) -> Result<(), String> {
+    // Reject empty filenames
+    if filename.is_empty() {
+        return Err("Filename cannot be empty".to_string());
+    }
+
+    // Reject filenames starting with dash (could be interpreted as options)
+    if filename.starts_with('-') {
+        return Err(
+            "Filename cannot start with '-' (could be interpreted as git option)".to_string(),
+        );
+    }
+
+    // Reject path separators in filename (should be just the name, not a path)
+    if filename.contains('/') || filename.contains('\\') {
+        return Err("Filename cannot contain path separators".to_string());
+    }
+
+    // Reject null bytes
+    if filename.contains('\0') {
+        return Err("Filename cannot contain null bytes".to_string());
+    }
+
+    // Reject special git-annex patterns that could be exploited
+    if filename.starts_with('.') && filename != "." && !filename.starts_with("..") {
+        // Allow hidden files but log them
+        log::debug!("[GIT_ANNEX] Processing hidden file: {}", filename);
+    }
+
+    Ok(())
+}
+
 /// Run git annex get to download a file managed by git-annex
 #[tauri::command]
 pub async fn run_git_annex_get(
@@ -548,17 +582,38 @@ pub async fn run_git_annex_get(
 
     let path = PathBuf::from(&file_path);
 
+    // Canonicalize the path to resolve symlinks and ../ sequences
+    let canonical_path = path
+        .canonicalize()
+        .or_else(|_| {
+            // If canonicalize fails (file doesn't exist yet), validate parent exists
+            if let Some(parent) = path.parent() {
+                parent
+                    .canonicalize()
+                    .map(|p| p.join(path.file_name().unwrap_or_default()))
+            } else {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "Invalid path",
+                ))
+            }
+        })
+        .map_err(|e| format!("Invalid file path: {}", e))?;
+
     // Get the directory containing the file
-    let parent_dir = path
+    let parent_dir = canonical_path
         .parent()
         .ok_or_else(|| "Invalid file path - no parent directory".to_string())?;
 
     // Get the filename
-    let file_name = path
+    let file_name = canonical_path
         .file_name()
         .and_then(|s| s.to_str())
         .ok_or_else(|| "Invalid file path - no filename".to_string())?
         .to_string();
+
+    // Validate filename is safe for git commands
+    validate_git_filename(&file_name)?;
 
     log::info!(
         "[GIT_ANNEX] Running 'git annex get {}' in {:?}",

@@ -81,13 +81,17 @@ impl NIfTIFileReader {
         // Calculate total number of voxels (spatial flattening)
         let num_voxels = spatial_dims.iter().product();
 
-        // Generate channel labels (one per voxel)
+        // Generate channel labels (one per voxel) in parallel for large volumes
+        // Clone spatial_dims for parallel closure
+        let dims_x = spatial_dims[0];
+        let dims_y = spatial_dims[1];
         let channels: Vec<String> = (0..num_voxels)
+            .into_par_iter()
             .map(|i| {
                 // Convert flat index to 3D coordinates
-                let x = i % spatial_dims[0];
-                let y = (i / spatial_dims[0]) % spatial_dims[1];
-                let z = i / (spatial_dims[0] * spatial_dims[1]);
+                let x = i % dims_x;
+                let y = (i / dims_x) % dims_y;
+                let z = i / (dims_x * dims_y);
                 format!("Voxel_{}_{}_{}", x, y, z)
             })
             .collect();

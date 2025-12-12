@@ -98,6 +98,8 @@ impl ChannelRingBuffer {
     }
 
     /// Extract a window of samples starting at given offset from the oldest sample
+    ///
+    /// Uses parallel extraction across channels for better performance on many-channel data
     pub fn extract_window(&self, start_offset: usize, window_size: usize) -> Option<Vec<Vec<f32>>> {
         if start_offset + window_size > self.count {
             return None;
@@ -112,15 +114,38 @@ impl ChannelRingBuffer {
             (self.write_pos + start_offset) % self.capacity
         };
 
-        let mut result = Vec::with_capacity(self.buffers.len());
-        for buffer in &self.buffers {
-            let mut window = Vec::with_capacity(window_size);
-            for i in 0..window_size {
-                let idx = (buffer_start + i) % self.capacity;
-                window.push(buffer[idx]);
-            }
-            result.push(window);
-        }
+        let capacity = self.capacity;
+
+        // Parallelize across channels for better performance
+        // Threshold: only parallelize for files with many channels
+        const PAR_THRESHOLD: usize = 8;
+
+        let result: Vec<Vec<f32>> = if self.buffers.len() >= PAR_THRESHOLD {
+            self.buffers
+                .par_iter()
+                .map(|buffer| {
+                    let mut window = Vec::with_capacity(window_size);
+                    for i in 0..window_size {
+                        let idx = (buffer_start + i) % capacity;
+                        window.push(buffer[idx]);
+                    }
+                    window
+                })
+                .collect()
+        } else {
+            // Sequential for small number of channels
+            self.buffers
+                .iter()
+                .map(|buffer| {
+                    let mut window = Vec::with_capacity(window_size);
+                    for i in 0..window_size {
+                        let idx = (buffer_start + i) % capacity;
+                        window.push(buffer[idx]);
+                    }
+                    window
+                })
+                .collect()
+        };
 
         Some(result)
     }
@@ -436,6 +461,8 @@ impl StreamingDDAProcessor {
     }
 
     /// Create windows from the current ringbuffer
+    ///
+    /// Uses parallel extraction when many windows need to be created
     fn create_windows_from_buffer(&self) -> StreamResult<Vec<WindowData>> {
         let buffer = self.sample_buffer.lock();
         let total_samples = buffer.len();
@@ -448,25 +475,47 @@ impl StreamingDDAProcessor {
         let stride = stride.max(1);
         let window_size = self.config.window_size;
 
-        // Pre-calculate number of windows to avoid reallocation
+        // Pre-calculate number of windows and their start positions
         let num_windows = (total_samples - window_size) / stride + 1;
-
-        let mut windows = Vec::with_capacity(num_windows);
         let current_offset = self.current_offset.load(Ordering::Relaxed) as usize;
 
-        let mut start = 0;
-        while start + window_size <= total_samples {
-            // Extract window samples from ringbuffer
-            if let Some(window_samples) = buffer.extract_window(start, window_size) {
-                windows.push(WindowData {
-                    samples: window_samples,
-                    start_idx: current_offset + start,
-                    timestamp: chrono::Utc::now().timestamp() as f64,
-                });
-            }
+        // Generate window start positions
+        let window_starts: Vec<usize> = (0..num_windows).map(|i| i * stride).collect();
 
-            start += stride;
-        }
+        // Extract windows in parallel for better performance when many windows
+        // Threshold: parallelize only when we have enough windows to benefit
+        const PAR_THRESHOLD: usize = 4;
+
+        let windows: Vec<WindowData> = if num_windows >= PAR_THRESHOLD {
+            let timestamp = chrono::Utc::now().timestamp() as f64;
+            window_starts
+                .into_par_iter()
+                .filter_map(|start| {
+                    buffer
+                        .extract_window(start, window_size)
+                        .map(|samples| WindowData {
+                            samples,
+                            start_idx: current_offset + start,
+                            timestamp,
+                        })
+                })
+                .collect()
+        } else {
+            // Sequential for small number of windows (avoid parallel overhead)
+            let timestamp = chrono::Utc::now().timestamp() as f64;
+            window_starts
+                .into_iter()
+                .filter_map(|start| {
+                    buffer
+                        .extract_window(start, window_size)
+                        .map(|samples| WindowData {
+                            samples,
+                            start_idx: current_offset + start,
+                            timestamp,
+                        })
+                })
+                .collect()
+        };
 
         Ok(windows)
     }

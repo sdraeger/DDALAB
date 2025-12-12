@@ -15,7 +15,7 @@ const OPENNEURO_API_KEY_NAME: &str = "openneuro_api_key";
 const GIT_OPERATION_TIMEOUT_SECS: u64 = 4 * 60 * 60;
 
 /// Validate an OpenNeuro dataset ID format.
-/// SECURITY: Prevents command injection by ensuring dataset ID matches expected pattern.
+/// Prevents command injection by ensuring dataset ID matches expected pattern.
 /// Valid format: "ds" followed by exactly 6 digits (e.g., ds000001)
 fn validate_dataset_id(dataset_id: &str) -> Result<(), String> {
     // Must be exactly 8 characters: "ds" + 6 digits
@@ -47,7 +47,7 @@ fn validate_dataset_id(dataset_id: &str) -> Result<(), String> {
 }
 
 /// Validate a git reference (branch name, tag name) for safety.
-/// SECURITY: Prevents command injection by allowing only safe characters.
+/// Prevents command injection by allowing only safe characters.
 /// Allows alphanumeric characters, dots, dashes, underscores, and forward slashes.
 /// Rejects shell metacharacters and other potentially dangerous characters.
 fn validate_git_ref(git_ref: &str) -> Result<(), String> {
@@ -95,7 +95,7 @@ pub struct ProcessInfo {
 }
 
 // State for tracking active downloads
-// SECURITY: Uses ProcessInfo instead of raw PID to prevent race conditions
+// Uses ProcessInfo instead of raw PID to prevent race conditions
 // when cancelling downloads (PID reuse could kill unrelated processes)
 pub struct DownloadState {
     pub active_downloads: Arc<Mutex<HashMap<String, Arc<Mutex<Option<ProcessInfo>>>>>>,
@@ -312,7 +312,7 @@ pub async fn download_openneuro_dataset(
 ) -> Result<String, String> {
     log::info!("Starting download for dataset: {}", options.dataset_id);
 
-    // SECURITY: Validate all user-provided inputs before using them in git commands
+    // Validate all user-provided inputs before using them in git commands
     validate_dataset_id(&options.dataset_id)?;
 
     if let Some(ref tag) = options.snapshot_tag {
@@ -335,7 +335,7 @@ pub async fn download_openneuro_dataset(
     }
 
     // Construct the git URL using validated dataset_id
-    // SECURITY: Only use pre-defined URL patterns with validated dataset ID
+    // Only use pre-defined URL patterns with validated dataset ID
     let git_url = if options.use_github {
         format!(
             "https://github.com/OpenNeuroDatasets/{}.git",
@@ -444,7 +444,7 @@ pub async fn download_openneuro_dataset(
     if let Some(stderr) = child.stderr.take() {
         let reader = BufReader::new(stderr);
         for line in reader.lines() {
-            // SECURITY: Check for timeout to prevent indefinite hangs
+            // Check for timeout to prevent indefinite hangs
             if started_at.elapsed().as_secs() > GIT_OPERATION_TIMEOUT_SECS {
                 log::error!(
                     "Git operation timeout for dataset: {} (exceeded {} hours)",
@@ -823,7 +823,7 @@ pub async fn download_openneuro_dataset(
 }
 
 // Cancel an ongoing download
-// SECURITY: Uses ProcessInfo to verify process identity before killing,
+// Uses ProcessInfo to verify process identity before killing,
 // preventing PID reuse attacks where killing by PID could terminate an unrelated process.
 #[command]
 pub async fn cancel_openneuro_download(
@@ -837,7 +837,7 @@ pub async fn cancel_openneuro_download(
             // Mark as cancelled by setting ProcessInfo to None
             if let Ok(mut process_info_opt) = process_info_lock.lock() {
                 if let Some(process_info) = process_info_opt.take() {
-                    // SECURITY: Verify the process is still likely ours before killing
+                    // Verify the process is still likely ours before killing
                     // Check that the process was started recently (within reasonable time for a download)
                     let elapsed = process_info.started_at.elapsed();
                     const MAX_DOWNLOAD_DURATION: std::time::Duration =

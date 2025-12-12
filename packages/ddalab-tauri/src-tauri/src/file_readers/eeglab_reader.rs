@@ -249,19 +249,22 @@ impl EEGLABFileReader {
             .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
             .collect();
 
-        // Reorganize into channels
+        // Reorganize into channels using parallel processing
         // EEGLAB stores data as [channels, timepoints] in column-major (Fortran) order
         // So data layout is: ch0_t0, ch1_t0, ch2_t0, ..., ch0_t1, ch1_t1, ch2_t1, ...
-        let mut channels: Vec<Vec<f64>> = vec![Vec::with_capacity(total_samples); num_channels];
-
-        for sample_idx in 0..total_samples {
-            for ch_idx in 0..num_channels {
-                let idx = sample_idx * num_channels + ch_idx;
-                if idx < raw_data.len() {
-                    channels[ch_idx].push(raw_data[idx] as f64);
+        let channels: Vec<Vec<f64>> = (0..num_channels)
+            .into_par_iter()
+            .map(|ch_idx| {
+                let mut channel_data = Vec::with_capacity(total_samples);
+                for sample_idx in 0..total_samples {
+                    let idx = sample_idx * num_channels + ch_idx;
+                    if idx < raw_data.len() {
+                        channel_data.push(raw_data[idx] as f64);
+                    }
                 }
-            }
-        }
+                channel_data
+            })
+            .collect();
 
         Ok(channels)
     }
@@ -294,14 +297,18 @@ impl EEGLABFileReader {
 
         // MATLAB uses column-major order, so we need to transpose
         // data is stored as [row0_col0, row1_col0, row2_col0, ..., row0_col1, row1_col1, ...]
-        let mut channels: Vec<Vec<f64>> = vec![Vec::with_capacity(cols); rows];
-
-        for col in 0..cols {
-            for row in 0..rows {
-                let idx = col * rows + row;
-                channels[row].push(flat_data[idx]);
-            }
-        }
+        // Parallelize across rows (channels) for better performance
+        let channels: Vec<Vec<f64>> = (0..rows)
+            .into_par_iter()
+            .map(|row| {
+                let mut channel_data = Vec::with_capacity(cols);
+                for col in 0..cols {
+                    let idx = col * rows + row;
+                    channel_data.push(flat_data[idx]);
+                }
+                channel_data
+            })
+            .collect();
 
         Ok(channels)
     }
