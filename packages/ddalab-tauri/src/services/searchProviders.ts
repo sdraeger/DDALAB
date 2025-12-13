@@ -13,6 +13,11 @@ import { RegisteredItemsSearchProvider } from "./searchRegistry";
 import { getQueryClient } from "@/providers/QueryProvider";
 import { ddaKeys } from "@/hooks/useDDAAnalysis";
 import { DDAResult } from "@/types/api";
+import { useOpenFilesStore } from "@/store/openFilesStore";
+import { useExportHistoryStore } from "@/store/exportHistoryStore";
+import { useRecentFilesStore } from "@/store/recentFilesStore";
+import { useNotificationStore } from "@/store/notificationStore";
+import { useKeyboardShortcutsStore } from "@/store/keyboardShortcutsStore";
 
 /**
  * Helper to safely get state manager.
@@ -1355,6 +1360,647 @@ export class HelpSearchProvider implements SearchProvider {
   }
 }
 
+// ============================================================================
+// NEW SEARCH PROVIDERS
+// ============================================================================
+
+export class OpenFileTabsSearchProvider implements SearchProvider {
+  name = "OpenFileTabs";
+
+  search(query: string): SearchResult[] {
+    const results: SearchResult[] = [];
+    const lowerQuery = query.toLowerCase();
+
+    const openFiles = useOpenFilesStore.getState().files;
+    const activeFilePath = useOpenFilesStore.getState().activeFilePath;
+
+    openFiles.forEach((file) => {
+      const matchesName = file.fileName.toLowerCase().includes(lowerQuery);
+      const matchesPath = file.filePath.toLowerCase().includes(lowerQuery);
+
+      if (matchesName || matchesPath || lowerQuery === "") {
+        const isPinned = file.isPinned;
+        const isActive = file.filePath === activeFilePath;
+        const subtitle = isPinned ? "📌 Pinned" : "Open tab";
+
+        results.push({
+          id: `open-tab-${file.filePath}`,
+          type: "file",
+          title: file.fileName,
+          subtitle,
+          description: file.filePath,
+          category: isActive ? "Active Tab" : "Open Tabs",
+          icon: "File",
+          keywords: [
+            file.fileName,
+            file.filePath,
+            isPinned ? "pinned" : "",
+            "tab",
+          ],
+          metadata: {
+            isPinned: file.isPinned,
+            lastActiveAt: file.lastActiveAt,
+            isActive,
+          },
+          action: async () => {
+            if (file.filePath !== activeFilePath) {
+              useOpenFilesStore.getState().setActiveFile(file.filePath);
+            }
+            getState()?.setPrimaryNav("explore");
+            getState()?.setSecondaryNav("timeseries");
+          },
+        });
+      }
+    });
+
+    return results.sort((a, b) => {
+      if (a.metadata?.isActive) return -1;
+      if (b.metadata?.isActive) return 1;
+      if (a.metadata?.isPinned && !b.metadata?.isPinned) return -1;
+      if (!a.metadata?.isPinned && b.metadata?.isPinned) return 1;
+      return (
+        new Date(b.metadata?.lastActiveAt || 0).getTime() -
+        new Date(a.metadata?.lastActiveAt || 0).getTime()
+      );
+    });
+  }
+}
+
+export class BookmarksSearchProvider implements SearchProvider {
+  name = "Bookmarks";
+
+  search(query: string): SearchResult[] {
+    const results: SearchResult[] = [];
+    const lowerQuery = query.toLowerCase();
+
+    const favorites = useRecentFilesStore.getState().favorites;
+
+    favorites.forEach((favorite) => {
+      const matchesName = favorite.name.toLowerCase().includes(lowerQuery);
+      const matchesPath = favorite.path.toLowerCase().includes(lowerQuery);
+      const matchesType = favorite.type.toLowerCase().includes(lowerQuery);
+
+      if (
+        matchesName ||
+        matchesPath ||
+        matchesType ||
+        "favorite".includes(lowerQuery) ||
+        "bookmark".includes(lowerQuery) ||
+        lowerQuery === ""
+      ) {
+        results.push({
+          id: `favorite-${favorite.path}`,
+          type: "file",
+          title: `⭐ ${favorite.name}`,
+          subtitle: favorite.type.toUpperCase(),
+          description: favorite.path,
+          category: "Favorites",
+          icon: "Star",
+          keywords: [
+            favorite.name,
+            favorite.path,
+            favorite.type,
+            "favorite",
+            "starred",
+            "bookmark",
+          ],
+          metadata: { favorite },
+          action: async () => {
+            await useOpenFilesStore.getState().openFile(favorite.path);
+            getState()?.setPrimaryNav("explore");
+          },
+        });
+      }
+    });
+
+    return results.sort((a, b) => {
+      const aFav = a.metadata?.favorite;
+      const bFav = b.metadata?.favorite;
+      return (bFav?.addedAt || 0) - (aFav?.addedAt || 0);
+    });
+  }
+}
+
+export class DashboardWidgetsSearchProvider implements SearchProvider {
+  name = "DashboardWidgets";
+
+  private widgetTypes = [
+    {
+      id: "timeseries-widget",
+      name: "Time Series Chart",
+      description: "View multichannel time series data",
+      category: "Visualization",
+      keywords: ["plot", "chart", "timeseries", "signal", "waveform"],
+    },
+    {
+      id: "spectrogram-widget",
+      name: "Spectrogram",
+      description: "Frequency analysis over time",
+      category: "Visualization",
+      keywords: ["frequency", "spectrogram", "fft", "power"],
+    },
+    {
+      id: "dda-matrix-widget",
+      name: "DDA Matrix",
+      description: "Delay differential analysis heatmap",
+      category: "Analysis",
+      keywords: ["dda", "matrix", "heatmap", "analysis"],
+    },
+    {
+      id: "metrics-widget",
+      name: "Analysis Metrics",
+      description: "Key metrics and statistics",
+      category: "Analysis",
+      keywords: ["metrics", "stats", "statistics", "summary"],
+    },
+    {
+      id: "channel-selector-widget",
+      name: "Channel Selector",
+      description: "Select and manage channels",
+      category: "Controls",
+      keywords: ["channel", "select", "electrode"],
+    },
+  ];
+
+  search(query: string): SearchResult[] {
+    const results: SearchResult[] = [];
+    const lowerQuery = query.toLowerCase();
+
+    this.widgetTypes.forEach((widget) => {
+      const matchesName = widget.name.toLowerCase().includes(lowerQuery);
+      const matchesDescription = widget.description
+        .toLowerCase()
+        .includes(lowerQuery);
+      const matchesKeywords = widget.keywords.some((kw) =>
+        kw.includes(lowerQuery),
+      );
+
+      if (matchesName || matchesDescription || matchesKeywords) {
+        results.push({
+          id: `widget-${widget.id}`,
+          type: "action",
+          title: widget.name,
+          description: widget.description,
+          category: `Widgets - ${widget.category}`,
+          icon: "Layout",
+          keywords: widget.keywords,
+          action: () => {
+            const state = getState();
+            if (widget.id.includes("dda")) {
+              state?.setPrimaryNav("analyze");
+            } else {
+              state?.setPrimaryNav("explore");
+              state?.setSecondaryNav("timeseries");
+            }
+          },
+        });
+      }
+    });
+
+    return results;
+  }
+}
+
+export class AnalysisPresetsSearchProvider implements SearchProvider {
+  name = "AnalysisPresets";
+
+  private builtInTemplates = [
+    {
+      id: "fast-screening",
+      name: "Fast Screening",
+      description: "Quick analysis with shorter windows for rapid exploration",
+      parameters: {
+        variants: ["single_timeseries"],
+        windowLength: 32,
+        windowStep: 5,
+        delays: [5, 7, 10],
+      },
+    },
+    {
+      id: "detailed-analysis",
+      name: "Detailed Analysis",
+      description: "Comprehensive analysis with longer windows",
+      parameters: {
+        variants: ["single_timeseries", "cross_timeseries"],
+        windowLength: 128,
+        windowStep: 20,
+        delays: [7, 10, 15, 20],
+      },
+    },
+    {
+      id: "multi-variant",
+      name: "Multi-Variant Suite",
+      description: "Run all DDA variants for complete characterization",
+      parameters: {
+        variants: [
+          "single_timeseries",
+          "cross_timeseries",
+          "cross_dynamical",
+          "synchronization",
+        ],
+        windowLength: 64,
+        windowStep: 10,
+        delays: [7, 10, 15],
+      },
+    },
+  ];
+
+  search(query: string): SearchResult[] {
+    const results: SearchResult[] = [];
+    const lowerQuery = query.toLowerCase();
+    const state = getState();
+    if (!state) return results;
+
+    const delayPresets = state.getCustomDelayPresets();
+    delayPresets.forEach((preset) => {
+      const matchesName = preset.name.toLowerCase().includes(lowerQuery);
+      const matchesDescription = preset.description
+        .toLowerCase()
+        .includes(lowerQuery);
+      const matchesDelays = preset.delays.some((d) =>
+        d.toString().includes(lowerQuery),
+      );
+
+      if (
+        matchesName ||
+        matchesDescription ||
+        matchesDelays ||
+        "preset".includes(lowerQuery)
+      ) {
+        results.push({
+          id: `delay-preset-${preset.id}`,
+          type: "action",
+          title: preset.name,
+          subtitle: `Delays: [${preset.delays.join(", ")}]`,
+          description: preset.description,
+          category: preset.isBuiltIn
+            ? "Built-in Delay Presets"
+            : "Custom Delay Presets",
+          icon: "Brain",
+          keywords: [
+            preset.name,
+            "delays",
+            "preset",
+            ...preset.delays.map((d) => d.toString()),
+          ],
+          metadata: { preset },
+          action: () => {
+            state.setPrimaryNav("analyze");
+          },
+        });
+      }
+    });
+
+    this.builtInTemplates.forEach((template) => {
+      const matchesName = template.name.toLowerCase().includes(lowerQuery);
+      const matchesDescription = template.description
+        .toLowerCase()
+        .includes(lowerQuery);
+
+      if (matchesName || matchesDescription || "preset".includes(lowerQuery)) {
+        results.push({
+          id: `param-preset-${template.id}`,
+          type: "action",
+          title: template.name,
+          subtitle: `${template.parameters.variants.length} variants • ${template.parameters.windowLength}s window`,
+          description: template.description,
+          category: "Analysis Presets",
+          icon: "Settings",
+          keywords: [template.name, "parameters", "preset", "template"],
+          metadata: { template },
+          action: () => {
+            state.setPrimaryNav("analyze");
+          },
+        });
+      }
+    });
+
+    return results;
+  }
+}
+
+function formatRelativeTime(timestamp: number): string {
+  const now = Date.now();
+  const diff = now - timestamp;
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (days > 0) return `${days}d ago`;
+  if (hours > 0) return `${hours}h ago`;
+  if (minutes > 0) return `${minutes}m ago`;
+  return "Just now";
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  if (bytes < 1024 * 1024 * 1024)
+    return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}GB`;
+}
+
+export class ExportHistorySearchProvider implements SearchProvider {
+  name = "ExportHistory";
+
+  search(query: string): SearchResult[] {
+    const results: SearchResult[] = [];
+    const lowerQuery = query.toLowerCase();
+
+    const exports = useExportHistoryStore.getState().getRecentExports(50);
+
+    exports.forEach((exportRecord) => {
+      const matchesSource = exportRecord.sourceName
+        .toLowerCase()
+        .includes(lowerQuery);
+      const matchesPath = exportRecord.outputPath
+        .toLowerCase()
+        .includes(lowerQuery);
+      const matchesType = exportRecord.type.toLowerCase().includes(lowerQuery);
+      const matchesFormat = exportRecord.format
+        .toLowerCase()
+        .includes(lowerQuery);
+
+      const isExportQuery = ["export", "exported", "saved"].some((kw) =>
+        lowerQuery.includes(kw),
+      );
+
+      if (
+        matchesSource ||
+        matchesPath ||
+        matchesType ||
+        matchesFormat ||
+        isExportQuery
+      ) {
+        const iconMap: Record<string, string> = {
+          "dda-results": "Brain",
+          plot: "LineChart",
+          file: "File",
+          annotations: "MessageSquare",
+        };
+
+        const statusEmoji = exportRecord.status === "success" ? "✓" : "✗";
+        const timeAgo = formatRelativeTime(exportRecord.timestamp);
+        const sizeStr = exportRecord.fileSize
+          ? formatFileSize(exportRecord.fileSize)
+          : "";
+
+        results.push({
+          id: `export-${exportRecord.id}`,
+          type: "action",
+          title: `${statusEmoji} ${exportRecord.sourceName}`,
+          subtitle: `${exportRecord.format.toUpperCase()} • ${timeAgo}${sizeStr ? ` • ${sizeStr}` : ""}`,
+          description: exportRecord.outputPath,
+          category: `Export History - ${exportRecord.type}`,
+          icon: iconMap[exportRecord.type] || "File",
+          keywords: [
+            exportRecord.sourceName,
+            exportRecord.outputPath,
+            exportRecord.type,
+            exportRecord.format,
+            "export",
+            "saved",
+          ],
+          metadata: { exportRecord },
+          action: async () => {
+            if (typeof window !== "undefined" && (window as any).__TAURI__) {
+              const { invoke } = await import("@tauri-apps/api/core");
+              try {
+                await invoke("show_in_folder", {
+                  path: exportRecord.outputPath,
+                });
+              } catch (err) {
+                console.error("Failed to show in folder", err);
+              }
+            }
+          },
+        });
+      }
+    });
+
+    return results.sort((a, b) => {
+      const aExport = a.metadata?.exportRecord;
+      const bExport = b.metadata?.exportRecord;
+
+      if (aExport?.status !== bExport?.status) {
+        return aExport?.status === "failed" ? -1 : 1;
+      }
+
+      return (bExport?.timestamp || 0) - (aExport?.timestamp || 0);
+    });
+  }
+}
+
+export class KeyboardShortcutsSearchProvider implements SearchProvider {
+  name = "KeyboardShortcuts";
+
+  search(query: string): SearchResult[] {
+    const results: SearchResult[] = [];
+    const lowerQuery = query.toLowerCase();
+
+    const shortcuts = Array.from(
+      useKeyboardShortcutsStore.getState().shortcuts.values(),
+    );
+
+    const isShortcutQuery = ["shortcut", "keyboard", "key", "hotkey"].some(
+      (kw) => lowerQuery.includes(kw),
+    );
+
+    shortcuts.forEach((shortcut) => {
+      const matchesLabel = shortcut.label.toLowerCase().includes(lowerQuery);
+      const matchesDescription = shortcut.description
+        .toLowerCase()
+        .includes(lowerQuery);
+      const matchesKey = shortcut.key.toLowerCase().includes(lowerQuery);
+      const matchesContext = shortcut.context
+        .toLowerCase()
+        .includes(lowerQuery);
+      const matchesCategory = shortcut.category
+        ?.toLowerCase()
+        .includes(lowerQuery);
+
+      if (
+        matchesLabel ||
+        matchesDescription ||
+        matchesKey ||
+        matchesContext ||
+        matchesCategory ||
+        isShortcutQuery
+      ) {
+        const formattedShortcut = useKeyboardShortcutsStore
+          .getState()
+          .formatShortcut(shortcut);
+
+        results.push({
+          id: `shortcut-${shortcut.id}`,
+          type: "action",
+          title: shortcut.label,
+          subtitle: formattedShortcut,
+          description: shortcut.description,
+          category: shortcut.category || "Keyboard Shortcuts",
+          icon: "Keyboard",
+          keywords: [
+            shortcut.label,
+            shortcut.description,
+            shortcut.key,
+            shortcut.context,
+            "shortcut",
+            "keyboard",
+          ],
+          metadata: { shortcut },
+          action: async () => {
+            try {
+              await shortcut.action();
+            } catch (err) {
+              console.error("Failed to execute shortcut", err);
+            }
+          },
+        });
+      }
+    });
+
+    return results.sort((a, b) => {
+      if (a.category !== b.category) {
+        return (a.category || "").localeCompare(b.category || "");
+      }
+      return a.title.localeCompare(b.title);
+    });
+  }
+}
+
+export class NotificationsSearchProvider implements SearchProvider {
+  name = "Notifications";
+
+  search(query: string): SearchResult[] {
+    const results: SearchResult[] = [];
+    const lowerQuery = query.toLowerCase();
+
+    const notifications = useNotificationStore.getState().notifications;
+    const recentNotifications = notifications.slice(0, 50);
+
+    const isNotificationQuery = [
+      "notification",
+      "error",
+      "warning",
+      "alert",
+    ].some((kw) => lowerQuery.includes(kw));
+
+    recentNotifications.forEach((notification) => {
+      const matchesTitle = notification.title
+        .toLowerCase()
+        .includes(lowerQuery);
+      const matchesMessage =
+        notification.message?.toLowerCase().includes(lowerQuery) || false;
+      const matchesType = notification.type.toLowerCase().includes(lowerQuery);
+      const matchesCategory = notification.category
+        .toLowerCase()
+        .includes(lowerQuery);
+
+      if (
+        matchesTitle ||
+        matchesMessage ||
+        matchesType ||
+        matchesCategory ||
+        isNotificationQuery
+      ) {
+        const iconMap: Record<string, string> = {
+          info: "Info",
+          success: "CheckCircle",
+          warning: "AlertTriangle",
+          error: "XCircle",
+        };
+
+        const timeAgo = formatRelativeTime(notification.timestamp);
+
+        results.push({
+          id: `notification-${notification.id}`,
+          type: "action",
+          title: notification.title,
+          subtitle: `${notification.type.toUpperCase()} • ${timeAgo}`,
+          description: notification.message || "",
+          category: `${notification.category} Notifications`,
+          icon: iconMap[notification.type] || "Info",
+          keywords: [
+            notification.title,
+            notification.message || "",
+            notification.type,
+            notification.category,
+            "notification",
+          ],
+          metadata: { notification },
+          action: () => {
+            useNotificationStore.getState().markAsRead(notification.id);
+            getState()?.setPrimaryNav("explore");
+          },
+        });
+      }
+    });
+
+    return results.sort((a, b) => {
+      const aNotif = a.metadata?.notification;
+      const bNotif = b.metadata?.notification;
+
+      if (aNotif?.read !== bNotif?.read) {
+        return aNotif?.read ? 1 : -1;
+      }
+
+      return (bNotif?.timestamp || 0) - (aNotif?.timestamp || 0);
+    });
+  }
+}
+
+export class FileManagerSearchProvider implements SearchProvider {
+  name = "FileManager";
+
+  search(query: string): SearchResult[] {
+    const results: SearchResult[] = [];
+    const lowerQuery = query.toLowerCase();
+
+    const recentFiles = useRecentFilesStore.getState().recentFiles;
+
+    recentFiles.forEach((file) => {
+      const matchesName = file.name.toLowerCase().includes(lowerQuery);
+      const matchesPath = file.path.toLowerCase().includes(lowerQuery);
+      const matchesType = file.type.toLowerCase().includes(lowerQuery);
+
+      if (matchesName || matchesPath || matchesType) {
+        const channelInfo = file.metadata?.channels
+          ? `${file.metadata.channels} ch`
+          : "";
+        const durationInfo = file.metadata?.duration
+          ? `${file.metadata.duration.toFixed(1)}s`
+          : "";
+        const subtitle = [channelInfo, durationInfo]
+          .filter(Boolean)
+          .join(" • ");
+
+        results.push({
+          id: `file-manager-${file.path}`,
+          type: "file",
+          title: file.name,
+          subtitle: subtitle || file.type.toUpperCase(),
+          description: file.path,
+          category: "Recent Files",
+          icon: "File",
+          keywords: [file.name, file.path, file.type],
+          metadata: { file },
+          action: async () => {
+            await useOpenFilesStore.getState().openFile(file.path);
+            getState()?.setPrimaryNav("explore");
+          },
+        });
+      }
+    });
+
+    return results.sort((a, b) => {
+      const aFile = a.metadata?.file;
+      const bFile = b.metadata?.file;
+      return (bFile?.lastAccessed || 0) - (aFile?.lastAccessed || 0);
+    });
+  }
+}
+
 export function getAllSearchProviders(): SearchProvider[] {
   return [
     // Dynamically registered items (highest priority - from components)
@@ -1366,8 +2012,14 @@ export function getAllSearchProviders(): SearchProvider[] {
     new ActionSearchProvider(),
     new QuickActionsSearchProvider(),
 
+    // NEW: High-value user items (frequently accessed)
+    new OpenFileTabsSearchProvider(),
+    new BookmarksSearchProvider(),
+    new KeyboardShortcutsSearchProvider(),
+
     // File & Data Management
     new FileSearchProvider(),
+    new FileManagerSearchProvider(),
     new FileHistorySearchProvider(),
     new FileMetadataSearchProvider(),
     new FileFormatSearchProvider(),
@@ -1378,6 +2030,7 @@ export function getAllSearchProviders(): SearchProvider[] {
 
     // Analysis & Results
     new AnalysisSearchProvider(),
+    new AnalysisPresetsSearchProvider(),
     new DDAVariantSearchProvider(),
     new AnalysisParametersSearchProvider(),
     new DelayPresetSearchProvider(),
@@ -1392,6 +2045,11 @@ export function getAllSearchProviders(): SearchProvider[] {
 
     // Annotations
     new AnnotationSearchProvider(),
+
+    // NEW: Utilities
+    new DashboardWidgetsSearchProvider(),
+    new NotificationsSearchProvider(),
+    new ExportHistorySearchProvider(),
 
     // Help
     new HelpSearchProvider(),
