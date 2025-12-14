@@ -3,7 +3,11 @@
 import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
 import { useAppStore } from "@/store/appStore";
 import { profiler } from "@/utils/performance";
-import { throttle } from "@/utils/debounce";
+import {
+  throttle,
+  debouncedUpdate,
+  cancelDebouncedUpdate,
+} from "@/utils/debounce";
 import { DDAResult } from "@/types/api";
 import {
   transformHeatmapWithStats,
@@ -162,24 +166,47 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     return () => cancelAnimationFrame(rafId);
   }, []);
 
-  // Persist plot heights to localStorage and keep refs in sync
+  // Persist plot heights to localStorage with debouncing and keep refs in sync
   useEffect(() => {
     heatmapHeightRef.current = heatmapHeight;
-    try {
-      localStorage.setItem("dda-heatmap-height", heatmapHeight.toString());
-    } catch {
-      // Ignore localStorage errors (e.g., private browsing)
-    }
+    debouncedUpdate(
+      "dda-heatmap-height",
+      () => {
+        try {
+          localStorage.setItem("dda-heatmap-height", heatmapHeight.toString());
+        } catch {
+          // Ignore localStorage errors (e.g., private browsing)
+        }
+      },
+      300, // Debounce for 300ms to avoid excessive writes during resize
+    );
   }, [heatmapHeight]);
 
   useEffect(() => {
     linePlotHeightRef.current = linePlotHeight;
-    try {
-      localStorage.setItem("dda-lineplot-height", linePlotHeight.toString());
-    } catch {
-      // Ignore localStorage errors
-    }
+    debouncedUpdate(
+      "dda-lineplot-height",
+      () => {
+        try {
+          localStorage.setItem(
+            "dda-lineplot-height",
+            linePlotHeight.toString(),
+          );
+        } catch {
+          // Ignore localStorage errors
+        }
+      },
+      300, // Debounce for 300ms to avoid excessive writes during resize
+    );
   }, [linePlotHeight]);
+
+  // Cleanup debounced localStorage writes on unmount
+  useEffect(() => {
+    return () => {
+      cancelDebouncedUpdate("dda-heatmap-height");
+      cancelDebouncedUpdate("dda-lineplot-height");
+    };
+  }, []);
 
   // Get available channels from the CURRENT variant's dda_matrix (source of truth)
   // NOTE: This needs to be computed AFTER currentVariantData, so we'll move it later

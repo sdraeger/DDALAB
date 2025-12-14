@@ -1,0 +1,77 @@
+/**
+ * Design Tokens - Semantic Colors and Spacing
+ *
+ * Standardizes colors and spacing across the application for consistency.
+ * Override these in your tailwind.config.ts for theme customization.
+ */
+
+:root {
+  /* Semantic Colors */
+  --color-success: 142 76% 36%;
+  --color-success-foreground: 0 0% 100%;
+  --color-warning: 38 92% 50%;
+  --color-warning-foreground: 0 0% 0%;
+  --color-error: 0 84% 60%;
+  --color-error-foreground: 0 0% 100%;
+  --color-info: 217 91% 60%;
+  --color-info-foreground: 0 0% 100%;
+
+  /* Spacing Scale (rem values) */
+  --spacing-xs: 0.25rem; /* 4px */
+  --spacing-sm: 0.5rem; /* 8px */
+  --spacing-md: 0.75rem; /* 12px */
+  --spacing-lg: 1rem; /* 16px */
+  --spacing-xl: 1.5rem; /* 24px */
+  --spacing-2xl: 2rem; /* 32px */
+  --spacing-3xl: 3rem; /* 48px */
+
+  /* Card Padding */
+  --card-padding: var(--spacing-lg);
+  --card-padding-compact: var(--spacing-md);
+
+  /* Gap Sizes */
+  --gap-tight: var(--spacing-sm);
+  --gap-normal: var(--spacing-md);
+  --gap-relaxed: var(--spacing-lg);
+
+  /* Button Sizes */
+  --button-height-sm: 2rem; /* h-8 */
+  --button-height-md: 2.25rem; /* h-9 */
+  --button-height-lg: 2.75rem; /* h-11 */
+}
+
+.dark {
+  --color-success: 142 76% 36%;
+  --color-success-foreground: 0 0% 100%;
+  --color-warning: 38 92% 50%;
+  --color-warning-foreground: 0 0% 0%;
+  --color-error: 0 84% 60%;
+  --color-error-foreground: 0 0% 100%;
+  --color-info: 217 91% 60%;
+  --color-info-foreground: 0 0% 100%;
+}
+
+/* Utility Classes */
+.status-success {
+  background-color: hsl(var(--color-success) / 0.1);
+  color: hsl(var(--color-success));
+  border-color: hsl(var(--color-success) / 0.3);
+}
+
+.status-warning {
+  background-color: hsl(var(--color-warning) / 0.1);
+  color: hsl(var(--color-warning));
+  border-color: hsl(var(--color-warning) / 0.3);
+}
+
+.status-error {
+  background-color: hsl(var(--color-error) / 0.1);
+  color: hsl(var(--color-error));
+  border-color: hsl(var(--color-error) / 0.3);
+}
+
+.status-info {
+  background-color: hsl(var(--color-info) / 0.1);
+  color: hsl(var(--color-info));
+  border-color: hsl(var(--color-info) / 0.3);
+}

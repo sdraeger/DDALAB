@@ -353,3 +353,27 @@ export const VIRTUALIZATION = {
   /** Default overscan count (items rendered outside viewport) */
   OVERSCAN_COUNT: 5,
 } as const;
+
+// ============================================================================
+// DDA Analysis Configuration
+// ============================================================================
+
+/**
+ * Configuration constants for Delay Differential Analysis
+ */
+export const DDA_ANALYSIS = {
+  /** Minimum display time for progress bar (ms) - prevents flickering on fast operations */
+  MIN_PROGRESS_DISPLAY_TIME: 500,
+  /** Default delay values for DDA analysis */
+  DEFAULT_DELAYS: [7, 10] as const,
+  /** Minimum time range (seconds) for analysis */
+  MIN_TIME_RANGE: 0.1,
+  /** Default time range end (seconds) when no file is loaded */
+  DEFAULT_TIME_END: 30,
+  /** Default window step value */
+  DEFAULT_WINDOW_STEP: 10,
+  /** Default preprocessing highpass filter (Hz) */
+  DEFAULT_HIGHPASS: 0.5,
+  /** Maximum channels to auto-select on file load */
+  DEFAULT_CHANNEL_LIMIT: 8,
+} as const;

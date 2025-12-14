@@ -9,6 +9,8 @@ import { useAppStore } from "@/store/appStore";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ApiServiceProvider } from "@/contexts/ApiServiceContext";
 import { CloseWarningHandler } from "@/components/CloseWarningHandler";
+import { OnboardingTour } from "@/components/onboarding/OnboardingTour";
+import { useOnboarding } from "@/hooks/useOnboarding";
 
 // Conditionally import PerformanceMonitor only in development
 const PerformanceMonitor =
@@ -31,6 +33,9 @@ export default function Home() {
   // Use ref to prevent double initialization in React StrictMode
   // This is checked synchronously before async operations, providing immediate protection
   const initializingRef = useRef(false);
+
+  // Onboarding tour
+  const onboarding = useOnboarding();
 
   // Use selectors to prevent unnecessary re-renders
   const isInitialized = useAppStore((state) => state.isInitialized);
@@ -283,6 +288,36 @@ export default function Home() {
           <DashboardLayout />
           {PerformanceMonitor && <PerformanceMonitor />}
           <CloseWarningHandler />
+          <OnboardingTour
+            steps={[
+              {
+                title: "Welcome to DDALAB",
+                description:
+                  "Let's take a quick tour of the key features to help you get started with Delay Differential Analysis.",
+              },
+              {
+                title: "File Selection",
+                description:
+                  "Start by selecting a data file from your local directory. DDALAB supports EDF, BrainVision, EEGLAB, and many other formats.",
+                target: "[data-tour='file-manager']",
+              },
+              {
+                title: "Analysis Configuration",
+                description:
+                  "Configure your DDA analysis by selecting variants, setting time ranges, and adjusting parameters. Use the presets for quick setup!",
+                target: "[data-tour='analysis-config']",
+              },
+              {
+                title: "Run Analysis",
+                description:
+                  "When you're ready, click the Run button to start your analysis. You'll see real-time progress and can cancel at any time.",
+                target: "#dda-run-button",
+              },
+            ]}
+            isOpen={onboarding.showOnboarding}
+            onComplete={onboarding.completeOnboarding}
+            onSkip={onboarding.skipOnboarding}
+          />
         </StatePersistenceProvider>
       </ApiServiceProvider>
     </ErrorBoundary>

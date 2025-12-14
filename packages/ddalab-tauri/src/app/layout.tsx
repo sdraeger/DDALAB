@@ -2,12 +2,15 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
+import "@/styles/focus.css";
+import "@/styles/design-tokens.css";
 import { QueryProvider } from "@/providers/QueryProvider";
 import { StateManagerProvider } from "@/providers/StateManagerProvider";
 import { ZoomWrapper } from "@/components/ZoomWrapper";
 import { ZoomKeyboardShortcuts } from "@/components/ZoomKeyboardShortcuts";
 import { ThemeProvider } from "@/components/theme-provider";
 import { GlobalSearchProvider } from "@/components/GlobalSearchProvider";
+import { SkipLinks } from "@/components/ui/skip-links";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -40,10 +43,14 @@ export default function RootLayout({
         >
           <StateManagerProvider>
             <QueryProvider>
+              <SkipLinks />
               <ZoomKeyboardShortcuts />
               <GlobalSearchProvider>
                 <ZoomWrapper>
-                  <div className="min-h-screen bg-background text-foreground">
+                  <div
+                    id="main-content"
+                    className="min-h-screen bg-background text-foreground"
+                  >
                     {children}
                   </div>
                 </ZoomWrapper>

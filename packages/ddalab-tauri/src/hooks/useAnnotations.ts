@@ -34,14 +34,23 @@ export const useTimeSeriesAnnotations = ({
   );
   const availablePlots = useAvailablePlots();
 
-  // Get file annotations object from store
-  const fileAnnotations = useAppStore(
-    (state) => state.annotations.timeSeries[filePath],
+  // Get all time series annotations with a stable selector
+  // This selector doesn't capture filePath, so it's stable across renders
+  const allTimeSeriesAnnotations = useAppStore(
+    (state) => state.annotations.timeSeries,
   );
+
+  // Pick out the specific file's annotations based on current filePath
+  // This useMemo will re-run when either filePath or allTimeSeriesAnnotations changes
+  const fileAnnotations = useMemo(() => {
+    if (!filePath) return undefined;
+    return allTimeSeriesAnnotations[filePath];
+  }, [filePath, allTimeSeriesAnnotations]);
 
   // Memoize combined and filtered annotations
   const annotations = useMemo(() => {
-    if (!fileAnnotations) return [];
+    // Return empty array if no file path or no annotations loaded yet
+    if (!filePath || !fileAnnotations) return [];
 
     let allAnnotations: PlotAnnotation[] = [];
     if (channel && fileAnnotations.channelAnnotations?.[channel]) {
@@ -54,14 +63,16 @@ export const useTimeSeriesAnnotations = ({
     }
 
     // Filter annotations based on plot visibility
-    return allAnnotations.filter((ann) => {
+    const filtered = allAnnotations.filter((ann) => {
       // If no visibility settings, show by default (backwards compatibility)
       if (!ann.visible_in_plots || ann.visible_in_plots.length === 0)
         return true;
       // Check if timeseries plot is in the visibility list
       return ann.visible_in_plots.includes("timeseries");
     });
-  }, [fileAnnotations, channel]);
+
+    return filtered;
+  }, [filePath, fileAnnotations, channel]);
 
   const [contextMenu, setContextMenu] = useState<{
     x: number;

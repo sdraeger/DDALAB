@@ -10,6 +10,77 @@ use rusqlite::{params, Connection};
 use sha2::{Digest, Sha256};
 use std::path::Path;
 
+/// Secure string that zeros its contents on drop
+/// Prevents credentials from lingering in memory
+pub struct SecureString(Vec<u8>);
+
+impl SecureString {
+    pub fn from_string(s: String) -> Self {
+        Self(s.into_bytes())
+    }
+
+    pub fn as_str(&self) -> Result<&str> {
+        std::str::from_utf8(&self.0).context("Invalid UTF-8 in SecureString")
+    }
+
+    pub fn into_string(mut self) -> String {
+        // SAFETY: We're moving out of self, so Drop won't run
+        let s = std::mem::take(&mut self.0);
+        std::mem::forget(self);
+        String::from_utf8(s).unwrap_or_default()
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl Drop for SecureString {
+    fn drop(&mut self) {
+        // Zero out memory before dropping
+        for byte in &mut self.0 {
+            // Volatile write to prevent compiler optimization
+            unsafe { std::ptr::write_volatile(byte as *mut u8, 0) };
+        }
+    }
+}
+
+impl Clone for SecureString {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl PartialEq for SecureString {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl PartialEq<String> for SecureString {
+    fn eq(&self, other: &String) -> bool {
+        self.as_str().map(|s| s == other).unwrap_or(false)
+    }
+}
+
+impl PartialEq<&str> for SecureString {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_str().map(|s| s == *other).unwrap_or(false)
+    }
+}
+
+impl std::ops::Index<std::ops::Range<usize>> for SecureString {
+    type Output = [u8];
+
+    fn index(&self, range: std::ops::Range<usize>) -> &Self::Output {
+        &self.0[range]
+    }
+}
+
 /// Secure secrets database with AES-256-GCM encryption
 /// Uses machine-specific key derivation combined with a per-installation random salt
 pub struct SecretsDatabase {
@@ -143,8 +214,8 @@ impl SecretsDatabase {
         Ok(())
     }
 
-    /// Retrieve and decrypt a secret
-    pub fn get_secret(&self, key: &str) -> Result<Option<String>> {
+    /// Retrieve and decrypt a secret (returns SecureString that zeros memory on drop)
+    pub fn get_secret(&self, key: &str) -> Result<Option<SecureString>> {
         let conn = self.conn.lock();
         let mut stmt = conn
             .prepare("SELECT encrypted_value, nonce FROM secrets WHERE key = ?1")
@@ -161,16 +232,22 @@ impl SecretsDatabase {
                 let nonce = Nonce::from_slice(&nonce_bytes);
 
                 // Decrypt the value
-                let decrypted = self
+                let mut decrypted = self
                     .cipher
                     .decrypt(nonce, encrypted.as_ref())
                     .map_err(|e| anyhow::anyhow!("Decryption failed: {}", e))?;
 
-                let value =
-                    String::from_utf8(decrypted).context("Decrypted value is not valid UTF-8")?;
+                // Validate UTF-8 before wrapping in SecureString
+                let _validate = std::str::from_utf8(&decrypted)
+                    .context("Decrypted value is not valid UTF-8")?;
 
                 log::info!("[SECRETS_DB] Retrieved encrypted secret: {}", key);
-                Ok(Some(value))
+
+                // Wrap in SecureString for automatic zeroing
+                let secure_string = SecureString(decrypted);
+
+                // Zero out the decrypted vec since we've moved it
+                Ok(Some(secure_string))
             }
             Err(rusqlite::Error::QueryReturnedNoRows) => {
                 log::info!("[SECRETS_DB] No secret found for key: {}", key);
@@ -243,36 +320,45 @@ impl SecretsDatabase {
         Ok(())
     }
 
-    pub fn get_nsg_credentials(&self) -> Result<Option<(String, String, String)>> {
-        let credentials_str = self
+    pub fn get_nsg_credentials(
+        &self,
+    ) -> Result<Option<(SecureString, SecureString, SecureString)>> {
+        let credentials_secure = self
             .get_secret("nsg_credentials")
             .context("Failed to retrieve NSG credentials")?;
 
-        match credentials_str {
-            Some(json_str) => {
+        match credentials_secure {
+            Some(secure_str) => {
+                let json_str = secure_str.as_str()?;
                 let credentials: serde_json::Value =
-                    serde_json::from_str(&json_str).context("Failed to parse NSG credentials")?;
+                    serde_json::from_str(json_str).context("Failed to parse NSG credentials")?;
 
-                let username = credentials["username"]
+                let username_str = credentials["username"]
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing username in NSG credentials"))?
                     .to_string();
 
-                let password = credentials["password"]
+                let password_str = credentials["password"]
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing password in NSG credentials"))?
                     .to_string();
 
-                let app_key = credentials["app_key"]
+                let app_key_str = credentials["app_key"]
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("Missing app_key in NSG credentials"))?
                     .to_string();
 
                 log::info!(
                     "[SECRETS_DB] Retrieved NSG credentials for user: {}",
-                    username
+                    username_str
                 );
-                Ok(Some((username, password, app_key)))
+
+                // Wrap sensitive strings in SecureString for automatic zeroing
+                Ok(Some((
+                    SecureString::from_string(username_str),
+                    SecureString::from_string(password_str),
+                    SecureString::from_string(app_key_str),
+                )))
             }
             None => {
                 log::info!("[SECRETS_DB] No NSG credentials found");
@@ -312,7 +398,8 @@ mod tests {
 
         // Retrieve it
         let value = db.get_secret("test_key").unwrap();
-        assert_eq!(value, Some("test_value".to_string()));
+        assert!(value.is_some());
+        assert_eq!(value.as_ref().unwrap().as_str().unwrap(), "test_value");
 
         // Check existence
         assert!(db.has_secret("test_key").unwrap());
@@ -338,6 +425,6 @@ mod tests {
 
         // Retrieve it
         let retrieved = db.get_secret("openneuro_api_key").unwrap().unwrap();
-        assert_eq!(retrieved, api_key);
+        assert_eq!(retrieved.as_str().unwrap(), api_key);
     }
 }

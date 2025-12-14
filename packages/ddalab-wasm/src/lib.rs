@@ -438,7 +438,7 @@ pub fn normalize_heatmap(data: &[f64], rows: usize, cols: usize) -> Vec<f64> {
 
 /// Apply colormap to normalized [0, 1] data
 /// Returns: [r0, g0, b0, r1, g1, b1, ...] values in 0-255 range
-/// colormap: 0 = viridis, 1 = plasma, 2 = inferno, 3 = magma, 4 = coolwarm
+/// colormap: 0 = viridis, 1 = plasma, 2 = inferno, 3 = magma, 4 = coolwarm, 5 = jet, 6 = cool, 7 = hot
 #[wasm_bindgen]
 pub fn apply_colormap(data: &[f64], colormap: u8) -> Vec<u8> {
     #[cfg(feature = "console_error_panic_hook")]
@@ -454,6 +454,9 @@ pub fn apply_colormap(data: &[f64], colormap: u8) -> Vec<u8> {
             2 => colormap_inferno(t),
             3 => colormap_magma(t),
             4 => colormap_coolwarm(t),
+            5 => colormap_jet(t),
+            6 => colormap_cool(t),
+            7 => colormap_hot(t),
             _ => colormap_viridis(t),
         };
         result.push(r);
@@ -499,6 +502,40 @@ fn colormap_coolwarm(t: f64) -> (u8, u8, u8) {
     let g = if t < 0.5 { t * 2.0 } else { 2.0 - t * 2.0 };
     let b = if t < 0.5 { 1.0 } else { 2.0 - t * 2.0 };
     ((r * 255.0) as u8, (g.max(0.0) * 255.0) as u8, (b.max(0.0) * 255.0) as u8)
+}
+
+fn colormap_jet(t: f64) -> (u8, u8, u8) {
+    // Classic rainbow: blue -> cyan -> green -> yellow -> red
+    let (r, g, b) = if t < 0.25 {
+        (0.0, t * 4.0, 1.0)
+    } else if t < 0.5 {
+        (0.0, 1.0, 1.0 - (t - 0.25) * 4.0)
+    } else if t < 0.75 {
+        ((t - 0.5) * 4.0, 1.0, 0.0)
+    } else {
+        (1.0, 1.0 - (t - 0.75) * 4.0, 0.0)
+    };
+    ((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8)
+}
+
+fn colormap_cool(t: f64) -> (u8, u8, u8) {
+    // Cyan to magenta
+    let r = t;
+    let g = 1.0 - t;
+    let b = 1.0;
+    ((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8)
+}
+
+fn colormap_hot(t: f64) -> (u8, u8, u8) {
+    // Black through red to yellow to white
+    let (r, g, b) = if t < 0.33 {
+        (t * 3.0, 0.0, 0.0)
+    } else if t < 0.67 {
+        (1.0, (t - 0.33) * 3.0, 0.0)
+    } else {
+        (1.0, 1.0, (t - 0.67) * 3.0)
+    };
+    ((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8)
 }
 
 /// Compute correlation matrix for multiple channels
@@ -1604,7 +1641,7 @@ pub fn transform_heatmap_with_stats(
 ///
 /// data: log-transformed heatmap data
 /// color_min, color_max: color range for normalization
-/// colormap: 0 = viridis, 1 = plasma, 2 = inferno, 3 = magma, 4 = coolwarm
+/// colormap: 0 = viridis, 1 = plasma, 2 = inferno, 3 = magma, 4 = coolwarm, 5 = jet, 6 = cool, 7 = hot
 ///
 /// Returns: RGB values as [r0, g0, b0, r1, g1, b1, ...] in 0-255 range
 #[wasm_bindgen]
@@ -1634,6 +1671,9 @@ pub fn normalize_and_colormap(
             2 => colormap_inferno(clamped),
             3 => colormap_magma(clamped),
             4 => colormap_coolwarm(clamped),
+            5 => colormap_jet(clamped),
+            6 => colormap_cool(clamped),
+            7 => colormap_hot(clamped),
             _ => colormap_viridis(clamped),
         };
 

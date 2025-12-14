@@ -397,9 +397,9 @@ impl AppStateManager {
 
         // Create credentials struct
         let credentials = NSGCredentials {
-            username,
-            password,
-            app_key,
+            username: username.into_string(),
+            password: password.into_string(),
+            app_key: app_key.into_string(),
         };
 
         // Initialize NSG components

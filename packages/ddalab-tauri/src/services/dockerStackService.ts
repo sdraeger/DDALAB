@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { loggers } from "@/lib/logger";
 
 export interface DockerService {
   name: string;
@@ -131,7 +132,7 @@ export class DockerStackService {
       const response = await fetch(`${apiUrl}/health`);
       return response.ok;
     } catch (error) {
-      console.warn("API health check failed:", error);
+      loggers.api.debug("API health check failed", { error, apiUrl });
       return false;
     }
   }

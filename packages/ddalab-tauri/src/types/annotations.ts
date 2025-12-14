@@ -19,6 +19,24 @@ export interface PlotAnnotation {
   visible_in_plots?: string[];
 }
 
+// Tauri backend returns annotations with snake_case field names
+export interface TauriAnnotation {
+  id: string;
+  position: number;
+  label: string;
+  description?: string;
+  color?: string;
+  created_at?: string;
+  updated_at?: string;
+  visible_in_plots?: string[];
+}
+
+// Response from Tauri get_file_annotations command
+export interface TauriFileAnnotationsResponse {
+  global_annotations?: TauriAnnotation[];
+  channel_annotations?: Record<string, TauriAnnotation[]>;
+}
+
 export interface TimeSeriesAnnotations {
   // File path this annotation set belongs to
   filePath: string;
