@@ -44,6 +44,35 @@ export function debouncedUpdate(
   debouncedTimers.set(key, timeoutId);
 }
 
+/**
+ * Cancel a specific debounced update by key.
+ * Call this in component cleanup to prevent memory leaks.
+ */
+export function cancelDebouncedUpdate(key: string): void {
+  const existing = debouncedTimers.get(key);
+  if (existing) {
+    clearTimeout(existing);
+    debouncedTimers.delete(key);
+  }
+}
+
+/**
+ * Cancel all debounced updates matching a key prefix.
+ * Useful for cleaning up all timers for a component/feature.
+ */
+export function cancelDebouncedUpdatesWithPrefix(prefix: string): void {
+  const keysToDelete: string[] = [];
+
+  debouncedTimers.forEach((timeout, key) => {
+    if (key.startsWith(prefix)) {
+      clearTimeout(timeout);
+      keysToDelete.push(key);
+    }
+  });
+
+  keysToDelete.forEach((key) => debouncedTimers.delete(key));
+}
+
 export function throttle<T extends (...args: any[]) => any>(
   func: T,
   wait: number,

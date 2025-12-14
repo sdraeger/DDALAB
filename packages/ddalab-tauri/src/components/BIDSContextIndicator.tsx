@@ -77,8 +77,9 @@ export function BIDSContextIndicator({
                 size="sm"
                 className="h-6 w-6 p-0 ml-1"
                 onClick={handleRevealInFileBrowser}
+                aria-label="Reveal in File Browser"
               >
-                <FolderOpen className="h-3.5 w-3.5" />
+                <FolderOpen className="h-3.5 w-3.5" aria-hidden="true" />
               </Button>
             </TooltipTrigger>
             <TooltipContent>Reveal in File Browser</TooltipContent>
@@ -180,8 +181,9 @@ export function BIDSContextIndicator({
                 size="sm"
                 className="h-6 w-6 p-0 ml-2"
                 onClick={handleRevealInFileBrowser}
+                aria-label="Reveal in File Browser"
               >
-                <FolderOpen className="h-3.5 w-3.5" />
+                <FolderOpen className="h-3.5 w-3.5" aria-hidden="true" />
               </Button>
             </TooltipTrigger>
             <TooltipContent>Reveal in File Browser</TooltipContent>

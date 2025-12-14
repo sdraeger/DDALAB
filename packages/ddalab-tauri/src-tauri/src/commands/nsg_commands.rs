@@ -49,7 +49,7 @@ pub async fn get_nsg_credentials(
 
     Ok(
         creds.map(|(username, password, app_key)| NSGCredentialsResponse {
-            username,
+            username: username.into_string(),
             // Only indicate presence, never expose actual credentials
             has_password: !password.is_empty(),
             has_app_key: !app_key.is_empty(),
@@ -88,9 +88,9 @@ pub async fn test_nsg_connection(state: State<'_, AppStateManager>) -> Result<bo
 
     // Create temporary client to test connection
     let credentials = ddalab_tauri::nsg::NSGCredentials {
-        username,
-        password,
-        app_key,
+        username: username.into_string(),
+        password: password.into_string(),
+        app_key: app_key.into_string(),
     };
 
     let client = ddalab_tauri::nsg::NSGClient::new(credentials)

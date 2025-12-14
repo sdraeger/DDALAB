@@ -14,6 +14,7 @@ import { useDDAHistory, useAnalysisFromHistory } from "@/hooks/useDDAAnalysis";
 import { useUnreadNotificationCount } from "@/hooks/useNotifications";
 import { DDAProgressEvent } from "@/types/api";
 import { FileManager } from "@/components/FileManager";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { FileTabBar } from "@/components/FileTabBar";
 import { FileTabShortcuts } from "@/components/FileTabShortcuts";
 import { FileTabSync } from "@/components/FileTabSync";
@@ -325,7 +326,9 @@ export function DashboardLayout() {
               style={{ width: `${sidebarWidth}px` }}
               data-testid="sidebar"
             >
-              <FileManager apiService={apiService} />
+              <ErrorBoundary>
+                <FileManager apiService={apiService} />
+              </ErrorBoundary>
             </div>
             <ResizeHandle
               onResize={setSidebarWidth}
@@ -336,9 +339,19 @@ export function DashboardLayout() {
           </>
         ) : (
           <div
-            className="w-12 flex-shrink-0 border-r bg-background hover:bg-accent transition-colors cursor-pointer flex items-center justify-center"
+            className="w-12 flex-shrink-0 border-r bg-background hover:bg-accent transition-colors cursor-pointer flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-ring"
             onClick={() => setSidebarOpen(true)}
-            title="Click to expand sidebar"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setSidebarOpen(true);
+              }
+            }}
+            tabIndex={0}
+            role="button"
+            aria-label="Expand sidebar"
+            aria-expanded="false"
+            title="Click or press Enter/Space to expand sidebar"
           >
             <PanelLeftOpen className="h-5 w-5 text-muted-foreground" />
           </div>

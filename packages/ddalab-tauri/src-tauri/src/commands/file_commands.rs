@@ -177,13 +177,46 @@ fn segment_file_blocking(params: SegmentFileParams) -> Result<SegmentFileResult,
     // Determine output format
     let output_format = determine_output_format(&params.output_format, &file_path)?;
 
-    // Create output directory if it doesn't exist
+    // Validate and canonicalize output directory path to prevent path traversal attacks
     let output_dir = PathBuf::from(&params.output_directory);
-    std::fs::create_dir_all(&output_dir)
+
+    // Check for path traversal patterns
+    if params.output_directory.contains("..") || params.output_directory.contains("~") {
+        return Err("Invalid output directory: path traversal not allowed".to_string());
+    }
+
+    // Canonicalize path if it exists, or validate parent if it doesn't
+    let validated_output_dir = if output_dir.exists() {
+        output_dir
+            .canonicalize()
+            .map_err(|e| format!("Failed to canonicalize output directory: {}", e))?
+    } else {
+        // For new directories, validate parent exists and is safe
+        if let Some(parent) = output_dir.parent() {
+            if parent.exists() {
+                parent
+                    .canonicalize()
+                    .map_err(|e| format!("Failed to canonicalize parent directory: {}", e))?
+                    .join(output_dir.file_name().unwrap())
+            } else {
+                return Err("Parent directory does not exist".to_string());
+            }
+        } else {
+            return Err("Invalid output directory path".to_string());
+        }
+    };
+
+    // Create output directory if it doesn't exist
+    std::fs::create_dir_all(&validated_output_dir)
         .map_err(|e| format!("Failed to create output directory: {}", e))?;
 
+    // Validate filename doesn't contain path separators
+    if params.output_filename.contains('/') || params.output_filename.contains('\\') {
+        return Err("Invalid output filename: path separators not allowed".to_string());
+    }
+
     // Construct output path
-    let output_path = output_dir.join(&params.output_filename);
+    let output_path = validated_output_dir.join(&params.output_filename);
 
     // Check for cancellation before writing
     check_cancelled()?;

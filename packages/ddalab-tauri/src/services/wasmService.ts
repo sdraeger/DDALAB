@@ -5,6 +5,8 @@
  * matrix operations, and data compression using WebAssembly.
  */
 
+import { loggers } from "@/lib/logger";
+
 export interface ChannelStats {
   min: number;
   max: number;
@@ -36,7 +38,15 @@ export interface HeatmapTransformResult {
 }
 
 export type DecimationMethod = "lttb" | "minmax" | "average";
-export type Colormap = "viridis" | "plasma" | "inferno" | "magma" | "coolwarm";
+export type Colormap =
+  | "viridis"
+  | "plasma"
+  | "inferno"
+  | "magma"
+  | "coolwarm"
+  | "jet"
+  | "cool"
+  | "hot";
 
 // WASM module state - we use any types here since the module is dynamically loaded
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -65,9 +75,9 @@ export async function initWasm(): Promise<void> {
 
       wasmFunctions = wasm;
       wasmInitialized = true;
-      console.log("[WASM] Signal processing module initialized successfully");
+      loggers.wasm.info("Signal processing module initialized successfully");
     } catch (error) {
-      console.warn("[WASM] Failed to initialize, using JS fallback:", error);
+      loggers.wasm.warn("Failed to initialize, using JS fallback", { error });
       // Mark as initialized but without WASM functions - will use JS fallbacks
       wasmInitialized = true;
     }
@@ -581,6 +591,9 @@ export function applyColormap(data: number[], colormap: Colormap): Uint8Array {
     inferno: 2,
     magma: 3,
     coolwarm: 4,
+    jet: 5,
+    cool: 6,
+    hot: 7,
   }[colormap];
 
   if (!wasmFunctions) {
@@ -733,6 +746,9 @@ export function normalizeAndColormap(
     inferno: 2,
     magma: 3,
     coolwarm: 4,
+    jet: 5,
+    cool: 6,
+    hot: 7,
   }[colormap];
 
   if (!wasmFunctions) {
@@ -895,6 +911,48 @@ function normalizeAndColormapJS(
         r = clamped < 0.5 ? clamped * 2 : 1;
         g = clamped < 0.5 ? clamped * 2 : 2 - clamped * 2;
         b = clamped < 0.5 ? 1 : 2 - clamped * 2;
+        break;
+      case "jet":
+        // Classic rainbow: blue -> cyan -> green -> yellow -> red
+        if (clamped < 0.25) {
+          r = 0;
+          g = clamped * 4;
+          b = 1;
+        } else if (clamped < 0.5) {
+          r = 0;
+          g = 1;
+          b = 1 - (clamped - 0.25) * 4;
+        } else if (clamped < 0.75) {
+          r = (clamped - 0.5) * 4;
+          g = 1;
+          b = 0;
+        } else {
+          r = 1;
+          g = 1 - (clamped - 0.75) * 4;
+          b = 0;
+        }
+        break;
+      case "cool":
+        // Cyan to magenta
+        r = clamped;
+        g = 1 - clamped;
+        b = 1;
+        break;
+      case "hot":
+        // Black through red to yellow to white
+        if (clamped < 0.33) {
+          r = clamped * 3;
+          g = 0;
+          b = 0;
+        } else if (clamped < 0.67) {
+          r = 1;
+          g = (clamped - 0.33) * 3;
+          b = 0;
+        } else {
+          r = 1;
+          g = 1;
+          b = (clamped - 0.67) * 3;
+        }
         break;
       default:
         r = g = b = clamped;
@@ -1516,10 +1574,67 @@ function applyColormapJS(data: number[], colormap: Colormap): Uint8Array {
         g = Math.pow(t, 0.5);
         b = 0.329 + t * (1.452 - t * 1.781);
         break;
+      case "plasma":
+        r = Math.min(0.05 + t * 2.5, 1);
+        g = Math.min(t * t * 0.8, 1);
+        b = Math.max(0, Math.min(0.533 - t * 0.533 + t * t * 0.5, 1));
+        break;
+      case "inferno":
+        r = Math.min(t * 2, 1);
+        g = Math.min(t * t * 1.5, 1);
+        b = Math.max(0, Math.min(0.2 + t * 0.6 - t * t * 0.8, 1));
+        break;
+      case "magma":
+        r = Math.min(t * 1.8, 1);
+        g = Math.min(t * t * 1.2, 1);
+        b = Math.min(0.4 + t * 0.6, 1);
+        break;
       case "coolwarm":
         r = t < 0.5 ? t * 2 : 1;
         g = t < 0.5 ? t * 2 : 2 - t * 2;
         b = t < 0.5 ? 1 : 2 - t * 2;
+        break;
+      case "jet":
+        // Classic rainbow: blue -> cyan -> green -> yellow -> red
+        if (t < 0.25) {
+          r = 0;
+          g = t * 4;
+          b = 1;
+        } else if (t < 0.5) {
+          r = 0;
+          g = 1;
+          b = 1 - (t - 0.25) * 4;
+        } else if (t < 0.75) {
+          r = (t - 0.5) * 4;
+          g = 1;
+          b = 0;
+        } else {
+          r = 1;
+          g = 1 - (t - 0.75) * 4;
+          b = 0;
+        }
+        break;
+      case "cool":
+        // Cyan to magenta
+        r = t;
+        g = 1 - t;
+        b = 1;
+        break;
+      case "hot":
+        // Black through red to yellow to white
+        if (t < 0.33) {
+          r = t * 3;
+          g = 0;
+          b = 0;
+        } else if (t < 0.67) {
+          r = 1;
+          g = (t - 0.33) * 3;
+          b = 0;
+        } else {
+          r = 1;
+          g = 1;
+          b = (t - 0.67) * 3;
+        }
         break;
       default:
         r = t;

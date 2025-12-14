@@ -69,6 +69,15 @@ import {
   VariantSelector,
   DDA_VARIANTS,
 } from "@/components/dda/VariantSelector";
+import { TimeRangeSelector } from "@/components/analysis/TimeRangeSelector";
+import { AnalysisSummary } from "@/components/analysis/AnalysisSummary";
+import { SubmissionAlerts } from "@/components/analysis/SubmissionAlerts";
+import { UndoRedoControls } from "@/components/analysis/UndoRedoControls";
+import { useAnalysisEstimation } from "@/hooks/useAnalysisEstimation";
+import { useAnalysisValidation } from "@/hooks/useAnalysisValidation";
+import { useAnalysisUndo } from "@/hooks/useAnalysisUndo";
+import { useUndoRedoStore } from "@/store/undoRedoStore";
+import { DDA_ANALYSIS } from "@/lib/constants";
 
 interface DDAAnalysisProps {
   apiService: ApiService;
@@ -249,6 +258,27 @@ export const DDAAnalysis = memo(function DDAAnalysis({
     null,
   );
   const [newAnalysisName, setNewAnalysisName] = useState("");
+
+  // New UX improvement hooks
+  const estimation = useAnalysisEstimation(parameters);
+  const validation = useAnalysisValidation(parameters, selectedFile);
+  const undoActions = useAnalysisUndo((key, value) => {
+    setLocalParameters((prev) => ({ ...prev, [key]: value }));
+  });
+  const pushAction = useUndoRedoStore((state) => state.pushAction);
+
+  // Helper function to update parameters with undo support
+  const updateParameter = useCallback(
+    <K extends keyof DDAParameters>(
+      key: K,
+      newValue: DDAParameters[K],
+      label?: string,
+    ) => {
+      const currentValue = localParameters[key];
+      undoActions.updateWithUndo(key, newValue, currentValue, label);
+    },
+    [localParameters, undoActions],
+  );
 
   // Register searchable items for this component
   useSearchableItems(
@@ -1122,8 +1152,10 @@ export const DDAAnalysis = memo(function DDAAnalysis({
     // Helper to hide progress with minimum display time
     const hideProgressBar = (callback: () => void) => {
       const elapsed = Date.now() - (analysisStartTimeRef.current || 0);
-      const minDisplayTime = 500; // Show progress bar for at least 500ms
-      const remainingTime = Math.max(0, minDisplayTime - elapsed);
+      const remainingTime = Math.max(
+        0,
+        DDA_ANALYSIS.MIN_PROGRESS_DISPLAY_TIME - elapsed,
+      );
 
       if (remainingTime > 0) {
         minProgressDisplayTimeRef.current = setTimeout(() => {
@@ -1507,21 +1539,26 @@ export const DDAAnalysis = memo(function DDAAnalysis({
   };
 
   const resetParameters = () => {
+    // Save current parameters for undo
+    const previousParameters = { ...localParameters };
+
     // Calculate default window length based on sampling rate (0.25 seconds)
     const defaultWindowLength = selectedFile
       ? Math.round(0.25 * selectedFile.sample_rate)
       : 64; // Fallback for 256 Hz: 0.25 * 256 = 64
 
-    setLocalParameters({
+    const defaultParameters: DDAParameters = {
       variants: ["single_timeseries"],
       windowLength: defaultWindowLength,
-      windowStep: 10,
-      delays: [7, 10], // Default delays
+      windowStep: DDA_ANALYSIS.DEFAULT_WINDOW_STEP,
+      delays: [...DDA_ANALYSIS.DEFAULT_DELAYS],
       timeStart: 0,
-      timeEnd: selectedFile?.duration || 30,
-      selectedChannels: selectedFile?.channels.slice(0, 8) || [],
+      timeEnd: selectedFile?.duration || DDA_ANALYSIS.DEFAULT_TIME_END,
+      selectedChannels:
+        selectedFile?.channels.slice(0, DDA_ANALYSIS.DEFAULT_CHANNEL_LIMIT) ||
+        [],
       preprocessing: {
-        highpass: 0.5,
+        highpass: DDA_ANALYSIS.DEFAULT_HIGHPASS,
         lowpass: 70,
         notch: [50],
       },
@@ -1543,16 +1580,35 @@ export const DDAAnalysis = memo(function DDAAnalysis({
         nr_tau: 2,
         encoding: [1, 2, 10], // EEG Standard preset as default
       },
+    };
+
+    // Add to undo stack
+    pushAction({
+      type: "reset-parameters",
+      label: "Reset all parameters",
+      undo: () => {
+        setLocalParameters(previousParameters);
+      },
+      redo: () => {
+        setLocalParameters(defaultParameters);
+      },
+      details: "Reset all analysis parameters to default values",
     });
+
+    // Apply reset
+    setLocalParameters(defaultParameters);
   };
 
   const handleChannelToggle = (channel: string, checked: boolean) => {
-    setLocalParameters((prev) => ({
-      ...prev,
-      selectedChannels: checked
-        ? [...prev.selectedChannels, channel]
-        : prev.selectedChannels.filter((ch) => ch !== channel),
-    }));
+    const newChannels = checked
+      ? [...localParameters.selectedChannels, channel]
+      : localParameters.selectedChannels.filter((ch) => ch !== channel);
+
+    updateParameter(
+      "selectedChannels",
+      newChannels,
+      checked ? `Select channel ${channel}` : `Deselect channel ${channel}`,
+    );
   };
 
   // Handle cancellation of running analysis
@@ -1821,33 +1877,29 @@ export const DDAAnalysis = memo(function DDAAnalysis({
           onReset={() => setShowResetConfirmDialog(true)}
         />
 
-        {serverSubmissionPhase && (
-          <Alert className="mt-4 flex-shrink-0">
-            <Server className="h-4 w-4 animate-pulse" />
-            <AlertDescription>{serverSubmissionPhase}</AlertDescription>
-          </Alert>
-        )}
+        <UndoRedoControls
+          canUndo={undoActions.canUndo}
+          canRedo={undoActions.canRedo}
+          undoLabel={undoActions.undoLabel}
+          redoLabel={undoActions.redoLabel}
+          onUndo={undoActions.undo}
+          onRedo={undoActions.redo}
+          className="mt-2"
+        />
 
-        {serverError && (
-          <Alert variant="destructive" className="mt-4 flex-shrink-0">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>{serverError}</AlertDescription>
-          </Alert>
-        )}
-
-        {nsgSubmissionPhase && (
-          <Alert className="mt-4 flex-shrink-0">
-            <Cloud className="h-4 w-4 animate-pulse" />
-            <AlertDescription>{nsgSubmissionPhase}</AlertDescription>
-          </Alert>
-        )}
-
-        {nsgError && (
-          <Alert variant="destructive" className="mt-4 flex-shrink-0">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>{nsgError}</AlertDescription>
-          </Alert>
-        )}
+        <SubmissionAlerts
+          nsg={{
+            phase: nsgSubmissionPhase,
+            error: nsgError,
+            isSubmitting: isSubmittingToNsg,
+          }}
+          server={{
+            phase: serverSubmissionPhase,
+            error: serverError,
+            isSubmitting: isSubmittingToServer,
+          }}
+          className="mt-4"
+        />
 
         <div className="flex-1 min-h-0 space-y-4 overflow-y-auto">
           {/* Analysis Status - only show for active/recent analysis, not restored from persistence */}
@@ -1876,10 +1928,11 @@ export const DDAAnalysis = memo(function DDAAnalysis({
             <VariantSelector
               selectedVariants={parameters.variants}
               onVariantsChange={(newVariants) =>
-                setLocalParameters((prev) => ({
-                  ...prev,
-                  variants: newVariants,
-                }))
+                updateParameter(
+                  "variants",
+                  newVariants,
+                  "Change selected variants",
+                )
               }
               disabled={ddaRunning || localIsRunning}
             />
@@ -1909,10 +1962,11 @@ export const DDAAnalysis = memo(function DDAAnalysis({
                           `Start time cannot be negative. Set to ${clampedValue.toFixed(1)}s`,
                         );
                       }
-                      setLocalParameters((prev) => ({
-                        ...prev,
-                        timeStart: clampedValue,
-                      }));
+                      updateParameter(
+                        "timeStart",
+                        clampedValue,
+                        "Change start time",
+                      );
                     }}
                     disabled={ddaRunning || localIsRunning}
                     min="0"
@@ -1950,19 +2004,23 @@ export const DDAAnalysis = memo(function DDAAnalysis({
                           );
                         }
                       }
-                      setLocalParameters((prev) => ({
-                        ...prev,
-                        timeEnd: clampedValue,
-                      }));
+                      updateParameter(
+                        "timeEnd",
+                        clampedValue,
+                        "Change end time",
+                      );
                     }}
                     disabled={ddaRunning || localIsRunning}
-                    min={parameters.timeStart + 0.1}
+                    min={parameters.timeStart + DDA_ANALYSIS.MIN_TIME_RANGE}
                     max={selectedFile?.duration}
-                    step="0.1"
+                    step={DDA_ANALYSIS.MIN_TIME_RANGE.toString()}
                   />
                   <p className="text-xs text-muted-foreground mt-1">
-                    Valid range: {(parameters.timeStart + 0.1).toFixed(1)} -{" "}
-                    {selectedFile?.duration?.toFixed(1) || "?"}s
+                    Valid range:{" "}
+                    {(
+                      parameters.timeStart + DDA_ANALYSIS.MIN_TIME_RANGE
+                    ).toFixed(1)}{" "}
+                    - {selectedFile?.duration?.toFixed(1) || "?"}s
                   </p>
                 </div>
                 <div className="text-xs text-muted-foreground">
@@ -1979,16 +2037,14 @@ export const DDAAnalysis = memo(function DDAAnalysis({
                     duration={parameters.timeEnd - parameters.timeStart}
                     disabled={ddaRunning || localIsRunning}
                     onWindowLengthChange={(value) =>
-                      setLocalParameters((prev) => ({
-                        ...prev,
-                        windowLength: value,
-                      }))
+                      updateParameter(
+                        "windowLength",
+                        value,
+                        "Change window length",
+                      )
                     }
                     onWindowStepChange={(value) =>
-                      setLocalParameters((prev) => ({
-                        ...prev,
-                        windowStep: value,
-                      }))
+                      updateParameter("windowStep", value, "Change window step")
                     }
                   />
                 </div>
@@ -2023,10 +2079,7 @@ export const DDAAnalysis = memo(function DDAAnalysis({
               <DelayPresetManager
                 delays={parameters.delays}
                 onChange={(delays) => {
-                  setLocalParameters((prev) => ({
-                    ...prev,
-                    delays,
-                  }));
+                  updateParameter("delays", delays, "Change delay values");
                 }}
                 disabled={ddaRunning || localIsRunning}
                 sampleRate={selectedFile?.sample_rate || 256}
@@ -2042,13 +2095,15 @@ export const DDAAnalysis = memo(function DDAAnalysis({
                   parameters.modelParameters.encoding || [1, 2, 10]
                 }
                 onTermsChange={(terms) => {
-                  setLocalParameters((prev) => ({
-                    ...prev,
-                    modelParameters: {
-                      ...prev.modelParameters!,
-                      encoding: terms,
-                    },
-                  }));
+                  const newModelParams = {
+                    ...parameters.modelParameters!,
+                    encoding: terms,
+                  };
+                  updateParameter(
+                    "modelParameters",
+                    newModelParams,
+                    "Change model encoding",
+                  );
                 }}
                 tauValues={parameters.delays}
               />
@@ -2084,49 +2139,26 @@ export const DDAAnalysis = memo(function DDAAnalysis({
                   channelConfigs={parameters.variantChannelConfigs}
                   onConfigChange={(variantId, config) => {
                     // Real-time validation is handled by useEffect
-                    setLocalParameters((prev) => ({
-                      ...prev,
-                      variantChannelConfigs: {
-                        ...prev.variantChannelConfigs,
-                        [variantId]: config,
-                      },
-                    }));
+                    const newChannelConfigs = {
+                      ...parameters.variantChannelConfigs,
+                      [variantId]: config,
+                    };
+                    updateParameter(
+                      "variantChannelConfigs",
+                      newChannelConfigs,
+                      `Change channels for ${variantId}`,
+                    );
                   }}
                 />
               </CardContent>
             </Card>
           )}
 
-          {/* Analysis Summary */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Analysis Summary</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-4 gap-4 text-sm">
-                <div>
-                  <Label className="text-muted-foreground">Channels</Label>
-                  <p className="font-medium">
-                    {parameters.selectedChannels.length}
-                  </p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Time Range</Label>
-                  <p className="font-medium">
-                    {(parameters.timeEnd - parameters.timeStart).toFixed(1)}s
-                  </p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Variants</Label>
-                  <p className="font-medium">{parameters.variants.length}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">Est. Time</Label>
-                  <p className="font-medium">{estimatedTime}s</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          {/* Analysis Summary - Using new component */}
+          <AnalysisSummary
+            estimation={estimation}
+            timeRange={parameters.timeEnd - parameters.timeStart}
+          />
         </div>
       </div>
 
@@ -2209,9 +2241,13 @@ export const DDAAnalysis = memo(function DDAAnalysis({
             channels:
               parameters.selectedChannels.length > 0
                 ? parameters.selectedChannels
-                : Object.values(parameters.variantChannelConfigs)
-                    .flatMap((config) => config?.selectedChannels || [])
-                    .filter((ch, idx, arr) => arr.indexOf(ch) === idx),
+                : Array.from(
+                    new Set(
+                      Object.values(parameters.variantChannelConfigs).flatMap(
+                        (config) => config?.selectedChannels || [],
+                      ),
+                    ),
+                  ),
             start_time: parameters.timeStart,
             end_time: parameters.timeEnd,
             variants: parameters.variants,

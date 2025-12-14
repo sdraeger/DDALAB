@@ -15,7 +15,16 @@
     "core:window:allow-close",
     "core:window:allow-destroy",
     "core:window:allow-start-dragging",
-    "shell:allow-open",
+    {
+      "identifier": "shell:allow-open",
+      "allow": [
+        {
+          "name": "^https?://",
+          "cmd": "",
+          "sidecar": false
+        }
+      ]
+    },
     "dialog:default",
     "dialog:allow-open",
     "dialog:allow-message",

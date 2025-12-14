@@ -158,11 +158,15 @@ export function PopoutLayout({
                 ? "Unlock window (stop ignoring main UI changes)"
                 : "Lock window (ignore main UI changes)"
             }
+            aria-label={isLocked ? "Unlock window" : "Lock window"}
           >
             {isLocked ? (
-              <Lock className="h-3.5 w-3.5 text-yellow-600" />
+              <Lock
+                className="h-3.5 w-3.5 text-yellow-600"
+                aria-hidden="true"
+              />
             ) : (
-              <Unlock className="h-3.5 w-3.5" />
+              <Unlock className="h-3.5 w-3.5" aria-hidden="true" />
             )}
           </Button>
 
@@ -174,8 +178,9 @@ export function PopoutLayout({
               onClick={handleRefresh}
               className="h-7 w-7 p-0"
               title="Refresh data"
+              aria-label="Refresh data"
             >
-              <RefreshCw className="h-3.5 w-3.5" />
+              <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
             </Button>
           )}
 
@@ -188,8 +193,9 @@ export function PopoutLayout({
             onClick={handleMinimize}
             className="h-7 w-7 p-0"
             title="Minimize"
+            aria-label="Minimize window"
           >
-            <Minimize2 className="h-3.5 w-3.5" />
+            <Minimize2 className="h-3.5 w-3.5" aria-hidden="true" />
           </Button>
 
           <Button
@@ -198,8 +204,9 @@ export function PopoutLayout({
             onClick={handleMaximizeToggle}
             className="h-7 w-7 p-0"
             title={isMaximized ? "Restore" : "Maximize"}
+            aria-label={isMaximized ? "Restore window" : "Maximize window"}
           >
-            <Maximize2 className="h-3.5 w-3.5" />
+            <Maximize2 className="h-3.5 w-3.5" aria-hidden="true" />
           </Button>
 
           <Button
@@ -208,8 +215,9 @@ export function PopoutLayout({
             onClick={handleClose}
             className="h-7 w-7 p-0 hover:bg-red-500 hover:text-white"
             title="Close"
+            aria-label="Close window"
           >
-            <X className="h-3.5 w-3.5" />
+            <X className="h-3.5 w-3.5" aria-hidden="true" />
           </Button>
         </div>
       </div>

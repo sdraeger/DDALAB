@@ -1349,8 +1349,7 @@ export class HelpSearchProvider implements SearchProvider {
           icon: "Home",
           keywords: topic.keywords,
           action: () => {
-            // Could open help modal or navigate to docs
-            console.log(`Help topic: ${topic.id}`);
+            // TODO: Open help modal or navigate to docs for topic: ${topic.id}
           },
         });
       }

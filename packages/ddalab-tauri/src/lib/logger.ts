@@ -150,6 +150,8 @@ export const loggers = {
   streaming: createLogger("Streaming"),
   export: createLogger("Export"),
   ui: createLogger("UI"),
+  wasm: createLogger("WASM"),
+  persistence: createLogger("Persistence"),
 } as const;
 
 // Default export for general use

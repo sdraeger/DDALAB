@@ -532,8 +532,9 @@ export const ModelBuilder: React.FC<ModelBuilderProps> = ({
                             e.stopPropagation();
                             removePreset(preset.id);
                           }}
+                          aria-label="Delete preset"
                         >
-                          <X className="h-3 w-3" />
+                          <X className="h-3 w-3" aria-hidden="true" />
                         </Button>
                       )}
                     </Button>

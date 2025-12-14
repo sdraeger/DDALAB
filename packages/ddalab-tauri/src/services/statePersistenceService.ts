@@ -14,6 +14,20 @@ import {
   FileManagerState,
   WindowState,
 } from "@/types/persistence";
+import { loggers } from "@/lib/logger";
+import { useNotificationStore } from "@/store/notificationStore";
+
+// Helper function to notify about persistence errors
+function notifyPersistenceError(operation: string, error: unknown) {
+  const store = useNotificationStore.getState();
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  store.notify.error(
+    "State Save Failed",
+    `Failed to ${operation}. Your changes may not be saved.`,
+    "system",
+  );
+  console.error(`Persistence error (${operation}):`, errorMessage);
+}
 
 export class StatePersistenceService {
   private saveTimer: NodeJS.Timeout | null = null;
@@ -48,7 +62,7 @@ export class StatePersistenceService {
 
       return savedState;
     } catch (error) {
-      console.error("Failed to load saved state, using defaults:", error);
+      notifyPersistenceError("load saved state", error);
       return this.getDefaultState();
     }
   }
@@ -91,7 +105,7 @@ export class StatePersistenceService {
       this.pendingSave = null;
       await invoke("save_complete_state", { completeState: state });
     } catch (error) {
-      console.error("Failed to save complete state:", error);
+      notifyPersistenceError("save application state", error);
       throw error;
     }
   }
@@ -194,15 +208,13 @@ export class StatePersistenceService {
 
       // If there's a pending save, execute it immediately
       if (this.pendingSave) {
-        console.log(
-          "[StatePersistenceService] Flushing pending save before force save",
-        );
+        loggers.persistence.debug("Flushing pending save before force save");
         await this.executeSave(this.pendingSave);
       }
 
       await invoke("force_save_state");
     } catch (error) {
-      console.error("Failed to force save state:", error);
+      notifyPersistenceError("force save state", error);
       throw error;
     }
   }
@@ -249,7 +261,7 @@ export class StatePersistenceService {
           await currentStatePromise;
         }
       } catch (error) {
-        console.error("Auto-save failed:", error);
+        notifyPersistenceError("auto-save state", error);
       }
     }, this.options.saveInterval);
   }

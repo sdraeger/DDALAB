@@ -56,7 +56,7 @@ export const ExportMenu = memo(function ExportMenu({
             Export Data
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" noPortal>
+        <DropdownMenuContent align="end">
           <DropdownMenuItem onClick={() => onExportData("csv")}>
             <FileText className="h-4 w-4 mr-2" />
             Export as CSV
@@ -88,7 +88,7 @@ export const ExportMenu = memo(function ExportMenu({
             Save Plot
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" noPortal>
+        <DropdownMenuContent align="end">
           <DropdownMenuItem onClick={() => onExportPlot("png")}>
             <FileImage className="h-4 w-4 mr-2" />
             Save as PNG

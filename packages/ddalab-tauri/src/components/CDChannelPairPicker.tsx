@@ -102,8 +102,9 @@ export function CDChannelPairPicker({
             size="sm"
             className="absolute right-1 top-1 h-7 w-7 p-0"
             onClick={handleClearSearch}
+            aria-label="Clear search"
           >
-            <X className="h-3 w-3" />
+            <X className="h-3 w-3" aria-hidden="true" />
           </Button>
         )}
       </div>

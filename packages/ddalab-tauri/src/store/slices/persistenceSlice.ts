@@ -156,6 +156,8 @@ export const createPersistenceSlice: ImmerStateCreator<
           state.dda.currentAnalysis = currentAnalysis;
           state.dda.analysisHistory = analysisHistory;
 
+          // Note: Time series annotations are loaded from file-centric state
+          // in fileManagerSlice.ts when a file is selected (not from global persistence)
           state.annotations = restoredAnnotations;
 
           state.ui.activeTab = persistedState.active_tab;
