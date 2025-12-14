@@ -30,7 +30,7 @@ impl Default for ApiConnectionConfig {
         Self {
             host: "127.0.0.1".to_string(),
             port: 8765,
-            use_https: false, // HTTP by default - HTTPS has WebView trust issues
+            use_https: true, // HTTPS by default for security (users can disable if needed)
             is_local: true,
             session_token: None,
         }

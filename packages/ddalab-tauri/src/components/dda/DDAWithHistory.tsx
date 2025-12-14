@@ -14,6 +14,7 @@ import {
 import { DDAHistorySidebar } from "./DDAHistorySidebar";
 import { DDAAnalysis } from "@/components/DDAAnalysis";
 import { DDAResults } from "@/components/DDAResults";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -474,7 +475,9 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
             style={configScrollProps.style}
           >
             <div className="p-4 h-full">
-              <DDAAnalysis apiService={apiService} />
+              <ErrorBoundary>
+                <DDAAnalysis apiService={apiService} />
+              </ErrorBoundary>
             </div>
           </TabsContent>
 
@@ -557,10 +560,9 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
                       )}
 
                     {/* CRITICAL FIX: Add key prop to help React track component identity */}
-                    <DDAResults
-                      key={displayAnalysis.id}
-                      result={displayAnalysis}
-                    />
+                    <ErrorBoundary key={displayAnalysis.id}>
+                      <DDAResults result={displayAnalysis} />
+                    </ErrorBoundary>
                   </>
                 )}
               </div>

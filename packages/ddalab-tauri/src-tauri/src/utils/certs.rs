@@ -15,6 +15,47 @@ pub fn get_certs_dir() -> Result<PathBuf> {
     Ok(cert_dir)
 }
 
+/// Validate mkcert binary path is from a trusted location
+fn validate_mkcert_path(path: &Path) -> Result<()> {
+    // Canonicalize the path to resolve symlinks
+    let canonical_path = path
+        .canonicalize()
+        .context("Failed to canonicalize mkcert path")?;
+
+    // Define trusted directories for mkcert installation
+    let trusted_prefixes = if cfg!(target_os = "macos") {
+        vec!["/usr/local/bin", "/opt/homebrew/bin", "/opt/local/bin"]
+    } else if cfg!(target_os = "windows") {
+        vec![
+            "C:\\ProgramData\\chocolatey\\bin",
+            "C:\\Program Files\\mkcert",
+        ]
+    } else {
+        // Linux/Unix
+        vec!["/usr/local/bin", "/usr/bin"]
+    };
+
+    // Check if path starts with any trusted prefix
+    let path_str = canonical_path.to_string_lossy();
+    let is_trusted = trusted_prefixes
+        .iter()
+        .any(|prefix| path_str.starts_with(prefix));
+
+    if !is_trusted {
+        log::warn!(
+            "mkcert found at untrusted location: {}. Expected in: {:?}",
+            path_str,
+            trusted_prefixes
+        );
+        return Err(anyhow::anyhow!(
+            "mkcert binary not in trusted location. Please install via package manager."
+        ));
+    }
+
+    log::info!("Validated mkcert binary at: {}", path_str);
+    Ok(())
+}
+
 /// Generate localhost certificates using mkcert (preferred) or openssl (fallback)
 pub async fn generate_localhost_certs(cert_dir: &Path) -> Result<()> {
     log::info!("🔐 Generating localhost certificates...");
@@ -24,48 +65,54 @@ pub async fn generate_localhost_certs(cert_dir: &Path) -> Result<()> {
 
     // Try mkcert first (generates trusted certificates)
     if let Ok(mkcert_path) = which::which("mkcert") {
-        log::info!("Using mkcert to generate trusted certificates");
-
-        // Install mkcert CA root first (makes certificates trusted)
-        log::info!("🔐 Installing mkcert CA root certificate...");
-        let install_output = tokio::process::Command::new(&mkcert_path)
-            .arg("-install")
-            .output()
-            .await;
-
-        match install_output {
-            Ok(output) if output.status.success() => {
-                log::info!("mkcert CA root installed successfully");
-            }
-            Ok(output) => {
-                log::warn!(
-                    "mkcert -install failed (may already be installed): {}",
-                    String::from_utf8_lossy(&output.stderr)
-                );
-            }
-            Err(e) => {
-                log::warn!("Failed to run mkcert -install: {}", e);
-            }
-        }
-
-        let output = tokio::process::Command::new(mkcert_path)
-            .arg("-cert-file")
-            .arg(&cert_path)
-            .arg("-key-file")
-            .arg(&key_path)
-            .arg("localhost")
-            .arg("127.0.0.1")
-            .arg("::1")
-            .arg("*.local")
-            .output()
-            .await
-            .context("Failed to run mkcert")?;
-
-        if output.status.success() {
-            log::info!("Generated trusted certificates with mkcert");
-            return Ok(());
+        // Validate mkcert binary is from a trusted location
+        if let Err(e) = validate_mkcert_path(&mkcert_path) {
+            log::warn!("mkcert validation failed: {}", e);
+            log::warn!("Falling back to openssl for certificate generation");
         } else {
-            log::warn!("mkcert failed: {}", String::from_utf8_lossy(&output.stderr));
+            log::info!("Using mkcert to generate trusted certificates");
+
+            // Install mkcert CA root first (makes certificates trusted)
+            log::info!("🔐 Installing mkcert CA root certificate...");
+            let install_output = tokio::process::Command::new(&mkcert_path)
+                .arg("-install")
+                .output()
+                .await;
+
+            match install_output {
+                Ok(output) if output.status.success() => {
+                    log::info!("mkcert CA root installed successfully");
+                }
+                Ok(output) => {
+                    log::warn!(
+                        "mkcert -install failed (may already be installed): {}",
+                        String::from_utf8_lossy(&output.stderr)
+                    );
+                }
+                Err(e) => {
+                    log::warn!("Failed to run mkcert -install: {}", e);
+                }
+            }
+
+            let output = tokio::process::Command::new(mkcert_path)
+                .arg("-cert-file")
+                .arg(&cert_path)
+                .arg("-key-file")
+                .arg(&key_path)
+                .arg("localhost")
+                .arg("127.0.0.1")
+                .arg("::1")
+                .arg("*.local")
+                .output()
+                .await
+                .context("Failed to run mkcert")?;
+
+            if output.status.success() {
+                log::info!("Generated trusted certificates with mkcert");
+                return Ok(());
+            } else {
+                log::warn!("mkcert failed: {}", String::from_utf8_lossy(&output.stderr));
+            }
         }
     } else {
         log::warn!("mkcert not found in PATH");
@@ -130,48 +177,54 @@ pub async fn generate_lan_certs(cert_dir: &Path, hostname: &str, ip: &str) -> Re
 
     // Try mkcert first
     if let Ok(mkcert_path) = which::which("mkcert") {
-        log::info!("Using mkcert to generate trusted LAN certificates");
+        // Validate mkcert binary is from a trusted location
+        if let Err(e) = validate_mkcert_path(&mkcert_path) {
+            log::warn!("mkcert validation failed: {}", e);
+            log::warn!("Falling back to openssl for LAN certificate generation");
+        } else {
+            log::info!("Using mkcert to generate trusted LAN certificates");
 
-        // Install mkcert CA root first (makes certificates trusted)
-        log::info!("🔐 Installing mkcert CA root certificate...");
-        let install_output = tokio::process::Command::new(&mkcert_path)
-            .arg("-install")
-            .output()
-            .await;
+            // Install mkcert CA root first (makes certificates trusted)
+            log::info!("🔐 Installing mkcert CA root certificate...");
+            let install_output = tokio::process::Command::new(&mkcert_path)
+                .arg("-install")
+                .output()
+                .await;
 
-        match install_output {
-            Ok(output) if output.status.success() => {
-                log::info!("mkcert CA root installed successfully");
+            match install_output {
+                Ok(output) if output.status.success() => {
+                    log::info!("mkcert CA root installed successfully");
+                }
+                Ok(output) => {
+                    log::warn!(
+                        "mkcert -install failed (may already be installed): {}",
+                        String::from_utf8_lossy(&output.stderr)
+                    );
+                }
+                Err(e) => {
+                    log::warn!("Failed to run mkcert -install: {}", e);
+                }
             }
-            Ok(output) => {
-                log::warn!(
-                    "mkcert -install failed (may already be installed): {}",
-                    String::from_utf8_lossy(&output.stderr)
-                );
-            }
-            Err(e) => {
-                log::warn!("Failed to run mkcert -install: {}", e);
-            }
-        }
 
-        let output = tokio::process::Command::new(mkcert_path)
-            .arg("-cert-file")
-            .arg(&cert_path)
-            .arg("-key-file")
-            .arg(&key_path)
-            .arg("localhost")
-            .arg("127.0.0.1")
-            .arg("::1")
-            .arg(hostname)
-            .arg(ip)
-            .arg("*.local")
-            .output()
-            .await
-            .context("Failed to run mkcert")?;
+            let output = tokio::process::Command::new(mkcert_path)
+                .arg("-cert-file")
+                .arg(&cert_path)
+                .arg("-key-file")
+                .arg(&key_path)
+                .arg("localhost")
+                .arg("127.0.0.1")
+                .arg("::1")
+                .arg(hostname)
+                .arg(ip)
+                .arg("*.local")
+                .output()
+                .await
+                .context("Failed to run mkcert")?;
 
-        if output.status.success() {
-            log::info!("Generated trusted LAN certificates with mkcert");
-            return Ok(());
+            if output.status.success() {
+                log::info!("Generated trusted LAN certificates with mkcert");
+                return Ok(());
+            }
         }
     }
 

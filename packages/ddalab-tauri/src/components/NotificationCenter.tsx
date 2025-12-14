@@ -163,8 +163,9 @@ function NotificationItem({
                     onMarkRead();
                   }}
                   title="Mark as read"
+                  aria-label="Mark as read"
                 >
-                  <Check className="h-3 w-3" />
+                  <Check className="h-3 w-3" aria-hidden="true" />
                 </Button>
               )}
               <Button
@@ -176,8 +177,9 @@ function NotificationItem({
                   onRemove();
                 }}
                 title="Dismiss"
+                aria-label="Dismiss notification"
               >
-                <X className="h-3 w-3" />
+                <X className="h-3 w-3" aria-hidden="true" />
               </Button>
             </div>
           </div>
@@ -239,8 +241,9 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
           variant="ghost"
           size="sm"
           className={cn("relative h-8 w-8 p-0", className)}
+          aria-label={`Notifications ${unreadCount > 0 ? `(${unreadCount} unread)` : ""}`}
         >
-          <Bell className="h-4 w-4" />
+          <Bell className="h-4 w-4" aria-hidden="true" />
           {unreadCount > 0 && (
             <Badge
               variant="destructive"
@@ -259,8 +262,13 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
             {/* Filter menu */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
-                  <Filter className="h-3.5 w-3.5" />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0"
+                  aria-label="Filter notifications"
+                >
+                  <Filter className="h-3.5 w-3.5" aria-hidden="true" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
@@ -307,8 +315,13 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
             {/* More actions menu */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
-                  <MoreHorizontal className="h-3.5 w-3.5" />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0"
+                  aria-label="More notification actions"
+                >
+                  <MoreHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -424,8 +437,9 @@ export function NotificationToast({
         size="sm"
         className="h-6 w-6 p-0 flex-shrink-0"
         onClick={onDismiss}
+        aria-label="Dismiss notification"
       >
-        <X className="h-3.5 w-3.5" />
+        <X className="h-3.5 w-3.5" aria-hidden="true" />
       </Button>
     </div>
   );

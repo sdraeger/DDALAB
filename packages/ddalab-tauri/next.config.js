@@ -36,6 +36,31 @@ const nextConfig = {
         fs: false,
         path: false,
       };
+
+      // Optimize chunking for visualization libraries
+      config.optimization = {
+        ...config.optimization,
+        splitChunks: {
+          ...config.optimization.splitChunks,
+          cacheGroups: {
+            ...config.optimization.splitChunks?.cacheGroups,
+            // Split uPlot into separate chunk (heavy visualization library)
+            uplot: {
+              test: /[\\/]node_modules[\\/]uplot[\\/]/,
+              name: "uplot",
+              chunks: "all",
+              priority: 30,
+            },
+            // Split ECharts into separate chunk (heavy visualization library)
+            echarts: {
+              test: /[\\/]node_modules[\\/]echarts[\\/]/,
+              name: "echarts",
+              chunks: "all",
+              priority: 30,
+            },
+          },
+        },
+      };
     }
 
     return config;

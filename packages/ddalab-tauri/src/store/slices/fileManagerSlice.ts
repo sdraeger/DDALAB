@@ -11,7 +11,11 @@ import type {
   FileDDAState,
   FileAnnotationState,
 } from "@/types/fileCentricState";
-import type { PlotAnnotation } from "@/types/annotations";
+import type {
+  PlotAnnotation,
+  TauriFileAnnotationsResponse,
+  TauriAnnotation,
+} from "@/types/annotations";
 import type {
   FileManagerSlice,
   FileManagerState,
@@ -216,6 +220,136 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
                 });
               }
 
+              // Handle annotations from cached state
+              if (cachedState.annotations) {
+                const annotationState = cachedState.annotations as
+                  | FileAnnotationState
+                  | undefined;
+
+                (async () => {
+                  try {
+                    let mergedGlobalAnnotations: PlotAnnotation[] = [];
+                    let mergedChannelAnnotations: Record<
+                      string,
+                      PlotAnnotation[]
+                    > = {};
+
+                    if (annotationState?.timeSeries) {
+                      const fsGlobal = annotationState.timeSeries.global || [];
+                      const fsChannels =
+                        annotationState.timeSeries.channels || {};
+
+                      mergedGlobalAnnotations = [...fsGlobal];
+                      mergedChannelAnnotations = { ...fsChannels };
+                    }
+
+                    const { invoke } = await import("@tauri-apps/api/core");
+                    const sqliteAnnotations =
+                      await invoke<TauriFileAnnotationsResponse | null>(
+                        "get_file_annotations",
+                        { filePath: targetFilePath },
+                      );
+
+                    if (!isFileStillSelected()) {
+                      return;
+                    }
+
+                    if (sqliteAnnotations) {
+                      const sqliteGlobal =
+                        sqliteAnnotations.global_annotations || [];
+                      const sqliteChannels =
+                        sqliteAnnotations.channel_annotations || {};
+
+                      const existingIds = new Set(
+                        mergedGlobalAnnotations.map((a) => a.id),
+                      );
+                      for (const sqliteAnn of sqliteGlobal) {
+                        if (!existingIds.has(sqliteAnn.id)) {
+                          mergedGlobalAnnotations.push({
+                            id: sqliteAnn.id,
+                            position: sqliteAnn.position,
+                            label: sqliteAnn.label,
+                            color: sqliteAnn.color || "#ef4444",
+                            description: sqliteAnn.description,
+                            createdAt:
+                              sqliteAnn.created_at || new Date().toISOString(),
+                            updatedAt:
+                              sqliteAnn.updated_at || new Date().toISOString(),
+                          });
+                        }
+                      }
+
+                      for (const [channel, sqliteAnns] of Object.entries(
+                        sqliteChannels,
+                      )) {
+                        if (!mergedChannelAnnotations[channel]) {
+                          mergedChannelAnnotations[channel] = [];
+                        }
+                        const channelExistingIds = new Set(
+                          mergedChannelAnnotations[channel].map((a) => a.id),
+                        );
+                        for (const sqliteAnn of sqliteAnns as TauriAnnotation[]) {
+                          if (!channelExistingIds.has(sqliteAnn.id)) {
+                            mergedChannelAnnotations[channel].push({
+                              id: sqliteAnn.id,
+                              position: sqliteAnn.position,
+                              label: sqliteAnn.label,
+                              color: sqliteAnn.color || "#ef4444",
+                              description: sqliteAnn.description,
+                              createdAt:
+                                sqliteAnn.created_at ||
+                                new Date().toISOString(),
+                              updatedAt:
+                                sqliteAnn.updated_at ||
+                                new Date().toISOString(),
+                            });
+                          }
+                        }
+                      }
+                    }
+
+                    if (!isFileStillSelected()) return;
+
+                    set((state) => {
+                      state.annotations.timeSeries[targetFilePath] = {
+                        filePath: targetFilePath,
+                        globalAnnotations: mergedGlobalAnnotations,
+                        channelAnnotations: mergedChannelAnnotations,
+                      };
+
+                      if (annotationState?.ddaResults) {
+                        Object.entries(annotationState.ddaResults).forEach(
+                          ([key, plotAnnotations]) => {
+                            const parts = key.split("_");
+                            if (parts.length >= 3) {
+                              const plotType = parts[parts.length - 1] as
+                                | "heatmap"
+                                | "line";
+                              const variantId = parts[parts.length - 2];
+                              const resultId = parts
+                                .slice(0, parts.length - 2)
+                                .join("_");
+
+                              state.annotations.ddaResults[key] = {
+                                resultId,
+                                variantId,
+                                plotType,
+                                annotations: plotAnnotations,
+                              };
+                            }
+                          },
+                        );
+                      }
+                    });
+                  } catch (error) {
+                    console.error(
+                      "[FileManager] Error loading cached annotations:",
+                      error,
+                    );
+                  }
+                })();
+              }
+
               return; // Skip the full loadFileState below
             }
           }
@@ -305,10 +439,11 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
               }
 
               const { invoke } = await import("@tauri-apps/api/core");
-              const sqliteAnnotations = await invoke<any>(
-                "get_file_annotations",
-                { filePath: file.file_path },
-              );
+              const sqliteAnnotations =
+                await invoke<TauriFileAnnotationsResponse | null>(
+                  "get_file_annotations",
+                  { filePath: file.file_path },
+                );
 
               if (!isFileStillSelected()) {
                 return;
@@ -347,7 +482,7 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
                   const channelExistingIds = new Set(
                     mergedChannelAnnotations[channel].map((a) => a.id),
                   );
-                  for (const sqliteAnn of sqliteAnns as any[]) {
+                  for (const sqliteAnn of sqliteAnns as TauriAnnotation[]) {
                     if (!channelExistingIds.has(sqliteAnn.id)) {
                       mergedChannelAnnotations[channel].push({
                         id: sqliteAnn.id,

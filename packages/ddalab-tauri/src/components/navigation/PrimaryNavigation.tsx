@@ -62,11 +62,12 @@ export function PrimaryNavigation() {
                   isActive && "bg-accent text-accent-foreground",
                 )}
                 title={nav.description}
+                aria-label={nav.label}
                 data-nav={nav.id}
                 data-active={isActive}
               >
                 <span className="relative">
-                  <Icon className="h-4 w-4" />
+                  <Icon className="h-4 w-4" aria-hidden="true" />
                   {badgeCount && (
                     <span className="absolute -top-1.5 -right-1.5 inline-flex items-center justify-center min-w-[1rem] h-4 px-1 text-[10px] font-semibold text-white bg-red-500 rounded-full">
                       {badgeCount}
@@ -89,13 +90,17 @@ export function PrimaryNavigation() {
               "min-w-[200px] justify-between",
             )}
             title="Search (⌘K / Ctrl+K)"
+            aria-label="Search"
           >
             <div className="flex items-center gap-2">
-              <Search className="h-4 w-4 text-muted-foreground" />
+              <Search
+                className="h-4 w-4 text-muted-foreground"
+                aria-hidden="true"
+              />
               <span className="text-muted-foreground">Search...</span>
             </div>
             <kbd className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold text-muted-foreground bg-background border border-border rounded">
-              <Command className="h-3 w-3" />
+              <Command className="h-3 w-3" aria-hidden="true" />
               <span>K</span>
             </kbd>
           </button>

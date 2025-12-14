@@ -297,18 +297,24 @@ function StreamingHeatmapContent({
           </div>
 
           <div className="flex gap-2">
-            <Button size="sm" variant="ghost" onClick={handleExport}>
-              <Download className="h-4 w-4" />
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={handleExport}
+              aria-label="Export heatmap"
+            >
+              <Download className="h-4 w-4" aria-hidden="true" />
             </Button>
             <Button
               size="sm"
               variant="ghost"
               onClick={() => setIsFullscreen(!isFullscreen)}
+              aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
             >
               {isFullscreen ? (
-                <Minimize2 className="h-4 w-4" />
+                <Minimize2 className="h-4 w-4" aria-hidden="true" />
               ) : (
-                <Maximize2 className="h-4 w-4" />
+                <Maximize2 className="h-4 w-4" aria-hidden="true" />
               )}
             </Button>
           </div>

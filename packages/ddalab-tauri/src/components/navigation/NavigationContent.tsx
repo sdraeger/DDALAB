@@ -9,6 +9,7 @@ import type { PrimaryNavTab, SecondaryNavTab } from "@/types/navigation";
 // Eagerly load lightweight components
 import { FileInfoCard } from "@/components/FileInfoCard";
 import { BIDSContextIndicator } from "@/components/BIDSContextIndicator";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Card, CardContent } from "@/components/ui/card";
 import { Brain, Activity, FileText, Sparkles } from "lucide-react";
 import { LoadingPlaceholder } from "@/components/ui/loading-overlay";
@@ -145,9 +146,11 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
             <>
               <BIDSContextIndicator variant="full" />
               <div className="flex-1 min-h-0 overflow-y-auto">
-                <Suspense fallback={<LoadingFallback />}>
-                  <TimeSeriesPlotECharts apiService={apiService} />
-                </Suspense>
+                <ErrorBoundary>
+                  <Suspense fallback={<LoadingFallback />}>
+                    <TimeSeriesPlotECharts apiService={apiService} />
+                  </Suspense>
+                </ErrorBoundary>
               </div>
             </>
           ) : (
@@ -280,9 +283,11 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
     if (secondaryNav === "jobs") {
       return (
         <div className="p-4 h-full">
-          <Suspense fallback={<LoadingFallback />}>
-            <NSGJobManager />
-          </Suspense>
+          <ErrorBoundary>
+            <Suspense fallback={<LoadingFallback />}>
+              <NSGJobManager />
+            </Suspense>
+          </ErrorBoundary>
         </div>
       );
     }

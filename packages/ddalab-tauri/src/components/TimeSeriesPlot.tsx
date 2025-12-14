@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback, useMemo, memo } from "react";
 import { useAppStore } from "@/store/appStore";
+import { useShallow } from "zustand/react/shallow";
 import { ApiService } from "@/services/apiService";
 import { ChunkData } from "@/types/api";
 import {
@@ -57,6 +58,9 @@ import {
   useOverviewData,
   useOverviewProgress,
 } from "@/hooks/useTimeSeriesData";
+import { useChartViewMode } from "@/hooks/useChartViewMode";
+import { ChartViewToggle } from "@/components/ui/chart-view-toggle";
+import { DataTableView } from "@/components/ui/data-table-view";
 
 interface TimeSeriesPlotProps {
   apiService: ApiService;
@@ -64,16 +68,19 @@ interface TimeSeriesPlotProps {
 
 // Internal component - wrapped with memo at export
 function TimeSeriesPlotComponent({ apiService }: TimeSeriesPlotProps) {
-  const {
-    fileManager,
-    plot,
-    dda,
-    updatePlotState,
-    setCurrentChunk,
-    setSelectedChannels: persistSelectedChannels,
-    workflowRecording,
-    incrementActionCount,
-  } = useAppStore();
+  // Use selective subscriptions with useShallow to prevent unnecessary re-renders
+  const fileManager = useAppStore(useShallow((state) => state.fileManager));
+  const plot = useAppStore(useShallow((state) => state.plot));
+  const dda = useAppStore(useShallow((state) => state.dda));
+  const updatePlotState = useAppStore((state) => state.updatePlotState);
+  const setCurrentChunk = useAppStore((state) => state.setCurrentChunk);
+  const persistSelectedChannels = useAppStore(
+    (state) => state.setSelectedChannels,
+  );
+  const workflowRecording = useAppStore((state) => state.workflowRecording);
+  const incrementActionCount = useAppStore(
+    (state) => state.incrementActionCount,
+  );
 
   const { recordAction } = useWorkflow();
   const { createWindow, updateWindowData, broadcastToType } =
@@ -84,6 +91,9 @@ function TimeSeriesPlotComponent({ apiService }: TimeSeriesPlotProps) {
     filePath: fileManager.selectedFile?.file_path || "",
     // For time series, we use global annotations (not per-channel)
   });
+
+  // Chart/Table view mode
+  const { mode: viewMode, setMode: setViewMode } = useChartViewMode();
 
   // Generate available plots for annotation visibility
   const availablePlots = useMemo<PlotInfo[]>(() => {
@@ -140,6 +150,8 @@ function TimeSeriesPlotComponent({ apiService }: TimeSeriesPlotProps) {
     max: 10,
   });
   const stableOffsetRef = useRef<number | null>(null);
+  const dblclickHandlerRef = useRef<(() => void) | null>(null);
+  const plotElementRef = useRef<Element | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -487,10 +499,24 @@ function TimeSeriesPlotComponent({ apiService }: TimeSeriesPlotProps) {
             (u) => {
               const plotElement = u.root.querySelector(".u-over");
               if (plotElement) {
-                plotElement.addEventListener("dblclick", () => {
+                // Remove previous listener if it exists
+                if (plotElementRef.current && dblclickHandlerRef.current) {
+                  plotElementRef.current.removeEventListener(
+                    "dblclick",
+                    dblclickHandlerRef.current,
+                  );
+                }
+
+                // Create and store new handler
+                const handler = () => {
                   userZoomRef.current = null;
                   u.redraw();
-                });
+                };
+                dblclickHandlerRef.current = handler;
+                plotElementRef.current = plotElement;
+
+                // Add new listener
+                plotElement.addEventListener("dblclick", handler);
               }
             },
           ],
@@ -549,10 +575,23 @@ function TimeSeriesPlotComponent({ apiService }: TimeSeriesPlotProps) {
   // Clean up plot and observer on unmount
   useEffect(() => {
     return () => {
+      // Cleanup event listener
+      if (plotElementRef.current && dblclickHandlerRef.current) {
+        plotElementRef.current.removeEventListener(
+          "dblclick",
+          dblclickHandlerRef.current,
+        );
+        plotElementRef.current = null;
+        dblclickHandlerRef.current = null;
+      }
+
+      // Cleanup resize observer
       if (resizeObserverRef.current) {
         resizeObserverRef.current.disconnect();
         resizeObserverRef.current = null;
       }
+
+      // Cleanup uPlot instance
       if (uplotRef.current) {
         uplotRef.current.destroy();
         uplotRef.current = null;
@@ -882,6 +921,32 @@ function TimeSeriesPlotComponent({ apiService }: TimeSeriesPlotProps) {
     selectedChannels,
   ]);
 
+  // Transform chunk data for table view
+  const tableData = useMemo(() => {
+    if (!plot.currentChunk) {
+      return { data: [], columns: [] };
+    }
+
+    const { timestamps, data, channels } = plot.currentChunk;
+
+    // Create columns: Time + each channel
+    const columns = [
+      { header: "Time (s)", accessor: "time" },
+      ...channels.map((ch) => ({ header: ch, accessor: ch })),
+    ];
+
+    // Transform data: each row is a time point with all channel values
+    const rows = timestamps.map((time, idx) => {
+      const row: Record<string, any> = { time: time.toFixed(3) };
+      channels.forEach((ch, chIdx) => {
+        row[ch] = data[chIdx]?.[idx]?.toFixed(4) ?? "N/A";
+      });
+      return row;
+    });
+
+    return { data: rows, columns };
+  }, [plot.currentChunk]);
+
   if (!fileManager.selectedFile) {
     return (
       <Card className="h-full flex items-center justify-center">
@@ -912,6 +977,7 @@ function TimeSeriesPlotComponent({ apiService }: TimeSeriesPlotProps) {
               </CardDescription>
             </div>
             <div className="flex items-center space-x-2">
+              <ChartViewToggle mode={viewMode} onModeChange={setViewMode} />
               <Button
                 variant="outline"
                 size="sm"
@@ -1466,6 +1532,7 @@ function TimeSeriesPlotComponent({ apiService }: TimeSeriesPlotProps) {
           onSeek={handleSeek}
           loading={overviewLoading}
           progress={overviewProgress}
+          annotations={timeSeriesAnnotations.annotations}
         />
       </div>
 
@@ -1488,89 +1555,103 @@ function TimeSeriesPlotComponent({ apiService }: TimeSeriesPlotProps) {
             </div>
           )}
 
-          <div
-            className="w-full flex-1 relative"
-            onContextMenu={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
+          {viewMode === "table" ? (
+            <DataTableView
+              data={tableData.data}
+              columns={tableData.columns}
+              title={fileManager.selectedFile.file_name}
+              description={`Time series data (${currentTime.toFixed(1)}s - ${(currentTime + timeWindow).toFixed(1)}s)`}
+              maxRows={1000}
+              enableExport={true}
+              className="flex-1"
+            />
+          ) : (
+            <div
+              className="w-full flex-1 relative"
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
 
-              if (!uplotRef.current || !plot.currentChunk) return;
+                if (!uplotRef.current || !plot.currentChunk) return;
 
-              const rect = e.currentTarget.getBoundingClientRect();
-              const plotX = e.clientX - rect.left;
-              const plotWidth = rect.width;
-              const timeValue = currentTime + (plotX / plotWidth) * timeWindow;
+                const rect = e.currentTarget.getBoundingClientRect();
+                const plotX = e.clientX - rect.left;
+                const plotWidth = rect.width;
+                const timeValue =
+                  currentTime + (plotX / plotWidth) * timeWindow;
 
-              timeSeriesAnnotations.openContextMenu(
-                e.clientX,
-                e.clientY,
-                timeValue,
-              );
-            }}
-          >
-            <div ref={plotRef} className="w-full h-full" />
+                timeSeriesAnnotations.openContextMenu(
+                  e.clientX,
+                  e.clientY,
+                  timeValue,
+                );
+              }}
+            >
+              <div ref={plotRef} className="w-full h-full" />
 
-            {/* Annotation overlay */}
-            {uplotRef.current &&
-              plot.currentChunk &&
-              timeSeriesAnnotations.annotations.length > 0 && (
-                <svg
-                  className="absolute top-0 left-0"
-                  style={{
-                    width: plotRef.current?.clientWidth || 0,
-                    height: plotRef.current?.clientHeight || 0,
-                    pointerEvents: "none",
-                  }}
-                >
-                  {timeSeriesAnnotations.annotations.map((annotation) => {
-                    // Only show annotations in current time window
-                    if (
-                      annotation.position < currentTime ||
-                      annotation.position > currentTime + timeWindow
-                    ) {
-                      return null;
-                    }
+              {/* Annotation overlay */}
+              {uplotRef.current &&
+                plot.currentChunk &&
+                timeSeriesAnnotations.annotations.length > 0 && (
+                  <svg
+                    className="absolute top-0 left-0"
+                    style={{
+                      width: plotRef.current?.clientWidth || 0,
+                      height: plotRef.current?.clientHeight || 0,
+                      pointerEvents: "none",
+                    }}
+                  >
+                    {timeSeriesAnnotations.annotations.map((annotation) => {
+                      // Only show annotations in current time window
+                      if (
+                        annotation.position < currentTime ||
+                        annotation.position > currentTime + timeWindow
+                      ) {
+                        return null;
+                      }
 
-                    // Get uPlot bbox for accurate dimensions
-                    const bbox = uplotRef.current?.bbox;
-                    const plotWidth =
-                      bbox?.width || plotRef.current?.clientWidth || 800;
-                    const plotHeight =
-                      bbox?.height || plotRef.current?.clientHeight || 400;
-                    const relativeTime = annotation.position - currentTime;
-                    const xPosition = (relativeTime / timeWindow) * plotWidth;
+                      // Get uPlot bbox for accurate dimensions
+                      const bbox = uplotRef.current?.bbox;
+                      const plotWidth =
+                        bbox?.width || plotRef.current?.clientWidth || 800;
+                      const plotHeight =
+                        bbox?.height || plotRef.current?.clientHeight || 400;
+                      const relativeTime = annotation.position - currentTime;
+                      const xPosition = (relativeTime / timeWindow) * plotWidth;
 
-                    return (
-                      <AnnotationMarker
-                        key={annotation.id}
-                        annotation={annotation}
-                        plotHeight={plotHeight}
-                        xPosition={xPosition}
-                        onRightClick={(e, ann) => {
-                          e.preventDefault();
-                          timeSeriesAnnotations.openContextMenu(
-                            e.clientX,
-                            e.clientY,
-                            ann.position,
-                            ann,
-                          );
-                        }}
-                        onClick={(ann) => {
-                          const rect = plotRef.current?.getBoundingClientRect();
-                          if (rect) {
-                            timeSeriesAnnotations.handleAnnotationClick(
+                      return (
+                        <AnnotationMarker
+                          key={annotation.id}
+                          annotation={annotation}
+                          plotHeight={plotHeight}
+                          xPosition={xPosition}
+                          onRightClick={(e, ann) => {
+                            e.preventDefault();
+                            timeSeriesAnnotations.openContextMenu(
+                              e.clientX,
+                              e.clientY,
+                              ann.position,
                               ann,
-                              rect.left + xPosition,
-                              rect.top + 50,
                             );
-                          }
-                        }}
-                      />
-                    );
-                  })}
-                </svg>
-              )}
-          </div>
+                          }}
+                          onClick={(ann) => {
+                            const rect =
+                              plotRef.current?.getBoundingClientRect();
+                            if (rect) {
+                              timeSeriesAnnotations.handleAnnotationClick(
+                                ann,
+                                rect.left + xPosition,
+                                rect.top + 50,
+                              );
+                            }
+                          }}
+                        />
+                      );
+                    })}
+                  </svg>
+                )}
+            </div>
+          )}
 
           {/* Annotation context menu */}
           {timeSeriesAnnotations.contextMenu && (

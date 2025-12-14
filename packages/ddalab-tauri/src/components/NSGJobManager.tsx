@@ -68,6 +68,7 @@ import {
 import { useSearchableItems, createActionItem } from "@/hooks/useSearchable";
 import { toast } from "@/components/ui/toaster";
 import { formatBytes, formatDateTime } from "@/lib/utils";
+import { debouncedUpdate, cancelDebouncedUpdate } from "@/utils/debounce";
 
 function formatDateOrDash(dateStr: string | null): string {
   if (!dateStr) return "-";
@@ -457,11 +458,24 @@ export const NSGJobManager = memo(function NSGJobManager() {
     [jobs.length, jobs.map((j) => j.status).join(",")],
   );
 
-  // Persist sort preferences
+  // Persist sort preferences with debouncing
   useEffect(() => {
-    localStorage.setItem("nsgJobManager_sortColumn", sortColumn);
-    localStorage.setItem("nsgJobManager_sortDirection", sortDirection);
+    debouncedUpdate(
+      "nsgJobManager_sortPreferences",
+      () => {
+        localStorage.setItem("nsgJobManager_sortColumn", sortColumn);
+        localStorage.setItem("nsgJobManager_sortDirection", sortDirection);
+      },
+      150, // Debounce for 150ms
+    );
   }, [sortColumn, sortDirection]);
+
+  // Cleanup debounced localStorage writes on unmount
+  useEffect(() => {
+    return () => {
+      cancelDebouncedUpdate("nsgJobManager_sortPreferences");
+    };
+  }, []);
 
   // Handle column header click for sorting
   const handleSort = (column: SortColumn) => {

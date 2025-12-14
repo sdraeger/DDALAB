@@ -163,7 +163,7 @@ pub async fn save_openneuro_api_key(
     // Verify the save by immediately reading it back
     match secrets_db.get_secret(OPENNEURO_API_KEY_NAME) {
         Ok(Some(saved_key)) => {
-            if saved_key == api_key {
+            if saved_key.as_str().map(|s| s == api_key).unwrap_or(false) {
                 log::info!("[SECRETS_DB] Verification successful: key matches what was saved");
             } else {
                 log::error!(
@@ -200,7 +200,7 @@ pub async fn get_openneuro_api_key(
                 "[SECRETS_DB] Successfully retrieved API key from encrypted database (length: {})",
                 key.len()
             );
-            Ok(key)
+            Ok(key.into_string())
         }
         Ok(None) => {
             log::info!("[SECRETS_DB] No API key found in encrypted database");
@@ -228,7 +228,9 @@ pub async fn check_openneuro_api_key(
                 key.len()
             );
             let preview = if key.len() > 8 {
-                Some(format!("{}...{}", &key[..4], &key[key.len() - 4..]))
+                key.as_str()
+                    .ok()
+                    .map(|s| format!("{}...{}", &s[..4], &s[s.len() - 4..]))
             } else {
                 Some("****".to_string())
             };

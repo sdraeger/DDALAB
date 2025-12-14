@@ -118,7 +118,7 @@ pub struct AppPreferences {
 }
 
 fn default_use_https() -> bool {
-    false // HTTP by default - HTTPS has certificate trust issues in Tauri's WebView
+    true // HTTPS by default for security (users can disable if they encounter certificate issues)
 }
 
 fn default_warn_on_close_during_analysis() -> bool {
@@ -218,12 +218,12 @@ impl Default for AppPreferences {
     fn default() -> Self {
         Self {
             api_config: ApiConfig {
-                url: "http://localhost:8765".to_string(), // HTTP by default (HTTPS has WebView trust issues)
+                url: "https://localhost:8765".to_string(), // HTTPS by default for security
                 timeout: 30,
             },
             window_state: HashMap::new(),
             theme: "auto".to_string(),
-            use_https: false, // HTTP by default - HTTPS has certificate trust issues in Tauri's WebView
+            use_https: true, // HTTPS by default for security (users can disable if they encounter certificate issues)
             warn_on_close_during_analysis: true, // Warn by default
             updates_last_checked: None,
         }
