@@ -1948,85 +1948,19 @@ export const DDAAnalysis = memo(function DDAAnalysis({
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div>
-                  <Label className="text-sm">Start Time (s)</Label>
-                  <Input
-                    type="number"
-                    value={parameters.timeStart}
-                    onChange={(e) => {
-                      const inputValue = parseFloat(e.target.value) || 0;
-                      const clampedValue = Math.max(0, inputValue);
-                      if (inputValue !== clampedValue) {
-                        toast.warning(
-                          "Value Adjusted",
-                          `Start time cannot be negative. Set to ${clampedValue.toFixed(1)}s`,
-                        );
-                      }
-                      updateParameter(
-                        "timeStart",
-                        clampedValue,
-                        "Change start time",
-                      );
-                    }}
-                    disabled={ddaRunning || localIsRunning}
-                    min="0"
-                    max={selectedFile?.duration}
-                    step="0.1"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Valid range: 0 - {selectedFile?.duration?.toFixed(1) || "?"}
-                    s
-                  </p>
-                </div>
-                <div>
-                  <Label className="text-sm">End Time (s)</Label>
-                  <Input
-                    type="number"
-                    value={parameters.timeEnd}
-                    onChange={(e) => {
-                      const inputValue = parseFloat(e.target.value) || 0;
-                      const maxDuration = selectedFile?.duration || Infinity;
-                      const minValue = parameters.timeStart + 0.1;
-                      const clampedValue = Math.min(
-                        maxDuration,
-                        Math.max(minValue, inputValue),
-                      );
-                      if (inputValue !== clampedValue) {
-                        if (inputValue > maxDuration) {
-                          toast.warning(
-                            "Value Adjusted",
-                            `End time cannot exceed file duration. Set to ${clampedValue.toFixed(1)}s`,
-                          );
-                        } else if (inputValue < minValue) {
-                          toast.warning(
-                            "Value Adjusted",
-                            `End time must be at least 0.1s after start. Set to ${clampedValue.toFixed(1)}s`,
-                          );
-                        }
-                      }
-                      updateParameter(
-                        "timeEnd",
-                        clampedValue,
-                        "Change end time",
-                      );
-                    }}
-                    disabled={ddaRunning || localIsRunning}
-                    min={parameters.timeStart + DDA_ANALYSIS.MIN_TIME_RANGE}
-                    max={selectedFile?.duration}
-                    step={DDA_ANALYSIS.MIN_TIME_RANGE.toString()}
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Valid range:{" "}
-                    {(
-                      parameters.timeStart + DDA_ANALYSIS.MIN_TIME_RANGE
-                    ).toFixed(1)}{" "}
-                    - {selectedFile?.duration?.toFixed(1) || "?"}s
-                  </p>
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  Duration:{" "}
-                  {(parameters.timeEnd - parameters.timeStart).toFixed(1)}s
-                </div>
+                <TimeRangeSelector
+                  startTime={parameters.timeStart}
+                  endTime={parameters.timeEnd}
+                  maxDuration={selectedFile?.duration || 30}
+                  onStartTimeChange={(value) =>
+                    updateParameter("timeStart", value, "Change start time")
+                  }
+                  onEndTimeChange={(value) =>
+                    updateParameter("timeEnd", value, "Change end time")
+                  }
+                  disabled={ddaRunning || localIsRunning}
+                  showDuration={true}
+                />
 
                 {/* Window Parameters - Using improved WindowSizeSelector */}
                 <div className="pt-4 mt-4 border-t">

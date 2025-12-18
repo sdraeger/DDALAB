@@ -123,10 +123,18 @@ impl SecretsDatabase {
         let encryption_key = Self::derive_encryption_key(&installation_salt)?;
         let cipher = Aes256Gcm::new(&encryption_key);
 
-        Ok(Self {
+        let db = Self {
             conn: Mutex::new(conn),
             cipher,
-        })
+        };
+
+        // Migrate old v1 credentials to v2 if needed
+        if let Err(e) = db.migrate_v1_to_v2() {
+            log::warn!("[SECRETS_DB] Failed to migrate v1 credentials: {}", e);
+            // Don't fail initialization if migration fails
+        }
+
+        Ok(db)
     }
 
     /// Get existing installation salt or generate a new one
@@ -378,6 +386,73 @@ impl SecretsDatabase {
     pub fn has_nsg_credentials(&self) -> Result<bool> {
         self.has_secret("nsg_credentials")
             .context("Failed to check NSG credentials existence")
+    }
+
+    /// Migrate secrets encrypted with v1 key to v2
+    /// This is needed after the security upgrade that changed the encryption key derivation
+    fn migrate_v1_to_v2(&self) -> Result<()> {
+        // Check if migration is needed
+        let migration_key = "migrated_v1_to_v2";
+        if self.has_secret(migration_key).unwrap_or(false) {
+            return Ok(());
+        }
+
+        // Try to get v1 encryption key
+        let machine_id =
+            machine_uid::get().map_err(|e| anyhow::anyhow!("Failed to get machine ID: {}", e))?;
+
+        let v1_app_salt = b"ddalab-secrets-v1";
+        let mut hasher = Sha256::new();
+        hasher.update(machine_id.as_bytes());
+        hasher.update(v1_app_salt);
+        let v1_hash = hasher.finalize();
+        let v1_key = GenericArray::from_slice(&v1_hash);
+        let v1_cipher = Aes256Gcm::new(v1_key);
+
+        // Get all encrypted secrets
+        let conn = self.conn.lock();
+        let mut stmt = conn
+            .prepare("SELECT key, encrypted_value, nonce FROM secrets")
+            .context("Failed to prepare migration query")?;
+
+        let secrets: Vec<(String, Vec<u8>, Vec<u8>)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .context("Failed to query secrets")?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .context("Failed to collect secrets")?;
+
+        drop(stmt);
+        drop(conn);
+
+        let mut migrated_count = 0;
+
+        for (key, encrypted_value, nonce_bytes) in secrets {
+            // Skip the migration marker itself
+            if key == migration_key {
+                continue;
+            }
+
+            // Try to decrypt with v1 key
+            let nonce = Nonce::from_slice(&nonce_bytes);
+            if let Ok(decrypted) = v1_cipher.decrypt(nonce, encrypted_value.as_ref()) {
+                // Successfully decrypted with v1 key - re-encrypt with v2
+                if let Ok(decrypted_str) = std::str::from_utf8(&decrypted) {
+                    // Re-save with current v2 cipher
+                    if let Err(e) = self.set_secret(&key, decrypted_str) {
+                        log::warn!("[SECRETS_DB] Failed to re-encrypt {}: {}", key, e);
+                    } else {
+                        migrated_count += 1;
+                    }
+                }
+            }
+            // If v1 decryption fails, secret is either already v2 or corrupted - skip it
+        }
+
+        // Mark migration as complete
+        self.set_secret(migration_key, "completed")
+            .context("Failed to mark migration as complete")?;
+
+        Ok(())
     }
 }
 
