@@ -468,7 +468,10 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
             }}
           >
             <PopoverTrigger asChild>
-              <button className="flex items-center space-x-1 hover:bg-accent/50 rounded px-1.5 py-0.5 transition-colors">
+              <button
+                className="flex items-center space-x-1 hover:bg-accent/50 rounded px-1.5 py-0.5 transition-colors"
+                data-tour="sync-server"
+              >
                 {syncLoading ? (
                   <RefreshCw className="h-4 w-4 text-yellow-600 animate-spin" />
                 ) : syncConnected ? (

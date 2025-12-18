@@ -313,6 +313,29 @@ export default function Home() {
                   "When you're ready, click the Run button to start your analysis. You'll see real-time progress and can cancel at any time.",
                 target: "#dda-run-button",
               },
+              {
+                title: "Institutional Server Sync",
+                description:
+                  "Connect to an institutional DDALAB server to share results with colleagues on your local network. Click here to discover and connect to nearby servers.",
+                target: "[data-tour='sync-server']",
+              },
+              {
+                title: "Application Settings",
+                description:
+                  "Customize DDALAB to your needs. Adjust analysis engine preferences, configure sync settings, manage file paths, and more.",
+                target: "[data-tour='settings-tab']",
+              },
+              {
+                title: "Notifications",
+                description:
+                  "Keep track of important events, analysis completions, and system messages. Access your notification history anytime.",
+                target: "[data-nav='notifications']",
+              },
+              {
+                title: "You're All Set!",
+                description:
+                  "You now know the essential features of DDALAB. Start by loading a data file and running your first analysis. Happy analyzing!",
+              },
             ]}
             isOpen={onboarding.showOnboarding}
             onComplete={onboarding.completeOnboarding}

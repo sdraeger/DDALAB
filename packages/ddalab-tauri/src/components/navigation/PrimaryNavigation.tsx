@@ -65,6 +65,7 @@ export function PrimaryNavigation() {
                 aria-label={nav.label}
                 data-nav={nav.id}
                 data-active={isActive}
+                data-tour={nav.id === "manage" ? "settings-tab" : undefined}
               >
                 <span className="relative">
                   <Icon className="h-4 w-4" aria-hidden="true" />
