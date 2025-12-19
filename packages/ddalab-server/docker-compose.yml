@@ -1,3 +1,13 @@
+# ============================================================================
+# SECURITY WARNING - PRODUCTION DEPLOYMENT CHECKLIST
+# ============================================================================
+# 1. Set strong passwords via environment variables or .env file
+# 2. Remove port 5432 exposure (postgres) in production
+# 3. Enable PostgreSQL SSL/TLS for encrypted connections
+# 4. Use Docker secrets or external secrets manager for credentials
+# 5. Ensure .env file is NOT committed to version control
+# ============================================================================
+
 services:
   ddalab-server:
     build:
@@ -58,8 +68,10 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: ddalab-postgres
+    # SECURITY: Remove this port exposure in production!
+    # Database should only be accessible via internal Docker network.
     ports:
-      - "5432:5432"  # Expose for local development
+      - "5432:5432"  # Development only - REMOVE IN PRODUCTION
     environment:
       - POSTGRES_USER=ddalab
       - POSTGRES_PASSWORD=${DB_PASSWORD:-ddalab_secure_password}
