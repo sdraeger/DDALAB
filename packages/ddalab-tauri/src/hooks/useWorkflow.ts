@@ -10,8 +10,25 @@ import type {
 } from "@/types/workflow";
 
 /**
- * React hook for managing workflow recording and code generation
- * Wraps Tauri commands from src-tauri/src/recording/commands.rs
+ * @deprecated This hook uses manual state management. Prefer useWorkflowQueries.ts
+ * which provides React Query hooks with automatic caching, polling, and cache invalidation.
+ *
+ * Migration guide:
+ * - useBufferInfo() - replaces getBufferInfo with automatic polling
+ * - useAutoRecordingStatus() - replaces isAutoRecording
+ * - useWorkflowInfo() - replaces getWorkflowInfo
+ * - useWorkflowNodes() - replaces getAllNodes
+ * - useWorkflowEdges() - replaces getAllEdges
+ * - useRecordAction() - mutation for recordAction
+ * - useAutoRecordAction() - mutation for autoRecordAction
+ * - useEnableAutoRecord() / useDisableAutoRecord() - mutations
+ * - useClearBuffer() / useClearWorkflow() - mutations
+ * - useGeneratePython() / useGenerateJulia() - mutations
+ * - useGenerateCodeFromBuffer() - mutation with language parameter
+ * - useExportWorkflow() / useExportFromBuffer() - mutations
+ * - useNewWorkflow() - mutation for newWorkflow
+ *
+ * @see src/hooks/useWorkflowQueries.ts
  */
 export function useWorkflow() {
   const { workflowRecording } = useAppStore();
@@ -351,6 +368,174 @@ export function useWorkflow() {
     }
   }, []);
 
+  /**
+   * Enable auto-recording (always-on circular buffer)
+   */
+  const enableAutoRecord = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      await invoke("workflow_enable_auto_record");
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to enable auto-recording";
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  /**
+   * Disable auto-recording
+   */
+  const disableAutoRecord = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      await invoke("workflow_disable_auto_record");
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to disable auto-recording";
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  /**
+   * Check if auto-recording is enabled
+   */
+  const isAutoRecording = useCallback(async (): Promise<boolean> => {
+    try {
+      return await invoke<boolean>("workflow_is_auto_recording");
+    } catch (err) {
+      console.error("Failed to check auto-recording status:", err);
+      return false;
+    }
+  }, []);
+
+  /**
+   * Auto-record an action (called automatically when auto-recording is enabled)
+   */
+  const autoRecordAction = useCallback(
+    async (action: WorkflowAction, activeFileId?: string) => {
+      try {
+        await invoke("workflow_auto_record", {
+          action,
+          activeFileId: activeFileId || null,
+        });
+      } catch (err) {
+        console.error("Failed to auto-record action:", err);
+      }
+    },
+    [],
+  );
+
+  /**
+   * Get buffer statistics
+   */
+  const getBufferInfo = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const info = await invoke<{
+        current_size: number;
+        total_recorded: number;
+        auto_recording_enabled: boolean;
+      }>("workflow_get_buffer_info");
+      return info;
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to get buffer info";
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  /**
+   * Export workflow from buffer (last N minutes or all)
+   */
+  const exportFromBuffer = useCallback(
+    async (workflowName: string, lastNMinutes?: number): Promise<string> => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const json = await invoke<string>("workflow_export_from_buffer", {
+          workflowName,
+          lastNMinutes: lastNMinutes || null,
+        });
+        return json;
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Failed to export from buffer";
+        setError(message);
+        throw new Error(message);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [],
+  );
+
+  /**
+   * Clear the action buffer
+   */
+  const clearBuffer = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      await invoke("workflow_clear_buffer");
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to clear buffer";
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  /**
+   * Generate code from buffer
+   */
+  const generateCodeFromBuffer = useCallback(
+    async (
+      language: "python" | "julia" | "matlab" | "rust" | "r",
+      workflowName: string,
+      lastNMinutes?: number,
+      optimize?: boolean,
+    ): Promise<string> => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const code = await invoke<string>(
+          "workflow_generate_code_from_buffer",
+          {
+            language,
+            workflowName,
+            lastNMinutes: lastNMinutes || null,
+            optimize: optimize ?? true,
+          },
+        );
+        return code;
+      } catch (err) {
+        const message =
+          err instanceof Error
+            ? err.message
+            : "Failed to generate code from buffer";
+        setError(message);
+        throw new Error(message);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [],
+  );
+
   return {
     // Recording state (from store)
     isRecording: workflowRecording.isRecording,
@@ -360,6 +545,16 @@ export function useWorkflow() {
 
     // Recording controls
     recordAction,
+
+    // Auto-recording controls
+    enableAutoRecord,
+    disableAutoRecord,
+    isAutoRecording,
+    autoRecordAction,
+    getBufferInfo,
+    exportFromBuffer,
+    clearBuffer,
+    generateCodeFromBuffer,
 
     // Workflow management
     newWorkflow,
