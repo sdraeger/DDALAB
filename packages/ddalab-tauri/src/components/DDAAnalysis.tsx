@@ -11,7 +11,7 @@ import {
 } from "@/hooks/useStoreSelectors";
 import { ApiService } from "@/services/apiService";
 import { DDAAnalysisRequest, DDAResult } from "@/types/api";
-import { useWorkflow } from "@/hooks/useWorkflow";
+import { useAutoRecordAction } from "@/hooks/useWorkflowQueries";
 import {
   createSetDDAParametersAction,
   createRunDDAAnalysisAction,
@@ -155,7 +155,7 @@ export const DDAAnalysis = memo(function DDAAnalysis({
   const { isRecording: isWorkflowRecording, incrementActionCount } =
     useWorkflowSelectors();
 
-  const { recordAction } = useWorkflow();
+  const autoRecordActionMutation = useAutoRecordAction();
 
   // TanStack Query: Submit DDA analysis mutation
   const submitAnalysisMutation = useSubmitDDAAnalysis(apiService);
@@ -1122,22 +1122,34 @@ export const DDAAnalysis = memo(function DDAAnalysis({
     });
 
     // Record DDA parameters if recording is active
+    console.log("[DDA-ANALYSIS] isWorkflowRecording:", isWorkflowRecording);
     if (isWorkflowRecording) {
+      console.log("[DDA-ANALYSIS] Recording DDA parameters action...");
       try {
+        // Record main window parameters, with optional CT-specific overrides
         const paramAction = createSetDDAParametersAction(
-          parameters.delays[0] || 1, // lag (using first delay)
-          4, // dimension (default)
-          parameters.windowLength,
-          parameters.windowStep,
+          parameters.windowLength, // Main window length
+          parameters.windowStep, // Main window step
+          parameters.ctWindowLength, // CT-specific window length (optional)
+          parameters.ctWindowStep, // CT-specific window step (optional)
         );
-        await recordAction(paramAction);
+        await autoRecordActionMutation.mutateAsync({
+          action: paramAction,
+          activeFileId: selectedFile?.file_path,
+        });
         incrementActionCount();
+        console.log("[DDA-ANALYSIS] DDA parameters recorded successfully");
         loggers.dda.debug("Recorded DDA parameters to workflow");
       } catch (error) {
+        console.error("[DDA-ANALYSIS] Failed to record DDA parameters:", error);
         loggers.dda.error("Failed to record DDA parameters to workflow", {
           error,
         });
       }
+    } else {
+      console.log(
+        "[DDA-ANALYSIS] Skipping recording - isWorkflowRecording is false",
+      );
     }
 
     // Submit analysis using mutation
@@ -1207,14 +1219,21 @@ export const DDAAnalysis = memo(function DDAAnalysis({
               result.id,
               channelIndices,
             );
-            recordAction(analysisAction)
-              .then(() => {
-                incrementActionCount();
-                loggers.dda.debug("Recorded DDA analysis execution");
-              })
-              .catch((error) => {
-                loggers.dda.error("Failed to record DDA analysis", { error });
-              });
+            autoRecordActionMutation.mutate(
+              {
+                action: analysisAction,
+                activeFileId: selectedFile?.file_path,
+              },
+              {
+                onSuccess: () => {
+                  incrementActionCount();
+                  loggers.dda.debug("Recorded DDA analysis execution");
+                },
+                onError: (error) => {
+                  loggers.dda.error("Failed to record DDA analysis", { error });
+                },
+              },
+            );
           }
 
           // Save to history asynchronously (non-blocking)

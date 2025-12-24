@@ -59,7 +59,7 @@ import {
 } from "lucide-react";
 import { TauriService } from "@/services/tauriService";
 import { formatBytes } from "@/lib/utils";
-import { useWorkflow } from "@/hooks/useWorkflow";
+import { useAutoRecordAction } from "@/hooks/useWorkflowQueries";
 import { createLoadFileAction } from "@/types/workflow";
 import { BIDSUploadDialog } from "@/components/BIDSUploadDialog";
 import { openNeuroService } from "@/services/openNeuroService";
@@ -115,7 +115,7 @@ export const FileManager = React.memo(function FileManager({
   // Open files store for file tab management
   const openFileInTabs = useOpenFilesStore((state) => state.openFile);
 
-  const { recordAction } = useWorkflow();
+  const autoRecordActionMutation = useAutoRecordAction();
 
   // Build absolute path for directory listing
   const relativePath = currentPath.join("/");
@@ -465,16 +465,20 @@ export const FileManager = React.memo(function FileManager({
               fileInfo.file_path,
               fileInfo.file_path.endsWith(".edf") ? "EDF" : "ASCII",
             );
-            recordAction(action)
-              .then(() => {
-                console.log(
-                  "[WORKFLOW] Recorded restored file load:",
-                  fileInfo.file_path,
-                );
-              })
-              .catch((err) => {
-                console.error("[WORKFLOW] Failed to record action:", err);
-              });
+            autoRecordActionMutation.mutate(
+              { action, activeFileId: fileInfo.file_path },
+              {
+                onSuccess: () => {
+                  console.log(
+                    "[WORKFLOW] Recorded restored file load:",
+                    fileInfo.file_path,
+                  );
+                },
+                onError: (err) => {
+                  console.error("[WORKFLOW] Failed to record action:", err);
+                },
+              },
+            );
           }
         },
         onError: (error) => {
@@ -587,17 +591,24 @@ export const FileManager = React.memo(function FileManager({
               else if (ext === "ascii" || ext === "txt") fileType = "ASCII";
 
               const action = createLoadFileAction(file.file_path, fileType);
-              recordAction(action)
-                .then(() => {
-                  incrementActionCount();
-                  console.log("[WORKFLOW] Recorded file load:", file.file_path);
-                })
-                .catch((error) => {
-                  console.error(
-                    "[WORKFLOW] Failed to record file load:",
-                    error,
-                  );
-                });
+              autoRecordActionMutation.mutate(
+                { action, activeFileId: file.file_path },
+                {
+                  onSuccess: () => {
+                    incrementActionCount();
+                    console.log(
+                      "[WORKFLOW] Recorded file load:",
+                      file.file_path,
+                    );
+                  },
+                  onError: (error) => {
+                    console.error(
+                      "[WORKFLOW] Failed to record file load:",
+                      error,
+                    );
+                  },
+                },
+              );
             } catch (error) {
               console.error("[WORKFLOW] Failed to record file load:", error);
             }
@@ -652,7 +663,7 @@ export const FileManager = React.memo(function FileManager({
       loadFileInfoMutation,
       openFileInTabs,
       isRecording,
-      recordAction,
+      autoRecordActionMutation,
       incrementActionCount,
       selectedChannels,
       setSelectedChannels,

@@ -18,6 +18,15 @@ impl CodeGenerator {
         // Add Julia template
         tera.add_raw_template("workflow.jl", JULIA_TEMPLATE)?;
 
+        // Add MATLAB template
+        tera.add_raw_template("workflow.m", MATLAB_TEMPLATE)?;
+
+        // Add Rust template
+        tera.add_raw_template("workflow.rs", RUST_TEMPLATE)?;
+
+        // Add R template
+        tera.add_raw_template("workflow.R", R_TEMPLATE)?;
+
         Ok(Self { tera })
     }
 
@@ -33,6 +42,27 @@ impl CodeGenerator {
         self.tera
             .render("workflow.jl", &context)
             .map_err(|e| anyhow!("Failed to render Julia template: {}", e))
+    }
+
+    pub fn generate_matlab(&self, workflow: &WorkflowGraph) -> Result<String> {
+        let context = self.build_context(workflow, "matlab")?;
+        self.tera
+            .render("workflow.m", &context)
+            .map_err(|e| anyhow!("Failed to render MATLAB template: {}", e))
+    }
+
+    pub fn generate_rust(&self, workflow: &WorkflowGraph) -> Result<String> {
+        let context = self.build_context(workflow, "rust")?;
+        self.tera
+            .render("workflow.rs", &context)
+            .map_err(|e| anyhow!("Failed to render Rust template: {}", e))
+    }
+
+    pub fn generate_r(&self, workflow: &WorkflowGraph) -> Result<String> {
+        let context = self.build_context(workflow, "r")?;
+        self.tera
+            .render("workflow.R", &context)
+            .map_err(|e| anyhow!("Failed to render R template: {}", e))
     }
 
     fn build_context(&self, workflow: &WorkflowGraph, language: &str) -> Result<Context> {
@@ -65,6 +95,9 @@ impl CodeGenerator {
         match language {
             "python" => self.generate_python_action(action),
             "julia" => self.generate_julia_action(action),
+            "matlab" => self.generate_matlab_action(action),
+            "rust" => self.generate_rust_action(action),
+            "r" => self.generate_r_action(action),
             _ => Err(anyhow!("Unsupported language: {}", language)),
         }
     }
@@ -77,19 +110,29 @@ impl CodeGenerator {
                 FileType::CSV => format!("data = pd.read_csv('{}')", path),
             },
             WorkflowAction::SetDDAParameters {
-                lag,
-                dimension,
-                window_size,
-                window_offset,
+                window_length,
+                window_step,
+                ct_window_length,
+                ct_window_step,
             } => {
-                format!(
-                    "dda_params = {{\n        'lag': {},\n        'dimension': {},\n        'window_size': {},\n        'window_offset': {}\n    }}",
-                    lag, dimension, window_size, window_offset
-                )
+                let mut params = format!(
+                    "dda_params = {{\n        'window_length': {},\n        'window_step': {}",
+                    window_length, window_step
+                );
+                if let Some(ct_wl) = ct_window_length {
+                    params.push_str(&format!(",\n        'ct_window_length': {}", ct_wl));
+                }
+                if let Some(ct_ws) = ct_window_step {
+                    params.push_str(&format!(",\n        'ct_window_step': {}", ct_ws));
+                }
+                params.push_str("\n    }");
+                params
             }
             WorkflowAction::RunDDAAnalysis {
                 input_id: _,
                 channel_selection,
+                ct_channel_pairs: _,
+                cd_channel_pairs: _,
             } => {
                 format!(
                     "result = run_dda_analysis(data, channels={}, **dda_params)",
@@ -151,7 +194,91 @@ impl CodeGenerator {
                 } => {
                     format!("data = bandpass_filter(data, {}, {})", low_freq, high_freq)
                 }
+                TransformType::Decimate { factor } => {
+                    format!("data = scipy.signal.decimate(data, {}, axis=-1)", factor)
+                }
+                TransformType::Resample { target_rate } => {
+                    format!("data = scipy.signal.resample(data, int(data.shape[-1] * {} / sampling_rate), axis=-1)", target_rate)
+                }
+                TransformType::BaselineCorrection { start, end } => {
+                    format!("data = baseline_correct(data, {}, {})", start, end)
+                }
             },
+            WorkflowAction::CloseFile { file_id } => {
+                format!("# Close file: {}", file_id)
+            }
+            WorkflowAction::SwitchActiveFile { file_id } => {
+                format!("# Switch to file: {}", file_id)
+            }
+            WorkflowAction::SelectChannels { channel_indices } => {
+                format!("selected_channels = {}", format_list(channel_indices))
+            }
+            WorkflowAction::DeselectChannels { channel_indices } => {
+                format!("# Deselect channels: {}", format_list(channel_indices))
+            }
+            WorkflowAction::SelectAllChannels => {
+                "selected_channels = list(range(len(data)))".to_string()
+            }
+            WorkflowAction::ClearChannelSelection => "selected_channels = []".to_string(),
+            WorkflowAction::SetTimeWindow { start, end } => {
+                format!("time_window = ({}, {})", start, end)
+            }
+            WorkflowAction::SelectDDAVariants { variants } => {
+                format!("dda_variants = {}", format_list_str(variants))
+            }
+            WorkflowAction::SetDelayList { delays } => {
+                format!("delay_list = {}", format_list_i32(delays))
+            }
+            WorkflowAction::SetModelParameters {
+                dm,
+                order,
+                nr_tau,
+                encoding,
+            } => {
+                format!(
+                    "model_params = {{'dm': {}, 'order': {}, 'nr_tau': {}, 'encoding': {}}}",
+                    dm,
+                    order,
+                    nr_tau,
+                    format_list_i32(encoding)
+                )
+            }
+            WorkflowAction::SetChunkWindow {
+                chunk_start,
+                chunk_size,
+            } => {
+                format!(
+                    "chunk_window = (start={}, size={})",
+                    chunk_start, chunk_size
+                )
+            }
+            WorkflowAction::ApplyPreprocessing {
+                input_id,
+                preprocessing: _,
+            } => {
+                format!("# Apply preprocessing to {}", input_id)
+            }
+            WorkflowAction::AddAnnotation {
+                annotation_type: _,
+                details: _,
+            } => "# Add annotation".to_string(),
+            WorkflowAction::RemoveAnnotation { annotation_id } => {
+                format!("# Remove annotation {}", annotation_id)
+            }
+            WorkflowAction::ExportPlot {
+                plot_type: _,
+                format: _,
+                path,
+            } => {
+                format!("plt.savefig('{}')", path)
+            }
+            WorkflowAction::SaveAnalysisResult { result_id: _, name } => {
+                format!("# Save analysis result: {}", name)
+            }
+            WorkflowAction::LoadAnalysisFromHistory { result_id } => {
+                format!("# Load analysis from history: {}", result_id)
+            }
+            WorkflowAction::CompareAnalyses { result_ids: _ } => "# Compare analyses".to_string(),
         };
 
         Ok(code)
@@ -165,19 +292,29 @@ impl CodeGenerator {
                 FileType::CSV => format!("data = CSV.read(\"{}\", DataFrame)", path),
             },
             WorkflowAction::SetDDAParameters {
-                lag,
-                dimension,
-                window_size,
-                window_offset,
+                window_length,
+                window_step,
+                ct_window_length,
+                ct_window_step,
             } => {
-                format!(
-                    "dda_params = DDAParameters(\n    lag={},\n    dimension={},\n    window_size={},\n    window_offset={}\n)",
-                    lag, dimension, window_size, window_offset
-                )
+                let mut params = format!(
+                    "dda_params = DDAParameters(\n    window_length={},\n    window_step={}",
+                    window_length, window_step
+                );
+                if let Some(ct_wl) = ct_window_length {
+                    params.push_str(&format!(",\n    ct_window_length={}", ct_wl));
+                }
+                if let Some(ct_ws) = ct_window_step {
+                    params.push_str(&format!(",\n    ct_window_step={}", ct_ws));
+                }
+                params.push_str("\n)");
+                params
             }
             WorkflowAction::RunDDAAnalysis {
                 input_id: _,
                 channel_selection,
+                ct_channel_pairs: _,
+                cd_channel_pairs: _,
             } => {
                 format!(
                     "result = run_dda_analysis(data, channels={}, dda_params)",
@@ -231,7 +368,615 @@ impl CodeGenerator {
                 } => {
                     format!("data = bandpass_filter(data, {}, {})", low_freq, high_freq)
                 }
+                TransformType::Decimate { factor } => {
+                    format!("data = decimate(data, {})", factor)
+                }
+                TransformType::Resample { target_rate } => {
+                    format!("data = resample(data, {})", target_rate)
+                }
+                TransformType::BaselineCorrection { start, end } => {
+                    format!("data = baseline_correct(data, {}, {})", start, end)
+                }
             },
+            WorkflowAction::CloseFile { file_id } => {
+                format!("# Close file: {}", file_id)
+            }
+            WorkflowAction::SwitchActiveFile { file_id } => {
+                format!("# Switch to file: {}", file_id)
+            }
+            WorkflowAction::SelectChannels { channel_indices } => {
+                format!(
+                    "selected_channels = {}",
+                    format_julia_array(channel_indices)
+                )
+            }
+            WorkflowAction::DeselectChannels { channel_indices } => {
+                format!(
+                    "# Deselect channels: {}",
+                    format_julia_array(channel_indices)
+                )
+            }
+            WorkflowAction::SelectAllChannels => {
+                "selected_channels = collect(1:size(data, 1))".to_string()
+            }
+            WorkflowAction::ClearChannelSelection => "selected_channels = []".to_string(),
+            WorkflowAction::SetTimeWindow { start, end } => {
+                format!("time_window = ({}, {})", start, end)
+            }
+            WorkflowAction::SelectDDAVariants { variants } => {
+                format!("dda_variants = {}", format_julia_array_str(variants))
+            }
+            WorkflowAction::SetDelayList { delays } => {
+                format!("delay_list = {}", format_julia_array_i32(delays))
+            }
+            WorkflowAction::SetModelParameters {
+                dm,
+                order,
+                nr_tau,
+                encoding,
+            } => {
+                format!(
+                    "model_params = (dm={}, order={}, nr_tau={}, encoding={})",
+                    dm,
+                    order,
+                    nr_tau,
+                    format_julia_array_i32(encoding)
+                )
+            }
+            WorkflowAction::SetChunkWindow {
+                chunk_start,
+                chunk_size,
+            } => {
+                format!(
+                    "chunk_window = (start={}, size={})",
+                    chunk_start, chunk_size
+                )
+            }
+            WorkflowAction::ApplyPreprocessing {
+                input_id,
+                preprocessing: _,
+            } => {
+                format!("# Apply preprocessing to {}", input_id)
+            }
+            WorkflowAction::AddAnnotation {
+                annotation_type: _,
+                details: _,
+            } => "# Add annotation".to_string(),
+            WorkflowAction::RemoveAnnotation { annotation_id } => {
+                format!("# Remove annotation {}", annotation_id)
+            }
+            WorkflowAction::ExportPlot {
+                plot_type: _,
+                format: _,
+                path,
+            } => {
+                format!("savefig(\"{}\")", path)
+            }
+            WorkflowAction::SaveAnalysisResult { result_id: _, name } => {
+                format!("# Save analysis result: {}", name)
+            }
+            WorkflowAction::LoadAnalysisFromHistory { result_id } => {
+                format!("# Load analysis from history: {}", result_id)
+            }
+            WorkflowAction::CompareAnalyses { result_ids: _ } => "# Compare analyses".to_string(),
+        };
+
+        Ok(code)
+    }
+
+    fn generate_matlab_action(&self, action: &WorkflowAction) -> Result<String> {
+        let code = match action {
+            WorkflowAction::LoadFile { path, file_type } => match file_type {
+                FileType::EDF => format!("data = edfread('{}');", path),
+                FileType::ASCII => format!("data = load('{}');", path),
+                FileType::CSV => format!("data = readmatrix('{}');", path),
+            },
+            WorkflowAction::SetDDAParameters {
+                window_length,
+                window_step,
+                ct_window_length,
+                ct_window_step,
+            } => {
+                let mut params = format!(
+                    "dda_params.window_length = {};\ndda_params.window_step = {};",
+                    window_length, window_step
+                );
+                if let Some(ct_wl) = ct_window_length {
+                    params.push_str(&format!("\ndda_params.ct_window_length = {};", ct_wl));
+                }
+                if let Some(ct_ws) = ct_window_step {
+                    params.push_str(&format!("\ndda_params.ct_window_step = {};", ct_ws));
+                }
+                params
+            }
+            WorkflowAction::RunDDAAnalysis {
+                input_id: _,
+                channel_selection,
+                ct_channel_pairs: _,
+                cd_channel_pairs: _,
+            } => {
+                format!(
+                    "result = run_dda_analysis(data, {}, dda_params);",
+                    format_matlab_array(channel_selection)
+                )
+            }
+            WorkflowAction::ExportResults {
+                result_id: _,
+                format,
+                path,
+            } => match format {
+                ExportFormat::CSV => format!("writematrix(result, '{}');", path),
+                ExportFormat::JSON => format!("jsonwrite('{}', result);", path),
+                ExportFormat::MAT => format!("save('{}', 'result');", path),
+            },
+            WorkflowAction::GeneratePlot {
+                result_id: _,
+                plot_type,
+                options,
+            } => {
+                let title = options
+                    .title
+                    .as_ref()
+                    .map(|t| format!("; title('{}');", t))
+                    .unwrap_or_default();
+
+                match plot_type {
+                    PlotType::Heatmap => format!("imagesc(result){}", title),
+                    PlotType::TimeSeries => format!("plot(result){}", title),
+                    PlotType::StatisticalSummary => format!("boxplot(result){}", title),
+                }
+            }
+            WorkflowAction::FilterChannels {
+                input_id: _,
+                channel_indices,
+            } => {
+                format!("data = data({}, :);", format_matlab_array(channel_indices))
+            }
+            WorkflowAction::TransformData {
+                input_id: _,
+                transform_type,
+            } => match transform_type {
+                TransformType::Normalize => "data = (data - mean(data)) ./ std(data);".to_string(),
+                TransformType::BandpassFilter {
+                    low_freq,
+                    high_freq,
+                } => {
+                    format!("data = bandpass(data, [{}, {}], fs);", low_freq, high_freq)
+                }
+                TransformType::Decimate { factor } => {
+                    format!("data = decimate(data, {});", factor)
+                }
+                TransformType::Resample { target_rate } => {
+                    format!("data = resample(data, {});", target_rate)
+                }
+                TransformType::BaselineCorrection { start, end } => {
+                    format!("data = baseline_correct(data, {}, {});", start, end)
+                }
+            },
+            WorkflowAction::CloseFile { file_id } => {
+                format!("% Close file: {}", file_id)
+            }
+            WorkflowAction::SwitchActiveFile { file_id } => {
+                format!("% Switch to file: {}", file_id)
+            }
+            WorkflowAction::SelectChannels { channel_indices } => {
+                format!(
+                    "selected_channels = {};",
+                    format_matlab_array(channel_indices)
+                )
+            }
+            WorkflowAction::DeselectChannels { channel_indices } => {
+                format!(
+                    "% Deselect channels: {}",
+                    format_matlab_array(channel_indices)
+                )
+            }
+            WorkflowAction::SelectAllChannels => "selected_channels = 1:size(data, 1);".to_string(),
+            WorkflowAction::ClearChannelSelection => "selected_channels = [];".to_string(),
+            WorkflowAction::SetTimeWindow { start, end } => {
+                format!("time_window = [{}, {}];", start, end)
+            }
+            WorkflowAction::SelectDDAVariants { variants } => {
+                format!("dda_variants = {};", format_matlab_string_array(variants))
+            }
+            WorkflowAction::SetDelayList { delays } => {
+                format!("delay_list = {};", format_matlab_array_i32(delays))
+            }
+            WorkflowAction::SetModelParameters {
+                dm,
+                order,
+                nr_tau,
+                encoding,
+            } => {
+                format!(
+                    "model_params = struct('dm', {}, 'order', {}, 'nr_tau', {}, 'encoding', {});",
+                    dm,
+                    order,
+                    nr_tau,
+                    format_matlab_array_i32(encoding)
+                )
+            }
+            WorkflowAction::SetChunkWindow {
+                chunk_start,
+                chunk_size,
+            } => {
+                format!(
+                    "chunk_window = struct('start', {}, 'size', {});",
+                    chunk_start, chunk_size
+                )
+            }
+            WorkflowAction::ApplyPreprocessing {
+                input_id,
+                preprocessing: _,
+            } => {
+                format!("% Apply preprocessing to {}", input_id)
+            }
+            WorkflowAction::AddAnnotation {
+                annotation_type: _,
+                details: _,
+            } => "% Add annotation".to_string(),
+            WorkflowAction::RemoveAnnotation { annotation_id } => {
+                format!("% Remove annotation {}", annotation_id)
+            }
+            WorkflowAction::ExportPlot {
+                plot_type: _,
+                format: _,
+                path,
+            } => {
+                format!("saveas(gcf, '{}');", path)
+            }
+            WorkflowAction::SaveAnalysisResult { result_id: _, name } => {
+                format!("% Save analysis result: {}", name)
+            }
+            WorkflowAction::LoadAnalysisFromHistory { result_id } => {
+                format!("% Load analysis from history: {}", result_id)
+            }
+            WorkflowAction::CompareAnalyses { result_ids: _ } => "% Compare analyses".to_string(),
+        };
+
+        Ok(code)
+    }
+
+    fn generate_rust_action(&self, action: &WorkflowAction) -> Result<String> {
+        let code = match action {
+            WorkflowAction::LoadFile { path, file_type } => match file_type {
+                FileType::EDF => format!("let data = read_edf_file(\"{}\")?;", path),
+                FileType::ASCII => format!("let data = read_ascii_file(\"{}\")?;", path),
+                FileType::CSV => format!("let data = read_csv_file(\"{}\")?;", path),
+            },
+            WorkflowAction::SetDDAParameters {
+                window_length,
+                window_step,
+                ct_window_length,
+                ct_window_step,
+            } => {
+                let mut params = format!(
+                    "let mut dda_params = DDAParams {{\n        window_length: {},\n        window_step: {},",
+                    window_length, window_step
+                );
+                if let Some(ct_wl) = ct_window_length {
+                    params.push_str(&format!("\n        ct_window_length: Some({}),", ct_wl));
+                } else {
+                    params.push_str("\n        ct_window_length: None,");
+                }
+                if let Some(ct_ws) = ct_window_step {
+                    params.push_str(&format!("\n        ct_window_step: Some({}),", ct_ws));
+                } else {
+                    params.push_str("\n        ct_window_step: None,");
+                }
+                params.push_str("\n    };");
+                params
+            }
+            WorkflowAction::RunDDAAnalysis {
+                input_id: _,
+                channel_selection,
+                ct_channel_pairs: _,
+                cd_channel_pairs: _,
+            } => {
+                format!(
+                    "let result = run_dda_analysis(&data, &{}, &dda_params)?;",
+                    format_rust_array(channel_selection)
+                )
+            }
+            WorkflowAction::ExportResults {
+                result_id: _,
+                format,
+                path,
+            } => match format {
+                ExportFormat::CSV => format!("result.to_csv(\"{}\")?;", path),
+                ExportFormat::JSON => format!("result.to_json(\"{}\")?;", path),
+                ExportFormat::MAT => format!("// MAT export not supported in Rust"),
+            },
+            WorkflowAction::GeneratePlot {
+                result_id: _,
+                plot_type,
+                options,
+            } => {
+                let title = options
+                    .title
+                    .as_ref()
+                    .map(|t| format!(", title: \"{}\"", t))
+                    .unwrap_or_default();
+
+                match plot_type {
+                    PlotType::Heatmap => format!("plot_heatmap(&result{})?;", title),
+                    PlotType::TimeSeries => format!("plot_timeseries(&result{})?;", title),
+                    PlotType::StatisticalSummary => format!("plot_statistics(&result{})?;", title),
+                }
+            }
+            WorkflowAction::FilterChannels {
+                input_id: _,
+                channel_indices,
+            } => {
+                format!(
+                    "let data = filter_channels(&data, &{})?;",
+                    format_rust_array(channel_indices)
+                )
+            }
+            WorkflowAction::TransformData {
+                input_id: _,
+                transform_type,
+            } => match transform_type {
+                TransformType::Normalize => "let data = normalize(&data)?;".to_string(),
+                TransformType::BandpassFilter {
+                    low_freq,
+                    high_freq,
+                } => {
+                    format!(
+                        "let data = bandpass_filter(&data, {}, {})?;",
+                        low_freq, high_freq
+                    )
+                }
+                TransformType::Decimate { factor } => {
+                    format!("let data = decimate(&data, {})?;", factor)
+                }
+                TransformType::Resample { target_rate } => {
+                    format!("let data = resample(&data, {})?;", target_rate)
+                }
+                TransformType::BaselineCorrection { start, end } => {
+                    format!("let data = baseline_correct(&data, {}, {})?;", start, end)
+                }
+            },
+            WorkflowAction::CloseFile { file_id } => {
+                format!("// Close file: {}", file_id)
+            }
+            WorkflowAction::SwitchActiveFile { file_id } => {
+                format!("// Switch to file: {}", file_id)
+            }
+            WorkflowAction::SelectChannels { channel_indices } => {
+                format!(
+                    "let selected_channels = {};",
+                    format_rust_array(channel_indices)
+                )
+            }
+            WorkflowAction::DeselectChannels { channel_indices } => {
+                format!("// Deselect channels: {:?}", channel_indices)
+            }
+            WorkflowAction::SelectAllChannels => {
+                "let selected_channels = (0..data.len()).collect::<Vec<_>>();".to_string()
+            }
+            WorkflowAction::ClearChannelSelection => {
+                "let selected_channels: Vec<usize> = Vec::new();".to_string()
+            }
+            WorkflowAction::SetTimeWindow { start, end } => {
+                format!("let time_window = ({}, {});", start, end)
+            }
+            WorkflowAction::SelectDDAVariants { variants } => {
+                format!("let dda_variants = {};", format_rust_string_array(variants))
+            }
+            WorkflowAction::SetDelayList { delays } => {
+                format!("let delay_list = {};", format_rust_array_i32(delays))
+            }
+            WorkflowAction::SetModelParameters {
+                dm,
+                order,
+                nr_tau,
+                encoding,
+            } => {
+                format!("let model_params = ModelParams {{ dm: {}, order: {}, nr_tau: {}, encoding: {} }};",
+                    dm, order, nr_tau, format_rust_array_i32(encoding))
+            }
+            WorkflowAction::SetChunkWindow {
+                chunk_start,
+                chunk_size,
+            } => {
+                format!("let chunk_window = ({}, {});", chunk_start, chunk_size)
+            }
+            WorkflowAction::ApplyPreprocessing {
+                input_id,
+                preprocessing: _,
+            } => {
+                format!("// Apply preprocessing to {}", input_id)
+            }
+            WorkflowAction::AddAnnotation {
+                annotation_type: _,
+                details: _,
+            } => "// Add annotation".to_string(),
+            WorkflowAction::RemoveAnnotation { annotation_id } => {
+                format!("// Remove annotation {}", annotation_id)
+            }
+            WorkflowAction::ExportPlot {
+                plot_type: _,
+                format: _,
+                path,
+            } => {
+                format!("// Export plot to {}", path)
+            }
+            WorkflowAction::SaveAnalysisResult { result_id: _, name } => {
+                format!("// Save analysis result: {}", name)
+            }
+            WorkflowAction::LoadAnalysisFromHistory { result_id } => {
+                format!("// Load analysis from history: {}", result_id)
+            }
+            WorkflowAction::CompareAnalyses { result_ids: _ } => "// Compare analyses".to_string(),
+        };
+
+        Ok(code)
+    }
+
+    fn generate_r_action(&self, action: &WorkflowAction) -> Result<String> {
+        let code = match action {
+            WorkflowAction::LoadFile { path, file_type } => match file_type {
+                FileType::EDF => format!("data <- read_edf(\"{}\")", path),
+                FileType::ASCII => format!("data <- read.table(\"{}\")", path),
+                FileType::CSV => format!("data <- read.csv(\"{}\")", path),
+            },
+            WorkflowAction::SetDDAParameters {
+                window_length,
+                window_step,
+                ct_window_length,
+                ct_window_step,
+            } => {
+                let mut params = format!(
+                    "dda_params <- list(\n  window_length = {},\n  window_step = {}",
+                    window_length, window_step
+                );
+                if let Some(ct_wl) = ct_window_length {
+                    params.push_str(&format!(",\n  ct_window_length = {}", ct_wl));
+                }
+                if let Some(ct_ws) = ct_window_step {
+                    params.push_str(&format!(",\n  ct_window_step = {}", ct_ws));
+                }
+                params.push_str("\n)");
+                params
+            }
+            WorkflowAction::RunDDAAnalysis {
+                input_id: _,
+                channel_selection,
+                ct_channel_pairs: _,
+                cd_channel_pairs: _,
+            } => {
+                format!(
+                    "result <- run_dda_analysis(data, channels = {}, dda_params)",
+                    format_r_array(channel_selection)
+                )
+            }
+            WorkflowAction::ExportResults {
+                result_id: _,
+                format,
+                path,
+            } => match format {
+                ExportFormat::CSV => format!("write.csv(result, \"{}\")", path),
+                ExportFormat::JSON => format!("jsonlite::write_json(result, \"{}\")", path),
+                ExportFormat::MAT => format!("R.matlab::writeMat(\"{}\", result = result)", path),
+            },
+            WorkflowAction::GeneratePlot {
+                result_id: _,
+                plot_type,
+                options,
+            } => {
+                let title = options
+                    .title
+                    .as_ref()
+                    .map(|t| format!(", main = \"{}\"", t))
+                    .unwrap_or_default();
+
+                match plot_type {
+                    PlotType::Heatmap => format!("heatmap(result{})", title),
+                    PlotType::TimeSeries => format!("plot(result, type = \"l\"{})", title),
+                    PlotType::StatisticalSummary => format!("boxplot(result{})", title),
+                }
+            }
+            WorkflowAction::FilterChannels {
+                input_id: _,
+                channel_indices,
+            } => {
+                format!("data <- data[{}, ]", format_r_array(channel_indices))
+            }
+            WorkflowAction::TransformData {
+                input_id: _,
+                transform_type,
+            } => match transform_type {
+                TransformType::Normalize => "data <- scale(data)".to_string(),
+                TransformType::BandpassFilter {
+                    low_freq,
+                    high_freq,
+                } => {
+                    format!("data <- bandpass_filter(data, {}, {})", low_freq, high_freq)
+                }
+                TransformType::Decimate { factor } => {
+                    format!("data <- decimate(data, {})", factor)
+                }
+                TransformType::Resample { target_rate } => {
+                    format!("data <- resample(data, {})", target_rate)
+                }
+                TransformType::BaselineCorrection { start, end } => {
+                    format!("data <- baseline_correct(data, {}, {})", start, end)
+                }
+            },
+            WorkflowAction::CloseFile { file_id } => {
+                format!("# Close file: {}", file_id)
+            }
+            WorkflowAction::SwitchActiveFile { file_id } => {
+                format!("# Switch to file: {}", file_id)
+            }
+            WorkflowAction::SelectChannels { channel_indices } => {
+                format!("selected_channels <- {}", format_r_array(channel_indices))
+            }
+            WorkflowAction::DeselectChannels { channel_indices } => {
+                format!("# Deselect channels: {}", format_r_array(channel_indices))
+            }
+            WorkflowAction::SelectAllChannels => "selected_channels <- 1:nrow(data)".to_string(),
+            WorkflowAction::ClearChannelSelection => "selected_channels <- c()".to_string(),
+            WorkflowAction::SetTimeWindow { start, end } => {
+                format!("time_window <- c({}, {})", start, end)
+            }
+            WorkflowAction::SelectDDAVariants { variants } => {
+                format!("dda_variants <- {}", format_r_string_array(variants))
+            }
+            WorkflowAction::SetDelayList { delays } => {
+                format!("delay_list <- {}", format_r_array_i32(delays))
+            }
+            WorkflowAction::SetModelParameters {
+                dm,
+                order,
+                nr_tau,
+                encoding,
+            } => {
+                format!(
+                    "model_params <- list(dm = {}, order = {}, nr_tau = {}, encoding = {})",
+                    dm,
+                    order,
+                    nr_tau,
+                    format_r_array_i32(encoding)
+                )
+            }
+            WorkflowAction::SetChunkWindow {
+                chunk_start,
+                chunk_size,
+            } => {
+                format!(
+                    "chunk_window <- list(start = {}, size = {})",
+                    chunk_start, chunk_size
+                )
+            }
+            WorkflowAction::ApplyPreprocessing {
+                input_id,
+                preprocessing: _,
+            } => {
+                format!("# Apply preprocessing to {}", input_id)
+            }
+            WorkflowAction::AddAnnotation {
+                annotation_type: _,
+                details: _,
+            } => "# Add annotation".to_string(),
+            WorkflowAction::RemoveAnnotation { annotation_id } => {
+                format!("# Remove annotation {}", annotation_id)
+            }
+            WorkflowAction::ExportPlot {
+                plot_type: _,
+                format: _,
+                path,
+            } => {
+                format!("ggsave(\"{}\")", path)
+            }
+            WorkflowAction::SaveAnalysisResult { result_id: _, name } => {
+                format!("# Save analysis result: {}", name)
+            }
+            WorkflowAction::LoadAnalysisFromHistory { result_id } => {
+                format!("# Load analysis from history: {}", result_id)
+            }
+            WorkflowAction::CompareAnalyses { result_ids: _ } => "# Compare analyses".to_string(),
         };
 
         Ok(code)
@@ -255,6 +1000,152 @@ fn format_julia_array(items: &[usize]) -> String {
         items
             .iter()
             .map(|i| (i + 1).to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+fn format_list_str(items: &[String]) -> String {
+    format!(
+        "[{}]",
+        items
+            .iter()
+            .map(|s| format!("'{}'", s))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+fn format_julia_array_str(items: &[String]) -> String {
+    format!(
+        "[{}]",
+        items
+            .iter()
+            .map(|s| format!("\"{}\"", s))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+fn format_list_i32(items: &[i32]) -> String {
+    format!(
+        "[{}]",
+        items
+            .iter()
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+fn format_julia_array_i32(items: &[i32]) -> String {
+    format!(
+        "[{}]",
+        items
+            .iter()
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+// MATLAB formatting functions
+fn format_matlab_array(items: &[usize]) -> String {
+    format!(
+        "[{}]",
+        items
+            .iter()
+            .map(|i| (i + 1).to_string()) // MATLAB uses 1-based indexing
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+fn format_matlab_array_i32(items: &[i32]) -> String {
+    format!(
+        "[{}]",
+        items
+            .iter()
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+fn format_matlab_string_array(items: &[String]) -> String {
+    format!(
+        "{{{}}}",
+        items
+            .iter()
+            .map(|s| format!("'{}'", s))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+// Rust formatting functions
+fn format_rust_array(items: &[usize]) -> String {
+    format!(
+        "vec![{}]",
+        items
+            .iter()
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+fn format_rust_array_i32(items: &[i32]) -> String {
+    format!(
+        "vec![{}]",
+        items
+            .iter()
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+fn format_rust_string_array(items: &[String]) -> String {
+    format!(
+        "vec![{}]",
+        items
+            .iter()
+            .map(|s| format!("\"{}\".to_string()", s))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+// R formatting functions
+fn format_r_array(items: &[usize]) -> String {
+    format!(
+        "c({})",
+        items
+            .iter()
+            .map(|i| (i + 1).to_string()) // R uses 1-based indexing
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+fn format_r_array_i32(items: &[i32]) -> String {
+    format!(
+        "c({})",
+        items
+            .iter()
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+fn format_r_string_array(items: &[String]) -> String {
+    format!(
+        "c({})",
+        items
+            .iter()
+            .map(|s| format!("\"{}\"", s))
             .collect::<Vec<_>>()
             .join(", ")
     )
@@ -383,6 +1274,65 @@ function main()
     {{ action.code }}
 {% endfor %}
 end
+
+main()
+"#;
+
+const MATLAB_TEMPLATE: &str = r#"%% {{ workflow_name }}
+{% if workflow_description %}
+% {{ workflow_description }}
+{% endif %}
+%
+% Generated by DDALAB Session Recording
+
+function main()
+{% for action in actions %}
+    % {{ action.id }}{% if action.description %}: {{ action.description }}{% endif %}
+    {{ action.code }}
+{% endfor %}
+end
+
+main();
+"#;
+
+const RUST_TEMPLATE: &str = r#"//! {{ workflow_name }}
+{% if workflow_description %}
+//! {{ workflow_description }}
+{% endif %}
+//!
+//! Generated by DDALAB Session Recording
+
+use anyhow::Result;
+use std::path::Path;
+
+fn main() -> Result<()> {
+{% for action in actions %}
+    // {{ action.id }}{% if action.description %}: {{ action.description }}{% endif %}
+    {{ action.code }}
+{% endfor %}
+
+    Ok(())
+}
+"#;
+
+const R_TEMPLATE: &str = r#"#!/usr/bin/env Rscript
+# {{ workflow_name }}
+{% if workflow_description %}
+# {{ workflow_description }}
+{% endif %}
+#
+# Generated by DDALAB Session Recording
+
+library(edfReader)  # For EDF file support
+library(jsonlite)    # For JSON export
+library(R.matlab)    # For MAT file support
+
+main <- function() {
+{% for action in actions %}
+  # {{ action.id }}{% if action.description %}: {{ action.description }}{% endif %}
+  {{ action.code }}
+{% endfor %}
+}
 
 main()
 "#;

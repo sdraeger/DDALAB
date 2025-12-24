@@ -33,6 +33,7 @@ import {
   Minimize2,
 } from "lucide-react";
 import { TauriService } from "@/services/tauriService";
+import { WorkflowRecorder } from "@/components/workflow/WorkflowRecorder";
 
 export function DashboardLayout() {
   // Get ApiService from context (managed by ApiServiceProvider in page.tsx)
@@ -268,7 +269,9 @@ export function DashboardLayout() {
           </div>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-4">
+          <WorkflowRecorder />
+
           <div className="text-sm text-muted-foreground">
             {selectedFileName || "No file selected"}
           </div>

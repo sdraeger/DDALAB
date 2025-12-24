@@ -4,13 +4,17 @@ use std::sync::Arc;
 use tauri::State;
 
 use super::actions::{WorkflowAction, WorkflowEdge, WorkflowNode};
+use super::buffer::{ActionBuffer, BufferedAction};
 use super::codegen::CodeGenerator;
+use super::optimizer::WorkflowOptimizer;
 use super::workflow::WorkflowGraph;
 
 pub struct WorkflowState {
     workflow: Arc<RwLock<WorkflowGraph>>,
     code_generator: CodeGenerator,
     last_node_id: Arc<RwLock<Option<String>>>,
+    action_buffer: Arc<RwLock<ActionBuffer>>,
+    auto_record_enabled: Arc<RwLock<bool>>,
 }
 
 impl WorkflowState {
@@ -19,6 +23,8 @@ impl WorkflowState {
             workflow: Arc::new(RwLock::new(WorkflowGraph::new("session".to_string()))),
             code_generator: CodeGenerator::new()?,
             last_node_id: Arc::new(RwLock::new(None)),
+            action_buffer: Arc::new(RwLock::new(ActionBuffer::new())),
+            auto_record_enabled: Arc::new(RwLock::new(false)),
         })
     }
 
@@ -287,4 +293,167 @@ struct WorkflowExport {
     nodes: Vec<WorkflowNode>,
     edges: Vec<WorkflowEdge>,
     metadata: super::workflow::WorkflowMetadata,
+}
+
+// ============================================================================
+// Auto-Recording Commands
+// ============================================================================
+
+#[tauri::command]
+pub async fn workflow_enable_auto_record(
+    state: State<'_, Arc<RwLock<WorkflowState>>>,
+) -> Result<(), String> {
+    let workflow_state = state.read();
+    *workflow_state.auto_record_enabled.write() = true;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn workflow_disable_auto_record(
+    state: State<'_, Arc<RwLock<WorkflowState>>>,
+) -> Result<(), String> {
+    let workflow_state = state.read();
+    *workflow_state.auto_record_enabled.write() = false;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn workflow_is_auto_recording(
+    state: State<'_, Arc<RwLock<WorkflowState>>>,
+) -> Result<bool, String> {
+    let workflow_state = state.read();
+    let is_recording = *workflow_state.auto_record_enabled.read();
+    Ok(is_recording)
+}
+
+#[tauri::command]
+pub async fn workflow_auto_record(
+    state: State<'_, Arc<RwLock<WorkflowState>>>,
+    action: WorkflowAction,
+    active_file_id: Option<String>,
+) -> Result<(), String> {
+    let workflow_state = state.read();
+
+    // Only record if auto-recording is enabled
+    if !*workflow_state.auto_record_enabled.read() {
+        return Ok(());
+    }
+
+    let buffered_action = BufferedAction::new(action)
+        .with_file_context(active_file_id)
+        .with_auto_generated(false);
+
+    workflow_state.action_buffer.write().record(buffered_action);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn workflow_get_buffer_info(
+    state: State<'_, Arc<RwLock<WorkflowState>>>,
+) -> Result<BufferInfo, String> {
+    let workflow_state = state.read();
+    let buffer = workflow_state.action_buffer.read();
+    let auto_recording_enabled = *workflow_state.auto_record_enabled.read();
+
+    Ok(BufferInfo {
+        current_size: buffer.len(),
+        total_recorded: buffer.total_recorded(),
+        auto_recording_enabled,
+    })
+}
+
+#[tauri::command]
+pub async fn workflow_export_from_buffer(
+    state: State<'_, Arc<RwLock<WorkflowState>>>,
+    last_n_minutes: Option<i64>,
+    workflow_name: String,
+) -> Result<String, String> {
+    let workflow_state = state.read();
+    let buffer = workflow_state.action_buffer.read();
+
+    let actions = if let Some(minutes) = last_n_minutes {
+        buffer.get_last_n_minutes(minutes)
+    } else {
+        buffer.get_all()
+    };
+
+    let workflow = buffer
+        .to_workflow_from_subset(actions, workflow_name)
+        .map_err(|e| e.to_string())?;
+
+    let export_data = WorkflowExport {
+        nodes: workflow.get_all_nodes().into_iter().cloned().collect(),
+        edges: workflow.get_all_edges(),
+        metadata: workflow.metadata.clone(),
+    };
+
+    serde_json::to_string_pretty(&export_data).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn workflow_clear_buffer(
+    state: State<'_, Arc<RwLock<WorkflowState>>>,
+) -> Result<(), String> {
+    let workflow_state = state.read();
+    workflow_state.action_buffer.write().clear();
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn workflow_generate_code_from_buffer(
+    state: State<'_, Arc<RwLock<WorkflowState>>>,
+    language: String,
+    last_n_minutes: Option<i64>,
+    workflow_name: String,
+    optimize: Option<bool>,
+) -> Result<String, String> {
+    let workflow_state = state.read();
+    let buffer = workflow_state.action_buffer.read();
+
+    let actions = if let Some(minutes) = last_n_minutes {
+        buffer.get_last_n_minutes(minutes)
+    } else {
+        buffer.get_all()
+    };
+
+    let mut workflow = buffer
+        .to_workflow_from_subset(actions, workflow_name)
+        .map_err(|e| e.to_string())?;
+
+    // Apply optimization passes if requested (default: true)
+    if optimize.unwrap_or(true) {
+        let optimizer = WorkflowOptimizer::new();
+        workflow = optimizer.optimize(&workflow).map_err(|e| e.to_string())?;
+    }
+
+    match language.as_str() {
+        "python" => workflow_state
+            .code_generator
+            .generate_python(&workflow)
+            .map_err(|e| e.to_string()),
+        "julia" => workflow_state
+            .code_generator
+            .generate_julia(&workflow)
+            .map_err(|e| e.to_string()),
+        "matlab" => workflow_state
+            .code_generator
+            .generate_matlab(&workflow)
+            .map_err(|e| e.to_string()),
+        "rust" => workflow_state
+            .code_generator
+            .generate_rust(&workflow)
+            .map_err(|e| e.to_string()),
+        "r" => workflow_state
+            .code_generator
+            .generate_r(&workflow)
+            .map_err(|e| e.to_string()),
+        _ => Err(format!("Unsupported language: {}", language)),
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BufferInfo {
+    pub current_size: usize,
+    pub total_recorded: u64,
+    pub auto_recording_enabled: bool,
 }

@@ -51,7 +51,7 @@ import {
   applyPreprocessing,
   getDefaultPreprocessing,
 } from "@/utils/preprocessing";
-import { useWorkflow } from "@/hooks/useWorkflow";
+import { useAutoRecordAction } from "@/hooks/useWorkflowQueries";
 import { createTransformDataAction } from "@/types/workflow";
 import { OverviewPlot } from "@/components/OverviewPlot";
 import {
@@ -82,7 +82,7 @@ function TimeSeriesPlotComponent({ apiService }: TimeSeriesPlotProps) {
     (state) => state.incrementActionCount,
   );
 
-  const { recordAction } = useWorkflow();
+  const autoRecordActionMutation = useAutoRecordAction();
   const { createWindow, updateWindowData, broadcastToType } =
     usePopoutWindows();
 
@@ -866,7 +866,10 @@ function TimeSeriesPlotComponent({ apiService }: TimeSeriesPlotProps) {
                 high_freq: preprocessing.lowpass || 100,
               },
             );
-            await recordAction(action);
+            await autoRecordActionMutation.mutateAsync({
+              action,
+              activeFileId: fileManager.selectedFile!.file_path,
+            });
             incrementActionCount();
           }
         } catch {

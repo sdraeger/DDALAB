@@ -25,17 +25,61 @@ export interface PlotOptions {
 }
 
 /**
+ * Rereferencing schemes for preprocessing
+ */
+export type ReferencingScheme =
+  | { type: "AverageReference" }
+  | { type: "LinkedMastoid" }
+  | { type: "Laplacian" }
+  | { type: "Custom"; reference_channels: number[] };
+
+/**
+ * Preprocessing configuration
+ */
+export interface PreprocessingConfig {
+  highpass?: number;
+  lowpass?: number;
+  notch?: number[];
+  rereferencing?: ReferencingScheme;
+}
+
+/**
  * Data transformation types
  */
 export type TransformType =
   | { type: "Normalize" }
-  | { type: "BandpassFilter"; low_freq: number; high_freq: number };
+  | { type: "BandpassFilter"; low_freq: number; high_freq: number }
+  | { type: "Decimate"; factor: number }
+  | { type: "Resample"; target_rate: number }
+  | { type: "BaselineCorrection"; start: number; end: number };
+
+/**
+ * Annotation types
+ */
+export type AnnotationType =
+  | "TimeSeriesMarker"
+  | "Region"
+  | "Event"
+  | "ArtifactMarker";
+
+/**
+ * Annotation details
+ */
+export interface AnnotationDetails {
+  time?: number;
+  start_time?: number;
+  end_time?: number;
+  label: string;
+  description?: string;
+  channel?: string;
+}
 
 /**
  * Workflow actions that can be recorded
  * Matches Rust enum WorkflowAction with serde tag/content
  */
 export type WorkflowAction =
+  // Data Loading & Management
   | {
       type: "LoadFile";
       data: {
@@ -44,12 +88,95 @@ export type WorkflowAction =
       };
     }
   | {
+      type: "CloseFile";
+      data: {
+        file_id: string;
+      };
+    }
+  | {
+      type: "SwitchActiveFile";
+      data: {
+        file_id: string;
+      };
+    }
+  // Channel Operations
+  | {
+      type: "SelectChannels";
+      data: {
+        channel_indices: number[];
+      };
+    }
+  | {
+      type: "DeselectChannels";
+      data: {
+        channel_indices: number[];
+      };
+    }
+  | {
+      type: "SelectAllChannels";
+    }
+  | {
+      type: "ClearChannelSelection";
+    }
+  | {
+      type: "FilterChannels";
+      data: {
+        input_id: string;
+        channel_indices: number[];
+      };
+    }
+  // Time Window Operations
+  | {
+      type: "SetTimeWindow";
+      data: {
+        start: number;
+        end: number;
+      };
+    }
+  | {
+      type: "SetChunkWindow";
+      data: {
+        chunk_start: number;
+        chunk_size: number;
+      };
+    }
+  // Preprocessing
+  | {
+      type: "ApplyPreprocessing";
+      data: {
+        input_id: string;
+        preprocessing: PreprocessingConfig;
+      };
+    }
+  // DDA Configuration & Execution (CORRECTED PARAMETERS)
+  | {
       type: "SetDDAParameters";
       data: {
-        lag: number;
-        dimension: number;
-        window_size: number;
-        window_offset: number;
+        window_length: number;
+        window_step: number;
+        ct_window_length?: number;
+        ct_window_step?: number;
+      };
+    }
+  | {
+      type: "SelectDDAVariants";
+      data: {
+        variants: string[];
+      };
+    }
+  | {
+      type: "SetDelayList";
+      data: {
+        delays: number[];
+      };
+    }
+  | {
+      type: "SetModelParameters";
+      data: {
+        dm: number;
+        order: number;
+        nr_tau: number;
+        encoding: number[];
       };
     }
   | {
@@ -57,6 +184,39 @@ export type WorkflowAction =
       data: {
         input_id: string;
         channel_selection: number[];
+        ct_channel_pairs?: [number, number][];
+        cd_channel_pairs?: [number, number][];
+      };
+    }
+  // Annotations
+  | {
+      type: "AddAnnotation";
+      data: {
+        annotation_type: AnnotationType;
+        details: AnnotationDetails;
+      };
+    }
+  | {
+      type: "RemoveAnnotation";
+      data: {
+        annotation_id: string;
+      };
+    }
+  // Data Transformations
+  | {
+      type: "TransformData";
+      data: {
+        input_id: string;
+        transform_type: TransformType;
+      };
+    }
+  // Visualization & Export
+  | {
+      type: "GeneratePlot";
+      data: {
+        result_id: string;
+        plot_type: PlotType;
+        options: PlotOptions;
       };
     }
   | {
@@ -68,25 +228,31 @@ export type WorkflowAction =
       };
     }
   | {
-      type: "GeneratePlot";
+      type: "ExportPlot";
+      data: {
+        plot_type: PlotType;
+        format: string;
+        path: string;
+      };
+    }
+  // Analysis Results Management
+  | {
+      type: "SaveAnalysisResult";
       data: {
         result_id: string;
-        plot_type: PlotType;
-        options: PlotOptions;
+        name: string;
       };
     }
   | {
-      type: "FilterChannels";
+      type: "LoadAnalysisFromHistory";
       data: {
-        input_id: string;
-        channel_indices: number[];
+        result_id: string;
       };
     }
   | {
-      type: "TransformData";
+      type: "CompareAnalyses";
       data: {
-        input_id: string;
-        transform_type: TransformType;
+        result_ids: string[];
       };
     };
 
@@ -167,8 +333,20 @@ export interface WorkflowExport {
 }
 
 /**
+ * Buffered action with recording context
+ */
+export interface BufferedAction {
+  action: WorkflowAction;
+  timestamp: string; // ISO 8601 datetime string
+  active_file_id?: string;
+  auto_generated: boolean;
+}
+
+/**
  * Helper functions to create workflow actions
  */
+
+// Data Loading & Management
 export const createLoadFileAction = (
   path: string,
   file_type: FileType,
@@ -177,22 +355,151 @@ export const createLoadFileAction = (
   data: { path, file_type },
 });
 
+export const createCloseFileAction = (file_id: string): WorkflowAction => ({
+  type: "CloseFile",
+  data: { file_id },
+});
+
+export const createSwitchActiveFileAction = (
+  file_id: string,
+): WorkflowAction => ({
+  type: "SwitchActiveFile",
+  data: { file_id },
+});
+
+// Channel Operations
+export const createSelectChannelsAction = (
+  channel_indices: number[],
+): WorkflowAction => ({
+  type: "SelectChannels",
+  data: { channel_indices },
+});
+
+export const createDeselectChannelsAction = (
+  channel_indices: number[],
+): WorkflowAction => ({
+  type: "DeselectChannels",
+  data: { channel_indices },
+});
+
+export const createSelectAllChannelsAction = (): WorkflowAction => ({
+  type: "SelectAllChannels",
+});
+
+export const createClearChannelSelectionAction = (): WorkflowAction => ({
+  type: "ClearChannelSelection",
+});
+
+export const createFilterChannelsAction = (
+  input_id: string,
+  channel_indices: number[],
+): WorkflowAction => ({
+  type: "FilterChannels",
+  data: { input_id, channel_indices },
+});
+
+// Time Window Operations
+export const createSetTimeWindowAction = (
+  start: number,
+  end: number,
+): WorkflowAction => ({
+  type: "SetTimeWindow",
+  data: { start, end },
+});
+
+export const createSetChunkWindowAction = (
+  chunk_start: number,
+  chunk_size: number,
+): WorkflowAction => ({
+  type: "SetChunkWindow",
+  data: { chunk_start, chunk_size },
+});
+
+// Preprocessing
+export const createApplyPreprocessingAction = (
+  input_id: string,
+  preprocessing: PreprocessingConfig,
+): WorkflowAction => ({
+  type: "ApplyPreprocessing",
+  data: { input_id, preprocessing },
+});
+
+// DDA Configuration & Execution (CORRECTED)
 export const createSetDDAParametersAction = (
-  lag: number,
-  dimension: number,
-  window_size: number,
-  window_offset: number,
+  window_length: number,
+  window_step: number,
+  ct_window_length?: number,
+  ct_window_step?: number,
 ): WorkflowAction => ({
   type: "SetDDAParameters",
-  data: { lag, dimension, window_size, window_offset },
+  data: { window_length, window_step, ct_window_length, ct_window_step },
+});
+
+export const createSelectDDAVariantsAction = (
+  variants: string[],
+): WorkflowAction => ({
+  type: "SelectDDAVariants",
+  data: { variants },
+});
+
+export const createSetDelayListAction = (delays: number[]): WorkflowAction => ({
+  type: "SetDelayList",
+  data: { delays },
+});
+
+export const createSetModelParametersAction = (
+  dm: number,
+  order: number,
+  nr_tau: number,
+  encoding: number[],
+): WorkflowAction => ({
+  type: "SetModelParameters",
+  data: { dm, order, nr_tau, encoding },
 });
 
 export const createRunDDAAnalysisAction = (
   input_id: string,
   channel_selection: number[],
+  ct_channel_pairs?: [number, number][],
+  cd_channel_pairs?: [number, number][],
 ): WorkflowAction => ({
   type: "RunDDAAnalysis",
-  data: { input_id, channel_selection },
+  data: { input_id, channel_selection, ct_channel_pairs, cd_channel_pairs },
+});
+
+// Annotations
+export const createAddAnnotationAction = (
+  annotation_type: AnnotationType,
+  details: AnnotationDetails,
+): WorkflowAction => ({
+  type: "AddAnnotation",
+  data: { annotation_type, details },
+});
+
+export const createRemoveAnnotationAction = (
+  annotation_id: string,
+): WorkflowAction => ({
+  type: "RemoveAnnotation",
+  data: { annotation_id },
+});
+
+// Data Transformations
+export const createTransformDataAction = (
+  input_id: string,
+  transform_type: TransformType,
+): WorkflowAction => ({
+  type: "TransformData",
+  data: { input_id, transform_type },
+});
+
+// Visualization & Export
+export const createGeneratePlotAction = (
+  result_id: string,
+  plot_type: PlotType,
+  options: PlotOptions,
+): WorkflowAction => ({
+  type: "GeneratePlot",
+  data: { result_id, plot_type, options },
 });
 
 export const createExportResultsAction = (
@@ -204,29 +511,36 @@ export const createExportResultsAction = (
   data: { result_id, format, path },
 });
 
-export const createGeneratePlotAction = (
-  result_id: string,
+export const createExportPlotAction = (
   plot_type: PlotType,
-  options: PlotOptions,
+  format: string,
+  path: string,
 ): WorkflowAction => ({
-  type: "GeneratePlot",
-  data: { result_id, plot_type, options },
+  type: "ExportPlot",
+  data: { plot_type, format, path },
 });
 
-export const createFilterChannelsAction = (
-  input_id: string,
-  channel_indices: number[],
+// Analysis Results Management
+export const createSaveAnalysisResultAction = (
+  result_id: string,
+  name: string,
 ): WorkflowAction => ({
-  type: "FilterChannels",
-  data: { input_id, channel_indices },
+  type: "SaveAnalysisResult",
+  data: { result_id, name },
 });
 
-export const createTransformDataAction = (
-  input_id: string,
-  transform_type: TransformType,
+export const createLoadAnalysisFromHistoryAction = (
+  result_id: string,
 ): WorkflowAction => ({
-  type: "TransformData",
-  data: { input_id, transform_type },
+  type: "LoadAnalysisFromHistory",
+  data: { result_id },
+});
+
+export const createCompareAnalysesAction = (
+  result_ids: string[],
+): WorkflowAction => ({
+  type: "CompareAnalyses",
+  data: { result_ids },
 });
 
 /**

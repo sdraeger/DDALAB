@@ -4,37 +4,134 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", content = "data")]
 pub enum WorkflowAction {
+    // ============================================================================
+    // Data Loading & Management
+    // ============================================================================
     LoadFile {
         path: String,
         file_type: FileType,
     },
+    CloseFile {
+        file_id: String,
+    },
+    SwitchActiveFile {
+        file_id: String,
+    },
+
+    // ============================================================================
+    // Channel Operations
+    // ============================================================================
+    SelectChannels {
+        channel_indices: Vec<usize>,
+    },
+    DeselectChannels {
+        channel_indices: Vec<usize>,
+    },
+    SelectAllChannels,
+    ClearChannelSelection,
+    FilterChannels {
+        input_id: String,
+        channel_indices: Vec<usize>,
+    },
+
+    // ============================================================================
+    // Time Window Operations
+    // ============================================================================
+    SetTimeWindow {
+        start: f64,
+        end: f64,
+    },
+    SetChunkWindow {
+        chunk_start: usize,
+        chunk_size: usize,
+    },
+
+    // ============================================================================
+    // Preprocessing
+    // ============================================================================
+    ApplyPreprocessing {
+        input_id: String,
+        preprocessing: PreprocessingConfig,
+    },
+
+    // ============================================================================
+    // DDA Configuration & Execution
+    // ============================================================================
     SetDDAParameters {
-        lag: u32,
-        dimension: u32,
-        window_size: u32,
-        window_offset: u32,
+        window_length: usize,
+        window_step: usize,
+        ct_window_length: Option<usize>,
+        ct_window_step: Option<usize>,
+    },
+    SelectDDAVariants {
+        variants: Vec<String>,
+    },
+    SetDelayList {
+        delays: Vec<i32>,
+    },
+    SetModelParameters {
+        dm: u32,
+        order: u32,
+        nr_tau: u32,
+        encoding: Vec<i32>,
     },
     RunDDAAnalysis {
         input_id: String,
         channel_selection: Vec<usize>,
+        ct_channel_pairs: Option<Vec<[usize; 2]>>,
+        cd_channel_pairs: Option<Vec<[usize; 2]>>,
+    },
+
+    // ============================================================================
+    // Annotations
+    // ============================================================================
+    AddAnnotation {
+        annotation_type: AnnotationType,
+        details: AnnotationDetails,
+    },
+    RemoveAnnotation {
+        annotation_id: String,
+    },
+
+    // ============================================================================
+    // Data Transformations
+    // ============================================================================
+    TransformData {
+        input_id: String,
+        transform_type: TransformType,
+    },
+
+    // ============================================================================
+    // Visualization & Export
+    // ============================================================================
+    GeneratePlot {
+        result_id: String,
+        plot_type: PlotType,
+        options: PlotOptions,
     },
     ExportResults {
         result_id: String,
         format: ExportFormat,
         path: String,
     },
-    GeneratePlot {
-        result_id: String,
+    ExportPlot {
         plot_type: PlotType,
-        options: PlotOptions,
+        format: String,
+        path: String,
     },
-    FilterChannels {
-        input_id: String,
-        channel_indices: Vec<usize>,
+
+    // ============================================================================
+    // Analysis Results Management
+    // ============================================================================
+    SaveAnalysisResult {
+        result_id: String,
+        name: String,
     },
-    TransformData {
-        input_id: String,
-        transform_type: TransformType,
+    LoadAnalysisFromHistory {
+        result_id: String,
+    },
+    CompareAnalyses {
+        result_ids: Vec<String>,
     },
 }
 
@@ -70,6 +167,43 @@ pub struct PlotOptions {
 pub enum TransformType {
     Normalize,
     BandpassFilter { low_freq: f64, high_freq: f64 },
+    Decimate { factor: usize },
+    Resample { target_rate: f64 },
+    BaselineCorrection { start: f64, end: f64 },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PreprocessingConfig {
+    pub highpass: Option<f64>,
+    pub lowpass: Option<f64>,
+    pub notch: Option<Vec<f64>>,
+    pub rereferencing: Option<ReferencingScheme>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum ReferencingScheme {
+    AverageReference,
+    LinkedMastoid,
+    Laplacian,
+    Custom { reference_channels: Vec<usize> },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum AnnotationType {
+    TimeSeriesMarker,
+    Region,
+    Event,
+    ArtifactMarker,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AnnotationDetails {
+    pub time: Option<f64>,
+    pub start_time: Option<f64>,
+    pub end_time: Option<f64>,
+    pub label: String,
+    pub description: Option<String>,
+    pub channel: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

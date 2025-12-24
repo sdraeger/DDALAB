@@ -2,7 +2,13 @@
 
 import { useState } from "react";
 import { useAppStore } from "@/store/appStore";
-import { useWorkflow } from "@/hooks/useWorkflow";
+import {
+  useNewWorkflow,
+  useClearWorkflow,
+  useRecordAction,
+  useGeneratePython,
+  useGenerateJulia,
+} from "@/hooks/useWorkflowQueries";
 import { createLoadFileAction } from "@/types/workflow";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,16 +42,23 @@ export function SessionRecorder() {
     fileManager,
     incrementActionCount,
   } = useAppStore();
-  const {
-    generatePython,
-    generateJulia,
-    clearWorkflow,
-    isLoading,
-    newWorkflow,
-    recordAction,
-  } = useWorkflow();
+
+  // React Query mutations
+  const newWorkflowMutation = useNewWorkflow();
+  const clearWorkflowMutation = useClearWorkflow();
+  const recordActionMutation = useRecordAction();
+  const generatePythonMutation = useGeneratePython();
+  const generateJuliaMutation = useGenerateJulia();
+
+  // Derived loading state
+  const isLoading =
+    newWorkflowMutation.isPending ||
+    clearWorkflowMutation.isPending ||
+    recordActionMutation.isPending ||
+    generatePythonMutation.isPending ||
+    generateJuliaMutation.isPending;
+
   const [sessionName, setSessionName] = useState("");
-  const [showExportDialog, setShowExportDialog] = useState(false);
 
   const handleStartRecording = async () => {
     const name = sessionName.trim() || undefined;
@@ -59,7 +72,7 @@ export function SessionRecorder() {
 
     // Initialize workflow in backend
     try {
-      await newWorkflow(actualSessionName);
+      await newWorkflowMutation.mutateAsync(actualSessionName);
       console.log("[WORKFLOW] Workflow initialized:", actualSessionName);
 
       // If a file is already selected, record it as the first action
@@ -82,7 +95,7 @@ export function SessionRecorder() {
           fileManager.selectedFile.file_path,
           fileType,
         );
-        await recordAction(action);
+        await recordActionMutation.mutateAsync(action);
         incrementActionCount();
         console.log("[WORKFLOW] Recorded initial file load");
       }
@@ -102,7 +115,7 @@ export function SessionRecorder() {
       )
     ) {
       try {
-        await clearWorkflow();
+        await clearWorkflowMutation.mutateAsync();
         stopWorkflowRecording();
         setSessionName("");
       } catch (error) {
@@ -113,7 +126,7 @@ export function SessionRecorder() {
 
   const handleExportPython = async () => {
     try {
-      const code = await generatePython();
+      const code = await generatePythonMutation.mutateAsync();
       const blob = new Blob([code], { type: "text/plain" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -134,7 +147,7 @@ export function SessionRecorder() {
 
   const handleExportJulia = async () => {
     try {
-      const code = await generateJulia();
+      const code = await generateJuliaMutation.mutateAsync();
       const blob = new Blob([code], { type: "text/plain" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
