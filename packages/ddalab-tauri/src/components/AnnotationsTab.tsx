@@ -480,7 +480,7 @@ export function AnnotationsTab() {
                       {annotations.map((item) => (
                         <Card
                           key={item.annotation.id}
-                          className="p-4 cursor-pointer hover:bg-accent/50 transition-colors"
+                          className="p-4 cursor-pointer hover:bg-accent/50 transition-colors duration-200"
                           onClick={() =>
                             handleTimeSeriesAnnotationClick(
                               filePath,
@@ -606,7 +606,7 @@ export function AnnotationsTab() {
                         {ddaResult.annotations.map((ann) => (
                           <div
                             key={ann.id}
-                            className="flex items-center justify-between p-2 bg-muted/50 rounded cursor-pointer hover:bg-muted transition-colors"
+                            className="flex items-center justify-between p-2 bg-muted/50 rounded cursor-pointer hover:bg-muted transition-colors duration-200"
                             onClick={() =>
                               handleDDAAnnotationClick(
                                 ddaResult.resultId,

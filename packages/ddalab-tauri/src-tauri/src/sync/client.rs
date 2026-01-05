@@ -149,11 +149,15 @@ impl SyncClient {
 
         let metadata = ShareMetadata {
             owner_user_id: self.user_id.clone(),
-            result_id: result_id.to_string(),
+            content_type: Default::default(), // DdaResult by default
+            content_id: result_id.to_string(),
             title: title.to_string(),
             description,
             created_at: Utc::now(),
             access_policy,
+            classification: Default::default(),
+            download_count: 0,
+            last_accessed_at: None,
         };
 
         let publish_msg = SyncMessage::PublishShare {
@@ -312,7 +316,7 @@ fn handle_broker_message(
     match msg {
         SyncMessage::ShareInfo { info } => {
             // Find pending request for this share
-            let token = info.metadata.result_id.clone();
+            let token = info.metadata.content_id.clone();
             if let Some(tx) = pending_requests.write().remove(&token) {
                 let _ = tx.send(info);
             } else {

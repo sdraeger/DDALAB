@@ -28,16 +28,32 @@ export function useSync() {
 
     // Subscribe to sync connection status changes (event-based, no polling)
     let unlisten: UnlistenFn | null = null;
+    let cancelled = false;
 
     const setupListener = async () => {
-      unlisten = await listen<boolean>("sync-connection-changed", (event) => {
-        updateSyncStatus({ isConnected: event.payload });
-      });
+      try {
+        const unlistenFn = await listen<boolean>(
+          "sync-connection-changed",
+          (event) => {
+            updateSyncStatus({ isConnected: event.payload });
+          },
+        );
+        // Only assign if not cancelled during setup
+        if (!cancelled) {
+          unlisten = unlistenFn;
+        } else {
+          // Cleanup immediately if component unmounted during setup
+          unlistenFn();
+        }
+      } catch (error) {
+        console.error("[Sync] Failed to setup connection listener:", error);
+      }
     };
 
     setupListener();
 
     return () => {
+      cancelled = true;
       if (unlisten) {
         unlisten();
       }

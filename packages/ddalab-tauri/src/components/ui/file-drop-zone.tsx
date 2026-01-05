@@ -82,6 +82,37 @@ export function FileDropZone({
   const [previews, setPreviews] = useState<FilePreview[]>([]);
   const dragCounterRef = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const errorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cleanup error timeout on unmount
+  React.useEffect(() => {
+    return () => {
+      if (errorTimeoutRef.current) {
+        clearTimeout(errorTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const clearError = useCallback(() => {
+    setError(null);
+    if (errorTimeoutRef.current) {
+      clearTimeout(errorTimeoutRef.current);
+      errorTimeoutRef.current = null;
+    }
+  }, []);
+
+  const setErrorWithTimeout = useCallback((message: string) => {
+    // Clear any existing timeout
+    if (errorTimeoutRef.current) {
+      clearTimeout(errorTimeoutRef.current);
+    }
+    setError(message);
+    // Use longer duration (8 seconds) for error messages to give users time to read
+    errorTimeoutRef.current = setTimeout(() => {
+      setError(null);
+      errorTimeoutRef.current = null;
+    }, TOAST_DURATIONS.LONG);
+  }, []);
 
   const validateFiles = useCallback(
     (files: File[]): { valid: File[]; errors: string[] } => {
@@ -161,11 +192,11 @@ export function FileDropZone({
       const { valid, errors } = validateFiles(files);
 
       if (errors.length > 0) {
-        setError(errors[0]);
-        setTimeout(() => setError(null), TOAST_DURATIONS.SHORT);
+        setErrorWithTimeout(errors[0]);
       }
 
       if (valid.length > 0) {
+        clearError(); // Clear error on successful file drop
         if (showPreview) {
           const newPreviews = valid.map((file) => ({
             file,
@@ -179,7 +210,14 @@ export function FileDropZone({
         }
       }
     },
-    [disabled, validateFiles, onFilesDropped, showPreview],
+    [
+      disabled,
+      validateFiles,
+      onFilesDropped,
+      showPreview,
+      setErrorWithTimeout,
+      clearError,
+    ],
   );
 
   const handleFileSelect = useCallback(
@@ -188,11 +226,11 @@ export function FileDropZone({
       const { valid, errors } = validateFiles(files);
 
       if (errors.length > 0) {
-        setError(errors[0]);
-        setTimeout(() => setError(null), TOAST_DURATIONS.SHORT);
+        setErrorWithTimeout(errors[0]);
       }
 
       if (valid.length > 0) {
+        clearError(); // Clear error on successful file selection
         if (showPreview) {
           const newPreviews = valid.map((file) => ({
             file,
@@ -211,7 +249,13 @@ export function FileDropZone({
         inputRef.current.value = "";
       }
     },
-    [validateFiles, onFilesDropped, showPreview],
+    [
+      validateFiles,
+      onFilesDropped,
+      showPreview,
+      setErrorWithTimeout,
+      clearError,
+    ],
   );
 
   const handleConfirmUpload = useCallback(() => {
@@ -329,6 +373,22 @@ export function FileDropZone({
               Supports: {accept.join(", ")} (max {formatFileSize(maxSize)})
             </p>
           </div>
+
+          {/* Dismiss error button */}
+          {error && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                clearError();
+              }}
+              className="mt-2 text-xs text-destructive hover:text-destructive"
+            >
+              <X className="h-3 w-3 mr-1" />
+              Dismiss
+            </Button>
+          )}
         </div>
       </div>
 

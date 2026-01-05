@@ -36,6 +36,7 @@ export function useFileNavigation() {
   // Track previous file to detect file changes
   const prevFilePathRef = useRef<string | null>(null);
   const isRestoringRef = useRef(false);
+  const restoreTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Restore navigation when active file changes
   useEffect(() => {
@@ -64,11 +65,23 @@ export function useFileNavigation() {
         setSecondaryNav(navigationState.secondaryNav);
       }
 
-      // Reset flag after a tick
-      setTimeout(() => {
+      // Reset flag after a tick (clear any existing timeout first)
+      if (restoreTimeoutRef.current) {
+        clearTimeout(restoreTimeoutRef.current);
+      }
+      restoreTimeoutRef.current = setTimeout(() => {
         isRestoringRef.current = false;
+        restoreTimeoutRef.current = null;
       }, 0);
     }
+
+    // Cleanup timeout on unmount or when effect re-runs
+    return () => {
+      if (restoreTimeoutRef.current) {
+        clearTimeout(restoreTimeoutRef.current);
+        restoreTimeoutRef.current = null;
+      }
+    };
   }, [activeFilePath, navigationState, setPrimaryNav, setSecondaryNav]);
 
   // Save navigation when it changes (but not during restoration)

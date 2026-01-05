@@ -20,6 +20,7 @@ pub use commands::{
     sync_discover_brokers,
     sync_is_connected,
     sync_revoke_share,
+    sync_share_content,
     sync_share_result,
     sync_verify_password,
     AppSyncState,

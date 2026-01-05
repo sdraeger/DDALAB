@@ -119,37 +119,61 @@ export function usePopoutListener(
     setWindowId(currentWindowId);
 
     const listeners: UnlistenFn[] = [];
+    let cancelled = false;
 
     const setupDataListener = async () => {
-      const unlisten = await listen(
-        `data-update-${currentWindowId}`,
-        (event: any) => {
-          // Use ref to get current lock state (avoids stale closure)
-          if (!isLockedRef.current) {
-            setData(event.payload.data);
-          }
-        },
-      );
-      listeners.push(unlisten);
+      try {
+        const unlisten = await listen(
+          `data-update-${currentWindowId}`,
+          (event: any) => {
+            // Use ref to get current lock state (avoids stale closure)
+            if (!isLockedRef.current) {
+              setData(event.payload.data);
+            }
+          },
+        );
+        if (!cancelled) {
+          listeners.push(unlisten);
+        } else {
+          // Cleanup immediately if component unmounted during setup
+          unlisten();
+        }
+      } catch (error) {
+        console.error("[PopoutListener] Failed to setup data listener:", error);
+      }
     };
 
     // Listen for lock state changes
     const setupLockListener = async () => {
-      const unlisten = await listen(
-        `lock-state-${currentWindowId}`,
-        (event: any) => {
-          setIsLocked(event.payload.locked);
-        },
-      );
-      listeners.push(unlisten);
+      try {
+        const unlisten = await listen(
+          `lock-state-${currentWindowId}`,
+          (event: any) => {
+            setIsLocked(event.payload.locked);
+          },
+        );
+        if (!cancelled) {
+          listeners.push(unlisten);
+        } else {
+          // Cleanup immediately if component unmounted during setup
+          unlisten();
+        }
+      } catch (error) {
+        console.error("[PopoutListener] Failed to setup lock listener:", error);
+      }
     };
 
     const emitReadyEvent = async () => {
-      const { emit } = await import("@tauri-apps/api/event");
-      await emit(`popout-ready-${currentWindowId}`, {
-        windowId: currentWindowId,
-        timestamp: Date.now(),
-      });
+      if (cancelled) return;
+      try {
+        const { emit } = await import("@tauri-apps/api/event");
+        await emit(`popout-ready-${currentWindowId}`, {
+          windowId: currentWindowId,
+          timestamp: Date.now(),
+        });
+      } catch (error) {
+        console.error("[PopoutListener] Failed to emit ready event:", error);
+      }
     };
 
     setupDataListener();
@@ -157,6 +181,7 @@ export function usePopoutListener(
     emitReadyEvent();
 
     return () => {
+      cancelled = true;
       listeners.forEach((unlisten) => unlisten());
     };
   }, [expectedWindowId]);

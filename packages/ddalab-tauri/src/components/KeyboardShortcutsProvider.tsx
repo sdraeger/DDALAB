@@ -61,7 +61,7 @@ export function KeyboardShortcutsProvider({
           action = () => setPrimaryNav("explore");
           break;
         case "nav-settings":
-          action = () => setPrimaryNav("manage");
+          action = () => setPrimaryNav("settings");
           break;
         case "zoom-in":
           action = () => {
@@ -145,7 +145,7 @@ export function KeyboardShortcutsProvider({
       const primaryNav = useAppStore.getState().ui.primaryNav;
       if (primaryNav === "analyze") context = "dda-analysis";
       else if (primaryNav === "explore") context = "streaming";
-      else if (primaryNav === "manage") context = "settings";
+      else if (primaryNav === "settings") context = "settings";
       else if (primaryNav === "overview") context = "file-manager";
 
       // Try to execute matching shortcut

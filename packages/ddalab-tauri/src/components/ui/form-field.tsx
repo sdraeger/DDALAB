@@ -4,6 +4,7 @@ import React from "react";
 import { Label } from "@/components/ui/label";
 import { AlertCircle, Info } from "lucide-react";
 import { InfoTooltip } from "@/components/ui/info-tooltip";
+import { cn } from "@/lib/utils";
 
 export interface FormFieldProps {
   label: string;
@@ -24,17 +25,17 @@ export const FormField: React.FC<FormFieldProps> = ({
   helpText,
   required = false,
   htmlFor,
-  className = "",
+  className,
 }) => {
   const hasError = !!error;
   const hasWarning = !!warning && !hasError;
 
   return (
-    <div className={`space-y-2 ${className}`}>
+    <div className={cn("space-y-2", className)}>
       <div className="flex items-center gap-2">
         <Label
           htmlFor={htmlFor}
-          className={`text-sm font-medium ${hasError ? "text-destructive" : ""}`}
+          className={cn("text-sm font-medium", hasError && "text-destructive")}
         >
           {label}
           {required && <span className="text-destructive ml-1">*</span>}
@@ -43,10 +44,10 @@ export const FormField: React.FC<FormFieldProps> = ({
       </div>
 
       <div
-        className={`
-        ${hasError ? "ring-2 ring-destructive ring-offset-2 rounded-md" : ""}
-        ${hasWarning ? "ring-2 ring-yellow-500 ring-offset-2 rounded-md" : ""}
-      `}
+        className={cn(
+          hasError && "ring-2 ring-destructive ring-offset-2 rounded-md",
+          hasWarning && "ring-2 ring-yellow-500 ring-offset-2 rounded-md",
+        )}
       >
         {children}
       </div>

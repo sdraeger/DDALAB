@@ -92,15 +92,19 @@ impl CircularDataBuffer {
             }
             OverflowStrategy::DropNewest => {
                 // Try to push, drop newest if full
-                self.buffer.push(chunk.clone()).map_err(|_| {
-                    self.total_dropped.fetch_add(1, Ordering::Relaxed);
-                    chunk
-                })
+                // Note: ArrayQueue::push returns the item back on failure, so no clone needed
+                match self.buffer.push(chunk) {
+                    Ok(()) => Ok(()),
+                    Err(rejected) => {
+                        self.total_dropped.fetch_add(1, Ordering::Relaxed);
+                        Err(rejected)
+                    }
+                }
             }
             OverflowStrategy::Block => {
                 // For blocking, we'd need async support
                 // For now, behave like DropNewest
-                self.buffer.push(chunk.clone()).map_err(|_| chunk)
+                self.buffer.push(chunk).map_err(|rejected| rejected)
             }
         };
 
@@ -186,6 +190,13 @@ impl CircularDataBuffer {
     }
 }
 
+// Implement Default for OverflowStrategy
+impl Default for OverflowStrategy {
+    fn default() -> Self {
+        OverflowStrategy::DropOldest
+    }
+}
+
 // Thread-safe clone
 impl Clone for CircularDataBuffer {
     fn clone(&self) -> Self {
@@ -233,11 +244,17 @@ impl<T: Clone> CircularBuffer<T> {
                 self.buffer.push(item).ok();
                 Ok(())
             }
-            OverflowStrategy::DropNewest => self.buffer.push(item.clone()).map_err(|_| {
-                self.total_dropped.fetch_add(1, Ordering::Relaxed);
-                item
-            }),
-            OverflowStrategy::Block => self.buffer.push(item.clone()).map_err(|_| item),
+            OverflowStrategy::DropNewest => {
+                // Note: ArrayQueue::push returns the item back on failure, so no clone needed
+                match self.buffer.push(item) {
+                    Ok(()) => Ok(()),
+                    Err(rejected) => {
+                        self.total_dropped.fetch_add(1, Ordering::Relaxed);
+                        Err(rejected)
+                    }
+                }
+            }
+            OverflowStrategy::Block => self.buffer.push(item).map_err(|rejected| rejected),
         };
 
         if result.is_ok() {

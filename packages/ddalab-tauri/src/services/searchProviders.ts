@@ -162,8 +162,7 @@ export class SettingsSearchProvider implements SearchProvider {
           icon: "Settings",
           keywords: section.keywords,
           action: () => {
-            getState()?.setPrimaryNav("manage");
-            getState()?.setSecondaryNav("settings");
+            getState()?.setPrimaryNav("settings");
             setTimeout(() => {
               const element = document.getElementById(
                 `settings-section-${section.id}`,
@@ -1010,8 +1009,8 @@ export class NSGJobSearchProvider implements SearchProvider {
         icon: "Cloud",
         keywords: nsgKeywords,
         action: () => {
-          getState()?.setPrimaryNav("manage");
-          getState()?.setSecondaryNav("jobs");
+          getState()?.setPrimaryNav("data");
+          getState()?.setSecondaryNav("nsg-jobs");
         },
       });
 
@@ -1025,8 +1024,8 @@ export class NSGJobSearchProvider implements SearchProvider {
         icon: "Upload",
         keywords: ["submit", "upload", "nsg", "job", "hpc"],
         action: () => {
-          getState()?.setPrimaryNav("manage");
-          getState()?.setSecondaryNav("jobs");
+          getState()?.setPrimaryNav("data");
+          getState()?.setSecondaryNav("nsg-jobs");
         },
       });
     }
@@ -1122,13 +1121,13 @@ export class DataSourceSearchProvider implements SearchProvider {
           "eeg",
         ],
         action: () => {
-          getState()?.setPrimaryNav("manage");
-          getState()?.setSecondaryNav("data-sources");
+          getState()?.setPrimaryNav("data");
+          getState()?.setSecondaryNav("openneuro");
         },
       });
     }
 
-    // BIDS - navigates to data-sources tab
+    // BIDS - navigates to data tab
     if ("bids".includes(lowerQuery) || "brain imaging".includes(lowerQuery)) {
       results.push({
         id: "nav-bids",
@@ -1139,8 +1138,8 @@ export class DataSourceSearchProvider implements SearchProvider {
         icon: "FolderOpen",
         keywords: ["bids", "brain imaging", "dataset", "structure"],
         action: () => {
-          getState()?.setPrimaryNav("manage");
-          getState()?.setSecondaryNav("data-sources");
+          getState()?.setPrimaryNav("data");
+          getState()?.setSecondaryNav("openneuro");
         },
       });
     }
@@ -1183,8 +1182,7 @@ export class QuickActionsSearchProvider implements SearchProvider {
         description: "Clear application cache and temporary data",
         keywords: ["clear", "cache", "reset", "clean", "temporary"],
         action: () => {
-          getState()?.setPrimaryNav("manage");
-          getState()?.setSecondaryNav("settings");
+          getState()?.setPrimaryNav("settings");
         },
       },
       {
@@ -1193,8 +1191,7 @@ export class QuickActionsSearchProvider implements SearchProvider {
         description: "Open debug logs and diagnostics",
         keywords: ["logs", "debug", "diagnostics", "errors", "troubleshoot"],
         action: () => {
-          getState()?.setPrimaryNav("manage");
-          getState()?.setSecondaryNav("settings");
+          getState()?.setPrimaryNav("settings");
         },
       },
       {
@@ -1203,8 +1200,7 @@ export class QuickActionsSearchProvider implements SearchProvider {
         description: "Check if a newer version of DDALAB is available",
         keywords: ["update", "upgrade", "version", "new", "latest"],
         action: () => {
-          getState()?.setPrimaryNav("manage");
-          getState()?.setSecondaryNav("settings");
+          getState()?.setPrimaryNav("settings");
         },
       },
       {

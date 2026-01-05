@@ -3,9 +3,12 @@ use crate::file_writers::{FileWriterFactory, WriterConfig};
 use crate::intermediate_format::{ChannelData, DataMetadata, IntermediateData};
 use crate::text_reader::TextFileReader;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock, RwLock};
 use tauri::{AppHandle, Emitter};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,12 +23,14 @@ pub struct SegmentFileParams {
     pub output_format: String, // "same", "edf", "csv", "ascii"
     pub output_filename: String,
     pub selected_channels: Option<Vec<usize>>,
+    pub operation_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SegmentFileResult {
     pub output_path: String,
+    pub operation_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,15 +39,75 @@ pub struct SegmentFileProgress {
     pub phase: String, // "loading", "processing", "writing", "complete", "error", "cancelled"
     pub progress_percent: f32,
     pub message: String,
+    pub operation_id: String,
 }
 
-static SEGMENT_CANCELLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Thread-safe cancellation token for per-operation cancellation
+#[derive(Clone)]
+struct CancellationToken(Arc<AtomicBool>);
+
+impl CancellationToken {
+    fn new() -> Self {
+        Self(Arc::new(AtomicBool::new(false)))
+    }
+
+    fn cancel(&self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
+}
+
+/// Global registry of active operations and their cancellation tokens
+static OPERATION_COUNTER: AtomicU64 = AtomicU64::new(0);
+static ACTIVE_OPERATIONS: OnceLock<RwLock<HashMap<String, CancellationToken>>> = OnceLock::new();
+
+fn get_active_operations() -> &'static RwLock<HashMap<String, CancellationToken>> {
+    ACTIVE_OPERATIONS.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+fn generate_operation_id() -> String {
+    let counter = OPERATION_COUNTER.fetch_add(1, Ordering::SeqCst);
+    format!("segment-{}-{}", std::process::id(), counter)
+}
+
+fn register_operation(operation_id: &str) -> CancellationToken {
+    let token = CancellationToken::new();
+    if let Ok(mut ops) = get_active_operations().write() {
+        ops.insert(operation_id.to_string(), token.clone());
+    }
+    token
+}
+
+fn unregister_operation(operation_id: &str) {
+    if let Ok(mut ops) = get_active_operations().write() {
+        ops.remove(operation_id);
+    }
+}
 
 #[tauri::command]
-pub async fn cancel_segment_file() -> Result<(), String> {
-    log::info!("[FILE_CUT] Cancellation requested");
-    SEGMENT_CANCELLED.store(true, std::sync::atomic::Ordering::SeqCst);
-    Ok(())
+pub async fn cancel_segment_file(operation_id: Option<String>) -> Result<(), String> {
+    if let Some(id) = operation_id {
+        log::info!("[FILE_CUT] Cancellation requested for operation: {}", id);
+        if let Ok(ops) = get_active_operations().read() {
+            if let Some(token) = ops.get(&id) {
+                token.cancel();
+                return Ok(());
+            }
+        }
+        Err(format!("Operation {} not found or already completed", id))
+    } else {
+        // Cancel all active operations (backwards compatibility)
+        log::info!("[FILE_CUT] Cancellation requested for all operations");
+        if let Ok(ops) = get_active_operations().read() {
+            for token in ops.values() {
+                token.cancel();
+            }
+        }
+        Ok(())
+    }
 }
 
 #[tauri::command]
@@ -50,7 +115,17 @@ pub async fn segment_file(
     app_handle: AppHandle,
     params: SegmentFileParams,
 ) -> Result<SegmentFileResult, String> {
-    log::info!("[FILE_CUT] Starting file extraction: {}", params.file_path);
+    // Generate or use provided operation ID for per-operation cancellation
+    let operation_id = params
+        .operation_id
+        .clone()
+        .unwrap_or_else(generate_operation_id);
+
+    log::info!(
+        "[FILE_CUT] Starting file extraction: {} (operation: {})",
+        params.file_path,
+        operation_id
+    );
     log::info!(
         "[FILE_CUT] Start: {} {}, End: {} {}",
         params.start_time,
@@ -60,8 +135,9 @@ pub async fn segment_file(
     );
     log::info!("[FILE_CUT] Output format: {}", params.output_format);
 
-    // Reset cancellation flag
-    SEGMENT_CANCELLED.store(false, std::sync::atomic::Ordering::SeqCst);
+    // Register this operation for cancellation tracking
+    let cancellation_token = register_operation(&operation_id);
+    let op_id_clone = operation_id.clone();
 
     // Emit starting event
     let _ = app_handle.emit(
@@ -70,13 +146,24 @@ pub async fn segment_file(
             phase: "loading".to_string(),
             progress_percent: 0.0,
             message: "Loading source file...".to_string(),
+            operation_id: operation_id.clone(),
         },
     );
 
     // Run blocking file I/O on dedicated thread pool to avoid freezing Tauri
-    let result = tokio::task::spawn_blocking(move || segment_file_blocking(params))
-        .await
-        .map_err(|e| format!("Task join error: {}", e))?;
+    // Use a 10-minute timeout for large file operations
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(600),
+        tokio::task::spawn_blocking(move || {
+            segment_file_blocking(params, &cancellation_token, &op_id_clone)
+        }),
+    )
+    .await
+    .map_err(|_| "File segmentation timed out after 10 minutes".to_string())?
+    .map_err(|e| format!("Task join error: {}", e))?;
+
+    // Unregister the operation after completion
+    unregister_operation(&operation_id);
 
     // Emit completion event
     match &result {
@@ -87,6 +174,7 @@ pub async fn segment_file(
                     phase: "complete".to_string(),
                     progress_percent: 100.0,
                     message: format!("File saved: {}", r.output_path),
+                    operation_id: operation_id.clone(),
                 },
             );
         }
@@ -102,6 +190,7 @@ pub async fn segment_file(
                     phase: phase.to_string(),
                     progress_percent: 0.0,
                     message: e.clone(),
+                    operation_id: operation_id.clone(),
                 },
             );
         }
@@ -110,21 +199,25 @@ pub async fn segment_file(
     result
 }
 
-fn check_cancelled() -> Result<(), String> {
-    if SEGMENT_CANCELLED.load(std::sync::atomic::Ordering::SeqCst) {
+fn check_cancelled(token: &CancellationToken) -> Result<(), String> {
+    if token.is_cancelled() {
         Err("Operation cancelled by user".to_string())
     } else {
         Ok(())
     }
 }
 
-fn segment_file_blocking(params: SegmentFileParams) -> Result<SegmentFileResult, String> {
+fn segment_file_blocking(
+    params: SegmentFileParams,
+    cancellation_token: &CancellationToken,
+    operation_id: &str,
+) -> Result<SegmentFileResult, String> {
     // Load the file into IntermediateData
     let file_path = PathBuf::from(&params.file_path);
     let data = load_file_to_intermediate(&file_path)?;
 
     // Check for cancellation after loading
-    check_cancelled()?;
+    check_cancelled(cancellation_token)?;
 
     // Convert start and end to samples
     let start_sample = time_to_samples(
@@ -166,13 +259,13 @@ fn segment_file_blocking(params: SegmentFileParams) -> Result<SegmentFileResult,
     };
 
     // Check for cancellation after filtering
-    check_cancelled()?;
+    check_cancelled(cancellation_token)?;
 
     // Extract the segment
     let segment = extract_segment(&filtered_data, start_sample, end_sample)?;
 
     // Check for cancellation after extraction
-    check_cancelled()?;
+    check_cancelled(cancellation_token)?;
 
     // Determine output format
     let output_format = determine_output_format(&params.output_format, &file_path)?;
@@ -219,7 +312,7 @@ fn segment_file_blocking(params: SegmentFileParams) -> Result<SegmentFileResult,
     let output_path = validated_output_dir.join(&params.output_filename);
 
     // Check for cancellation before writing
-    check_cancelled()?;
+    check_cancelled(cancellation_token)?;
 
     // Export segment
     export_segment(&segment, &output_path, &output_format)?;
@@ -228,6 +321,7 @@ fn segment_file_blocking(params: SegmentFileParams) -> Result<SegmentFileResult,
 
     Ok(SegmentFileResult {
         output_path: output_path.to_string_lossy().to_string(),
+        operation_id: operation_id.to_string(),
     })
 }
 

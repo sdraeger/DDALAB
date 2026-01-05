@@ -309,20 +309,36 @@ export function useDDAProgress(
     if (!enabled) return;
 
     let unlisten: UnlistenFn | null = null;
+    let cancelled = false;
 
-    // Set up event listener
+    // Set up event listener with proper async handling
     const setupListener = async () => {
-      unlisten = await listen<DDAProgressEvent>("dda-progress", (event) => {
-        if (!analysisId || event.payload.analysis_id === analysisId) {
-          setProgress(event.payload);
+      try {
+        const unlistenFn = await listen<DDAProgressEvent>(
+          "dda-progress",
+          (event) => {
+            if (!analysisId || event.payload.analysis_id === analysisId) {
+              setProgress(event.payload);
+            }
+          },
+        );
+        // Only assign if not cancelled during setup
+        if (!cancelled) {
+          unlisten = unlistenFn;
+        } else {
+          // Cleanup immediately if component unmounted during setup
+          unlistenFn();
         }
-      });
+      } catch (error) {
+        console.error("[DDA] Failed to setup progress listener:", error);
+      }
     };
 
     setupListener();
 
     // Cleanup listener on unmount
     return () => {
+      cancelled = true;
       if (unlisten) {
         unlisten();
       }

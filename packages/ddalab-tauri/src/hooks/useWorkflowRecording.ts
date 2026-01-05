@@ -1,28 +1,63 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { WorkflowAction } from "@/types/workflow";
 import { useAppStore } from "@/store/appStore";
+import { toast } from "@/components/ui/toaster";
 
 /**
  * Hook for recording workflow actions from components
  * Automatically includes file context from the app state
  */
 export function useWorkflowRecording() {
-  // File context can be added later - for now record without it
-  const activeFileId = null;
+  // Get active file from store for proper context tracking
+  const selectedFile = useAppStore((state) => state.fileManager.selectedFile);
+  const isRecording = useAppStore(
+    (state) => state.workflowRecording.isRecording,
+  );
+
+  // Track consecutive failures for back-off
+  const failureCount = useRef(0);
+  const lastWarningTime = useRef(0);
 
   const recordAction = useCallback(
     async (action: WorkflowAction) => {
+      // Skip if not recording
+      if (!isRecording) {
+        return;
+      }
+
       try {
         await invoke("workflow_auto_record", {
           action,
-          activeFileId: activeFileId || null,
+          activeFileId: selectedFile?.file_path || null,
         });
+
+        // Reset failure count on success
+        failureCount.current = 0;
       } catch (error) {
-        console.error("Failed to record workflow action:", error);
+        failureCount.current += 1;
+
+        // Only show error toast after multiple failures (avoid spam)
+        // and no more than once every 10 seconds
+        const now = Date.now();
+        if (
+          failureCount.current >= 3 &&
+          now - lastWarningTime.current > 10000
+        ) {
+          toast.warning(
+            "Recording issue",
+            "Some actions may not have been recorded",
+          );
+          lastWarningTime.current = now;
+        }
+
+        console.error("Failed to record workflow action:", error, {
+          action: action.type,
+          failureCount: failureCount.current,
+        });
       }
     },
-    [activeFileId],
+    [selectedFile?.file_path, isRecording],
   );
 
   return {
