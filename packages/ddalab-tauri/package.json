@@ -1,6 +1,6 @@
 {
   "name": "ddalab-tauri",
-  "version": "1.1.0",
+  "version": "1.1.3",
   "description": "DDALAB Desktop Application built with Next.js and Tauri",
   "private": true,
   "scripts": {
