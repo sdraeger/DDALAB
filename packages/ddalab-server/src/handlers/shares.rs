@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::state::ServerState;
-use crate::storage::{AccessPolicy, ShareMetadata, SharedResultInfo};
+use crate::storage::{AccessPolicy, ShareMetadata, ShareableContentType, SharedResultInfo};
 
 /// Maximum lengths for input validation
 const MAX_TOKEN_LENGTH: usize = 128;
@@ -19,7 +19,9 @@ const MAX_DESCRIPTION_LENGTH: usize = 4096;
 #[derive(Debug, Deserialize)]
 pub struct CreateShareRequest {
     pub token: String,
-    pub result_id: String,
+    #[serde(default)]
+    pub content_type: ShareableContentType,
+    pub content_id: String,
     pub title: String,
     pub description: Option<String>,
     pub access_policy: AccessPolicy,
@@ -106,16 +108,20 @@ pub async fn create_share(
 
     let metadata = ShareMetadata {
         owner_user_id: request.owner_user_id,
-        result_id: request.result_id,
+        content_type: request.content_type,
+        content_id: request.content_id,
         title: request.title,
         description: request.description,
         created_at: chrono::Utc::now(),
         access_policy: request.access_policy,
+        classification: Default::default(),
+        download_count: 0,
+        last_accessed_at: None,
     };
 
     state
         .share_store
-        .publish_result(&request.token, metadata)
+        .publish_result(&request.token, metadata, None)
         .await
         .map_err(|e| {
             (
@@ -195,7 +201,7 @@ pub async fn get_share(
         state
             .registry
             .get_connection(&metadata.owner_user_id)
-            .map(|conn| format!("{}/api/results/{}", conn.endpoint, metadata.result_id))
+            .map(|conn| format!("{}/api/results/{}", conn.endpoint, metadata.content_id))
             .unwrap_or_default()
     } else {
         String::new()

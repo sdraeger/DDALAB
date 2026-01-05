@@ -230,7 +230,7 @@ async fn handle_sync_message(
                 "Publishing share: {} by user {}",
                 token, metadata.owner_user_id
             );
-            match state.share_store.publish_result(&token, metadata).await {
+            match state.share_store.publish_result(&token, metadata, None).await {
                 Ok(_) => Some(SyncMessage::Ack { message_id: None }),
                 Err(e) => {
                     error!("Failed to publish share: {}", e);
@@ -282,7 +282,7 @@ async fn handle_sync_message(
                 state
                     .registry
                     .get_connection(&metadata.owner_user_id)
-                    .map(|conn| format!("{}/api/results/{}", conn.endpoint, metadata.result_id))
+                    .map(|conn| format!("{}/api/results/{}", conn.endpoint, metadata.content_id))
                     .unwrap_or_default()
             } else {
                 String::new()
@@ -298,7 +298,41 @@ async fn handle_sync_message(
         }
 
         SyncMessage::RevokeShare { token } => {
-            info!("Revoking share: {}", token);
+            // Require authentication before allowing revoke
+            let user_id = match current_user_id {
+                Some(id) => id.clone(),
+                None => {
+                    warn!("Unauthenticated revoke attempt for share: {}", token);
+                    return Some(SyncMessage::Error {
+                        message: "Authentication required".to_string(),
+                        code: "AUTH_REQUIRED".to_string(),
+                    });
+                }
+            };
+
+            // Verify ownership before revoking
+            match state.share_store.get_shared_result(&token).await {
+                Ok(metadata) => {
+                    if metadata.owner_user_id != user_id {
+                        warn!(
+                            "User {} attempted to revoke share owned by {}",
+                            user_id, metadata.owner_user_id
+                        );
+                        return Some(SyncMessage::Error {
+                            message: "Cannot revoke share owned by another user".to_string(),
+                            code: "FORBIDDEN".to_string(),
+                        });
+                    }
+                }
+                Err(e) => {
+                    return Some(SyncMessage::Error {
+                        message: e.to_string(),
+                        code: "SHARE_NOT_FOUND".to_string(),
+                    });
+                }
+            }
+
+            info!("User {} revoking share: {}", user_id, token);
             match state.share_store.revoke_share(&token).await {
                 Ok(_) => Some(SyncMessage::Ack { message_id: None }),
                 Err(e) => {
@@ -312,6 +346,30 @@ async fn handle_sync_message(
         }
 
         SyncMessage::ListMyShares { user_id } => {
+            // Require authentication and verify user is requesting their own shares
+            match current_user_id {
+                Some(ref authenticated_id) if authenticated_id == &user_id => {
+                    // User is authenticated and requesting their own shares
+                }
+                Some(ref authenticated_id) => {
+                    warn!(
+                        "User {} attempted to list shares for {}",
+                        authenticated_id, user_id
+                    );
+                    return Some(SyncMessage::Error {
+                        message: "Cannot list shares for another user".to_string(),
+                        code: "FORBIDDEN".to_string(),
+                    });
+                }
+                None => {
+                    warn!("Unauthenticated list shares attempt for user: {}", user_id);
+                    return Some(SyncMessage::Error {
+                        message: "Authentication required".to_string(),
+                        code: "AUTH_REQUIRED".to_string(),
+                    });
+                }
+            }
+
             info!("Listing shares for user: {}", user_id);
             match state.share_store.list_user_shares(&user_id).await {
                 Ok(shares) => Some(SyncMessage::ShareList { shares }),

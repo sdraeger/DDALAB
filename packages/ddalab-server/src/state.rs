@@ -1,3 +1,4 @@
+use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -16,6 +17,7 @@ pub struct ServerState {
     pub auth_state: Arc<AuthState>,
     pub job_queue: Arc<JobQueue>,
     pub start_time: Instant,
+    pub db_pool: PgPool,
 }
 
 impl ServerState {
@@ -23,6 +25,7 @@ impl ServerState {
         config: ServerConfig,
         share_store: Arc<dyn SharedResultStore>,
         user_store: Arc<dyn UserStore>,
+        db_pool: PgPool,
     ) -> Self {
         let session_manager = SessionManager::new(config.session_timeout_seconds);
         let auth_state = Arc::new(AuthState::new(
@@ -46,6 +49,7 @@ impl ServerState {
             auth_state,
             job_queue,
             start_time: Instant::now(),
+            db_pool,
         }
     }
 

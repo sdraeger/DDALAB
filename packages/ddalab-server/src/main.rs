@@ -132,6 +132,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.clone(),
         Arc::new(share_store),
         Arc::new(user_store),
+        pool.clone(),
     ));
 
     // Create audit middleware state
