@@ -186,8 +186,8 @@ export function DashboardLayout() {
 
     switch (actionType) {
       case "navigate_nsg_manager":
-        setPrimaryNav("manage");
-        setSecondaryNav("jobs");
+        setPrimaryNav("data");
+        setSecondaryNav("nsg-jobs");
         break;
       case "navigate_results":
       case "navigate_analysis":
@@ -204,12 +204,11 @@ export function DashboardLayout() {
         );
         break;
       case "navigate_openneuro":
-        setPrimaryNav("manage");
-        setSecondaryNav("data-sources");
+        setPrimaryNav("data");
+        setSecondaryNav("openneuro");
         break;
       case "navigate_settings":
-        setPrimaryNav("manage");
-        setSecondaryNav("settings");
+        setPrimaryNav("settings");
         break;
       default:
         console.warn(
@@ -304,7 +303,7 @@ export function DashboardLayout() {
                 variant="ghost"
                 size="icon"
                 onClick={handleClose}
-                className="h-6 w-6 text-red-500 hover:text-red-600 transition-colors"
+                className="h-6 w-6 text-red-500 hover:text-red-600 transition-colors duration-200"
                 aria-label="Close window"
               >
                 <span aria-hidden="true">×</span>
@@ -342,7 +341,7 @@ export function DashboardLayout() {
           </>
         ) : (
           <div
-            className="w-12 flex-shrink-0 border-r bg-background hover:bg-accent transition-colors cursor-pointer flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-ring"
+            className="w-12 flex-shrink-0 border-r bg-background hover:bg-accent transition-colors duration-200 cursor-pointer flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-ring"
             onClick={() => setSidebarOpen(true)}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {

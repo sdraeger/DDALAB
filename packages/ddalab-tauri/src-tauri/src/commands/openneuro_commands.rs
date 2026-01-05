@@ -97,14 +97,19 @@ pub struct ProcessInfo {
 // State for tracking active downloads
 // Uses ProcessInfo instead of raw PID to prevent race conditions
 // when cancelling downloads (PID reuse could kill unrelated processes)
+//
+// Note: Uses RwLock for better read concurrency since reads (checking cancellation)
+// are more frequent than writes (registering/removing downloads).
+// The inner Option<ProcessInfo> is wrapped in Mutex to allow fine-grained
+// mutation without holding the outer lock.
 pub struct DownloadState {
-    pub active_downloads: Arc<Mutex<HashMap<String, Arc<Mutex<Option<ProcessInfo>>>>>>,
+    pub active_downloads: std::sync::RwLock<HashMap<String, Mutex<Option<ProcessInfo>>>>,
 }
 
 impl Default for DownloadState {
     fn default() -> Self {
         Self {
-            active_downloads: Arc::new(Mutex::new(HashMap::new())),
+            active_downloads: std::sync::RwLock::new(HashMap::new()),
         }
     }
 }
@@ -295,7 +300,7 @@ pub async fn check_git_annex_available() -> Result<bool, String> {
 
 // Helper function to check if download is cancelled
 fn is_cancelled(download_state: &State<DownloadState>, dataset_id: &str) -> bool {
-    if let Ok(downloads) = download_state.active_downloads.lock() {
+    if let Ok(downloads) = download_state.active_downloads.read() {
         if let Some(process_info_lock) = downloads.get(dataset_id) {
             if let Ok(process_info) = process_info_lock.lock() {
                 return process_info.is_none(); // None means cancelled
@@ -327,13 +332,12 @@ pub async fn download_openneuro_dataset(
     }
 
     // Register this download with ProcessInfo for safe cancellation
-    let process_info_lock: Arc<Mutex<Option<ProcessInfo>>> = Arc::new(Mutex::new(None));
     {
         let mut downloads = download_state
             .active_downloads
-            .lock()
+            .write()
             .map_err(|e| format!("Failed to lock download state: {}", e))?;
-        downloads.insert(options.dataset_id.clone(), process_info_lock.clone());
+        downloads.insert(options.dataset_id.clone(), Mutex::new(None));
     }
 
     // Construct the git URL using validated dataset_id
@@ -434,12 +438,16 @@ pub async fn download_openneuro_dataset(
     // Store process info for safe cancellation (includes timestamp to prevent PID reuse attacks)
     let pid = child.id();
     let started_at = std::time::Instant::now();
-    if let Ok(mut process_info_guard) = process_info_lock.lock() {
-        *process_info_guard = Some(ProcessInfo {
-            pid,
-            started_at,
-            command: "git".to_string(),
-        });
+    if let Ok(downloads) = download_state.active_downloads.read() {
+        if let Some(process_info_lock) = downloads.get(&options.dataset_id) {
+            if let Ok(mut process_info_guard) = process_info_lock.lock() {
+                *process_info_guard = Some(ProcessInfo {
+                    pid,
+                    started_at,
+                    command: "git".to_string(),
+                });
+            }
+        }
     }
 
     // Capture stderr for progress (git outputs to stderr)
@@ -468,7 +476,7 @@ pub async fn download_openneuro_dataset(
                     },
                 );
                 // Cleanup
-                if let Ok(mut downloads) = download_state.active_downloads.lock() {
+                if let Ok(mut downloads) = download_state.active_downloads.write() {
                     downloads.remove(&options.dataset_id);
                 }
                 return Err(format!(
@@ -492,7 +500,7 @@ pub async fn download_openneuro_dataset(
                     },
                 );
                 // Cleanup
-                if let Ok(mut downloads) = download_state.active_downloads.lock() {
+                if let Ok(mut downloads) = download_state.active_downloads.write() {
                     downloads.remove(&options.dataset_id);
                 }
                 return Err("Download cancelled".to_string());
@@ -638,7 +646,7 @@ pub async fn download_openneuro_dataset(
                         },
                     );
                     // Cleanup and continue without annexing
-                    if let Ok(mut downloads) = download_state.active_downloads.lock() {
+                    if let Ok(mut downloads) = download_state.active_downloads.write() {
                         downloads.remove(&options.dataset_id);
                     }
                     return Ok(dataset_path.to_string_lossy().to_string());
@@ -648,12 +656,16 @@ pub async fn download_openneuro_dataset(
             // Store git-annex process info for safe cancellation
             let pid = child.id();
             let started_at = std::time::Instant::now();
-            if let Ok(mut process_info_guard) = process_info_lock.lock() {
-                *process_info_guard = Some(ProcessInfo {
-                    pid,
-                    started_at,
-                    command: "git-annex".to_string(),
-                });
+            if let Ok(downloads) = download_state.active_downloads.read() {
+                if let Some(process_info_lock) = downloads.get(&options.dataset_id) {
+                    if let Ok(mut process_info_guard) = process_info_lock.lock() {
+                        *process_info_guard = Some(ProcessInfo {
+                            pid,
+                            started_at,
+                            command: "git-annex".to_string(),
+                        });
+                    }
+                }
             }
 
             // Track progress from git-annex output
@@ -683,7 +695,7 @@ pub async fn download_openneuro_dataset(
                             },
                         );
                         // Cleanup
-                        if let Ok(mut downloads) = download_state.active_downloads.lock() {
+                        if let Ok(mut downloads) = download_state.active_downloads.write() {
                             downloads.remove(&options.dataset_id);
                         }
                         return Err("Download cancelled".to_string());
@@ -816,7 +828,7 @@ pub async fn download_openneuro_dataset(
     );
 
     // Remove from active downloads
-    if let Ok(mut downloads) = download_state.active_downloads.lock() {
+    if let Ok(mut downloads) = download_state.active_downloads.write() {
         downloads.remove(&options.dataset_id);
     }
 
@@ -834,7 +846,7 @@ pub async fn cancel_openneuro_download(
 ) -> Result<(), String> {
     log::info!("Cancellation requested for dataset: {}", dataset_id);
 
-    if let Ok(downloads) = download_state.active_downloads.lock() {
+    if let Ok(downloads) = download_state.active_downloads.read() {
         if let Some(process_info_lock) = downloads.get(&dataset_id) {
             // Mark as cancelled by setting ProcessInfo to None
             if let Ok(mut process_info_opt) = process_info_lock.lock() {

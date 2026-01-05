@@ -9,15 +9,61 @@ use crate::api::handlers::{
 };
 use crate::api::state::ApiState;
 use axum::{
+    body::Body,
     extract::DefaultBodyLimit,
-    http::{header, HeaderValue, Method, StatusCode},
-    middleware,
+    http::{header, HeaderName, HeaderValue, Method, Request, StatusCode},
+    middleware::{self, Next},
+    response::Response,
     routing::{delete, get, post, put},
     Json, Router,
 };
 use std::sync::Arc;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::CorsLayer;
+
+/// Security headers middleware - adds headers to prevent common web vulnerabilities
+async fn security_headers_middleware(request: Request<Body>, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+
+    // Prevent MIME type sniffing
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+
+    // Prevent clickjacking (deny embedding in iframes from other origins)
+    headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+
+    // Enable XSS filter (legacy browsers)
+    headers.insert(
+        HeaderName::from_static("x-xss-protection"),
+        HeaderValue::from_static("1; mode=block"),
+    );
+
+    // Referrer policy - don't leak URLs to external sites
+    headers.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("strict-origin-when-cross-origin"),
+    );
+
+    // Content Security Policy - restrict resource loading
+    // Allow 'self' for scripts/styles, data: for base64 images, blob: for dynamically generated content
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(
+            "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'"
+        ),
+    );
+
+    // Permissions Policy - disable potentially dangerous APIs
+    headers.insert(
+        HeaderName::from_static("permissions-policy"),
+        HeaderValue::from_static("camera=(), microphone=(), geolocation=()"),
+    );
+
+    response
+}
 
 pub fn create_router(state: Arc<ApiState>) -> Router {
     let public_routes = Router::new().route("/api/health", get(health));
@@ -94,6 +140,7 @@ pub fn create_router(state: Arc<ApiState>) -> Router {
         .merge(public_routes)
         .merge(protected_routes)
         .fallback(handle_404)
+        .layer(middleware::from_fn(security_headers_middleware))
         .layer(DefaultBodyLimit::max(100 * 1024 * 1024)) // 100 MB limit
         .layer(CompressionLayer::new()) // Enable gzip/br compression for responses
         .layer(cors)

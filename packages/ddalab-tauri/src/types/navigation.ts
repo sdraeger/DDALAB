@@ -2,7 +2,9 @@ export type PrimaryNavTab =
   | "overview"
   | "explore"
   | "analyze"
-  | "manage"
+  | "data"
+  | "collaborate"
+  | "settings"
   | "notifications";
 
 export type SecondaryNavTab =
@@ -18,10 +20,9 @@ export type SecondaryNavTab =
   | "meg-analysis"
   | "connectivity"
   | "statistics"
-  // Manage tabs
-  | "settings"
-  | "data-sources"
-  | "jobs";
+  // Data tabs
+  | "openneuro"
+  | "nsg-jobs";
 
 export interface NavigationCategory {
   id: PrimaryNavTab;
@@ -49,17 +50,38 @@ export const navigationConfig: Record<PrimaryNavTab, NavigationCategory> = {
   },
   explore: {
     id: "explore",
-    label: "Data Visualization",
+    label: "Visualize",
     icon: "BarChart3",
     description: "Data visualization and inspection",
     secondaryTabs: ["timeseries", "annotations", "streaming"],
   },
   analyze: {
     id: "analyze",
-    label: "Analysis",
+    label: "Analyze",
     icon: "Brain",
     description: "Signal analysis tools",
     secondaryTabs: ["dda", "ica"],
+  },
+  data: {
+    id: "data",
+    label: "Data",
+    icon: "Database",
+    description: "Data repositories and cloud jobs",
+    secondaryTabs: ["openneuro", "nsg-jobs"],
+  },
+  collaborate: {
+    id: "collaborate",
+    label: "Collaborate",
+    icon: "Users",
+    description: "Share results and work with teams",
+    secondaryTabs: null,
+  },
+  settings: {
+    id: "settings",
+    label: "Settings",
+    icon: "Settings",
+    description: "Application preferences",
+    secondaryTabs: null,
   },
   notifications: {
     id: "notifications",
@@ -68,17 +90,10 @@ export const navigationConfig: Record<PrimaryNavTab, NavigationCategory> = {
     description: "System notifications and alerts",
     secondaryTabs: null,
   },
-  manage: {
-    id: "manage",
-    label: "Settings",
-    icon: "Settings",
-    description: "Application settings and data management",
-    secondaryTabs: ["settings", "data-sources", "jobs"],
-  },
 };
 
 export const secondaryTabConfig: Record<SecondaryNavTab, SecondaryTabConfig> = {
-  // Explore
+  // Explore/Visualize
   timeseries: {
     id: "timeseries",
     label: "Time Series",
@@ -147,23 +162,17 @@ export const secondaryTabConfig: Record<SecondaryNavTab, SecondaryTabConfig> = {
     enabled: false,
   },
 
-  // Manage
-  settings: {
-    id: "settings",
-    label: "Settings",
-    icon: "Settings",
-    description: "Application settings",
-  },
-  "data-sources": {
-    id: "data-sources",
-    label: "OpenNeuro (+ NEMAR)",
+  // Data
+  openneuro: {
+    id: "openneuro",
+    label: "OpenNeuro",
     icon: "Database",
-    description: "Data repositories",
+    description: "Browse and download OpenNeuro datasets",
   },
-  jobs: {
-    id: "jobs",
+  "nsg-jobs": {
+    id: "nsg-jobs",
     label: "NSG Jobs",
     icon: "Cloud",
-    description: "NSG jobs",
+    description: "Neuroscience Gateway cloud computing",
   },
 };

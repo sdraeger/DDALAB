@@ -7,6 +7,7 @@ import { getInitializedFileStateManager } from "@/services/fileStateInitializer"
 import { getStatePersistenceService } from "@/services/statePersistenceService";
 import { debouncedUpdate } from "@/utils/debounce";
 import { handleError } from "@/utils/errorHandler";
+import { createWorkflowAction } from "@/store/middleware/workflowRecordingMiddleware";
 import type {
   DDAState as PersistedDDAState,
   AnalysisResult,
@@ -18,6 +19,91 @@ import type {
   DelayPreset,
   ImmerStateCreator,
 } from "./types";
+
+/**
+ * Creates a PersistedDDAState object from the current DDA state.
+ * Extracted to eliminate duplication across persistence operations.
+ */
+function createPersistedDDAState(
+  dda: DDAState,
+  overrides?: Partial<PersistedDDAState>,
+): PersistedDDAState {
+  return {
+    selected_variants: dda.analysisParameters.variants,
+    parameters: {
+      windowLength: dda.analysisParameters.windowLength,
+      windowStep: dda.analysisParameters.windowStep,
+      delays: dda.analysisParameters.delays,
+    },
+    last_analysis_id: dda.currentAnalysis?.id || null,
+    current_analysis: dda.currentAnalysis,
+    analysis_history: dda.analysisHistory,
+    analysis_parameters: dda.analysisParameters,
+    running: dda.isRunning,
+    custom_delay_presets: dda.customDelayPresets,
+    ...overrides,
+  };
+}
+
+/**
+ * Persists DDA state to Tauri backend and file state manager.
+ * Handles all persistence operations in parallel for better performance.
+ */
+async function persistDDAState(
+  ddaState: PersistedDDAState,
+  options?: {
+    selectedFilePath?: string;
+    analysisHistory?: { id: string }[];
+    analysisParameters?: DDAState["analysisParameters"];
+    currentAnalysisId?: string | null;
+  },
+): Promise<void> {
+  const persistenceService = getStatePersistenceService();
+
+  const persistencePromises: Promise<void>[] = [
+    TauriService.updateDDAState(ddaState).catch((error) =>
+      handleError(error, {
+        source: "DDA State Persistence",
+        severity: "silent",
+      }),
+    ),
+  ];
+
+  if (persistenceService) {
+    persistencePromises.push(
+      persistenceService.saveDDAState(ddaState).catch((error) =>
+        handleError(error, {
+          source: "DDA State Persistence",
+          severity: "silent",
+        }),
+      ),
+    );
+  }
+
+  if (options?.selectedFilePath && options.analysisParameters) {
+    // Capture values before async closure for TypeScript narrowing
+    const filePath = options.selectedFilePath;
+    const params = options.analysisParameters;
+    const history = options.analysisHistory;
+    const analysisId = options.currentAnalysisId;
+
+    persistencePromises.push(
+      (async () => {
+        const fileStateManager = getInitializedFileStateManager();
+        const fileDDAState: FileDDAState = {
+          currentAnalysisId: analysisId ?? null,
+          analysisHistory: history?.map((a) => a.id) ?? [],
+          lastParameters: params,
+          selectedVariants: params.variants,
+          lastUpdated: new Date().toISOString(),
+        };
+        await fileStateManager.updateModuleState(filePath, "dda", fileDDAState);
+      })().catch(() => {}),
+    );
+  }
+
+  await Promise.all(persistencePromises);
+}
 
 export const defaultDDAState: DDAState = {
   currentAnalysis: null,
@@ -46,59 +132,21 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
     });
 
     if (TauriService.isTauri()) {
-      // Capture state immediately to avoid race condition (don't read with get() in setTimeout)
+      // Capture state immediately to avoid race condition
       const { dda, fileManager } = get();
-      const persistenceService = getStatePersistenceService();
-      const ddaState: PersistedDDAState = {
-        selected_variants: dda.analysisParameters.variants,
-        parameters: {
-          windowLength: dda.analysisParameters.windowLength,
-          windowStep: dda.analysisParameters.windowStep,
-          delays: dda.analysisParameters.delays,
-        },
+      const ddaState = createPersistedDDAState(dda, {
         last_analysis_id: analysis?.id || null,
         current_analysis: analysis,
-        analysis_history: dda.analysisHistory,
-        analysis_parameters: dda.analysisParameters,
-        running: dda.isRunning,
-      };
+      });
       const selectedFilePath = fileManager.selectedFile?.file_path;
-      const analysisHistory = dda.analysisHistory;
-      const analysisParameters = dda.analysisParameters;
 
-      setTimeout(async () => {
-        // Run all persistence operations in parallel for better performance
-        const persistencePromises: Promise<void>[] = [
-          TauriService.updateDDAState(ddaState).catch(() => {}),
-        ];
-
-        if (persistenceService) {
-          persistencePromises.push(
-            persistenceService.saveDDAState(ddaState).catch(() => {}),
-          );
-        }
-
-        if (selectedFilePath && analysis) {
-          persistencePromises.push(
-            (async () => {
-              const fileStateManager = getInitializedFileStateManager();
-              const fileDDAState: FileDDAState = {
-                currentAnalysisId: analysis.id,
-                analysisHistory: analysisHistory.map((a) => a.id),
-                lastParameters: analysisParameters,
-                selectedVariants: analysisParameters.variants,
-                lastUpdated: new Date().toISOString(),
-              };
-              await fileStateManager.updateModuleState(
-                selectedFilePath,
-                "dda",
-                fileDDAState,
-              );
-            })().catch(() => {}),
-          );
-        }
-
-        await Promise.all(persistencePromises);
+      setTimeout(() => {
+        persistDDAState(ddaState, {
+          selectedFilePath: analysis ? selectedFilePath : undefined,
+          analysisHistory: dda.analysisHistory,
+          analysisParameters: dda.analysisParameters,
+          currentAnalysisId: analysis?.id,
+        });
       }, 0);
     }
   },
@@ -122,66 +170,17 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
     });
 
     if (TauriService.isTauri()) {
-      setTimeout(async () => {
+      setTimeout(() => {
         const { dda, fileManager } = get();
-        const persistenceService = getStatePersistenceService();
-        const ddaState: PersistedDDAState = {
-          selected_variants: dda.analysisParameters.variants,
-          parameters: {
-            windowLength: dda.analysisParameters.windowLength,
-            windowStep: dda.analysisParameters.windowStep,
-            delays: dda.analysisParameters.delays,
-          },
-          last_analysis_id: dda.currentAnalysis?.id || null,
-          current_analysis: dda.currentAnalysis,
-          analysis_history: dda.analysisHistory,
-          analysis_parameters: dda.analysisParameters,
-          running: dda.isRunning,
-        };
-
-        // Run all persistence operations in parallel for better performance
-        const persistencePromises: Promise<void>[] = [
-          TauriService.updateDDAState(ddaState).catch((error) =>
-            handleError(error, {
-              source: "DDA State Persistence",
-              severity: "silent",
-            }),
-          ),
-        ];
-
-        if (persistenceService) {
-          persistencePromises.push(
-            persistenceService.saveDDAState(ddaState).catch((error) =>
-              handleError(error, {
-                source: "DDA State Persistence",
-                severity: "silent",
-              }),
-            ),
-          );
-        }
-
+        const ddaState = createPersistedDDAState(dda);
         const selectedFilePath = fileManager.selectedFile?.file_path;
-        if (selectedFilePath) {
-          persistencePromises.push(
-            (async () => {
-              const fileStateManager = getInitializedFileStateManager();
-              const fileDDAState: FileDDAState = {
-                currentAnalysisId: dda.currentAnalysis?.id || null,
-                analysisHistory: dda.analysisHistory.map((a) => a.id),
-                lastParameters: dda.analysisParameters,
-                selectedVariants: dda.analysisParameters.variants,
-                lastUpdated: new Date().toISOString(),
-              };
-              await fileStateManager.updateModuleState(
-                selectedFilePath,
-                "dda",
-                fileDDAState,
-              );
-            })().catch(() => {}),
-          );
-        }
 
-        await Promise.all(persistencePromises);
+        persistDDAState(ddaState, {
+          selectedFilePath,
+          analysisHistory: dda.analysisHistory,
+          analysisParameters: dda.analysisParameters,
+          currentAnalysisId: dda.currentAnalysis?.id,
+        });
       }, 0);
     }
   },
@@ -193,6 +192,8 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
   },
 
   updateAnalysisParameters: (parameters) => {
+    const filePath = get().fileManager.selectedFile?.file_path;
+
     set((state) => {
       state.dda.analysisParameters = {
         ...state.dda.analysisParameters,
@@ -200,24 +201,30 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
       };
     });
 
+    // Record parameter changes for workflow (silently no-ops if recording disabled)
+    if (parameters.variants) {
+      createWorkflowAction.selectDDAVariants(parameters.variants, filePath);
+    }
+    if (
+      parameters.windowLength !== undefined ||
+      parameters.windowStep !== undefined
+    ) {
+      const { dda } = get();
+      createWorkflowAction.setDDAParameters(
+        {
+          windowLength: dda.analysisParameters.windowLength,
+          windowStep: dda.analysisParameters.windowStep,
+        },
+        filePath,
+      );
+    }
+
     if (TauriService.isTauri()) {
       debouncedUpdate(
         "dda:parameters",
         () => {
           const { dda } = get();
-          const ddaState: PersistedDDAState = {
-            selected_variants: dda.analysisParameters.variants,
-            parameters: {
-              windowLength: dda.analysisParameters.windowLength,
-              windowStep: dda.analysisParameters.windowStep,
-              delays: dda.analysisParameters.delays,
-            },
-            last_analysis_id: dda.currentAnalysis?.id || null,
-            current_analysis: dda.currentAnalysis,
-            analysis_history: dda.analysisHistory,
-            analysis_parameters: dda.analysisParameters,
-            running: dda.isRunning,
-          };
+          const ddaState = createPersistedDDAState(dda);
           TauriService.updateDDAState(ddaState).catch((error) =>
             handleError(error, {
               source: "DDA State Persistence",
@@ -248,20 +255,7 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
 
     if (TauriService.isTauri()) {
       const { dda } = get();
-      const ddaState: PersistedDDAState = {
-        selected_variants: dda.analysisParameters.variants,
-        parameters: {
-          windowLength: dda.analysisParameters.windowLength,
-          windowStep: dda.analysisParameters.windowStep,
-          delays: dda.analysisParameters.delays,
-        },
-        last_analysis_id: dda.currentAnalysis?.id || null,
-        current_analysis: dda.currentAnalysis,
-        analysis_history: dda.analysisHistory,
-        analysis_parameters: dda.analysisParameters,
-        running: dda.isRunning,
-        custom_delay_presets: dda.customDelayPresets,
-      };
+      const ddaState = createPersistedDDAState(dda);
       TauriService.updateDDAState(ddaState).catch((error) =>
         handleError(error, {
           source: "DDA State Persistence",
@@ -284,20 +278,7 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
 
     if (TauriService.isTauri()) {
       const { dda } = get();
-      const ddaState: PersistedDDAState = {
-        selected_variants: dda.analysisParameters.variants,
-        parameters: {
-          windowLength: dda.analysisParameters.windowLength,
-          windowStep: dda.analysisParameters.windowStep,
-          delays: dda.analysisParameters.delays,
-        },
-        last_analysis_id: dda.currentAnalysis?.id || null,
-        current_analysis: dda.currentAnalysis,
-        analysis_history: dda.analysisHistory,
-        analysis_parameters: dda.analysisParameters,
-        running: dda.isRunning,
-        custom_delay_presets: dda.customDelayPresets,
-      };
+      const ddaState = createPersistedDDAState(dda);
       TauriService.updateDDAState(ddaState).catch((error) =>
         handleError(error, {
           source: "DDA State Persistence",
@@ -316,20 +297,7 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
 
     if (TauriService.isTauri()) {
       const { dda } = get();
-      const ddaState: PersistedDDAState = {
-        selected_variants: dda.analysisParameters.variants,
-        parameters: {
-          windowLength: dda.analysisParameters.windowLength,
-          windowStep: dda.analysisParameters.windowStep,
-          delays: dda.analysisParameters.delays,
-        },
-        last_analysis_id: dda.currentAnalysis?.id || null,
-        current_analysis: dda.currentAnalysis,
-        analysis_history: dda.analysisHistory,
-        analysis_parameters: dda.analysisParameters,
-        running: dda.isRunning,
-        custom_delay_presets: dda.customDelayPresets,
-      };
+      const ddaState = createPersistedDDAState(dda);
       TauriService.updateDDAState(ddaState).catch((error) =>
         handleError(error, {
           source: "DDA State Persistence",

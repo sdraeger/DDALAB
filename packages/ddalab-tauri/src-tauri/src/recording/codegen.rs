@@ -105,9 +105,13 @@ impl CodeGenerator {
     fn generate_python_action(&self, action: &WorkflowAction) -> Result<String> {
         let code = match action {
             WorkflowAction::LoadFile { path, file_type } => match file_type {
-                FileType::EDF => format!("data = load_edf_file('{}')", path),
-                FileType::ASCII => format!("data = np.loadtxt('{}')", path),
-                FileType::CSV => format!("data = pd.read_csv('{}')", path),
+                FileType::EDF => format!("file_path = '{}'", path),
+                FileType::ASCII => {
+                    format!("file_path = '{}'\n    data = np.loadtxt(file_path)", path)
+                }
+                FileType::CSV => {
+                    format!("file_path = '{}'\n    data = pd.read_csv(file_path)", path)
+                }
             },
             WorkflowAction::SetDDAParameters {
                 window_length,
@@ -134,8 +138,19 @@ impl CodeGenerator {
                 ct_channel_pairs: _,
                 cd_channel_pairs: _,
             } => {
+                // Generate a proper DDARequest and run it with the runner
                 format!(
-                    "result = run_dda_analysis(data, channels={}, **dda_params)",
+                    r#"request = DDARequest(
+        file_path=file_path,
+        channels={},
+        variants=dda_variants,
+        window_length=dda_params.get('window_length', 2048),
+        window_step=dda_params.get('window_step', 1024),
+        delays=delay_list,
+        ct_window_length=dda_params.get('ct_window_length'),
+        ct_window_step=dda_params.get('ct_window_step'),
+    )
+    result = runner.run(request)"#,
                     format_list(channel_selection)
                 )
             }
@@ -287,9 +302,14 @@ impl CodeGenerator {
     fn generate_julia_action(&self, action: &WorkflowAction) -> Result<String> {
         let code = match action {
             WorkflowAction::LoadFile { path, file_type } => match file_type {
-                FileType::EDF => format!("data = load_edf(\"{}\")", path),
-                FileType::ASCII => format!("data = readdlm(\"{}\")", path),
-                FileType::CSV => format!("data = CSV.read(\"{}\", DataFrame)", path),
+                FileType::EDF => format!("file_path = \"{}\"", path),
+                FileType::ASCII => {
+                    format!("file_path = \"{}\"\n    data = readdlm(file_path)", path)
+                }
+                FileType::CSV => format!(
+                    "file_path = \"{}\"\n    data = CSV.read(\"{}\", DataFrame)",
+                    path, path
+                ),
             },
             WorkflowAction::SetDDAParameters {
                 window_length,
@@ -298,16 +318,16 @@ impl CodeGenerator {
                 ct_window_step,
             } => {
                 let mut params = format!(
-                    "dda_params = DDAParameters(\n    window_length={},\n    window_step={}",
+                    "dda_params = (window_length={}, window_step={}",
                     window_length, window_step
                 );
                 if let Some(ct_wl) = ct_window_length {
-                    params.push_str(&format!(",\n    ct_window_length={}", ct_wl));
+                    params.push_str(&format!(", ct_window_length={}", ct_wl));
                 }
                 if let Some(ct_ws) = ct_window_step {
-                    params.push_str(&format!(",\n    ct_window_step={}", ct_ws));
+                    params.push_str(&format!(", ct_window_step={}", ct_ws));
                 }
-                params.push_str("\n)");
+                params.push(')');
                 params
             }
             WorkflowAction::RunDDAAnalysis {
@@ -316,8 +336,19 @@ impl CodeGenerator {
                 ct_channel_pairs: _,
                 cd_channel_pairs: _,
             } => {
+                // Generate a proper DDARequest and run it with the runner
                 format!(
-                    "result = run_dda_analysis(data, channels={}, dda_params)",
+                    r#"request = DDARequest(
+        file_path,
+        {},  # channels (0-based)
+        dda_variants;
+        window_length=dda_params.window_length,
+        window_step=dda_params.window_step,
+        delays=delay_list,
+        ct_window_length=get(dda_params, :ct_window_length, nothing),
+        ct_window_step=get(dda_params, :ct_window_step, nothing)
+    )
+    result = run_analysis(runner, request)"#,
                     format_julia_array(channel_selection)
                 )
             }
@@ -344,11 +375,23 @@ impl CodeGenerator {
                     .as_ref()
                     .map(|t| format!(", title=\"{}\"", t))
                     .unwrap_or_default();
+                let cmap = options
+                    .colormap
+                    .as_ref()
+                    .map(|c| format!(", cmap=:{}", c))
+                    .unwrap_or_default();
+                let normalize = if options.normalize {
+                    ", normalize=true"
+                } else {
+                    ""
+                };
 
                 match plot_type {
-                    PlotType::Heatmap => format!("heatmap(result{})", title),
-                    PlotType::TimeSeries => format!("plot(result{})", title),
-                    PlotType::StatisticalSummary => format!("plot_statistics(result{})", title),
+                    PlotType::Heatmap => {
+                        format!("plot_heatmap_dda(result{}{}{})", title, cmap, normalize)
+                    }
+                    PlotType::TimeSeries => format!("plot_timeseries_dda(result{})", title),
+                    PlotType::StatisticalSummary => format!("plot_statistics_dda(result{})", title),
                 }
             }
             WorkflowAction::FilterChannels {
@@ -366,7 +409,10 @@ impl CodeGenerator {
                     low_freq,
                     high_freq,
                 } => {
-                    format!("data = bandpass_filter(data, {}, {})", low_freq, high_freq)
+                    format!(
+                        "data = bandpass_filter(data, {}, {}; fs=sampling_rate)",
+                        low_freq, high_freq
+                    )
                 }
                 TransformType::Decimate { factor } => {
                     format!("data = decimate(data, {})", factor)
@@ -640,9 +686,9 @@ impl CodeGenerator {
     fn generate_rust_action(&self, action: &WorkflowAction) -> Result<String> {
         let code = match action {
             WorkflowAction::LoadFile { path, file_type } => match file_type {
-                FileType::EDF => format!("let data = read_edf_file(\"{}\")?;", path),
-                FileType::ASCII => format!("let data = read_ascii_file(\"{}\")?;", path),
-                FileType::CSV => format!("let data = read_csv_file(\"{}\")?;", path),
+                FileType::EDF => format!("let file_path = \"{}\".to_string();", path),
+                FileType::ASCII => format!("let file_path = \"{}\".to_string();\n    // Note: ASCII files need preprocessing before DDA", path),
+                FileType::CSV => format!("let file_path = \"{}\".to_string();\n    // Note: CSV files need preprocessing before DDA", path),
             },
             WorkflowAction::SetDDAParameters {
                 window_length,
@@ -651,7 +697,7 @@ impl CodeGenerator {
                 ct_window_step,
             } => {
                 let mut params = format!(
-                    "let mut dda_params = DDAParams {{\n        window_length: {},\n        window_step: {},",
+                    "let window_params = WindowParameters {{\n        window_length: {},\n        window_step: {},",
                     window_length, window_step
                 );
                 if let Some(ct_wl) = ct_window_length {
@@ -673,8 +719,23 @@ impl CodeGenerator {
                 ct_channel_pairs: _,
                 cd_channel_pairs: _,
             } => {
+                // Generate a proper DDARequest and run it with the runner
                 format!(
-                    "let result = run_dda_analysis(&data, &{}, &dda_params)?;",
+                    r#"let request = DDARequest {{
+        file_path: file_path.clone(),
+        channels: Some({}),
+        window_parameters: window_params.clone(),
+        delay_parameters: delay_params.clone(),
+        algorithm_selection: AlgorithmSelection {{
+            select_mask: Some(dda_rs::generate_select_mask(&dda_variants)),
+        }},
+        time_range: None,
+        ct_channel_pairs: None,
+        cd_channel_pairs: None,
+        model_parameters: None,
+        sampling_rate: None,
+    }};
+    let result = runner.run(&request, None, None, None).await?;"#,
                     format_rust_array(channel_selection)
                 )
             }
@@ -762,10 +823,13 @@ impl CodeGenerator {
                 format!("let time_window = ({}, {});", start, end)
             }
             WorkflowAction::SelectDDAVariants { variants } => {
-                format!("let dda_variants = {};", format_rust_string_array(variants))
+                format!("let dda_variants: Vec<String> = {};", format_rust_string_array(variants))
             }
             WorkflowAction::SetDelayList { delays } => {
-                format!("let delay_list = {};", format_rust_array_i32(delays))
+                format!(
+                    "let delay_params = DelayParameters {{\n        delays: {},\n    }};",
+                    format_rust_array_i32(delays)
+                )
             }
             WorkflowAction::SetModelParameters {
                 dm,
@@ -1166,6 +1230,9 @@ const PYTHON_TEMPLATE: &str = r#"#!/usr/bin/env python3
 {% endif %}
 
 Generated by DDALAB Session Recording
+
+Requirements:
+    pip install dda-py numpy pandas scipy matplotlib
 """
 
 import numpy as np
@@ -1174,45 +1241,95 @@ import scipy.io
 import scipy.signal as signal
 import matplotlib.pyplot as plt
 
-def load_edf_file(path):
-    """Load EDF file and return data matrix"""
-    # TODO: Implement EDF loading
-    pass
+# DDA Python bindings - install with: pip install dda-py
+from dda_py import DDARunner, DDARequest
 
-def run_dda_analysis(data, channels, lag, dimension, window_size, window_offset):
-    """Run DDA analysis on data"""
-    # TODO: Implement DDA analysis call
-    pass
 
 def plot_heatmap(result, title=None, cmap='viridis', normalize=False):
-    """Generate heatmap visualization"""
+    """Generate heatmap visualization from DDA results"""
+    # Extract Q matrix from first variant
+    variant_name = list(result.keys())[0]
+    matrix = np.array(result[variant_name]['matrix'])
+
     if normalize:
-        result = (result - result.min()) / (result.max() - result.min())
-    plt.imshow(result, cmap=cmap)
+        matrix = (matrix - matrix.min()) / (matrix.max() - matrix.min())
+
+    plt.figure(figsize=(12, 6))
+    plt.imshow(matrix, aspect='auto', cmap=cmap)
     if title:
         plt.title(title)
-    plt.colorbar()
+    plt.xlabel('Time Window')
+    plt.ylabel('Channel')
+    plt.colorbar(label='Q Value')
+    plt.tight_layout()
     plt.show()
+
 
 def plot_timeseries(result, title=None):
-    """Generate time series visualization"""
-    plt.plot(result)
+    """Generate time series visualization from DDA results"""
+    variant_name = list(result.keys())[0]
+    matrix = np.array(result[variant_name]['matrix'])
+
+    plt.figure(figsize=(12, 6))
+    for i, channel in enumerate(matrix):
+        plt.plot(channel, label=f'Channel {i+1}', alpha=0.7)
+
     if title:
         plt.title(title)
+    plt.xlabel('Time Window')
+    plt.ylabel('Q Value')
+    plt.legend(loc='upper right')
+    plt.tight_layout()
     plt.show()
 
-def plot_statistics(result, title=None):
-    """Generate statistical summary visualization"""
-    # TODO: Implement statistics visualization
-    pass
 
-def bandpass_filter(data, low_freq, high_freq):
+def plot_statistics(result, title=None):
+    """Generate statistical summary visualization from DDA results"""
+    variant_name = list(result.keys())[0]
+    matrix = np.array(result[variant_name]['matrix'])
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+
+    # Mean per channel
+    axes[0].bar(range(len(matrix)), [ch.mean() for ch in matrix])
+    axes[0].set_title('Mean Q per Channel')
+    axes[0].set_xlabel('Channel')
+    axes[0].set_ylabel('Mean Q')
+
+    # Standard deviation per channel
+    axes[1].bar(range(len(matrix)), [ch.std() for ch in matrix])
+    axes[1].set_title('Std Dev Q per Channel')
+    axes[1].set_xlabel('Channel')
+    axes[1].set_ylabel('Std Q')
+
+    # Distribution of all Q values
+    axes[2].hist(matrix.flatten(), bins=50, edgecolor='black')
+    axes[2].set_title('Q Value Distribution')
+    axes[2].set_xlabel('Q Value')
+    axes[2].set_ylabel('Frequency')
+
+    if title:
+        fig.suptitle(title)
+
+    plt.tight_layout()
+    plt.show()
+
+
+def bandpass_filter(data, low_freq, high_freq, fs=256):
     """Apply bandpass filter to data"""
-    # TODO: Implement bandpass filter
-    pass
+    nyq = fs / 2
+    low = low_freq / nyq
+    high = high_freq / nyq
+    b, a = signal.butter(4, [low, high], btype='band')
+    return signal.filtfilt(b, a, data, axis=-1)
+
 
 def main():
     """Execute workflow"""
+    # Initialize DDA runner (auto-discovers binary or set path explicitly)
+    # runner = DDARunner(binary_path="/path/to/run_DDA_AsciiEdf")
+    runner = DDARunner()
+
 {% for action in actions %}
     # {{ action.id }}{% if action.description %}: {{ action.description }}{% endif %}
     {{ action.code }}
@@ -1230,6 +1347,9 @@ const JULIA_TEMPLATE: &str = r#"#!/usr/bin/env julia
 {% endif %}
 
 Generated by DDALAB Session Recording
+
+Requirements:
+    ] add DelayDifferentialAnalysis CSV DataFrames JSON MAT Plots
 """
 
 using CSV
@@ -1240,35 +1360,78 @@ using DelimitedFiles
 using Statistics
 using Plots
 
-struct DDAParameters
-    lag::Int
-    dimension::Int
-    window_size::Int
-    window_offset::Int
+# DDA Julia bindings
+using DelayDifferentialAnalysis
+
+
+function plot_heatmap_dda(result; title=nothing, cmap=:viridis, normalize=false)
+    """Generate heatmap visualization from DDA results"""
+    matrix = result.q_matrix
+
+    if normalize
+        matrix = (matrix .- minimum(matrix)) ./ (maximum(matrix) - minimum(matrix))
+    end
+
+    p = heatmap(matrix, c=cmap, xlabel="Time Window", ylabel="Channel", colorbar_title="Q Value")
+    if title !== nothing
+        title!(p, title)
+    end
+    display(p)
 end
 
-function load_edf(path::String)
-    """Load EDF file and return data matrix"""
-    # TODO: Implement EDF loading
+
+function plot_timeseries_dda(result; title=nothing)
+    """Generate time series visualization from DDA results"""
+    matrix = result.q_matrix
+    num_channels = size(matrix, 1)
+
+    p = plot(xlabel="Time Window", ylabel="Q Value", legend=:topright)
+    for i in 1:num_channels
+        plot!(p, matrix[i, :], label="Channel $i", alpha=0.7)
+    end
+
+    if title !== nothing
+        title!(p, title)
+    end
+    display(p)
 end
 
-function run_dda_analysis(data, channels, params::DDAParameters)
-    """Run DDA analysis on data"""
-    # TODO: Implement DDA analysis call
+
+function plot_statistics_dda(result; title=nothing)
+    """Generate statistical summary visualization from DDA results"""
+    matrix = result.q_matrix
+    num_channels = size(matrix, 1)
+
+    means = [mean(matrix[i, :]) for i in 1:num_channels]
+    stds = [std(matrix[i, :]) for i in 1:num_channels]
+
+    p1 = bar(1:num_channels, means, xlabel="Channel", ylabel="Mean Q", title="Mean Q per Channel")
+    p2 = bar(1:num_channels, stds, xlabel="Channel", ylabel="Std Q", title="Std Dev Q per Channel")
+    p3 = histogram(vec(matrix), xlabel="Q Value", ylabel="Frequency", title="Q Value Distribution", bins=50)
+
+    p = plot(p1, p2, p3, layout=(1, 3), size=(1200, 400))
+    if title !== nothing
+        plot!(p, plot_title=title)
+    end
+    display(p)
 end
 
-function plot_statistics(result; title=nothing)
-    """Generate statistical summary visualization"""
-    # TODO: Implement statistics visualization
-end
 
-function bandpass_filter(data, low_freq, high_freq)
+function bandpass_filter(data, low_freq, high_freq; fs=256.0)
     """Apply bandpass filter to data"""
-    # TODO: Implement bandpass filter
+    using DSP
+    responsetype = Bandpass(low_freq, high_freq; fs=fs)
+    designmethod = Butterworth(4)
+    return filtfilt(digitalfilter(responsetype, designmethod), data)
 end
+
 
 function main()
     """Execute workflow"""
+    # Initialize DDA runner (auto-discovers binary or set path explicitly)
+    # runner = DDARunner("/path/to/run_DDA_AsciiEdf")
+    runner = DDARunner()
+
 {% for action in actions %}
     # {{ action.id }}{% if action.description %}: {{ action.description }}{% endif %}
     {{ action.code }}
@@ -1301,11 +1464,20 @@ const RUST_TEMPLATE: &str = r#"//! {{ workflow_name }}
 {% endif %}
 //!
 //! Generated by DDALAB Session Recording
+//!
+//! Requirements:
+//!     Add to Cargo.toml: dda-rs = "0.1"
 
 use anyhow::Result;
+use dda_rs::{DDARunner, DDARequest, WindowParameters, DelayParameters, AlgorithmSelection};
 use std::path::Path;
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
+    // Initialize DDA runner (auto-discovers binary or set path explicitly)
+    // let runner = DDARunner::new("/path/to/run_DDA_AsciiEdf")?;
+    let runner = DDARunner::discover()?;
+
 {% for action in actions %}
     // {{ action.id }}{% if action.description %}: {{ action.description }}{% endif %}
     {{ action.code }}

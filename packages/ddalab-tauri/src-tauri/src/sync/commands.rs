@@ -1,8 +1,8 @@
 use super::client::SyncClient;
 use super::discovery::{self, DiscoveredBroker};
 use super::types::{
-    AccessPolicy, DDAJobParameters, JobStatusResponse, QueueStats, ServerFileInfo,
-    SubmitJobResponse, SubmitServerFileRequest,
+    AccessPolicy, DDAJobParameters, DataClassification, InstitutionConfig, JobStatusResponse,
+    QueueStats, ServerFileInfo, ShareableContentType, SubmitJobResponse, SubmitServerFileRequest,
 };
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
@@ -188,7 +188,7 @@ pub async fn sync_is_connected(state: State<'_, AppSyncState>) -> Result<bool, S
     }
 }
 
-/// Share a result
+/// Share a result (legacy - for DDA results only)
 #[tauri::command]
 pub async fn sync_share_result(
     result_id: String,
@@ -202,6 +202,42 @@ pub async fn sync_share_result(
 
     let share_link = client
         .share_result(&result_id, &title, description, access_policy)
+        .await
+        .map_err(|e| format!("Failed to share: {}", e))?;
+
+    Ok(share_link)
+}
+
+/// Request to share any content type
+#[derive(Debug, Deserialize)]
+pub struct ShareContentRequest {
+    pub content_type: ShareableContentType,
+    pub content_id: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub access_policy: AccessPolicy,
+    pub classification: DataClassification,
+    pub content_data: Option<serde_json::Value>,
+}
+
+/// Share any content type (annotations, workflows, parameters, etc.)
+#[tauri::command]
+pub async fn sync_share_content(
+    request: ShareContentRequest,
+    state: State<'_, AppSyncState>,
+) -> Result<String, String> {
+    let guard = state.sync_client.read().await;
+    let client = guard.as_ref().ok_or("Sync is not connected")?;
+
+    // For now, delegate to share_result with the content_id
+    // In the future, this will use the extended API with content_data
+    let share_link = client
+        .share_result(
+            &request.content_id,
+            &request.title,
+            request.description,
+            request.access_policy,
+        )
         .await
         .map_err(|e| format!("Failed to share: {}", e))?;
 
@@ -481,4 +517,75 @@ pub async fn job_download_results(
 
     info!("Downloaded job results to {}", output_path);
     Ok(())
+}
+
+// ============================================================================
+// Institution Configuration Commands
+// ============================================================================
+
+/// Get the current institution configuration
+#[tauri::command]
+pub async fn get_institution_config(
+    state: State<'_, AppSyncState>,
+) -> Result<InstitutionConfig, String> {
+    let conn = state.server_connection.read().await;
+
+    if let Some(ref conn) = *conn {
+        let client = conn.create_client()?;
+        let url = format!("{}/api/institution/config", conn.base_url);
+
+        let response = client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to get institution config: {}", e))?;
+
+        if !response.status().is_success() {
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(format!("Failed to get institution config: {}", error_text));
+        }
+
+        response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse institution config: {}", e))
+    } else {
+        Ok(InstitutionConfig::default())
+    }
+}
+
+/// Update institution configuration (admin only)
+#[tauri::command]
+pub async fn update_institution_config(
+    config: InstitutionConfig,
+    state: State<'_, AppSyncState>,
+) -> Result<InstitutionConfig, String> {
+    let conn = state.server_connection.read().await;
+
+    if let Some(ref conn) = *conn {
+        let client = conn.create_client()?;
+        let url = format!("{}/api/institution/config", conn.base_url);
+
+        let response = client
+            .put(&url)
+            .json(&config)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to update institution config: {}", e))?;
+
+        if !response.status().is_success() {
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(format!(
+                "Failed to update institution config: {}",
+                error_text
+            ));
+        }
+
+        response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse updated institution config: {}", e))
+    } else {
+        Err("Not connected to server".to_string())
+    }
 }

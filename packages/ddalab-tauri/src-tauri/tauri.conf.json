@@ -31,9 +31,9 @@
       }
     ],
     "security": {
-      "csp": null,
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://localhost:* wss://localhost:* https://api.openneuro.org https://*.openneuro.org https://github.com",
       "capabilities": ["default"],
-      "devCsp": null
+      "devCsp": "default-src 'self' 'unsafe-inline' 'unsafe-eval'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' http://localhost:* https://localhost:* ws://localhost:* wss://localhost:* https://api.openneuro.org https://*.openneuro.org https://github.com"
     }
   },
   "bundle": {

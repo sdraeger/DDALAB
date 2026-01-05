@@ -32,7 +32,8 @@ export const queryKeys = {
         ...queryKeys.timeSeries.all,
         "data",
         filePath,
-        channels.join(","),
+        // Sort channels for stable cache key regardless of input order
+        [...channels].sort().join(","),
         start,
         size,
       ] as const,
@@ -96,7 +97,8 @@ export const queryKeys = {
     summary: (path: string) =>
       [...queryKeys.bids.all, "summary", path] as const,
     batchDetection: (paths: string[]) =>
-      [...queryKeys.bids.all, "batch", paths.join(",")] as const,
+      // Sort paths for stable cache key regardless of input order
+      [...queryKeys.bids.all, "batch", [...paths].sort().join(",")] as const,
   },
 
   // Updates
