@@ -77,22 +77,22 @@ impl ChannelRingBuffer {
             return Err("Samples exceed buffer capacity");
         }
 
-        for (ch_idx, channel_samples) in samples.iter().enumerate() {
-            if ch_idx >= self.buffers.len() {
-                continue;
+        // Write samples to all channels
+        // Note: We iterate once through samples and update write_pos per sample
+        for sample_idx in 0..num_new {
+            for (ch_idx, channel_samples) in samples.iter().enumerate() {
+                if ch_idx >= self.buffers.len() {
+                    continue;
+                }
+                if sample_idx < channel_samples.len() {
+                    self.buffers[ch_idx][self.write_pos] = channel_samples[sample_idx];
+                }
             }
-
-            for &sample in channel_samples {
-                self.buffers[ch_idx][self.write_pos] = sample;
-                self.write_pos = (self.write_pos + 1) % self.capacity;
-            }
+            self.write_pos = (self.write_pos + 1) % self.capacity;
         }
 
         // Update count (saturates at capacity)
         self.count = (self.count + num_new).min(self.capacity);
-        // Adjust write_pos for multi-sample push
-        self.write_pos = (self.write_pos + num_new - samples[0].len()) % self.capacity;
-        self.write_pos = (self.write_pos + samples[0].len()) % self.capacity;
 
         Ok(())
     }

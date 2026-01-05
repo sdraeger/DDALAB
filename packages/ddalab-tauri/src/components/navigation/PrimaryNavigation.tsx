@@ -11,6 +11,8 @@ import {
   Bell,
   Search,
   Command,
+  Database,
+  Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -22,6 +24,8 @@ const iconMap = {
   Brain,
   Settings,
   Bell,
+  Database,
+  Users,
 };
 
 export function PrimaryNavigation() {
@@ -65,7 +69,7 @@ export function PrimaryNavigation() {
                 aria-label={nav.label}
                 data-nav={nav.id}
                 data-active={isActive}
-                data-tour={nav.id === "manage" ? "settings-tab" : undefined}
+                data-tour={nav.id === "settings" ? "settings-tab" : undefined}
               >
                 <span className="relative">
                   <Icon className="h-4 w-4" aria-hidden="true" />

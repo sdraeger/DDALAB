@@ -4,6 +4,7 @@ import { useEffect, useState, Suspense, useRef, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
+import { Loader2 } from "lucide-react";
 
 function PopoutContent() {
   const searchParams = useSearchParams();
@@ -471,8 +472,11 @@ function PopoutContent() {
 
       // Wait for browser to complete layout before marking as ready
       // Double RAF ensures we're past the paint phase
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
+      // Track RAF IDs for cleanup
+      let rafId1: number | null = null;
+      let rafId2: number | null = null;
+      rafId1 = requestAnimationFrame(() => {
+        rafId2 = requestAnimationFrame(() => {
           setIsHeatmapReady(true);
         });
       });
@@ -495,6 +499,9 @@ function PopoutContent() {
       resizeObserver.observe(ddaHeatmapRef.current);
 
       return () => {
+        // Cancel any pending RAF callbacks
+        if (rafId1 !== null) cancelAnimationFrame(rafId1);
+        if (rafId2 !== null) cancelAnimationFrame(rafId2);
         resizeObserver.disconnect();
         if (uplotHeatmapRef.current) {
           uplotHeatmapRef.current.destroy();
@@ -649,8 +656,11 @@ function PopoutContent() {
 
       // Wait for browser to complete layout before marking as ready
       // Double RAF ensures we're past the paint phase
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
+      // Track RAF IDs for cleanup
+      let rafId1: number | null = null;
+      let rafId2: number | null = null;
+      rafId1 = requestAnimationFrame(() => {
+        rafId2 = requestAnimationFrame(() => {
           setIsLinePlotReady(true);
         });
       });
@@ -672,6 +682,9 @@ function PopoutContent() {
       resizeObserver.observe(ddaLinePlotRef.current);
 
       return () => {
+        // Cancel any pending RAF callbacks
+        if (rafId1 !== null) cancelAnimationFrame(rafId1);
+        if (rafId2 !== null) cancelAnimationFrame(rafId2);
         resizeObserver.disconnect();
         if (uplotLinePlotRef.current) {
           uplotLinePlotRef.current.destroy();
@@ -737,7 +750,7 @@ function PopoutContent() {
       return (
         <div className="flex items-center justify-center h-full text-gray-600">
           <div className="text-center">
-            <div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+            <Loader2 className="h-8 w-8 animate-spin text-gray-500 mx-auto mb-4" />
             <p>Waiting for data...</p>
           </div>
         </div>
@@ -1078,7 +1091,7 @@ function PopoutContent() {
   if (!isClient) {
     return (
       <div className="h-screen flex items-center justify-center">
-        <div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+        <Loader2 className="h-8 w-8 animate-spin text-gray-500" />
       </div>
     );
   }
@@ -1165,7 +1178,7 @@ export default function MinimalPopout() {
     <Suspense
       fallback={
         <div className="h-screen flex items-center justify-center">
-          <div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+          <Loader2 className="h-8 w-8 animate-spin text-gray-500" />
         </div>
       }
     >

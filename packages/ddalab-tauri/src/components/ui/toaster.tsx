@@ -77,16 +77,17 @@ export function Toaster() {
     const baseStyles =
       "rounded-lg shadow-lg p-4 mb-3 min-w-[300px] max-w-[500px] animate-in slide-in-from-top-5";
 
+    // Use theme-aware colors that work in both light and dark modes
     switch (type) {
       case "success":
-        return `${baseStyles} bg-green-500/90 text-white border border-green-600`;
+        return `${baseStyles} bg-green-600 dark:bg-green-700 text-white border border-green-700 dark:border-green-600`;
       case "error":
-        return `${baseStyles} bg-red-500/90 text-white border border-red-600`;
+        return `${baseStyles} bg-destructive text-destructive-foreground border border-destructive`;
       case "warning":
-        return `${baseStyles} bg-yellow-500/90 text-white border border-yellow-600`;
+        return `${baseStyles} bg-yellow-500 dark:bg-yellow-600 text-white border border-yellow-600 dark:border-yellow-500`;
       case "info":
       default:
-        return `${baseStyles} bg-blue-500/90 text-white border border-blue-600`;
+        return `${baseStyles} bg-blue-600 dark:bg-blue-700 text-white border border-blue-700 dark:border-blue-600`;
     }
   };
 

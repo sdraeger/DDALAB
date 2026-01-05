@@ -11,6 +11,7 @@ import { ApiServiceProvider } from "@/contexts/ApiServiceContext";
 import { CloseWarningHandler } from "@/components/CloseWarningHandler";
 import { OnboardingTour } from "@/components/onboarding/OnboardingTour";
 import { useOnboarding } from "@/hooks/useOnboarding";
+import { Loader2 } from "lucide-react";
 
 // Conditionally import PerformanceMonitor only in development
 const PerformanceMonitor =
@@ -19,7 +20,7 @@ const PerformanceMonitor =
     : null;
 
 export default function Home() {
-  // Detect Tauri immediately - don't use state to avoid initial false value
+  // Detect Tauri immediately without explicit state
   const isTauri = TauriService.isTauri();
 
   const [isApiConnected, setIsApiConnected] = useState<boolean | null>(null);
@@ -264,7 +265,7 @@ export default function Home() {
     return (
       <div className="flex items-center justify-center min-h-screen bg-background">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
           <p className="text-muted-foreground">Starting DDALAB...</p>
         </div>
       </div>

@@ -4,6 +4,7 @@ import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { AnalysisPreviewWindow } from "@/components/AnalysisPreviewWindow";
 import { DDAResult } from "@/types/api";
+import { Loader2 } from "lucide-react";
 
 function AnalysisPreviewContent() {
   const searchParams = useSearchParams();
@@ -52,7 +53,7 @@ function AnalysisPreviewContent() {
     return (
       <div className="h-screen w-full flex items-center justify-center bg-background">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-4" />
           <p className="text-muted-foreground">Loading analysis preview...</p>
         </div>
       </div>
@@ -89,7 +90,7 @@ export default function AnalysisPreviewPage() {
       fallback={
         <div className="h-screen w-full flex items-center justify-center bg-background">
           <div className="text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+            <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-4" />
             <p className="text-muted-foreground">Loading analysis preview...</p>
           </div>
         </div>

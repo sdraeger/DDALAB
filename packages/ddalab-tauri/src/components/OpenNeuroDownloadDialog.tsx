@@ -62,6 +62,8 @@ export const OpenNeuroDownloadDialog = memo(function OpenNeuroDownloadDialog({
   const [showFileTree, setShowFileTree] = useState(false);
   const [enableSizeQuery, setEnableSizeQuery] = useState(false);
   const [enableFilesQuery, setEnableFilesQuery] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const MAX_RETRIES = 3;
 
   // TanStack Query hooks
   const { data: gitAvailable = false } = useGitAvailable();
@@ -103,6 +105,7 @@ export const OpenNeuroDownloadDialog = memo(function OpenNeuroDownloadDialog({
       setEnableSizeQuery(false);
       setEnableFilesQuery(false);
       setShowFileTree(false);
+      setRetryCount(0);
 
       // Set default snapshot to latest
       if (dataset?.snapshots && dataset.snapshots.length > 0) {
@@ -297,11 +300,25 @@ export const OpenNeuroDownloadDialog = memo(function OpenNeuroDownloadDialog({
     downloadMutation.mutate(options, {
       onSuccess: (resultPath) => {
         console.log("[DOWNLOAD] Completed successfully:", resultPath);
+        setRetryCount(0); // Reset retry count on success
       },
       onError: (err) => {
         console.error("[DOWNLOAD] Failed:", err);
+        setRetryCount((prev) => prev + 1);
       },
     });
+  };
+
+  const handleRetry = () => {
+    if (retryCount >= MAX_RETRIES) {
+      setLocalError(
+        `Maximum retry attempts (${MAX_RETRIES}) reached. Please try again later.`,
+      );
+      return;
+    }
+    setLocalError(null);
+    setProgress(null);
+    handleDownload();
   };
 
   const handleCancel = () => {
@@ -727,13 +744,21 @@ export const OpenNeuroDownloadDialog = memo(function OpenNeuroDownloadDialog({
           </div>
         )}
 
-        {/* Error message */}
+        {/* Error message with retry */}
         {error && (
           <div className="mb-6 flex items-start gap-2 p-4 bg-destructive/10 border border-destructive rounded-lg text-destructive">
             <AlertCircle className="h-5 w-5 mt-0.5 flex-shrink-0" />
-            <div>
+            <div className="flex-1">
               <div className="font-medium">Download Failed</div>
               <div className="text-sm">{error}</div>
+              {retryCount < MAX_RETRIES && !isDownloading && (
+                <button
+                  onClick={handleRetry}
+                  className="mt-2 text-sm underline hover:no-underline font-medium"
+                >
+                  Retry download ({MAX_RETRIES - retryCount} attempts left)
+                </button>
+              )}
             </div>
           </div>
         )}

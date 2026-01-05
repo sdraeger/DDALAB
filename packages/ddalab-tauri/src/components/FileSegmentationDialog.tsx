@@ -213,6 +213,7 @@ export const FileSegmentationDialog: React.FC<FileSegmentationDialogProps> = ({
   const handleSegment = async () => {
     if (!file || !outputDirectory || !outputFilename) return;
 
+    const fileInfo = loadedFile || file;
     const start = parseFloat(startTime);
     const end = parseFloat(endTime);
 
@@ -229,6 +230,64 @@ export const FileSegmentationDialog: React.FC<FileSegmentationDialogProps> = ({
     if (end <= start) {
       toast.error("Invalid Input", "End time must be greater than start time");
       return;
+    }
+
+    // Validate against file bounds
+    if (startUnit === "seconds") {
+      if (start >= fileInfo.duration) {
+        toast.error(
+          "Invalid Input",
+          `Start time (${start}s) exceeds file duration (${fileInfo.duration.toFixed(2)}s)`,
+        );
+        return;
+      }
+    } else {
+      // samples
+      if (start >= fileInfo.total_samples) {
+        toast.error(
+          "Invalid Input",
+          `Start sample (${start}) exceeds total samples (${fileInfo.total_samples})`,
+        );
+        return;
+      }
+    }
+
+    if (endUnit === "seconds") {
+      if (end > fileInfo.duration) {
+        toast.error(
+          "Invalid Input",
+          `End time (${end}s) exceeds file duration (${fileInfo.duration.toFixed(2)}s)`,
+        );
+        return;
+      }
+    } else {
+      // samples
+      if (end > fileInfo.total_samples) {
+        toast.error(
+          "Invalid Input",
+          `End sample (${end}) exceeds total samples (${fileInfo.total_samples})`,
+        );
+        return;
+      }
+    }
+
+    // Cross-unit validation: if mixed units, convert and validate
+    if (startUnit !== endUnit) {
+      let startSeconds: number, endSeconds: number;
+      if (startUnit === "seconds") {
+        startSeconds = start;
+        endSeconds = end / fileInfo.sample_rate;
+      } else {
+        startSeconds = start / fileInfo.sample_rate;
+        endSeconds = end;
+      }
+      if (endSeconds <= startSeconds) {
+        toast.error(
+          "Invalid Input",
+          "End time must be greater than start time when comparing across units",
+        );
+        return;
+      }
     }
 
     if (!selectAllChannels && selectedChannels.size === 0) {

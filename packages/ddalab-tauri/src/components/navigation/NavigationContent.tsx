@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, lazy, Suspense } from "react";
+import {
+  useCallback,
+  lazy,
+  Suspense,
+  useEffect,
+  useState,
+  useRef,
+} from "react";
 import type { LucideIcon } from "lucide-react";
 import { useAppStore } from "@/store/appStore";
 import { ApiService } from "@/services/apiService";
@@ -11,8 +18,7 @@ import { FileInfoCard } from "@/components/FileInfoCard";
 import { BIDSContextIndicator } from "@/components/BIDSContextIndicator";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Card, CardContent } from "@/components/ui/card";
-import { Brain, Activity, FileText, Sparkles } from "lucide-react";
-import { LoadingPlaceholder } from "@/components/ui/loading-overlay";
+import { Brain, Activity, FileText, Sparkles, Loader2 } from "lucide-react";
 
 // Lazy load heavy components to reduce initial bundle size
 // These are only loaded when their respective navigation tabs are accessed
@@ -59,10 +65,61 @@ const NotificationHistory = lazy(() =>
     default: mod.NotificationHistory,
   })),
 );
+const CollaborationPanel = lazy(() =>
+  import("@/components/collaboration").then((mod) => ({
+    default: mod.CollaborationPanel,
+  })),
+);
 
-// Loading fallback component using standardized LoadingPlaceholder
-function LoadingFallback() {
-  return <LoadingPlaceholder message="Loading..." minHeight="200px" />;
+// Preload common tabs after initial render for faster tab switching
+// This runs once when NavigationContent mounts
+// Note: Components use placeholderData in their hooks so they render immediately
+// while backend data loads in the background - no need to prefetch data here
+function usePreloadTabs() {
+  const preloadedRef = useRef(false);
+
+  useEffect(() => {
+    if (preloadedRef.current) return;
+    preloadedRef.current = true;
+
+    // Preload after a short delay to not block initial render
+    const timer = setTimeout(() => {
+      // Preload component bundles (these are cached after first load)
+      import("@/components/SettingsPanel");
+      import("@/components/collaboration");
+      import("@/components/dda/DDAWithHistory");
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, []);
+}
+
+// Delayed loading fallback - only shows spinner if loading takes > 150ms
+// This prevents flash of loading state on fast loads
+function DelayedLoadingFallback() {
+  const [showLoading, setShowLoading] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setShowLoading(true), 150);
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (!showLoading) {
+    // Return empty div with same min-height to prevent layout shift
+    return <div style={{ minHeight: "200px" }} />;
+  }
+
+  return (
+    <div
+      className="flex flex-col items-center justify-center gap-3 text-muted-foreground"
+      style={{ minHeight: "200px" }}
+      role="status"
+      aria-busy="true"
+    >
+      <Loader2 className="h-8 w-8 animate-spin" aria-hidden="true" />
+      <p className="text-sm">Loading...</p>
+    </div>
+  );
 }
 
 interface NavigationContentProps {
@@ -70,6 +127,9 @@ interface NavigationContentProps {
 }
 
 export function NavigationContent({ apiService }: NavigationContentProps) {
+  // Preload commonly used tabs after initial render
+  usePreloadTabs();
+
   const primaryNav = useAppStore((state) => state.ui.primaryNav);
   const secondaryNav = useAppStore((state) => state.ui.secondaryNav);
   const setPrimaryNav = useAppStore((state) => state.setPrimaryNav);
@@ -111,8 +171,7 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
 
         case "view-settings":
           // Navigate to settings
-          setPrimaryNav("manage");
-          setSecondaryNav("settings");
+          setPrimaryNav("settings");
           break;
 
         case "view-ica":
@@ -147,7 +206,7 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
               <BIDSContextIndicator variant="full" />
               <div className="flex-1 min-h-0 overflow-y-auto">
                 <ErrorBoundary>
-                  <Suspense fallback={<LoadingFallback />}>
+                  <Suspense fallback={<DelayedLoadingFallback />}>
                     <TimeSeriesPlotECharts apiService={apiService} />
                   </Suspense>
                 </ErrorBoundary>
@@ -167,7 +226,7 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
     if (secondaryNav === "annotations") {
       return (
         <div className="p-4 h-full">
-          <Suspense fallback={<LoadingFallback />}>
+          <Suspense fallback={<DelayedLoadingFallback />}>
             <AnnotationsTab />
           </Suspense>
         </div>
@@ -177,7 +236,7 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
     if (secondaryNav === "streaming") {
       return (
         <div className="p-4 h-full">
-          <Suspense fallback={<LoadingFallback />}>
+          <Suspense fallback={<DelayedLoadingFallback />}>
             <StreamingView />
           </Suspense>
         </div>
@@ -204,7 +263,7 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
                 <BIDSContextIndicator variant="breadcrumb" />
               </div>
               <div className="flex-1 min-h-0">
-                <Suspense fallback={<LoadingFallback />}>
+                <Suspense fallback={<DelayedLoadingFallback />}>
                   <DDAWithHistory apiService={apiService} />
                 </Suspense>
               </div>
@@ -232,7 +291,7 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
                 <BIDSContextIndicator variant="breadcrumb" />
               </div>
               <div className="flex-1 min-h-0">
-                <Suspense fallback={<LoadingFallback />}>
+                <Suspense fallback={<DelayedLoadingFallback />}>
                   <ICAAnalysisPanel apiService={apiService} />
                 </Suspense>
               </div>
@@ -258,46 +317,67 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
     );
   }
 
-  // Manage
-  if (primaryNav === "manage") {
-    if (secondaryNav === "settings") {
+  // Data (OpenNeuro, NSG Jobs)
+  if (primaryNav === "data") {
+    if (secondaryNav === "openneuro" || !secondaryNav) {
       return (
         <div className="p-4 h-full">
-          <Suspense fallback={<LoadingFallback />}>
-            <SettingsPanel />
-          </Suspense>
-        </div>
-      );
-    }
-
-    if (secondaryNav === "data-sources") {
-      return (
-        <div className="p-4 h-full">
-          <Suspense fallback={<LoadingFallback />}>
+          <Suspense fallback={<DelayedLoadingFallback />}>
             <OpenNeuroBrowser />
           </Suspense>
         </div>
       );
     }
 
-    if (secondaryNav === "jobs") {
+    if (secondaryNav === "nsg-jobs") {
       return (
         <div className="p-4 h-full">
           <ErrorBoundary>
-            <Suspense fallback={<LoadingFallback />}>
+            <Suspense fallback={<DelayedLoadingFallback />}>
               <NSGJobManager />
             </Suspense>
           </ErrorBoundary>
         </div>
       );
     }
+
+    return (
+      <ComingSoonPlaceholder
+        feature={secondaryNav || "Feature"}
+        category="Data"
+      />
+    );
+  }
+
+  // Collaborate
+  if (primaryNav === "collaborate") {
+    return (
+      <div className="h-full">
+        <ErrorBoundary>
+          <Suspense fallback={<DelayedLoadingFallback />}>
+            <CollaborationPanel />
+          </Suspense>
+        </ErrorBoundary>
+      </div>
+    );
+  }
+
+  // Settings
+  if (primaryNav === "settings") {
+    return (
+      <div className="p-4 h-full">
+        <Suspense fallback={<DelayedLoadingFallback />}>
+          <SettingsPanel />
+        </Suspense>
+      </div>
+    );
   }
 
   // Notifications
   if (primaryNav === "notifications") {
     return (
       <div className="p-4 h-full">
-        <Suspense fallback={<LoadingFallback />}>
+        <Suspense fallback={<DelayedLoadingFallback />}>
           <NotificationHistory onNavigate={handleNotificationNavigate} />
         </Suspense>
       </div>

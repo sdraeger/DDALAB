@@ -317,7 +317,7 @@ export const GlobalSearch = memo(function GlobalSearch({
                     <button
                       key={`suggestion-${idx}`}
                       onClick={() => handleSuggestionClick(suggestion)}
-                      className="w-full flex items-center gap-3 px-4 py-2 text-left hover:bg-accent transition-colors"
+                      className="w-full flex items-center gap-3 px-4 py-2 text-left hover:bg-accent transition-colors duration-200"
                     >
                       <Search className="h-4 w-4 text-muted-foreground" />
                       <span className="text-sm">{suggestion}</span>
@@ -360,7 +360,7 @@ export const GlobalSearch = memo(function GlobalSearch({
                                 <button
                                   key={item.id}
                                   onClick={() => handleRecentItemClick(item)}
-                                  className="w-full flex items-center gap-3 px-4 py-2 text-left hover:bg-accent transition-colors"
+                                  className="w-full flex items-center gap-3 px-4 py-2 text-left hover:bg-accent transition-colors duration-200"
                                 >
                                   <FileIcon className="h-4 w-4 text-yellow-500" />
                                   <div className="flex-1 min-w-0">
@@ -392,7 +392,7 @@ export const GlobalSearch = memo(function GlobalSearch({
                                 <button
                                   key={item.id}
                                   onClick={() => handleRecentItemClick(item)}
-                                  className="w-full flex items-center gap-3 px-4 py-2 text-left hover:bg-accent transition-colors"
+                                  className="w-full flex items-center gap-3 px-4 py-2 text-left hover:bg-accent transition-colors duration-200"
                                 >
                                   <FileIcon className="h-4 w-4 text-green-500" />
                                   <div className="flex-1 min-w-0">
@@ -437,7 +437,7 @@ export const GlobalSearch = memo(function GlobalSearch({
                               <button
                                 key={item.id}
                                 onClick={() => handleRecentItemClick(item)}
-                                className="w-full flex items-center gap-3 px-4 py-2 text-left hover:bg-accent transition-colors"
+                                className="w-full flex items-center gap-3 px-4 py-2 text-left hover:bg-accent transition-colors duration-200"
                               >
                                 <Search className="h-4 w-4 text-muted-foreground" />
                                 <span className="text-sm">{item.title}</span>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   useBufferInfo,
   useAutoRecordingStatus,
@@ -59,16 +59,27 @@ import {
   Eye,
   HelpCircle,
   Clock,
+  AlertTriangle,
+  Check,
+  Copy,
 } from "lucide-react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
 import { toast } from "@/components/ui/toaster";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
+
+const BUFFER_CAPACITY = 200;
+const BUFFER_WARNING_THRESHOLD = 180; // Warn at 90% capacity
 
 export function WorkflowRecorder() {
   // React Query hooks for data fetching with automatic polling
-  const { data: bufferInfo } = useBufferInfo({ refetchInterval: 2000 });
-  const { data: isRecording = false } = useAutoRecordingStatus();
+  const { data: bufferInfo, isLoading: isLoadingBuffer } = useBufferInfo();
+  const { data: isRecording = false, isLoading: isLoadingStatus } =
+    useAutoRecordingStatus();
+
+  // Track if we've shown the capacity warning
+  const hasShownCapacityWarning = useRef(false);
 
   // React Query mutations
   const enableAutoRecord = useEnableAutoRecord();
@@ -81,36 +92,64 @@ export function WorkflowRecorder() {
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
-  const [previewCode, setPreviewCode] = useState("");
+  const [previewCodes, setPreviewCodes] = useState<Record<string, string>>({});
+  const [previewLanguage, setPreviewLanguage] = useState<string>("python");
+  const [copied, setCopied] = useState(false);
+  const [nameError, setNameError] = useState(false);
   const [exportConfig, setExportConfig] = useState({
     name: "",
-    language: "python" as "python" | "julia" | "matlab" | "rust" | "r",
+    languages: ["python"] as ("python" | "julia" | "matlab" | "rust" | "r")[],
     timeWindow: "all" as "all" | "5min" | "15min" | "30min" | "60min",
     optimize: true,
   });
 
+  // Buffer capacity warning effect
+  useEffect(() => {
+    if (!bufferInfo || !isRecording) return;
+
+    const currentSize = bufferInfo.current_size;
+
+    // Show warning when approaching capacity
+    if (
+      currentSize >= BUFFER_WARNING_THRESHOLD &&
+      !hasShownCapacityWarning.current
+    ) {
+      toast.warning(
+        "Buffer nearly full",
+        `Recording buffer is at ${currentSize}/${BUFFER_CAPACITY}. Oldest actions will be removed.`,
+      );
+      hasShownCapacityWarning.current = true;
+    }
+
+    // Reset warning flag when buffer drops below threshold
+    if (currentSize < BUFFER_WARNING_THRESHOLD - 20) {
+      hasShownCapacityWarning.current = false;
+    }
+  }, [bufferInfo, isRecording]);
+
   const toggleRecording = useCallback(async () => {
-    console.log(
-      "[WORKFLOW-RECORDER] Toggle recording, current state:",
-      isRecording,
-    );
     try {
       if (isRecording) {
-        console.log("[WORKFLOW-RECORDER] Disabling auto-record...");
         await disableAutoRecord.mutateAsync();
-        console.log("[WORKFLOW-RECORDER] Auto-record disabled");
-        toast.success("Workflow recording stopped");
+        toast.success(
+          "Recording stopped",
+          bufferInfo
+            ? `${bufferInfo.current_size} actions captured`
+            : undefined,
+        );
       } else {
-        console.log("[WORKFLOW-RECORDER] Enabling auto-record...");
         await enableAutoRecord.mutateAsync();
-        console.log("[WORKFLOW-RECORDER] Auto-record enabled");
-        toast.success("Workflow recording started");
+        toast.success(
+          "Recording started",
+          "Your DDA analysis actions will be recorded",
+        );
+        hasShownCapacityWarning.current = false;
       }
     } catch (error) {
-      console.error("[WORKFLOW-RECORDER] Toggle recording failed:", error);
-      toast.error(`Failed to toggle recording: ${error}`);
+      console.error("Toggle recording failed:", error);
+      toast.error("Failed to toggle recording", String(error));
     }
-  }, [isRecording, enableAutoRecord, disableAutoRecord]);
+  }, [isRecording, enableAutoRecord, disableAutoRecord, bufferInfo]);
 
   const handleClearBuffer = async () => {
     try {
@@ -123,8 +162,8 @@ export function WorkflowRecorder() {
   };
 
   const handlePreview = async () => {
-    if (!exportConfig.name) {
-      toast.error("Please enter a workflow name");
+    if (exportConfig.languages.length === 0) {
+      toast.error("Please select at least one language");
       return;
     }
 
@@ -134,14 +173,23 @@ export function WorkflowRecorder() {
           ? undefined
           : parseInt(exportConfig.timeWindow);
 
-      const code = await generateCodeMutation.mutateAsync({
-        language: exportConfig.language,
-        workflowName: exportConfig.name,
-        lastNMinutes: minutes,
-        optimize: exportConfig.optimize,
-      });
+      // Use a default name if not provided
+      const workflowName = exportConfig.name.trim() || "untitled_workflow";
 
-      setPreviewCode(code);
+      // Generate code for all selected languages
+      const codes: Record<string, string> = {};
+      for (const language of exportConfig.languages) {
+        const code = await generateCodeMutation.mutateAsync({
+          language,
+          workflowName,
+          lastNMinutes: minutes,
+          optimize: exportConfig.optimize,
+        });
+        codes[language] = code;
+      }
+
+      setPreviewCodes(codes);
+      setPreviewLanguage(exportConfig.languages[0]);
       setShowPreviewDialog(true);
     } catch (error) {
       toast.error(`Failed to generate preview: ${error}`);
@@ -149,10 +197,15 @@ export function WorkflowRecorder() {
   };
 
   const handleExport = async (format: "json" | "code") => {
-    if (!exportConfig.name) {
-      toast.error("Please enter a workflow name");
+    if (!exportConfig.name.trim()) {
+      setNameError(true);
       return;
     }
+    if (format === "code" && exportConfig.languages.length === 0) {
+      toast.error("Please select at least one language");
+      return;
+    }
+    setNameError(false);
 
     try {
       const minutes =
@@ -160,31 +213,13 @@ export function WorkflowRecorder() {
           ? undefined
           : parseInt(exportConfig.timeWindow.replace("min", ""));
 
-      let content: string;
-      let extension: string;
-
-      if (format === "json") {
-        content = await exportFromBufferMutation.mutateAsync({
-          workflowName: exportConfig.name,
-          lastNMinutes: minutes,
-        });
-        extension = "json";
-      } else {
-        content = await generateCodeMutation.mutateAsync({
-          language: exportConfig.language,
-          workflowName: exportConfig.name,
-          lastNMinutes: minutes,
-          optimize: exportConfig.optimize,
-        });
-        const extensionMap = {
-          python: "py",
-          julia: "jl",
-          matlab: "m",
-          rust: "rs",
-          r: "R",
-        };
-        extension = extensionMap[exportConfig.language];
-      }
+      const extensionMap = {
+        python: "py",
+        julia: "jl",
+        matlab: "m",
+        rust: "rs",
+        r: "R",
+      };
 
       const languageNames = {
         python: "Python Script",
@@ -194,23 +229,53 @@ export function WorkflowRecorder() {
         r: "R Script",
       };
 
-      const filePath = await save({
-        defaultPath: `${exportConfig.name}.${extension}`,
-        filters: [
-          {
-            name:
-              format === "json"
-                ? "Workflow JSON"
-                : languageNames[exportConfig.language],
-            extensions: [extension],
-          },
-        ],
-      });
+      if (format === "json") {
+        const content = await exportFromBufferMutation.mutateAsync({
+          workflowName: exportConfig.name,
+          lastNMinutes: minutes,
+        });
 
-      if (filePath) {
-        await writeTextFile(filePath, content);
-        toast.success(`Workflow exported to ${filePath}`);
-        setShowExportDialog(false);
+        const filePath = await save({
+          defaultPath: `${exportConfig.name}.json`,
+          filters: [{ name: "Workflow JSON", extensions: ["json"] }],
+        });
+
+        if (filePath) {
+          await writeTextFile(filePath, content);
+          toast.success(`Workflow exported to ${filePath}`);
+          setShowExportDialog(false);
+        }
+      } else {
+        // Export each selected language
+        let exportedCount = 0;
+        for (const language of exportConfig.languages) {
+          const content = await generateCodeMutation.mutateAsync({
+            language,
+            workflowName: exportConfig.name,
+            lastNMinutes: minutes,
+            optimize: exportConfig.optimize,
+          });
+
+          const extension = extensionMap[language];
+          const filePath = await save({
+            defaultPath: `${exportConfig.name}.${extension}`,
+            filters: [
+              { name: languageNames[language], extensions: [extension] },
+            ],
+          });
+
+          if (filePath) {
+            await writeTextFile(filePath, content);
+            exportedCount++;
+          }
+        }
+
+        if (exportedCount > 0) {
+          toast.success(
+            `Exported ${exportedCount} file${exportedCount > 1 ? "s" : ""}`,
+          );
+          setShowExportDialog(false);
+        }
       }
     } catch (error) {
       toast.error(`Failed to export workflow: ${error}`);
@@ -240,64 +305,109 @@ export function WorkflowRecorder() {
 
   // Derived state
   const isGeneratingPreview = generateCodeMutation.isPending;
+  const isTogglingRecording =
+    enableAutoRecord.isPending || disableAutoRecord.isPending;
+  const isExporting =
+    exportFromBufferMutation.isPending || generateCodeMutation.isPending;
+  const isClearingBuffer = clearBufferMutation.isPending;
 
   return (
     <TooltipProvider>
-      <div className="flex items-center gap-2 rounded-lg border bg-card p-2 text-card-foreground shadow-sm">
+      <div className="flex items-center gap-1.5 rounded-md border bg-card/50 px-1.5 py-1 text-card-foreground">
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
-              variant={isRecording ? "destructive" : "default"}
+              variant={isRecording ? "destructive" : "ghost"}
               size="sm"
               onClick={toggleRecording}
-              className="gap-2"
+              disabled={isTogglingRecording || isLoadingStatus}
+              className={cn(
+                "gap-1.5 h-7 px-2 text-xs",
+                !isRecording && "text-muted-foreground hover:text-foreground",
+              )}
             >
-              <Circle
-                className={`h-3 w-3 ${isRecording ? "fill-current animate-pulse" : ""}`}
-              />
-              {isRecording ? "Recording" : "Start Recording"}
+              {isTogglingRecording ? (
+                <Circle className="h-2.5 w-2.5 animate-spin" />
+              ) : (
+                <Circle
+                  className={cn(
+                    "h-2.5 w-2.5",
+                    isRecording && "fill-current animate-pulse",
+                  )}
+                />
+              )}
+              {isTogglingRecording
+                ? "..."
+                : isRecording
+                  ? "Recording"
+                  : "Record"}
             </Button>
           </TooltipTrigger>
           <TooltipContent>
             <p>
               {isRecording
-                ? "Stop recording workflow actions"
-                : "Start recording all DDA analysis actions"}
+                ? "Stop recording workflow actions (Ctrl/Cmd+R)"
+                : "Start recording all DDA analysis actions (Ctrl/Cmd+R)"}
             </p>
           </TooltipContent>
         </Tooltip>
 
-        {bufferInfo && (
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-              <Clock className="h-3 w-3" />
-              <span className="font-medium">{bufferInfo.current_size}</span>
-              <span>/ 200 actions</span>
-            </div>
-            {bufferInfo.total_recorded > 0 && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <HelpCircle className="h-3 w-3" />
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>
-                    Total actions recorded: {bufferInfo.total_recorded}
-                    <br />
-                    Buffer holds last 200 actions
+        {bufferInfo && bufferInfo.current_size > 0 && (
+          <div className="flex items-center">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div
+                  className={cn(
+                    "flex items-center gap-0.5 text-[10px] px-1 rounded transition-colors duration-200",
+                    bufferInfo.current_size >= BUFFER_CAPACITY
+                      ? "text-destructive"
+                      : bufferInfo.current_size >= BUFFER_WARNING_THRESHOLD
+                        ? "text-yellow-600 dark:text-yellow-500"
+                        : "text-muted-foreground",
+                  )}
+                >
+                  {bufferInfo.current_size >= BUFFER_WARNING_THRESHOLD && (
+                    <AlertTriangle className="h-2.5 w-2.5" />
+                  )}
+                  <span className="tabular-nums">
+                    {bufferInfo.current_size}
+                  </span>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                <div className="space-y-1">
+                  <p className="font-medium">Recording Buffer</p>
+                  <p className="text-xs">
+                    {bufferInfo.current_size} actions in buffer
+                    {bufferInfo.total_recorded > bufferInfo.current_size && (
+                      <>
+                        <br />
+                        {bufferInfo.total_recorded -
+                          bufferInfo.current_size}{" "}
+                        older actions removed
+                      </>
+                    )}
                   </p>
-                </TooltipContent>
-              </Tooltip>
-            )}
+                  {bufferInfo.current_size >= BUFFER_WARNING_THRESHOLD && (
+                    <p className="text-xs text-yellow-600 dark:text-yellow-500">
+                      Buffer nearly full - oldest actions will be removed
+                    </p>
+                  )}
+                </div>
+              </TooltipContent>
+            </Tooltip>
           </div>
         )}
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="flex items-center gap-0.5">
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                <HelpCircle className="h-4 w-4" />
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+              >
+                <HelpCircle className="h-3 w-3" />
               </Button>
             </TooltipTrigger>
             <TooltipContent className="max-w-xs">
@@ -323,8 +433,12 @@ export function WorkflowRecorder() {
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">
-                Actions
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-1.5 text-xs text-muted-foreground hover:text-foreground"
+              >
+                •••
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -349,7 +463,15 @@ export function WorkflowRecorder() {
         </div>
       </div>
 
-      <Dialog open={showExportDialog} onOpenChange={setShowExportDialog}>
+      <Dialog
+        open={showExportDialog}
+        onOpenChange={(open) => {
+          setShowExportDialog(open);
+          if (!open) {
+            setNameError(false);
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle>Export Workflow</DialogTitle>
@@ -366,31 +488,64 @@ export function WorkflowRecorder() {
                 id="workflow-name"
                 placeholder="my_analysis_workflow"
                 value={exportConfig.name}
-                onChange={(e) =>
-                  setExportConfig({ ...exportConfig, name: e.target.value })
-                }
+                onChange={(e) => {
+                  setExportConfig({ ...exportConfig, name: e.target.value });
+                  if (nameError && e.target.value.trim()) {
+                    setNameError(false);
+                  }
+                }}
+                className={cn(
+                  nameError &&
+                    "border-destructive focus-visible:ring-destructive",
+                )}
               />
+              {nameError && (
+                <p className="text-sm text-destructive">
+                  Please enter a workflow name
+                </p>
+              )}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="language">Code Language</Label>
-              <Select
-                value={exportConfig.language}
-                onValueChange={(
-                  value: "python" | "julia" | "matlab" | "rust" | "r",
-                ) => setExportConfig({ ...exportConfig, language: value })}
-              >
-                <SelectTrigger id="language">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="python">Python</SelectItem>
-                  <SelectItem value="julia">Julia</SelectItem>
-                  <SelectItem value="matlab">MATLAB</SelectItem>
-                  <SelectItem value="rust">Rust</SelectItem>
-                  <SelectItem value="r">R</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label>Code Languages</Label>
+              <div className="grid grid-cols-5 gap-1">
+                {(
+                  [
+                    { value: "python", label: "Python" },
+                    { value: "julia", label: "Julia" },
+                    { value: "matlab", label: "MATLAB" },
+                    { value: "rust", label: "Rust" },
+                    { value: "r", label: "R" },
+                  ] as const
+                ).map((lang) => {
+                  const isSelected = exportConfig.languages.includes(
+                    lang.value,
+                  );
+                  return (
+                    <Button
+                      key={lang.value}
+                      type="button"
+                      variant={isSelected ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => {
+                        const newLanguages = isSelected
+                          ? exportConfig.languages.filter(
+                              (l) => l !== lang.value,
+                            )
+                          : [...exportConfig.languages, lang.value];
+                        setExportConfig({
+                          ...exportConfig,
+                          languages: newLanguages,
+                        });
+                      }}
+                      className="justify-center gap-1 px-1 py-1.5"
+                    >
+                      {isSelected && <Check className="h-3 w-3 shrink-0" />}
+                      <span className="truncate">{lang.label}</span>
+                    </Button>
+                  );
+                })}
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -447,7 +602,7 @@ export function WorkflowRecorder() {
               variant="outline"
               onClick={handlePreview}
               disabled={isGeneratingPreview}
-              className="gap-2"
+              className="h-auto gap-2 px-6 py-3.5"
             >
               <Eye className="h-4 w-4" />
               {isGeneratingPreview ? "Generating..." : "Preview Code"}
@@ -456,12 +611,15 @@ export function WorkflowRecorder() {
               <Button
                 variant="outline"
                 onClick={() => handleExport("json")}
-                className="gap-2"
+                className="h-auto gap-2 px-6 py-3.5"
               >
                 <Download className="h-4 w-4" />
                 Export JSON
               </Button>
-              <Button onClick={() => handleExport("code")} className="gap-2">
+              <Button
+                onClick={() => handleExport("code")}
+                className="h-auto gap-2 px-6 py-3.5"
+              >
                 <Code2 className="h-4 w-4" />
                 Export Code
               </Button>
@@ -474,33 +632,99 @@ export function WorkflowRecorder() {
       <Dialog open={showPreviewDialog} onOpenChange={setShowPreviewDialog}>
         <DialogContent className="sm:max-w-[700px] max-h-[80vh]">
           <DialogHeader>
-            <DialogTitle>
-              Code Preview - {exportConfig.language.toUpperCase()}
-            </DialogTitle>
+            <DialogTitle>Code Preview</DialogTitle>
             <DialogDescription>
-              Preview of generated {exportConfig.language} code for workflow
-              &quot;{exportConfig.name}&quot;
+              {exportConfig.name.trim()
+                ? `Preview of generated code for workflow "${exportConfig.name.trim()}"`
+                : "Preview of generated workflow code"}
             </DialogDescription>
           </DialogHeader>
+
+          {/* Language tabs */}
+          {Object.keys(previewCodes).length > 1 && (
+            <div className="flex gap-1 border-b">
+              {Object.keys(previewCodes).map((lang) => {
+                const languageLabels: Record<string, string> = {
+                  python: "Python",
+                  julia: "Julia",
+                  matlab: "MATLAB",
+                  rust: "Rust",
+                  r: "R",
+                };
+                return (
+                  <button
+                    key={lang}
+                    onClick={() => setPreviewLanguage(lang)}
+                    className={cn(
+                      "px-3 py-1.5 text-sm font-medium transition-colors",
+                      previewLanguage === lang
+                        ? "border-b-2 border-primary text-primary"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {languageLabels[lang] ?? lang}
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           <div className="relative">
             <Textarea
               readOnly
-              value={previewCode}
-              className="font-mono text-xs min-h-[400px] max-h-[60vh] resize-none"
+              value={previewCodes[previewLanguage] ?? ""}
+              className="font-mono text-xs min-h-[400px] max-h-[60vh] resize-none pr-12"
             />
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "absolute right-5 top-2 h-8 w-8 transition-colors duration-200",
+                copied && "text-green-500 hover:text-green-500",
+              )}
+              onClick={async () => {
+                const code = previewCodes[previewLanguage];
+                if (code) {
+                  await navigator.clipboard.writeText(code);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                }
+              }}
+            >
+              <div className="relative h-4 w-4">
+                <Copy
+                  className={cn(
+                    "absolute inset-0 h-4 w-4 transition-all duration-200",
+                    copied ? "scale-0 opacity-0" : "scale-100 opacity-100",
+                  )}
+                />
+                <Check
+                  className={cn(
+                    "absolute inset-0 h-4 w-4 transition-all duration-200",
+                    copied ? "scale-100 opacity-100" : "scale-0 opacity-0",
+                  )}
+                />
+              </div>
+              <span className="sr-only">
+                {copied ? "Copied!" : "Copy code"}
+              </span>
+            </Button>
           </div>
 
           <DialogFooter>
             <Button
               variant="outline"
               onClick={() => setShowPreviewDialog(false)}
+              className="h-auto px-6 py-3.5"
             >
               Close
             </Button>
-            <Button onClick={() => handleExport("code")} className="gap-2">
+            <Button
+              onClick={() => handleExport("code")}
+              className="h-auto gap-2 px-6 py-3.5"
+            >
               <Download className="h-4 w-4" />
-              Export This Code
+              Export Code
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -11,6 +11,7 @@ import { ZoomKeyboardShortcuts } from "@/components/ZoomKeyboardShortcuts";
 import { ThemeProvider } from "@/components/theme-provider";
 import { GlobalSearchProvider } from "@/components/GlobalSearchProvider";
 import { SkipLinks } from "@/components/ui/skip-links";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -41,22 +42,24 @@ export default function RootLayout({
           enableSystem={false}
           disableTransitionOnChange
         >
-          <StateManagerProvider>
-            <QueryProvider>
-              <SkipLinks />
-              <ZoomKeyboardShortcuts />
-              <GlobalSearchProvider>
-                <ZoomWrapper>
-                  <div
-                    id="main-content"
-                    className="min-h-screen bg-background text-foreground"
-                  >
-                    {children}
-                  </div>
-                </ZoomWrapper>
-              </GlobalSearchProvider>
-            </QueryProvider>
-          </StateManagerProvider>
+          <ErrorBoundary>
+            <StateManagerProvider>
+              <QueryProvider>
+                <SkipLinks />
+                <ZoomKeyboardShortcuts />
+                <GlobalSearchProvider>
+                  <ZoomWrapper>
+                    <div
+                      id="main-content"
+                      className="min-h-screen bg-background text-foreground"
+                    >
+                      {children}
+                    </div>
+                  </ZoomWrapper>
+                </GlobalSearchProvider>
+              </QueryProvider>
+            </StateManagerProvider>
+          </ErrorBoundary>
         </ThemeProvider>
       </body>
     </html>

@@ -8,7 +8,7 @@ use crate::models::AnalysisResult;
 use crate::utils::get_database_path;
 use parking_lot::{Mutex, RwLock};
 use serde_json::json;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -18,6 +18,8 @@ use std::time::{Duration, Instant};
 const MAX_CHUNKS_CACHE_SIZE: usize = 50;
 /// Maximum number of entries in the files cache before eviction
 const MAX_FILES_CACHE_SIZE: usize = 100;
+/// Maximum number of cancelled analysis IDs to track (prevents memory leak)
+const MAX_CANCELLED_ANALYSES: usize = 100;
 
 /// LRU-like cache that tracks insertion order for eviction
 #[derive(Debug)]
@@ -74,6 +76,53 @@ impl<V> LruCache<V> {
     /// Get current cache size
     pub fn len(&self) -> usize {
         self.map.len()
+    }
+}
+
+/// Bounded set that evicts oldest entries when full (prevents memory leaks)
+#[derive(Debug)]
+pub struct BoundedSet {
+    set: std::collections::HashSet<String>,
+    order: VecDeque<String>,
+    max_size: usize,
+}
+
+impl BoundedSet {
+    pub fn new(max_size: usize) -> Self {
+        Self {
+            set: std::collections::HashSet::new(),
+            order: VecDeque::new(),
+            max_size,
+        }
+    }
+
+    /// Insert a value, evicting oldest entries if over capacity
+    pub fn insert(&mut self, value: String) -> bool {
+        if self.set.contains(&value) {
+            return false; // Already present
+        }
+
+        // Evict oldest entries if at capacity
+        while self.set.len() >= self.max_size && !self.order.is_empty() {
+            if let Some(old_value) = self.order.pop_front() {
+                self.set.remove(&old_value);
+            }
+        }
+
+        self.set.insert(value.clone());
+        self.order.push_back(value);
+        true
+    }
+
+    /// Check if value exists
+    pub fn contains(&self, value: &str) -> bool {
+        self.set.contains(value)
+    }
+
+    /// Get current size
+    #[allow(dead_code)]
+    pub fn len(&self) -> usize {
+        self.set.len()
     }
 }
 
@@ -189,8 +238,8 @@ pub struct ApiState {
     pub current_analysis_id: Arc<RwLock<Option<String>>>,
     /// Cancellation token for the current analysis
     pub cancellation_token: Arc<CancellationToken>,
-    /// Set of cancelled analysis IDs (to track cancelled analyses)
-    pub cancelled_analyses: Arc<RwLock<HashSet<String>>>,
+    /// Bounded set of cancelled analysis IDs (prevents memory leak from unbounded growth)
+    pub cancelled_analyses: Arc<RwLock<BoundedSet>>,
     /// Rate limiter for DDA analysis requests (prevents DoS)
     pub dda_rate_limiter: Arc<RateLimiter>,
 }
@@ -322,7 +371,7 @@ impl ApiState {
             ica_history: Mutex::new(ica_history),
             current_analysis_id: Arc::new(RwLock::new(None)),
             cancellation_token: Arc::new(CancellationToken::new()),
-            cancelled_analyses: Arc::new(RwLock::new(HashSet::new())),
+            cancelled_analyses: Arc::new(RwLock::new(BoundedSet::new(MAX_CANCELLED_ANALYSES))),
             // Rate limiter: 10 DDA analyses per minute (prevents DoS)
             dda_rate_limiter: Arc::new(RateLimiter::new(10, 60)),
         };

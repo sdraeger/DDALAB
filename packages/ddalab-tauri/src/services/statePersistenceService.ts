@@ -119,7 +119,7 @@ export class StatePersistenceService {
     try {
       await invoke("update_file_manager_state", { fileManagerState });
     } catch (error) {
-      console.error("Failed to save file manager state:", error);
+      notifyPersistenceError("save file manager state", error);
     }
   }
 
@@ -130,7 +130,7 @@ export class StatePersistenceService {
     try {
       await invoke("update_plot_state", { plotState });
     } catch (error) {
-      console.error("Failed to save plot state:", error);
+      notifyPersistenceError("save plot state", error);
     }
   }
 
@@ -141,7 +141,7 @@ export class StatePersistenceService {
     try {
       await invoke("update_dda_state", { ddaState });
     } catch (error) {
-      console.error("Failed to save DDA state:", error);
+      notifyPersistenceError("save DDA state", error);
     }
   }
 
@@ -152,7 +152,7 @@ export class StatePersistenceService {
     try {
       await invoke("save_analysis_result", { analysis });
     } catch (error) {
-      console.error("Failed to save analysis result:", error);
+      notifyPersistenceError("save analysis result", error);
     }
   }
 
@@ -165,7 +165,7 @@ export class StatePersistenceService {
         await invoke("save_plot_data", { plotData, analysisId });
       }
     } catch (error) {
-      console.error("Failed to save plot data:", error);
+      notifyPersistenceError("save plot data", error);
     }
   }
 
@@ -179,7 +179,7 @@ export class StatePersistenceService {
     try {
       await invoke("save_window_state", { windowId, windowState });
     } catch (error) {
-      console.error("Failed to save window state:", error);
+      notifyPersistenceError("save window state", error);
     }
   }
 
@@ -190,7 +190,7 @@ export class StatePersistenceService {
     try {
       await invoke("update_ui_state", { uiUpdates: updates });
     } catch (error) {
-      console.error("Failed to save UI state updates:", error);
+      notifyPersistenceError("save UI state", error);
     }
   }
 
@@ -226,7 +226,7 @@ export class StatePersistenceService {
     try {
       await invoke("clear_state");
     } catch (error) {
-      console.error("Failed to clear state:", error);
+      notifyPersistenceError("clear saved state", error);
       throw error;
     }
   }
@@ -238,7 +238,7 @@ export class StatePersistenceService {
     try {
       return await invoke<AppState>("get_saved_state");
     } catch (error) {
-      console.error("Failed to get saved state:", error);
+      notifyPersistenceError("retrieve saved state", error);
       return this.getDefaultState();
     }
   }

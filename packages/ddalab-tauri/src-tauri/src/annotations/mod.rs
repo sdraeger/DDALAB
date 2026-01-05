@@ -231,8 +231,9 @@ impl AnnotationFile {
         // Convert Vec to slice of serde_json::Value
         let json_values: Vec<serde_json::Value> = flat_annotations
             .into_iter()
-            .map(|ann| serde_json::to_value(ann).unwrap())
-            .collect();
+            .map(|ann| serde_json::to_value(ann))
+            .collect::<Result<Vec<_>, _>>()
+            .context("Failed to serialize annotation to JSON")?;
 
         Json2Csv::new(flattener)
             .convert_from_array(&json_values, csv_writer)

@@ -6,6 +6,7 @@ import { TauriService } from "@/services/tauriService";
 import { getInitializedFileStateManager } from "@/services/fileStateInitializer";
 import { getStatePersistenceService } from "@/services/statePersistenceService";
 import { handleError } from "@/utils/errorHandler";
+import { createWorkflowAction } from "@/store/middleware/workflowRecordingMiddleware";
 import type {
   FilePlotState,
   FileDDAState,
@@ -21,6 +22,42 @@ import type {
   FileManagerState,
   ImmerStateCreator,
 } from "./types";
+
+/** Map file extension to workflow-recordable file type */
+function getFileTypeFromPath(
+  filePath: string,
+):
+  | "EDF"
+  | "ASCII"
+  | "CSV"
+  | "BrainVision"
+  | "EEGLAB"
+  | "FIF"
+  | "NIfTI"
+  | "XDF" {
+  const ext = filePath.split(".").pop()?.toLowerCase() || "";
+  switch (ext) {
+    case "edf":
+      return "EDF";
+    case "csv":
+      return "CSV";
+    case "vhdr":
+    case "vmrk":
+    case "eeg":
+      return "BrainVision";
+    case "set":
+      return "EEGLAB";
+    case "fif":
+      return "FIF";
+    case "nii":
+    case "nii.gz":
+      return "NIfTI";
+    case "xdf":
+      return "XDF";
+    default:
+      return "ASCII";
+  }
+}
 
 export const defaultFileManagerState: FileManagerState = {
   dataDirectoryPath: "",
@@ -156,6 +193,12 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
       state.plot.chunkStart = 0;
       state.fileManager.selectedChannels = [];
     });
+
+    // Record file load action for workflow (silently no-ops if recording disabled)
+    if (file) {
+      const fileType = getFileTypeFromPath(file.file_path);
+      createWorkflowAction.loadFile(file.file_path, fileType);
+    }
 
     if (file && TauriService.isTauri()) {
       // Capture the file path at the start of the async operation
@@ -601,9 +644,40 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
   },
 
   setSelectedChannels: (channels) => {
+    const previousChannels = get().fileManager.selectedChannels;
+    const filePath = get().fileManager.selectedFile?.file_path;
+
     set((state) => {
       state.fileManager.selectedChannels = channels;
     });
+
+    // Record channel selection for workflow (silently no-ops if recording disabled)
+    if (channels.length > 0) {
+      // Convert channel labels to indices if needed, or use indices directly
+      const channelIndices = channels.map((ch) => {
+        // If channel is a string like "Ch1", parse the number
+        const match = ch.match(/\d+/);
+        return match ? parseInt(match[0], 10) : 0;
+      });
+
+      // Determine if this is selecting or deselecting
+      if (channels.length > previousChannels.length) {
+        createWorkflowAction.selectChannels(channelIndices, filePath);
+      } else if (channels.length < previousChannels.length) {
+        // Find which channels were deselected
+        const deselected = previousChannels.filter(
+          (ch) => !channels.includes(ch),
+        );
+        const deselectedIndices = deselected.map((ch) => {
+          const match = ch.match(/\d+/);
+          return match ? parseInt(match[0], 10) : 0;
+        });
+        createWorkflowAction.deselectChannels(deselectedIndices, filePath);
+      }
+    } else if (previousChannels.length > 0) {
+      // All channels cleared
+      createWorkflowAction.clearChannelSelection(filePath);
+    }
 
     if (TauriService.isTauri()) {
       const { fileManager, plot, isPersistenceRestored } = get();
@@ -713,6 +787,13 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
   },
 
   clearSelectedFile: () => {
+    const filePath = get().fileManager.selectedFile?.file_path;
+
+    // Record file close action for workflow (silently no-ops if recording disabled)
+    if (filePath) {
+      createWorkflowAction.closeFile(filePath);
+    }
+
     set((state) => {
       // Clear selected file
       state.fileManager.selectedFile = null;

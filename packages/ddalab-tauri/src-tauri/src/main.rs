@@ -165,6 +165,7 @@ fn main() {
             sync::commands::sync_disconnect,
             sync::commands::sync_is_connected,
             sync::commands::sync_share_result,
+            sync::commands::sync_share_content,
             sync::commands::sync_access_share,
             sync::commands::sync_revoke_share,
             sync::commands::sync_discover_brokers,

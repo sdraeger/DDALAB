@@ -53,6 +53,7 @@ import type { ColorScheme } from "@/components/dda/ColorSchemePicker";
 import { toast } from "@/components/ui/toaster";
 import { useSync } from "@/hooks/useSync";
 import type { AccessPolicy, AccessPolicyType } from "@/types/sync";
+import { DEFAULT_EXPIRY_DAYS } from "@/types/sync";
 import { ChartErrorBoundary } from "@/components/ChartErrorBoundary";
 import { ShareResultDialog } from "@/components/dda/ShareResultDialog";
 import { ExportMenu } from "@/components/dda/ExportMenu";
@@ -1321,7 +1322,16 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       accessPolicyType: AccessPolicyType,
     ): Promise<string | null> => {
       try {
-        const accessPolicy: AccessPolicy = { type: accessPolicyType };
+        const expiryDays = DEFAULT_EXPIRY_DAYS.unclassified;
+        const expiresAt = new Date(
+          Date.now() + expiryDays * 24 * 60 * 60 * 1000,
+        ).toISOString();
+        const accessPolicy: AccessPolicy = {
+          type: accessPolicyType,
+          institution_id: "", // Will be filled by backend from connection config
+          permissions: ["view", "download"],
+          expires_at: expiresAt,
+        };
         const link = await shareResult(
           result.id,
           title,

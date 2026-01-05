@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useAppStore } from "@/store/appStore";
 import {
@@ -118,6 +118,38 @@ export function StreamConfigDialog() {
     include_q_matrices: true,
     selected_channels: undefined, // Process all channels
   });
+
+  // Validation helper for port numbers (1-65535)
+  const isValidPort = (port: number): boolean =>
+    Number.isInteger(port) && port >= 1 && port <= 65535;
+
+  // Validation state
+  const validationErrors = useMemo(() => {
+    const errors: string[] = [];
+
+    if (sourceType === "tcp" && !isValidPort(tcpConfig.port)) {
+      errors.push("TCP port must be between 1 and 65535");
+    }
+    if (sourceType === "udp" && !isValidPort(udpConfig.port)) {
+      errors.push("UDP port must be between 1 and 65535");
+    }
+    if (sourceType === "file" && !fileConfig.path) {
+      errors.push("File path is required");
+    }
+    if (sourceType === "websocket" && !websocketConfig.url) {
+      errors.push("WebSocket URL is required");
+    }
+
+    return errors;
+  }, [
+    sourceType,
+    tcpConfig.port,
+    udpConfig.port,
+    fileConfig.path,
+    websocketConfig.url,
+  ]);
+
+  const canCreate = validationErrors.length === 0;
 
   const handleClose = () => {
     updateStreamUI({ isConfigDialogOpen: false });
@@ -751,14 +783,26 @@ export function StreamConfigDialog() {
                       <Input
                         id="tcp-port"
                         type="number"
+                        min={1}
+                        max={65535}
                         value={tcpConfig.port}
                         onChange={(e) =>
                           setTcpConfig({
                             ...tcpConfig,
-                            port: parseInt(e.target.value),
+                            port: parseInt(e.target.value) || 0,
                           })
                         }
+                        className={
+                          !isValidPort(tcpConfig.port)
+                            ? "border-destructive"
+                            : ""
+                        }
                       />
+                      {!isValidPort(tcpConfig.port) && (
+                        <p className="text-xs text-destructive">
+                          Port must be 1-65535
+                        </p>
+                      )}
                     </div>
                   </div>
                 </CardContent>
@@ -797,14 +841,26 @@ export function StreamConfigDialog() {
                       <Input
                         id="udp-port"
                         type="number"
+                        min={1}
+                        max={65535}
                         value={udpConfig.port}
                         onChange={(e) =>
                           setUdpConfig({
                             ...udpConfig,
-                            port: parseInt(e.target.value),
+                            port: parseInt(e.target.value) || 0,
                           })
                         }
+                        className={
+                          !isValidPort(udpConfig.port)
+                            ? "border-destructive"
+                            : ""
+                        }
                       />
+                      {!isValidPort(udpConfig.port) && (
+                        <p className="text-xs text-destructive">
+                          Port must be 1-65535
+                        </p>
+                      )}
                     </div>
                   </div>
                 </CardContent>
@@ -1011,10 +1067,12 @@ export function StreamConfigDialog() {
           </TabsContent>
         </Tabs>
 
-        {error && (
+        {(error || validationErrors.length > 0) && (
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
-            <AlertDescription>{error}</AlertDescription>
+            <AlertDescription>
+              {error || validationErrors.join(". ")}
+            </AlertDescription>
           </Alert>
         )}
 
@@ -1022,7 +1080,7 @@ export function StreamConfigDialog() {
           <Button variant="outline" onClick={handleClose} disabled={isCreating}>
             Cancel
           </Button>
-          <Button onClick={handleCreate} disabled={isCreating}>
+          <Button onClick={handleCreate} disabled={isCreating || !canCreate}>
             <Play className="h-4 w-4 mr-2" />
             {isCreating ? "Creating..." : "Start Streaming"}
           </Button>

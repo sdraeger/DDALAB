@@ -111,7 +111,7 @@
     "@vitest/browser-playwright": "^4.0.14",
     "@vitest/coverage-v8": "^4.0.14",
     "autoprefixer": "^10.4.21",
-    "baseline-browser-mapping": "^2.8.32",
+    "baseline-browser-mapping": "^2.9.11",
     "comlink": "^4.4.2",
     "eslint": "^9.39.0",
     "eslint-config-next": "^16.0.1",

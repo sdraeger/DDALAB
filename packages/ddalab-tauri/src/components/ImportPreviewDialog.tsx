@@ -361,7 +361,7 @@ export function ImportPreviewDialog({
               {previewData.annotations.map((ann) => (
                 <tr
                   key={ann.id}
-                  className={`border-b hover:bg-muted/50 transition-colors ${
+                  className={`border-b hover:bg-muted/50 transition-colors duration-200 ${
                     selectedIds.has(ann.id) ? "bg-primary/5" : ""
                   }`}
                 >

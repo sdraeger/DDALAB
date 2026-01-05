@@ -77,6 +77,9 @@ export function WindowSizeSelector({
 }: WindowSizeSelectorProps) {
   const [displayUnit, setDisplayUnit] = React.useState<DisplayUnit>("ms");
   const [activePreset, setActivePreset] = React.useState<string | null>(null);
+  const [validationError, setValidationError] = React.useState<string | null>(
+    null,
+  );
 
   // Convert samples to ms
   const samplesToMs = useCallback(
@@ -140,11 +143,37 @@ export function WindowSizeSelector({
     [msToSamples, overlapToStep, onWindowLengthChange, onWindowStepChange],
   );
 
+  // Validate window settings
+  const validateWindowSettings = useCallback(
+    (samples: number): string | null => {
+      const minSamples = 10;
+      const maxSamples = sampleRate * 2; // 2 seconds max
+      const totalSamples = duration * sampleRate;
+
+      if (samples < minSamples) {
+        return `Window too short: minimum ${minSamples} samples (${samplesToMs(minSamples).toFixed(0)}ms)`;
+      }
+      if (samples > maxSamples) {
+        return `Window too long: maximum ${maxSamples} samples (${samplesToMs(maxSamples).toFixed(0)}ms)`;
+      }
+      if (samples > totalSamples) {
+        return `Window (${samples} samples) exceeds file length (${Math.floor(totalSamples)} samples)`;
+      }
+      return null;
+    },
+    [sampleRate, duration, samplesToMs],
+  );
+
   // Handle window length change
   const handleWindowLengthChange = useCallback(
     (value: number, unit: DisplayUnit) => {
       const samples = unit === "ms" ? msToSamples(value) : value;
       const clampedSamples = Math.max(10, Math.min(samples, sampleRate * 2)); // 10 samples to 2 seconds
+
+      // Validate and show error if needed
+      const error = validateWindowSettings(samples);
+      setValidationError(error);
+
       onWindowLengthChange(clampedSamples);
       // Adjust step to maintain overlap percentage
       const newStep = overlapToStep(overlapPercent, clampedSamples);
@@ -157,6 +186,7 @@ export function WindowSizeSelector({
       overlapToStep,
       onWindowLengthChange,
       onWindowStepChange,
+      validateWindowSettings,
     ],
   );
 
@@ -374,6 +404,13 @@ export function WindowSizeSelector({
           </div>
         </div>
       </div>
+
+      {/* Validation Error */}
+      {validationError && (
+        <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-2 text-xs text-destructive">
+          {validationError}
+        </div>
+      )}
 
       {/* Analysis Summary */}
       <div className="bg-muted/50 rounded-lg p-3 space-y-1">

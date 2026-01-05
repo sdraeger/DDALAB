@@ -326,6 +326,50 @@ export function SkeletonSettings({ className }: { className?: string }) {
   );
 }
 
+// OpenNeuro dataset card skeleton
+export function SkeletonDatasetCard({ className }: { className?: string }) {
+  return (
+    <div className={cn("p-4 border rounded-lg", className)}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0 space-y-2">
+          {/* Dataset ID */}
+          <SkeletonLine width={100} className="h-5" />
+          {/* Dataset name */}
+          <SkeletonLine width="70%" className="h-4" />
+          {/* Badges row */}
+          <div className="flex items-center gap-2 mt-3">
+            <Skeleton className="h-5 w-14 rounded-full" />
+            <Skeleton className="h-5 w-10 rounded-full" />
+            <div className="flex items-center gap-1">
+              <Skeleton className="h-3 w-3 rounded" />
+              <SkeletonLine width={60} className="h-3" />
+            </div>
+          </div>
+        </div>
+        {/* External link button */}
+        <Skeleton className="h-8 w-8 rounded-lg" />
+      </div>
+    </div>
+  );
+}
+
+// OpenNeuro dataset list skeleton
+export function SkeletonDatasetList({
+  count = 6,
+  className,
+}: {
+  count?: number;
+  className?: string;
+}) {
+  return (
+    <div className={cn("space-y-2", className)}>
+      {Array.from({ length: count }).map((_, i) => (
+        <SkeletonDatasetCard key={i} />
+      ))}
+    </div>
+  );
+}
+
 // Add shimmer keyframe to global styles
 export const shimmerKeyframes = `
 @keyframes shimmer {

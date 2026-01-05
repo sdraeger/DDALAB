@@ -31,7 +31,7 @@ impl WorkflowOptimizer {
         let mut optimized = workflow.clone();
 
         for pass in &self.passes {
-            println!("[OPTIMIZER] Running pass: {}", pass.name());
+            log::debug!("[OPTIMIZER] Running pass: {}", pass.name());
             optimized = pass.optimize(&optimized)?;
         }
 
@@ -48,7 +48,7 @@ impl WorkflowOptimizer {
 
         for pass in &self.passes {
             if pass_names.contains(&pass.name()) {
-                println!("[OPTIMIZER] Running pass: {}", pass.name());
+                log::debug!("[OPTIMIZER] Running pass: {}", pass.name());
                 optimized = pass.optimize(&optimized)?;
             }
         }

@@ -135,11 +135,19 @@ pub enum AccessPolicy {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShareMetadata {
     pub owner_user_id: UserId,
-    pub result_id: String,
+    #[serde(default)]
+    pub content_type: ShareableContentType,
+    pub content_id: String,
     pub title: String,
     pub description: Option<String>,
     pub created_at: DateTime<Utc>,
     pub access_policy: AccessPolicy,
+    #[serde(default)]
+    pub classification: DataClassification,
+    #[serde(default)]
+    pub download_count: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_accessed_at: Option<DateTime<Utc>>,
 }
 
 /// Information about a shared result including owner availability
@@ -148,6 +156,85 @@ pub struct SharedResultInfo {
     pub metadata: ShareMetadata,
     pub download_url: String,
     pub owner_online: bool,
+}
+
+/// Data classification for HIPAA compliance
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DataClassification {
+    Phi,
+    DeIdentified,
+    Synthetic,
+    #[default]
+    Unclassified,
+}
+
+/// Types of content that can be shared through the collaboration system
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ShareableContentType {
+    #[default]
+    DdaResult,
+    Annotation,
+    Workflow,
+    ParameterSet,
+    DataSegment,
+}
+
+/// Granular permissions for shared content
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Permission {
+    View,
+    Download,
+    Reshare,
+}
+
+/// Access policy type for institutional sharing
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum AccessPolicyType {
+    Public,
+    Team { team_id: String },
+    Users { user_ids: Vec<UserId> },
+    Institution,
+}
+
+/// Full access policy with permissions and expiration
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FullAccessPolicy {
+    #[serde(flatten)]
+    pub policy_type: AccessPolicyType,
+    pub institution_id: String,
+    pub permissions: Vec<Permission>,
+    pub expires_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_downloads: Option<u32>,
+}
+
+/// Institution configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InstitutionConfig {
+    pub id: String,
+    pub name: String,
+    pub hipaa_mode: bool,
+    pub default_share_expiry_days: u32,
+    pub allow_federation: bool,
+    #[serde(default)]
+    pub federated_institutions: Vec<String>,
+}
+
+impl Default for InstitutionConfig {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            hipaa_mode: false,
+            default_share_expiry_days: 30,
+            allow_federation: false,
+            federated_institutions: Vec::new(),
+        }
+    }
 }
 
 /// Messages exchanged between local instances and the broker

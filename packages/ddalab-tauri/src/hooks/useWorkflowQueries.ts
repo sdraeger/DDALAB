@@ -43,6 +43,7 @@ export const workflowKeys = {
 
 /**
  * Query hook for buffer info with automatic polling
+ * Uses 5-second polling for better performance while maintaining responsiveness
  */
 export function useBufferInfo(options?: {
   enabled?: boolean;
@@ -53,9 +54,9 @@ export function useBufferInfo(options?: {
     queryFn: async (): Promise<BufferInfo> => {
       return await invoke<BufferInfo>("workflow_get_buffer_info");
     },
-    staleTime: 1000, // 1 second
+    staleTime: 2000, // 2 seconds - reduce unnecessary refetches
     gcTime: 5 * 60 * 1000, // 5 minutes
-    refetchInterval: options?.refetchInterval ?? 2000, // Poll every 2 seconds by default
+    refetchInterval: options?.refetchInterval ?? 5000, // Poll every 5 seconds (reduced from 2s)
     enabled: options?.enabled ?? true,
     retry: 1,
   });
@@ -162,6 +163,7 @@ export function useTopologicalOrder(options?: { enabled?: boolean }) {
 /**
  * Mutation hook for enabling auto-recording
  * Also syncs with Zustand store so components checking isRecording work correctly
+ * Records the current file state as the first action if a file is already selected
  */
 export function useEnableAutoRecord() {
   const queryClient = useQueryClient();
@@ -172,7 +174,7 @@ export function useEnableAutoRecord() {
       await invoke("workflow_enable_auto_record");
       console.log("[WORKFLOW-QUERY] workflow_enable_auto_record completed");
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       // Sync with Zustand store so components checking workflowRecording.isRecording work
       console.log(
         "[WORKFLOW-QUERY] Syncing Zustand store - starting recording",
@@ -182,6 +184,93 @@ export function useEnableAutoRecord() {
         "[WORKFLOW-QUERY] Zustand store updated, isRecording:",
         useAppStore.getState().workflowRecording.isRecording,
       );
+
+      // Capture current state as starting point for the recording
+      const { fileManager, dda } = useAppStore.getState();
+
+      // If a file is already selected, record it as the first action
+      if (fileManager.selectedFile) {
+        const filePath = fileManager.selectedFile.file_path;
+        const ext = filePath.split(".").pop()?.toLowerCase() || "";
+        let fileType: "EDF" | "ASCII" | "CSV" = "ASCII";
+        if (ext === "edf") fileType = "EDF";
+        else if (ext === "csv") fileType = "CSV";
+
+        console.log("[WORKFLOW-QUERY] Recording initial file state:", filePath);
+        try {
+          await invoke("workflow_auto_record", {
+            action: {
+              type: "LoadFile",
+              data: { path: filePath, file_type: fileType },
+            },
+            activeFileId: filePath,
+          });
+          console.log("[WORKFLOW-QUERY] Initial file state recorded");
+        } catch (error) {
+          console.error(
+            "[WORKFLOW-QUERY] Failed to record initial file:",
+            error,
+          );
+        }
+
+        // If channels are selected, record them too
+        if (fileManager.selectedChannels.length > 0) {
+          const channelIndices = fileManager.selectedChannels.map((ch) => {
+            const match = ch.match(/\d+/);
+            return match ? parseInt(match[0], 10) : 0;
+          });
+
+          console.log(
+            "[WORKFLOW-QUERY] Recording initial channel state:",
+            channelIndices,
+          );
+          try {
+            await invoke("workflow_auto_record", {
+              action: {
+                type: "SelectChannels",
+                data: { channel_indices: channelIndices },
+              },
+              activeFileId: filePath,
+            });
+            console.log("[WORKFLOW-QUERY] Initial channel state recorded");
+          } catch (error) {
+            console.error(
+              "[WORKFLOW-QUERY] Failed to record initial channels:",
+              error,
+            );
+          }
+        }
+
+        // Record DDA parameters if variants are selected
+        if (dda.analysisParameters.variants.length > 0) {
+          console.log("[WORKFLOW-QUERY] Recording initial DDA parameters");
+          try {
+            await invoke("workflow_auto_record", {
+              action: {
+                type: "SelectDDAVariants",
+                data: { variants: dda.analysisParameters.variants },
+              },
+              activeFileId: filePath,
+            });
+            await invoke("workflow_auto_record", {
+              action: {
+                type: "SetDDAParameters",
+                data: {
+                  window_length: dda.analysisParameters.windowLength,
+                  window_step: dda.analysisParameters.windowStep,
+                },
+              },
+              activeFileId: filePath,
+            });
+            console.log("[WORKFLOW-QUERY] Initial DDA parameters recorded");
+          } catch (error) {
+            console.error(
+              "[WORKFLOW-QUERY] Failed to record initial DDA params:",
+              error,
+            );
+          }
+        }
+      }
 
       queryClient.invalidateQueries({ queryKey: workflowKeys.autoRecording() });
       queryClient.invalidateQueries({ queryKey: workflowKeys.bufferInfo() });

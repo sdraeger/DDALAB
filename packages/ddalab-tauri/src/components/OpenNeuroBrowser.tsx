@@ -11,6 +11,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { ErrorState } from "./ui/error-state";
+import { SkeletonDatasetList } from "./ui/skeleton-variants";
 import {
   openNeuroService,
   type OpenNeuroDataset,
@@ -424,15 +425,8 @@ export function OpenNeuroBrowser() {
           />
         )}
 
-        {/* Loading state */}
-        {loading && (
-          <div className="flex items-center justify-center py-12">
-            <div className="text-center">
-              <Database className="h-12 w-12 mx-auto mb-4 text-muted-foreground animate-pulse" />
-              <p className="text-muted-foreground">Loading datasets...</p>
-            </div>
-          </div>
-        )}
+        {/* Loading state with skeleton cards */}
+        {loading && <SkeletonDatasetList count={6} />}
 
         {/* Dataset list */}
         {!loading && filteredDatasets.length === 0 && (

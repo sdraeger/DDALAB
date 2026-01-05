@@ -47,6 +47,8 @@ export function BIDSUploadDialog({
   );
   const [error, setError] = useState<string | null>(null);
   const [datasetId, setDatasetId] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
+  const MAX_RETRIES = 3;
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;
@@ -155,9 +157,23 @@ export function BIDSUploadDialog({
       }
     } catch (err) {
       console.error("Upload failed:", err);
-      setError(err instanceof Error ? err.message : "Upload failed");
+      const errorMessage = err instanceof Error ? err.message : "Upload failed";
+      setError(errorMessage);
       setUploading(false);
+      // Increment retry count for retry functionality
+      setRetryCount((prev) => prev + 1);
     }
+  };
+
+  const handleRetry = async () => {
+    if (retryCount >= MAX_RETRIES) {
+      setError(
+        `Maximum retry attempts (${MAX_RETRIES}) reached. Please try again later.`,
+      );
+      return;
+    }
+    setError(null);
+    await handleUpload();
   };
 
   const handleClose = () => {
@@ -168,6 +184,7 @@ export function BIDSUploadDialog({
       setError(null);
       setUploadProgress(null);
       setDatasetId(null);
+      setRetryCount(0);
       onClose();
     }
   };
@@ -270,11 +287,21 @@ export function BIDSUploadDialog({
             </div>
           )}
 
-          {/* Error Message */}
+          {/* Error Message with Retry */}
           {error && (
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
-              <AlertDescription>{error}</AlertDescription>
+              <AlertDescription className="flex items-center justify-between">
+                <span>{error}</span>
+                {retryCount < MAX_RETRIES && (
+                  <button
+                    onClick={handleRetry}
+                    className="ml-4 text-sm underline hover:no-underline font-medium"
+                  >
+                    Retry ({MAX_RETRIES - retryCount} attempts left)
+                  </button>
+                )}
+              </AlertDescription>
             </Alert>
           )}
 
