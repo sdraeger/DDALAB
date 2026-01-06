@@ -1,6 +1,4 @@
 "use client";
-
-import { useScrollTrap } from "@/hooks/useScrollTrap";
 import {
   Card,
   CardContent,
@@ -45,11 +43,6 @@ export function NotificationHistory({ onNavigate }: NotificationHistoryProps) {
     markAllAsRead,
     deleteNotification,
   } = useNotifications(50);
-
-  // Scroll trap for notification list
-  const { containerProps: scrollTrapProps, isScrollEnabled } = useScrollTrap({
-    activationDelay: 100,
-  });
 
   const handleNotificationClick = async (notification: Notification) => {
     try {
@@ -178,13 +171,7 @@ export function NotificationHistory({ onNavigate }: NotificationHistoryProps) {
             <p>No notifications yet</p>
           </div>
         ) : (
-          <div
-            ref={scrollTrapProps.ref}
-            onMouseEnter={scrollTrapProps.onMouseEnter}
-            onMouseLeave={scrollTrapProps.onMouseLeave}
-            className={`flex-1 min-h-0 pr-4 ${isScrollEnabled ? "overflow-auto" : "overflow-hidden"}`}
-            style={scrollTrapProps.style}
-          >
+          <div className="flex-1 min-h-0 pr-4 overflow-y-auto styled-scrollbar">
             <div className="space-y-3">
               {notifications.map((notification) => (
                 <div
