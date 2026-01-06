@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import {
   Popover,
   PopoverContent,
@@ -8,7 +8,6 @@ import {
 } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   DropdownMenu,
@@ -91,6 +90,137 @@ function formatTimestamp(timestamp: number): string {
   if (minutes > 0) return `${minutes}m ago`;
   if (seconds > 10) return `${seconds}s ago`;
   return "Just now";
+}
+
+interface CustomScrollAreaProps {
+  children: React.ReactNode;
+  className?: string;
+}
+
+function CustomScrollArea({ children, className }: CustomScrollAreaProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const thumbRef = useRef<HTMLDivElement>(null);
+  const [thumbHeight, setThumbHeight] = useState(0);
+  const [thumbTop, setThumbTop] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartY = useRef(0);
+  const dragStartScrollTop = useRef(0);
+
+  const updateThumb = useCallback(() => {
+    const scrollEl = scrollRef.current;
+    if (!scrollEl) return;
+
+    const { scrollHeight, clientHeight, scrollTop } = scrollEl;
+    if (scrollHeight <= clientHeight) {
+      setThumbHeight(0);
+      return;
+    }
+
+    const trackHeight = clientHeight;
+    const newThumbHeight = Math.max(
+      (clientHeight / scrollHeight) * trackHeight,
+      30,
+    );
+    const maxThumbTop = trackHeight - newThumbHeight;
+    const newThumbTop =
+      (scrollTop / (scrollHeight - clientHeight)) * maxThumbTop;
+
+    setThumbHeight(newThumbHeight);
+    setThumbTop(newThumbTop);
+  }, []);
+
+  useEffect(() => {
+    const scrollEl = scrollRef.current;
+    if (!scrollEl) return;
+
+    updateThumb();
+    scrollEl.addEventListener("scroll", updateThumb);
+    const resizeObserver = new ResizeObserver(updateThumb);
+    resizeObserver.observe(scrollEl);
+
+    return () => {
+      scrollEl.removeEventListener("scroll", updateThumb);
+      resizeObserver.disconnect();
+    };
+  }, [updateThumb]);
+
+  const handleThumbMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+    dragStartY.current = e.clientY;
+    dragStartScrollTop.current = scrollRef.current?.scrollTop || 0;
+  };
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const scrollEl = scrollRef.current;
+      if (!scrollEl) return;
+
+      const { scrollHeight, clientHeight } = scrollEl;
+      const trackHeight = clientHeight;
+      const maxThumbTop = trackHeight - thumbHeight;
+      const deltaY = e.clientY - dragStartY.current;
+      const scrollRatio = (scrollHeight - clientHeight) / maxThumbTop;
+      scrollEl.scrollTop = dragStartScrollTop.current + deltaY * scrollRatio;
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isDragging, thumbHeight]);
+
+  const handleTrackClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const scrollEl = scrollRef.current;
+    const trackEl = e.currentTarget;
+    if (!scrollEl || !trackEl) return;
+
+    const rect = trackEl.getBoundingClientRect();
+    const clickY = e.clientY - rect.top;
+    const { scrollHeight, clientHeight } = scrollEl;
+    const scrollRatio = clickY / clientHeight;
+    scrollEl.scrollTop = scrollRatio * (scrollHeight - clientHeight);
+  };
+
+  return (
+    <div className={cn("relative", className)}>
+      <div
+        ref={scrollRef}
+        className="h-full overflow-y-auto scrollbar-none pr-2"
+      >
+        {children}
+      </div>
+      {/* Custom scrollbar track - always visible */}
+      <div
+        className="absolute top-0 right-0 w-2 h-full rounded cursor-pointer"
+        style={{ backgroundColor: "hsl(var(--border))" }}
+        onClick={handleTrackClick}
+      >
+        <div
+          ref={thumbRef}
+          className="absolute right-0 w-2 rounded cursor-grab"
+          style={{
+            height: thumbHeight > 0 ? `${thumbHeight}px` : "0px",
+            top: `${thumbTop}px`,
+            backgroundColor: isDragging
+              ? "hsl(var(--muted-foreground) / 0.8)"
+              : "hsl(var(--muted-foreground) / 0.5)",
+            display: thumbHeight > 0 ? "block" : "none",
+          }}
+          onMouseDown={handleThumbMouseDown}
+        />
+      </div>
+    </div>
+  );
 }
 
 interface NotificationItemProps {
@@ -370,7 +500,7 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
           </TabsList>
 
           <TabsContent value={activeTab} className="mt-0">
-            <ScrollArea className="h-[350px]">
+            <CustomScrollArea className="h-[350px]">
               {displayedNotifications.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                   <Bell className="h-8 w-8 mb-2 opacity-50" />
@@ -394,7 +524,7 @@ export function NotificationCenter({ className }: NotificationCenterProps) {
                   />
                 ))
               )}
-            </ScrollArea>
+            </CustomScrollArea>
           </TabsContent>
         </Tabs>
       </PopoverContent>

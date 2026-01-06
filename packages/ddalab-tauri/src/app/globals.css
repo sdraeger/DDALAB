@@ -103,4 +103,32 @@
   .styled-scrollbar::-webkit-scrollbar-corner {
     background: transparent;
   }
+
+  /* Always visible scrollbar - forces classic non-overlay scrollbar */
+  .scrollbar-always-visible {
+    overflow-y: scroll !important;
+    scrollbar-width: thin; /* Firefox */
+    scrollbar-color: hsl(var(--muted-foreground) / 0.4) hsl(var(--muted) / 0.3); /* Firefox: thumb track */
+    scrollbar-gutter: stable; /* Reserve space for scrollbar */
+  }
+  .scrollbar-always-visible::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+    -webkit-appearance: none; /* Override macOS overlay scrollbar */
+  }
+  .scrollbar-always-visible::-webkit-scrollbar-track {
+    background: hsl(var(--muted) / 0.3);
+    border-radius: 4px;
+  }
+  .scrollbar-always-visible::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.4);
+    border-radius: 4px;
+    min-height: 40px;
+  }
+  .scrollbar-always-visible::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.6);
+  }
+  .scrollbar-always-visible::-webkit-scrollbar-thumb:active {
+    background: hsl(var(--muted-foreground) / 0.8);
+  }
 }
