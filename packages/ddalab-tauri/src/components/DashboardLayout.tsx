@@ -21,6 +21,7 @@ import { FileTabSync } from "@/components/FileTabSync";
 import { FileNavigationSync } from "@/components/FileNavigationSync";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import { HealthStatusBar } from "@/components/HealthStatusBar";
+import { MainContentContainer } from "@/components/MainContentContainer";
 import { PrimaryNavigation } from "@/components/navigation/PrimaryNavigation";
 import { SecondaryNavigation } from "@/components/navigation/SecondaryNavigation";
 import { NavigationContent } from "@/components/navigation/NavigationContent";
@@ -371,12 +372,9 @@ export function DashboardLayout() {
             <SecondaryNavigation />
 
             {/* Main Content */}
-            <div
-              className="flex-1 overflow-y-auto overflow-x-hidden"
-              data-testid="main-content"
-            >
+            <MainContentContainer data-testid="main-content">
               <NavigationContent apiService={apiService} />
-            </div>
+            </MainContentContainer>
           </div>
         </ActiveFileProvider>
       </div>
