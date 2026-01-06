@@ -53,5 +53,13 @@
     "redux": "^5.0.1",
     "uplot": "^1.6.32",
     "xstate": "^5.19.3"
+  },
+  "overrides": {
+    "glob": "^10.5.0",
+    "js-yaml": "^4.1.1"
+  },
+  "resolutions": {
+    "glob": "^10.5.0",
+    "js-yaml": "^4.1.1"
   }
 }
