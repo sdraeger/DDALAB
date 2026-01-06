@@ -60,3 +60,47 @@
     @apply bg-background text-foreground;
   }
 }
+
+@layer utilities {
+  /* Hide scrollbar while keeping scroll functionality */
+  .scrollbar-none {
+    -ms-overflow-style: none; /* IE and Edge */
+    scrollbar-width: none; /* Firefox */
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Opera */
+  }
+
+  /* Styled scrollbar - wider and more visible */
+  .styled-scrollbar {
+    scrollbar-width: thin; /* Firefox */
+    scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent; /* Firefox */
+  }
+  .styled-scrollbar::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  .styled-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 5px;
+  }
+  .styled-scrollbar::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 5px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  .styled-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  .styled-scrollbar::-webkit-scrollbar-thumb:active {
+    background: hsl(var(--muted-foreground) / 0.7);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  .styled-scrollbar::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+}
