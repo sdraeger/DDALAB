@@ -334,7 +334,7 @@ pub async fn run_dda_analysis(
     let request_start = request.time_range.start;
     let request_end = request.time_range.end;
 
-    let (start_bound, end_bound) = tokio::task::spawn_blocking(move || -> Result<(u64, u64), String> {
+    let (start_bound, end_bound, sample_rate) = tokio::task::spawn_blocking(move || -> Result<(u64, u64, f64), String> {
         let reader = FileReaderFactory::create_reader(&file_path_for_reader)
             .map_err(|e| format!("Failed to create file reader: {}", e))?;
 
@@ -357,7 +357,7 @@ pub async fn run_dda_analysis(
         log::info!("Time range: {:.2}s - {:.2}s -> samples: {} - {} (total: {}, sample rate: {:.1} Hz)",
             request_start, request_end, start_sample, safe_end, total_samples, sample_rate);
 
-        Ok((start_sample, safe_end))
+        Ok((start_sample, safe_end, sample_rate))
     })
     .await
     .map_err(|e| {
@@ -407,7 +407,7 @@ pub async fn run_dda_analysis(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    let dda_request = convert_to_dda_request(&request);
+    let dda_request = convert_to_dda_request(&request, sample_rate);
 
     log::info!("📋 LOCAL DDA Analysis Parameters:");
     log::info!("   Channels: {:?}", request.channels);
@@ -1534,7 +1534,7 @@ fn generate_select_mask(enabled_variants: &[String]) -> String {
     format!("{} {} {} {} {} {}", st, ct, cd, reserved, de, sy)
 }
 
-fn convert_to_dda_request(api_req: &DDARequest) -> dda_rs::DDARequest {
+fn convert_to_dda_request(api_req: &DDARequest, sample_rate: f64) -> dda_rs::DDARequest {
     let select_mask = if api_req.algorithm_selection.select_mask.is_some() {
         log::info!(
             "Using provided SELECT mask: {:?}",
@@ -1592,8 +1592,8 @@ fn convert_to_dda_request(api_req: &DDARequest) -> dda_rs::DDARequest {
                 order: mp.order,
                 nr_tau: mp.nr_tau,
             }),
-        variant_configs: None, // Not used by legacy run() method
-        sampling_rate: None,   // TODO: Get from file metadata when available
+        variant_configs: None,
+        sampling_rate: Some(sample_rate),
     };
 
     dda_request
