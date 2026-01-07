@@ -83,6 +83,7 @@ pub struct StreamController {
     // Statistics
     total_chunks_received: Arc<AtomicU64>,
     total_results_generated: Arc<AtomicU64>,
+    total_processing_time_us: Arc<AtomicU64>,
     start_time: Arc<RwLock<Option<Instant>>>,
 
     // Event emission callback
@@ -150,6 +151,7 @@ impl StreamController {
             cancel_token: CancellationToken::new(),
             total_chunks_received: Arc::new(AtomicU64::new(0)),
             total_results_generated: Arc::new(AtomicU64::new(0)),
+            total_processing_time_us: Arc::new(AtomicU64::new(0)),
             start_time: Arc::new(RwLock::new(None)),
             event_callback: Arc::new(RwLock::new(None)),
         })
@@ -376,6 +378,7 @@ impl StreamController {
         let processor = self.processor.as_ref().unwrap().clone();
         let results_generated = Arc::clone(&self.total_results_generated);
         let chunks_received = Arc::clone(&self.total_chunks_received);
+        let total_processing_time_us = Arc::clone(&self.total_processing_time_us);
         let stream_id = self.id.clone();
         let event_callback = Arc::clone(&self.event_callback);
         let batch_size = self.config.processing_batch_size;
@@ -415,16 +418,24 @@ impl StreamController {
                                     0.0
                                 };
 
+                                let total_results = results_generated.load(Ordering::Relaxed);
+                                let total_time_us = total_processing_time_us.load(Ordering::Relaxed);
+                                let avg_processing_time_ms = if total_results > 0 {
+                                    (total_time_us as f64 / total_results as f64) / 1000.0
+                                } else {
+                                    0.0
+                                };
+
                                 callback(StreamEvent::StatsUpdate {
                                     stream_id: stream_id.clone(),
                                     stats: StreamStats {
                                         total_chunks_received: total_chunks,
                                         total_samples_received: total_samples,
-                                        total_results_generated: results_generated.load(Ordering::Relaxed),
+                                        total_results_generated: total_results,
                                         total_dropped_chunks: 0,
                                         current_buffer_size: data_buffer.len(),
                                         peak_buffer_size: 0,
-                                        avg_processing_time_ms: 0.0,
+                                        avg_processing_time_ms,
                                         uptime_seconds: Some(elapsed_secs),
                                     },
                                 });
@@ -451,13 +462,16 @@ impl StreamController {
                             Ok(Ok(results)) => {
                                 let results_count = results.len();
 
-                                // Add results to buffers
+                                // Accumulate processing times and add results to buffers
+                                let mut batch_processing_time_us = 0u64;
                                 for result in results {
+                                    batch_processing_time_us += (result.processing_time_ms * 1000.0) as u64;
                                     // Add to circular buffer
                                     result_buffer.push(result.clone()).ok();
                                     // Add to time window buffer for efficient display
                                     time_window.push_result(result);
                                 }
+                                total_processing_time_us.fetch_add(batch_processing_time_us, Ordering::Relaxed);
 
                                 results_generated.fetch_add(results_count as u64, Ordering::Relaxed);
 
@@ -530,14 +544,22 @@ impl StreamController {
             0.0
         };
 
+        let total_results = self.total_results_generated.load(Ordering::Relaxed);
+        let total_time_us = self.total_processing_time_us.load(Ordering::Relaxed);
+        let avg_processing_time_ms = if total_results > 0 {
+            (total_time_us as f64 / total_results as f64) / 1000.0
+        } else {
+            0.0
+        };
+
         StreamStats {
             total_chunks_received: self.total_chunks_received.load(Ordering::Relaxed),
             total_samples_received: total_samples,
-            total_results_generated: self.total_results_generated.load(Ordering::Relaxed),
+            total_results_generated: total_results,
             total_dropped_chunks: data_metrics.total_dropped,
             current_buffer_size: data_metrics.current_size,
             peak_buffer_size: data_metrics.peak_size,
-            avg_processing_time_ms: 0.0, // TODO: Track this
+            avg_processing_time_ms,
             uptime_seconds: Some(elapsed_secs),
         }
     }
