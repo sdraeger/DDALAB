@@ -163,22 +163,19 @@ export function StreamingView() {
             <Settings className="h-4 w-4 mr-2" />
             Sessions
           </TabsTrigger>
-          {selectedStreamId && (
-            <>
-              <TabsTrigger value="plot">
-                <Activity className="h-4 w-4 mr-2" />
-                Time Series
-              </TabsTrigger>
-              <TabsTrigger value="dda-line">
-                <TrendingUp className="h-4 w-4 mr-2" />
-                DDA Line Plot
-              </TabsTrigger>
-              <TabsTrigger value="heatmap">
-                <TrendingUp className="h-4 w-4 mr-2" />
-                DDA Heatmap
-              </TabsTrigger>
-            </>
-          )}
+          {/* Always render plot tabs - disabled when no stream selected */}
+          <TabsTrigger value="plot" disabled={!selectedStreamId}>
+            <Activity className="h-4 w-4 mr-2" />
+            Time Series
+          </TabsTrigger>
+          <TabsTrigger value="dda-line" disabled={!selectedStreamId}>
+            <TrendingUp className="h-4 w-4 mr-2" />
+            DDA Line Plot
+          </TabsTrigger>
+          <TabsTrigger value="heatmap" disabled={!selectedStreamId}>
+            <TrendingUp className="h-4 w-4 mr-2" />
+            DDA Heatmap
+          </TabsTrigger>
         </TabsList>
 
         {/* Sessions Tab */}
@@ -200,26 +197,44 @@ export function StreamingView() {
           </Card>
         </TabsContent>
 
-        {/* Time Series Plot Tab */}
-        {selectedStreamId && (
-          <TabsContent value="plot" className="space-y-4">
+        {/* Time Series Plot Tab - Always mounted, shows placeholder when no stream */}
+        <TabsContent value="plot" className="space-y-4">
+          {selectedStreamId ? (
             <StreamingPlot streamId={selectedStreamId} height={500} />
-          </TabsContent>
-        )}
+          ) : (
+            <Card>
+              <CardContent className="flex items-center justify-center py-12 text-muted-foreground">
+                Select a stream to view the time series plot
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
 
-        {/* DDA Line Plot Tab */}
-        {selectedStreamId && (
-          <TabsContent value="dda-line" className="space-y-4">
+        {/* DDA Line Plot Tab - Always mounted, shows placeholder when no stream */}
+        <TabsContent value="dda-line" className="space-y-4">
+          {selectedStreamId ? (
             <StreamingDDALinePlot streamId={selectedStreamId} height={500} />
-          </TabsContent>
-        )}
+          ) : (
+            <Card>
+              <CardContent className="flex items-center justify-center py-12 text-muted-foreground">
+                Select a stream to view the DDA line plot
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
 
-        {/* Heatmap Tab */}
-        {selectedStreamId && (
-          <TabsContent value="heatmap" className="space-y-4">
+        {/* Heatmap Tab - Always mounted, shows placeholder when no stream */}
+        <TabsContent value="heatmap" className="space-y-4">
+          {selectedStreamId ? (
             <StreamingHeatmap streamId={selectedStreamId} height={500} />
-          </TabsContent>
-        )}
+          ) : (
+            <Card>
+              <CardContent className="flex items-center justify-center py-12 text-muted-foreground">
+                Select a stream to view the DDA heatmap
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
       </Tabs>
 
       {/* Stream Configuration Dialog */}
