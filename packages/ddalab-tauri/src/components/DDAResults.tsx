@@ -26,21 +26,10 @@ import { ChannelSelector } from "@/components/ChannelSelector";
 import { Loader2 } from "lucide-react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
-import { usePopoutWindows } from "@/hooks/usePopoutWindows";
-import { TauriService } from "@/services/tauriService";
 import { loggers } from "@/lib/logger";
-import {
-  exportDDAToCSV,
-  exportDDAToJSON,
-  getDefaultExportFilename,
-} from "@/utils/ddaExport";
-import {
-  canvasToPNG,
-  canvasToSVG,
-  canvasToPDF,
-  getDefaultPlotFilename,
-} from "@/utils/plotExport";
+import { usePopoutWindows } from "@/hooks/usePopoutWindows";
 import { useDDAAnnotations } from "@/hooks/useAnnotations";
+import { useDDAExport } from "@/hooks/useDDAExport";
 import { AnnotationContextMenu } from "@/components/annotations/AnnotationContextMenu";
 import { AnnotationMarker } from "@/components/annotations/AnnotationMarker";
 import { PlotInfo } from "@/types/annotations";
@@ -50,10 +39,6 @@ import { ResizeHandle } from "@/components/dda/ResizeHandle";
 import { getVariantColor, VARIANT_ORDER } from "@/types/variantConfig";
 import type { ViewMode } from "@/components/dda/ViewModeSelector";
 import type { ColorScheme } from "@/components/dda/ColorSchemePicker";
-import { toast } from "@/components/ui/toaster";
-import { useSync } from "@/hooks/useSync";
-import type { AccessPolicy, AccessPolicyType } from "@/types/sync";
-import { DEFAULT_EXPIRY_DAYS } from "@/types/sync";
 import { ChartErrorBoundary } from "@/components/ChartErrorBoundary";
 import { ShareResultDialog } from "@/components/dda/ShareResultDialog";
 import { ExportMenu } from "@/components/dda/ExportMenu";
@@ -70,16 +55,11 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   // Render controls first, defer heavy plot containers to next frame
   const [showPlots, setShowPlots] = useState(false);
 
-  // Popout window hooks with memoization
-  const { createWindow, broadcastToType } = usePopoutWindows();
-
-  // Sync/sharing hooks
-  const { shareResult, isConnected: isSyncConnected } = useSync();
-
   // Share dialog state
   const [showShareDialog, setShowShareDialog] = useState(false);
-  // Store share links per result.id so they persist when dialog is closed
-  const sharedResultsRef = useRef<Map<string, string>>(new Map());
+
+  // Popout windows for broadcasting state changes
+  const { broadcastToType } = usePopoutWindows();
 
   // Only select sample_rate, not the entire fileManager object
   const sampleRate = useAppStore(
@@ -372,6 +352,30 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     plotType: "line",
     ddaResult: result,
     sampleRate: sampleRate,
+  });
+
+  // Export functionality hook - extracts all export/share/popout logic
+  const {
+    exportPlot,
+    exportData,
+    exportAllData,
+    handlePopOut,
+    handleShare,
+    getExistingShareLink,
+    isSyncConnected,
+  } = useDDAExport({
+    result,
+    selectedVariant,
+    availableVariants,
+    selectedChannels,
+    viewMode,
+    colorScheme,
+    colorRange,
+    autoScale,
+    heatmapRef,
+    linePlotRef,
+    heatmapAnnotations: heatmapAnnotations.annotations,
+    linePlotAnnotations: linePlotAnnotations.annotations,
   });
 
   const getCurrentVariantData = () => {
@@ -1090,272 +1094,10 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     return colors[index % colors.length];
   };
 
-  const handlePopOut = useCallback(async () => {
-    const ddaResultsData = {
-      result,
-      uiState: {
-        selectedVariant,
-        colorScheme,
-        viewMode,
-        selectedChannels,
-        colorRange,
-        autoScale,
-      },
-      annotations: {
-        heatmap: heatmapAnnotations.annotations,
-        lineplot: linePlotAnnotations.annotations,
-      },
-    };
-
-    try {
-      const windowId = await createWindow(
-        "dda-results",
-        result.id,
-        ddaResultsData,
-      );
-      loggers.ui.debug("Created DDA results popout window", { windowId });
-    } catch (error) {
-      loggers.ui.error("Failed to create popout window", { error });
-    }
-  }, [
-    result,
-    selectedVariant,
-    colorScheme,
-    viewMode,
-    selectedChannels,
-    colorRange,
-    autoScale,
-    createWindow,
-    heatmapAnnotations.annotations,
-    linePlotAnnotations.annotations,
-  ]);
-
-  const exportPlot = useCallback(
-    async (format: "png" | "svg" | "pdf") => {
-      try {
-        let canvas: HTMLCanvasElement | null = null;
-        let plotTypeForFilename: "heatmap" | "lineplot" = "heatmap";
-
-        if (viewMode === "heatmap") {
-          canvas = heatmapRef.current?.querySelector("canvas") || null;
-          plotTypeForFilename = "heatmap";
-        } else if (viewMode === "lineplot") {
-          canvas = linePlotRef.current?.querySelector("canvas") || null;
-          plotTypeForFilename = "lineplot";
-        } else if (viewMode === "all") {
-          const heatmapCanvas = heatmapRef.current?.querySelector("canvas");
-          const linePlotCanvas = linePlotRef.current?.querySelector("canvas");
-
-          if (heatmapCanvas && linePlotCanvas) {
-            const combinedCanvas = document.createElement("canvas");
-            combinedCanvas.width = Math.max(
-              heatmapCanvas.width,
-              linePlotCanvas.width,
-            );
-            combinedCanvas.height =
-              heatmapCanvas.height + linePlotCanvas.height + 20;
-
-            const ctx = combinedCanvas.getContext("2d");
-            if (ctx) {
-              ctx.fillStyle = "#ffffff";
-              ctx.fillRect(0, 0, combinedCanvas.width, combinedCanvas.height);
-              ctx.drawImage(heatmapCanvas, 0, 0);
-              ctx.drawImage(linePlotCanvas, 0, heatmapCanvas.height + 20);
-              canvas = combinedCanvas;
-              plotTypeForFilename = "heatmap";
-            }
-          } else {
-            canvas = (heatmapCanvas || linePlotCanvas) ?? null;
-            plotTypeForFilename = heatmapCanvas ? "heatmap" : "lineplot";
-          }
-        }
-
-        if (!canvas) {
-          loggers.export.error("No canvas found to export");
-          return;
-        }
-
-        const resultName = result.name || result.id.slice(0, 8);
-        const variant = availableVariants[selectedVariant];
-        const variantId = variant?.variant_id || "unknown";
-        const filename = getDefaultPlotFilename(
-          resultName,
-          variantId,
-          plotTypeForFilename,
-          format,
-        );
-
-        let imageData: Uint8Array;
-        if (format === "png") {
-          imageData = await canvasToPNG(canvas);
-        } else if (format === "svg") {
-          imageData = await canvasToSVG(canvas);
-        } else {
-          imageData = await canvasToPDF(canvas);
-        }
-
-        const savedPath = await TauriService.savePlotExportFile(
-          imageData,
-          format,
-          filename,
-        );
-        if (savedPath) {
-          loggers.export.info("Plot exported successfully", {
-            savedPath,
-            format,
-          });
-          toast.success(
-            "Plot exported",
-            `Saved as ${format.toUpperCase()} to ${savedPath.split("/").pop()}`,
-          );
-        }
-      } catch (error) {
-        loggers.export.error("Failed to export plot", { format, error });
-        toast.error(
-          "Export failed",
-          `Could not export plot as ${format.toUpperCase()}`,
-        );
-      }
-    },
-    [viewMode, selectedVariant, result, availableVariants],
-  );
-
-  const exportData = useCallback(
-    async (format: "csv" | "json") => {
-      try {
-        let content: string;
-        const variant = availableVariants[selectedVariant];
-        const variantId = variant?.variant_id;
-
-        if (format === "csv") {
-          content = exportDDAToCSV(result, {
-            variant: variantId,
-            channels: selectedChannels,
-          });
-        } else {
-          content = exportDDAToJSON(result, {
-            variant: variantId,
-            channels: selectedChannels,
-          });
-        }
-
-        const filename = getDefaultExportFilename(result, format, variantId);
-        const savedPath = await TauriService.saveDDAExportFile(
-          content,
-          format,
-          filename,
-        );
-
-        if (savedPath) {
-          loggers.export.info("Data exported successfully", {
-            savedPath,
-            format,
-          });
-          toast.success(
-            "Data exported",
-            `Saved as ${format.toUpperCase()} to ${savedPath.split("/").pop()}`,
-          );
-        }
-      } catch (error) {
-        loggers.export.error("Failed to export data", { format, error });
-        toast.error(
-          "Export failed",
-          `Could not export data as ${format.toUpperCase()}`,
-        );
-      }
-    },
-    [result, selectedVariant, selectedChannels, availableVariants],
-  );
-
-  const exportAllData = useCallback(
-    async (format: "csv" | "json") => {
-      try {
-        let content: string;
-
-        // Don't pass channels filter when exporting all variants
-        // Each variant has its own channel naming (e.g., CT has "CH1 ⟷ CH2", CD has "CH1 → CH2")
-        if (format === "csv") {
-          content = exportDDAToCSV(result, {});
-        } else {
-          content = exportDDAToJSON(result, {});
-        }
-
-        const filename = getDefaultExportFilename(result, format);
-        const savedPath = await TauriService.saveDDAExportFile(
-          content,
-          format,
-          filename,
-        );
-
-        if (savedPath) {
-          loggers.export.info("All variants exported successfully", {
-            savedPath,
-            format,
-            variantCount: availableVariants.length,
-          });
-          toast.success(
-            "All variants exported",
-            `Saved ${availableVariants.length} variants as ${format.toUpperCase()} to ${savedPath.split("/").pop()}`,
-          );
-        }
-      } catch (error) {
-        loggers.export.error("Failed to export all data", { format, error });
-        toast.error(
-          "Export failed",
-          `Could not export all variants as ${format.toUpperCase()}`,
-        );
-      }
-    },
-    [result, availableVariants.length],
-  );
-
   // Open share dialog
   const openShareDialog = useCallback(() => {
     setShowShareDialog(true);
   }, []);
-
-  // Handle share submission - called by ShareResultDialog
-  const handleShare = useCallback(
-    async (
-      title: string,
-      description: string,
-      accessPolicyType: AccessPolicyType,
-    ): Promise<string | null> => {
-      try {
-        const expiryDays = DEFAULT_EXPIRY_DAYS.unclassified;
-        const expiresAt = new Date(
-          Date.now() + expiryDays * 24 * 60 * 60 * 1000,
-        ).toISOString();
-        const accessPolicy: AccessPolicy = {
-          type: accessPolicyType,
-          institution_id: "", // Will be filled by backend from connection config
-          permissions: ["view", "download"],
-          expires_at: expiresAt,
-        };
-        const link = await shareResult(
-          result.id,
-          title,
-          description || null,
-          accessPolicy,
-        );
-        // Store the link so it persists when dialog is closed
-        sharedResultsRef.current.set(result.id, link);
-        toast.success(
-          "Share created",
-          "Your result is now shared with colleagues",
-        );
-        return link;
-      } catch (error) {
-        loggers.api.error("Failed to share result", { error });
-        toast.error(
-          "Share failed",
-          error instanceof Error ? error.message : "Could not share result",
-        );
-        return null;
-      }
-    },
-    [shareResult, result.id],
-  );
 
   // Re-render plots when dependencies change - using IntersectionObserver to detect visibility
   // Note: lastRenderedHeatmapKey and lastRenderedLinePlotKey are declared near the callback refs
@@ -1618,7 +1360,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
       {/* Visualization Area - Deferred rendering to prevent UI freeze */}
       {!showPlots && (
-        <Card className="mt-4">
+        <Card className="mt-4 animate-fade-in">
           <CardContent className="flex items-center justify-center p-12">
             <div className="text-center">
               <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
@@ -1634,7 +1376,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         <Tabs
           value={selectedVariant.toString()}
           onValueChange={(v) => setSelectedVariant(parseInt(v))}
-          className="mt-4 flex-1 flex flex-col gap-0"
+          className="mt-4 flex-1 flex flex-col gap-0 animate-fade-in"
         >
           <TabsList className="mb-0" style={{ marginBottom: 0 }}>
             {availableVariants.map((variant, index) => {
@@ -2001,7 +1743,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
           ))}
         </Tabs>
       ) : showPlots ? (
-        <div className="flex flex-col space-y-4">
+        <div className="flex flex-col space-y-4 animate-fade-in">
           {/* Single variant view */}
           {/* Heatmap */}
           {(viewMode === "heatmap" || viewMode === "all") && (
@@ -2326,7 +2068,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         onOpenChange={setShowShareDialog}
         result={result}
         onShare={handleShare}
-        existingShareLink={sharedResultsRef.current.get(result.id) || null}
+        existingShareLink={getExistingShareLink()}
       />
     </div>
   );

@@ -130,6 +130,8 @@ export interface UIState {
   expertMode: boolean;
   /** Tracks which panels are collapsed by their ID */
   collapsedPanels: Record<string, boolean>;
+  /** Active tab within DDA analysis (persists across file changes) */
+  ddaActiveTab: "configure" | "results";
 }
 
 export interface AnnotationState {
@@ -227,6 +229,7 @@ export interface UIActions {
   setPanelCollapsed: (panelId: string, collapsed: boolean) => void;
   togglePanelCollapsed: (panelId: string) => void;
   isPanelCollapsed: (panelId: string) => boolean;
+  setDDAActiveTab: (tab: UIState["ddaActiveTab"]) => void;
 }
 
 export interface AnnotationActions {

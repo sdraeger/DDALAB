@@ -62,9 +62,9 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
   );
   // Deferred mounting to prevent UI freeze
   const [showResults, setShowResults] = useState(false);
-  const [activeTab, setActiveTab] = useState<"configure" | "results">(
-    "configure",
-  );
+  // Use Zustand state for activeTab to persist across remounts/file changes
+  const activeTab = useAppStore((state) => state.ui.ddaActiveTab);
+  const setActiveTab = useAppStore((state) => state.setDDAActiveTab);
   const isSettingAnalysis = useRef(false);
 
   // Scroll traps for configure and results tabs

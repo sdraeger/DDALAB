@@ -12,21 +12,36 @@
 import { invoke } from "@tauri-apps/api/core";
 
 /**
+ * Monotonically increasing sequence counter for action ordering.
+ * This ensures correct ordering even when timestamps are identical (within the same millisecond).
+ * The sequence is combined with timestamp on the backend for stable sorting.
+ */
+let actionSequence = 0;
+
+/**
  * Helper to safely invoke workflow recording.
  * Catches errors silently to avoid disrupting user actions.
+ * Includes a timestamp and sequence number captured at the moment of the action to handle async ordering.
  */
 async function safeRecord(
   action: Record<string, unknown>,
   activeFileId: string | null,
 ): Promise<void> {
+  // Capture timestamp and sequence at the moment of the action, not when the async call completes
+  const timestamp = new Date().toISOString();
+  const sequence = actionSequence++;
   console.log("[WorkflowRecording] Recording action:", action.type, {
     activeFileId,
     data: action.data,
+    timestamp,
+    sequence,
   });
   try {
     await invoke("workflow_auto_record", {
       action,
       activeFileId,
+      timestamp,
+      sequence,
     });
     console.log(
       "[WorkflowRecording] Action recorded successfully:",

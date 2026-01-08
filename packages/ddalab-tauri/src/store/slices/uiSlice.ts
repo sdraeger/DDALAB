@@ -29,6 +29,7 @@ export const defaultUIState: UIState = {
   isServerReady: false,
   expertMode: false,
   collapsedPanels: {},
+  ddaActiveTab: "configure",
 };
 
 export const createUISlice: ImmerStateCreator<UISlice> = (set, get) => ({
@@ -250,5 +251,11 @@ export const createUISlice: ImmerStateCreator<UISlice> = (set, get) => ({
 
   isPanelCollapsed: (panelId) => {
     return get().ui.collapsedPanels[panelId] ?? false;
+  },
+
+  setDDAActiveTab: (tab) => {
+    set((state) => {
+      state.ui.ddaActiveTab = tab;
+    });
   },
 });
