@@ -321,43 +321,45 @@ export function DashboardLayout() {
 
       {/* Main Content Area */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Sidebar */}
-        {sidebarOpen ? (
-          <>
-            <div
-              className="flex-shrink-0 border-r bg-background overflow-hidden flex flex-col"
-              style={{ width: `${sidebarWidth}px` }}
-              data-testid="sidebar"
-            >
+        {/* Sidebar - smooth width transition */}
+        <div
+          className="flex-shrink-0 border-r bg-background overflow-hidden flex flex-col transition-[width] duration-slow ease-smooth-out"
+          style={{ width: sidebarOpen ? `${sidebarWidth}px` : "48px" }}
+          data-testid="sidebar"
+        >
+          {sidebarOpen ? (
+            <div className="animate-fade-in h-full">
               <ErrorBoundary>
                 <FileManager apiService={apiService} />
               </ErrorBoundary>
             </div>
-            <ResizeHandle
-              onResize={setSidebarWidth}
-              initialWidth={sidebarWidth}
-              minWidth={200}
-              maxWidth={600}
-            />
-          </>
-        ) : (
-          <div
-            className="w-12 flex-shrink-0 border-r bg-background hover:bg-accent transition-colors duration-200 cursor-pointer flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-ring"
-            onClick={() => setSidebarOpen(true)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                setSidebarOpen(true);
-              }
-            }}
-            tabIndex={0}
-            role="button"
-            aria-label="Expand sidebar"
-            aria-expanded="false"
-            title="Click or press Enter/Space to expand sidebar"
-          >
-            <PanelLeftOpen className="h-5 w-5 text-muted-foreground" />
-          </div>
+          ) : (
+            <div
+              className="w-full h-full hover:bg-accent transition-colors duration-fast cursor-pointer flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-ring animate-fade-in"
+              onClick={() => setSidebarOpen(true)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setSidebarOpen(true);
+                }
+              }}
+              tabIndex={0}
+              role="button"
+              aria-label="Expand sidebar"
+              aria-expanded="false"
+              title="Click or press Enter/Space to expand sidebar"
+            >
+              <PanelLeftOpen className="h-5 w-5 text-muted-foreground" />
+            </div>
+          )}
+        </div>
+        {sidebarOpen && (
+          <ResizeHandle
+            onResize={setSidebarWidth}
+            initialWidth={sidebarWidth}
+            minWidth={200}
+            maxWidth={600}
+          />
         )}
 
         {/* Content Area */}

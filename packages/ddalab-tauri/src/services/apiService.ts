@@ -229,36 +229,33 @@ export class ApiService {
 
     return withRetry(
       async () => {
-        // Get EDF-specific metadata from the correct endpoint
-        const edfResponse = await this.client.get(`/api/edf/info`, {
-          params: {
-            file_path: filePath,
-          },
-        });
+        const directory = filePath.substring(0, filePath.lastIndexOf("/"));
+        const fileName = filePath.split("/").pop() || filePath;
 
-        // Get file size from files list endpoint
+        // Parallelize EDF info and file listing requests for faster loading
+        const [edfResponse, filesResponse] = await Promise.all([
+          this.client.get(`/api/edf/info`, {
+            params: { file_path: filePath },
+          }),
+          this.client
+            .get(`/api/files/list`, {
+              params: { path: directory },
+            })
+            .catch(() => null), // Don't fail if file size lookup fails
+        ]);
+
+        // Extract file size from directory listing
         let fileSize = 0;
-        try {
-          const directory = filePath.substring(0, filePath.lastIndexOf("/"));
-          const fileName = filePath.split("/").pop() || filePath;
-
-          const filesResponse = await this.client.get(`/api/files/list`, {
-            params: {
-              path: directory,
-            },
-          });
-
-          const fileEntry = filesResponse.data.files?.find(
+        if (filesResponse?.data?.files) {
+          const fileEntry = filesResponse.data.files.find(
             (f: FileEntry) => f.name === fileName,
           );
           fileSize = fileEntry?.file_size || fileEntry?.size || 0;
-        } catch {
-          // File size retrieval failed silently
         }
 
         const fileInfo: EDFFileInfo = {
           file_path: filePath,
-          file_name: filePath.split("/").pop() || filePath,
+          file_name: fileName,
           file_size: fileSize,
           duration:
             edfResponse.data.duration || edfResponse.data.total_duration || 0,

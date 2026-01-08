@@ -237,6 +237,8 @@ mod tests {
             WorkflowAction::RunDDAAnalysis {
                 input_id: "node1".to_string(),
                 channel_selection: vec![0, 1, 2],
+                ct_channel_pairs: None,
+                cd_channel_pairs: None,
             },
         );
 
@@ -270,6 +272,8 @@ mod tests {
             WorkflowAction::RunDDAAnalysis {
                 input_id: "node1".to_string(),
                 channel_selection: vec![0, 1, 2],
+                ct_channel_pairs: None,
+                cd_channel_pairs: None,
             },
         );
 
@@ -310,6 +314,8 @@ mod tests {
             WorkflowAction::RunDDAAnalysis {
                 input_id: "node1".to_string(),
                 channel_selection: vec![0, 1, 2],
+                ct_channel_pairs: None,
+                cd_channel_pairs: None,
             },
         );
         let node3 = WorkflowNode::new(

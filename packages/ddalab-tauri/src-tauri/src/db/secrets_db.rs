@@ -12,6 +12,7 @@ use std::path::Path;
 
 /// Secure string that zeros its contents on drop
 /// Prevents credentials from lingering in memory
+#[derive(Debug)]
 pub struct SecureString(Vec<u8>);
 
 impl SecureString {

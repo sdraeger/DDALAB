@@ -12,6 +12,8 @@ pub struct BufferedAction {
     pub action: WorkflowAction,
     /// When the action was performed
     pub timestamp: DateTime<Utc>,
+    /// Monotonically increasing sequence number for stable ordering within same timestamp
+    pub sequence: u64,
     /// Which file was active when this action was performed
     pub active_file_id: Option<String>,
     /// Whether this action was auto-generated (vs user-initiated)
@@ -23,6 +25,7 @@ impl BufferedAction {
         Self {
             action,
             timestamp: Utc::now(),
+            sequence: 0,
             active_file_id: None,
             auto_generated: false,
         }
@@ -121,13 +124,23 @@ impl ActionBuffer {
 
     /// Convert buffered actions to a WorkflowGraph
     /// This creates a linear DAG with sequential dependencies
+    /// Actions are sorted by (timestamp, sequence) to ensure correct ordering even if
+    /// they arrived out of order due to async IPC timing
     pub fn to_workflow(&self, workflow_name: String) -> anyhow::Result<WorkflowGraph> {
         let mut workflow = WorkflowGraph::new(workflow_name);
 
-        let actions = self.get_all();
+        let mut actions = self.get_all();
         if actions.is_empty() {
             return Ok(workflow);
         }
+
+        // Sort actions by (timestamp, sequence) for stable ordering
+        // Sequence breaks ties when timestamps are identical (within same millisecond)
+        actions.sort_by(|a, b| {
+            a.timestamp
+                .cmp(&b.timestamp)
+                .then_with(|| a.sequence.cmp(&b.sequence))
+        });
 
         let mut prev_node_id: Option<String> = None;
 
@@ -138,6 +151,7 @@ impl ActionBuffer {
             // Create workflow node
             let mut node = WorkflowNode::new(node_id.clone(), buffered_action.action.clone());
             node.timestamp = buffered_action.timestamp;
+            node.sequence = buffered_action.sequence;
 
             // Add metadata about the action
             node.metadata.tags = if buffered_action.auto_generated {
@@ -170,6 +184,8 @@ impl ActionBuffer {
     }
 
     /// Convert a subset of actions (e.g., last 5 minutes) to a WorkflowGraph
+    /// Actions are sorted by (timestamp, sequence) to ensure correct ordering even if
+    /// they arrived out of order due to async IPC timing
     pub fn to_workflow_from_subset(
         &self,
         actions: Vec<BufferedAction>,
@@ -181,12 +197,22 @@ impl ActionBuffer {
             return Ok(workflow);
         }
 
+        // Sort actions by (timestamp, sequence) for stable ordering
+        // Sequence breaks ties when timestamps are identical (within same millisecond)
+        let mut sorted_actions = actions;
+        sorted_actions.sort_by(|a, b| {
+            a.timestamp
+                .cmp(&b.timestamp)
+                .then_with(|| a.sequence.cmp(&b.sequence))
+        });
+
         let mut prev_node_id: Option<String> = None;
 
-        for (idx, buffered_action) in actions.iter().enumerate() {
+        for (idx, buffered_action) in sorted_actions.iter().enumerate() {
             let node_id = format!("action_{}", idx);
             let mut node = WorkflowNode::new(node_id.clone(), buffered_action.action.clone());
             node.timestamp = buffered_action.timestamp;
+            node.sequence = buffered_action.sequence;
 
             node.metadata.tags = if buffered_action.auto_generated {
                 vec!["auto-generated".to_string()]

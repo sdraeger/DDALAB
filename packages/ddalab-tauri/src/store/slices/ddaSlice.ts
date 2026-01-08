@@ -132,22 +132,27 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
     });
 
     if (TauriService.isTauri()) {
-      // Capture state immediately to avoid race condition
+      // Capture state immediately to avoid race conditions
       const { dda, fileManager } = get();
       const ddaState = createPersistedDDAState(dda, {
         last_analysis_id: analysis?.id || null,
         current_analysis: analysis,
       });
-      const selectedFilePath = fileManager.selectedFile?.file_path;
+      const selectedFilePath = analysis
+        ? fileManager.selectedFile?.file_path
+        : undefined;
+      const analysisHistory = dda.analysisHistory;
+      const analysisParameters = dda.analysisParameters;
+      const currentAnalysisId = analysis?.id;
 
-      setTimeout(() => {
+      queueMicrotask(() => {
         persistDDAState(ddaState, {
-          selectedFilePath: analysis ? selectedFilePath : undefined,
-          analysisHistory: dda.analysisHistory,
-          analysisParameters: dda.analysisParameters,
-          currentAnalysisId: analysis?.id,
+          selectedFilePath,
+          analysisHistory,
+          analysisParameters,
+          currentAnalysisId,
         });
-      }, 0);
+      });
     }
   },
 
@@ -170,18 +175,22 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
     });
 
     if (TauriService.isTauri()) {
-      setTimeout(() => {
-        const { dda, fileManager } = get();
-        const ddaState = createPersistedDDAState(dda);
-        const selectedFilePath = fileManager.selectedFile?.file_path;
+      // Capture state immediately to avoid race conditions with setTimeout
+      const { dda, fileManager } = get();
+      const ddaState = createPersistedDDAState(dda);
+      const selectedFilePath = fileManager.selectedFile?.file_path;
+      const analysisHistory = dda.analysisHistory;
+      const analysisParameters = dda.analysisParameters;
+      const currentAnalysisId = dda.currentAnalysis?.id;
 
+      queueMicrotask(() => {
         persistDDAState(ddaState, {
           selectedFilePath,
-          analysisHistory: dda.analysisHistory,
-          analysisParameters: dda.analysisParameters,
-          currentAnalysisId: dda.currentAnalysis?.id,
+          analysisHistory,
+          analysisParameters,
+          currentAnalysisId,
         });
-      }, 0);
+      });
     }
   },
 

@@ -9,6 +9,15 @@
 *:focus-visible {
   outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;
+  transition:
+    outline-offset 150ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Non-focused state prepares for smooth transition */
+*:focus:not(:focus-visible) {
+  outline: 2px solid transparent;
+  outline-offset: 0px;
 }
 
 /* Enhanced focus for buttons */
@@ -16,7 +25,7 @@ button:focus-visible,
 a:focus-visible {
   outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;
-  box-shadow: 0 0 0 4px hsl(var(--ring) / 0.1);
+  box-shadow: 0 0 0 4px hsl(var(--ring) / 0.15);
 }
 
 /* Focus for form inputs */
@@ -26,6 +35,7 @@ select:focus-visible {
   outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;
   border-color: hsl(var(--ring));
+  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.1);
 }
 
 /* Focus for custom interactive elements */

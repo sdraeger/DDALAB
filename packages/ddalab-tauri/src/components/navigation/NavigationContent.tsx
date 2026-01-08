@@ -7,6 +7,8 @@ import {
   useEffect,
   useState,
   useRef,
+  memo,
+  type ReactNode,
 } from "react";
 import type { LucideIcon } from "lucide-react";
 import { useAppStore } from "@/store/appStore";
@@ -19,6 +21,107 @@ import { BIDSContextIndicator } from "@/components/BIDSContextIndicator";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Card, CardContent } from "@/components/ui/card";
 import { Brain, Activity, FileText, Sparkles, Loader2 } from "lucide-react";
+
+/**
+ * MountedView - Keeps children mounted but hidden when inactive.
+ * This preserves component state (chart instances, scroll positions, etc.)
+ * across tab switches instead of unmounting/remounting.
+ */
+interface MountedViewProps {
+  isActive: boolean;
+  children: ReactNode;
+  /** Only render after first activation (lazy mount) */
+  lazyMount?: boolean;
+}
+
+function MountedView({
+  isActive,
+  children,
+  lazyMount = true,
+}: MountedViewProps) {
+  const hasBeenActiveRef = useRef(isActive);
+
+  // Track if this view has ever been active
+  if (isActive && !hasBeenActiveRef.current) {
+    hasBeenActiveRef.current = true;
+  }
+
+  // If lazyMount is enabled, don't render until first activation
+  if (lazyMount && !hasBeenActiveRef.current) {
+    return null;
+  }
+
+  return (
+    <div
+      className="h-full w-full"
+      style={{
+        display: isActive ? "block" : "none",
+        // Prevent hidden views from affecting layout measurements
+        visibility: isActive ? "visible" : "hidden",
+      }}
+      // Improve accessibility by hiding inactive views from screen readers
+      aria-hidden={!isActive}
+      // Prevent tab navigation into hidden views
+      inert={!isActive || undefined}
+    >
+      {children}
+    </div>
+  );
+}
+
+/**
+ * FileGatedContent - Renders both the main content and empty state,
+ * showing/hiding based on file selection. Unlike conditional rendering,
+ * this keeps both components mounted to preserve state.
+ */
+interface FileGatedContentProps {
+  hasFile: boolean;
+  children: ReactNode;
+  emptyIcon: LucideIcon;
+  emptyTitle: string;
+  emptyDescription: string;
+}
+
+function FileGatedContent({
+  hasFile,
+  children,
+  emptyIcon: Icon,
+  emptyTitle,
+  emptyDescription,
+}: FileGatedContentProps) {
+  return (
+    <>
+      {/* Main content - always mounted, visibility controlled */}
+      <div
+        className="h-full w-full"
+        style={{
+          display: hasFile ? "block" : "none",
+          visibility: hasFile ? "visible" : "hidden",
+        }}
+        aria-hidden={!hasFile}
+        inert={!hasFile || undefined}
+      >
+        {children}
+      </div>
+      {/* Empty state - always mounted, visibility controlled */}
+      <div
+        className="h-full w-full flex items-center justify-center"
+        style={{
+          display: hasFile ? "none" : "flex",
+          visibility: hasFile ? "hidden" : "visible",
+        }}
+        aria-hidden={hasFile}
+        inert={hasFile || undefined}
+      >
+        <div className="text-center">
+          <Icon className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-50" />
+          <h3 className="text-lg font-medium mb-2">{emptyTitle}</h3>
+          <p className="text-muted-foreground">{emptyDescription}</p>
+        </div>
+      </div>
+    </>
+  );
+}
 
 // Lazy load heavy components to reduce initial bundle size
 // These are only loaded when their respective navigation tabs are accessed
@@ -145,41 +248,28 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
     (actionType: string, _actionData: unknown) => {
       switch (actionType) {
         case "view-analysis":
-          // Navigate to DDA analysis view
           setPrimaryNav("analyze");
           setSecondaryNav("dda");
           break;
-
         case "view-timeseries":
-          // Navigate to time series view
           setPrimaryNav("explore");
           setSecondaryNav("timeseries");
           break;
-
         case "view-annotations":
-          // Navigate to annotations view
           setPrimaryNav("explore");
           setSecondaryNav("annotations");
           break;
-
         case "view-file":
-          // Navigate to file manager in sidebar (primary nav stays, but we could highlight the file)
-          // For now, just navigate to explore/timeseries
           setPrimaryNav("explore");
           setSecondaryNav("timeseries");
           break;
-
         case "view-settings":
-          // Navigate to settings
           setPrimaryNav("settings");
           break;
-
         case "view-ica":
-          // Navigate to ICA analysis
           setPrimaryNav("analyze");
           setSecondaryNav("ica");
           break;
-
         default:
           console.warn("[NAV] Unknown notification action type:", actionType);
       }
@@ -187,22 +277,30 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
     [setPrimaryNav, setSecondaryNav],
   );
 
-  // Overview
-  if (primaryNav === "overview") {
-    return (
-      <div className="p-6">
-        <OverviewDashboard />
-      </div>
-    );
-  }
+  // Render all views but show/hide based on navigation state.
+  // This keeps components mounted so they preserve their internal state
+  // (chart instances, scroll positions, refs, etc.) across tab switches.
+  return (
+    <div className="h-full w-full relative">
+      {/* Overview */}
+      <MountedView isActive={primaryNav === "overview"}>
+        <div className="p-6 h-full">
+          <OverviewDashboard />
+        </div>
+      </MountedView>
 
-  // Explore
-  if (primaryNav === "explore") {
-    if (secondaryNav === "timeseries") {
-      return (
-        <div className="p-4 h-full flex flex-col gap-3">
-          {hasSelectedFile ? (
-            <>
+      {/* Explore - Time Series */}
+      <MountedView
+        isActive={primaryNav === "explore" && secondaryNav === "timeseries"}
+      >
+        <div className="p-4 h-full">
+          <FileGatedContent
+            hasFile={hasSelectedFile}
+            emptyIcon={Activity}
+            emptyTitle="No File Selected"
+            emptyDescription="Select a file from the sidebar to view time series data"
+          >
+            <div className="h-full flex flex-col gap-3">
               <BIDSContextIndicator variant="full" />
               <div className="flex-1 min-h-0 overflow-y-auto">
                 <ErrorBoundary>
@@ -211,126 +309,99 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
                   </Suspense>
                 </ErrorBoundary>
               </div>
-            </>
-          ) : (
-            <EmptyState
-              icon={Activity}
-              title="No File Selected"
-              description="Select a file from the sidebar to view time series data"
-            />
-          )}
+            </div>
+          </FileGatedContent>
         </div>
-      );
-    }
+      </MountedView>
 
-    if (secondaryNav === "annotations") {
-      return (
+      {/* Explore - Annotations */}
+      <MountedView
+        isActive={primaryNav === "explore" && secondaryNav === "annotations"}
+      >
         <div className="p-4 h-full">
           <Suspense fallback={<DelayedLoadingFallback />}>
             <AnnotationsTab />
           </Suspense>
         </div>
-      );
-    }
+      </MountedView>
 
-    if (secondaryNav === "streaming") {
-      return (
+      {/* Explore - Streaming */}
+      <MountedView
+        isActive={primaryNav === "explore" && secondaryNav === "streaming"}
+      >
         <div className="p-4 h-full">
           <Suspense fallback={<DelayedLoadingFallback />}>
             <StreamingView />
           </Suspense>
         </div>
-      );
-    }
+      </MountedView>
 
-    return (
-      <ComingSoonPlaceholder
-        feature={secondaryNav || "Feature"}
-        category="Data Visualization"
-      />
-    );
-  }
-
-  // Analyze (DDA and ICA)
-  if (primaryNav === "analyze") {
-    // DDA tab (default)
-    if (secondaryNav === "dda" || !secondaryNav) {
-      return (
-        <div className="h-full flex flex-col">
-          {hasSelectedFile ? (
-            <>
-              <div className="px-4 pt-4 pb-2">
-                <BIDSContextIndicator variant="breadcrumb" />
-              </div>
-              <div className="flex-1 min-h-0">
-                <Suspense fallback={<DelayedLoadingFallback />}>
-                  <DDAWithHistory apiService={apiService} />
-                </Suspense>
-              </div>
-            </>
-          ) : (
-            <div className="p-4 h-full">
-              <EmptyState
-                icon={Brain}
-                title="No File Selected"
-                description="Select a file from the sidebar to run DDA analysis"
-              />
+      {/* Analyze - DDA */}
+      <MountedView
+        isActive={
+          primaryNav === "analyze" && (secondaryNav === "dda" || !secondaryNav)
+        }
+      >
+        <FileGatedContent
+          hasFile={hasSelectedFile}
+          emptyIcon={Brain}
+          emptyTitle="No File Selected"
+          emptyDescription="Select a file from the sidebar to run DDA analysis"
+        >
+          <div className="h-full flex flex-col">
+            <div className="px-4 pt-4 pb-2">
+              <BIDSContextIndicator variant="breadcrumb" />
             </div>
-          )}
-        </div>
-      );
-    }
-
-    // ICA tab
-    if (secondaryNav === "ica") {
-      return (
-        <div className="h-full flex flex-col">
-          {hasSelectedFile ? (
-            <>
-              <div className="px-4 pt-4 pb-2">
-                <BIDSContextIndicator variant="breadcrumb" />
-              </div>
-              <div className="flex-1 min-h-0">
-                <Suspense fallback={<DelayedLoadingFallback />}>
-                  <ICAAnalysisPanel apiService={apiService} />
-                </Suspense>
-              </div>
-            </>
-          ) : (
-            <div className="p-4 h-full">
-              <EmptyState
-                icon={Sparkles}
-                title="No File Selected"
-                description="Select a file from the sidebar to run ICA analysis"
-              />
+            <div className="flex-1 min-h-0">
+              <Suspense fallback={<DelayedLoadingFallback />}>
+                <DDAWithHistory apiService={apiService} />
+              </Suspense>
             </div>
-          )}
-        </div>
-      );
-    }
+          </div>
+        </FileGatedContent>
+      </MountedView>
 
-    return (
-      <ComingSoonPlaceholder
-        feature={secondaryNav || "Feature"}
-        category="Analysis"
-      />
-    );
-  }
+      {/* Analyze - ICA */}
+      <MountedView
+        isActive={primaryNav === "analyze" && secondaryNav === "ica"}
+      >
+        <FileGatedContent
+          hasFile={hasSelectedFile}
+          emptyIcon={Sparkles}
+          emptyTitle="No File Selected"
+          emptyDescription="Select a file from the sidebar to run ICA analysis"
+        >
+          <div className="h-full flex flex-col">
+            <div className="px-4 pt-4 pb-2">
+              <BIDSContextIndicator variant="breadcrumb" />
+            </div>
+            <div className="flex-1 min-h-0">
+              <Suspense fallback={<DelayedLoadingFallback />}>
+                <ICAAnalysisPanel apiService={apiService} />
+              </Suspense>
+            </div>
+          </div>
+        </FileGatedContent>
+      </MountedView>
 
-  // Data (OpenNeuro, NSG Jobs)
-  if (primaryNav === "data") {
-    if (secondaryNav === "openneuro" || !secondaryNav) {
-      return (
+      {/* Data - OpenNeuro */}
+      <MountedView
+        isActive={
+          primaryNav === "data" &&
+          (secondaryNav === "openneuro" || !secondaryNav)
+        }
+      >
         <div className="p-4 h-full">
           <Suspense fallback={<DelayedLoadingFallback />}>
             <OpenNeuroBrowser />
           </Suspense>
         </div>
-      );
-    }
+      </MountedView>
 
-    if (secondaryNav === "nsg-jobs") {
-      return (
+      {/* Data - NSG Jobs */}
+      <MountedView
+        isActive={primaryNav === "data" && secondaryNav === "nsg-jobs"}
+      >
         <div className="p-4 h-full">
           <ErrorBoundary>
             <Suspense fallback={<DelayedLoadingFallback />}>
@@ -338,53 +409,38 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
             </Suspense>
           </ErrorBoundary>
         </div>
-      );
-    }
+      </MountedView>
 
-    return (
-      <ComingSoonPlaceholder
-        feature={secondaryNav || "Feature"}
-        category="Data"
-      />
-    );
-  }
+      {/* Collaborate */}
+      <MountedView isActive={primaryNav === "collaborate"}>
+        <div className="h-full">
+          <ErrorBoundary>
+            <Suspense fallback={<DelayedLoadingFallback />}>
+              <CollaborationPanel />
+            </Suspense>
+          </ErrorBoundary>
+        </div>
+      </MountedView>
 
-  // Collaborate
-  if (primaryNav === "collaborate") {
-    return (
-      <div className="h-full">
-        <ErrorBoundary>
+      {/* Settings */}
+      <MountedView isActive={primaryNav === "settings"}>
+        <div className="p-4 h-full">
           <Suspense fallback={<DelayedLoadingFallback />}>
-            <CollaborationPanel />
+            <SettingsPanel />
           </Suspense>
-        </ErrorBoundary>
-      </div>
-    );
-  }
+        </div>
+      </MountedView>
 
-  // Settings
-  if (primaryNav === "settings") {
-    return (
-      <div className="p-4 h-full">
-        <Suspense fallback={<DelayedLoadingFallback />}>
-          <SettingsPanel />
-        </Suspense>
-      </div>
-    );
-  }
-
-  // Notifications
-  if (primaryNav === "notifications") {
-    return (
-      <div className="p-4 h-full">
-        <Suspense fallback={<DelayedLoadingFallback />}>
-          <NotificationHistory onNavigate={handleNotificationNavigate} />
-        </Suspense>
-      </div>
-    );
-  }
-
-  return <div className="p-6">Unknown navigation state</div>;
+      {/* Notifications */}
+      <MountedView isActive={primaryNav === "notifications"}>
+        <div className="p-4 h-full">
+          <Suspense fallback={<DelayedLoadingFallback />}>
+            <NotificationHistory onNavigate={handleNotificationNavigate} />
+          </Suspense>
+        </div>
+      </MountedView>
+    </div>
+  );
 }
 
 function OverviewDashboard() {
@@ -483,26 +539,6 @@ function OverviewDashboard() {
           </CardContent>
         </Card>
       )}
-    </div>
-  );
-}
-
-function EmptyState({
-  icon: Icon,
-  title,
-  description,
-}: {
-  icon: LucideIcon;
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="flex items-center justify-center h-full">
-      <div className="text-center">
-        <Icon className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-50" />
-        <h3 className="text-lg font-medium mb-2">{title}</h3>
-        <p className="text-muted-foreground">{description}</p>
-      </div>
     </div>
   );
 }

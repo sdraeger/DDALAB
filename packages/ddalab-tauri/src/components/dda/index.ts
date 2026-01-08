@@ -16,3 +16,15 @@ export { ParameterInput } from "./ParameterInput";
 export { PlotLoadingSkeleton } from "./PlotLoadingSkeleton";
 export { VariantChannelConfig } from "./VariantChannelConfig";
 export { ViewModeSelector, type ViewMode } from "./ViewModeSelector";
+
+// Plot components (extracted from DDAResults.tsx for better maintainability)
+export {
+  DDAHeatmapPlot,
+  type DDAHeatmapPlotProps,
+  type DDAHeatmapPlotHandle,
+} from "./DDAHeatmapPlot";
+export {
+  DDALinePlot,
+  type DDALinePlotProps,
+  type DDALinePlotHandle,
+} from "./DDALinePlot";
