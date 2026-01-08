@@ -59,6 +59,40 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  /*
+   * Global Smooth Transitions
+   * Makes all interactive elements feel responsive and polished.
+   * Uses Apple-inspired easing curve (ease-out) for natural deceleration.
+   */
+  button:not([data-no-transition]),
+  a:not([data-no-transition]),
+  [role="button"]:not([data-no-transition]),
+  [role="tab"]:not([data-no-transition]),
+  [role="menuitem"]:not([data-no-transition]),
+  [role="option"]:not([data-no-transition]),
+  [role="checkbox"]:not([data-no-transition]),
+  [role="switch"]:not([data-no-transition]),
+  input:not([data-no-transition]),
+  select:not([data-no-transition]),
+  textarea:not([data-no-transition]) {
+    transition-property:
+      background-color, border-color, color, fill, stroke, opacity, box-shadow,
+      transform;
+    transition-duration: 150ms;
+    transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  /* Subtle press feedback - makes buttons feel tactile */
+  button:active:not(:disabled):not([data-no-transition]),
+  [role="button"]:active:not([aria-disabled="true"]):not([data-no-transition]) {
+    transform: scale(0.98);
+  }
+
+  /* Smooth background/theme transitions */
+  html {
+    transition: background-color 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
 }
 
 @layer utilities {

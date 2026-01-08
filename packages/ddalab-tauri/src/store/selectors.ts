@@ -73,14 +73,15 @@ export function useSelectedFile() {
 }
 
 /**
- * Get only selected channels
+ * Get only selected channels (combined selector to avoid double re-renders)
  */
 export function useSelectedChannels() {
-  const selectedChannels = useAppStore(
-    useShallow((state) => state.fileManager.selectedChannels),
+  return useAppStore(
+    useShallow((state) => ({
+      selectedChannels: state.fileManager.selectedChannels,
+      setSelectedChannels: state.setSelectedChannels,
+    })),
   );
-  const setSelectedChannels = useAppStore((state) => state.setSelectedChannels);
-  return { selectedChannels, setSelectedChannels };
 }
 
 // ============================================================================
@@ -114,11 +115,15 @@ export function usePlotStore() {
 }
 
 /**
- * Get chart height specifically (for resize)
+ * Get chart height specifically (for resize, combined selector)
  */
 export function useChartHeight() {
-  const chartHeight = useAppStore((state) => state.plot.chartHeight);
-  const updatePlotState = useAppStore((state) => state.updatePlotState);
+  const { chartHeight, updatePlotState } = useAppStore(
+    useShallow((state) => ({
+      chartHeight: state.plot.chartHeight,
+      updatePlotState: state.updatePlotState,
+    })),
+  );
   const setChartHeight = (height: number) =>
     updatePlotState({ chartHeight: height });
   return { chartHeight, setChartHeight };
@@ -167,12 +172,15 @@ export function useCurrentAnalysis() {
 }
 
 /**
- * Get DDA running state
+ * Get DDA running state (combined selector to avoid double re-renders)
  */
 export function useDDARunning() {
-  const isRunning = useAppStore((state) => state.dda.isRunning);
-  const setDDARunning = useAppStore((state) => state.setDDARunning);
-  return { isRunning, setDDARunning };
+  return useAppStore(
+    useShallow((state) => ({
+      isRunning: state.dda.isRunning,
+      setDDARunning: state.setDDARunning,
+    })),
+  );
 }
 
 // ============================================================================
@@ -247,12 +255,15 @@ export function useSidebar() {
 }
 
 /**
- * Get theme state
+ * Get theme state (combined selector to avoid double re-renders)
  */
 export function useTheme() {
-  const theme = useAppStore((state) => state.ui.theme);
-  const setTheme = useAppStore((state) => state.setTheme);
-  return { theme, setTheme };
+  return useAppStore(
+    useShallow((state) => ({
+      theme: state.ui.theme,
+      setTheme: state.setTheme,
+    })),
+  );
 }
 
 /**

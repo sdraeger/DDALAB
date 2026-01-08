@@ -331,6 +331,8 @@ pub async fn workflow_auto_record(
     state: State<'_, Arc<RwLock<WorkflowState>>>,
     action: WorkflowAction,
     active_file_id: Option<String>,
+    timestamp: Option<String>,
+    sequence: Option<u64>,
 ) -> Result<(), String> {
     let workflow_state = state.read();
 
@@ -339,9 +341,22 @@ pub async fn workflow_auto_record(
         return Ok(());
     }
 
-    let buffered_action = BufferedAction::new(action)
+    let mut buffered_action = BufferedAction::new(action)
         .with_file_context(active_file_id)
         .with_auto_generated(false);
+
+    // Use frontend timestamp if provided (captures when action actually occurred)
+    // This handles async IPC timing issues where actions may arrive out of order
+    if let Some(ts) = timestamp {
+        if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(&ts) {
+            buffered_action.timestamp = parsed.with_timezone(&chrono::Utc);
+        }
+    }
+
+    // Use frontend sequence number for stable ordering when timestamps are identical
+    if let Some(seq) = sequence {
+        buffered_action.sequence = seq;
+    }
 
     workflow_state.action_buffer.write().record(buffered_action);
     Ok(())

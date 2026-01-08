@@ -1539,7 +1539,8 @@ mod tests {
         let result = generator.generate_python(&workflow);
         assert!(result.is_ok());
         let code = result.unwrap();
-        assert!(code.contains("load_edf_file"));
+        // LoadFile action generates file_path assignment
+        assert!(code.contains("file_path = "));
         assert!(code.contains("/test/data.edf"));
     }
 

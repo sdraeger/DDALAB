@@ -211,6 +211,9 @@ pub struct WorkflowNode {
     pub id: String,
     pub action: WorkflowAction,
     pub timestamp: DateTime<Utc>,
+    /// Sequence number for stable ordering when timestamps are identical
+    #[serde(default)]
+    pub sequence: u64,
     pub metadata: NodeMetadata,
 }
 
@@ -227,6 +230,7 @@ impl WorkflowNode {
             id,
             action,
             timestamp: Utc::now(),
+            sequence: 0,
             metadata: NodeMetadata {
                 description: None,
                 tags: Vec::new(),

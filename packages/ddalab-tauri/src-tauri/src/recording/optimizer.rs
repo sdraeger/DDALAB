@@ -161,23 +161,49 @@ impl OptimizationPass for DeadCodeEliminationPass {
         let nodes = workflow.get_all_nodes();
         let mut skip_nodes = std::collections::HashSet::new();
 
-        // Track if we ever run an analysis
-        let has_analysis = nodes
+        // Find the index of the last RunDDAAnalysis action
+        let last_analysis_idx = nodes
             .iter()
-            .any(|n| matches!(n.action, WorkflowAction::RunDDAAnalysis { .. }));
+            .enumerate()
+            .filter(|(_, n)| matches!(n.action, WorkflowAction::RunDDAAnalysis { .. }))
+            .map(|(idx, _)| idx)
+            .last();
 
-        if !has_analysis {
-            // No analysis = keep everything (might be for visualization only)
+        // If no analysis exists, keep everything (might be for visualization only)
+        let Some(last_analysis_idx) = last_analysis_idx else {
             return Ok(workflow.clone());
+        };
+
+        // Mark setup actions AFTER the last analysis as dead code
+        // These are actions that were recorded out of order due to async timing
+        for (idx, node) in nodes.iter().enumerate() {
+            if idx > last_analysis_idx {
+                match &node.action {
+                    // Setup actions that should come before analysis
+                    WorkflowAction::LoadFile { .. }
+                    | WorkflowAction::SelectChannels { .. }
+                    | WorkflowAction::DeselectChannels { .. }
+                    | WorkflowAction::SelectAllChannels
+                    | WorkflowAction::ClearChannelSelection
+                    | WorkflowAction::SelectDDAVariants { .. }
+                    | WorkflowAction::SetDDAParameters { .. }
+                    | WorkflowAction::SetDelayList { .. }
+                    | WorkflowAction::SetModelParameters { .. }
+                    | WorkflowAction::SetTimeWindow { .. }
+                    | WorkflowAction::SetChunkWindow { .. } => {
+                        skip_nodes.insert(node.id.clone());
+                    }
+                    _ => {}
+                }
+            }
         }
 
-        // Remove actions that are overwritten before use
-        // Example: LoadFile → LoadFile (same path) → Analysis
-        //          Only keep the last LoadFile
-
+        // Remove duplicate LoadFile actions (keep only the last one before analysis)
         let mut last_load_file: Option<(String, String)> = None; // (node_id, path)
-
-        for node in &nodes {
+        for (idx, node) in nodes.iter().enumerate() {
+            if idx > last_analysis_idx {
+                break;
+            }
             match &node.action {
                 WorkflowAction::LoadFile { path, .. } => {
                     if let Some((prev_id, prev_path)) = &last_load_file {
@@ -191,6 +217,27 @@ impl OptimizationPass for DeadCodeEliminationPass {
                 WorkflowAction::RunDDAAnalysis { .. } => {
                     // Analysis uses whatever was loaded, so stop tracking
                     last_load_file = None;
+                }
+                _ => {}
+            }
+        }
+
+        // Remove duplicate SelectDDAVariants (keep only the last one before analysis)
+        let mut last_variants_node: Option<String> = None;
+        for (idx, node) in nodes.iter().enumerate() {
+            if idx > last_analysis_idx {
+                break;
+            }
+            match &node.action {
+                WorkflowAction::SelectDDAVariants { .. } => {
+                    if let Some(prev_id) = &last_variants_node {
+                        skip_nodes.insert(prev_id.clone());
+                    }
+                    last_variants_node = Some(node.id.clone());
+                }
+                WorkflowAction::RunDDAAnalysis { .. } => {
+                    // Analysis uses variants, reset tracking
+                    last_variants_node = None;
                 }
                 _ => {}
             }
@@ -337,7 +384,8 @@ impl OptimizationPass for ChannelSelectionSimplificationPass {
 // Pass 4: Dependency-Aware Ordering
 // ============================================================================
 
-/// Ensures actions are ordered correctly based on dependencies
+/// Ensures actions are ordered correctly based on timestamps
+/// This is the final pass that establishes the canonical order for code generation
 pub struct DependencyAwareOrderingPass;
 
 impl OptimizationPass for DependencyAwareOrderingPass {
@@ -346,32 +394,35 @@ impl OptimizationPass for DependencyAwareOrderingPass {
     }
 
     fn optimize(&self, workflow: &WorkflowGraph) -> anyhow::Result<WorkflowGraph> {
-        // Get topological order
-        let ordered_ids = workflow.get_topological_order()?;
-
         let mut optimized = WorkflowGraph::new(workflow.metadata.name.clone());
         optimized.metadata = workflow.metadata.clone();
 
-        // Add nodes in topological order
-        for id in &ordered_ids {
-            if let Some(node) = workflow.get_node(id) {
-                optimized.add_node(node.clone())?;
-            }
-        }
+        // Get all nodes and sort by (timestamp, sequence) for stable ordering
+        // Sequence breaks ties when timestamps are identical (within same millisecond)
+        let mut nodes: Vec<_> = workflow.get_all_nodes().into_iter().cloned().collect();
+        nodes.sort_by(|a, b| {
+            a.timestamp
+                .cmp(&b.timestamp)
+                .then_with(|| a.sequence.cmp(&b.sequence))
+        });
 
-        // Rebuild edges based on implicit dependencies
-        for i in 0..ordered_ids.len() {
-            if i + 1 < ordered_ids.len() {
-                let source = &ordered_ids[i];
-                let target = &ordered_ids[i + 1];
+        // Renumber nodes sequentially to reflect the correct order
+        let mut prev_node_id: Option<String> = None;
+        for (idx, mut node) in nodes.into_iter().enumerate() {
+            let new_id = format!("action_{}", idx);
+            node.id = new_id.clone();
+            optimized.add_node(node)?;
 
-                // Add sequential edge
+            // Create sequential edge from previous node
+            if let Some(ref prev_id) = prev_node_id {
                 optimized.add_edge(super::actions::WorkflowEdge {
-                    source: source.clone(),
-                    target: target.clone(),
+                    source: prev_id.clone(),
+                    target: new_id.clone(),
                     dependency_type: super::actions::DependencyType::OrderDependency,
                 })?;
             }
+
+            prev_node_id = Some(new_id);
         }
 
         Ok(optimized)
@@ -416,8 +467,8 @@ mod tests {
         let optimized = pass.optimize(&workflow).unwrap();
 
         // Should have only 1 SetDDAParameters with final values
-        let param_nodes: Vec<_> = optimized
-            .get_all_nodes()
+        let all_nodes = optimized.get_all_nodes();
+        let param_nodes: Vec<_> = all_nodes
             .iter()
             .filter(|n| matches!(n.action, WorkflowAction::SetDDAParameters { .. }))
             .collect();
@@ -482,8 +533,8 @@ mod tests {
         let optimized = pass.optimize(&workflow).unwrap();
 
         // Should have only 1 SelectChannels with final state: [0, 2, 4]
-        let select_nodes: Vec<_> = optimized
-            .get_all_nodes()
+        let all_nodes = optimized.get_all_nodes();
+        let select_nodes: Vec<_> = all_nodes
             .iter()
             .filter(|n| matches!(n.action, WorkflowAction::SelectChannels { .. }))
             .collect();
@@ -493,5 +544,165 @@ mod tests {
         if let WorkflowAction::SelectChannels { channel_indices } = &select_nodes[0].action {
             assert_eq!(channel_indices, &vec![0, 2, 4]);
         }
+    }
+
+    #[test]
+    fn test_dead_code_elimination_removes_post_analysis_setup() {
+        let mut workflow = WorkflowGraph::new("test".to_string());
+
+        // Setup before analysis (should be kept)
+        workflow
+            .add_node(WorkflowNode::new(
+                "load1".to_string(),
+                WorkflowAction::LoadFile {
+                    path: "/test/file.edf".to_string(),
+                    file_type: FileType::EDF,
+                },
+            ))
+            .unwrap();
+
+        workflow
+            .add_node(WorkflowNode::new(
+                "params".to_string(),
+                WorkflowAction::SetDDAParameters {
+                    window_length: 128,
+                    window_step: 10,
+                    ct_window_length: None,
+                    ct_window_step: None,
+                },
+            ))
+            .unwrap();
+
+        workflow
+            .add_node(WorkflowNode::new(
+                "variants1".to_string(),
+                WorkflowAction::SelectDDAVariants {
+                    variants: vec!["single_timeseries".to_string()],
+                },
+            ))
+            .unwrap();
+
+        // The analysis
+        workflow
+            .add_node(WorkflowNode::new(
+                "run".to_string(),
+                WorkflowAction::RunDDAAnalysis {
+                    input_id: "test".to_string(),
+                    channel_selection: vec![0, 1, 2],
+                    ct_channel_pairs: None,
+                    cd_channel_pairs: None,
+                },
+            ))
+            .unwrap();
+
+        // Setup actions AFTER analysis (should be removed - recorded out of order)
+        workflow
+            .add_node(WorkflowNode::new(
+                "variants2".to_string(),
+                WorkflowAction::SelectDDAVariants {
+                    variants: vec!["single_timeseries".to_string()],
+                },
+            ))
+            .unwrap();
+
+        workflow
+            .add_node(WorkflowNode::new(
+                "load2".to_string(),
+                WorkflowAction::LoadFile {
+                    path: "/test/file.edf".to_string(),
+                    file_type: FileType::EDF,
+                },
+            ))
+            .unwrap();
+
+        workflow
+            .add_node(WorkflowNode::new(
+                "select_post".to_string(),
+                WorkflowAction::SelectChannels {
+                    channel_indices: vec![1, 2, 3],
+                },
+            ))
+            .unwrap();
+
+        let pass = DeadCodeEliminationPass;
+        let optimized = pass.optimize(&workflow).unwrap();
+
+        // Should have removed the post-analysis setup actions
+        let node_ids: Vec<String> = optimized
+            .get_all_nodes()
+            .iter()
+            .map(|n| n.id.clone())
+            .collect();
+
+        // The 4 actions before/including analysis should remain
+        assert!(node_ids.contains(&"load1".to_string()));
+        assert!(node_ids.contains(&"params".to_string()));
+        assert!(node_ids.contains(&"variants1".to_string()));
+        assert!(node_ids.contains(&"run".to_string()));
+
+        // The 3 post-analysis setup actions should be removed
+        assert!(!node_ids.contains(&"variants2".to_string()));
+        assert!(!node_ids.contains(&"load2".to_string()));
+        assert!(!node_ids.contains(&"select_post".to_string()));
+
+        assert_eq!(optimized.node_count(), 4);
+    }
+
+    #[test]
+    fn test_dead_code_elimination_removes_duplicate_variants() {
+        let mut workflow = WorkflowGraph::new("test".to_string());
+
+        // Multiple SelectDDAVariants before analysis - only keep last
+        workflow
+            .add_node(WorkflowNode::new(
+                "v1".to_string(),
+                WorkflowAction::SelectDDAVariants {
+                    variants: vec!["variant_a".to_string()],
+                },
+            ))
+            .unwrap();
+
+        workflow
+            .add_node(WorkflowNode::new(
+                "v2".to_string(),
+                WorkflowAction::SelectDDAVariants {
+                    variants: vec!["variant_b".to_string()],
+                },
+            ))
+            .unwrap();
+
+        workflow
+            .add_node(WorkflowNode::new(
+                "v3".to_string(),
+                WorkflowAction::SelectDDAVariants {
+                    variants: vec!["single_timeseries".to_string()],
+                },
+            ))
+            .unwrap();
+
+        workflow
+            .add_node(WorkflowNode::new(
+                "run".to_string(),
+                WorkflowAction::RunDDAAnalysis {
+                    input_id: "test".to_string(),
+                    channel_selection: vec![0, 1],
+                    ct_channel_pairs: None,
+                    cd_channel_pairs: None,
+                },
+            ))
+            .unwrap();
+
+        let pass = DeadCodeEliminationPass;
+        let optimized = pass.optimize(&workflow).unwrap();
+
+        // Should have only v3 (the last variants selection) and run
+        let all_nodes = optimized.get_all_nodes();
+        let variant_nodes: Vec<_> = all_nodes
+            .iter()
+            .filter(|n| matches!(n.action, WorkflowAction::SelectDDAVariants { .. }))
+            .collect();
+
+        assert_eq!(variant_nodes.len(), 1);
+        assert_eq!(variant_nodes[0].id, "v3");
     }
 }

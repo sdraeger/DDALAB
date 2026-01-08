@@ -123,13 +123,25 @@ export function DDAHistorySidebar({
     return () => container.removeEventListener("scroll", handleScroll);
   }, [history.length]);
 
+  // Deduplicate history by ID (in case of duplicates from store)
+  const deduplicatedHistory = useMemo(() => {
+    const seen = new Set<string>();
+    return history.filter((item) => {
+      if (seen.has(item.id)) {
+        return false;
+      }
+      seen.add(item.id);
+      return true;
+    });
+  }, [history]);
+
   // Calculate visible items
   const visibleHistory = useMemo(() => {
-    return history.slice(visibleRange.start, visibleRange.end);
-  }, [history, visibleRange.start, visibleRange.end]);
+    return deduplicatedHistory.slice(visibleRange.start, visibleRange.end);
+  }, [deduplicatedHistory, visibleRange.start, visibleRange.end]);
 
   // Total height for scroll container
-  const totalHeight = history.length * ITEM_HEIGHT;
+  const totalHeight = deduplicatedHistory.length * ITEM_HEIGHT;
   const offsetY = visibleRange.start * ITEM_HEIGHT;
 
   if (isCollapsed) {
