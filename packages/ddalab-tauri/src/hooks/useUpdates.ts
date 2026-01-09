@@ -43,7 +43,13 @@ export function useLastCheckedDate(): Date | null {
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
 
   useEffect(() => {
-    getLastCheckedDate().then(setLastChecked);
+    let mounted = true;
+    getLastCheckedDate().then((date) => {
+      if (mounted) setLastChecked(date);
+    });
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   return lastChecked;
@@ -79,7 +85,13 @@ export function useCheckForUpdates() {
 
   // Load last checked date from preferences on mount
   useEffect(() => {
-    getLastCheckedDate().then(setLastCheckedState);
+    let mounted = true;
+    getLastCheckedDate().then((date) => {
+      if (mounted) setLastCheckedState(date);
+    });
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const mutation = useMutation({
