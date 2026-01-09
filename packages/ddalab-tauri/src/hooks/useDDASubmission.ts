@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, useEffect } from "react";
 import { flushSync } from "react-dom";
 import { TauriService, NotificationType } from "@/services/tauriService";
 import { ApiService } from "@/services/apiService";
@@ -109,6 +109,21 @@ export function useDDASubmission({
     typeof setTimeout
   > | null>(null);
 
+  // Track mounted state to prevent state updates after unmount
+  const mountedRef = useRef(true);
+
+  // Cleanup on unmount - clear any pending timeouts and mark as unmounted
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (minProgressDisplayTimeRef.current) {
+        clearTimeout(minProgressDisplayTimeRef.current);
+        minProgressDisplayTimeRef.current = null;
+      }
+    };
+  }, []);
+
   // Helper to extract all channels from variant configurations
   const extractAllChannels = useCallback((): Set<string> => {
     const allChannels = new Set<string>();
@@ -136,6 +151,7 @@ export function useDDASubmission({
   }, [parameters.variants, parameters.variantChannelConfigs]);
 
   // Helper to hide progress with minimum display time
+  // Checks mounted state to prevent state updates after unmount
   const hideProgressBar = useCallback(
     (callback: () => void) => {
       const elapsed = Date.now() - (analysisStartTimeRef.current || 0);
@@ -146,14 +162,20 @@ export function useDDASubmission({
 
       if (remainingTime > 0) {
         minProgressDisplayTimeRef.current = setTimeout(() => {
+          // Only update state if still mounted
+          if (mountedRef.current) {
+            setState((prev) => ({ ...prev, isRunning: false }));
+            setDDARunning(false);
+            callback();
+          }
+        }, remainingTime);
+      } else {
+        // Only update state if still mounted
+        if (mountedRef.current) {
           setState((prev) => ({ ...prev, isRunning: false }));
           setDDARunning(false);
           callback();
-        }, remainingTime);
-      } else {
-        setState((prev) => ({ ...prev, isRunning: false }));
-        setDDARunning(false);
-        callback();
+        }
       }
     },
     [setDDARunning],

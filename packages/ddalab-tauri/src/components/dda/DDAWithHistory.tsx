@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, startTransition } from "react";
-import { useAppStore } from "@/store/appStore";
 import { ApiService } from "@/services/apiService";
 import { DDAResult } from "@/types/api";
 import { useScrollTrap } from "@/hooks/useScrollTrap";
+import { useDDAWithHistoryState } from "@/store/selectors";
 import {
   useDDAHistory,
   useDeleteAnalysis,
@@ -25,47 +25,32 @@ interface DDAWithHistoryProps {
 }
 
 export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
-  // Only select the specific properties we need, not entire objects
-  // This prevents re-renders when other properties change
-  const currentFilePath = useAppStore(
-    (state) => state.fileManager.selectedFile?.file_path,
-  );
-  const currentAnalysisId = useAppStore(
-    (state) => state.dda.currentAnalysis?.id,
-  );
-  const currentAnalysisFilePath = useAppStore(
-    (state) => state.dda.currentAnalysis?.file_path,
-  );
-  const currentAnalysis = useAppStore((state) => state.dda.currentAnalysis);
-  const hasPreviousAnalysis = useAppStore(
-    (state) => !!state.dda.previousAnalysis,
-  );
-  const ddaRunning = useAppStore((state) => state.dda.isRunning);
-  const setCurrentAnalysis = useAppStore((state) => state.setCurrentAnalysis);
-  const restorePreviousAnalysis = useAppStore(
-    (state) => state.restorePreviousAnalysis,
-  );
-  const isServerReady = useAppStore((state) => state.ui.isServerReady);
-  const setAnalysisHistory = useAppStore((state) => state.setAnalysisHistory);
-  const pendingAnalysisId = useAppStore((state) => state.dda.pendingAnalysisId);
-  const setPendingAnalysisId = useAppStore(
-    (state) => state.setPendingAnalysisId,
-  );
-  const togglePanelCollapsed = useAppStore(
-    (state) => state.togglePanelCollapsed,
-  );
-  const isHistoryCollapsed = useAppStore(
-    (state) => state.ui.collapsedPanels["dda-history"] ?? false,
-  );
+  // Consolidated state selector - single subscription instead of 16 separate ones
+  // Uses useShallow for shallow equality comparison to minimize re-renders
+  const {
+    currentFilePath,
+    currentAnalysisId,
+    currentAnalysisFilePath,
+    currentAnalysis,
+    hasPreviousAnalysis,
+    isRunning: ddaRunning,
+    pendingAnalysisId,
+    isServerReady,
+    isHistoryCollapsed,
+    ddaActiveTab: activeTab,
+    setCurrentAnalysis,
+    restorePreviousAnalysis,
+    setAnalysisHistory,
+    setPendingAnalysisId,
+    togglePanelCollapsed,
+    setDDAActiveTab: setActiveTab,
+  } = useDDAWithHistoryState();
+
   const [selectedAnalysisId, setSelectedAnalysisId] = useState<string | null>(
     null,
   );
   // Deferred mounting to prevent UI freeze
   const [showResults, setShowResults] = useState(false);
-  // Use Zustand state for activeTab to persist across remounts/file changes
-  const activeTab = useAppStore((state) => state.ui.ddaActiveTab);
-  const setActiveTab = useAppStore((state) => state.setDDAActiveTab);
-  const isSettingAnalysis = useRef(false);
 
   // Scroll traps for configure and results tabs
   const {
@@ -233,43 +218,16 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
       return;
     }
 
-    // Skip if this analysis is already the current one (prevents duplicate calls from DashboardLayout)
+    // Skip if this analysis is already the current one (prevents duplicate calls)
     if (currentAnalysisId === selectedAnalysisData.id) {
-      console.log(
-        "[DDA HISTORY] Analysis already set as current, skipping duplicate setCurrentAnalysis call",
-      );
       lastSetAnalysisId.current = selectedAnalysisData.id;
       return;
     }
 
-    // Prevent concurrent calls
-    if (isSettingAnalysis.current) {
-      return;
-    }
-
-    isSettingAnalysis.current = true;
-    console.log("[DDA HISTORY] Setting loaded analysis as current:", {
-      id: selectedAnalysisData.id,
-      hasResults: !!selectedAnalysisData.results,
-      hasScales: !!selectedAnalysisData.results?.scales,
-      scalesLength: selectedAnalysisData.results?.scales?.length,
-      variantsCount: selectedAnalysisData.results?.variants?.length,
-      firstVariantId: selectedAnalysisData.results?.variants?.[0]?.variant_id,
-      hasMatrixData: !!selectedAnalysisData.results?.variants?.[0]?.dda_matrix,
-      matrixChannels: selectedAnalysisData.results?.variants?.[0]?.dda_matrix
-        ? Object.keys(selectedAnalysisData.results.variants[0].dda_matrix)
-            .length
-        : 0,
-    });
-
+    // Set the loaded analysis as current
     setCurrentAnalysis(selectedAnalysisData);
     lastSetAnalysisId.current = selectedAnalysisData.id;
-
-    // Use setTimeout to break out of sync rendering
-    setTimeout(() => {
-      isSettingAnalysis.current = false;
-    }, 0);
-  }, [selectedAnalysisData?.id]); // Only depend on selected analysis ID, not current analysis
+  }, [selectedAnalysisData?.id, currentAnalysisId, setCurrentAnalysis]);
 
   const handleSelectAnalysis = (analysis: DDAResult) => {
     // Prevent multiple clicks while loading
@@ -335,41 +293,42 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
   // CRITICAL FIX: Maintain stable object reference when ID hasn't changed
   const prevDisplayAnalysisRef = useRef<DDAResult | null>(null);
 
+  // Keep refs to current values to avoid stale closures while keeping deps minimal
+  const currentAnalysisRef = useRef(currentAnalysis);
+  const selectedAnalysisDataRef = useRef(selectedAnalysisData);
+  currentAnalysisRef.current = currentAnalysis;
+  selectedAnalysisDataRef.current = selectedAnalysisData;
+
   const displayAnalysis = useMemo(() => {
+    // Access current values via refs to get latest data
+    const analysis = currentAnalysisRef.current;
+    const selectedData = selectedAnalysisDataRef.current;
+
     let result: DDAResult | null = null;
 
     // Determine which analysis to display
     // CRITICAL: Check currentAnalysis first when IDs match to avoid using stale cached data
     // When a new analysis completes, currentAnalysis has the fresh data while
     // selectedAnalysisData may still have old cached data from a previous fetch
-    if (currentAnalysis?.id === selectedAnalysisId) {
-      result = currentAnalysis;
-    } else if (selectedAnalysisData) {
-      result = selectedAnalysisData;
+    if (analysis?.id === selectedAnalysisId) {
+      result = analysis;
+    } else if (selectedData) {
+      result = selectedData;
     }
 
     // CRITICAL: If the ID is the same as before, return the previous reference
     // This prevents mount/unmount thrashing when parent re-renders with new object references
     if (result && prevDisplayAnalysisRef.current?.id === result.id) {
-      console.log(
-        "[DDA HISTORY] Same ID, returning previous reference:",
-        result.id,
-      );
       return prevDisplayAnalysisRef.current;
     }
 
     // New ID or null, update the ref and return new result
-    if (result?.id !== prevDisplayAnalysisRef.current?.id) {
-      console.log("[DDA HISTORY] New ID, updating reference:", {
-        prev: prevDisplayAnalysisRef.current?.id,
-        next: result?.id,
-      });
-    }
     prevDisplayAnalysisRef.current = result;
     return result;
   }, [
-    selectedAnalysisData, // Must include full object to avoid stale closure
-    currentAnalysis, // Must include full object to avoid stale closure
+    // Only depend on IDs - actual objects accessed via refs
+    currentAnalysisId,
+    selectedAnalysisData?.id,
     selectedAnalysisId,
   ]);
 
