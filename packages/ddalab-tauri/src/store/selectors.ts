@@ -172,6 +172,41 @@ export function useCurrentAnalysis() {
 }
 
 /**
+ * Get DDA state specifically for DDAWithHistory component.
+ * Consolidates all needed state into a single subscription with useShallow.
+ * Uses primitive values where possible to minimize re-renders.
+ */
+export function useDDAWithHistoryState() {
+  return useAppStore(
+    useShallow((state) => ({
+      // File state (primitives only)
+      currentFilePath: state.fileManager.selectedFile?.file_path ?? null,
+
+      // DDA state (primitives + necessary objects)
+      currentAnalysisId: state.dda.currentAnalysis?.id ?? null,
+      currentAnalysisFilePath: state.dda.currentAnalysis?.file_path ?? null,
+      currentAnalysis: state.dda.currentAnalysis,
+      hasPreviousAnalysis: !!state.dda.previousAnalysis,
+      isRunning: state.dda.isRunning,
+      pendingAnalysisId: state.dda.pendingAnalysisId,
+
+      // UI state (primitives only)
+      isServerReady: state.ui.isServerReady,
+      isHistoryCollapsed: state.ui.collapsedPanels["dda-history"] ?? false,
+      ddaActiveTab: state.ui.ddaActiveTab,
+
+      // Actions
+      setCurrentAnalysis: state.setCurrentAnalysis,
+      restorePreviousAnalysis: state.restorePreviousAnalysis,
+      setAnalysisHistory: state.setAnalysisHistory,
+      setPendingAnalysisId: state.setPendingAnalysisId,
+      togglePanelCollapsed: state.togglePanelCollapsed,
+      setDDAActiveTab: state.setDDAActiveTab,
+    })),
+  );
+}
+
+/**
  * Get DDA running state (combined selector to avoid double re-renders)
  */
 export function useDDARunning() {

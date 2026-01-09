@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback, memo } from "react";
 import { DDAResult } from "@/types/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -36,7 +36,7 @@ interface DDAHistorySidebarProps {
   onRefresh: () => void;
 }
 
-export function DDAHistorySidebar({
+function DDAHistorySidebarComponent({
   history,
   currentAnalysisId,
   selectedAnalysisId,
@@ -457,3 +457,28 @@ export function DDAHistorySidebar({
     </>
   );
 }
+
+// Memoize to prevent re-renders when parent updates but props haven't changed
+// Custom comparison focuses on the values that actually affect rendering
+export const DDAHistorySidebar = memo(
+  DDAHistorySidebarComponent,
+  (prevProps, nextProps) => {
+    // Compare primitive values directly
+    if (prevProps.currentAnalysisId !== nextProps.currentAnalysisId)
+      return false;
+    if (prevProps.selectedAnalysisId !== nextProps.selectedAnalysisId)
+      return false;
+    if (prevProps.isLoading !== nextProps.isLoading) return false;
+    if (prevProps.isCollapsed !== nextProps.isCollapsed) return false;
+
+    // For history array, compare by length and IDs (not deep equality)
+    if (prevProps.history.length !== nextProps.history.length) return false;
+    for (let i = 0; i < prevProps.history.length; i++) {
+      if (prevProps.history[i].id !== nextProps.history[i].id) return false;
+      if (prevProps.history[i].name !== nextProps.history[i].name) return false;
+    }
+
+    // Callbacks are assumed stable (should be wrapped in useCallback by parent)
+    return true;
+  },
+);
