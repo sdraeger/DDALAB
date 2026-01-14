@@ -1,4 +1,4 @@
-import axios, { AxiosInstance, AxiosError } from "axios";
+import axios, { AxiosInstance, AxiosError, AxiosRequestConfig } from "axios";
 import {
   EDFFileInfo,
   ChunkData,
@@ -14,6 +14,9 @@ import {
   ReconstructResponse,
 } from "@/types/ica";
 import { getChunkCache } from "./chunkCache";
+import { encryptJson, decryptJson } from "@/utils/crypto";
+
+export const ENCRYPTED_CONTENT_TYPE = "application/x-ddalab-encrypted";
 
 /** File entry from the API file list response */
 interface FileEntry {
@@ -137,6 +140,8 @@ export class ApiService {
   public baseURL: string;
   private chunkCache = getChunkCache();
   private sessionToken: string | null = null;
+  private encryptionKey: CryptoKey | null = null;
+  private isEncryptedMode: boolean = false;
 
   constructor(baseURL: string, sessionToken?: string) {
     this.baseURL = baseURL;
@@ -167,6 +172,71 @@ export class ApiService {
   // Get the current session token
   getSessionToken(): string | null {
     return this.sessionToken;
+  }
+
+  // Set the encryption key for encrypted mode
+  setEncryptionKey(key: CryptoKey | null) {
+    this.encryptionKey = key;
+  }
+
+  // Enable or disable encrypted mode
+  setEncryptedMode(enabled: boolean) {
+    this.isEncryptedMode = enabled;
+  }
+
+  // Check if encryption is currently active
+  isUsingEncryption(): boolean {
+    return this.isEncryptedMode && this.encryptionKey !== null;
+  }
+
+  /**
+   * Make an encrypted POST request
+   */
+  private async encryptedPost<T>(
+    url: string,
+    data: unknown,
+    config?: AxiosRequestConfig,
+  ): Promise<T> {
+    if (!this.encryptionKey) {
+      throw new Error("Encryption key not set");
+    }
+
+    const encrypted = await encryptJson(this.encryptionKey, data);
+
+    const response = await this.client.post(url, encrypted, {
+      ...config,
+      headers: {
+        ...config?.headers,
+        "Content-Type": ENCRYPTED_CONTENT_TYPE,
+      },
+      responseType: "arraybuffer",
+    });
+
+    return decryptJson<T>(this.encryptionKey, new Uint8Array(response.data));
+  }
+
+  /**
+   * Make an encrypted GET request
+   */
+  private async encryptedGet<T>(
+    url: string,
+    config?: AxiosRequestConfig,
+  ): Promise<T> {
+    if (!this.encryptionKey) {
+      throw new Error("Encryption key not set");
+    }
+
+    // GET requests - send encrypted content-type header to signal server should encrypt response
+    const response = await this.client.get(url, {
+      ...config,
+      headers: {
+        ...config?.headers,
+        "Content-Type": ENCRYPTED_CONTENT_TYPE,
+      },
+      responseType: "arraybuffer",
+    });
+
+    return decryptJson<T>(this.encryptionKey, new Uint8Array(response.data));
   }
 
   // Health check
@@ -232,6 +302,46 @@ export class ApiService {
         const directory = filePath.substring(0, filePath.lastIndexOf("/"));
         const fileName = filePath.split("/").pop() || filePath;
 
+        // Use encryption if enabled
+        if (this.isUsingEncryption()) {
+          const [edfData, filesData] = await Promise.all([
+            this.encryptedGet<Record<string, unknown>>(`/api/edf/info`, {
+              params: { file_path: filePath },
+            }),
+            this.encryptedGet<{ files: FileEntry[] }>(`/api/files/list`, {
+              params: { path: directory },
+            }).catch(() => null),
+          ]);
+
+          let fileSize = 0;
+          if (filesData?.files) {
+            const fileEntry = filesData.files.find(
+              (f: FileEntry) => f.name === fileName,
+            );
+            fileSize = fileEntry?.file_size || fileEntry?.size || 0;
+          }
+
+          return {
+            file_path: filePath,
+            file_name: fileName,
+            file_size: fileSize,
+            duration:
+              (edfData.duration as number) ||
+              (edfData.total_duration as number) ||
+              0,
+            sample_rate:
+              (edfData.sample_rate as number) ||
+              (edfData.sampling_rate as number) ||
+              256,
+            channels: (edfData.channels as string[]) || [],
+            total_samples: (edfData.total_samples as number) || 0,
+            start_time:
+              (edfData.start_time as string) || new Date().toISOString(),
+            end_time: (edfData.end_time as string) || new Date().toISOString(),
+            annotations_count: 0,
+          };
+        }
+
         // Parallelize EDF info and file listing requests for faster loading
         const [edfResponse, filesResponse] = await Promise.all([
           this.client.get(`/api/edf/info`, {
@@ -287,6 +397,18 @@ export class ApiService {
       is_annex_placeholder?: boolean;
     }>;
   }> {
+    if (this.isUsingEncryption()) {
+      return this.encryptedGet<{
+        files: Array<{
+          name: string;
+          path: string;
+          is_directory: boolean;
+          size?: number;
+          last_modified?: string;
+          is_annex_placeholder?: boolean;
+        }>;
+      }>("/api/files/list", { params: { path } });
+    }
     const response = await this.client.get("/api/files/list", {
       params: { path },
     });
@@ -312,22 +434,35 @@ export class ApiService {
           channels && channels.length > 0 ? channels.join(",") : undefined,
       };
 
-      const response = await this.client.get("/api/edf/overview", {
-        params,
-        signal,
-      });
-
-      const responseData = structuredClone(response.data);
+      let responseData;
+      if (this.isUsingEncryption()) {
+        responseData = await this.encryptedGet<Record<string, unknown>>(
+          "/api/edf/overview",
+          { params, signal },
+        );
+      } else {
+        const response = await this.client.get("/api/edf/overview", {
+          params,
+          signal,
+        });
+        // Axios response.data is already a fresh object - no need to clone
+        responseData = response.data;
+      }
 
       const chunkData: ChunkData = {
-        data: responseData.data || [],
-        channels: responseData.channel_labels || responseData.channels || [],
-        timestamps: responseData.timestamps || [],
+        data: (responseData.data as number[][]) || [],
+        channels:
+          (responseData.channel_labels as string[]) ||
+          (responseData.channels as string[]) ||
+          [],
+        timestamps: (responseData.timestamps as number[]) || [],
         sample_rate:
-          responseData.sampling_frequency || responseData.sample_rate || 256,
-        chunk_start: responseData.chunk_start || 0,
-        chunk_size: responseData.chunk_size || 0,
-        file_path: responseData.file_path || filePath,
+          (responseData.sampling_frequency as number) ||
+          (responseData.sample_rate as number) ||
+          256,
+        chunk_start: (responseData.chunk_start as number) || 0,
+        chunk_size: (responseData.chunk_size as number) || 0,
+        file_path: (responseData.file_path as string) || filePath,
       };
 
       return chunkData;
@@ -406,7 +541,14 @@ export class ApiService {
           channelList,
         );
         if (cached) {
-          return structuredClone(cached);
+          // Shallow clone for cache returns - data arrays are treated as immutable
+          // This avoids expensive structuredClone on large typed arrays (50-200ms savings)
+          return {
+            ...cached,
+            data: cached.data, // Arrays are reference-shared but not mutated by consumers
+            channels: [...cached.channels],
+            timestamps: cached.timestamps, // Large array, treat as immutable
+          };
         }
       }
 
@@ -423,12 +565,20 @@ export class ApiService {
         notch: preprocessingOptions?.notch?.join(","),
       };
 
-      const response = await this.client.get("/api/edf/data", {
-        params,
-        signal,
-      });
-
-      const responseData = structuredClone(response.data);
+      let responseData;
+      if (this.isUsingEncryption()) {
+        responseData = await this.encryptedGet<Record<string, unknown>>(
+          "/api/edf/data",
+          { params, signal },
+        );
+      } else {
+        const response = await this.client.get("/api/edf/data", {
+          params,
+          signal,
+        });
+        // Axios response.data is already a fresh object - no need to clone
+        responseData = response.data;
+      }
 
       // Extract data structure first
       const data = responseData.data || [];
@@ -468,7 +618,8 @@ export class ApiService {
         );
       }
 
-      return structuredClone(chunkData);
+      // chunkData was just created from fresh response data - no need to clone
+      return chunkData;
     } catch (error) {
       throw error;
     }
@@ -622,7 +773,16 @@ export class ApiService {
         variant_configs: request.variant_configs,
       };
 
-      const response = await this.client.post("/api/dda", ddaRequest);
+      // Use encrypted POST if encryption is enabled
+      const responseData = this.isUsingEncryption()
+        ? await this.encryptedPost<Record<string, unknown>>(
+            "/api/dda",
+            ddaRequest,
+          )
+        : (await this.client.post("/api/dda", ddaRequest)).data;
+
+      // Create a response-like object for consistent processing
+      const response = { data: responseData };
       // Use the ID from the backend response (UUID format) instead of generating our own
       const job_id = response.data.id || `dda_${Date.now()}`;
 
@@ -874,6 +1034,13 @@ export class ApiService {
         file_path: filePath,
       };
 
+      if (this.isUsingEncryption()) {
+        const data = await this.encryptedGet<{ results: DDAResult[] }>(
+          "/api/dda/results",
+          { params },
+        );
+        return data.results || [];
+      }
       const response = await this.client.get("/api/dda/results", { params });
       return response.data.results || [];
     } catch (error) {
@@ -888,6 +1055,9 @@ export class ApiService {
 
   async getDDAResult(jobId: string): Promise<DDAResult> {
     try {
+      if (this.isUsingEncryption()) {
+        return this.encryptedGet<DDAResult>(`/api/dda/results/${jobId}`);
+      }
       const response = await this.client.get(`/api/dda/results/${jobId}`);
       return response.data;
     } catch {
@@ -970,8 +1140,16 @@ export class ApiService {
 
   async getAnalysisFromHistory(resultId: string): Promise<DDAResult | null> {
     try {
-      const response = await this.client.get(`/api/dda/history/${resultId}`);
-      const analysisWrapper = response.data.analysis;
+      let responseData;
+      if (this.isUsingEncryption()) {
+        responseData = await this.encryptedGet<{
+          analysis: HistoryAnalysisItem;
+        }>(`/api/dda/history/${resultId}`);
+      } else {
+        const response = await this.client.get(`/api/dda/history/${resultId}`);
+        responseData = response.data;
+      }
+      const analysisWrapper = responseData.analysis;
 
       if (!analysisWrapper) return null;
 
