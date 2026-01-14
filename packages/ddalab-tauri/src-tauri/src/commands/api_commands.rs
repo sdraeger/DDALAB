@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use ddalab_tauri::api::{self, start_api_server, ApiServerConfig};
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
@@ -23,6 +24,12 @@ pub struct ApiConnectionConfig {
     pub is_local: bool,
     /// Session token for authentication
     pub session_token: Option<String>,
+    /// Encryption key for HTTP+encryption fallback mode (base64 encoded)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encryption_key: Option<String>,
+    /// Whether application-layer encryption is being used (HTTP fallback mode)
+    #[serde(default)]
+    pub using_encryption: bool,
 }
 
 impl Default for ApiConnectionConfig {
@@ -33,6 +40,8 @@ impl Default for ApiConnectionConfig {
             use_https: true, // HTTPS by default for security (users can disable if needed)
             is_local: true,
             session_token: None,
+            encryption_key: None,
+            using_encryption: false,
         }
     }
 }
@@ -267,34 +276,47 @@ pub async fn start_local_api_server(
 
     // Start the server
     match start_api_server(server_config, data_dir, dda_binary_path).await {
-        Ok((session_token, actual_port, task_handle)) => {
+        Ok(result) => {
             log::info!(
                 "Local API server started successfully on port {}",
-                actual_port
+                result.port
             );
 
             // Store the task handle so we can stop the server later
             {
                 let mut handle_guard = state.server_handle.write();
-                *handle_guard = Some(task_handle);
-                log::info!("📌 Server task handle stored for clean shutdown");
+                *handle_guard = Some(result.handle);
+                log::info!("Server task handle stored for clean shutdown");
             }
+
+            // Determine effective HTTPS status based on whether encryption fallback was used
+            let effective_https = use_https && !result.using_encryption;
 
             // Create connection config with the ACTUAL port that was used
             let config = ApiConnectionConfig {
                 host: host.clone(),
-                port: actual_port, // Use actual port, not requested port!
-                use_https,
+                port: result.port, // Use actual port, not requested port!
+                use_https: effective_https,
                 is_local: true,
-                session_token: Some(session_token),
+                session_token: Some(result.session_token),
+                encryption_key: result.encryption_key.map(|k| BASE64.encode(&k)),
+                using_encryption: result.using_encryption,
             };
 
-            log::info!(
-                "📡 API accessible at: {}://{}:{}",
-                if use_https { "https" } else { "http" },
-                host,
-                actual_port
-            );
+            if result.using_encryption {
+                log::info!(
+                    "API accessible at: http://{}:{} (with application-layer encryption)",
+                    host,
+                    result.port
+                );
+            } else {
+                log::info!(
+                    "API accessible at: {}://{}:{}",
+                    if effective_https { "https" } else { "http" },
+                    host,
+                    result.port
+                );
+            }
 
             // Update state
             {
@@ -302,8 +324,12 @@ pub async fn start_local_api_server(
                 *conn_config = config.clone();
             }
 
-            // Save config
-            if let Err(e) = save_api_config(app_handle, config.clone(), state.clone()).await {
+            // Save config without encryption key for security (key should never be persisted to disk)
+            let config_to_save = ApiConnectionConfig {
+                encryption_key: None,
+                ..config.clone()
+            };
+            if let Err(e) = save_api_config(app_handle, config_to_save, state.clone()).await {
                 log::warn!("Failed to save API config: {}", e);
             }
 
@@ -474,7 +500,9 @@ pub async fn connect_to_remote_api(
         port,
         use_https,
         is_local: false,
-        session_token: None, // Remote servers may use different auth
+        session_token: None,  // Remote servers may use different auth
+        encryption_key: None, // Remote servers don't use application-layer encryption
+        using_encryption: false,
     };
 
     // Test connection
