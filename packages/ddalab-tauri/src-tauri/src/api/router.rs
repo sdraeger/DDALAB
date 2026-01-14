@@ -1,4 +1,5 @@
 use crate::api::auth::auth_middleware;
+use crate::api::encryption_middleware::{encryption_middleware, EncryptionState};
 use crate::api::handlers::{
     cancel_dda_analysis, clear_edf_cache, delete_analysis_result, delete_ica_result,
     get_analysis_result, get_analysis_status, get_dda_results, get_edf_cache_stats, get_edf_data,
@@ -65,10 +66,32 @@ async fn security_headers_middleware(request: Request<Body>, next: Next) -> Resp
     response
 }
 
-pub fn create_router(state: Arc<ApiState>) -> Router {
-    let public_routes = Router::new().route("/api/health", get(health));
+/// Create CORS layer for localhost and Tauri origins
+fn cors() -> CorsLayer {
+    CorsLayer::new()
+        .allow_origin([
+            "http://localhost:3000".parse::<HeaderValue>().unwrap(),
+            "http://localhost:3001".parse::<HeaderValue>().unwrap(),
+            "http://localhost:3003".parse::<HeaderValue>().unwrap(),
+            "http://127.0.0.1:3000".parse::<HeaderValue>().unwrap(),
+            "http://127.0.0.1:3001".parse::<HeaderValue>().unwrap(),
+            "http://127.0.0.1:3003".parse::<HeaderValue>().unwrap(),
+            "tauri://localhost".parse::<HeaderValue>().unwrap(),
+            "https://tauri.localhost".parse::<HeaderValue>().unwrap(),
+        ])
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION, header::ACCEPT])
+}
 
-    let protected_routes = Router::new()
+/// Build protected routes with authentication middleware
+fn build_protected_routes(state: Arc<ApiState>) -> Router<Arc<ApiState>> {
+    Router::new()
         .route("/api/files/list", get(list_files))
         .route("/api/files/{file_path}", get(get_file_info))
         .route("/api/files/{file_path}/chunk", get(get_file_chunk))
@@ -111,30 +134,12 @@ pub fn create_router(state: Arc<ApiState>) -> Router {
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
-        ));
+        ))
+}
 
-    // Restrict CORS to localhost only
-    // This embedded API server only runs locally and should not accept cross-origin
-    // requests from external domains
-    let cors = CorsLayer::new()
-        .allow_origin([
-            "http://localhost:3000".parse::<HeaderValue>().unwrap(),
-            "http://localhost:3001".parse::<HeaderValue>().unwrap(),
-            "http://localhost:3003".parse::<HeaderValue>().unwrap(),
-            "http://127.0.0.1:3000".parse::<HeaderValue>().unwrap(),
-            "http://127.0.0.1:3001".parse::<HeaderValue>().unwrap(),
-            "http://127.0.0.1:3003".parse::<HeaderValue>().unwrap(),
-            "tauri://localhost".parse::<HeaderValue>().unwrap(),
-            "https://tauri.localhost".parse::<HeaderValue>().unwrap(),
-        ])
-        .allow_methods([
-            Method::GET,
-            Method::POST,
-            Method::PUT,
-            Method::DELETE,
-            Method::OPTIONS,
-        ])
-        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION, header::ACCEPT]);
+pub fn create_router(state: Arc<ApiState>) -> Router {
+    let public_routes = Router::new().route("/api/health", get(health));
+    let protected_routes = build_protected_routes(state.clone());
 
     Router::new()
         .merge(public_routes)
@@ -143,7 +148,34 @@ pub fn create_router(state: Arc<ApiState>) -> Router {
         .layer(middleware::from_fn(security_headers_middleware))
         .layer(DefaultBodyLimit::max(100 * 1024 * 1024)) // 100 MB limit
         .layer(CompressionLayer::new()) // Enable gzip/br compression for responses
-        .layer(cors)
+        .layer(cors())
+        .with_state(state)
+}
+
+/// Create router with encryption middleware support
+///
+/// This is the primary router constructor that supports both HTTPS and HTTP+encryption modes.
+/// When encryption is enabled (HTTP fallback mode), request/response bodies are transparently
+/// encrypted using AES-256-GCM.
+pub fn create_router_with_encryption(
+    state: Arc<ApiState>,
+    encryption_state: Arc<EncryptionState>,
+) -> Router {
+    let public_routes = Router::new().route("/api/health", get(health));
+    let protected_routes = build_protected_routes(state.clone());
+
+    Router::new()
+        .merge(public_routes)
+        .merge(protected_routes)
+        .fallback(handle_404)
+        .layer(middleware::from_fn_with_state(
+            encryption_state,
+            encryption_middleware,
+        ))
+        .layer(middleware::from_fn(security_headers_middleware))
+        .layer(DefaultBodyLimit::max(100 * 1024 * 1024)) // 100 MB limit
+        .layer(CompressionLayer::new()) // Enable gzip/br compression for responses
+        .layer(cors())
         .with_state(state)
 }
 
