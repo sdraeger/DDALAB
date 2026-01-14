@@ -6,6 +6,7 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { WelcomeScreen } from "@/components/WelcomeScreen";
 import { StatePersistenceProvider } from "@/components/StatePersistenceProvider";
 import { useAppStore } from "@/store/appStore";
+import { useNotificationStore } from "@/store/notificationStore";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ApiServiceProvider } from "@/contexts/ApiServiceContext";
 import { CloseWarningHandler } from "@/components/CloseWarningHandler";
@@ -154,6 +155,17 @@ export default function Home() {
               setEncryptionKey(cryptoKey);
               setEncryptedMode(true);
               console.log("Using HTTP with application-layer encryption");
+
+              // Notify user about fallback mode
+              const { addNotification } = useNotificationStore.getState();
+              addNotification({
+                type: "warning",
+                category: "system",
+                title: "Running in encrypted HTTP mode",
+                message:
+                  "Certificate generation unavailable. Install mkcert for native HTTPS: choco install mkcert (Windows)",
+                persistent: false,
+              });
             } catch (error) {
               console.error("Failed to import encryption key:", error);
             }
