@@ -12,6 +12,7 @@ import { CloseWarningHandler } from "@/components/CloseWarningHandler";
 import { OnboardingTour } from "@/components/onboarding/OnboardingTour";
 import { useOnboarding } from "@/hooks/useOnboarding";
 import { Loader2 } from "lucide-react";
+import { importKey } from "@/utils/crypto";
 
 // Conditionally import PerformanceMonitor only in development
 const PerformanceMonitor =
@@ -44,6 +45,8 @@ export default function Home() {
   const setDataDirectoryPath = useAppStore(
     (state) => state.setDataDirectoryPath,
   );
+  const setEncryptionKey = useAppStore((state) => state.setEncryptionKey);
+  const setEncryptedMode = useAppStore((state) => state.setEncryptedMode);
 
   // Removed excessive render logging
 
@@ -139,8 +142,30 @@ export default function Home() {
             setSessionToken(config.session_token);
           }
 
+          // Handle encryption key if present (HTTP fallback mode)
+          if (config?.encryption_key && config.using_encryption) {
+            try {
+              // Decode base64 key from server
+              const keyBytes = Uint8Array.from(
+                atob(config.encryption_key),
+                (c) => c.charCodeAt(0),
+              );
+              const cryptoKey = await importKey(keyBytes);
+              setEncryptionKey(cryptoKey);
+              setEncryptedMode(true);
+              console.log("Using HTTP with application-layer encryption");
+            } catch (error) {
+              console.error("Failed to import encryption key:", error);
+            }
+          }
+
           // CRITICAL: Update URL with actual port from server (may differ from requested port)
-          const actualProtocol = config?.use_https === true ? "https" : "http";
+          // Update URL based on encryption mode
+          const actualProtocol = config?.using_encryption
+            ? "http"
+            : config?.use_https === true
+              ? "https"
+              : "http";
           const actualPort = config?.port || 8765;
           const actualUrl = `${actualProtocol}://localhost:${actualPort}`;
           setApiUrl(actualUrl);
