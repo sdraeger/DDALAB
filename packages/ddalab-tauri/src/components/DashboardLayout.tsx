@@ -66,6 +66,10 @@ export function DashboardLayout() {
 
   const { isPersistenceRestored } = usePersistenceSelectors();
 
+  // Encryption state for API service
+  const encryptionKey = useAppStore((state) => state.ui.encryptionKey);
+  const isEncryptedMode = useAppStore((state) => state.ui.isEncryptedMode);
+
   // Derived values from selectors (computed inline for render optimization)
   const currentFilePath = useAppStore(
     (state) => state.fileManager.selectedFile?.file_path,
@@ -101,6 +105,14 @@ export function DashboardLayout() {
       setAnalysisHistory([]);
     }
   }, [historyData, historyError, setAnalysisHistory]);
+
+  // Pass encryption state from Zustand to ApiService instance
+  useEffect(() => {
+    if (apiService) {
+      apiService.setEncryptionKey(encryptionKey);
+      apiService.setEncryptedMode(isEncryptedMode);
+    }
+  }, [apiService, encryptionKey, isEncryptedMode]);
 
   // Determine which analysis to auto-load (if any)
   // Only enable auto-load if: no current analysis, persistence restored, and history loaded
