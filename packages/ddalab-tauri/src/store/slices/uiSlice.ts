@@ -30,6 +30,8 @@ export const defaultUIState: UIState = {
   expertMode: false,
   collapsedPanels: {},
   ddaActiveTab: "configure",
+  encryptionKey: null,
+  isEncryptedMode: false,
 };
 
 export const createUISlice: ImmerStateCreator<UISlice> = (set, get) => ({
@@ -256,6 +258,18 @@ export const createUISlice: ImmerStateCreator<UISlice> = (set, get) => ({
   setDDAActiveTab: (tab) => {
     set((state) => {
       state.ui.ddaActiveTab = tab;
+    });
+  },
+
+  setEncryptionKey: (key) => {
+    set((state) => {
+      state.ui.encryptionKey = key;
+    });
+  },
+
+  setEncryptedMode: (enabled) => {
+    set((state) => {
+      state.ui.isEncryptedMode = enabled;
     });
   },
 });

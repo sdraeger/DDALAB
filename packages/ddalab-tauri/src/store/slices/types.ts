@@ -132,6 +132,10 @@ export interface UIState {
   collapsedPanels: Record<string, boolean>;
   /** Active tab within DDA analysis (persists across file changes) */
   ddaActiveTab: "configure" | "results";
+  /** Encryption key for HTTP fallback mode (in-memory only) */
+  encryptionKey: CryptoKey | null;
+  /** Whether using HTTP + encryption fallback */
+  isEncryptedMode: boolean;
 }
 
 export interface AnnotationState {
@@ -230,6 +234,8 @@ export interface UIActions {
   togglePanelCollapsed: (panelId: string) => void;
   isPanelCollapsed: (panelId: string) => boolean;
   setDDAActiveTab: (tab: UIState["ddaActiveTab"]) => void;
+  setEncryptionKey: (key: CryptoKey | null) => void;
+  setEncryptedMode: (enabled: boolean) => void;
 }
 
 export interface AnnotationActions {
