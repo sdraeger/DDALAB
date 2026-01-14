@@ -115,10 +115,10 @@ linfa = "0.8.0"       # Core ML framework
 linfa-ica = "0.8.0"   # FastICA implementation
 rustfft = "6.4.1"     # FFT for spectral analysis of components
 tokio-util = "0.7.17" # CancellationToken for graceful task cancellation
+http-body-util = "0.1" # Body utilities for encryption middleware
 
 [dev-dependencies]
 hyper = "1.7.0"
-http-body-util = "0.1"
 tempfile = "3.23.0"
 urlencoding = "2.1"
 
