@@ -225,7 +225,7 @@ pub struct ApiState {
     pub files: Arc<RwLock<LruCache<EDFFileInfo>>>,
     pub analysis_results: Arc<RwLock<HashMap<String, Arc<DDAResult>>>>,
     pub chunks_cache: Arc<RwLock<LruCache<ChunkData>>>,
-    pub data_directory: PathBuf,
+    pub data_directory: Arc<RwLock<PathBuf>>,
     pub history_directory: PathBuf,
     pub dda_binary_path: Option<PathBuf>,
     pub analysis_db: Option<Arc<AnalysisDatabase>>,
@@ -360,7 +360,7 @@ impl ApiState {
             files: Arc::new(RwLock::new(LruCache::new(MAX_FILES_CACHE_SIZE))),
             analysis_results: Arc::new(RwLock::new(HashMap::new())),
             chunks_cache: Arc::new(RwLock::new(LruCache::new(MAX_CHUNKS_CACHE_SIZE))),
-            data_directory,
+            data_directory: Arc::new(RwLock::new(data_directory)),
             history_directory,
             dda_binary_path: None,
             analysis_db,
@@ -408,6 +408,18 @@ impl ApiState {
     /// Check if authentication is required
     pub fn requires_auth(&self) -> bool {
         *self.require_auth.read()
+    }
+
+    /// Get the current data directory
+    pub fn get_data_directory(&self) -> PathBuf {
+        self.data_directory.read().clone()
+    }
+
+    /// Update the data directory at runtime
+    /// This is called when the user changes the data directory in the UI
+    pub fn set_data_directory(&self, path: PathBuf) {
+        log::info!("📂 Updating API data directory to: {:?}", path);
+        *self.data_directory.write() = path;
     }
 
     /// Save analysis result to SQLite database

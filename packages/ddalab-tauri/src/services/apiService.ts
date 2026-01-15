@@ -221,6 +221,37 @@ export class ApiService {
   }
 
   /**
+   * Make an encrypted PUT request
+   */
+  private async encryptedPut<T>(
+    url: string,
+    data: unknown,
+    config?: AxiosRequestConfig,
+  ): Promise<T> {
+    if (!this.encryptionKey) {
+      throw new Error("Encryption key not set");
+    }
+
+    const encrypted = await encryptJson(this.encryptionKey, data);
+
+    // Wrap in Blob to avoid "ArrayBuffer is deprecated in XMLHttpRequest.send()" warning
+    const blob = new Blob([encrypted as BlobPart], {
+      type: ENCRYPTED_CONTENT_TYPE,
+    });
+
+    const response = await this.client.put(url, blob, {
+      ...config,
+      headers: {
+        ...config?.headers,
+        "Content-Type": ENCRYPTED_CONTENT_TYPE,
+      },
+      responseType: "arraybuffer",
+    });
+
+    return decryptJson<T>(this.encryptionKey, new Uint8Array(response.data));
+  }
+
+  /**
    * Make an encrypted GET request
    */
   private async encryptedGet<T>(
@@ -417,6 +448,26 @@ export class ApiService {
     }
     const response = await this.client.get("/api/files/list", {
       params: { path },
+    });
+    return response.data;
+  }
+
+  /**
+   * Update the data directory on the API server.
+   * This should be called whenever the user changes the data directory in the UI
+   * to keep the API server's path validation in sync.
+   */
+  async updateDataDirectory(
+    path: string,
+  ): Promise<{ success: boolean; path: string }> {
+    if (this.isUsingEncryption()) {
+      return this.encryptedPut<{ success: boolean; path: string }>(
+        "/api/files/data-directory",
+        { path },
+      );
+    }
+    const response = await this.client.put("/api/files/data-directory", {
+      path,
     });
     return response.data;
   }

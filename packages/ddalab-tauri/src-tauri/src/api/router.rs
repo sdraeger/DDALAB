@@ -6,7 +6,7 @@ use crate::api::handlers::{
     get_edf_info, get_edf_overview, get_edf_window, get_file_chunk, get_file_info, get_ica_result,
     get_ica_results, get_overview_progress, get_running_analysis_status, health,
     list_analysis_history, list_files, reconstruct_without_components, rename_analysis_result,
-    run_dda_analysis, run_ica_analysis, save_analysis_to_history,
+    run_dda_analysis, run_ica_analysis, save_analysis_to_history, update_data_directory,
 };
 use crate::api::state::ApiState;
 use axum::{
@@ -94,6 +94,7 @@ fn cors() -> CorsLayer {
 fn build_protected_routes(state: Arc<ApiState>) -> Router<Arc<ApiState>> {
     Router::new()
         .route("/api/files/list", get(list_files))
+        .route("/api/files/data-directory", put(update_data_directory))
         .route("/api/files/{file_path}", get(get_file_info))
         .route("/api/files/{file_path}/chunk", get(get_file_chunk))
         .route("/api/edf/info", get(get_edf_info))

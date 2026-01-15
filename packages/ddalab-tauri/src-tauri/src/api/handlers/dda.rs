@@ -289,7 +289,8 @@ pub async fn run_dda_analysis(
     };
 
     // Validate the file is within the configured data directory
-    if let Ok(canonical_data_dir) = state.data_directory.canonicalize() {
+    let data_dir = state.get_data_directory();
+    if let Ok(canonical_data_dir) = data_dir.canonicalize() {
         if !canonical_file_path.starts_with(&canonical_data_dir) {
             log::warn!(
                 "Path traversal attempt detected - file '{}' is outside data directory '{}'",

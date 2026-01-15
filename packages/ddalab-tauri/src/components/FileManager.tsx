@@ -832,6 +832,19 @@ export const FileManager = React.memo(function FileManager({
       await TauriService.setDataDirectory(selected);
       console.log("[FILEMANAGER] Backend save complete");
 
+      // Update the API server's data directory (for path validation)
+      console.log("[FILEMANAGER] Updating API server data directory...");
+      try {
+        await apiService.updateDataDirectory(selected);
+        console.log("[FILEMANAGER] API server data directory updated");
+      } catch (apiError) {
+        console.warn(
+          "[FILEMANAGER] Failed to update API server data directory:",
+          apiError,
+        );
+        // Continue anyway - this is not critical for the UI to function
+      }
+
       // Update the store (which also persists via state manager)
       console.log("[FILEMANAGER] Calling setDataDirectoryPath with:", selected);
       setDataDirectoryPath(selected);
