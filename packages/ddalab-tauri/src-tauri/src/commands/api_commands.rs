@@ -207,8 +207,15 @@ pub async fn start_local_api_server(
         match crate::commands::data_directory_commands::load_data_directory(&app_handle).await {
             Ok(dir) => PathBuf::from(dir),
             Err(_) => {
-                let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-                PathBuf::from(home).join("Desktop/DDALAB/data")
+                // Fallback to app's data directory (platform-specific):
+                // - macOS: ~/Library/Application Support/com.ddalab.desktop/data
+                // - Windows: C:\Users\<user>\AppData\Roaming\com.ddalab.desktop\data
+                // - Linux: ~/.local/share/com.ddalab.desktop/data
+                app_handle
+                    .path()
+                    .app_data_dir()
+                    .map(|p| p.join("data"))
+                    .unwrap_or_else(|_| PathBuf::from(".").join("data"))
             }
         }
     };
