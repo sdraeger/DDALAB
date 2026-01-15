@@ -313,7 +313,8 @@ pub async fn list_files(
     let path = params.get("path").map(|p| p.as_str()).unwrap_or("");
 
     // Validate path is within data directory (prevents path traversal attacks)
-    let search_path = validate_path_within_data_dir(path, &state.data_directory)?;
+    let data_dir = state.get_data_directory();
+    let search_path = validate_path_within_data_dir(path, &data_dir)?;
 
     let mut items = Vec::new();
 
@@ -366,7 +367,8 @@ pub async fn get_file_info(
     log::info!("get_file_info called for: {}", file_path);
 
     // Validate path is within data directory (prevents path traversal attacks)
-    let validated_path = validate_path_within_data_dir(&file_path, &state.data_directory)?;
+    let data_dir = state.get_data_directory();
+    let validated_path = validate_path_within_data_dir(&file_path, &data_dir)?;
     let validated_path_str = validated_path.to_string_lossy().to_string();
 
     {
@@ -404,7 +406,8 @@ pub async fn get_file_chunk(
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Arc<ChunkData>>, StatusCode> {
     // Validate path is within data directory (prevents path traversal attacks)
-    let validated_path = validate_path_within_data_dir(&file_path, &state.data_directory)?;
+    let data_dir = state.get_data_directory();
+    let validated_path = validate_path_within_data_dir(&file_path, &data_dir)?;
     let validated_path_str = validated_path.to_string_lossy().to_string();
 
     let start_time: f64 = params
@@ -504,4 +507,46 @@ fn read_chunk_with_file_reader(
         chunk_start: start_sample,
         total_samples: Some(metadata.num_samples as u64),
     })
+}
+
+/// Request body for updating data directory
+#[derive(Debug, serde::Deserialize)]
+pub struct UpdateDataDirectoryRequest {
+    pub path: String,
+}
+
+/// Update the data directory at runtime.
+/// This is called when the user changes the data directory in the UI.
+pub async fn update_data_directory(
+    State(state): State<Arc<ApiState>>,
+    Json(body): Json<UpdateDataDirectoryRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let new_path = PathBuf::from(&body.path);
+
+    // Validate the path exists and is a directory
+    if !new_path.exists() {
+        log::warn!(
+            "Attempted to set non-existent data directory: {:?}",
+            new_path
+        );
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    if !new_path.is_dir() {
+        log::warn!(
+            "Attempted to set data directory to non-directory: {:?}",
+            new_path
+        );
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    // Update the state
+    state.set_data_directory(new_path.clone());
+
+    log::info!("📂 Data directory updated to: {:?}", new_path);
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "path": body.path
+    })))
 }
