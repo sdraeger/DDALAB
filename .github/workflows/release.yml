@@ -154,6 +154,15 @@ jobs:
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
 
+      - name: Fix Tauri CLI native bindings (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          # Bun doesn't properly install optional platform-specific native modules
+          # Remove the broken CLI and reinstall with npm at root level
+          rm -rf node_modules/@tauri-apps/cli node_modules/@tauri-apps/cli-*
+          npm install @tauri-apps/cli
+          echo "✅ Tauri CLI native bindings installed for Linux"
+
       - name: Build WASM module
         working-directory: packages/ddalab-wasm
         run: |
