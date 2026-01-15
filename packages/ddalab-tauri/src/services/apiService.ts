@@ -203,7 +203,12 @@ export class ApiService {
 
     const encrypted = await encryptJson(this.encryptionKey, data);
 
-    const response = await this.client.post(url, encrypted, {
+    // Wrap in Blob to avoid "ArrayBuffer is deprecated in XMLHttpRequest.send()" warning
+    const blob = new Blob([encrypted as BlobPart], {
+      type: ENCRYPTED_CONTENT_TYPE,
+    });
+
+    const response = await this.client.post(url, blob, {
       ...config,
       headers: {
         ...config?.headers,
@@ -226,12 +231,13 @@ export class ApiService {
       throw new Error("Encryption key not set");
     }
 
-    // GET requests - send encrypted content-type header to signal server should encrypt response
+    // GET requests - use Accept header to signal server should encrypt response
+    // (Content-Type is semantically incorrect for bodyless GET requests)
     const response = await this.client.get(url, {
       ...config,
       headers: {
         ...config?.headers,
-        "Content-Type": ENCRYPTED_CONTENT_TYPE,
+        Accept: ENCRYPTED_CONTENT_TYPE,
       },
       responseType: "arraybuffer",
     });

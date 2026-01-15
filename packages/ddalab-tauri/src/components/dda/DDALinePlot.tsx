@@ -45,6 +45,7 @@ export interface DDALinePlotProps {
     clientY: number,
     scaleValue: number,
   ) => void;
+  children?: React.ReactNode;
 }
 
 export interface DDALinePlotHandle {
@@ -55,7 +56,15 @@ export interface DDALinePlotHandle {
 
 const DDALinePlotComponent = forwardRef<DDALinePlotHandle, DDALinePlotProps>(
   function DDALinePlot(
-    { variantId, ddaMatrix, selectedChannels, scales, height, onContextMenu },
+    {
+      variantId,
+      ddaMatrix,
+      selectedChannels,
+      scales,
+      height,
+      onContextMenu,
+      children,
+    },
     ref,
   ) {
     const containerRef = useRef<HTMLDivElement>(null);
@@ -335,6 +344,7 @@ const DDALinePlotComponent = forwardRef<DDALinePlotHandle, DDALinePlotProps>(
             className="w-full h-full overflow-hidden"
             style={{ height }}
           />
+          {children}
         </div>
       </ChartErrorBoundary>
     );

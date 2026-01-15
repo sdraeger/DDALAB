@@ -1,4 +1,5 @@
 pub mod error;
+pub mod mmap_utils;
 pub mod network_motifs;
 pub mod parser;
 pub mod profiling;
