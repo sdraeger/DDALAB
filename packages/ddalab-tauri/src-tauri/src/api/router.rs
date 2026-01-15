@@ -77,6 +77,7 @@ fn cors() -> CorsLayer {
             "http://127.0.0.1:3001".parse::<HeaderValue>().unwrap(),
             "http://127.0.0.1:3003".parse::<HeaderValue>().unwrap(),
             "tauri://localhost".parse::<HeaderValue>().unwrap(),
+            "http://tauri.localhost".parse::<HeaderValue>().unwrap(),
             "https://tauri.localhost".parse::<HeaderValue>().unwrap(),
         ])
         .allow_methods([
