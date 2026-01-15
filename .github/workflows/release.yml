@@ -159,13 +159,11 @@ jobs:
         shell: bash
         run: |
           # Bun doesn't properly install optional platform-specific native modules
-          # Remove the broken local CLI and install globally, then link
-          rm -rf node_modules/@tauri-apps/cli node_modules/@tauri-apps/cli-*
+          # Install Tauri CLI globally
           npm install -g @tauri-apps/cli
-          npm link @tauri-apps/cli
           # Verify the CLI works
-          npx tauri --version
-          echo "✅ Tauri CLI linked for ${{ runner.os }}"
+          tauri --version
+          echo "✅ Tauri CLI installed globally for ${{ runner.os }}"
 
       - name: Build WASM module
         working-directory: packages/ddalab-wasm
@@ -214,6 +212,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         with:
+          tauriScript: ${{ runner.os == 'macOS' && 'npm run tauri' || 'tauri' }}
           includeUpdaterJson: true
           tagName: v${{ needs.check-version.outputs.version }}
           releaseName: 'DDALAB v${{ needs.check-version.outputs.version }}'
