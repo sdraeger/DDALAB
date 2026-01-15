@@ -47,6 +47,177 @@ pub fn parse_dda_output(content: &str, column_stride: Option<usize>) -> Result<V
     Ok(q_matrix)
 }
 
+/// Parse DDA binary output from byte slice (e.g. mmap)
+///
+/// This is a zero-copy optimized version of `parse_dda_output_with_error`.
+pub fn parse_dda_output_from_bytes(
+    content: &[u8],
+    column_stride: Option<usize>,
+) -> Result<ParsedDDAOutput> {
+    let stride = column_stride.unwrap_or(4);
+
+    // We'll collect data into a flat vector first, then reshape/transpose
+    // This avoids creating intermediate Vec<Vec<f64>> for rows
+    let mut all_values = Vec::new();
+    let mut row_count = 0;
+    let mut col_count = 0;
+
+    // Helper to parse float from bytes
+    // fast_float is faster, but for now standard parse is safer/easier
+    fn parse_f64(bytes: &[u8]) -> Option<f64> {
+        // Unsafe from_utf8_unchecked is acceptable here as DDA output is strictly ASCII numbers
+        // But for safety we use from_utf8 first
+        std::str::from_utf8(bytes).ok()?.parse::<f64>().ok()
+    }
+
+    let mut start = 0;
+    let mut current_row_values = Vec::with_capacity(64); // Pre-allocate for typical row size
+
+    for (i, &byte) in content.iter().enumerate() {
+        if byte == b'\n' {
+            let line = &content[start..i];
+            start = i + 1;
+
+            // Skip comments and empty lines
+            if line.is_empty() || line[0] == b'#' || (line.iter().all(|b| b.is_ascii_whitespace()))
+            {
+                continue;
+            }
+
+            // Parse line
+            current_row_values.clear();
+            let mut val_start = 0;
+            let mut in_val = false;
+
+            for (j, &b) in line.iter().enumerate() {
+                if b.is_ascii_whitespace() {
+                    if in_val {
+                        if let Some(val) = parse_f64(&line[val_start..j]) {
+                            if val.is_finite() {
+                                current_row_values.push(val);
+                            }
+                        }
+                        in_val = false;
+                    }
+                } else if !in_val {
+                    val_start = j;
+                    in_val = true;
+                }
+            }
+            // Handle last value in line
+            if in_val {
+                if let Some(val) = parse_f64(&line[val_start..]) {
+                    if val.is_finite() {
+                        current_row_values.push(val);
+                    }
+                }
+            }
+
+            if !current_row_values.is_empty() {
+                if row_count == 0 {
+                    col_count = current_row_values.len();
+                } else if current_row_values.len() != col_count {
+                    log::warn!(
+                        "Row {} has inconsistent column count ({} vs {}), skipping",
+                        row_count,
+                        current_row_values.len(),
+                        col_count
+                    );
+                    continue;
+                }
+
+                all_values.extend_from_slice(&current_row_values);
+                row_count += 1;
+            }
+        }
+    }
+
+    // Handle last line if no trailing newline
+    if start < content.len() {
+        let line = &content[start..];
+        if !line.is_empty() && line[0] != b'#' && !line.iter().all(|b| b.is_ascii_whitespace()) {
+            current_row_values.clear();
+            let mut val_start = 0;
+            let mut in_val = false;
+
+            for (j, &b) in line.iter().enumerate() {
+                if b.is_ascii_whitespace() {
+                    if in_val {
+                        if let Some(val) = parse_f64(&line[val_start..j]) {
+                            if val.is_finite() {
+                                current_row_values.push(val);
+                            }
+                        }
+                        in_val = false;
+                    }
+                } else if !in_val {
+                    val_start = j;
+                    in_val = true;
+                }
+            }
+            if in_val {
+                if let Some(val) = parse_f64(&line[val_start..]) {
+                    if val.is_finite() {
+                        current_row_values.push(val);
+                    }
+                }
+            }
+            if !current_row_values.is_empty() {
+                if row_count == 0 {
+                    col_count = current_row_values.len();
+                }
+                if current_row_values.len() == col_count {
+                    all_values.extend_from_slice(&current_row_values);
+                    row_count += 1;
+                }
+            }
+        }
+    }
+
+    if row_count == 0 {
+        return Err(DDAError::ParseError(
+            "No valid data found in DDA output".to_string(),
+        ));
+    }
+
+    // Extract error values (Column 1)
+    // Structure of all_values is [row0_col0, row0_col1, ..., row1_col0, ...]
+    let error_values: Vec<f64> = (0..row_count)
+        .filter_map(|r| {
+            let idx = r * col_count + 1; // Column 1
+            if idx < all_values.len() {
+                Some(all_values[idx])
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Transpose and stride logic
+    // Skip first 2 cols, then stride
+    let mut q_matrix = Vec::new();
+
+    // Indices relative to the *skipped* portion (cols 2..)
+    // Original indices: 2, 2+stride, 2+2*stride...
+    let mut start_col = 2;
+    while start_col < col_count {
+        let mut channel_data = Vec::with_capacity(row_count);
+        for r in 0..row_count {
+            let idx = r * col_count + start_col;
+            if idx < all_values.len() {
+                channel_data.push(all_values[idx]);
+            }
+        }
+        q_matrix.push(channel_data);
+        start_col += stride;
+    }
+
+    Ok(ParsedDDAOutput {
+        q_matrix,
+        error_values,
+    })
+}
+
 /// Internal parser that returns both Q matrix and error values
 fn parse_dda_output_internal(
     content: &str,

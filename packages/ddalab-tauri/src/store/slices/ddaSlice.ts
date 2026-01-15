@@ -132,27 +132,28 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
     });
 
     if (TauriService.isTauri()) {
-      // Capture state immediately to avoid race conditions
-      const { dda, fileManager } = get();
-      const ddaState = createPersistedDDAState(dda, {
-        last_analysis_id: analysis?.id || null,
-        current_analysis: analysis,
-      });
-      const selectedFilePath = analysis
-        ? fileManager.selectedFile?.file_path
-        : undefined;
-      const analysisHistory = dda.analysisHistory;
-      const analysisParameters = dda.analysisParameters;
-      const currentAnalysisId = analysis?.id;
+      // Debounce persistence to batch rapid updates (e.g., switching between analyses)
+      debouncedUpdate(
+        "dda:currentAnalysis",
+        () => {
+          const { dda, fileManager } = get();
+          const ddaState = createPersistedDDAState(dda, {
+            last_analysis_id: dda.currentAnalysis?.id || null,
+            current_analysis: dda.currentAnalysis,
+          });
+          const selectedFilePath = dda.currentAnalysis
+            ? fileManager.selectedFile?.file_path
+            : undefined;
 
-      queueMicrotask(() => {
-        persistDDAState(ddaState, {
-          selectedFilePath,
-          analysisHistory,
-          analysisParameters,
-          currentAnalysisId,
-        });
-      });
+          persistDDAState(ddaState, {
+            selectedFilePath,
+            analysisHistory: dda.analysisHistory,
+            analysisParameters: dda.analysisParameters,
+            currentAnalysisId: dda.currentAnalysis?.id,
+          });
+        },
+        150, // 150ms debounce
+      );
     }
   },
 
@@ -175,22 +176,22 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
     });
 
     if (TauriService.isTauri()) {
-      // Capture state immediately to avoid race conditions with setTimeout
-      const { dda, fileManager } = get();
-      const ddaState = createPersistedDDAState(dda);
-      const selectedFilePath = fileManager.selectedFile?.file_path;
-      const analysisHistory = dda.analysisHistory;
-      const analysisParameters = dda.analysisParameters;
-      const currentAnalysisId = dda.currentAnalysis?.id;
+      // Debounce persistence - history updates are not time-critical
+      debouncedUpdate(
+        "dda:history",
+        () => {
+          const { dda, fileManager } = get();
+          const ddaState = createPersistedDDAState(dda);
 
-      queueMicrotask(() => {
-        persistDDAState(ddaState, {
-          selectedFilePath,
-          analysisHistory,
-          analysisParameters,
-          currentAnalysisId,
-        });
-      });
+          persistDDAState(ddaState, {
+            selectedFilePath: fileManager.selectedFile?.file_path,
+            analysisHistory: dda.analysisHistory,
+            analysisParameters: dda.analysisParameters,
+            currentAnalysisId: dda.currentAnalysis?.id,
+          });
+        },
+        150, // 150ms debounce
+      );
     }
   },
 
@@ -263,13 +264,19 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
     });
 
     if (TauriService.isTauri()) {
-      const { dda } = get();
-      const ddaState = createPersistedDDAState(dda);
-      TauriService.updateDDAState(ddaState).catch((error) =>
-        handleError(error, {
-          source: "DDA State Persistence",
-          severity: "silent",
-        }),
+      debouncedUpdate(
+        "dda:presets",
+        () => {
+          const { dda } = get();
+          const ddaState = createPersistedDDAState(dda);
+          TauriService.updateDDAState(ddaState).catch((error) =>
+            handleError(error, {
+              source: "DDA State Persistence",
+              severity: "silent",
+            }),
+          );
+        },
+        150,
       );
     }
   },
@@ -286,13 +293,19 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
     });
 
     if (TauriService.isTauri()) {
-      const { dda } = get();
-      const ddaState = createPersistedDDAState(dda);
-      TauriService.updateDDAState(ddaState).catch((error) =>
-        handleError(error, {
-          source: "DDA State Persistence",
-          severity: "silent",
-        }),
+      debouncedUpdate(
+        "dda:presets",
+        () => {
+          const { dda } = get();
+          const ddaState = createPersistedDDAState(dda);
+          TauriService.updateDDAState(ddaState).catch((error) =>
+            handleError(error, {
+              source: "DDA State Persistence",
+              severity: "silent",
+            }),
+          );
+        },
+        150,
       );
     }
   },
@@ -305,13 +318,19 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
     });
 
     if (TauriService.isTauri()) {
-      const { dda } = get();
-      const ddaState = createPersistedDDAState(dda);
-      TauriService.updateDDAState(ddaState).catch((error) =>
-        handleError(error, {
-          source: "DDA State Persistence",
-          severity: "silent",
-        }),
+      debouncedUpdate(
+        "dda:presets",
+        () => {
+          const { dda } = get();
+          const ddaState = createPersistedDDAState(dda);
+          TauriService.updateDDAState(ddaState).catch((error) =>
+            handleError(error, {
+              source: "DDA State Persistence",
+              severity: "silent",
+            }),
+          );
+        },
+        150,
       );
     }
   },

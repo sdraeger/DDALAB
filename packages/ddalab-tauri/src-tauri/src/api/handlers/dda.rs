@@ -238,6 +238,7 @@ fn parse_variant_configs(
 }
 
 /// Map frontend variant IDs to backend variant codes
+#[allow(dead_code)]
 fn map_variant_id(frontend_id: &str) -> Option<&str> {
     match frontend_id {
         "single_timeseries" => Some("ST"),
@@ -440,8 +441,11 @@ pub async fn run_dda_analysis(
     // the raw request.cd_channel_pairs may not be populated
     let mut parsed_cd_channel_pairs: Option<Vec<[usize; 2]>> = None;
 
+    // Build DDA request with channel pairs from variant_configs if provided
+    let mut dda_request = dda_request;
+
     // Check if variant_configs are provided for per-variant channel configuration
-    let dda_result = if let Some(ref variant_configs_json) = request.variant_configs {
+    if let Some(ref variant_configs_json) = request.variant_configs {
         log::info!("📊 Using per-variant channel configuration");
 
         let variant_configs = parse_variant_configs(variant_configs_json).map_err(|e| {
@@ -449,344 +453,67 @@ pub async fn run_dda_analysis(
             StatusCode::BAD_REQUEST
         })?;
 
-        // Extract CD channel pairs from parsed config for network motifs
+        // Extract CT channel pairs from variant config
+        if let Some(ct_config) = variant_configs.get("cross_timeseries") {
+            if let Some(ref pairs) = ct_config.ct_channel_pairs {
+                if !pairs.is_empty() {
+                    log::info!(
+                        "📊 Setting {} CT channel pairs from variant_configs",
+                        pairs.len()
+                    );
+                    dda_request.ct_channel_pairs = Some(pairs.clone());
+                }
+            }
+        }
+
+        // Extract CD channel pairs from parsed config
         if let Some(cd_config) = variant_configs.get("cross_dynamical") {
             if let Some(ref pairs) = cd_config.cd_channel_pairs {
                 if !pairs.is_empty() {
                     parsed_cd_channel_pairs = Some(pairs.clone());
                     log::info!(
-                        "📊 Extracted {} CD channel pairs from variant_configs for network motifs",
+                        "📊 Setting {} CD channel pairs from variant_configs",
                         pairs.len()
                     );
+                    dda_request.cd_channel_pairs = Some(pairs.clone());
                 }
             }
         }
 
-        let mut variant_results = Vec::new();
-
-        // Process each variant in the order specified by enabled_variants
-        // This ensures deterministic tab ordering in the frontend
-        for frontend_variant_id in &request.algorithm_selection.enabled_variants {
-            // Check for cancellation before each variant
-            if state.is_analysis_cancelled() {
-                log::info!(
-                    "🛑 Analysis {} cancelled during variant processing",
-                    analysis_id
-                );
-                state.complete_analysis();
-                return Err(StatusCode::NO_CONTENT);
-            }
-
-            // Get config for this variant from the HashMap
-            let config = match variant_configs.get(frontend_variant_id) {
-                Some(c) => c,
-                None => {
-                    log::warn!(
-                        "No config found for variant {}, skipping",
-                        frontend_variant_id
+        // Extract selected channels from ST config (used for ST, DE, SY)
+        if let Some(st_config) = variant_configs.get("single_timeseries") {
+            if let Some(ref channels) = st_config.selected_channels {
+                if !channels.is_empty() {
+                    log::info!(
+                        "📊 Setting {} selected channels from variant_configs",
+                        channels.len()
                     );
-                    continue;
-                }
-            };
-
-            let variant_id = map_variant_id(frontend_variant_id).ok_or_else(|| {
-                log::error!("Unknown variant ID: {}", frontend_variant_id);
-                StatusCode::BAD_REQUEST
-            })?;
-
-            log::info!("Running variant {} ({})", variant_id, frontend_variant_id);
-
-            match variant_id {
-                "CT" => {
-                    // CT variant: run with channel pairs
-                    if let Some(ref pairs) = config.ct_channel_pairs {
-                        if pairs.is_empty() {
-                            log::warn!("Skipping CT variant: no channel pairs configured");
-                            continue;
-                        }
-
-                        log::info!("CT variant: {} channel pairs", pairs.len());
-
-                        // For CT, we need to run each pair separately and combine results
-                        let mut combined_ct_results: Vec<Vec<f64>> = Vec::new();
-                        let mut ct_error_values: Option<Vec<f64>> = None;
-
-                        for (pair_idx, pair) in pairs.iter().enumerate() {
-                            // Check for cancellation between CT pairs
-                            if state.is_analysis_cancelled() {
-                                log::info!(
-                                    "🛑 Analysis {} cancelled during CT pair {}",
-                                    analysis_id,
-                                    pair_idx
-                                );
-                                state.complete_analysis();
-                                return Err(StatusCode::NO_CONTENT);
-                            }
-
-                            let pair_result = runner
-                                .run_single_variant(
-                                    &dda_request,
-                                    variant_id,
-                                    &[],            // Channels not used for CT
-                                    Some(&[*pair]), // Pass single pair
-                                    None,
-                                    Some(start_bound),
-                                    Some(end_bound),
-                                    edf_channel_names.as_deref(),
-                                )
-                                .await
-                                .map_err(|e| {
-                                    log::error!("CT pair {} failed: {}", pair_idx, e);
-                                    StatusCode::INTERNAL_SERVER_ERROR
-                                })?;
-
-                            combined_ct_results.extend(pair_result.q_matrix);
-                            // Capture error values from first pair (all pairs have same windows)
-                            if ct_error_values.is_none() {
-                                ct_error_values = pair_result.error_values;
-                            }
-                        }
-
-                        // Create combined CT variant result
-                        let variant_result = dda_rs::VariantResult {
-                            variant_id: variant_id.to_string(),
-                            variant_name: "Cross-Timeseries (CT)".to_string(),
-                            q_matrix: combined_ct_results.clone(),
-                            channel_labels: {
-                                if let Some(names) = edf_channel_names.as_ref() {
-                                    Some(
-                                        pairs
-                                            .iter()
-                                            .map(|pair| {
-                                                let ch1 = names
-                                                    .get(pair[0])
-                                                    .map(|s| s.as_str())
-                                                    .unwrap_or("?");
-                                                let ch2 = names
-                                                    .get(pair[1])
-                                                    .map(|s| s.as_str())
-                                                    .unwrap_or("?");
-                                                format!("{} ⟷ {}", ch1, ch2)
-                                            })
-                                            .collect(),
-                                    )
-                                } else {
-                                    None
-                                }
-                            },
-                            error_values: ct_error_values,
-                        };
-                        variant_results.push(variant_result);
-                    } else {
-                        log::warn!("Skipping CT variant: no channel pairs in config");
-                    }
-                }
-                "CD" => {
-                    // CD variant: run with directed channel pairs
-                    if let Some(ref pairs) = config.cd_channel_pairs {
-                        if pairs.is_empty() {
-                            log::warn!("Skipping CD variant: no directed pairs configured");
-                            continue;
-                        }
-
-                        log::info!("CD variant: {} directed pairs", pairs.len());
-
-                        let variant_result = runner
-                            .run_single_variant(
-                                &dda_request,
-                                variant_id,
-                                &[], // Channels not used for CD
-                                None,
-                                Some(pairs.as_slice()),
-                                Some(start_bound),
-                                Some(end_bound),
-                                edf_channel_names.as_deref(),
-                            )
-                            .await
-                            .map_err(|e| {
-                                log::error!("CD variant failed: {}", e);
-                                StatusCode::INTERNAL_SERVER_ERROR
-                            })?;
-
-                        variant_results.push(variant_result);
-                    } else {
-                        log::warn!("Skipping CD variant: no directed pairs in config");
-                    }
-                }
-                "ST" => {
-                    // ST variant: run with selected channels (produces per-channel results)
-                    if let Some(ref channels) = config.selected_channels {
-                        if channels.is_empty() {
-                            log::warn!("Skipping ST variant: no channels configured");
-                            continue;
-                        }
-
-                        log::info!("ST variant: {} channels", channels.len());
-
-                        let variant_result = runner
-                            .run_single_variant(
-                                &dda_request,
-                                variant_id,
-                                channels.as_slice(),
-                                None,
-                                None,
-                                Some(start_bound),
-                                Some(end_bound),
-                                edf_channel_names.as_deref(),
-                            )
-                            .await
-                            .map_err(|e| {
-                                log::error!("ST variant failed: {}", e);
-                                StatusCode::INTERNAL_SERVER_ERROR
-                            })?;
-
-                        variant_results.push(variant_result);
-                    } else {
-                        log::warn!("Skipping ST variant: no channels in config");
-                    }
-                }
-                "DE" | "SY" => {
-                    // DE and SY variants: run separately for each channel to get per-channel results
-                    if let Some(ref channels) = config.selected_channels {
-                        if channels.is_empty() {
-                            log::warn!("Skipping {} variant: no channels configured", variant_id);
-                            continue;
-                        }
-
-                        log::info!(
-                            "{} variant: {} channels (running separately per channel)",
-                            variant_id,
-                            channels.len()
-                        );
-
-                        let mut combined_results: Vec<Vec<f64>> = Vec::new();
-                        let mut variant_error_values: Option<Vec<f64>> = None;
-
-                        for (ch_idx, channel) in channels.iter().enumerate() {
-                            // Check for cancellation between channel iterations
-                            if state.is_analysis_cancelled() {
-                                log::info!(
-                                    "🛑 Analysis {} cancelled during {} channel {}",
-                                    analysis_id,
-                                    variant_id,
-                                    ch_idx
-                                );
-                                state.complete_analysis();
-                                return Err(StatusCode::NO_CONTENT);
-                            }
-
-                            let channel_result = runner
-                                .run_single_variant(
-                                    &dda_request,
-                                    variant_id,
-                                    &[*channel], // Run with single channel
-                                    None,
-                                    None,
-                                    Some(start_bound),
-                                    Some(end_bound),
-                                    edf_channel_names.as_deref(),
-                                )
-                                .await
-                                .map_err(|e| {
-                                    log::error!("{} channel {} failed: {}", variant_id, ch_idx, e);
-                                    StatusCode::INTERNAL_SERVER_ERROR
-                                })?;
-
-                            combined_results.extend(channel_result.q_matrix);
-                            // Capture error values from first channel (all channels have same windows)
-                            if variant_error_values.is_none() {
-                                variant_error_values = channel_result.error_values;
-                            }
-                        }
-
-                        // Create combined variant result
-                        let variant_result = dda_rs::VariantResult {
-                            variant_id: variant_id.to_string(),
-                            variant_name: match variant_id {
-                                "DE" => "Dynamical Ergodicity (DE)".to_string(),
-                                "SY" => "Synchronization (SY)".to_string(),
-                                _ => variant_id.to_string(),
-                            },
-                            q_matrix: combined_results.clone(),
-                            channel_labels: {
-                                if let Some(names) = edf_channel_names.as_ref() {
-                                    Some(
-                                        channels
-                                            .iter()
-                                            .map(|&ch| {
-                                                names
-                                                    .get(ch)
-                                                    .map(|s| s.as_str())
-                                                    .unwrap_or("?")
-                                                    .to_string()
-                                            })
-                                            .collect(),
-                                    )
-                                } else {
-                                    None
-                                }
-                            },
-                            error_values: variant_error_values,
-                        };
-                        variant_results.push(variant_result);
-                    } else {
-                        log::warn!("Skipping {} variant: no channels in config", variant_id);
-                    }
-                }
-                _ => {
-                    log::warn!("Unknown variant ID: {}", variant_id);
+                    dda_request.channels = Some(channels.clone());
                 }
             }
         }
+    }
 
-        if variant_results.is_empty() {
-            log::error!("No variant results produced");
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
-        }
+    // Check for cancellation before running analysis
+    if state.is_analysis_cancelled() {
+        log::info!("🛑 Analysis {} cancelled before DDA execution", analysis_id);
+        state.complete_analysis();
+        return Err(StatusCode::NO_CONTENT);
+    }
 
-        // Use first variant as primary (for backward compatibility)
-        // Safe: we already checked variant_results.is_empty() above
-        let primary_variant = variant_results
-            .first()
-            .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-        let analysis_id = Uuid::new_v4().to_string();
-
-        dda_rs::DDAResult::new(
-            analysis_id,
-            request.file_path.clone(),
-            primary_variant.channel_labels.clone().unwrap_or_else(|| {
-                (0..primary_variant.q_matrix.len())
-                    .map(|i| format!("Channel {}", i + 1))
-                    .collect()
-            }),
-            primary_variant.q_matrix.clone(),
-            dda_rs::WindowParameters {
-                window_length: request.window_parameters.window_length as u32,
-                window_step: request.window_parameters.window_step as u32,
-                ct_window_length: request.window_parameters.ct_window_length.map(|v| v as u32),
-                ct_window_step: request.window_parameters.ct_window_step.map(|v| v as u32),
-            },
-            dda_rs::DelayParameters {
-                delays: request.scale_parameters.delay_list.clone(),
-            },
+    // Run DDA analysis using the unified run() method
+    let dda_result = runner
+        .run(
+            &dda_request,
+            Some(start_bound),
+            Some(end_bound),
+            edf_channel_names.as_deref(),
         )
-        .with_variant_results(variant_results)
-    } else {
-        log::info!("📋 Using legacy format (all variants with same channels)");
-
-        runner
-            .run(
-                &dda_request,
-                Some(start_bound),
-                Some(end_bound),
-                edf_channel_names.as_deref(),
-            )
-            .await
-            .map_err(|e| {
-                log::error!("DDA analysis failed: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?
-    };
+        .await
+        .map_err(|e| {
+            log::error!("DDA analysis failed: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let dda_time = dda_start.elapsed();
     log::info!("DDA analysis completed in {:.2}s", dda_time.as_secs_f64());

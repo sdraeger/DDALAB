@@ -90,7 +90,13 @@ impl JobQueue {
                 // Spawn task to process this job
                 tokio::spawn(async move {
                     // Acquire semaphore permit (blocks if at capacity)
-                    let _permit = semaphore_clone.acquire().await.unwrap();
+                    let _permit = match semaphore_clone.acquire().await {
+                        Ok(p) => p,
+                        Err(e) => {
+                            log::warn!("Job {} failed to acquire semaphore: {}", job_id, e);
+                            return;
+                        }
+                    };
                     info!("Job {} acquired semaphore, starting execution", job_id);
 
                     // Update status to running
