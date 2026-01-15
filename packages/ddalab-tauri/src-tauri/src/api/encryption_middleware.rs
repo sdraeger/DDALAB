@@ -52,17 +52,30 @@ pub async fn encryption_middleware(
         None => return Ok(next.run(request).await),
     };
 
-    // Check if request body is encrypted
+    // Check if request body is encrypted (Content-Type for POST/PUT with body)
     let content_type = request
         .headers()
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
-    let is_encrypted_request = content_type == ENCRYPTED_CONTENT_TYPE;
+    // Check Accept header for GET requests (client signals it wants encrypted response)
+    let accept_header = request
+        .headers()
+        .get(header::ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
 
-    // Decrypt request body if encrypted
-    let request = if is_encrypted_request {
+    // Request is "encrypted" if either:
+    // 1. Content-Type is encrypted (POST/PUT with encrypted body)
+    // 2. Accept header requests encrypted response (GET requests)
+    let has_encrypted_body = content_type == ENCRYPTED_CONTENT_TYPE;
+    let wants_encrypted_response = accept_header == ENCRYPTED_CONTENT_TYPE;
+    let is_encrypted_request = has_encrypted_body || wants_encrypted_response;
+
+    // Decrypt request body only if it has encrypted content (POST/PUT with body)
+    // GET requests don't have a body to decrypt
+    let request = if has_encrypted_body {
         let (parts, body) = request.into_parts();
 
         // Collect body bytes
@@ -71,22 +84,27 @@ pub async fn encryption_middleware(
             Err(_) => return Err(StatusCode::BAD_REQUEST),
         };
 
-        // Decrypt
-        let decrypted = match decrypt_payload(&key, &body_bytes) {
-            Ok(d) => d,
-            Err(e) => {
-                log::error!("Decryption failed: {}", e);
-                return Err(StatusCode::BAD_REQUEST);
-            }
-        };
+        // Only decrypt if there's actual content
+        if body_bytes.is_empty() {
+            Request::from_parts(parts, Body::empty())
+        } else {
+            // Decrypt
+            let decrypted = match decrypt_payload(&key, &body_bytes) {
+                Ok(d) => d,
+                Err(e) => {
+                    log::error!("Decryption failed: {}", e);
+                    return Err(StatusCode::BAD_REQUEST);
+                }
+            };
 
-        // Reconstruct request with decrypted body and JSON content-type
-        let mut new_request = Request::from_parts(parts, Body::from(decrypted));
-        new_request.headers_mut().insert(
-            header::CONTENT_TYPE,
-            header::HeaderValue::from_static("application/json"),
-        );
-        new_request
+            // Reconstruct request with decrypted body and JSON content-type
+            let mut new_request = Request::from_parts(parts, Body::from(decrypted));
+            new_request.headers_mut().insert(
+                header::CONTENT_TYPE,
+                header::HeaderValue::from_static("application/json"),
+            );
+            new_request
+        }
     } else {
         request
     };

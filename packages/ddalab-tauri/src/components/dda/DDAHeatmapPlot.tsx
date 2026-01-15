@@ -39,6 +39,7 @@ export interface DDAHeatmapPlotProps {
     clientY: number,
     scaleValue: number,
   ) => void;
+  children?: React.ReactNode;
 }
 
 export interface DDAHeatmapPlotHandle {
@@ -62,6 +63,7 @@ const DDAHeatmapPlotComponent = forwardRef<
     onColorRangeChange,
     height,
     onContextMenu,
+    children,
   },
   ref,
 ) {
@@ -457,6 +459,7 @@ const DDAHeatmapPlotComponent = forwardRef<
           </div>
         )}
         <div ref={callbackRef} className="w-full" style={{ height }} />
+        {children}
       </div>
     </ChartErrorBoundary>
   );
