@@ -1,3 +1,4 @@
+use arboard::Clipboard;
 use std::fs;
 use std::process::Command;
 use tauri::AppHandle;
@@ -61,4 +62,14 @@ pub async fn read_logs_content(_app_handle: AppHandle) -> Result<String, String>
 
     // Read the log file content
     fs::read_to_string(&log_file).map_err(|e| format!("Failed to read log file: {}", e))
+}
+
+#[tauri::command]
+pub async fn copy_to_clipboard(text: String) -> Result<(), String> {
+    // Use arboard for cross-platform clipboard access
+    let mut clipboard =
+        Clipboard::new().map_err(|e| format!("Failed to access clipboard: {}", e))?;
+    clipboard
+        .set_text(&text)
+        .map_err(|e| format!("Failed to copy to clipboard: {}", e))
 }

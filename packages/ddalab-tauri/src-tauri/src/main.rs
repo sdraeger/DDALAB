@@ -221,6 +221,7 @@ fn main() {
             open_logs_folder,
             get_logs_path,
             read_logs_content,
+            copy_to_clipboard,
             // NSG commands
             save_nsg_credentials,
             get_nsg_credentials,

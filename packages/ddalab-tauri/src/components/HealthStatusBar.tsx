@@ -44,6 +44,10 @@ import {
   Unplug,
   History,
   Trash2,
+  ScrollText,
+  Copy,
+  Save,
+  Check,
 } from "lucide-react";
 import { formatDateTime } from "@/lib/utils";
 import type { DiscoveredBroker } from "@/types/sync";
@@ -52,6 +56,10 @@ import {
   getRelativeTime,
 } from "@/store/recentServersStore";
 import type { RecentServer } from "@/store/recentServersStore";
+import { formatLogHistoryAsText, getLogHistory } from "@/lib/logger";
+import { invoke } from "@tauri-apps/api/core";
+import { save } from "@tauri-apps/plugin-dialog";
+import { writeTextFile } from "@tauri-apps/plugin-fs";
 
 interface HealthStatusBarProps {
   apiService: ApiService;
@@ -316,6 +324,89 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
   const [isPopoverClosing, setIsPopoverClosing] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
   const cancelPopoverRef = useRef<HTMLDivElement>(null);
+
+  // Logs popover state
+  const [logsPopoverOpen, setLogsPopoverOpen] = useState(false);
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  const [logsCopied, setLogsCopied] = useState(false);
+  const [logsSaved, setLogsSaved] = useState(false);
+  const [logsError, setLogsError] = useState<string | null>(null);
+
+  // Combine frontend and backend logs into a formatted string
+  const getCombinedLogs = useCallback(async (): Promise<string> => {
+    const frontendLogs = formatLogHistoryAsText();
+    let backendLogs = "";
+
+    try {
+      backendLogs = await invoke<string>("read_logs_content");
+    } catch (error) {
+      backendLogs = `Error reading backend logs: ${error}`;
+    }
+
+    const timestamp = new Date().toISOString();
+    const frontendCount = getLogHistory().length;
+
+    return `=== DDALAB Logs ===
+Exported: ${timestamp}
+
+--- Frontend Logs (React) [${frontendCount} entries] ---
+${frontendLogs || "(No frontend logs captured)"}
+
+--- Backend Logs (Rust) ---
+${backendLogs || "(No backend logs found)"}
+`;
+  }, []);
+
+  // Copy logs to clipboard using Tauri command
+  const handleCopyLogs = useCallback(async () => {
+    setIsLoadingLogs(true);
+    setLogsError(null);
+    try {
+      const logs = await getCombinedLogs();
+      await invoke("copy_to_clipboard", { text: logs });
+      setLogsCopied(true);
+      setTimeout(() => {
+        setLogsCopied(false);
+        setLogsPopoverOpen(false);
+      }, 1500);
+    } catch (error) {
+      console.error("[HealthStatusBar] Copy logs error:", error);
+      setLogsError("Failed to copy");
+      setTimeout(() => setLogsError(null), 2000);
+    } finally {
+      setIsLoadingLogs(false);
+    }
+  }, [getCombinedLogs]);
+
+  // Save logs to file
+  const handleSaveLogs = useCallback(async () => {
+    setIsLoadingLogs(true);
+    setLogsError(null);
+    try {
+      const logs = await getCombinedLogs();
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const defaultName = `ddalab-logs-${timestamp}.txt`;
+
+      const filePath = await save({
+        defaultPath: defaultName,
+        filters: [{ name: "Text Files", extensions: ["txt", "log"] }],
+      });
+
+      if (filePath) {
+        await writeTextFile(filePath, logs);
+        setLogsSaved(true);
+        setTimeout(() => {
+          setLogsSaved(false);
+          setLogsPopoverOpen(false);
+        }, 1500);
+      }
+    } catch (error) {
+      setLogsError("Failed to save");
+      setTimeout(() => setLogsError(null), 2000);
+    } finally {
+      setIsLoadingLogs(false);
+    }
+  }, [getCombinedLogs]);
 
   // Handle smooth close animation
   const closePopover = useCallback(() => {
@@ -944,6 +1035,74 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
               {health.errors.length} error{health.errors.length > 1 ? "s" : ""}
             </Badge>
           )}
+
+          {/* Copy Logs Button */}
+          <Popover open={logsPopoverOpen} onOpenChange={setLogsPopoverOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 px-2 gap-1.5 text-xs"
+                disabled={isLoadingLogs}
+              >
+                {isLoadingLogs ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <ScrollText className="h-3 w-3" />
+                )}
+                <span>Logs</span>
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-48 p-1" align="end" side="top">
+              <div className="space-y-0.5">
+                {logsError ? (
+                  <div className="flex items-center space-x-2 px-2 py-1.5 text-sm text-red-600 animate-in fade-in-0 duration-200">
+                    <AlertCircle className="h-4 w-4" />
+                    <span>{logsError}</span>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      className={`w-full flex items-center space-x-2 px-2 py-1.5 rounded-sm transition-all text-left text-sm ${
+                        logsCopied
+                          ? "bg-green-50 dark:bg-green-950/30 text-green-600"
+                          : "hover:bg-accent"
+                      }`}
+                      onClick={handleCopyLogs}
+                      disabled={isLoadingLogs || logsCopied || logsSaved}
+                    >
+                      {logsCopied ? (
+                        <Check className="h-4 w-4 animate-in zoom-in-50 duration-200" />
+                      ) : isLoadingLogs ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Copy className="h-4 w-4" />
+                      )}
+                      <span>
+                        {logsCopied ? "Copied!" : "Copy to clipboard"}
+                      </span>
+                    </button>
+                    <button
+                      className={`w-full flex items-center space-x-2 px-2 py-1.5 rounded-sm transition-all text-left text-sm ${
+                        logsSaved
+                          ? "bg-green-50 dark:bg-green-950/30 text-green-600"
+                          : "hover:bg-accent"
+                      }`}
+                      onClick={handleSaveLogs}
+                      disabled={isLoadingLogs || logsCopied || logsSaved}
+                    >
+                      {logsSaved ? (
+                        <Check className="h-4 w-4 animate-in zoom-in-50 duration-200" />
+                      ) : (
+                        <Save className="h-4 w-4" />
+                      )}
+                      <span>{logsSaved ? "Saved!" : "Save to file..."}</span>
+                    </button>
+                  </>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
 
           {/* Manual Refresh */}
           <Button

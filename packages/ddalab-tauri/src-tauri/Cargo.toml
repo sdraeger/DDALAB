@@ -1,6 +1,6 @@
 [package]
 name = "ddalab-tauri"
-version = "1.1.7"
+version = "1.1.8"
 description = "DDALAB Desktop Application"
 authors = ["DDALAB Team"]
 license = "MIT"
@@ -116,6 +116,7 @@ linfa-ica = "0.8.0"   # FastICA implementation
 rustfft = "6.4.1"     # FFT for spectral analysis of components
 tokio-util = "0.7.17" # CancellationToken for graceful task cancellation
 http-body-util = "0.1" # Body utilities for encryption middleware
+arboard = "3"          # Cross-platform clipboard support
 
 [dev-dependencies]
 hyper = "1.7.0"
