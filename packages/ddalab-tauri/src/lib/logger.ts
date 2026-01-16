@@ -29,6 +29,37 @@ const LOG_LEVELS: Record<LogLevel, number> = {
 const MIN_LOG_LEVEL: LogLevel =
   process.env.NODE_ENV === "production" ? "warn" : "debug";
 
+// In-memory log storage for copy/export functionality
+const MAX_LOG_ENTRIES = 500;
+const logHistory: LogEntry[] = [];
+
+function addToHistory(entry: LogEntry): void {
+  logHistory.push(entry);
+  if (logHistory.length > MAX_LOG_ENTRIES) {
+    logHistory.shift();
+  }
+}
+
+export function getLogHistory(): LogEntry[] {
+  return [...logHistory];
+}
+
+export function clearLogHistory(): void {
+  logHistory.length = 0;
+}
+
+export function formatLogEntry(entry: LogEntry): string {
+  const contextStr =
+    entry.context && Object.keys(entry.context).length > 0
+      ? ` ${JSON.stringify(entry.context)}`
+      : "";
+  return `[${entry.timestamp}] [${entry.level.toUpperCase()}] [${entry.namespace}] ${entry.message}${contextStr}`;
+}
+
+export function formatLogHistoryAsText(): string {
+  return logHistory.map(formatLogEntry).join("\n");
+}
+
 function shouldLog(level: LogLevel): boolean {
   return LOG_LEVELS[level] >= LOG_LEVELS[MIN_LOG_LEVEL];
 }
@@ -87,6 +118,7 @@ export function createLogger(namespace: string): Logger {
     if (!shouldLog(level)) return;
 
     const entry = createLogEntry(level, namespace, message, context);
+    addToHistory(entry);
     const formattedMessage = formatMessage(entry);
 
     switch (level) {
