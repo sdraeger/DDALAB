@@ -21,6 +21,35 @@ const PerformanceMonitor =
     ? require("@/components/PerformanceMonitor").PerformanceMonitor
     : null;
 
+/**
+ * Create a listener for the API service auth ready event.
+ * IMPORTANT: Call this BEFORE triggering the state update that will cause the event,
+ * then await the returned promise AFTER the state update.
+ * Returns a promise that resolves when the event fires or times out.
+ */
+function createAuthReadyListener(timeoutMs: number = 5000): Promise<boolean> {
+  return new Promise((resolve) => {
+    let resolved = false;
+
+    const handler = () => {
+      if (resolved) return;
+      resolved = true;
+      window.removeEventListener("api-service-auth-ready", handler);
+      resolve(true);
+    };
+
+    window.addEventListener("api-service-auth-ready", handler);
+
+    // Timeout fallback - resolve with false if event doesn't fire
+    setTimeout(() => {
+      if (resolved) return;
+      resolved = true;
+      window.removeEventListener("api-service-auth-ready", handler);
+      resolve(false);
+    }, timeoutMs);
+  });
+}
+
 export default function Home() {
   // Detect Tauri immediately without explicit state
   const isTauri = TauriService.isTauri();
@@ -115,8 +144,20 @@ export default function Home() {
             // Get the current API config from state (includes session token from running server)
             const currentConfig = await TauriService.getApiConfig();
             if (currentConfig?.session_token) {
+              // Set up listener BEFORE triggering state update
+              const authReadyPromise = createAuthReadyListener(5000);
+
               setSessionToken(currentConfig.session_token);
               setIsApiConnected(true);
+
+              // Wait for ApiServiceProvider to receive the token and dispatch the ready event.
+              const authReady = await authReadyPromise;
+              if (!authReady) {
+                console.warn(
+                  "Auth ready event not received within timeout, proceeding anyway",
+                );
+              }
+
               setServerReady(true);
               return;
             } else {
@@ -139,7 +180,10 @@ export default function Home() {
         try {
           const config = await TauriService.startLocalApiServer();
 
+          // Set up auth listener BEFORE triggering state update (if token exists)
+          let authReadyPromise: Promise<boolean> | null = null;
           if (config?.session_token) {
+            authReadyPromise = createAuthReadyListener(5000);
             setSessionToken(config.session_token);
           }
 
@@ -214,11 +258,15 @@ export default function Home() {
           if (connected) {
             setIsApiConnected(true);
 
-            // CRITICAL: Add a delay to allow React to process the sessionToken state update
-            // and for DashboardLayout's useEffect to run and update the API service with the token.
-            // This is necessary because React batches state updates and useEffects run asynchronously.
-            // The 250ms delay is sufficient for the token to propagate even with Fast Refresh.
-            await new Promise((resolve) => setTimeout(resolve, 250));
+            // Wait for ApiServiceProvider to receive the token and dispatch the ready event.
+            if (authReadyPromise) {
+              const authReady = await authReadyPromise;
+              if (!authReady) {
+                console.warn(
+                  "Auth ready event not received within timeout, proceeding anyway",
+                );
+              }
+            }
 
             setServerReady(true); // Signal that server is ready for requests
           } else {
@@ -258,8 +306,20 @@ export default function Home() {
 
       // In browser mode with external API, set server ready with placeholder token
       if (connected && !isTauri) {
+        // Set up listener BEFORE triggering state update
+        const authReadyPromise = createAuthReadyListener(5000);
+
         setSessionToken("browser-mode-no-auth");
         setDataDirectoryPath(".");
+
+        // Wait for ApiServiceProvider to process the token
+        const authReady = await authReadyPromise;
+        if (!authReady) {
+          console.warn(
+            "Auth ready event not received within timeout, proceeding anyway",
+          );
+        }
+
         setServerReady(true);
       }
 

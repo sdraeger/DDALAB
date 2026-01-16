@@ -115,10 +115,14 @@ export function createLogger(namespace: string): Logger {
     message: string,
     context?: LogContext,
   ): void => {
+    const entry = createLogEntry(level, namespace, message, context);
+
+    // Always add to history for copy/export functionality
+    addToHistory(entry);
+
+    // Only output to console if log level meets threshold
     if (!shouldLog(level)) return;
 
-    const entry = createLogEntry(level, namespace, message, context);
-    addToHistory(entry);
     const formattedMessage = formatMessage(entry);
 
     switch (level) {
