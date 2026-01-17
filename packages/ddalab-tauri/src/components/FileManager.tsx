@@ -12,6 +12,9 @@ import { useOpenFilesStore } from "@/store/openFilesStore";
 import { ApiService } from "@/services/apiService";
 import { EDFFileInfo } from "@/types/api";
 import { handleError, isGitAnnexError } from "@/utils/errorHandler";
+import { createLogger } from "@/lib/logger";
+
+const logger = createLogger("FileManager");
 import { useScrollTrap } from "@/hooks/useScrollTrap";
 import {
   useFileManagerSelectors,
@@ -123,6 +126,28 @@ export const FileManager = React.memo(function FileManager({
     ? `${dataDirectoryPath}/${relativePath}`
     : dataDirectoryPath;
 
+  // Compute query enabled condition
+  const sessionToken = apiService.getSessionToken();
+  const queryEnabled =
+    !!absolutePath && !!dataDirectoryPath && isServerReady && !!sessionToken;
+
+  // Log query conditions for debugging
+  useEffect(() => {
+    logger.debug("Directory query conditions", {
+      absolutePath: absolutePath || "(empty)",
+      dataDirectoryPath: dataDirectoryPath || "(empty)",
+      isServerReady,
+      hasSessionToken: !!sessionToken,
+      queryEnabled,
+    });
+  }, [
+    absolutePath,
+    dataDirectoryPath,
+    isServerReady,
+    sessionToken,
+    queryEnabled,
+  ]);
+
   // Use TanStack Query for directory listing
   // Only wait for server to be ready - no need to block on persistence
   const {
@@ -130,14 +155,7 @@ export const FileManager = React.memo(function FileManager({
     isLoading: directoryLoading,
     error: directoryError,
     refetch: refetchDirectory,
-  } = useDirectoryListing(
-    apiService,
-    absolutePath || "",
-    !!absolutePath &&
-      !!dataDirectoryPath &&
-      isServerReady &&
-      !!apiService.getSessionToken(),
-  );
+  } = useDirectoryListing(apiService, absolutePath || "", queryEnabled);
 
   // Use mutation for loading file info
   const loadFileInfoMutation = useLoadFileInfo(apiService);

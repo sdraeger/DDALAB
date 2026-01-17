@@ -14,6 +14,9 @@ import { OnboardingTour } from "@/components/onboarding/OnboardingTour";
 import { useOnboarding } from "@/hooks/useOnboarding";
 import { Loader2 } from "lucide-react";
 import { importKey } from "@/utils/crypto";
+import { createLogger } from "@/lib/logger";
+
+const logger = createLogger("Startup");
 
 // Conditionally import PerformanceMonitor only in development
 const PerformanceMonitor =
@@ -28,12 +31,14 @@ const PerformanceMonitor =
  * Returns a promise that resolves when the event fires or times out.
  */
 function createAuthReadyListener(timeoutMs: number = 5000): Promise<boolean> {
+  logger.debug("Setting up auth ready listener", { timeoutMs });
   return new Promise((resolve) => {
     let resolved = false;
 
     const handler = () => {
       if (resolved) return;
       resolved = true;
+      logger.info("Auth ready event received");
       window.removeEventListener("api-service-auth-ready", handler);
       resolve(true);
     };
@@ -44,6 +49,7 @@ function createAuthReadyListener(timeoutMs: number = 5000): Promise<boolean> {
     setTimeout(() => {
       if (resolved) return;
       resolved = true;
+      logger.warn("Auth ready event timed out", { timeoutMs });
       window.removeEventListener("api-service-auth-ready", handler);
       resolve(false);
     }, timeoutMs);
@@ -138,12 +144,17 @@ export default function Home() {
 
         // Check if API server is already running (for dev workflow)
         try {
+          logger.debug("Checking if API server is already running", { url });
           const alreadyRunning = await TauriService.checkApiConnection(url);
 
           if (alreadyRunning) {
+            logger.info("Found existing API server running");
             // Get the current API config from state (includes session token from running server)
             const currentConfig = await TauriService.getApiConfig();
             if (currentConfig?.session_token) {
+              logger.debug("Got session token from existing server", {
+                tokenPrefix: currentConfig.session_token.substring(0, 8),
+              });
               // Set up listener BEFORE triggering state update
               const authReadyPromise = createAuthReadyListener(5000);
 
@@ -153,11 +164,12 @@ export default function Home() {
               // Wait for ApiServiceProvider to receive the token and dispatch the ready event.
               const authReady = await authReadyPromise;
               if (!authReady) {
-                console.warn(
+                logger.warn(
                   "Auth ready event not received within timeout, proceeding anyway",
                 );
               }
 
+              logger.info("Setting server ready (existing server)");
               setServerReady(true);
               return;
             } else {
@@ -178,13 +190,22 @@ export default function Home() {
 
         // Start local API server
         try {
+          logger.info("Starting local API server");
           const config = await TauriService.startLocalApiServer();
+          logger.debug("Server started", {
+            port: config?.port,
+            useHttps: config?.use_https,
+            hasToken: !!config?.session_token,
+          });
 
           // Set up auth listener BEFORE triggering state update (if token exists)
           let authReadyPromise: Promise<boolean> | null = null;
           if (config?.session_token) {
             authReadyPromise = createAuthReadyListener(5000);
             setSessionToken(config.session_token);
+            logger.debug("Session token set", {
+              tokenPrefix: config.session_token.substring(0, 8),
+            });
           }
 
           // Handle encryption key if present (HTTP fallback mode)
@@ -256,18 +277,20 @@ export default function Home() {
           }
 
           if (connected) {
+            logger.info("API server connection verified", { retries });
             setIsApiConnected(true);
 
             // Wait for ApiServiceProvider to receive the token and dispatch the ready event.
             if (authReadyPromise) {
               const authReady = await authReadyPromise;
               if (!authReady) {
-                console.warn(
+                logger.warn(
                   "Auth ready event not received within timeout, proceeding anyway",
                 );
               }
             }
 
+            logger.info("Setting server ready (new server)");
             setServerReady(true); // Signal that server is ready for requests
           } else {
             console.error(

@@ -10,6 +10,9 @@ import React, {
   ReactNode,
 } from "react";
 import { ApiService } from "@/services/apiService";
+import { createLogger } from "@/lib/logger";
+
+const logger = createLogger("ApiServiceContext");
 
 interface ApiServiceContextValue {
   /** The ApiService instance */
@@ -58,10 +61,20 @@ export function ApiServiceProvider({
   }, [apiUrl, apiService]);
 
   useEffect(() => {
-    if (initialToken && apiService.getSessionToken() !== initialToken) {
+    const currentToken = apiService.getSessionToken();
+    logger.debug("Token sync effect triggered", {
+      hasInitialToken: !!initialToken,
+      currentToken: currentToken ? currentToken.substring(0, 8) + "..." : null,
+      initialToken: initialToken ? initialToken.substring(0, 8) + "..." : null,
+      tokensDiffer: currentToken !== initialToken,
+    });
+
+    if (initialToken && currentToken !== initialToken) {
+      logger.info("Syncing session token to ApiService");
       apiService.setSessionToken(initialToken);
       setIsAuthenticated(true);
       setIsReady(true);
+      logger.info("Dispatching api-service-auth-ready event");
       window.dispatchEvent(new CustomEvent("api-service-auth-ready"));
     }
   }, [initialToken, apiService]);
