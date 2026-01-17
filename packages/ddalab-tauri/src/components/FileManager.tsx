@@ -22,6 +22,7 @@ import {
   useWorkflowSelectors,
   usePersistenceSelectors,
 } from "@/hooks/useStoreSelectors";
+import { useApiService } from "@/contexts/ApiServiceContext";
 import {
   Card,
   CardContent,
@@ -115,6 +116,9 @@ export const FileManager = React.memo(function FileManager({
   const { isRecording, incrementActionCount } = useWorkflowSelectors();
   const { isPersistenceRestored } = usePersistenceSelectors();
 
+  // Get reactive auth state from context - this ensures re-render when auth becomes ready
+  const { isReady: isAuthReady } = useApiService();
+
   // Open files store for file tab management
   const openFileInTabs = useOpenFilesStore((state) => state.openFile);
 
@@ -127,9 +131,10 @@ export const FileManager = React.memo(function FileManager({
     : dataDirectoryPath;
 
   // Compute query enabled condition
-  const sessionToken = apiService.getSessionToken();
+  // CRITICAL: Use isAuthReady from context (reactive) instead of apiService.getSessionToken() (non-reactive)
+  // This ensures the component re-renders when auth becomes ready
   const queryEnabled =
-    !!absolutePath && !!dataDirectoryPath && isServerReady && !!sessionToken;
+    !!absolutePath && !!dataDirectoryPath && isServerReady && isAuthReady;
 
   // Log query conditions for debugging
   useEffect(() => {
@@ -137,14 +142,14 @@ export const FileManager = React.memo(function FileManager({
       absolutePath: absolutePath || "(empty)",
       dataDirectoryPath: dataDirectoryPath || "(empty)",
       isServerReady,
-      hasSessionToken: !!sessionToken,
+      isAuthReady,
       queryEnabled,
     });
   }, [
     absolutePath,
     dataDirectoryPath,
     isServerReady,
-    sessionToken,
+    isAuthReady,
     queryEnabled,
   ]);
 
