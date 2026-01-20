@@ -6,6 +6,9 @@ import {
   createMutationErrorHandler,
   queryErrorHandlers,
 } from "@/utils/errorHandler";
+import { createLogger } from "@/lib/logger";
+
+const logger = createLogger("useFileManagement");
 
 export const fileManagementKeys = {
   all: ["fileManagement"] as const,
@@ -59,10 +62,34 @@ export function useDirectoryListing(
   path: string,
   enabled: boolean = true,
 ) {
+  const finalEnabled = enabled && !!path;
+
+  logger.debug("useDirectoryListing called", {
+    path,
+    enabled,
+    finalEnabled,
+  });
+
   return useQuery({
     queryKey: fileManagementKeys.directory(path),
-    queryFn: () => apiService.listDirectory(path),
-    enabled: enabled && !!path,
+    queryFn: async () => {
+      logger.info("Directory listing query executing", { path });
+      try {
+        const result = await apiService.listDirectory(path);
+        logger.info("Directory listing query succeeded", {
+          path,
+          fileCount: result.files?.length || 0,
+        });
+        return result;
+      } catch (error) {
+        logger.error("Directory listing query failed", {
+          path,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    },
+    enabled: finalEnabled,
     staleTime: 2 * 60 * 1000, // 2 minutes - directories can change more frequently
     gcTime: 5 * 60 * 1000,
     ...queryErrorHandlers.file("Directory"),

@@ -162,6 +162,22 @@ export const FileManager = React.memo(function FileManager({
     refetch: refetchDirectory,
   } = useDirectoryListing(apiService, absolutePath || "", queryEnabled);
 
+  // Log query state changes for debugging
+  useEffect(() => {
+    logger.debug("Directory query state", {
+      absolutePath,
+      isLoading: directoryLoading,
+      hasData: !!directoryData,
+      hasError: !!directoryError,
+      errorMessage: directoryError
+        ? directoryError instanceof Error
+          ? directoryError.message
+          : String(directoryError)
+        : null,
+      fileCount: directoryData?.files?.length || 0,
+    });
+  }, [absolutePath, directoryLoading, directoryData, directoryError]);
+
   // Use mutation for loading file info
   const loadFileInfoMutation = useLoadFileInfo(apiService);
 
