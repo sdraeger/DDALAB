@@ -1,6 +1,6 @@
 {
   "name": "ddalab-tauri",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "DDALAB Desktop Application built with Next.js and Tauri",
   "private": true,
   "scripts": {
@@ -67,6 +67,7 @@
     "@tauri-apps/api": "^2.9.0",
     "@tauri-apps/plugin-dialog": "^2.4.2",
     "@tauri-apps/plugin-fs": "^2.4.4",
+    "@tauri-apps/plugin-http": "^2.5.6",
     "@tauri-apps/plugin-shell": "^2.3.3",
     "axios": "^1.13.1",
     "class-variance-authority": "^0.7.1",
