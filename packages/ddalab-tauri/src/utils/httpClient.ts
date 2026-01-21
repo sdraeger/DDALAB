@@ -10,10 +10,38 @@ const isTauri = () => {
   return typeof window !== "undefined" && "__TAURI__" in window;
 };
 
+/**
+ * Unwrap Proofpoint URL Defense wrapped URLs
+ * Proofpoint wraps URLs like: https://urldefense.com/v3/__https://localhost:8765__;...
+ */
+const unwrapProofpointUrl = (url: string): string => {
+  try {
+    // Check if URL is wrapped by Proofpoint URL Defense
+    if (url.includes("urldefense.com/v3/__")) {
+      // Extract the original URL from the Proofpoint wrapper
+      // Format: https://urldefense.com/v3/__<ORIGINAL_URL>__;...
+      const match = url.match(/urldefense\.com\/v3\/__(.+?)__/);
+      if (match && match[1]) {
+        const unwrapped = match[1];
+        console.info("[HttpClient] Unwrapped Proofpoint URL:", {
+          wrapped: url,
+          unwrapped,
+        });
+        return unwrapped;
+      }
+    }
+    return url;
+  } catch {
+    return url;
+  }
+};
+
 // Check if URL is a localhost HTTPS URL
 const isLocalhostHttps = (url: string): boolean => {
   try {
-    const parsed = new URL(url);
+    // First unwrap any Proofpoint URL Defense wrappers
+    const unwrapped = unwrapProofpointUrl(url);
+    const parsed = new URL(unwrapped);
     return (
       parsed.protocol === "https:" &&
       (parsed.hostname === "localhost" ||
@@ -122,16 +150,19 @@ export class TauriHttpClient {
    * Build full URL from base URL and path
    */
   private buildUrl(url: string, config?: AxiosRequestConfig): string {
-    const baseURL =
-      config?.baseURL || this.axiosInstance.defaults.baseURL || "";
+    // Unwrap Proofpoint-mangled URLs first
+    const baseURL = unwrapProofpointUrl(
+      config?.baseURL || this.axiosInstance.defaults.baseURL || "",
+    );
+    const cleanUrl = unwrapProofpointUrl(url);
 
     // If URL is already absolute, use it as-is
-    if (url.startsWith("http://") || url.startsWith("https://")) {
-      return url;
+    if (cleanUrl.startsWith("http://") || cleanUrl.startsWith("https://")) {
+      return cleanUrl;
     }
 
     // Otherwise combine with base URL
-    return baseURL + url;
+    return baseURL + cleanUrl;
   }
 
   /**
