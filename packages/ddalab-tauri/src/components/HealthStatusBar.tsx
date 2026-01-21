@@ -336,11 +336,18 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
   const getCombinedLogs = useCallback(async (): Promise<string> => {
     const frontendLogs = formatLogHistoryAsText();
     let backendLogs = "";
+    let configFiles = "";
 
     try {
       backendLogs = await invoke<string>("read_logs_content");
     } catch (error) {
       backendLogs = `Error reading backend logs: ${error}`;
+    }
+
+    try {
+      configFiles = await invoke<string>("read_config_files");
+    } catch (error) {
+      configFiles = `Error reading config files: ${error}`;
     }
 
     const timestamp = new Date().toISOString();
@@ -354,6 +361,9 @@ ${frontendLogs || "(No frontend logs captured)"}
 
 --- Backend Logs (Rust) ---
 ${backendLogs || "(No backend logs found)"}
+
+--- Configuration Files ---
+${configFiles || "(No config files found)"}
 `;
   }, []);
 

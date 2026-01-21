@@ -73,3 +73,63 @@ pub async fn copy_to_clipboard(text: String) -> Result<(), String> {
         .set_text(&text)
         .map_err(|e| format!("Failed to copy to clipboard: {}", e))
 }
+
+#[tauri::command]
+pub async fn read_config_files(app_handle: AppHandle) -> Result<String, String> {
+    use tauri::Manager;
+
+    // Get platform-specific app data directory
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+
+    let api_config_path = app_data_dir.join("api_connection.json");
+    let preferences_path = app_data_dir.join("preferences.json");
+
+    let mut result = String::new();
+
+    // Read api_connection.json
+    result.push_str("--- api_connection.json ---\n");
+    if api_config_path.exists() {
+        match fs::read_to_string(&api_config_path) {
+            Ok(content) => {
+                result.push_str(&content);
+                result.push('\n');
+            }
+            Err(e) => {
+                result.push_str(&format!("Error reading file: {}\n", e));
+            }
+        }
+    } else {
+        result.push_str("(File does not exist)\n");
+    }
+
+    result.push('\n');
+
+    // Read preferences.json
+    result.push_str("--- preferences.json ---\n");
+    if preferences_path.exists() {
+        match fs::read_to_string(&preferences_path) {
+            Ok(content) => {
+                result.push_str(&content);
+                result.push('\n');
+            }
+            Err(e) => {
+                result.push_str(&format!("Error reading file: {}\n", e));
+            }
+        }
+    } else {
+        result.push_str("(File does not exist)\n");
+    }
+
+    result.push('\n');
+
+    // Add file paths for reference
+    result.push_str(&format!(
+        "Config directory: {}\n",
+        app_data_dir.to_string_lossy()
+    ));
+
+    Ok(result)
+}
