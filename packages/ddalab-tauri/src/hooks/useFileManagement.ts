@@ -82,9 +82,25 @@ export function useDirectoryListing(
         });
         return result;
       } catch (error) {
+        // Better error serialization for logging
+        let errorMessage = "Unknown error";
+        let errorDetails: any = {};
+
+        if (error instanceof Error) {
+          errorMessage = error.message;
+          errorDetails.name = error.name;
+          errorDetails.stack = error.stack?.split("\n").slice(0, 3).join("\n");
+        } else if (typeof error === "object" && error !== null) {
+          errorMessage = JSON.stringify(error);
+          errorDetails = error;
+        } else {
+          errorMessage = String(error);
+        }
+
         logger.error("Directory listing query failed", {
           path,
-          error: error instanceof Error ? error.message : String(error),
+          error: errorMessage,
+          ...errorDetails,
         });
         throw error;
       }
