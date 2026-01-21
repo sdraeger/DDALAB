@@ -224,6 +224,7 @@ fn main() {
             read_logs_content,
             copy_to_clipboard,
             read_config_files,
+            run_network_diagnostics,
             // NSG commands
             save_nsg_credentials,
             get_nsg_credentials,

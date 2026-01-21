@@ -1,6 +1,9 @@
 use arboard::Clipboard;
+use serde::Serialize;
 use std::fs;
+use std::net::TcpStream;
 use std::process::Command;
+use std::time::Duration;
 use tauri::AppHandle;
 
 #[tauri::command]
@@ -132,4 +135,135 @@ pub async fn read_config_files(app_handle: AppHandle) -> Result<String, String> 
     ));
 
     Ok(result)
+}
+
+#[derive(Serialize)]
+pub struct NetworkDiagnostics {
+    pub localhost_reachable: bool,
+    pub ip_127_reachable: bool,
+    pub port_check_result: String,
+    pub proxy_env_vars: Vec<(String, String)>,
+    pub platform: String,
+    pub diagnostics: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn run_network_diagnostics(port: u16) -> Result<NetworkDiagnostics, String> {
+    let mut diagnostics = Vec::new();
+
+    // Check if localhost:port is reachable
+    let localhost_reachable = TcpStream::connect_timeout(
+        &format!("localhost:{}", port)
+            .parse()
+            .unwrap_or_else(|_| std::net::SocketAddr::from(([127, 0, 0, 1], port))),
+        Duration::from_secs(2),
+    )
+    .is_ok();
+
+    diagnostics.push(format!(
+        "localhost:{} reachable: {}",
+        port, localhost_reachable
+    ));
+
+    // Check if 127.0.0.1:port is reachable
+    let ip_127_reachable = TcpStream::connect_timeout(
+        &std::net::SocketAddr::from(([127, 0, 0, 1], port)),
+        Duration::from_secs(2),
+    )
+    .is_ok();
+
+    diagnostics.push(format!(
+        "127.0.0.1:{} reachable: {}",
+        port, ip_127_reachable
+    ));
+
+    // Check for proxy environment variables
+    let proxy_vars = [
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "NO_PROXY",
+        "no_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+    ];
+
+    let proxy_env_vars: Vec<(String, String)> = proxy_vars
+        .iter()
+        .filter_map(|var| std::env::var(var).ok().map(|val| (var.to_string(), val)))
+        .collect();
+
+    if proxy_env_vars.is_empty() {
+        diagnostics.push("No proxy environment variables detected".to_string());
+    } else {
+        diagnostics.push(format!(
+            "Proxy environment variables found: {:?}",
+            proxy_env_vars
+        ));
+    }
+
+    // Platform-specific checks
+    #[cfg(target_os = "windows")]
+    {
+        // Check Windows proxy settings via registry or netsh
+        diagnostics.push("Platform: Windows".to_string());
+
+        // Try to detect if IE/System proxy is configured
+        if let Ok(output) = Command::new("netsh")
+            .args(["winhttp", "show", "proxy"])
+            .output()
+        {
+            let proxy_output = String::from_utf8_lossy(&output.stdout);
+            if proxy_output.contains("Direct access") {
+                diagnostics.push("WinHTTP proxy: Direct access (no proxy)".to_string());
+            } else {
+                diagnostics.push(format!("WinHTTP proxy settings: {}", proxy_output.trim()));
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        diagnostics.push("Platform: macOS".to_string());
+
+        // Check macOS proxy settings
+        if let Ok(output) = Command::new("scutil").args(["--proxy"]).output() {
+            let proxy_output = String::from_utf8_lossy(&output.stdout);
+            if proxy_output.contains("HTTPEnable : 1") || proxy_output.contains("HTTPSEnable : 1") {
+                diagnostics.push("System proxy is enabled".to_string());
+            } else {
+                diagnostics.push("No system proxy detected".to_string());
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        diagnostics.push("Platform: Linux".to_string());
+    }
+
+    // Determine port check result message
+    let port_check_result = if localhost_reachable && ip_127_reachable {
+        "Both localhost and 127.0.0.1 are reachable".to_string()
+    } else if !localhost_reachable && ip_127_reachable {
+        "WARNING: localhost is blocked but 127.0.0.1 works - possible DNS/proxy interception"
+            .to_string()
+    } else if localhost_reachable && !ip_127_reachable {
+        "WARNING: 127.0.0.1 is blocked but localhost works - unusual configuration".to_string()
+    } else {
+        "ERROR: Neither localhost nor 127.0.0.1 is reachable - server may not be running or firewall is blocking"
+            .to_string()
+    };
+
+    diagnostics.push(port_check_result.clone());
+
+    Ok(NetworkDiagnostics {
+        localhost_reachable,
+        ip_127_reachable,
+        port_check_result,
+        proxy_env_vars,
+        platform: std::env::consts::OS.to_string(),
+        diagnostics,
+    })
 }
