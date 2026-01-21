@@ -1,6 +1,8 @@
 /**
  * HTTP client wrapper that uses Tauri's HTTP plugin for localhost HTTPS
  * (which can bypass certificate validation) and falls back to axios for other requests.
+ *
+ * Also includes network diagnostics to help troubleshoot corporate network issues.
  */
 
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from "axios";
@@ -8,6 +10,50 @@ import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from "axios";
 // Check if we're in a Tauri environment
 const isTauri = () => {
   return typeof window !== "undefined" && "__TAURI__" in window;
+};
+
+/**
+ * Detect if browser/system has proxy settings configured.
+ * Returns diagnostic info about potential proxy interference.
+ */
+export const detectNetworkEnvironment = (): {
+  hasProxyHints: boolean;
+  diagnostics: string[];
+} => {
+  const diagnostics: string[] = [];
+  let hasProxyHints = false;
+
+  // Check navigator.connection if available
+  if ("connection" in navigator) {
+    const conn = (navigator as any).connection;
+    diagnostics.push(`Connection type: ${conn?.effectiveType || "unknown"}`);
+  }
+
+  // Check if we're in a secure context
+  diagnostics.push(`Secure context: ${window.isSecureContext}`);
+
+  // Check for common proxy-related behaviors
+  // Corporate proxies often inject headers or modify requests
+
+  return { hasProxyHints, diagnostics };
+};
+
+/**
+ * Normalize localhost URLs to use 127.0.0.1 instead of "localhost".
+ * Some corporate proxies/DNS intercept "localhost" but not the IP address.
+ */
+const normalizeLocalhostUrl = (url: string): string => {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === "localhost") {
+      parsed.hostname = "127.0.0.1";
+      return parsed.toString();
+    }
+    return url;
+  } catch {
+    // If URL parsing fails, try simple string replacement
+    return url.replace("://localhost", "://127.0.0.1");
+  }
 };
 
 /**

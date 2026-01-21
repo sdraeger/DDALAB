@@ -337,6 +337,7 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
     const frontendLogs = formatLogHistoryAsText();
     let backendLogs = "";
     let configFiles = "";
+    let networkDiagnostics = "";
 
     try {
       backendLogs = await invoke<string>("read_logs_content");
@@ -350,11 +351,36 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
       configFiles = `Error reading config files: ${error}`;
     }
 
+    // Run network diagnostics (use port 8765 as default API port)
+    try {
+      const diag = await invoke<{
+        localhost_reachable: boolean;
+        ip_127_reachable: boolean;
+        port_check_result: string;
+        proxy_env_vars: [string, string][];
+        platform: string;
+        diagnostics: string[];
+      }>("run_network_diagnostics", { port: 8765 });
+
+      networkDiagnostics = `Platform: ${diag.platform}
+localhost:8765 reachable: ${diag.localhost_reachable}
+127.0.0.1:8765 reachable: ${diag.ip_127_reachable}
+Result: ${diag.port_check_result}
+Proxy env vars: ${diag.proxy_env_vars.length > 0 ? diag.proxy_env_vars.map(([k, v]) => `${k}=${v}`).join(", ") : "none"}
+Details:
+${diag.diagnostics.map((d) => `  - ${d}`).join("\n")}`;
+    } catch (error) {
+      networkDiagnostics = `Error running network diagnostics: ${error}`;
+    }
+
     const timestamp = new Date().toISOString();
     const frontendCount = getLogHistory().length;
 
     return `=== DDALAB Logs ===
 Exported: ${timestamp}
+
+--- Network Diagnostics ---
+${networkDiagnostics || "(No network diagnostics available)"}
 
 --- Frontend Logs (React) [${frontendCount} entries] ---
 ${frontendLogs || "(No frontend logs captured)"}
