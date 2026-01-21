@@ -1,7 +1,32 @@
 use crate::models::AppPreferences;
+use regex::Regex;
 use std::fs;
 use std::path::PathBuf;
 use tauri::Manager;
+
+/// Unwrap Proofpoint URL Defense wrapped URLs
+/// Proofpoint wraps URLs like: https://urldefense.com/v3/__https://localhost:8765__;...
+fn unwrap_proofpoint_url(url: &str) -> String {
+    // Check if URL is wrapped by Proofpoint URL Defense
+    if url.contains("urldefense.com/v3/__") {
+        // Extract the original URL from the Proofpoint wrapper
+        // Format: https://urldefense.com/v3/__<ORIGINAL_URL>__;...
+        if let Ok(re) = Regex::new(r"urldefense\.com/v3/__(.+?)__") {
+            if let Some(captures) = re.captures(url) {
+                if let Some(unwrapped) = captures.get(1) {
+                    let result = unwrapped.as_str().to_string();
+                    log::info!(
+                        "Unwrapped Proofpoint URL: {} -> {}",
+                        url.chars().take(50).collect::<String>(),
+                        result
+                    );
+                    return result;
+                }
+            }
+        }
+    }
+    url.to_string()
+}
 
 fn get_preferences_path(app: tauri::AppHandle) -> Result<PathBuf, String> {
     let app_data_dir = app
@@ -17,14 +42,43 @@ fn get_preferences_path(app: tauri::AppHandle) -> Result<PathBuf, String> {
 
 #[tauri::command]
 pub async fn get_app_preferences(app: tauri::AppHandle) -> Result<AppPreferences, String> {
-    let prefs_path = get_preferences_path(app)?;
+    let prefs_path = get_preferences_path(app.clone())?;
 
     if prefs_path.exists() {
         let contents = fs::read_to_string(&prefs_path)
             .map_err(|e| format!("Failed to read preferences: {}", e))?;
 
-        let preferences: AppPreferences = serde_json::from_str(&contents)
+        let mut preferences: AppPreferences = serde_json::from_str(&contents)
             .map_err(|e| format!("Failed to parse preferences: {}", e))?;
+
+        // Sanitize URL: unwrap any Proofpoint URL Defense wrappers
+        // This fixes issues on corporate networks where URLs get mangled by email security
+        let original_url = preferences.api_config.url.clone();
+        preferences.api_config.url = unwrap_proofpoint_url(&preferences.api_config.url);
+
+        // Self-repair: if URL was mangled, automatically fix preferences.json
+        if original_url != preferences.api_config.url {
+            log::warn!(
+                "🔧 AUTO-REPAIR: API URL was wrapped by Proofpoint URL Defense, fixing preferences file"
+            );
+            log::warn!(
+                "   Original (mangled): {}",
+                original_url.chars().take(80).collect::<String>()
+            );
+            log::warn!("   Fixed: {}", preferences.api_config.url);
+
+            // Write the sanitized preferences back to disk
+            let sanitized_json = serde_json::to_string_pretty(&preferences)
+                .map_err(|e| format!("Failed to serialize preferences: {}", e))?;
+
+            if let Err(e) = fs::write(&prefs_path, sanitized_json) {
+                log::error!("Failed to auto-repair preferences.json: {}", e);
+            } else {
+                log::info!(
+                    "✅ Successfully repaired preferences.json - Proofpoint URL Defense wrapper removed"
+                );
+            }
+        }
 
         log::info!("Loaded preferences from: {:?}", prefs_path);
         Ok(preferences)
@@ -41,7 +95,12 @@ pub async fn save_app_preferences(
 ) -> Result<(), String> {
     let prefs_path = get_preferences_path(app)?;
 
-    let json = serde_json::to_string_pretty(&preferences)
+    // Sanitize URL before saving: unwrap any Proofpoint URL Defense wrappers
+    let mut sanitized_preferences = preferences;
+    sanitized_preferences.api_config.url =
+        unwrap_proofpoint_url(&sanitized_preferences.api_config.url);
+
+    let json = serde_json::to_string_pretty(&sanitized_preferences)
         .map_err(|e| format!("Failed to serialize preferences: {}", e))?;
 
     fs::write(&prefs_path, json).map_err(|e| format!("Failed to write preferences: {}", e))?;
