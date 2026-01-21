@@ -15,6 +15,7 @@ import {
 } from "@/types/ica";
 import { getChunkCache } from "./chunkCache";
 import { encryptJson, decryptJson } from "@/utils/crypto";
+import { TauriHttpClient, createHttpClient } from "@/utils/httpClient";
 
 export const ENCRYPTED_CONTENT_TYPE = "application/x-ddalab-encrypted";
 
@@ -136,7 +137,7 @@ async function withRetry<T>(
 }
 
 export class ApiService {
-  private client: AxiosInstance;
+  private client: TauriHttpClient;
   public baseURL: string;
   private chunkCache = getChunkCache();
   private sessionToken: string | null = null;
@@ -147,7 +148,9 @@ export class ApiService {
     this.baseURL = baseURL;
     this.sessionToken = sessionToken || null;
 
-    this.client = axios.create({
+    // Use TauriHttpClient which automatically uses Tauri's fetch for localhost HTTPS
+    // (bypassing certificate validation) and axios for other requests
+    this.client = createHttpClient({
       baseURL,
       timeout: 3600000, // 1 hour for heavy DDA operations
       headers: {
@@ -156,7 +159,7 @@ export class ApiService {
     });
 
     // Add request interceptor to include session token
-    this.client.interceptors.request.use((config) => {
+    this.client.axios.interceptors.request.use((config) => {
       if (this.sessionToken) {
         config.headers.Authorization = `Bearer ${this.sessionToken}`;
       }

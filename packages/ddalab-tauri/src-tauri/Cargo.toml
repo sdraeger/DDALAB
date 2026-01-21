@@ -1,6 +1,6 @@
 [package]
 name = "ddalab-tauri"
-version = "1.2.1"
+version = "1.2.2"
 description = "DDALAB Desktop Application"
 authors = ["DDALAB Team"]
 license = "MIT"
@@ -24,6 +24,7 @@ tauri = { version = "2.9.5", features = ["tray-icon"] }
 tauri-plugin-shell = "2.3.3"
 tauri-plugin-dialog = "2.4.2"
 tauri-plugin-fs = "2.4.4"
+tauri-plugin-http = "2.5.6"
 tauri-plugin-process = "2.3.1"
 tauri-plugin-notification = "2.3.3"
 tauri-plugin-updater = "2.0.0"
