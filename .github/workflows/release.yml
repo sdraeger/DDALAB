@@ -50,6 +50,7 @@ jobs:
       contents: write
     strategy:
       fail-fast: false
+      max-parallel: 1  # Serialize builds to prevent race condition when uploading to draft release
       matrix:
         include:
           # macOS builds without LSL (API incompatibility with current lsl crate)
