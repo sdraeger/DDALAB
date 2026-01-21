@@ -125,15 +125,17 @@ export class TauriHttpClient {
     url: string,
     config?: AxiosRequestConfig,
   ): Promise<AxiosResponse<T>> {
-    const fullUrl = this.buildUrl(url, config);
+    // Always unwrap Proofpoint URLs first
+    const unwrappedUrl = unwrapProofpointUrl(url);
+    const fullUrl = this.buildUrl(unwrappedUrl, config);
 
     // Use Tauri fetch for localhost HTTPS
     if (this.tauriFetch && isLocalhostHttps(fullUrl)) {
       return this.tauriRequest<T>("GET", fullUrl, undefined, config);
     }
 
-    // Use axios for everything else
-    return this.axiosInstance.get<T>(url, config);
+    // Use axios with unwrapped URL (critical for corporate networks with Proofpoint)
+    return this.axiosInstance.get<T>(unwrappedUrl, config);
   }
 
   /**
@@ -144,15 +146,17 @@ export class TauriHttpClient {
     data?: any,
     config?: AxiosRequestConfig,
   ): Promise<AxiosResponse<T>> {
-    const fullUrl = this.buildUrl(url, config);
+    // Always unwrap Proofpoint URLs first
+    const unwrappedUrl = unwrapProofpointUrl(url);
+    const fullUrl = this.buildUrl(unwrappedUrl, config);
 
     // Use Tauri fetch for localhost HTTPS
     if (this.tauriFetch && isLocalhostHttps(fullUrl)) {
       return this.tauriRequest<T>("POST", fullUrl, data, config);
     }
 
-    // Use axios for everything else
-    return this.axiosInstance.post<T>(url, data, config);
+    // Use axios with unwrapped URL (critical for corporate networks with Proofpoint)
+    return this.axiosInstance.post<T>(unwrappedUrl, data, config);
   }
 
   /**
@@ -163,15 +167,17 @@ export class TauriHttpClient {
     data?: any,
     config?: AxiosRequestConfig,
   ): Promise<AxiosResponse<T>> {
-    const fullUrl = this.buildUrl(url, config);
+    // Always unwrap Proofpoint URLs first
+    const unwrappedUrl = unwrapProofpointUrl(url);
+    const fullUrl = this.buildUrl(unwrappedUrl, config);
 
     // Use Tauri fetch for localhost HTTPS
     if (this.tauriFetch && isLocalhostHttps(fullUrl)) {
       return this.tauriRequest<T>("PUT", fullUrl, data, config);
     }
 
-    // Use axios for everything else
-    return this.axiosInstance.put<T>(url, data, config);
+    // Use axios with unwrapped URL (critical for corporate networks with Proofpoint)
+    return this.axiosInstance.put<T>(unwrappedUrl, data, config);
   }
 
   /**
@@ -181,15 +187,17 @@ export class TauriHttpClient {
     url: string,
     config?: AxiosRequestConfig,
   ): Promise<AxiosResponse<T>> {
-    const fullUrl = this.buildUrl(url, config);
+    // Always unwrap Proofpoint URLs first
+    const unwrappedUrl = unwrapProofpointUrl(url);
+    const fullUrl = this.buildUrl(unwrappedUrl, config);
 
     // Use Tauri fetch for localhost HTTPS
     if (this.tauriFetch && isLocalhostHttps(fullUrl)) {
       return this.tauriRequest<T>("DELETE", fullUrl, undefined, config);
     }
 
-    // Use axios for everything else
-    return this.axiosInstance.delete<T>(url, config);
+    // Use axios with unwrapped URL (critical for corporate networks with Proofpoint)
+    return this.axiosInstance.delete<T>(unwrappedUrl, config);
   }
 
   /**
