@@ -1,7 +1,5 @@
 # Planned Features
 
-## Electron app that is a direct equivalent of the web app
-
 ## Multiple DDALAB setups
 
 - [ ] Add a new setup

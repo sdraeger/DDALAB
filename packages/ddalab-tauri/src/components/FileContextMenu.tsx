@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useCallback, useState } from "react";
 import { EDFFileInfo } from "@/types/api";
-import { Scissors, ExternalLink, Info } from "lucide-react";
+import { Scissors, ExternalLink, Info, FolderOutput } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface FileContextMenuProps {
@@ -11,6 +11,7 @@ interface FileContextMenuProps {
   onSegmentFile: (file: EDFFileInfo) => void;
   onOpenInSystemViewer?: (file: EDFFileInfo) => void;
   onShowFileInfo?: (file: EDFFileInfo) => void;
+  onExportToBIDS?: (file: EDFFileInfo) => void;
 }
 
 export const FileContextMenu: React.FC<FileContextMenuProps> = ({
@@ -21,6 +22,7 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({
   onSegmentFile,
   onOpenInSystemViewer,
   onShowFileInfo,
+  onExportToBIDS,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -155,6 +157,23 @@ export const FileContextMenu: React.FC<FileContextMenuProps> = ({
           Cut/Extract File
         </button>
       </div>
+
+      {/* Export actions */}
+      {onExportToBIDS && (
+        <>
+          <div className="-mx-1 my-1 h-px bg-muted" role="separator" />
+          <div className="py-1">
+            <button
+              role="menuitem"
+              onClick={() => handleMenuItemClick(() => onExportToBIDS(file))}
+              className="relative w-full flex cursor-default select-none items-center rounded-sm px-3 py-2 text-sm outline-none transition-colors duration-150 hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground gap-2"
+            >
+              <FolderOutput className="h-4 w-4" aria-hidden="true" />
+              Export to BIDS...
+            </button>
+          </div>
+        </>
+      )}
 
       {/* View actions - separated by divider */}
       {(onOpenInSystemViewer || onShowFileInfo) && (

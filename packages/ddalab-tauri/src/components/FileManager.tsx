@@ -73,6 +73,7 @@ import {
   type SegmentationParams,
 } from "@/components/FileSegmentationDialog";
 import { GitAnnexDownloadDialog } from "@/components/GitAnnexDownloadDialog";
+import { BIDSExportWizard } from "@/components/bids";
 import { useSearchableItems, createActionItem } from "@/hooks/useSearchable";
 import {
   FileTreeRenderer,
@@ -198,6 +199,10 @@ export const FileManager = React.memo(function FileManager({
   const [showAnnexDownloadDialog, setShowAnnexDownloadDialog] = useState(false);
   const [annexFileToDownload, setAnnexFileToDownload] =
     useState<EDFFileInfo | null>(null);
+  const [showBIDSExportWizard, setShowBIDSExportWizard] = useState(false);
+  const [bidsExportInitialFiles, setBidsExportInitialFiles] = useState<
+    string[]
+  >([]);
 
   // Scroll trap for file list to prevent accidental scroll capture
   const { containerProps: scrollTrapProps, isScrollEnabled } = useScrollTrap({
@@ -773,6 +778,11 @@ export const FileManager = React.memo(function FileManager({
     }
   };
 
+  const handleExportToBIDS = (file: EDFFileInfo) => {
+    setBidsExportInitialFiles([file.file_path]);
+    setShowBIDSExportWizard(true);
+  };
+
   const handleDirectorySelect = useCallback(
     (dir: DirectoryEntry) => {
       // BIDS datasets now expand inline - no special handling needed
@@ -1282,6 +1292,7 @@ export const FileManager = React.memo(function FileManager({
           file={contextMenu.file}
           onClose={() => setContextMenu(null)}
           onSegmentFile={handleSegmentFile}
+          onExportToBIDS={handleExportToBIDS}
         />
       )}
 
@@ -1310,6 +1321,13 @@ export const FileManager = React.memo(function FileManager({
           // Refresh directory listing after download
           refetchDirectory();
         }}
+      />
+
+      {/* BIDS Export Wizard */}
+      <BIDSExportWizard
+        open={showBIDSExportWizard}
+        onOpenChange={setShowBIDSExportWizard}
+        initialFiles={bidsExportInitialFiles}
       />
     </Card>
   );
