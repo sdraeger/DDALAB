@@ -159,6 +159,7 @@ fn main() {
             compute_file_hash,
             check_annex_placeholder,
             run_git_annex_get,
+            get_file_info,
             // Update commands
             check_for_updates,
             get_app_version,
