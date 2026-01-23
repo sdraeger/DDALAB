@@ -9,6 +9,7 @@ use crate::intermediate_format::IntermediateData;
 use std::path::Path;
 
 pub mod ascii_writer;
+pub mod bids_writer;
 pub mod csv_writer;
 pub mod edf_writer;
 #[cfg(feature = "nwb-support")]
@@ -16,6 +17,7 @@ pub mod nwb_writer;
 pub mod xdf_writer;
 
 pub use ascii_writer::ASCIIWriter;
+pub use bids_writer::BIDSWriter;
 pub use csv_writer::CSVWriter;
 pub use edf_writer::EDFWriter;
 #[cfg(feature = "nwb-support")]
