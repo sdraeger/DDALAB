@@ -116,10 +116,17 @@ export function useBIDSExport() {
 
   // File management
   const addFiles = useCallback((newFiles: BIDSFileAssignment[]) => {
-    setState((prev) => ({
-      ...prev,
-      files: [...prev.files, ...newFiles],
-    }));
+    setState((prev) => {
+      // Filter out files that already exist (by sourcePath)
+      const existingPaths = new Set(prev.files.map((f) => f.sourcePath));
+      const uniqueNewFiles = newFiles.filter(
+        (f) => !existingPaths.has(f.sourcePath),
+      );
+      return {
+        ...prev,
+        files: [...prev.files, ...uniqueNewFiles],
+      };
+    });
   }, []);
 
   const removeFile = useCallback((sourcePath: string) => {
