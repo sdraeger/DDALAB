@@ -1,5 +1,6 @@
 pub mod annotation_commands;
 pub mod api_commands; // Unified API commands (local and remote)
+pub mod bids_export_commands;
 pub mod data_directory_commands;
 pub mod dda_export_commands;
 pub mod debug_commands;
@@ -18,6 +19,7 @@ pub mod window_commands;
 
 pub use annotation_commands::*;
 pub use api_commands::*;
+pub use bids_export_commands::*;
 pub use data_directory_commands::*;
 pub use dda_export_commands::*;
 pub use debug_commands::*;

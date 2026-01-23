@@ -92,6 +92,9 @@ fn main() {
             // DDA export commands
             save_dda_export_file,
             save_plot_export_file,
+            // BIDS export commands
+            validate_bids_export,
+            export_to_bids,
             // Migration commands
             migrate_file_hashes,
             get_hash_migration_status,
