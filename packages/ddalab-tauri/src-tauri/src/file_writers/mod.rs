@@ -10,6 +10,7 @@ use std::path::Path;
 
 pub mod ascii_writer;
 pub mod bids_writer;
+pub mod brainvision_writer;
 pub mod csv_writer;
 pub mod edf_writer;
 #[cfg(feature = "nwb-support")]
@@ -18,6 +19,7 @@ pub mod xdf_writer;
 
 pub use ascii_writer::ASCIIWriter;
 pub use bids_writer::BIDSWriter;
+pub use brainvision_writer::BrainVisionWriter;
 pub use csv_writer::CSVWriter;
 pub use edf_writer::EDFWriter;
 #[cfg(feature = "nwb-support")]
@@ -155,6 +157,7 @@ impl FileWriterFactory {
             "csv" => Ok(Box::new(CSVWriter::new())),
             "txt" | "ascii" => Ok(Box::new(ASCIIWriter::new())),
             "xdf" => Ok(Box::new(XDFWriter::new())),
+            "vhdr" | "eeg" => Ok(Box::new(BrainVisionWriter::new())),
             #[cfg(feature = "nwb-support")]
             "nwb" => Ok(Box::new(NWBWriter::new())),
             #[cfg(not(feature = "nwb-support"))]
@@ -175,6 +178,7 @@ impl FileWriterFactory {
             "CSV" => Ok(Box::new(CSVWriter::new())),
             "ASCII" | "TXT" => Ok(Box::new(ASCIIWriter::new())),
             "XDF" => Ok(Box::new(XDFWriter::new())),
+            "BRAINVISION" | "VHDR" => Ok(Box::new(BrainVisionWriter::new())),
             #[cfg(feature = "nwb-support")]
             "NWB" => Ok(Box::new(NWBWriter::new())),
             _ => Err(FileWriterError::UnsupportedFormat(format!(
@@ -186,7 +190,7 @@ impl FileWriterFactory {
 
     /// Get list of supported extensions for writing
     pub fn supported_extensions() -> Vec<&'static str> {
-        let mut exts = vec!["edf", "csv", "txt", "ascii", "xdf"];
+        let mut exts = vec!["edf", "csv", "txt", "ascii", "xdf", "vhdr"];
         #[cfg(feature = "nwb-support")]
         exts.push("nwb");
         exts
@@ -194,7 +198,7 @@ impl FileWriterFactory {
 
     /// Get list of supported format names
     pub fn supported_formats() -> Vec<&'static str> {
-        let mut formats = vec!["EDF", "CSV", "ASCII", "XDF"];
+        let mut formats = vec!["EDF", "CSV", "ASCII", "XDF", "BrainVision"];
         #[cfg(feature = "nwb-support")]
         formats.push("NWB");
         formats
