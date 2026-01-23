@@ -179,45 +179,45 @@ export function ActionHistoryPopover({
     refetchInterval: 3000,
   });
 
-  const reversedActions = useMemo(
-    () => [...actions].reverse(),
-    [actions],
-  );
+  const reversedActions = useMemo(() => [...actions].reverse(), [actions]);
 
   return (
     <Popover>
       <PopoverTrigger asChild>{children}</PopoverTrigger>
-      <PopoverContent
-        className="w-80 p-0"
-        align="end"
-        sideOffset={8}
-      >
-        <div className="flex items-center justify-between px-3 py-2 border-b">
+      <PopoverContent className="w-[420px] p-0" align="end" sideOffset={8}>
+        <div className="flex items-center justify-between px-4 py-2.5 border-b">
           <h4 className="text-sm font-medium">Action History</h4>
           <span className="text-xs text-muted-foreground">
             {actions.length} action{actions.length !== 1 ? "s" : ""}
           </span>
         </div>
-        <ScrollArea className="h-[300px]">
-          {isLoading ? (
-            <div className="flex items-center justify-center h-20">
-              <span className="text-sm text-muted-foreground">Loading...</span>
-            </div>
-          ) : reversedActions.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-20 text-center px-4">
-              <Clock className="h-8 w-8 text-muted-foreground/50 mb-2" />
-              <p className="text-sm text-muted-foreground">No actions recorded</p>
-              <p className="text-xs text-muted-foreground/70">
-                Actions will appear here when recording
-              </p>
-            </div>
-          ) : (
-            <div className="py-1">
-              {reversedActions.map((action, index) => (
-                <ActionItem key={`${action.timestamp}-${index}`} action={action} />
-              ))}
-            </div>
-          )}
+        <ScrollArea className="h-[400px]">
+          <div className="pr-4">
+            {isLoading ? (
+              <div className="flex items-center justify-center h-24">
+                <span className="text-sm text-muted-foreground">Loading...</span>
+              </div>
+            ) : reversedActions.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-24 text-center px-4">
+                <Clock className="h-8 w-8 text-muted-foreground/50 mb-2" />
+                <p className="text-sm text-muted-foreground">
+                  No actions recorded
+                </p>
+                <p className="text-xs text-muted-foreground/70">
+                  Actions will appear here when recording
+                </p>
+              </div>
+            ) : (
+              <div className="py-1.5">
+                {reversedActions.map((action, index) => (
+                  <ActionItem
+                    key={`${action.timestamp}-${index}`}
+                    action={action}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         </ScrollArea>
       </PopoverContent>
     </Popover>
