@@ -206,6 +206,7 @@ fn main() {
             recording::commands::workflow_is_auto_recording,
             recording::commands::workflow_auto_record,
             recording::commands::workflow_get_buffer_info,
+            recording::commands::workflow_get_buffered_actions,
             recording::commands::workflow_export_from_buffer,
             recording::commands::workflow_clear_buffer,
             recording::commands::workflow_generate_code_from_buffer,
