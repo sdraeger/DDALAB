@@ -1,4 +1,5 @@
 use crate::edf::EDFReader;
+use crate::file_readers::FileReaderFactory;
 use crate::file_writers::{FileWriterFactory, WriterConfig};
 use crate::intermediate_format::{ChannelData, DataMetadata, IntermediateData};
 use crate::text_reader::TextFileReader;
@@ -915,4 +916,54 @@ pub async fn run_git_annex_get(
             error: Some(error_msg),
         })
     }
+}
+
+/// Result of get_file_info command - basic file metadata for BIDS export
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileInfoResult {
+    pub file_path: String,
+    pub file_name: String,
+    pub duration: f64,
+    pub channel_count: usize,
+    pub sample_rate: f64,
+    pub file_type: String,
+}
+
+/// Get basic file info (duration, channel count) for BIDS export file selection
+#[tauri::command]
+pub async fn get_file_info(file_path: String) -> Result<FileInfoResult, String> {
+    let path = Path::new(&file_path);
+
+    // Check if file exists
+    if !path.exists() {
+        return Err(format!("File not found: {}", file_path));
+    }
+
+    // Check if format is supported
+    if !FileReaderFactory::is_supported(path) {
+        return Err(format!(
+            "Unsupported file format: {}",
+            path.extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("unknown")
+        ));
+    }
+
+    // Create reader and get metadata
+    let reader = FileReaderFactory::create_reader(path)
+        .map_err(|e| format!("Failed to open file: {}", e))?;
+
+    let metadata = reader
+        .metadata()
+        .map_err(|e| format!("Failed to read file metadata: {}", e))?;
+
+    Ok(FileInfoResult {
+        file_path: metadata.file_path,
+        file_name: metadata.file_name,
+        duration: metadata.duration,
+        channel_count: metadata.num_channels,
+        sample_rate: metadata.sample_rate,
+        file_type: metadata.file_type,
+    })
 }
