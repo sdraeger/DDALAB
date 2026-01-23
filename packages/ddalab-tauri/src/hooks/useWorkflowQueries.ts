@@ -7,6 +7,7 @@ import type {
   WorkflowAction,
   WorkflowInfo,
   NodeInfo,
+  BufferedAction,
 } from "@/types/workflow";
 
 // ============================================================================
@@ -28,6 +29,8 @@ export const workflowKeys = {
   info: () => [...workflowKeys.all, "info"] as const,
   buffer: () => [...workflowKeys.all, "buffer"] as const,
   bufferInfo: () => [...workflowKeys.buffer(), "info"] as const,
+  bufferedActions: (lastN?: number) =>
+    [...workflowKeys.buffer(), "actions", lastN] as const,
   autoRecording: () => [...workflowKeys.all, "autoRecording"] as const,
   nodes: () => [...workflowKeys.all, "nodes"] as const,
   nodesList: () => [...workflowKeys.nodes(), "list"] as const,
@@ -73,6 +76,29 @@ export function useAutoRecordingStatus(options?: { enabled?: boolean }) {
     },
     staleTime: 5000, // 5 seconds
     gcTime: 5 * 60 * 1000,
+    enabled: options?.enabled ?? true,
+    retry: 1,
+  });
+}
+
+/**
+ * Query hook for buffered actions (for history display)
+ */
+export function useBufferedActions(options?: {
+  enabled?: boolean;
+  lastN?: number;
+  refetchInterval?: number;
+}) {
+  return useQuery({
+    queryKey: workflowKeys.bufferedActions(options?.lastN),
+    queryFn: async (): Promise<BufferedAction[]> => {
+      return await invoke<BufferedAction[]>("workflow_get_buffered_actions", {
+        lastN: options?.lastN ?? null,
+      });
+    },
+    staleTime: 2000,
+    gcTime: 5 * 60 * 1000,
+    refetchInterval: options?.refetchInterval ?? 5000,
     enabled: options?.enabled ?? true,
     retry: 1,
   });

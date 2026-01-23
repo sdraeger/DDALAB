@@ -378,6 +378,23 @@ pub async fn workflow_get_buffer_info(
 }
 
 #[tauri::command]
+pub async fn workflow_get_buffered_actions(
+    state: State<'_, Arc<RwLock<WorkflowState>>>,
+    last_n: Option<usize>,
+) -> Result<Vec<BufferedAction>, String> {
+    let workflow_state = state.read();
+    let buffer = workflow_state.action_buffer.read();
+
+    let actions = if let Some(n) = last_n {
+        buffer.get_last_n_actions(n)
+    } else {
+        buffer.get_all()
+    };
+
+    Ok(actions)
+}
+
+#[tauri::command]
 pub async fn workflow_export_from_buffer(
     state: State<'_, Arc<RwLock<WorkflowState>>>,
     last_n_minutes: Option<i64>,

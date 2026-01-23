@@ -62,7 +62,9 @@ import {
   AlertTriangle,
   Check,
   Copy,
+  History,
 } from "lucide-react";
+import { ActionHistoryPopover } from "./ActionHistoryPopover";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
 import { toast } from "@/components/ui/toaster";
@@ -353,50 +355,25 @@ export function WorkflowRecorder() {
         </Tooltip>
 
         {bufferInfo && bufferInfo.current_size > 0 && (
-          <div className="flex items-center">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div
-                  className={cn(
-                    "flex items-center gap-0.5 text-[10px] px-1 rounded transition-colors duration-200",
-                    bufferInfo.current_size >= BUFFER_CAPACITY
-                      ? "text-destructive"
-                      : bufferInfo.current_size >= BUFFER_WARNING_THRESHOLD
-                        ? "text-yellow-600 dark:text-yellow-500"
-                        : "text-muted-foreground",
-                  )}
-                >
-                  {bufferInfo.current_size >= BUFFER_WARNING_THRESHOLD && (
-                    <AlertTriangle className="h-2.5 w-2.5" />
-                  )}
-                  <span className="tabular-nums">
-                    {bufferInfo.current_size}
-                  </span>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent>
-                <div className="space-y-1">
-                  <p className="font-medium">Recording Buffer</p>
-                  <p className="text-xs">
-                    {bufferInfo.current_size} actions in buffer
-                    {bufferInfo.total_recorded > bufferInfo.current_size && (
-                      <>
-                        <br />
-                        {bufferInfo.total_recorded -
-                          bufferInfo.current_size}{" "}
-                        older actions removed
-                      </>
-                    )}
-                  </p>
-                  {bufferInfo.current_size >= BUFFER_WARNING_THRESHOLD && (
-                    <p className="text-xs text-yellow-600 dark:text-yellow-500">
-                      Buffer nearly full - oldest actions will be removed
-                    </p>
-                  )}
-                </div>
-              </TooltipContent>
-            </Tooltip>
-          </div>
+          <ActionHistoryPopover enabled={bufferInfo.current_size > 0}>
+            <button
+              className={cn(
+                "flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded transition-colors duration-200 hover:bg-muted",
+                bufferInfo.current_size >= BUFFER_CAPACITY
+                  ? "text-destructive"
+                  : bufferInfo.current_size >= BUFFER_WARNING_THRESHOLD
+                    ? "text-yellow-600 dark:text-yellow-500"
+                    : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {bufferInfo.current_size >= BUFFER_WARNING_THRESHOLD ? (
+                <AlertTriangle className="h-2.5 w-2.5" />
+              ) : (
+                <History className="h-2.5 w-2.5" />
+              )}
+              <span className="tabular-nums">{bufferInfo.current_size}</span>
+            </button>
+          </ActionHistoryPopover>
         )}
 
         <div className="flex items-center gap-0.5">
