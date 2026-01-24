@@ -160,6 +160,8 @@ fn main() {
             check_annex_placeholder,
             run_git_annex_get,
             get_file_info,
+            // Visualization commands
+            compute_phase_space,
             // Update commands
             check_for_updates,
             get_app_version,

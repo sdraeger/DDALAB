@@ -15,6 +15,7 @@ pub mod preference_commands;
 pub mod state_commands;
 pub mod streaming_commands; // Real-time data streaming and DDA
 pub mod update_commands;
+pub mod visualization_commands; // Phase space and other visualization computations
 pub mod window_commands;
 
 pub use annotation_commands::*;
@@ -34,4 +35,5 @@ pub use preference_commands::*;
 pub use state_commands::*;
 pub use streaming_commands::*;
 pub use update_commands::*;
+pub use visualization_commands::*;
 pub use window_commands::*;
