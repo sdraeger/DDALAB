@@ -16,6 +16,9 @@ import { Loader2 } from "lucide-react";
 import { importKey } from "@/utils/crypto";
 import { createLogger } from "@/lib/logger";
 
+// Import panels to trigger registration
+import "@/panels";
+
 const logger = createLogger("Startup");
 
 // Conditionally import PerformanceMonitor only in development
