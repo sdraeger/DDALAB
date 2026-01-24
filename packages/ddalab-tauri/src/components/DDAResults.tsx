@@ -54,6 +54,7 @@ import {
   DDALinePlot,
   type DDALinePlotHandle,
 } from "@/components/dda/DDALinePlot";
+import { PhaseSpacePlot } from "@/components/dda/PhaseSpacePlot";
 
 interface DDAResultsProps {
   result: DDAResult;
@@ -116,6 +117,12 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   // Only select sample_rate, not the entire fileManager object
   const sampleRate = useAppStore(
     (state) => state.fileManager.selectedFile?.sample_rate || 256,
+  );
+  const filePath = useAppStore(
+    (state) => state.fileManager.selectedFile?.file_path || "",
+  );
+  const fileChannels = useAppStore(
+    (state) => state.fileManager.selectedFile?.channels || [],
   );
   const heatmapRef = useRef<HTMLDivElement | null>(null);
   const linePlotRef = useRef<HTMLDivElement | null>(null);
@@ -862,6 +869,16 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                         </CardContent>
                       </Card>
                     )}
+
+                  {/* Phase Space Plot */}
+                  {viewMode === "phasespace" && filePath && (
+                    <PhaseSpacePlot
+                      filePath={filePath}
+                      channels={fileChannels}
+                      sampleRate={sampleRate}
+                      className="min-h-[600px]"
+                    />
+                  )}
                 </div>
               ) : (
                 <div className="p-4 text-center text-muted-foreground">
@@ -1164,6 +1181,16 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                 </CardContent>
               </Card>
             )}
+
+          {/* Phase Space Plot - Single variant view */}
+          {viewMode === "phasespace" && filePath && (
+            <PhaseSpacePlot
+              filePath={filePath}
+              channels={fileChannels}
+              sampleRate={sampleRate}
+              className="min-h-[600px]"
+            />
+          )}
         </div>
       ) : null}
 
