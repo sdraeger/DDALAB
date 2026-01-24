@@ -8,10 +8,15 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Grid3x3, TrendingUp, LayoutGrid, Network } from "lucide-react";
+import { Grid3x3, TrendingUp, LayoutGrid, Network, Box } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type ViewMode = "heatmap" | "lineplot" | "all" | "network";
+export type ViewMode =
+  | "heatmap"
+  | "lineplot"
+  | "all"
+  | "network"
+  | "phasespace";
 
 interface ViewOption {
   value: ViewMode;
@@ -49,6 +54,13 @@ const VIEW_OPTIONS: ViewOption[] = [
     icon: Network,
     description: "Network motif connectivity diagram",
     shortcut: "4",
+  },
+  {
+    value: "phasespace",
+    label: "Phase",
+    icon: Box,
+    description: "3D phase space attractor visualization",
+    shortcut: "5",
   },
 ];
 
