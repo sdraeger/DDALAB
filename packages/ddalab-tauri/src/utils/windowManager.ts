@@ -1,7 +1,9 @@
 import { emit, listen, UnlistenFn } from "@tauri-apps/api/event";
 import type { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { getPanel } from "./panelRegistry";
 
-export type WindowType = "timeseries" | "dda-results" | "eeg-visualization";
+// Legacy type alias for backward compatibility during migration
+export type WindowType = string;
 
 // Event types for window state changes
 export type WindowStateChangeType = "created" | "closed" | "updated";
@@ -134,47 +136,24 @@ class WindowManager {
     this.stateChangeListeners.forEach((listener) => listener(event));
   }
 
-  private getWindowConfig(type: WindowType, id: string): WindowConfig {
-    const baseConfigs: Record<WindowType, WindowConfig> = {
-      timeseries: {
-        label: `timeseries-${id}`,
-        title: "Time Series Visualization",
-        url: `/popout/timeseries?id=${id}`,
-        width: 1200,
-        height: 800,
-        minWidth: 600,
-        minHeight: 400,
-        resizable: true,
-        decorations: true,
-        alwaysOnTop: false,
-      },
-      "dda-results": {
-        label: `dda-results-${id}`,
-        title: "DDA Analysis Results",
-        url: `/popout/minimal?type=dda-results&id=${id}`,
-        width: 1000,
-        height: 700,
-        minWidth: 600,
-        minHeight: 400,
-        resizable: true,
-        decorations: true,
-        alwaysOnTop: false,
-      },
-      "eeg-visualization": {
-        label: `eeg-viz-${id}`,
-        title: "EEG Visualization",
-        url: `/popout/minimal?type=eeg-visualization&id=${id}`,
-        width: 1200,
-        height: 800,
-        minWidth: 800,
-        minHeight: 500,
-        resizable: true,
-        decorations: true,
-        alwaysOnTop: false,
-      },
-    };
+  private getWindowConfig(panelId: string, instanceId: string): WindowConfig {
+    const panel = getPanel(panelId);
+    if (!panel) {
+      throw new Error(`Unknown panel type: ${panelId}`);
+    }
 
-    return baseConfigs[type];
+    return {
+      label: `${panelId}-${instanceId}`,
+      title: panel.title,
+      url: `${panel.popoutUrl}?id=${instanceId}`,
+      width: panel.defaultSize.width,
+      height: panel.defaultSize.height,
+      minWidth: panel.minSize?.width,
+      minHeight: panel.minSize?.height,
+      resizable: true,
+      decorations: true,
+      alwaysOnTop: false,
+    };
   }
 
   async createPopoutWindow(
@@ -472,6 +451,36 @@ class WindowManager {
     try {
       await this.windows.get(windowId)?.setFocus();
     } catch {}
+  }
+
+  getWindowsByPanel(): Map<string, PopoutWindowState[]> {
+    const grouped = new Map<string, PopoutWindowState[]>();
+    for (const [, state] of this.windowStates) {
+      const existing = grouped.get(state.type) || [];
+      existing.push(state);
+      grouped.set(state.type, existing);
+    }
+    return grouped;
+  }
+
+  getWindowSummary(): { panelId: string; count: number; title: string }[] {
+    const grouped = this.getWindowsByPanel();
+    const summary: { panelId: string; count: number; title: string }[] = [];
+
+    for (const [panelId, windows] of grouped) {
+      const panel = getPanel(panelId);
+      summary.push({
+        panelId,
+        count: windows.length,
+        title: panel?.title || panelId,
+      });
+    }
+
+    return summary;
+  }
+
+  getTotalWindowCount(): number {
+    return this.windowStates.size;
   }
 }
 
