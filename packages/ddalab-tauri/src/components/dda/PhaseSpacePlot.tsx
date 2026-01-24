@@ -257,6 +257,8 @@ function PhaseSpacePlotComponent({
     };
 
     chart.setOption(option, true);
+    // Force resize after setting options to ensure proper rendering
+    requestAnimationFrame(() => chart.resize());
   }, [result]);
 
   // Initial load
@@ -354,7 +356,7 @@ function PhaseSpacePlotComponent({
       </div>
 
       {/* Chart Container */}
-      <div className="relative flex-1 min-h-[500px] bg-[#0c0c0f]">
+      <div className="relative h-[500px] bg-[#0c0c0f]">
         {isLoading && (
           <div className="absolute inset-0 flex items-center justify-center bg-zinc-950/80 z-10">
             <div className="flex flex-col items-center gap-3">
@@ -377,7 +379,7 @@ function PhaseSpacePlotComponent({
             <Skeleton className="h-full w-full bg-zinc-900" />
           </div>
         )}
-        <div ref={chartRef} className="w-full h-full" />
+        <div ref={chartRef} className="absolute inset-0" />
       </div>
 
       {/* Controls */}
