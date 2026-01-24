@@ -60,6 +60,7 @@ import { formatLogHistoryAsText, getLogHistory } from "@/lib/logger";
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
+import { WindowPanelPopover } from "@/components/windows/WindowPanelPopover";
 
 interface HealthStatusBarProps {
   apiService: ApiService;
@@ -1030,6 +1031,9 @@ ${configFiles || "(No config files found)"}
         </div>
 
         <div className="flex items-center space-x-2">
+          {/* Window Panel */}
+          <WindowPanelPopover />
+
           {/* Expert Mode Toggle */}
           <TooltipProvider>
             <Tooltip>
