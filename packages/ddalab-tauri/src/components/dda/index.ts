@@ -28,3 +28,4 @@ export {
   type DDALinePlotProps,
   type DDALinePlotHandle,
 } from "./DDALinePlot";
+export { PhaseSpacePlot } from "./PhaseSpacePlot";
