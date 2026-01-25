@@ -1,6 +1,7 @@
 import { emit, listen, UnlistenFn } from "@tauri-apps/api/event";
 import type { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getPanel } from "./panelRegistry";
+import { useWindowStore, type WindowInstance } from "@/store/windowStore";
 
 // Legacy type alias for backward compatibility during migration
 export type WindowType = string;
@@ -86,6 +87,9 @@ class WindowManager {
     this.windows.delete(windowId);
     this.windowStates.delete(windowId);
 
+    // Sync with WindowStore
+    useWindowStore.getState().removeWindow(windowId);
+
     for (const suffix of [
       "close",
       "lock",
@@ -116,6 +120,8 @@ class WindowManager {
 
   setAppClosing(closing: boolean): void {
     this.isAppClosing = closing;
+    // Sync with WindowStore
+    useWindowStore.getState().setAppClosing(closing);
   }
 
   getCleanupVersion(): number {
@@ -230,7 +236,25 @@ class WindowManager {
     this.emitStateChange("created", windowId);
     this.startPositionTracking();
 
+    // Sync with WindowStore
+    this.syncWindowToStore(windowId, state);
+
     return windowId;
+  }
+
+  /** Sync window state to the Zustand store */
+  private syncWindowToStore(windowId: string, state: PopoutWindowState): void {
+    const windowInstance: WindowInstance = {
+      id: windowId,
+      panelId: state.type,
+      tauriLabel: state.tauriLabel || windowId,
+      isLocked: state.isLocked,
+      data: state.data,
+      position: state.position,
+      createdAt: Date.now(),
+      lastUpdate: state.lastUpdate,
+    };
+    useWindowStore.getState().addWindow(windowInstance);
   }
 
   private startPositionTracking(): void {
@@ -260,8 +284,12 @@ class WindowManager {
       >("get_window_position", { windowLabel: state.tauriLabel });
       // Check window still exists after async call
       if (this.windowStates.has(windowId)) {
-        state.position = { x, y, width, height };
+        const position = { x, y, width, height };
+        state.position = position;
         this.windowStates.set(windowId, state);
+
+        // Sync with WindowStore
+        useWindowStore.getState().updatePosition(windowId, position);
       }
     } catch {
       // Position fetch may fail if window is closing
@@ -338,6 +366,9 @@ class WindowManager {
     this.windows.delete(windowId);
     this.windowStates.delete(windowId);
 
+    // Sync with WindowStore
+    useWindowStore.getState().removeWindow(windowId);
+
     for (const suffix of [
       "close",
       "lock",
@@ -374,6 +405,9 @@ class WindowManager {
       state.data = data;
       state.lastUpdate = Date.now();
       this.windowStates.set(windowId, state);
+
+      // Sync with WindowStore
+      useWindowStore.getState().updateData(windowId, data);
     } catch {
       // Window may have been closed
     }
@@ -385,6 +419,9 @@ class WindowManager {
       state.isLocked = locked;
       this.windowStates.set(windowId, state);
       emit(`lock-state-${windowId}`, { locked });
+
+      // Sync with WindowStore
+      useWindowStore.getState().setLocked(windowId, locked);
     }
   }
 
