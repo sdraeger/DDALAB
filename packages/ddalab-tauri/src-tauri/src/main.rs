@@ -26,7 +26,10 @@ mod utils;
 use app_setup::setup_app;
 use commands::api_commands::ApiServerState;
 use commands::*;
+use ddalab_tauri::api::ApiState;
 use recording::commands::WorkflowState;
+use std::path::PathBuf;
+use std::sync::Arc;
 use sync::AppSyncState;
 
 fn main() {
@@ -271,7 +274,15 @@ fn main() {
             clear_stream_buffers,
             // LSL discovery commands
             discover_lsl_streams,
-            discover_lsl_streams_by_type
+            discover_lsl_streams_by_type,
+            // EDF data access commands (IPC)
+            get_edf_info,
+            get_edf_chunk,
+            get_edf_overview,
+            get_edf_overview_progress,
+            get_edf_window,
+            get_edf_cache_stats,
+            clear_edf_cache
         ])
         .manage(ApiServerState::default())
         .manage(AppSyncState::new())
@@ -286,6 +297,7 @@ fn main() {
         .manage(std::sync::Arc::new(
             commands::streaming_commands::StreamingState::new(get_dda_binary_path_for_streaming()),
         ))
+        .manage(Arc::new(ApiState::new(get_default_data_directory())))
         .setup(|app| {
             setup_app(app).map_err(|e| e.to_string())?;
 
@@ -408,4 +420,13 @@ fn get_dda_binary_path_for_streaming() -> std::path::PathBuf {
         binary_name
     );
     PathBuf::from(binary_name)
+}
+
+/// Get the default data directory for ApiState initialization
+fn get_default_data_directory() -> PathBuf {
+    // Try to use platform-specific app data directory
+    // Fallback to current directory if not available
+    dirs::data_dir()
+        .map(|p| p.join("com.ddalab.desktop").join("data"))
+        .unwrap_or_else(|| PathBuf::from(".").join("data"))
 }
