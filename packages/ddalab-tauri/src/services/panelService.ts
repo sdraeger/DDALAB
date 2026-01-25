@@ -106,7 +106,10 @@ class PanelServiceImpl {
       try {
         await panel.lifecycle.onMount(windowId, data);
       } catch (error) {
-        console.error(`[PanelService] onMount hook failed for ${panelId}:`, error);
+        console.error(
+          `[PanelService] onMount hook failed for ${panelId}:`,
+          error,
+        );
       }
     }
 
@@ -300,6 +303,29 @@ class PanelServiceImpl {
   }
 
   /**
+   * Transfer a tab to another window
+   * Emits a tab-transfer event that file-viewer windows can listen for
+   */
+  async transferTabToWindow(
+    targetWindowId: string,
+    filePath: string,
+    fileName: string,
+  ): Promise<void> {
+    const { emit } = await import("@tauri-apps/api/event");
+    await emit(`tab-transfer-${targetWindowId}`, { filePath, fileName });
+  }
+
+  /**
+   * Get all file-viewer windows for potential drop targets
+   */
+  getFileViewerWindows(): string[] {
+    const store = useWindowStore.getState();
+    return store
+      .getWindowsByPanel("file-viewer")
+      .map((w) => w.id);
+  }
+
+  /**
    * Restore windows from persisted state
    */
   async restoreWindows(
@@ -337,7 +363,10 @@ class PanelServiceImpl {
           position: saved.position,
         });
       } catch (error) {
-        console.error(`[PanelService] Failed to restore window ${saved.id}:`, error);
+        console.error(
+          `[PanelService] Failed to restore window ${saved.id}:`,
+          error,
+        );
       }
     }
   }
