@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
 import {
   Popover,
   PopoverContent,
@@ -23,14 +24,15 @@ import {
 } from "@/store/windowStore";
 import { panelService } from "@/services/panelService";
 import { getPanel } from "@/utils/panelRegistry";
-import { cn } from "@/lib/utils";
 
 export function WindowPanelPopover() {
   const [isOpen, setIsOpen] = useState(false);
 
   // Reactive state from WindowStore
   const windowCount = useWindowCount();
-  const windows = useWindowStore((state) => Array.from(state.windows.values()));
+  const windows = useWindowStore(
+    useShallow((state) => Array.from(state.windows.values())),
+  );
 
   // Group windows by panel
   const windowsByPanel = useMemo(() => {
