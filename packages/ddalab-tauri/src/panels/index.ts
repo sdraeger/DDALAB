@@ -1,5 +1,5 @@
 import { registerPanel } from "@/utils/panelRegistry";
-import { Activity, BarChart3, Brain, Box } from "lucide-react";
+import { Activity, BarChart3, Brain, Box, FileText } from "lucide-react";
 
 // Register all built-in panels
 export function registerBuiltInPanels(): void {
@@ -45,6 +45,18 @@ export function registerBuiltInPanels(): void {
     minSize: { width: 600, height: 500 },
     popoutUrl: "/popout/phase-space",
     allowMultiple: true,
+  });
+
+  registerPanel({
+    id: "file-viewer",
+    title: "File Viewer",
+    icon: FileText,
+    category: "data",
+    defaultSize: { width: 1200, height: 800 },
+    minSize: { width: 800, height: 600 },
+    popoutUrl: "/popout/file-viewer",
+    allowMultiple: true,
+    dockable: true,
   });
 }
 

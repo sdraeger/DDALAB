@@ -11,6 +11,7 @@ import {
   useSensors,
   DragEndEvent,
   DragStartEvent,
+  DragMoveEvent,
   DragOverlay,
 } from "@dnd-kit/core";
 import {
@@ -29,6 +30,9 @@ import {
 } from "@/store/openFilesStore";
 import { FileTab } from "./FileTab";
 import { Button } from "@/components/ui/button";
+
+/** Threshold in pixels for detecting drag outside window */
+const DRAG_OUT_THRESHOLD = 50;
 
 interface FileTabBarProps {
   className?: string;
@@ -103,7 +107,10 @@ export function FileTabBar({ className }: FileTabBarProps) {
   const files = useOpenFiles();
   const activeFilePath = useActiveFilePath();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const tabBarRef = useRef<HTMLDivElement>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [isDraggingOutside, setIsDraggingOutside] = useState(false);
+  const dragPositionRef = useRef<{ x: number; y: number } | null>(null);
 
   const {
     setActiveFile,
@@ -128,12 +135,58 @@ export function FileTabBar({ className }: FileTabBarProps) {
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
     setActiveId(event.active.id as string);
+    setIsDraggingOutside(false);
+    dragPositionRef.current = null;
+  }, []);
+
+  const handleDragMove = useCallback((event: DragMoveEvent) => {
+    // Track the current pointer position
+    const { activatorEvent } = event;
+    if (activatorEvent && "clientX" in activatorEvent) {
+      const pointerEvent = activatorEvent as PointerEvent;
+      dragPositionRef.current = {
+        x: pointerEvent.clientX + (event.delta?.x || 0),
+        y: pointerEvent.clientY + (event.delta?.y || 0),
+      };
+
+      // Check if dragging outside the window bounds
+      const isOutside =
+        dragPositionRef.current.y < -DRAG_OUT_THRESHOLD ||
+        dragPositionRef.current.y > window.innerHeight + DRAG_OUT_THRESHOLD ||
+        dragPositionRef.current.x < -DRAG_OUT_THRESHOLD ||
+        dragPositionRef.current.x > window.innerWidth + DRAG_OUT_THRESHOLD;
+
+      setIsDraggingOutside(isOutside);
+    }
   }, []);
 
   const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
+    async (event: DragEndEvent) => {
       const { active, over } = event;
+      const filePath = active.id as string;
+
+      // Check if dropped outside window bounds - create new window
+      if (isDraggingOutside && dragPositionRef.current) {
+        setActiveId(null);
+        setIsDraggingOutside(false);
+        dragPositionRef.current = null;
+
+        // Pop out the tab into a new window
+        try {
+          const { panelService } = await import("@/services/panelService");
+          await panelService.createWindow("file-viewer", {
+            data: { filePath },
+            instanceId: filePath.replace(/[^a-zA-Z0-9]/g, "-"),
+          });
+        } catch (error) {
+          console.error("Failed to create pop-out window:", error);
+        }
+        return;
+      }
+
       setActiveId(null);
+      setIsDraggingOutside(false);
+      dragPositionRef.current = null;
 
       if (over && active.id !== over.id) {
         const oldIndex = files.findIndex((f) => f.filePath === active.id);
@@ -144,7 +197,7 @@ export function FileTabBar({ className }: FileTabBarProps) {
         }
       }
     },
-    [files, reorderFiles],
+    [files, reorderFiles, isDraggingOutside],
   );
 
   const activeFile = activeId
@@ -248,6 +301,7 @@ export function FileTabBar({ className }: FileTabBarProps) {
         sensors={sensors}
         collisionDetection={closestCenter}
         onDragStart={handleDragStart}
+        onDragMove={handleDragMove}
         onDragEnd={handleDragEnd}
       >
         <SortableContext
@@ -277,7 +331,14 @@ export function FileTabBar({ className }: FileTabBarProps) {
         {/* Drag overlay for visual feedback */}
         <DragOverlay>
           {activeFile && (
-            <div className="opacity-80">
+            <div
+              className={cn(
+                "transition-all duration-150",
+                isDraggingOutside
+                  ? "opacity-100 scale-105 ring-2 ring-primary shadow-lg shadow-primary/20"
+                  : "opacity-80",
+              )}
+            >
               <FileTab
                 file={activeFile}
                 isActive={activeFile.filePath === activeFilePath}
@@ -289,6 +350,11 @@ export function FileTabBar({ className }: FileTabBarProps) {
                 onCloseOthers={() => {}}
                 onCloseToRight={() => {}}
               />
+              {isDraggingOutside && (
+                <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded">
+                  Release to open in new window
+                </div>
+              )}
             </div>
           )}
         </DragOverlay>
