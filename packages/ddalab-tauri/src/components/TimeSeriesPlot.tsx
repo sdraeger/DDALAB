@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo, memo } from "react";
 import { useAppStore } from "@/store/appStore";
 import { useShallow } from "zustand/react/shallow";
-import { ApiService } from "@/services/apiService";
+import { tauriBackendService } from "@/services/tauriBackendService";
 import { ChunkData } from "@/types/api";
 import {
   Card,
@@ -62,12 +62,8 @@ import { useChartViewMode } from "@/hooks/useChartViewMode";
 import { ChartViewToggle } from "@/components/ui/chart-view-toggle";
 import { DataTableView } from "@/components/ui/data-table-view";
 
-interface TimeSeriesPlotProps {
-  apiService: ApiService;
-}
-
 // Internal component - wrapped with memo at export
-function TimeSeriesPlotComponent({ apiService }: TimeSeriesPlotProps) {
+function TimeSeriesPlotComponent() {
   // Use selective subscriptions with useShallow to prevent unnecessary re-renders
   const fileManager = useAppStore(useShallow((state) => state.fileManager));
   const plot = useAppStore(useShallow((state) => state.plot));
@@ -185,7 +181,6 @@ function TimeSeriesPlotComponent({ apiService }: TimeSeriesPlotProps) {
   // Overview plot state - using TanStack Query for better caching and loading states
   // IMPORTANT: These hooks must come AFTER selectedChannels is declared
   const { data: rawOverviewData, isLoading: overviewLoading } = useOverviewData(
-    apiService,
     fileManager.selectedFile?.file_path || "",
     selectedChannels,
     2000, // max points
@@ -193,7 +188,6 @@ function TimeSeriesPlotComponent({ apiService }: TimeSeriesPlotProps) {
   );
 
   const { data: overviewProgress } = useOverviewProgress(
-    apiService,
     fileManager.selectedFile?.file_path || "",
     selectedChannels,
     2000, // max points
@@ -633,12 +627,11 @@ function TimeSeriesPlotComponent({ apiService }: TimeSeriesPlotProps) {
         startTime * fileManager.selectedFile.sample_rate,
       );
 
-      const chunkData = await apiService.getChunkData(
+      const chunkData = await tauriBackendService.getEdfChunk(
         targetFilePath,
         chunkStart,
         chunkSize,
         selectedChannels,
-        signal,
       );
 
       // Guard: Verify file is still selected after async operation
@@ -1678,5 +1671,4 @@ function TimeSeriesPlotComponent({ apiService }: TimeSeriesPlotProps) {
 }
 
 // Export memoized version to prevent unnecessary re-renders
-// Only re-render when apiService reference changes (should be stable)
 export const TimeSeriesPlot = memo(TimeSeriesPlotComponent);

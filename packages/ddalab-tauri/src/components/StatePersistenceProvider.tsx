@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useAppStore } from "@/store/appStore";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { TauriService } from "@/services/tauriService";
 import { windowManager } from "@/utils/windowManager";
 
@@ -50,12 +51,25 @@ export function StatePersistenceProvider({
         // Initialize windowManager listeners for popout window cleanup events
         await windowManager.initializeListeners();
 
-        // Listen for window close events
+        // Only handle close events for the main window
+        // Popout windows have their own close handling in PopoutDashboard
+        const currentWindow = getCurrentWindow();
+        const isMainWindow = currentWindow.label === "main";
+
+        if (!isMainWindow) {
+          console.log(
+            "[StatePersistenceProvider] Skipping close handler for non-main window:",
+            currentWindow.label,
+          );
+          return () => {};
+        }
+
+        // Listen for window close events (main window only)
         const unlistenClose = await listen(
           "tauri://close-requested",
           async (event) => {
             console.log(
-              "[StatePersistenceProvider] Window close requested, saving state...",
+              "[StatePersistenceProvider] Main window close requested, saving state...",
             );
             console.log("[StatePersistenceProvider] Event details:", event);
 
@@ -81,6 +95,13 @@ export function StatePersistenceProvider({
                 error,
               );
             }
+
+            // Safety: If close was cancelled and we're still here after a delay,
+            // reset the closing flag to allow window creation again
+            setTimeout(() => {
+              // If we're still running after 2 seconds, the close was likely cancelled
+              windowManager.setAppClosing(false);
+            }, 2000);
           },
         );
 
@@ -177,13 +198,16 @@ export function StatePersistenceProvider({
 
     // Set up beforeunload handler (for web version compatibility)
     const setupBeforeUnloadHandler = () => {
-      const handleBeforeUnload = async (event: BeforeUnloadEvent) => {
+      const handleBeforeUnload = async () => {
         console.log(
           "[StatePersistenceProvider] Before unload, saving state...",
         );
 
-        // Mark app as closing to prevent popout cleanup
-        windowManager.setAppClosing(true);
+        // NOTE: We intentionally do NOT call setAppClosing(true) here.
+        // The beforeunload event can fire for navigation, refresh, etc.
+        // and may not indicate an actual app close. Setting this flag
+        // would permanently block window creation if the close is cancelled.
+        // The tauri://close-requested handler is the primary close mechanism.
 
         try {
           // Note: This is async but browsers may not wait for it

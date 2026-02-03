@@ -30,7 +30,7 @@ import {
   type FileTreeNode,
   type FileTreeSelection,
 } from "@/components/ui/file-tree-input";
-import { ApiService } from "@/services/apiService";
+import { tauriBackendService } from "@/services/tauriBackendService";
 import { bidsCache } from "@/services/bidsCacheService";
 import {
   getFileFormat,
@@ -54,7 +54,6 @@ export interface FileTreeRendererProps {
   onFileSelect: (file: EDFFileInfo) => void;
   onContextMenu: (e: React.MouseEvent, file: EDFFileInfo) => void;
   onUploadClick: (dir: DirectoryEntry) => void;
-  apiService: ApiService;
   searchQuery: string;
   highlightedFilePath: string | null;
 }
@@ -69,7 +68,6 @@ export const FileTreeRenderer = memo(function FileTreeRenderer({
   onFileSelect,
   onContextMenu,
   onUploadClick,
-  apiService,
   searchQuery,
   highlightedFilePath,
 }: FileTreeRendererProps) {
@@ -302,45 +300,38 @@ export const FileTreeRenderer = memo(function FileTreeRenderer({
         }
       }
 
-      // Regular directory - use API
+      // Regular directory - use Tauri IPC
       setLoadingDirs((prev) => new Set(prev).add(dirPath));
 
       try {
-        const response = await apiService.listDirectory(dirPath);
+        const response = await tauriBackendService.listDirectory(dirPath);
 
-        const subdirs = response.files
-          .filter((f: { is_directory: boolean }) => f.is_directory)
-          .map((d: { name: string; path: string }) => ({
+        const subdirs = response.entries
+          .filter((f) => f.isDirectory)
+          .map((d) => ({
             name: d.name,
             path: d.path,
             isBIDS: false,
           }));
 
-        const subfiles = response.files
-          .filter((f: { is_directory: boolean }) => !f.is_directory)
-          .filter((file: { name: string }) => {
+        const subfiles = response.entries
+          .filter((f) => !f.isDirectory)
+          .filter((file) => {
             const lowerName = file.name.toLowerCase();
             return SUPPORTED_EXTENSIONS.some((ext) => lowerName.endsWith(ext));
           })
-          .map(
-            (file: {
-              path: string;
-              name: string;
-              size?: number;
-              last_modified?: string;
-            }) => ({
-              file_path: file.path,
-              file_name: file.name,
-              file_size: file.size || 0,
-              duration: 0,
-              sample_rate: 256,
-              channels: [],
-              total_samples: 0,
-              start_time: file.last_modified || new Date().toISOString(),
-              end_time: file.last_modified || new Date().toISOString(),
-              annotations_count: 0,
-            }),
-          );
+          .map((file) => ({
+            file_path: file.path,
+            file_name: file.name,
+            file_size: file.size || 0,
+            duration: 0,
+            sample_rate: 256,
+            channels: [],
+            total_samples: 0,
+            start_time: file.modified || new Date().toISOString(),
+            end_time: file.modified || new Date().toISOString(),
+            annotations_count: 0,
+          }));
 
         const contents = { dirs: subdirs, files: subfiles };
         setLoadedDirs((prev) => new Map(prev).set(dirPath, contents));
@@ -356,7 +347,7 @@ export const FileTreeRenderer = memo(function FileTreeRenderer({
         });
       }
     },
-    [loadedDirs, loadingDirs, apiService],
+    [loadedDirs, loadingDirs],
   );
 
   // Recursive directory loading for search

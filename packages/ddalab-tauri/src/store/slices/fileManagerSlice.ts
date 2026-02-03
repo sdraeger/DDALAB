@@ -3,7 +3,10 @@
  */
 
 import { TauriService } from "@/services/tauriService";
-import { getInitializedFileStateManager } from "@/services/fileStateInitializer";
+import {
+  getInitializedFileStateManager,
+  isFileStateSystemInitialized,
+} from "@/services/fileStateInitializer";
 import { getStatePersistenceService } from "@/services/statePersistenceService";
 import { handleError } from "@/utils/errorHandler";
 import { createWorkflowAction } from "@/store/middleware/workflowRecordingMiddleware";
@@ -214,6 +217,10 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
 
       (async () => {
         try {
+          // Skip file state loading if system isn't initialized yet
+          if (!isFileStateSystemInitialized()) {
+            return;
+          }
           const fileStateManager = getInitializedFileStateManager();
 
           // Skip loadFileState if ActiveFileContext already loaded it

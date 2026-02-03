@@ -109,10 +109,14 @@ function PopoutContent() {
           await currentWindow.minimize();
         };
         (window as any).toggleLock = async () => {
-          const eventName = isLocked
-            ? `unlock-window-${windowId}`
-            : `lock-window-${windowId}`;
-          await emit(eventName);
+          try {
+            const eventName = isLocked
+              ? `unlock-window-${windowId}`
+              : `lock-window-${windowId}`;
+            await emit(eventName);
+          } catch {
+            // Window may have been closed
+          }
         };
         (window as any).refreshContent = () => {
           if (currentData) {

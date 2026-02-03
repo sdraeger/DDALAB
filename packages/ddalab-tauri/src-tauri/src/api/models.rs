@@ -90,6 +90,7 @@ pub struct EDFFileInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ChunkData {
     pub data: Vec<Vec<f64>>,
     pub channel_labels: Vec<String>,

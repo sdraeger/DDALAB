@@ -1,7 +1,71 @@
-use crate::api::handlers::dda::DDARequest;
 use crate::db::{NSGJob, NSGJobStatus};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+
+// DDA Request types - copied from api/handlers/dda.rs for NSG job management
+// These types define the parameters for DDA analysis jobs
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TimeRange {
+    pub start: f64,
+    pub end: f64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct PreprocessingOptions {
+    pub highpass: Option<f64>,
+    pub lowpass: Option<f64>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct AlgorithmSelection {
+    pub enabled_variants: Vec<String>,
+    pub select_mask: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct WindowParameters {
+    pub window_length: usize,
+    pub window_step: usize,
+    pub ct_window_length: Option<usize>,
+    pub ct_window_step: Option<usize>,
+}
+
+/// Delay parameters for DDA analysis
+/// Contains the explicit list of tau values passed to the binary as -TAU
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ScaleParameters {
+    /// Explicit list of delay values (tau) - passed directly to the binary
+    /// Example: [1, 2, 3, 4, 5] will be passed as -TAU 1 2 3 4 5
+    pub delay_list: Vec<i32>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ModelParameters {
+    pub dm: u32,
+    pub order: u32,
+    pub nr_tau: u32,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DDARequest {
+    pub file_path: String,
+    #[serde(alias = "channel_list")]
+    pub channels: Option<Vec<usize>>,
+    pub time_range: TimeRange,
+    pub preprocessing_options: PreprocessingOptions,
+    pub algorithm_selection: AlgorithmSelection,
+    pub window_parameters: WindowParameters,
+    pub scale_parameters: ScaleParameters,
+    #[serde(default)]
+    pub ct_channel_pairs: Option<Vec<[usize; 2]>>,
+    #[serde(default)]
+    pub cd_channel_pairs: Option<Vec<[usize; 2]>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_parameters: Option<ModelParameters>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub variant_configs: Option<serde_json::Value>,
+}
 
 impl NSGJob {
     pub fn new(tool: String, dda_params: DDARequest, input_file_path: String) -> Self {

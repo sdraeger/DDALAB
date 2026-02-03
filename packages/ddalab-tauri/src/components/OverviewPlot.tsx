@@ -14,9 +14,9 @@ interface OverviewPlotProps {
   onSeek: (time: number) => void;
   loading?: boolean;
   progress?: {
-    has_cache: boolean;
-    completion_percentage: number;
-    is_complete: boolean;
+    hasCache: boolean;
+    completionPercentage: number;
+    isComplete: boolean;
   };
   annotations?: PlotAnnotation[];
 }
@@ -1099,9 +1099,9 @@ function OverviewPlotComponent({
   }, [plotCreated]);
 
   // Show progress bar when loading
-  const progressPercentage = progress?.completion_percentage || 0;
+  const progressPercentage = progress?.completionPercentage || 0;
   const isResuming =
-    progress?.has_cache && progressPercentage > 0 && progressPercentage < 100;
+    progress?.hasCache && progressPercentage > 0 && progressPercentage < 100;
 
   // Determine status message
   const getStatusMessage = () => {
@@ -1225,8 +1225,8 @@ export const OverviewPlot = memo(
       prevProps.loading === nextProps.loading &&
       prevProps.currentTime === nextProps.currentTime &&
       prevProps.timeWindow === nextProps.timeWindow &&
-      prevProps.progress?.completion_percentage ===
-        nextProps.progress?.completion_percentage &&
+      prevProps.progress?.completionPercentage ===
+        nextProps.progress?.completionPercentage &&
       prevProps.annotations === nextProps.annotations;
 
     return shouldSkip;

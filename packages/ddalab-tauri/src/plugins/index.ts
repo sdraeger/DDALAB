@@ -42,7 +42,10 @@ import {
   type WindowInstance,
   type WindowGroup,
 } from "@/store/windowStore";
-import { panelService, type CreateWindowOptions } from "@/services/panelService";
+import {
+  panelService,
+  type CreateWindowOptions,
+} from "@/services/panelService";
 
 // ============================================================================
 // Plugin Panel Registration

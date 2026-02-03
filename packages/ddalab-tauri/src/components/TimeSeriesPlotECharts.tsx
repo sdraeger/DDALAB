@@ -8,7 +8,6 @@ import {
   usePlotSelectors,
   usePersistenceSelectors,
 } from "@/hooks/useStoreSelectors";
-import { ApiService } from "@/services/apiService";
 import { ChunkData } from "@/types/api";
 import {
   useChunkData,
@@ -64,12 +63,8 @@ interface EChartsOptionWithSeries {
   [key: string]: unknown;
 }
 
-interface TimeSeriesPlotProps {
-  apiService: ApiService;
-}
-
 // Internal component - wrapped with memo at export
-function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
+function TimeSeriesPlotEChartsComponent() {
   const { decimate: wasmDecimate, decimateMulti: wasmDecimateChannels } =
     useWasm();
 
@@ -219,7 +214,6 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
     isLoading: chunkLoading,
     error: chunkError,
   } = useChunkData(
-    apiService,
     selectedFile?.file_path || "",
     chunkStart,
     chunkSize,
@@ -243,7 +237,6 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
     refetch: refetchOverview,
     error: overviewError,
   } = useOverviewData(
-    apiService,
     selectedFile?.file_path || "",
     selectedChannels,
     overviewMaxPoints,
@@ -263,7 +256,6 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
 
   // Poll for overview progress while loading
   const { data: overviewProgress } = useOverviewProgress(
-    apiService,
     selectedFile?.file_path || "",
     selectedChannels,
     overviewMaxPoints,
@@ -276,7 +268,7 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
   // Refetch overview data when generation completes
   // This handles the race condition where initial fetch might return partial/stale data
   useEffect(() => {
-    const isComplete = overviewProgress?.is_complete;
+    const isComplete = overviewProgress?.isComplete;
     const wasComplete = prevOverviewCompleteRef.current;
 
     if (isComplete && wasComplete === false) {
@@ -284,7 +276,7 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
     }
 
     prevOverviewCompleteRef.current = isComplete;
-  }, [overviewProgress?.is_complete, refetchOverview]);
+  }, [overviewProgress?.isComplete, refetchOverview]);
 
   // Derived loading/error states for UI
   const loading = chunkLoading;
@@ -1356,10 +1348,10 @@ function TimeSeriesPlotEChartsComponent({ apiService }: TimeSeriesPlotProps) {
 const TimeSeriesPlotEChartsMemo = memo(TimeSeriesPlotEChartsComponent);
 
 // Export wrapped with error boundary for graceful error handling
-export function TimeSeriesPlotECharts(props: TimeSeriesPlotProps) {
+export function TimeSeriesPlotECharts() {
   return (
     <ChartErrorBoundary chartName="Time Series Plot" minHeight={400}>
-      <TimeSeriesPlotEChartsMemo {...props} />
+      <TimeSeriesPlotEChartsMemo />
     </ChartErrorBoundary>
   );
 }

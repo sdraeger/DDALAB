@@ -3,7 +3,7 @@
 import { useCallback, useRef, useState, useEffect } from "react";
 import { flushSync } from "react-dom";
 import { TauriService, NotificationType } from "@/services/tauriService";
-import { ApiService } from "@/services/apiService";
+import { tauriBackendService } from "@/services/tauriBackendService";
 import { loggers } from "@/lib/logger";
 import { toast } from "@/components/ui/toaster";
 import { DDA_ANALYSIS } from "@/lib/constants";
@@ -49,7 +49,6 @@ interface DDAParameters {
 }
 
 interface UseDDASubmissionOptions {
-  apiService: ApiService;
   selectedFile: EDFFileInfo | null;
   parameters: DDAParameters;
   appExpertMode: boolean;
@@ -81,7 +80,6 @@ interface SubmissionState {
 }
 
 export function useDDASubmission({
-  apiService,
   selectedFile,
   parameters,
   appExpertMode,
@@ -629,10 +627,10 @@ export function useDDASubmission({
   const cancelAnalysis = useCallback(async (): Promise<boolean> => {
     setState((prev) => ({ ...prev, isCancelling: true }));
     try {
-      const result = await apiService.cancelDDAAnalysis();
+      const result = await tauriBackendService.cancelDDA();
       if (result.success) {
         loggers.dda.info("Analysis cancelled", {
-          analysisId: result.cancelled_analysis_id,
+          analysisId: result.cancelledAnalysisId,
         });
         toast.info("Analysis Cancelled", "DDA analysis was cancelled");
         setState((prev) => ({
@@ -660,7 +658,7 @@ export function useDDASubmission({
       setState((prev) => ({ ...prev, isCancelling: false }));
       return false;
     }
-  }, [apiService, setDDARunning]);
+  }, [setDDARunning]);
 
   // Clear errors
   const clearNsgError = useCallback(() => {

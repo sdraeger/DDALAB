@@ -28,6 +28,7 @@ import type {
   StreamEvent,
 } from "@/types/streaming";
 import type { PreprocessingSlice } from "./preprocessingSlice";
+import type { AnalysisSlice } from "./analysisSlice";
 
 // ============================================================================
 // State Interfaces
@@ -401,6 +402,7 @@ export type AppState = FileManagerSlice &
   StreamingSlice &
   PreprocessingSlice &
   PersistenceSlice &
+  AnalysisSlice &
   InitSlice;
 
 // ============================================================================

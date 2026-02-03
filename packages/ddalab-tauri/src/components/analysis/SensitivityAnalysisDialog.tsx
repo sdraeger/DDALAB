@@ -52,12 +52,10 @@ import {
   SensitivityBaseConfig,
 } from "@/types/sensitivity";
 import { toast } from "@/components/ui/toaster";
-import { ApiService } from "@/services/apiService";
 
 export interface SensitivityAnalysisDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  apiService: ApiService;
   baseConfig: SensitivityBaseConfig;
 }
 
@@ -93,7 +91,6 @@ function parseDelays(input: string): number[] {
 export function SensitivityAnalysisDialog({
   open,
   onOpenChange,
-  apiService,
   baseConfig,
 }: SensitivityAnalysisDialogProps) {
   const [parameterSets, setParameterSets] = useState<ParameterSet[]>([
@@ -189,13 +186,9 @@ export function SensitivityAnalysisDialog({
     setEditingSetId(null);
 
     try {
-      const result = await runSensitivityAnalysis(
-        apiService,
-        config,
-        (progress) => {
-          setAnalysis({ ...progress });
-        },
-      );
+      const result = await runSensitivityAnalysis(config, (progress) => {
+        setAnalysis({ ...progress });
+      });
 
       setAnalysis(result);
 
@@ -214,7 +207,7 @@ export function SensitivityAnalysisDialog({
         `Analysis failed: ${error instanceof Error ? error.message : "Unknown error"}`,
       );
     }
-  }, [apiService, baseConfig, parameterSets]);
+  }, [baseConfig, parameterSets]);
 
   const handleCancel = useCallback(() => {
     if (analysis?.id) {

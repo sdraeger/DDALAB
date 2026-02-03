@@ -5,7 +5,7 @@
  * how results change with different settings.
  */
 
-import { ApiService } from "./apiService";
+import { tauriBackendService } from "./tauriBackendService";
 import {
   SensitivityConfig,
   SensitivityResult,
@@ -157,7 +157,6 @@ export function generateSensitivityReport(
  * Run sensitivity analysis with explicit parameter sets
  */
 export async function runSensitivityAnalysis(
-  apiService: ApiService,
   config: SensitivityConfig,
   onProgress?: ProgressCallback,
 ): Promise<SensitivityAnalysis> {
@@ -215,7 +214,7 @@ export async function runSensitivityAnalysis(
       };
 
       try {
-        const result = await apiService.submitDDAAnalysis(request);
+        const result = await tauriBackendService.submitDDAAnalysis(request);
         const duration_ms = performance.now() - startTime;
 
         return extractResultSummary(result, parameterSet, duration_ms);

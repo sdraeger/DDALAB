@@ -124,10 +124,15 @@ export const createDDASlice: ImmerStateCreator<DDASlice> = (set, get) => ({
   dda: defaultDDAState,
 
   setCurrentAnalysis: (analysis) => {
+    // CRITICAL PERFORMANCE FIX: Freeze the analysis object before storing
+    // Immer skips creating proxies for frozen objects, making this instant
+    // instead of 3+ seconds for large DDA matrices
+    const frozenAnalysis = analysis ? Object.freeze(analysis) : null;
+
     set((state) => {
-      state.dda.currentAnalysis = analysis;
-      if (analysis?.source === "nsg") {
-        state.dda.previousAnalysis = state.dda.currentAnalysis;
+      state.dda.currentAnalysis = frozenAnalysis;
+      if (frozenAnalysis?.source === "nsg") {
+        state.dda.previousAnalysis = frozenAnalysis;
       }
     });
 

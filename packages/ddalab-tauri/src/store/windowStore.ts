@@ -1,6 +1,10 @@
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
+import { enableMapSet } from "immer";
+
+// Enable Immer's MapSet plugin for Map/Set support in state
+enableMapSet();
 
 // ============================================================================
 // Types
@@ -146,9 +150,7 @@ export const useWindowStore = create<WindowStoreState & WindowStoreActions>()(
       getWindow: (windowId) => get().windows.get(windowId),
 
       getWindowsByPanel: (panelId) =>
-        Array.from(get().windows.values()).filter(
-          (w) => w.panelId === panelId,
-        ),
+        Array.from(get().windows.values()).filter((w) => w.panelId === panelId),
 
       getGroupedWindows: () => {
         const { windows } = get();

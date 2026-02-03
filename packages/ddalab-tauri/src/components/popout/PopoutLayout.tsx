@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { emit } from "@tauri-apps/api/event";
 import { usePopoutListener } from "@/hooks/usePopoutWindows";
+import { useCrossWindowDragListener } from "@/hooks/useCrossWindowDrag";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -12,7 +13,9 @@ import {
   Minimize2,
   X,
   FileX,
+  FileIcon,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface PopoutLayoutProps {
   title: string;
@@ -20,6 +23,8 @@ interface PopoutLayoutProps {
   windowId?: string;
   onRefresh?: () => void;
   showRefresh?: boolean;
+  /** Callback when a tab is dropped on this window from another window */
+  onTabReceived?: (tabData: { filePath: string; fileName: string }) => void;
 }
 
 export function PopoutLayout({
@@ -28,6 +33,7 @@ export function PopoutLayout({
   windowId,
   onRefresh,
   showRefresh = true,
+  onTabReceived,
 }: PopoutLayoutProps) {
   const {
     data,
@@ -39,6 +45,11 @@ export function PopoutLayout({
   const [lastUpdateTime, setLastUpdateTime] = useState<string>("");
 
   const currentWindowId = windowId || detectedWindowId;
+
+  // Cross-window drag listener for receiving tabs from other windows
+  const { dragState, isDropTarget } = useCrossWindowDragListener(onTabReceived);
+  const showDropOverlay =
+    dragState.isDragging && isDropTarget && dragState.tabData;
 
   useEffect(() => {
     setIsClient(true);
@@ -54,7 +65,11 @@ export function PopoutLayout({
     if (currentWindowId) {
       const newLockState = !isLocked;
       // Emit lock-state event that usePopoutListener listens for
-      await emit(`lock-state-${currentWindowId}`, { locked: newLockState });
+      try {
+        await emit(`lock-state-${currentWindowId}`, { locked: newLockState });
+      } catch {
+        // Window may have been closed
+      }
     }
   };
 
@@ -131,7 +146,7 @@ export function PopoutLayout({
   }, [isClient, currentWindowId]);
 
   return (
-    <div className="h-screen flex flex-col bg-background">
+    <div className="h-screen flex flex-col bg-background relative">
       {/* Custom title bar */}
       <div
         className="h-10 bg-muted/30 border-b flex items-center justify-between px-3 select-none"
@@ -277,6 +292,27 @@ export function PopoutLayout({
           )}
         </div>
       </div>
+
+      {/* Cross-window drop zone overlay */}
+      {showDropOverlay && (
+        <div className="absolute inset-0 z-[100] pointer-events-none animate-in fade-in duration-150">
+          <div className="absolute inset-0 bg-blue-500/5" />
+          <div className="absolute top-10 inset-x-0 h-14 bg-blue-500/20 border-2 border-blue-500 border-dashed rounded-b-lg flex items-center justify-center gap-2 mx-2">
+            <FileIcon className="h-4 w-4 text-blue-600" />
+            <span className="text-blue-700 font-medium text-sm">
+              Drop to open &ldquo;{dragState.tabData?.fileName}&rdquo;
+            </span>
+          </div>
+          <div className="absolute inset-0 border-2 border-blue-500/50 rounded-lg animate-pulse" />
+        </div>
+      )}
+
+      {/* Subtle indicator when dragging but not over this window */}
+      {dragState.isDragging && !isDropTarget && dragState.tabData && (
+        <div className="absolute inset-0 z-[99] pointer-events-none">
+          <div className="absolute inset-0 border border-blue-300/30 rounded-lg" />
+        </div>
+      )}
     </div>
   );
 }
