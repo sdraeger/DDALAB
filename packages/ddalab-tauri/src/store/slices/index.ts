@@ -26,3 +26,12 @@ export {
 } from "./workflowSlice";
 export { createStreamingSlice, defaultStreamingState } from "./streamingSlice";
 export { createPersistenceSlice } from "./persistenceSlice";
+export { createAnalysisSlice, defaultAnalysisState } from "./analysisSlice";
+export type {
+  AnalysisJob,
+  AnalysisJobStatus,
+  AnalysisQueuePreference,
+  InterruptedAnalysis,
+  AnalysisState,
+  AnalysisSlice,
+} from "./analysisSlice";

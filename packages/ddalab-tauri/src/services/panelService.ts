@@ -311,8 +311,12 @@ class PanelServiceImpl {
     filePath: string,
     fileName: string,
   ): Promise<void> {
-    const { emit } = await import("@tauri-apps/api/event");
-    await emit(`tab-transfer-${targetWindowId}`, { filePath, fileName });
+    try {
+      const { emit } = await import("@tauri-apps/api/event");
+      await emit(`tab-transfer-${targetWindowId}`, { filePath, fileName });
+    } catch {
+      // Window may have been closed
+    }
   }
 
   /**
@@ -320,9 +324,7 @@ class PanelServiceImpl {
    */
   getFileViewerWindows(): string[] {
     const store = useWindowStore.getState();
-    return store
-      .getWindowsByPanel("file-viewer")
-      .map((w) => w.id);
+    return store.getWindowsByPanel("file-viewer").map((w) => w.id);
   }
 
   /**

@@ -1,12 +1,83 @@
 import {
   useQuery,
   useQueries,
-  useMutation,
   useQueryClient,
   UseQueryResult,
+  QueryClient,
 } from "@tanstack/react-query";
-import { ApiService } from "@/services/apiService";
+import { useEffect } from "react";
+import { tauriBackendService } from "@/services/tauriBackendService";
 import { ChunkData } from "@/types/api";
+
+/**
+ * Memory-aware cache limits for time series data
+ * These limits prevent unbounded memory growth from EEG chunk caching
+ */
+const CACHE_LIMITS = {
+  /** Maximum number of chunk queries to keep in cache */
+  MAX_CHUNK_QUERIES: 15,
+  /** Maximum number of overview queries to keep in cache */
+  MAX_OVERVIEW_QUERIES: 10,
+} as const;
+
+/**
+ * Evict oldest chunk queries when cache exceeds limit
+ * Uses LRU-style eviction based on query dataUpdatedAt
+ */
+function evictOldChunkQueries(queryClient: QueryClient, maxQueries: number) {
+  const cache = queryClient.getQueryCache();
+  const chunkQueries = cache
+    .findAll({ queryKey: timeSeriesKeys.chunks() })
+    .filter((q) => q.state.data !== undefined);
+
+  if (chunkQueries.length <= maxQueries) return;
+
+  // Sort by last update time (oldest first)
+  const sorted = chunkQueries.sort(
+    (a, b) => (a.state.dataUpdatedAt || 0) - (b.state.dataUpdatedAt || 0),
+  );
+
+  // Remove oldest queries until we're under the limit
+  const toRemove = sorted.slice(0, chunkQueries.length - maxQueries);
+  for (const query of toRemove) {
+    queryClient.removeQueries({ queryKey: query.queryKey, exact: true });
+  }
+
+  if (toRemove.length > 0) {
+    console.debug(
+      `[Cache] Evicted ${toRemove.length} old chunk queries (limit: ${maxQueries})`,
+    );
+  }
+}
+
+/**
+ * Evict oldest overview queries when cache exceeds limit
+ */
+function evictOldOverviewQueries(queryClient: QueryClient, maxQueries: number) {
+  const cache = queryClient.getQueryCache();
+  const overviewQueries = cache
+    .findAll({ queryKey: timeSeriesKeys.overviews() })
+    .filter(
+      (q) => q.state.data !== undefined && !q.queryKey.includes("progress"), // Don't count progress queries
+    );
+
+  if (overviewQueries.length <= maxQueries) return;
+
+  const sorted = overviewQueries.sort(
+    (a, b) => (a.state.dataUpdatedAt || 0) - (b.state.dataUpdatedAt || 0),
+  );
+
+  const toRemove = sorted.slice(0, overviewQueries.length - maxQueries);
+  for (const query of toRemove) {
+    queryClient.removeQueries({ queryKey: query.queryKey, exact: true });
+  }
+
+  if (toRemove.length > 0) {
+    console.debug(
+      `[Cache] Evicted ${toRemove.length} old overview queries (limit: ${maxQueries})`,
+    );
+  }
+}
 
 /**
  * Query key factory for time series data
@@ -51,7 +122,6 @@ export const timeSeriesKeys = {
 /**
  * Hook to fetch chunk data with automatic caching
  *
- * @param apiService - API service instance
  * @param filePath - Path to the EDF/CSV file
  * @param chunkStart - Starting sample index
  * @param chunkSize - Number of samples to fetch
@@ -63,7 +133,6 @@ export const timeSeriesKeys = {
  *
  * @example
  * const { data, isLoading, error } = useChunkData(
- *   apiService,
  *   '/path/to/file.edf',
  *   0,
  *   1000,
@@ -73,7 +142,6 @@ export const timeSeriesKeys = {
  * );
  */
 export function useChunkData(
-  apiService: ApiService,
   filePath: string,
   chunkStart: number,
   chunkSize: number,
@@ -93,28 +161,27 @@ export function useChunkData(
       requestedChannels,
       preprocessing,
     ),
-    queryFn: async ({ signal }) => {
-      return apiService.getChunkData(
+    queryFn: async () => {
+      return tauriBackendService.getEdfChunk(
         filePath,
         chunkStart,
         chunkSize,
         requestedChannels,
-        signal,
         preprocessing,
       );
     },
     enabled: enabled && !!filePath && chunkSize > 0,
-    staleTime: 30 * 60 * 1000, // 30 minutes - chunk data is immutable
-    gcTime: 60 * 60 * 1000, // 60 minutes - keep in cache for 1 hour
+    staleTime: 2 * 60 * 1000, // 2 minutes - chunk data is immutable but memory-heavy
+    gcTime: 5 * 60 * 1000, // 5 minutes - aggressive GC to prevent memory bloat (was 60 min)
     retry: 2,
     refetchOnWindowFocus: false,
   });
+  // Note: Cache eviction is handled globally by useTimeSeriesCacheMonitor
 }
 
 /**
  * Hook to fetch overview data (downsampled view of entire file)
  *
- * @param apiService - API service instance
  * @param filePath - Path to the EDF/CSV file
  * @param requestedChannels - Channels to load (optional)
  * @param maxPoints - Maximum number of points per channel (default: 2000)
@@ -124,7 +191,6 @@ export function useChunkData(
  *
  * @example
  * const { data, isLoading, error, refetch } = useOverviewData(
- *   apiService,
  *   '/path/to/file.edf',
  *   ['Channel 1', 'Channel 2'],
  *   2000,
@@ -132,7 +198,6 @@ export function useChunkData(
  * );
  */
 export function useOverviewData(
-  apiService: ApiService,
   filePath: string,
   requestedChannels?: string[],
   maxPoints: number = 2000,
@@ -140,25 +205,24 @@ export function useOverviewData(
 ) {
   return useQuery({
     queryKey: timeSeriesKeys.overview(filePath, requestedChannels, maxPoints),
-    queryFn: async ({ signal }) => {
-      return apiService.getOverviewData(
+    queryFn: async () => {
+      return tauriBackendService.getEdfOverview(
         filePath,
         requestedChannels,
         maxPoints,
-        signal,
       );
     },
     enabled: enabled && !!filePath,
-    staleTime: 30 * 60 * 1000, // 30 minutes - overview data is immutable
-    gcTime: 60 * 60 * 1000, // 60 minutes
+    staleTime: 5 * 60 * 1000, // 5 minutes - overview data is immutable
+    gcTime: 10 * 60 * 1000, // 10 minutes - moderate GC (was 60 min)
     retry: 1, // Reduced from 2 - fail faster for large files that timeout
     retryDelay: 1000, // Short retry delay (1 second)
     refetchOnWindowFocus: false,
   });
+  // Note: Cache eviction is handled globally by useTimeSeriesCacheMonitor
 }
 
 export function useOverviewProgress(
-  apiService: ApiService,
   filePath: string,
   requestedChannels?: string[],
   maxPoints: number = 2000,
@@ -170,19 +234,18 @@ export function useOverviewProgress(
       requestedChannels,
       maxPoints,
     ),
-    queryFn: async ({ signal }) => {
-      return apiService.getOverviewProgress(
+    queryFn: async () => {
+      return tauriBackendService.getEdfOverviewProgress(
         filePath,
         requestedChannels,
         maxPoints,
-        signal,
       );
     },
     enabled: enabled && !!filePath,
     refetchInterval: (query) => {
       // Poll every 500ms while overview is being generated
       const data = query.state.data;
-      if (!data || !data.has_cache || !data.is_complete) {
+      if (!data || !data.hasCache || !data.isComplete) {
         return 500;
       }
       // Stop polling once complete
@@ -198,7 +261,6 @@ export function useOverviewProgress(
 /**
  * Hook to fetch multiple overviews in parallel (e.g., for multiple channel combinations)
  *
- * @param apiService - API service instance
  * @param filePath - Path to the EDF/CSV file
  * @param channelLists - Array of channel combinations to fetch
  * @param maxPoints - Maximum number of points per channel (default: 2000)
@@ -208,7 +270,6 @@ export function useOverviewProgress(
  *
  * @example
  * const overviewQueries = useMultipleOverviews(
- *   apiService,
  *   '/path/to/file.edf',
  *   [
  *     ['Channel 1'],
@@ -223,7 +284,6 @@ export function useOverviewProgress(
  * const allLoaded = overviewQueries.every(q => q.isSuccess);
  */
 export function useMultipleOverviews(
-  apiService: ApiService,
   filePath: string,
   channelLists: string[][],
   maxPoints: number = 2000,
@@ -232,17 +292,16 @@ export function useMultipleOverviews(
   return useQueries({
     queries: channelLists.map((channels) => ({
       queryKey: timeSeriesKeys.overview(filePath, channels, maxPoints),
-      queryFn: async ({ signal }: { signal: AbortSignal }) => {
-        return apiService.getOverviewData(
+      queryFn: async () => {
+        return tauriBackendService.getEdfOverview(
           filePath,
           channels,
           maxPoints,
-          signal,
         );
       },
       enabled: enabled && !!filePath,
-      staleTime: 30 * 60 * 1000,
-      gcTime: 60 * 60 * 1000,
+      staleTime: 5 * 60 * 1000,
+      gcTime: 10 * 60 * 1000, // 10 minutes (was 60 min)
       retry: 2,
       refetchOnWindowFocus: false,
     })),
@@ -252,7 +311,6 @@ export function useMultipleOverviews(
 /**
  * Hook to fetch multiple chunks in parallel (e.g., for progressive loading)
  *
- * @param apiService - API service instance
  * @param filePath - Path to the EDF/CSV file
  * @param chunkRequests - Array of chunk requests (start, size, channels)
  * @param enabled - Whether to enable the queries (default: true)
@@ -261,7 +319,6 @@ export function useMultipleOverviews(
  *
  * @example
  * const chunkQueries = useMultipleChunks(
- *   apiService,
  *   '/path/to/file.edf',
  *   [
  *     { start: 0, size: 1000, channels: ['Channel 1'] },
@@ -272,7 +329,6 @@ export function useMultipleOverviews(
  * );
  */
 export function useMultipleChunks(
-  apiService: ApiService,
   filePath: string,
   chunkRequests: Array<{
     start: number;
@@ -295,19 +351,18 @@ export function useMultipleChunks(
         request.channels,
         request.preprocessing,
       ),
-      queryFn: async ({ signal }: { signal: AbortSignal }) => {
-        return apiService.getChunkData(
+      queryFn: async () => {
+        return tauriBackendService.getEdfChunk(
           filePath,
           request.start,
           request.size,
           request.channels,
-          signal,
           request.preprocessing,
         );
       },
       enabled: enabled && !!filePath && request.size > 0,
-      staleTime: 30 * 60 * 1000,
-      gcTime: 60 * 60 * 1000,
+      staleTime: 2 * 60 * 1000,
+      gcTime: 5 * 60 * 1000, // 5 minutes (was 60 min)
       retry: 2,
       refetchOnWindowFocus: false,
     })),
@@ -375,7 +430,63 @@ export function useInvalidateTimeSeriesCache() {
         queryKey: timeSeriesKeys.all,
       });
     },
+
+    /**
+     * Force cache eviction to enforce memory limits
+     */
+    enforceMemoryLimits: () => {
+      evictOldChunkQueries(queryClient, CACHE_LIMITS.MAX_CHUNK_QUERIES);
+      evictOldOverviewQueries(queryClient, CACHE_LIMITS.MAX_OVERVIEW_QUERIES);
+    },
   };
+}
+
+/**
+ * Hook to monitor and enforce time series cache memory limits
+ * Use this at the app level to periodically clean up the cache
+ *
+ * @param intervalMs - How often to check cache limits (default: 60 seconds)
+ *
+ * @example
+ * // In your app root component
+ * useTimeSeriesCacheMonitor();
+ */
+export function useTimeSeriesCacheMonitor(intervalMs: number = 60_000) {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    // Run immediately on mount
+    evictOldChunkQueries(queryClient, CACHE_LIMITS.MAX_CHUNK_QUERIES);
+    evictOldOverviewQueries(queryClient, CACHE_LIMITS.MAX_OVERVIEW_QUERIES);
+
+    // Set up periodic check
+    const interval = setInterval(() => {
+      evictOldChunkQueries(queryClient, CACHE_LIMITS.MAX_CHUNK_QUERIES);
+      evictOldOverviewQueries(queryClient, CACHE_LIMITS.MAX_OVERVIEW_QUERIES);
+    }, intervalMs);
+
+    // Also clean up when window becomes hidden (user switches away)
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // Aggressive cleanup when app is backgrounded
+        evictOldChunkQueries(
+          queryClient,
+          Math.floor(CACHE_LIMITS.MAX_CHUNK_QUERIES / 2),
+        );
+        evictOldOverviewQueries(
+          queryClient,
+          Math.floor(CACHE_LIMITS.MAX_OVERVIEW_QUERIES / 2),
+        );
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [queryClient, intervalMs]);
 }
 
 /**
@@ -385,7 +496,7 @@ export function useInvalidateTimeSeriesCache() {
  * @returns Prefetch function
  *
  * @example
- * const prefetchChunk = usePrefetchChunkData(apiService);
+ * const prefetchChunk = usePrefetchChunkData();
  *
  * // Prefetch next chunk when user scrolls
  * useEffect(() => {
@@ -394,7 +505,7 @@ export function useInvalidateTimeSeriesCache() {
  *   }
  * }, [userNearEndOfView]);
  */
-export function usePrefetchChunkData(apiService: ApiService) {
+export function usePrefetchChunkData() {
   const queryClient = useQueryClient();
 
   return (
@@ -416,17 +527,16 @@ export function usePrefetchChunkData(apiService: ApiService) {
         requestedChannels,
         preprocessing,
       ),
-      queryFn: async ({ signal }) => {
-        return apiService.getChunkData(
+      queryFn: async () => {
+        return tauriBackendService.getEdfChunk(
           filePath,
           chunkStart,
           chunkSize,
           requestedChannels,
-          signal,
           preprocessing,
         );
       },
-      staleTime: 30 * 60 * 1000,
+      staleTime: 2 * 60 * 1000, // 2 minutes (was 30 min)
     });
   };
 }

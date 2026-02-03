@@ -24,7 +24,6 @@ mod utils;
 
 // Import required modules
 use app_setup::setup_app;
-use commands::api_commands::ApiServerState;
 use commands::*;
 use ddalab_tauri::api::ApiState;
 use recording::commands::WorkflowState;
@@ -128,8 +127,13 @@ fn main() {
             focus_main_window,
             create_popout_window,
             get_window_position,
+            get_all_window_bounds,
             store_analysis_preview_data,
             get_analysis_preview_data,
+            // Drag overlay commands
+            show_drag_overlay,
+            update_drag_overlay,
+            hide_drag_overlay,
             // Preference commands
             get_app_preferences,
             save_app_preferences,
@@ -144,8 +148,6 @@ fn main() {
             docker_stack::check_docker_requirements,
             docker_stack::update_docker_config,
             // API commands (unified local/remote)
-            start_local_api_server,
-            stop_local_api_server,
             connect_to_remote_api,
             check_api_connection,
             get_api_status,
@@ -282,9 +284,32 @@ fn main() {
             get_edf_overview_progress,
             get_edf_window,
             get_edf_cache_stats,
-            clear_edf_cache
+            clear_edf_cache,
+            // DDA analysis commands (IPC)
+            submit_dda_analysis,
+            get_dda_status,
+            cancel_dda,
+            get_dda_result_by_id,
+            get_dda_results_for_file,
+            list_dda_history,
+            save_dda_to_history,
+            get_dda_from_history,
+            get_dda_from_history_msgpack,
+            get_dda_metadata_from_history,
+            delete_dda_from_history,
+            rename_dda_in_history,
+            // File operation commands (IPC)
+            list_directory,
+            list_data_files,
+            update_data_directory,
+            get_current_data_directory,
+            // ICA analysis commands (IPC)
+            submit_ica_analysis,
+            get_ica_results,
+            get_ica_result_by_id,
+            delete_ica_result,
+            ica_reconstruct_without_components
         ])
-        .manage(ApiServerState::default())
         .manage(AppSyncState::new())
         .manage(parking_lot::RwLock::new(
             None::<commands::data_directory_commands::DataDirectoryConfig>,
@@ -338,24 +363,8 @@ fn main() {
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app_handle, event| {
-            if let tauri::RunEvent::ExitRequested { .. } = event {
-                // Clean up API server on app exit
-                use tauri::Manager;
-                let api_state = app_handle.state::<ApiServerState>();
-                log::info!("App exiting, cleaning up API server...");
-
-                // Abort the server task
-                let mut handle_guard = api_state.server_handle.write();
-                if let Some(handle) = handle_guard.take() {
-                    handle.abort();
-                    log::info!("API server task aborted");
-                }
-
-                // Reset state
-                let mut is_running = api_state.is_local_server_running.lock();
-                *is_running = false;
-            }
+        .run(|_app_handle, _event| {
+            // Application event handler (no-op)
         });
 }
 

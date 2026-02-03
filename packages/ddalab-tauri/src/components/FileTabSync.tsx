@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useActiveFilePath } from "@/store/openFilesStore";
 import { useAppStore } from "@/store/appStore";
-import { useApiService } from "@/contexts/ApiServiceContext";
+import { tauriBackendService } from "@/services/tauriBackendService";
 import { getFileStateManager } from "@/services/fileStateManager";
 import { windowManager } from "@/utils/windowManager";
 import { createLogger } from "@/lib/logger";
@@ -18,7 +18,6 @@ const logger = createLogger("FileTabSync");
  */
 export function FileTabSync() {
   const activeFilePath = useActiveFilePath();
-  const { apiService, isReady: isApiReady } = useApiService();
   const currentSelectedFile = useAppStore(
     (state) => state.fileManager.selectedFile,
   );
@@ -55,9 +54,9 @@ export function FileTabSync() {
       return;
     }
 
-    // Wait for server and API to be ready before processing
-    if (!isServerReady || !isApiReady) {
-      logger.debug("Server or API not ready, waiting...");
+    // Wait for server to be ready before processing
+    if (!isServerReady) {
+      logger.debug("Server not ready, waiting...");
       return;
     }
 
@@ -87,8 +86,8 @@ export function FileTabSync() {
       try {
         logger.debug("Loading file info for tab switch", { activeFilePath });
 
-        // Get file info from backend
-        const fileInfo = await apiService.getFileInfo(activeFilePath);
+        // Get file info from backend via Tauri IPC
+        const fileInfo = await tauriBackendService.getEdfInfo(activeFilePath);
 
         if (fileInfo) {
           logger.debug("Setting selected file from tab", {
@@ -115,9 +114,8 @@ export function FileTabSync() {
     activeFilePath,
     currentSelectedFile?.file_path,
     isServerReady,
-    isApiReady,
-    apiService,
     setSelectedFile,
+    clearSelectedFile,
   ]);
 
   // This component doesn't render anything

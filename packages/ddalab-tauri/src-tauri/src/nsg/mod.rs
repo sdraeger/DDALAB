@@ -7,5 +7,5 @@ pub mod poller;
 pub use client::NSGClient;
 pub use embedded::*;
 pub use job_manager::NSGJobManager;
-pub use models::{NSGCredentials, NSGJobRequest, NSGJobResponse, NSGResourceConfig};
+pub use models::{DDARequest, NSGCredentials, NSGJobRequest, NSGJobResponse, NSGResourceConfig};
 pub use poller::NSGJobPoller;

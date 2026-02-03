@@ -1,8 +1,13 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
-import { ApiService } from "@/services/apiService";
-import { DDAAnalysisRequest, DDAResult, DDAProgressEvent } from "@/types/api";
+import { tauriBackendService } from "@/services/tauriBackendService";
+import {
+  DDAAnalysisRequest,
+  DDAResult,
+  DDAProgressEvent,
+  DDAResultMetadata,
+} from "@/types/api";
 import { useAppStore } from "@/store/appStore";
 import { TauriService, NotificationType } from "@/services/tauriService";
 
@@ -15,17 +20,24 @@ export const ddaKeys = {
   result: (resultId: string) => [...ddaKeys.all, "result", resultId] as const,
   resultFromHistory: (resultId: string) =>
     [...ddaKeys.result(resultId), "from-history"] as const,
+  channelData: (analysisId: string, variantId: string, channels: string[]) =>
+    [
+      ...ddaKeys.all,
+      "channelData",
+      analysisId,
+      variantId,
+      channels.sort().join(","),
+    ] as const,
   status: (resultId: string) => [...ddaKeys.all, "status", resultId] as const,
 };
 
 /**
  * Hook to submit DDA analysis with mutation
  *
- * @param apiService - API service instance
  * @returns Mutation object for submitting DDA analysis
  *
  * @example
- * const submitAnalysis = useSubmitDDAAnalysis(apiService);
+ * const submitAnalysis = useSubmitDDAAnalysis();
  *
  * const handleSubmit = () => {
  *   submitAnalysis.mutate(request, {
@@ -35,12 +47,12 @@ export const ddaKeys = {
  *   });
  * };
  */
-export function useSubmitDDAAnalysis(apiService: ApiService) {
+export function useSubmitDDAAnalysis() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: (request: DDAAnalysisRequest) => {
-      return apiService.submitDDAAnalysis(request);
+      return tauriBackendService.submitDDAAnalysis(request);
     },
     onSuccess: async (result) => {
       // Add the new result to the history cache immediately
@@ -126,96 +138,200 @@ export function useSubmitDDAAnalysis(apiService: ApiService) {
 /**
  * Hook to fetch DDA analysis result by ID
  *
- * @param apiService - API service instance
  * @param resultId - Analysis result ID
  * @param enabled - Whether to enable the query (default: true)
  * @returns Query result with analysis data
  *
  * @example
- * const { data: result, isLoading } = useDDAResult(apiService, 'dda_123');
+ * const { data: result, isLoading } = useDDAResult('dda_123');
  */
-export function useDDAResult(
-  apiService: ApiService,
-  resultId: string,
-  enabled: boolean = true,
-) {
+export function useDDAResult(resultId: string, enabled: boolean = true) {
   return useQuery({
     queryKey: ddaKeys.result(resultId),
-    queryFn: () => apiService.getDDAResult(resultId),
+    queryFn: () => tauriBackendService.getDDAResult(resultId),
     enabled: enabled && !!resultId,
     staleTime: Infinity, // Results never change once completed
-    gcTime: 60 * 60 * 1000, // Keep in cache for 1 hour
+    gcTime: 15 * 60 * 1000, // 15 minutes (was 1 hour) - DDA results are smaller than EEG data
     retry: 2,
   });
 }
 
 /**
- * Hook to fetch DDA analysis history
+ * Hook to fetch DDA analysis history metadata (lightweight, no full results)
  *
- * @param apiService - API service instance
+ * This returns minimal DDAResult-compatible objects without fetching full analysis data.
+ * Full analysis data should be loaded on-demand using useAnalysisFromHistory when selected.
+ *
  * @param enabled - Whether to enable the query (default: true)
- * @returns Query result with analysis history
- *
- * @example
- * const { data: history, isLoading, refetch } = useDDAHistory(apiService);
+ * @returns Query result with analysis history (lightweight metadata only)
  */
-export function useDDAHistory(apiService: ApiService, enabled: boolean = true) {
+export function useDDAHistory(enabled: boolean = true) {
   return useQuery({
     queryKey: ddaKeys.history(),
-    queryFn: () => apiService.getAnalysisHistory(),
+    queryFn: async () => {
+      // Only fetch metadata - full results loaded on-demand via useAnalysisFromHistory
+      const historyEntries = await tauriBackendService.listDDAHistory(20);
+
+      if (historyEntries.length === 0) {
+        return [];
+      }
+
+      // Convert history entries to minimal DDAResult objects for compatibility
+      // The sidebar only needs: id, name, file_path, created_at, channels count, variants count
+      // Full data will be loaded via useAnalysisFromHistory when user selects one
+      return historyEntries.map((entry) => {
+        // Create placeholder channel names just for length counting in the UI
+        const placeholderChannels = Array.from(
+          { length: entry.channelsCount || 0 },
+          (_, i) => `ch${i}`,
+        );
+
+        return {
+          id: entry.id,
+          name: entry.name,
+          file_path: entry.filePath, // Backend uses camelCase
+          channels: placeholderChannels,
+          parameters: {
+            file_path: entry.filePath,
+            channels: placeholderChannels,
+            start_time: 0,
+            end_time: 0,
+            variants: entry.variantName ? [entry.variantName] : [],
+            delay_list: [],
+          },
+          results: {
+            window_indices: [],
+            variants: [],
+          },
+          status: "completed" as const,
+          created_at: entry.createdAt, // Backend uses camelCase
+        };
+      }) as DDAResult[];
+    },
     enabled,
-    staleTime: 30 * 1000, // Refetch after 30 seconds
-    gcTime: 5 * 60 * 1000, // Keep in cache for 5 minutes
-    retry: 2,
-    refetchOnWindowFocus: true, // Refetch when window regains focus
+    staleTime: 60 * 1000,
+    gcTime: 5 * 60 * 1000,
+    retry: 1,
+    refetchOnWindowFocus: false,
   });
 }
 
 /**
- * Hook to fetch full analysis from history by ID (async, non-blocking)
+ * Hook to fetch DDA metadata from history by ID (fast, instant transfer).
  *
- * @param apiService - API service instance
+ * PROGRESSIVE LOADING: Returns a DDAResult-compatible object immediately with metadata.
+ * The `results.variants[].dda_matrix` will be empty - use useDDAChannelData() to fetch
+ * the actual channel data on-demand.
+ *
  * @param analysisId - Analysis ID to load from history
  * @param enabled - Whether to enable the query (default: false, must opt-in)
- * @returns Query result with full analysis data
+ * @returns Query result with DDAResult-compatible object (metadata only, no large arrays)
  *
  * @example
- * const { data: analysis, isLoading } = useAnalysisFromHistory(apiService, 'abc-123', true);
+ * const { data: analysis, isLoading } = useAnalysisFromHistory('abc-123', true);
+ * // analysis.results.variants[].dda_matrix is empty
+ * // Use useDDAChannelData to fetch actual channel data for rendering
  */
 export function useAnalysisFromHistory(
-  apiService: ApiService,
   analysisId: string | null,
   enabled: boolean = false,
 ) {
   return useQuery({
     queryKey: ddaKeys.resultFromHistory(analysisId || ""),
-    queryFn: () => apiService.getAnalysisFromHistory(analysisId!),
+    queryFn: async (): Promise<DDAResult | null> => {
+      const metadata = await tauriBackendService.getDDAFromHistory(analysisId!);
+      if (!metadata) return null;
+
+      // Convert metadata to DDAResult-compatible object
+      // The dda_matrix fields are empty - components should use useDDAChannelData
+      return {
+        id: metadata.id,
+        name: metadata.name,
+        file_path: metadata.file_path,
+        channels: metadata.channels,
+        parameters: metadata.parameters as DDAAnalysisRequest,
+        results: {
+          window_indices: metadata.window_indices,
+          variants: metadata.variants.map((v) => ({
+            variant_id: v.variant_id,
+            variant_name: v.variant_name,
+            dda_matrix: {}, // Empty - fetch via useDDAChannelData
+            exponents: v.exponents,
+            quality_metrics: v.quality_metrics,
+            network_motifs: v.has_network_motifs ? undefined : undefined, // Placeholder
+          })),
+        },
+        status: metadata.status,
+        created_at: metadata.created_at,
+        completed_at: metadata.completed_at,
+        error_message: metadata.error_message,
+        source: metadata.source,
+      };
+    },
     enabled: enabled && !!analysisId,
-    staleTime: Infinity, // Analysis data never changes once saved
-    gcTime: 60 * 60 * 1000, // Keep in cache for 1 hour
+    staleTime: Infinity, // Analysis metadata never changes once saved
+    gcTime: 15 * 60 * 1000, // 15 minutes
     retry: 2,
+  });
+}
+
+/**
+ * Hook to fetch specific channel data from a cached DDA result.
+ *
+ * PROGRESSIVE LOADING: Fetches only the requested channels' dda_matrix.
+ * The result must have been loaded first via useAnalysisFromHistory() to populate
+ * the worker cache.
+ *
+ * @param analysisId - Analysis ID (must be in worker cache)
+ * @param variantId - Variant ID to fetch data for
+ * @param channels - Channel names to fetch data for
+ * @param enabled - Whether to enable the query
+ * @returns Query result with channel data
+ *
+ * @example
+ * const { data: metadata } = useAnalysisFromHistory(analysisId, true);
+ * const { data: channelData, isLoading } = useDDAChannelData(
+ *   analysisId,
+ *   'single_timeseries',
+ *   ['Fp1', 'Fp2', 'F3', 'F4'],
+ *   !!metadata // Only fetch when metadata is loaded
+ * );
+ */
+export function useDDAChannelData(
+  analysisId: string | undefined,
+  variantId: string | undefined,
+  channels: string[],
+  enabled: boolean = true,
+) {
+  return useQuery({
+    queryKey: ddaKeys.channelData(analysisId || "", variantId || "", channels),
+    queryFn: () =>
+      tauriBackendService.getDDAChannelData(analysisId!, variantId!, channels),
+    enabled: enabled && !!analysisId && !!variantId && channels.length > 0,
+    staleTime: Infinity, // Channel data never changes
+    gcTime: 5 * 60 * 1000, // 5 minutes - shorter since this is derived data
+    retry: 1,
   });
 }
 
 /**
  * Hook to save DDA analysis to history
  *
- * @param apiService - API service instance
  * @returns Mutation object for saving analysis
  *
  * @example
- * const saveToHistory = useSaveDDAToHistory(apiService);
+ * const saveToHistory = useSaveDDAToHistory();
  *
  * saveToHistory.mutate(result, {
  *   onSuccess: () => console.log('Saved to history')
  * });
  */
-export function useSaveDDAToHistory(apiService: ApiService) {
+export function useSaveDDAToHistory() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: (result: DDAResult) => {
-      return apiService.saveAnalysisToHistory(result);
+      return tauriBackendService.saveDDAToHistory(result);
     },
     onMutate: async (newAnalysis) => {
       // Cancel any outgoing refetches to avoid overwriting optimistic update
@@ -255,22 +371,21 @@ export function useSaveDDAToHistory(apiService: ApiService) {
 /**
  * Hook to delete DDA analysis from history
  *
- * @param apiService - API service instance
  * @returns Mutation object for deleting analysis
  *
  * @example
- * const deleteAnalysis = useDeleteDDAFromHistory(apiService);
+ * const deleteAnalysis = useDeleteDDAFromHistory();
  *
  * deleteAnalysis.mutate('result_id', {
  *   onSuccess: () => console.log('Deleted from history')
  * });
  */
-export function useDeleteDDAFromHistory(apiService: ApiService) {
+export function useDeleteDDAFromHistory() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: (resultId: string) => {
-      return apiService.deleteAnalysisFromHistory(resultId);
+      return tauriBackendService.deleteDDAFromHistory(resultId);
     },
     onSuccess: () => {
       // Invalidate history to trigger refetch
@@ -289,23 +404,42 @@ export function useDeleteDDAFromHistory(apiService: ApiService) {
  * @param analysisId - Analysis ID to track (optional - tracks all if not provided)
  * @param enabled - Whether to enable the listener (default: true)
  * @returns Current progress state
+ * @deprecated Use `useAnalysisForFile` from `@/hooks/useAnalysisCoordinator` instead.
  *
- * @example
- * const { data: result } = useSubmitDDAAnalysis(apiService);
- * const progress = useDDAProgress(result?.id);
+ * The analysis coordinator provides:
+ * - Single event listener (eliminates duplicate listeners)
+ * - File-scoped tracking (results tied to specific files)
+ * - Proper job lifecycle management
  *
- * if (progress) {
- *   console.log(`${progress.phase}: ${progress.progress_percent}%`);
- *   console.log(progress.current_step);
- * }
+ * Migration example:
+ * ```ts
+ * // Before:
+ * const progressEvent = useDDAProgress(analysisId, isPending);
+ * const progress = progressEvent?.progress_percent || 0;
+ *
+ * // After:
+ * import { useAnalysisForFile } from '@/hooks/useAnalysisCoordinator';
+ * const { progress, currentStep, isRunning, result } = useAnalysisForFile(filePath);
+ * ```
  */
 export function useDDAProgress(
   analysisId?: string,
   enabled: boolean = true,
 ): DDAProgressEvent | null {
   const [progress, setProgress] = useState<DDAProgressEvent | null>(null);
+  const hasWarnedRef = useRef(false);
 
   useEffect(() => {
+    // Log deprecation warning once in development
+    if (process.env.NODE_ENV === "development" && !hasWarnedRef.current) {
+      hasWarnedRef.current = true;
+      console.warn(
+        "[DEPRECATED] useDDAProgress is deprecated. " +
+          "Use useAnalysisForFile from @/hooks/useAnalysisCoordinator instead. " +
+          "See JSDoc for migration example.",
+      );
+    }
+
     if (!enabled) return;
 
     let unlisten: UnlistenFn | null = null;
@@ -317,7 +451,8 @@ export function useDDAProgress(
         const unlistenFn = await listen<DDAProgressEvent>(
           "dda-progress",
           (event) => {
-            if (!analysisId || event.payload.analysis_id === analysisId) {
+            // Backend uses camelCase: analysisId
+            if (!analysisId || event.payload.analysisId === analysisId) {
               setProgress(event.payload);
             }
           },
@@ -389,19 +524,18 @@ export function useInvalidateDDACache() {
 /**
  * Hook to delete an analysis with optimistic updates
  *
- * @param apiService - API service instance
  * @returns Mutation object for deleting analysis
  *
  * @example
- * const deleteAnalysis = useDeleteAnalysis(apiService);
+ * const deleteAnalysis = useDeleteAnalysis();
  * deleteAnalysis.mutate(analysisId);
  */
-export function useDeleteAnalysis(apiService: ApiService) {
+export function useDeleteAnalysis() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: (analysisId: string) =>
-      apiService.deleteAnalysisFromHistory(analysisId),
+      tauriBackendService.deleteDDAFromHistory(analysisId),
 
     // Optimistic update: immediately remove from UI
     onMutate: async (analysisId: string) => {
@@ -442,14 +576,13 @@ export function useDeleteAnalysis(apiService: ApiService) {
 /**
  * Hook to rename an analysis with optimistic updates
  *
- * @param apiService - API service instance
  * @returns Mutation object for renaming analysis
  *
  * @example
- * const renameAnalysis = useRenameAnalysis(apiService);
+ * const renameAnalysis = useRenameAnalysis();
  * renameAnalysis.mutate({ analysisId: '123', newName: 'My Analysis' });
  */
-export function useRenameAnalysis(apiService: ApiService) {
+export function useRenameAnalysis() {
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -459,7 +592,7 @@ export function useRenameAnalysis(apiService: ApiService) {
     }: {
       analysisId: string;
       newName: string;
-    }) => apiService.renameAnalysisInHistory(analysisId, newName),
+    }) => tauriBackendService.renameDDAInHistory(analysisId, newName),
 
     // Optimistic update: immediately update name in UI
     onMutate: async ({ analysisId, newName }) => {

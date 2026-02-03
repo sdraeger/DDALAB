@@ -9,7 +9,7 @@ import React, {
 } from "react";
 import { useAppStore } from "@/store/appStore";
 import { useOpenFilesStore } from "@/store/openFilesStore";
-import { ApiService } from "@/services/apiService";
+import { tauriBackendService } from "@/services/tauriBackendService";
 import { EDFFileInfo } from "@/types/api";
 import { handleError, isGitAnnexError } from "@/utils/errorHandler";
 import { createLogger } from "@/lib/logger";
@@ -22,7 +22,6 @@ import {
   useWorkflowSelectors,
   usePersistenceSelectors,
 } from "@/hooks/useStoreSelectors";
-import { useApiService } from "@/contexts/ApiServiceContext";
 import {
   Card,
   CardContent,
@@ -83,15 +82,9 @@ import {
 import { bidsCache } from "@/services/bidsCacheService";
 import { toast } from "@/components/ui/toaster";
 
-interface FileManagerProps {
-  apiService: ApiService;
-}
-
 // FileTreeRenderer is now imported from @/components/file-manager
 
-export const FileManager = React.memo(function FileManager({
-  apiService,
-}: FileManagerProps) {
+export const FileManager = React.memo(function FileManager() {
   // Use consolidated selector hooks instead of 20+ individual selectors
   const {
     dataDirectoryPath,
@@ -117,9 +110,6 @@ export const FileManager = React.memo(function FileManager({
   const { isRecording, incrementActionCount } = useWorkflowSelectors();
   const { isPersistenceRestored } = usePersistenceSelectors();
 
-  // Get reactive auth state from context - this ensures re-render when auth becomes ready
-  const { isReady: isAuthReady } = useApiService();
-
   // Open files store for file tab management
   const openFileInTabs = useOpenFilesStore((state) => state.openFile);
 
@@ -132,10 +122,7 @@ export const FileManager = React.memo(function FileManager({
     : dataDirectoryPath;
 
   // Compute query enabled condition
-  // CRITICAL: Use isAuthReady from context (reactive) instead of apiService.getSessionToken() (non-reactive)
-  // This ensures the component re-renders when auth becomes ready
-  const queryEnabled =
-    !!absolutePath && !!dataDirectoryPath && isServerReady && isAuthReady;
+  const queryEnabled = !!absolutePath && !!dataDirectoryPath && isServerReady;
 
   // Log query conditions for debugging
   useEffect(() => {
@@ -143,16 +130,9 @@ export const FileManager = React.memo(function FileManager({
       absolutePath: absolutePath || "(empty)",
       dataDirectoryPath: dataDirectoryPath || "(empty)",
       isServerReady,
-      isAuthReady,
       queryEnabled,
     });
-  }, [
-    absolutePath,
-    dataDirectoryPath,
-    isServerReady,
-    isAuthReady,
-    queryEnabled,
-  ]);
+  }, [absolutePath, dataDirectoryPath, isServerReady, queryEnabled]);
 
   // Use TanStack Query for directory listing
   // Only wait for server to be ready - no need to block on persistence
@@ -161,7 +141,7 @@ export const FileManager = React.memo(function FileManager({
     isLoading: directoryLoading,
     error: directoryError,
     refetch: refetchDirectory,
-  } = useDirectoryListing(apiService, absolutePath || "", queryEnabled);
+  } = useDirectoryListing(absolutePath || "", queryEnabled);
 
   // Log query state changes for debugging
   useEffect(() => {
@@ -180,7 +160,7 @@ export const FileManager = React.memo(function FileManager({
   }, [absolutePath, directoryLoading, directoryData, directoryError]);
 
   // Use mutation for loading file info
-  const loadFileInfoMutation = useLoadFileInfo(apiService);
+  const loadFileInfoMutation = useLoadFileInfo();
 
   const [showUploadDialog, setShowUploadDialog] = useState(false);
   const [uploadDatasetPath, setUploadDatasetPath] = useState<string | null>(
@@ -881,15 +861,15 @@ export const FileManager = React.memo(function FileManager({
       await TauriService.setDataDirectory(selected);
       console.log("[FILEMANAGER] Backend save complete");
 
-      // Update the API server's data directory (for path validation)
-      console.log("[FILEMANAGER] Updating API server data directory...");
+      // Update the backend data directory via Tauri IPC
+      console.log("[FILEMANAGER] Updating backend data directory...");
       try {
-        await apiService.updateDataDirectory(selected);
-        console.log("[FILEMANAGER] API server data directory updated");
-      } catch (apiError) {
+        await tauriBackendService.updateDataDirectory(selected);
+        console.log("[FILEMANAGER] Backend data directory updated");
+      } catch (backendError) {
         console.warn(
-          "[FILEMANAGER] Failed to update API server data directory:",
-          apiError,
+          "[FILEMANAGER] Failed to update backend data directory:",
+          backendError,
         );
         // Continue anyway - this is not critical for the UI to function
       }
@@ -1260,7 +1240,6 @@ export const FileManager = React.memo(function FileManager({
             onFileSelect={handleFileSelect}
             onContextMenu={handleContextMenu}
             onUploadClick={handleUploadClick}
-            apiService={apiService}
             searchQuery={searchQuery}
             highlightedFilePath={highlightedFilePath}
           />
@@ -1305,7 +1284,6 @@ export const FileManager = React.memo(function FileManager({
         }}
         file={fileToSegment}
         onSegment={handleSegment}
-        apiService={apiService}
       />
 
       {/* Git Annex Download Dialog */}
