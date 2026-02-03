@@ -112,9 +112,15 @@ class WindowManager {
       this.stopPositionTracking();
     }
 
-    // Trigger state save (dynamic import to avoid circular dependency)
-    import("@/store/appStore").then(({ useAppStore }) => {
-      useAppStore.getState().saveCurrentState?.();
+    // Trigger immediate state save (bypasses throttling to ensure window removal is persisted)
+    // Use forceSave to guarantee the state is written to disk
+    import("@/store/appStore").then(async ({ useAppStore }) => {
+      try {
+        await useAppStore.getState().saveCurrentState?.();
+        await useAppStore.getState().forceSave?.();
+      } catch {
+        // Save may fail if app is closing, which is expected
+      }
     });
   }
 
@@ -142,16 +148,26 @@ class WindowManager {
     this.stateChangeListeners.forEach((listener) => listener(event));
   }
 
-  private getWindowConfig(panelId: string, instanceId: string): WindowConfig {
+  private getWindowConfig(
+    panelId: string,
+    instanceId: string,
+    data?: any,
+  ): WindowConfig {
     const panel = getPanel(panelId);
     if (!panel) {
       throw new Error(`Unknown panel type: ${panelId}`);
     }
 
+    // Build URL with additional params for file-viewer panels
+    let url = `${panel.popoutUrl}?id=${instanceId}`;
+    if (panelId === "file-viewer" && data?.filePath) {
+      url += `&file=${encodeURIComponent(data.filePath)}`;
+    }
+
     return {
       label: `${panelId}-${instanceId}`,
       title: panel.title,
-      url: `${panel.popoutUrl}?id=${instanceId}`,
+      url,
       width: panel.defaultSize.width,
       height: panel.defaultSize.height,
       minWidth: panel.minSize?.width,
@@ -172,7 +188,7 @@ class WindowManager {
       throw new Error("Cannot create window while app is closing");
     }
 
-    const config = this.getWindowConfig(type, id);
+    const config = this.getWindowConfig(type, id, data);
     const windowId = `${type}-${id}-${Date.now()}`;
 
     const { invoke } = await import("@tauri-apps/api/core");
@@ -418,7 +434,8 @@ class WindowManager {
     if (state) {
       state.isLocked = locked;
       this.windowStates.set(windowId, state);
-      emit(`lock-state-${windowId}`, { locked });
+      // Fire and forget with error handling - window may have been closed
+      emit(`lock-state-${windowId}`, { locked }).catch(() => {});
 
       // Sync with WindowStore
       useWindowStore.getState().setLocked(windowId, locked);

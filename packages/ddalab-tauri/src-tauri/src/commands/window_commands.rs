@@ -1,5 +1,9 @@
 use crate::state_manager::AppStateManager;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
+
+/// Global flag to track if drag overlay exists
+static DRAG_OVERLAY_EXISTS: AtomicBool = AtomicBool::new(false);
 
 /// Force close the main window, bypassing any close confirmation
 /// This is called by the frontend after user confirms the close action
@@ -88,6 +92,38 @@ pub async fn get_window_position(
     }
 }
 
+/// Window bounds information for cross-window drag detection
+#[derive(serde::Serialize)]
+pub struct WindowBounds {
+    pub label: String,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub is_focused: bool,
+}
+
+/// Get bounds of all open windows for cross-window drag-and-drop detection
+#[tauri::command]
+pub async fn get_all_window_bounds(app: tauri::AppHandle) -> Result<Vec<WindowBounds>, String> {
+    let mut bounds = Vec::new();
+
+    for (label, window) in app.webview_windows() {
+        if let (Ok(position), Ok(size)) = (window.outer_position(), window.outer_size()) {
+            bounds.push(WindowBounds {
+                label: label.clone(),
+                x: position.x as f64,
+                y: position.y as f64,
+                width: size.width as f64,
+                height: size.height as f64,
+                is_focused: window.is_focused().unwrap_or(false),
+            });
+        }
+    }
+
+    Ok(bounds)
+}
+
 #[tauri::command]
 pub async fn store_analysis_preview_data(
     state_manager: State<'_, AppStateManager>,
@@ -144,4 +180,92 @@ pub async fn get_analysis_preview_data(
             ))
         }
     }
+}
+
+/// Create a drag overlay window that follows the cursor
+/// This provides visual feedback when dragging tabs outside window bounds
+#[tauri::command]
+pub async fn show_drag_overlay(
+    app: tauri::AppHandle,
+    file_name: String,
+    x: f64,
+    y: f64,
+) -> Result<(), String> {
+    // Check if overlay already exists
+    if DRAG_OVERLAY_EXISTS.load(Ordering::SeqCst) {
+        // Just update position if it exists
+        if let Some(window) = app.get_webview_window("drag-overlay") {
+            window
+                .set_position(tauri::Position::Physical(tauri::PhysicalPosition {
+                    x: (x as i32) - 24,
+                    y: (y as i32) - 30,
+                }))
+                .map_err(|e| e.to_string())?;
+            return Ok(());
+        }
+    }
+
+    // Simple URL encode for the file name (replace spaces and special chars)
+    let encoded_name = file_name
+        .replace('%', "%25")
+        .replace(' ', "%20")
+        .replace('&', "%26")
+        .replace('=', "%3D")
+        .replace('#', "%23")
+        .replace('?', "%3F");
+    let url = format!("/drag-overlay?fileName={}", encoded_name);
+
+    let builder = WebviewWindowBuilder::new(&app, "drag-overlay", WebviewUrl::App(url.into()))
+        .title("")
+        .inner_size(300.0, 60.0)
+        .position((x as f64) - 24.0, (y as f64) - 30.0)
+        .resizable(false)
+        .minimizable(false)
+        .maximizable(false)
+        .closable(false)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .focused(false)
+        .visible(true);
+
+    match builder.build() {
+        Ok(_window) => {
+            DRAG_OVERLAY_EXISTS.store(true, Ordering::SeqCst);
+            log::debug!("Created drag overlay window");
+            Ok(())
+        }
+        Err(e) => {
+            log::error!("Failed to create drag overlay: {}", e);
+            Err(format!("Failed to create drag overlay: {}", e))
+        }
+    }
+}
+
+/// Update the position of the drag overlay window
+#[tauri::command]
+pub async fn update_drag_overlay(app: tauri::AppHandle, x: f64, y: f64) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("drag-overlay") {
+        window
+            .set_position(tauri::Position::Physical(tauri::PhysicalPosition {
+                x: (x as i32) - 24,
+                y: (y as i32) - 30,
+            }))
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    } else {
+        // Overlay doesn't exist, silently ignore
+        Ok(())
+    }
+}
+
+/// Hide and destroy the drag overlay window
+#[tauri::command]
+pub async fn hide_drag_overlay(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("drag-overlay") {
+        window.destroy().map_err(|e| e.to_string())?;
+        DRAG_OVERLAY_EXISTS.store(false, Ordering::SeqCst);
+        log::debug!("Destroyed drag overlay window");
+    }
+    Ok(())
 }

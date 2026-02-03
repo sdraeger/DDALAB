@@ -3,9 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useAppStore } from "@/store/appStore";
-import { ApiService } from "@/services/apiService";
 import { useSync } from "@/hooks/useSync";
-import { useHealthCheck } from "@/hooks/useHealthCheck";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -22,19 +20,12 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import {
-  Wifi,
-  WifiOff,
   Activity,
   AlertCircle,
-  CheckCircle,
-  Clock,
   RefreshCw,
-  Server,
   Cloud,
   CloudOff,
-  Brain,
   Loader2,
-  X,
   FlaskConical,
   ChevronDown,
   Lock,
@@ -48,38 +39,31 @@ import {
   Copy,
   Save,
   Check,
+  Server,
 } from "lucide-react";
-import { formatDateTime } from "@/lib/utils";
 import type { DiscoveredBroker } from "@/types/sync";
 import {
   useRecentServersStore,
   getRelativeTime,
 } from "@/store/recentServersStore";
 import type { RecentServer } from "@/store/recentServersStore";
-import { formatLogHistoryAsText, getLogHistory } from "@/lib/logger";
+import {
+  formatLogHistoryAsText,
+  getLogHistory,
+  createLogger,
+} from "@/lib/logger";
 import { invoke } from "@tauri-apps/api/core";
+import { NETWORK } from "@/lib/constants";
+
+const logger = createLogger("HealthStatusBar");
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
 import { WindowPanelPopover } from "@/components/windows/WindowPanelPopover";
+import { AnalysisStatusPopover } from "@/components/AnalysisStatusPopover";
 
-interface HealthStatusBarProps {
-  apiService: ApiService;
-}
-
-export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
-  const {
-    ui,
-    updateHealthStatus,
-    ddaRunning,
-    setDDARunning,
-    expertMode,
-    setExpertMode,
-  } = useAppStore(
+export function HealthStatusBar() {
+  const { expertMode, setExpertMode } = useAppStore(
     useShallow((state) => ({
-      ui: state.ui,
-      updateHealthStatus: state.updateHealthStatus,
-      ddaRunning: state.dda.isRunning,
-      setDDARunning: state.setDDARunning,
       expertMode: state.ui.expertMode,
       setExpertMode: state.setExpertMode,
     })),
@@ -114,15 +98,25 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
   const [showManualConnect, setShowManualConnect] = useState(false);
   const [manualServerUrl, setManualServerUrl] = useState("");
 
-  // Discover servers when popover opens
+  // Track last discovery time to prevent rapid calls
+  const lastDiscoveryRef = useRef<number>(0);
+
+  // Discover servers when popover opens (with rate limiting)
   const handleDiscoverServers = useCallback(async () => {
+    // Rate limit: prevent rapid repeated discoveries
+    const now = Date.now();
+    if (now - lastDiscoveryRef.current < NETWORK.DISCOVERY_COOLDOWN) {
+      return;
+    }
+    lastDiscoveryRef.current = now;
+
     setIsDiscovering(true);
     setPasswordError(null);
     try {
       const brokers = await discoverBrokers(3); // 3 second timeout
       setDiscoveredServers(brokers);
     } catch (error) {
-      console.error("[HealthStatusBar] Discovery failed:", error);
+      logger.error("Server discovery failed", { error });
       setDiscoveredServers([]);
     } finally {
       setIsDiscovering(false);
@@ -176,7 +170,7 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
     setPasswordError(null);
 
     try {
-      const localEndpoint = `http://localhost:${window.location.port || 3000}`;
+      const localEndpoint = `http://localhost:${window.location.port || NETWORK.DEFAULT_DEV_PORT}`;
 
       await connect({
         broker_url: serverUrl,
@@ -209,7 +203,7 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
       setUserEmail("");
       setShowPasswordInput(false);
     } catch (error) {
-      console.error("[HealthStatusBar] Connection failed:", error);
+      logger.error("Connection failed", { error });
       setPasswordError(
         error instanceof Error ? error.message : "Connection failed",
       );
@@ -231,7 +225,7 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
       await disconnect();
       setServerPopoverOpen(false);
     } catch (error) {
-      console.error("[HealthStatusBar] Disconnect failed:", error);
+      logger.error("Disconnect failed", { error });
     }
   }, [disconnect]);
 
@@ -272,7 +266,7 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
         .replace("https://", "wss://");
       const brokerUrl = wsUrl.endsWith("/ws") ? wsUrl : `${wsUrl}/ws`;
 
-      const localEndpoint = `http://localhost:${window.location.port || 3000}`;
+      const localEndpoint = `http://localhost:${window.location.port || NETWORK.DEFAULT_DEV_PORT}`;
 
       await connect({
         broker_url: brokerUrl,
@@ -297,7 +291,7 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
       setServerPassword("");
       setUserEmail("");
     } catch (error) {
-      console.error("[HealthStatusBar] Manual connection failed:", error);
+      logger.error("Manual connection failed", { error });
       setPasswordError(
         error instanceof Error ? error.message : "Connection failed",
       );
@@ -319,12 +313,6 @@ export function HealthStatusBar({ apiService }: HealthStatusBarProps) {
       setConnectingRecentServer(null);
     }
   }, [serverPopoverOpen]);
-
-  // Cancel popover state
-  const [showCancelPopover, setShowCancelPopover] = useState(false);
-  const [isPopoverClosing, setIsPopoverClosing] = useState(false);
-  const [isCancelling, setIsCancelling] = useState(false);
-  const cancelPopoverRef = useRef<HTMLDivElement>(null);
 
   // Logs popover state
   const [logsPopoverOpen, setLogsPopoverOpen] = useState(false);
@@ -407,7 +395,7 @@ ${configFiles || "(No config files found)"}
         setLogsPopoverOpen(false);
       }, 1500);
     } catch (error) {
-      console.error("[HealthStatusBar] Copy logs error:", error);
+      logger.error("Copy logs failed", { error });
       setLogsError("Failed to copy");
       setTimeout(() => setLogsError(null), 2000);
     } finally {
@@ -445,146 +433,10 @@ ${configFiles || "(No config files found)"}
     }
   }, [getCombinedLogs]);
 
-  // Handle smooth close animation
-  const closePopover = useCallback(() => {
-    setIsPopoverClosing(true);
-    // Wait for animation to complete before hiding
-    setTimeout(() => {
-      setShowCancelPopover(false);
-      setIsPopoverClosing(false);
-    }, 150); // Match animation duration
-  }, []);
-
-  // Close popover when clicking outside
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (
-        cancelPopoverRef.current &&
-        !cancelPopoverRef.current.contains(event.target as Node)
-      ) {
-        closePopover();
-      }
-    }
-
-    if (showCancelPopover && !isPopoverClosing) {
-      document.addEventListener("mousedown", handleClickOutside);
-      return () =>
-        document.removeEventListener("mousedown", handleClickOutside);
-    }
-  }, [showCancelPopover, isPopoverClosing, closePopover]);
-
-  // Handle cancel DDA analysis
-  const handleCancelDDA = useCallback(async () => {
-    setIsCancelling(true);
-    try {
-      const result = await apiService.cancelDDAAnalysis();
-      if (result.success) {
-        console.log(
-          "[HealthStatusBar] DDA analysis cancelled:",
-          result.cancelled_analysis_id,
-        );
-        // Update the DDA running state
-        setDDARunning(false);
-      } else {
-        console.warn("[HealthStatusBar] Failed to cancel DDA:", result.message);
-      }
-    } catch (error) {
-      console.error("[HealthStatusBar] Error cancelling DDA:", error);
-    } finally {
-      setIsCancelling(false);
-      closePopover();
-    }
-  }, [apiService, setDDARunning, closePopover]);
-
-  // Use TanStack Query for health checks with automatic polling
-  const {
-    data: healthData,
-    isLoading: isCheckingHealth,
-    refetch: refetchHealth,
-  } = useHealthCheck(apiService, {
-    enabled: ui.isServerReady,
-    refetchInterval: 120 * 1000, // Poll every 2 minutes
-  });
-
-  // Sync health check results to Zustand store for backward compatibility
-  useEffect(() => {
-    if (!healthData) return;
-
-    if (healthData.isHealthy) {
-      updateHealthStatus({
-        apiStatus: "healthy",
-        lastCheck: healthData.timestamp,
-        responseTime: healthData.responseTime,
-        errors: [],
-      });
-    } else {
-      updateHealthStatus((currentHealth) => ({
-        apiStatus: "unhealthy",
-        lastCheck: healthData.timestamp,
-        responseTime: healthData.responseTime,
-        errors: healthData.error
-          ? [healthData.error, ...currentHealth.errors.slice(0, 4)]
-          : currentHealth.errors,
-      }));
-    }
-  }, [healthData, updateHealthStatus]);
-
-  // Get health status from store (synced from query)
-  const { health } = useAppStore();
-
-  const getStatusColor = () => {
-    if (isCheckingHealth) return "text-yellow-600";
-    switch (health.apiStatus) {
-      case "healthy":
-        return "text-green-600";
-      case "unhealthy":
-        return "text-red-600";
-      case "checking":
-        return "text-yellow-600";
-      default:
-        return "text-gray-600";
-    }
-  };
-
-  const getStatusIcon = () => {
-    if (isCheckingHealth) return <RefreshCw className="h-4 w-4 animate-spin" />;
-    switch (health.apiStatus) {
-      case "healthy":
-        return <CheckCircle className="h-4 w-4" />;
-      case "unhealthy":
-        return <AlertCircle className="h-4 w-4" />;
-      case "checking":
-        return <RefreshCw className="h-4 w-4 animate-spin" />;
-      default:
-        return <Server className="h-4 w-4" />;
-    }
-  };
-
-  const formatResponseTime = (time: number) => {
-    if (time < 1000) {
-      return `${time}ms`;
-    }
-    return `${(time / 1000).toFixed(1)}s`;
-  };
-
   return (
     <div className="border-t bg-background p-2" data-testid="health-status-bar">
       <div className="flex items-center justify-between text-sm">
         <div className="flex items-center space-x-4">
-          {/* API Status */}
-          <div className="flex items-center space-x-2" data-testid="api-status">
-            <div className={`flex items-center space-x-1 ${getStatusColor()}`}>
-              {getStatusIcon()}
-              <span className="font-medium">API: {health.apiStatus}</span>
-            </div>
-
-            {health.responseTime > 0 && (
-              <Badge variant="outline" className="text-xs">
-                {formatResponseTime(health.responseTime)}
-              </Badge>
-            )}
-          </div>
-
           {/* Sync Broker Status with Quick-Connect Popover */}
           <Popover
             open={serverPopoverOpen}
@@ -960,74 +812,8 @@ ${configFiles || "(No config files found)"}
             </PopoverContent>
           </Popover>
 
-          {/* DDA Analysis Status with Cancel Popover */}
-          {ddaRunning && (
-            <div className="relative" ref={cancelPopoverRef}>
-              <button
-                onClick={() => {
-                  if (showCancelPopover) {
-                    closePopover();
-                  } else {
-                    setShowCancelPopover(true);
-                  }
-                }}
-                className="flex items-center space-x-1 text-blue-600 hover:text-blue-700 transition-colors cursor-pointer"
-                title="Click to cancel"
-              >
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>DDA: running</span>
-              </button>
-
-              {/* Cancel Popover */}
-              {showCancelPopover && (
-                <div className="absolute bottom-full left-0 mb-2 z-50">
-                  <div
-                    className={`bg-popover border rounded-md shadow-lg px-3 py-2 text-sm transition-all duration-150 ${
-                      isPopoverClosing
-                        ? "animate-out fade-out-0 zoom-out-95 slide-out-to-bottom-2"
-                        : "animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-2"
-                    }`}
-                  >
-                    <div className="flex items-center space-x-2">
-                      {isCancelling ? (
-                        <>
-                          <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-                          <span className="text-muted-foreground">
-                            Cancelling...
-                          </span>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            onClick={handleCancelDDA}
-                            className="text-red-600 hover:text-red-700 hover:underline font-medium transition-colors"
-                          >
-                            Cancel?
-                          </button>
-                          <button
-                            onClick={closePopover}
-                            className="text-muted-foreground hover:text-foreground p-0.5 transition-colors"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        </>
-                      )}
-                    </div>
-                    {/* Small arrow pointing down */}
-                    <div className="absolute left-4 -bottom-1 w-2 h-2 bg-popover border-r border-b rotate-45 transform" />
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Last Check Time */}
-          <div className="flex items-center space-x-1 text-muted-foreground">
-            <Clock className="h-4 w-4" />
-            <span>
-              Last: {formatDateTime(new Date(health.lastCheck).toISOString())}
-            </span>
-          </div>
+          {/* Analysis Status Popover - shows running, completed, and interrupted analyses */}
+          <AnalysisStatusPopover />
         </div>
 
         <div className="flex items-center space-x-2">
@@ -1068,13 +854,6 @@ ${configFiles || "(No config files found)"}
           </TooltipProvider>
 
           <div className="w-px h-4 bg-border" />
-
-          {/* Error Count */}
-          {health.errors.length > 0 && (
-            <Badge variant="destructive" className="text-xs">
-              {health.errors.length} error{health.errors.length > 1 ? "s" : ""}
-            </Badge>
-          )}
 
           {/* Copy Logs Button */}
           <Popover open={logsPopoverOpen} onOpenChange={setLogsPopoverOpen}>
@@ -1144,53 +923,17 @@ ${configFiles || "(No config files found)"}
             </PopoverContent>
           </Popover>
 
-          {/* Manual Refresh */}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => refetchHealth()}
-            disabled={isCheckingHealth}
-            className="h-6 px-2"
-          >
-            <RefreshCw
-              className={`h-3 w-3 ${isCheckingHealth ? "animate-spin" : ""}`}
-            />
-          </Button>
-
-          {/* Activity Indicator */}
+          {/* Activity Indicator - Sync Status */}
           <div className="flex items-center space-x-1">
             <Activity className="h-4 w-4 text-muted-foreground" />
-            <div className="flex space-x-1">
-              {/* API Status Dot */}
-              <div
-                className={`w-2 h-2 rounded-full ${
-                  health.apiStatus === "healthy"
-                    ? "bg-green-500 animate-pulse"
-                    : health.apiStatus === "checking"
-                      ? "bg-yellow-500 animate-pulse"
-                      : "bg-red-500"
-                }`}
-              />
-              {/* Sync Broker Status Dot */}
-              <div
-                className={`w-2 h-2 rounded-full ${
-                  syncConnected ? "bg-blue-500 animate-pulse" : "bg-gray-300"
-                }`}
-              />
-            </div>
+            <div
+              className={`w-2 h-2 rounded-full ${
+                syncConnected ? "bg-blue-500 animate-pulse" : "bg-gray-300"
+              }`}
+            />
           </div>
         </div>
       </div>
-
-      {/* Error Messages */}
-      {health.errors.length > 0 && (
-        <div className="mt-2 text-xs text-red-600">
-          <div className="flex items-center space-x-1">
-            <AlertCircle className="h-3 w-3" />
-            <span>Latest error: {health.errors[0]}</span>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

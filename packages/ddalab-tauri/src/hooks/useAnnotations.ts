@@ -17,6 +17,7 @@ interface UseDDAAnnotationsOptions {
   plotType: "heatmap" | "line";
   ddaResult: DDAResult;
   sampleRate: number;
+  enabled?: boolean; // Skip heavy computation when false (default: true)
 }
 
 export const useTimeSeriesAnnotations = ({
@@ -169,6 +170,7 @@ export const useDDAAnnotations = ({
   plotType,
   ddaResult,
   sampleRate,
+  enabled = true,
 }: UseDDAAnnotationsOptions) => {
   const addDDAAnnotation = useAppStore((state) => state.addDDAAnnotation);
   const updateDDAAnnotation = useAppStore((state) => state.updateDDAAnnotation);
@@ -204,7 +206,13 @@ export const useDDAAnnotations = ({
   }, [fileAnnotations]);
 
   // Merge both annotation sets with coordinate transformation
+  // Skip computation when disabled to avoid blocking initial render
   const annotations = useMemo(() => {
+    // Early return when disabled - skip all processing
+    if (!enabled) {
+      return [];
+    }
+
     const profilerKey = `annotation-merge-${plotType}`;
     profiler.start(profilerKey, {
       category: "data_processing",
@@ -266,6 +274,7 @@ export const useDDAAnnotations = ({
       profiler.end(profilerKey);
     }
   }, [
+    enabled,
     timeSeriesAnnotations,
     ddaAnnotations,
     startTime,

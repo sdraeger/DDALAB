@@ -195,7 +195,9 @@ export function ActionHistoryPopover({
           <div className="pr-4">
             {isLoading ? (
               <div className="flex items-center justify-center h-24">
-                <span className="text-sm text-muted-foreground">Loading...</span>
+                <span className="text-sm text-muted-foreground">
+                  Loading...
+                </span>
               </div>
             ) : reversedActions.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-24 text-center px-4">

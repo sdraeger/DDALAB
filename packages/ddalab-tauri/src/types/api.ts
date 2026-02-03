@@ -160,6 +160,31 @@ export interface HealthResponse {
   timestamp: string;
 }
 
+/**
+ * Lightweight DDA result metadata for instant transfer (no large arrays).
+ * Used for progressive loading - full dda_matrix data is fetched on-demand.
+ */
+export interface DDAResultMetadata {
+  id: string;
+  name?: string;
+  file_path: string;
+  channels: string[];
+  status: "pending" | "running" | "completed" | "failed";
+  created_at: string;
+  completed_at?: string;
+  error_message?: string;
+  source?: "local" | "nsg";
+  parameters: DDAAnalysisRequest;
+  window_indices: number[];
+  variants: Array<{
+    variant_id: string;
+    variant_name: string;
+    exponents: Record<string, number>;
+    quality_metrics: Record<string, number>;
+    has_network_motifs: boolean;
+  }>;
+}
+
 // DDA Progress Event Types
 export type DDAProgressPhase =
   | "initializing"
@@ -169,11 +194,38 @@ export type DDAProgressPhase =
   | "completed"
   | "error";
 
+/**
+ * Progress event from the Rust backend.
+ * Uses camelCase to match serde_json serialization in dda_ipc_commands.rs
+ */
 export interface DDAProgressEvent {
-  analysis_id: string;
-  phase: DDAProgressPhase;
-  progress_percent: number;
-  current_step?: string;
-  estimated_time_remaining_seconds?: number;
-  error_message?: string;
+  /** Analysis ID (camelCase from backend) */
+  analysisId: string;
+  /** Status string: "started", "reading_metadata", "running", "processing_results", "completed" */
+  status: string;
+  /** Progress percentage (0-100) */
+  progress: number;
+  /** Status message describing current operation */
+  message?: string;
+}
+
+/**
+ * Mapped progress phase from backend status strings
+ */
+export function mapStatusToPhase(status: string): DDAProgressPhase {
+  switch (status) {
+    case "started":
+    case "reading_metadata":
+      return "initializing";
+    case "running":
+      return "computing";
+    case "processing_results":
+      return "computing";
+    case "completed":
+      return "completed";
+    case "error":
+      return "error";
+    default:
+      return "computing";
+  }
 }

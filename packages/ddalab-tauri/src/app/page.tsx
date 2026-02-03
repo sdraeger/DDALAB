@@ -3,17 +3,15 @@
 import { useState, useEffect, useRef } from "react";
 import { TauriService } from "@/services/tauriService";
 import { DashboardLayout } from "@/components/DashboardLayout";
-import { WelcomeScreen } from "@/components/WelcomeScreen";
 import { StatePersistenceProvider } from "@/components/StatePersistenceProvider";
 import { useAppStore } from "@/store/appStore";
-import { useNotificationStore } from "@/store/notificationStore";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { ApiServiceProvider } from "@/contexts/ApiServiceContext";
+import { BackendProvider } from "@/contexts/BackendContext";
 import { CloseWarningHandler } from "@/components/CloseWarningHandler";
 import { OnboardingTour } from "@/components/onboarding/OnboardingTour";
 import { useOnboarding } from "@/hooks/useOnboarding";
+import { useTimeSeriesCacheMonitor } from "@/hooks/useTimeSeriesData";
 import { Loader2 } from "lucide-react";
-import { importKey } from "@/utils/crypto";
 import { createLogger } from "@/lib/logger";
 
 // Import panels to trigger registration
@@ -27,48 +25,11 @@ const PerformanceMonitor =
     ? require("@/components/PerformanceMonitor").PerformanceMonitor
     : null;
 
-/**
- * Create a listener for the API service auth ready event.
- * IMPORTANT: Call this BEFORE triggering the state update that will cause the event,
- * then await the returned promise AFTER the state update.
- * Returns a promise that resolves when the event fires or times out.
- */
-function createAuthReadyListener(timeoutMs: number = 5000): Promise<boolean> {
-  logger.debug("Setting up auth ready listener", { timeoutMs });
-  return new Promise((resolve) => {
-    let resolved = false;
-
-    const handler = () => {
-      if (resolved) return;
-      resolved = true;
-      logger.info("Auth ready event received");
-      window.removeEventListener("api-service-auth-ready", handler);
-      resolve(true);
-    };
-
-    window.addEventListener("api-service-auth-ready", handler);
-
-    // Timeout fallback - resolve with false if event doesn't fire
-    setTimeout(() => {
-      if (resolved) return;
-      resolved = true;
-      logger.warn("Auth ready event timed out", { timeoutMs });
-      window.removeEventListener("api-service-auth-ready", handler);
-      resolve(false);
-    }, timeoutMs);
-  });
-}
-
 export default function Home() {
   // Detect Tauri immediately without explicit state
   const isTauri = TauriService.isTauri();
 
-  const [isApiConnected, setIsApiConnected] = useState<boolean | null>(null);
-  // Use environment variable for API URL if set (for E2E tests), otherwise default to embedded API
-  const [apiUrl, setApiUrl] = useState(
-    process.env.NEXT_PUBLIC_API_URL || "https://localhost:8765",
-  );
-  const [sessionToken, setSessionToken] = useState<string>("");
+  const [isReady, setIsReady] = useState(false);
   const [hasLoadedPreferences, setHasLoadedPreferences] = useState(false);
 
   // Use ref to prevent double initialization in React StrictMode
@@ -78,16 +39,13 @@ export default function Home() {
   // Onboarding tour
   const onboarding = useOnboarding();
 
+  // Monitor and enforce time series cache memory limits
+  // Prevents unbounded memory growth from EEG chunk caching
+  useTimeSeriesCacheMonitor();
+
   // Use selectors to prevent unnecessary re-renders
   const isInitialized = useAppStore((state) => state.isInitialized);
   const setServerReady = useAppStore((state) => state.setServerReady);
-  const setDataDirectoryPath = useAppStore(
-    (state) => state.setDataDirectoryPath,
-  );
-  const setEncryptionKey = useAppStore((state) => state.setEncryptionKey);
-  const setEncryptedMode = useAppStore((state) => state.setEncryptedMode);
-
-  // Removed excessive render logging
 
   useEffect(() => {
     const pathname =
@@ -100,18 +58,6 @@ export default function Home() {
 
     loadPreferences();
   }, [isInitialized]);
-
-  useEffect(() => {
-    // Skip API health check in Tauri - embedded API is always available
-    if (isTauri) {
-      setIsApiConnected(true);
-      return;
-    }
-
-    if (apiUrl) {
-      checkApiConnection();
-    }
-  }, [apiUrl, isTauri]);
 
   const loadPreferences = async () => {
     // Only load preferences on the main window, not pop-outs
@@ -132,259 +78,29 @@ export default function Home() {
 
     if (TauriService.isTauri()) {
       try {
-        const preferences = await TauriService.getAppPreferences();
+        // Load preferences (for any app-specific settings)
+        await TauriService.getAppPreferences();
         setHasLoadedPreferences(true);
 
-        // Get API config to determine protocol (http vs https)
-        const apiConfig = await TauriService.getApiConfig();
-
-        // CRITICAL: Default to HTTP if use_https is not explicitly true
-        // (undefined, null, or false should all result in HTTP)
-        const protocol = apiConfig?.use_https === true ? "https" : "http";
-        const port = apiConfig?.port || 8765;
-        const url = `${protocol}://localhost:${port}`;
-        setApiUrl(url);
-
-        // Check if API server is already running (for dev workflow)
-        try {
-          logger.debug("Checking if API server is already running", { url });
-          const alreadyRunning = await TauriService.checkApiConnection(url);
-
-          if (alreadyRunning) {
-            logger.info("Found existing API server running");
-            // Get the current API config from state (includes session token from running server)
-            const currentConfig = await TauriService.getApiConfig();
-            if (currentConfig?.session_token) {
-              logger.debug("Got session token from existing server", {
-                tokenPrefix: currentConfig.session_token.substring(0, 8),
-              });
-              // Set up listener BEFORE triggering state update
-              const authReadyPromise = createAuthReadyListener(5000);
-
-              setSessionToken(currentConfig.session_token);
-              setIsApiConnected(true);
-
-              // Wait for ApiServiceProvider to receive the token and dispatch the ready event.
-              const authReady = await authReadyPromise;
-              if (!authReady) {
-                logger.warn(
-                  "Auth ready event not received within timeout, proceeding anyway",
-                );
-              }
-
-              logger.info("Setting server ready (existing server)");
-              setServerReady(true);
-              return;
-            } else {
-              // Server is running but has no session token (old server from before refactoring)
-              // Restart it to initialize with new architecture
-              try {
-                await TauriService.stopLocalApiServer();
-                await new Promise((resolve) => setTimeout(resolve, 500)); // Wait for clean shutdown
-              } catch (error) {
-                // Expected if old server
-              }
-              // Fall through to start server below
-            }
-          }
-        } catch (error) {
-          // Server not running yet, will start it below
-        }
-
-        // Start local API server
-        try {
-          logger.info("Starting local API server");
-          const config = await TauriService.startLocalApiServer();
-          logger.debug("Server started", {
-            port: config?.port,
-            useHttps: config?.use_https,
-            hasToken: !!config?.session_token,
-          });
-
-          // Set up auth listener BEFORE triggering state update (if token exists)
-          let authReadyPromise: Promise<boolean> | null = null;
-          if (config?.session_token) {
-            authReadyPromise = createAuthReadyListener(5000);
-            setSessionToken(config.session_token);
-            logger.debug("Session token set", {
-              tokenPrefix: config.session_token.substring(0, 8),
-            });
-          }
-
-          // Handle encryption key if present (HTTP fallback mode)
-          if (config?.encryption_key && config.using_encryption) {
-            try {
-              // Decode base64 key from server
-              const keyBytes = Uint8Array.from(
-                atob(config.encryption_key),
-                (c) => c.charCodeAt(0),
-              );
-              const cryptoKey = await importKey(keyBytes);
-              setEncryptionKey(cryptoKey);
-              setEncryptedMode(true);
-              console.log("Using HTTP with application-layer encryption");
-
-              // Notify user about fallback mode
-              const { addNotification } = useNotificationStore.getState();
-              addNotification({
-                type: "warning",
-                category: "system",
-                title: "Running in encrypted HTTP mode",
-                message:
-                  "Certificate generation unavailable. Install mkcert for native HTTPS: choco install mkcert (Windows)",
-                persistent: false,
-              });
-            } catch (error) {
-              console.error("Failed to import encryption key:", error);
-            }
-          }
-
-          // CRITICAL: Update URL with actual port from server (may differ from requested port)
-          // Update URL based on encryption mode
-          const actualProtocol = config?.using_encryption
-            ? "http"
-            : config?.use_https === true
-              ? "https"
-              : "http";
-          const actualPort = config?.port || 8765;
-          const actualUrl = `${actualProtocol}://localhost:${actualPort}`;
-          setApiUrl(actualUrl);
-
-          // Wait for server to be ready with exponential backoff
-          // Start with immediate check (0ms), then use exponential backoff
-          let retries = 0;
-          let connected = false;
-          const maxRetries = 15;
-
-          while (retries < maxRetries && !connected) {
-            // Only delay after first attempt
-            if (retries > 0) {
-              await new Promise((resolve) =>
-                setTimeout(
-                  resolve,
-                  Math.min(200 * Math.pow(1.5, retries - 1), 2000),
-                ),
-              );
-            }
-
-            try {
-              connected = await TauriService.checkApiConnection(actualUrl);
-              if (connected) {
-                break;
-              }
-            } catch (error) {
-              // Server not ready yet, continue retrying
-            }
-
-            retries++;
-          }
-
-          if (connected) {
-            logger.info("API server connection verified", { retries });
-            setIsApiConnected(true);
-
-            // Wait for ApiServiceProvider to receive the token and dispatch the ready event.
-            if (authReadyPromise) {
-              const authReady = await authReadyPromise;
-              if (!authReady) {
-                logger.warn(
-                  "Auth ready event not received within timeout, proceeding anyway",
-                );
-              }
-            }
-
-            logger.info("Setting server ready (new server)");
-            setServerReady(true); // Signal that server is ready for requests
-          } else {
-            console.error(
-              "Embedded API server failed to respond after",
-              maxRetries,
-              "retries",
-            );
-            setIsApiConnected(false);
-            setServerReady(false);
-          }
-        } catch (error) {
-          console.error("Failed to start embedded API:", error);
-          setIsApiConnected(false);
-          setServerReady(false);
-        }
+        // In Tauri mode with pure IPC, we're immediately ready
+        logger.info("Tauri mode: Backend ready via IPC");
+        setServerReady(true);
+        setIsReady(true);
       } catch (error) {
         console.error("Failed to load preferences:", error);
-        setIsApiConnected(false);
-        setServerReady(false);
-      }
-    }
-  };
-
-  const checkApiConnection = async () => {
-    try {
-      let connected = false;
-
-      if (isTauri) {
-        connected = await TauriService.checkApiConnection(apiUrl);
-      } else {
-        const response = await fetch(`${apiUrl}/api/health`);
-        connected = response.ok;
-      }
-
-      setIsApiConnected(connected);
-
-      // In browser mode with external API, set server ready with placeholder token
-      if (connected && !isTauri) {
-        // Set up listener BEFORE triggering state update
-        const authReadyPromise = createAuthReadyListener(5000);
-
-        setSessionToken("browser-mode-no-auth");
-        setDataDirectoryPath(".");
-
-        // Wait for ApiServiceProvider to process the token
-        const authReady = await authReadyPromise;
-        if (!authReady) {
-          console.warn(
-            "Auth ready event not received within timeout, proceeding anyway",
-          );
-        }
-
+        // Still mark as ready - the app can function without preferences
         setServerReady(true);
+        setIsReady(true);
       }
-
-      if (connected && isTauri) {
-        await TauriService.setWindowTitle("DDALAB - Connected");
-        await TauriService.showNotification(
-          "DDALAB",
-          "Successfully connected to API server",
-        );
-      } else if (isTauri) {
-        await TauriService.setWindowTitle("DDALAB - Disconnected");
-      }
-    } catch (error) {
-      console.error("Failed to connect to API:", error);
-      setIsApiConnected(false);
-      setServerReady(false);
-
-      if (isTauri) {
-        await TauriService.setWindowTitle("DDALAB - Disconnected");
-      }
+    } else {
+      // Non-Tauri mode - still mark as ready for development
+      logger.warn("Not running in Tauri environment");
+      setIsReady(true);
     }
   };
 
-  const handleApiUrlChange = async (newUrl: string) => {
-    setApiUrl(newUrl);
-
-    if (isTauri) {
-      try {
-        const preferences = await TauriService.getAppPreferences();
-        preferences.api_config.url = newUrl;
-        await TauriService.saveAppPreferences(preferences);
-      } catch (error) {
-        console.error("Failed to save API URL:", error);
-      }
-    }
-  };
-
-  // Show loading screen while initializing (same message for both web and Tauri to avoid hydration mismatch)
-  if (isApiConnected === null) {
+  // Show loading screen while initializing
+  if (!isReady) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-background">
         <div className="text-center">
@@ -395,19 +111,9 @@ export default function Home() {
     );
   }
 
-  // In web mode, show welcome screen if not connected
-  if (!isTauri && !isApiConnected) {
-    return (
-      <WelcomeScreen
-        onApiUrlChange={handleApiUrlChange}
-        onRetryConnection={checkApiConnection}
-      />
-    );
-  }
-
   return (
     <ErrorBoundary>
-      <ApiServiceProvider apiUrl={apiUrl} sessionToken={sessionToken}>
+      <BackendProvider>
         <StatePersistenceProvider>
           <DashboardLayout />
           {PerformanceMonitor && <PerformanceMonitor />}
@@ -466,7 +172,7 @@ export default function Home() {
             onSkip={onboarding.skipOnboarding}
           />
         </StatePersistenceProvider>
-      </ApiServiceProvider>
+      </BackendProvider>
     </ErrorBoundary>
   );
 }

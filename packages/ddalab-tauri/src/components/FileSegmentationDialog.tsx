@@ -25,7 +25,6 @@ import { EDFFileInfo } from "@/types/api";
 import { Folder, Loader2, Scissors, X } from "lucide-react";
 import { TauriService } from "@/services/tauriService";
 import { formatBytes } from "@/lib/utils";
-import { ApiService } from "@/services/apiService";
 import { useLoadFileInfo } from "@/hooks/useFileManagement";
 import { toast } from "@/components/ui/toaster";
 
@@ -40,7 +39,6 @@ interface FileSegmentationDialogProps {
   onClose: () => void;
   file: EDFFileInfo | null;
   onSegment: (params: SegmentationParams) => Promise<void>;
-  apiService: ApiService;
 }
 
 export interface SegmentationParams {
@@ -60,7 +58,6 @@ export const FileSegmentationDialog: React.FC<FileSegmentationDialogProps> = ({
   onClose,
   file,
   onSegment,
-  apiService,
 }) => {
   const [startTime, setStartTime] = useState("0");
   const [startUnit, setStartUnit] = useState<"seconds" | "samples">("seconds");
@@ -79,7 +76,7 @@ export const FileSegmentationDialog: React.FC<FileSegmentationDialogProps> = ({
   const [progress, setProgress] = useState<SegmentProgress | null>(null);
   const [loadedFile, setLoadedFile] = useState<EDFFileInfo | null>(null);
 
-  const loadFileInfoMutation = useLoadFileInfo(apiService);
+  const loadFileInfoMutation = useLoadFileInfo();
 
   // Listen for progress events from Tauri - set up when dialog opens
   useEffect(() => {

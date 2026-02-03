@@ -9,6 +9,7 @@ import {
   forwardRef,
   useImperativeHandle,
 } from "react";
+import { useQuery } from "@tanstack/react-query";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 import { profiler } from "@/utils/performance";
@@ -54,6 +55,54 @@ export interface DDALinePlotHandle {
   getContainerRef: () => HTMLDivElement | null;
 }
 
+interface PreparedLineData {
+  data: uPlot.AlignedData;
+  validChannels: string[];
+}
+
+/**
+ * Yields to the event loop to keep UI responsive.
+ * Uses requestIdleCallback if available, falls back to setTimeout.
+ */
+function yieldToMain(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof requestIdleCallback !== "undefined") {
+      requestIdleCallback(() => resolve(), { timeout: 50 });
+    } else {
+      setTimeout(resolve, 0);
+    }
+  });
+}
+
+/**
+ * Async wrapper for line plot data preparation.
+ * Uses multiple yield points to keep UI responsive.
+ */
+async function prepareLineDataAsync(
+  ddaMatrix: Record<string, number[]>,
+  selectedChannels: string[],
+  scales: number[],
+): Promise<PreparedLineData> {
+  // Yield to let loading skeleton paint
+  await yieldToMain();
+
+  const data: uPlot.AlignedData = [scales];
+  const validChannels: string[] = [];
+
+  for (const channel of selectedChannels) {
+    const channelData = ddaMatrix[channel];
+    if (channelData && Array.isArray(channelData) && channelData.length > 0) {
+      data.push(channelData);
+      validChannels.push(channel);
+    }
+  }
+
+  // Yield after data preparation
+  await yieldToMain();
+
+  return { data, validChannels };
+}
+
 const DDALinePlotComponent = forwardRef<DDALinePlotHandle, DDALinePlotProps>(
   function DDALinePlot(
     {
@@ -75,6 +124,43 @@ const DDALinePlotComponent = forwardRef<DDALinePlotHandle, DDALinePlotProps>(
 
     const [isRendering, setIsRendering] = useState(false);
     const [isDOMMounted, setIsDOMMounted] = useState(false);
+
+    // Memoize the matrix key to avoid expensive Object.keys on every render
+    // The matrix itself rarely changes - use variantId as a stable proxy
+    const matrixKeyRef = useRef<string>("");
+    const matrixKeyComputed = useRef(false);
+
+    // Lazily compute the matrix key only once per variant
+    if (!matrixKeyComputed.current || matrixKeyRef.current === "") {
+      const keyCount = ddaMatrix ? Object.keys(ddaMatrix).length : 0;
+      matrixKeyRef.current = `${variantId}_${keyCount}`;
+      matrixKeyComputed.current = true;
+    }
+
+    // Use TanStack Query to handle async data preparation
+    // This allows the loading skeleton to render while computation runs
+    const {
+      data: preparedData,
+      isLoading: isPreparing,
+      isFetching,
+    } = useQuery({
+      queryKey: [
+        "lineplot-data-v2",
+        variantId,
+        selectedChannels.join(","),
+        scales.length,
+        matrixKeyRef.current,
+      ],
+      queryFn: () => prepareLineDataAsync(ddaMatrix, selectedChannels, scales),
+      staleTime: Infinity,
+      gcTime: 5 * 60 * 1000,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+      enabled: scales.length > 0,
+    });
+
+    const lineData = preparedData?.data ?? [scales];
+    const validChannels = preparedData?.validChannels ?? [];
 
     // Expose methods to parent
     useImperativeHandle(
@@ -123,7 +209,7 @@ const DDALinePlotComponent = forwardRef<DDALinePlotHandle, DDALinePlotProps>(
         return;
       }
 
-      if (!ddaMatrix) {
+      if (lineData.length < 2 || validChannels.length === 0) {
         setIsRendering(false);
         return;
       }
@@ -148,32 +234,9 @@ const DDALinePlotComponent = forwardRef<DDALinePlotHandle, DDALinePlotProps>(
 
         const startPrepTime = performance.now();
 
-        // Prepare data
-        const data: uPlot.AlignedData = [scales];
-        const validChannels: string[] = [];
-
-        for (const channel of selectedChannels) {
-          const channelData = ddaMatrix[channel];
-          if (
-            channelData &&
-            Array.isArray(channelData) &&
-            channelData.length > 0
-          ) {
-            data.push(channelData);
-            validChannels.push(channel);
-          }
-        }
-
-        const prepElapsed = performance.now() - startPrepTime;
         loggers.plot.debug("Line plot data prep", {
-          elapsedMs: prepElapsed.toFixed(2),
+          elapsedMs: (performance.now() - startPrepTime).toFixed(2),
         });
-
-        if (data.length < 2 || validChannels.length === 0) {
-          loggers.plot.error("No valid channel data for line plot");
-          setIsRendering(false);
-          return;
-        }
 
         // Create series configuration
         const series: uPlot.Series[] = [
@@ -258,7 +321,7 @@ const DDALinePlotComponent = forwardRef<DDALinePlotHandle, DDALinePlotProps>(
         }
 
         const startRenderTime = performance.now();
-        uplotRef.current = new uPlot(opts, data, containerRef.current);
+        uplotRef.current = new uPlot(opts, lineData, containerRef.current);
         const renderElapsed = performance.now() - startRenderTime;
         loggers.plot.debug("Line plot uPlot created", {
           elapsedMs: renderElapsed.toFixed(2),
@@ -295,54 +358,62 @@ const DDALinePlotComponent = forwardRef<DDALinePlotHandle, DDALinePlotProps>(
 
         setTimeout(() => {
           setIsRendering(false);
-        }, 100);
+        }, 16); // One frame
       } catch (error) {
         loggers.plot.error("Error rendering line plot", { error });
         setIsRendering(false);
       }
-    }, [ddaMatrix, selectedChannels, scales, height, onContextMenu]);
+    }, [lineData, validChannels, scales, height, onContextMenu]);
 
     // Effect to trigger rendering
+    // Call renderLinePlot immediately - no extra delay needed
+    // The uPlot creation is fast enough (~50-100ms) that requestIdleCallback just adds perceived lag
     useEffect(() => {
-      if (!isDOMMounted || scales.length === 0) return;
+      if (!isDOMMounted || scales.length === 0 || isPreparing) return;
 
-      const renderKey = `${variantId}_${selectedChannels.join(",")}_${height}`;
+      const renderKey = `${variantId}_${validChannels.join(",")}_${height}`;
 
       if (lastRenderedKey.current === renderKey) return;
 
-      const rafId = requestAnimationFrame(() => {
-        if (lastRenderedKey.current === renderKey) return;
-        renderLinePlot();
-        lastRenderedKey.current = renderKey;
-      });
-
-      return () => {
-        cancelAnimationFrame(rafId);
-      };
+      // Render immediately - data is already prepared by TanStack Query
+      renderLinePlot();
+      lastRenderedKey.current = renderKey;
     }, [
       isDOMMounted,
-      selectedChannels,
+      isPreparing,
+      validChannels,
       variantId,
       scales.length,
       height,
       renderLinePlot,
     ]);
 
+    // Show loading state when preparing data or rendering
+    const showLoading = isPreparing || isFetching || isRendering;
+
     return (
       <ChartErrorBoundary>
         <div className="relative w-full" style={{ height }}>
-          {isRendering && (
+          {showLoading && (
             <div className="absolute inset-0 z-10">
               <PlotLoadingSkeleton
                 height={height}
-                title="Rendering line plot..."
+                title={
+                  isPreparing || isFetching
+                    ? "Preparing data..."
+                    : "Rendering line plot..."
+                }
               />
             </div>
           )}
           <div
             ref={callbackRef}
             className="w-full h-full overflow-hidden"
-            style={{ height }}
+            style={{
+              height,
+              opacity: showLoading ? 0.3 : 1,
+              transition: "opacity 150ms",
+            }}
           />
           {children}
         </div>

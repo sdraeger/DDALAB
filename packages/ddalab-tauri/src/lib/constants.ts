@@ -378,4 +378,28 @@ export const DDA_ANALYSIS = {
   DEFAULT_HIGHPASS: 0.5,
   /** Maximum channels to auto-select on file load */
   DEFAULT_CHANNEL_LIMIT: 8,
+  /** Default model dimension (dm parameter) */
+  DEFAULT_MODEL_DIMENSION: 4,
+  /** Default polynomial order */
+  DEFAULT_POLYNOMIAL_ORDER: 4,
+  /** Default number of tau values */
+  DEFAULT_NR_TAU: 2,
+  /** Default MODEL parameter encoding (selected polynomial terms) */
+  DEFAULT_ENCODING: [1, 2, 10] as const,
+} as const;
+
+// ============================================================================
+// Network Configuration
+// ============================================================================
+
+/**
+ * Network configuration constants
+ */
+export const NETWORK = {
+  /** Default development server port */
+  DEFAULT_DEV_PORT: 3000,
+  /** Server discovery cooldown (ms) */
+  DISCOVERY_COOLDOWN: 2000,
+  /** Default broker discovery timeout (seconds) */
+  BROKER_DISCOVERY_TIMEOUT: 3,
 } as const;

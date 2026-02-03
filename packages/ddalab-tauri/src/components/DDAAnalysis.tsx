@@ -1,6 +1,14 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef, memo } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+  memo,
+  startTransition,
+} from "react";
 import { flushSync } from "react-dom";
 import { useAppStore } from "@/store/appStore";
 import { useShallow } from "zustand/react/shallow";
@@ -9,7 +17,7 @@ import {
   useUISelectors,
   useWorkflowSelectors,
 } from "@/hooks/useStoreSelectors";
-import { ApiService } from "@/services/apiService";
+import { tauriBackendService } from "@/services/tauriBackendService";
 import { DDAAnalysisRequest, DDAResult } from "@/types/api";
 import { useAutoRecordAction } from "@/hooks/useWorkflowQueries";
 import {
@@ -18,12 +26,20 @@ import {
 } from "@/types/workflow";
 import {
   useSubmitDDAAnalysis,
-  useDDAProgress,
   useSaveDDAToHistory,
   useDDAHistory,
   useDeleteAnalysis,
   useRenameAnalysis,
 } from "@/hooks/useDDAAnalysis";
+import {
+  useAnalysisForFile,
+  useAnalysisCoordinator,
+} from "@/hooks/useAnalysisCoordinator";
+import {
+  AnalysisQueueDialog,
+  type QueueAction,
+} from "@/components/AnalysisQueueDialog";
+import type { AnalysisJob } from "@/store/slices/analysisSlice";
 import {
   Card,
   CardContent,
@@ -50,6 +66,12 @@ import {
   configToLocalParameters,
   generateExportFilename,
 } from "@/utils/ddaConfigExport";
+import {
+  channelNamesToIndices,
+  channelPairsToIndices,
+  channelPairsToIndicesWithFallback,
+  channelIndicesToNames,
+} from "@/utils/channelUtils";
 import {
   Dialog,
   DialogContent,
@@ -80,7 +102,7 @@ import { useUndoRedoStore } from "@/store/undoRedoStore";
 import { DDA_ANALYSIS } from "@/lib/constants";
 
 interface DDAAnalysisProps {
-  apiService: ApiService;
+  // No longer requires apiService - uses tauriBackendService directly
 }
 
 interface DDAParameters {
@@ -129,9 +151,9 @@ interface DDAParameters {
   };
 }
 
-export const DDAAnalysis = memo(function DDAAnalysis({
-  apiService,
-}: DDAAnalysisProps) {
+export const DDAAnalysis = memo(function DDAAnalysis(
+  _props: DDAAnalysisProps = {},
+) {
   // File manager state (keep separate for derived value optimization)
   const selectedFile = useAppStore(
     useShallow((state) => state.fileManager.selectedFile),
@@ -141,11 +163,9 @@ export const DDAAnalysis = memo(function DDAAnalysis({
   const {
     currentAnalysis,
     analysisParameters: storedAnalysisParameters,
-    isRunning: ddaRunning,
     setCurrentAnalysis,
     addAnalysisToHistory,
     updateAnalysisParameters,
-    setDDARunning,
   } = useDDASelectors();
 
   // Consolidated UI selectors
@@ -158,41 +178,58 @@ export const DDAAnalysis = memo(function DDAAnalysis({
   const autoRecordActionMutation = useAutoRecordAction();
 
   // TanStack Query: Submit DDA analysis mutation
-  const submitAnalysisMutation = useSubmitDDAAnalysis(apiService);
-  const saveToHistoryMutation = useSaveDDAToHistory(apiService);
+  const submitAnalysisMutation = useSubmitDDAAnalysis();
+  const saveToHistoryMutation = useSaveDDAToHistory();
 
-  // TanStack Query: Fetch analysis history (only when server is ready and authenticated)
+  // TanStack Query: Fetch analysis history (only when server is ready)
   const {
     data: historyData,
     isLoading: historyLoading,
     error: historyErrorObj,
     refetch: refetchHistory,
-  } = useDDAHistory(
-    apiService,
-    isServerReady && !!apiService.getSessionToken(),
-  );
+  } = useDDAHistory(isServerReady);
 
   // TanStack Query: Delete and rename mutations with optimistic updates
-  const deleteAnalysisMutation = useDeleteAnalysis(apiService);
-  const renameAnalysisMutation = useRenameAnalysis(apiService);
+  const deleteAnalysisMutation = useDeleteAnalysis();
+  const renameAnalysisMutation = useRenameAnalysis();
 
-  // Track progress from Tauri events for the current analysis
-  const progressEvent = useDDAProgress(
-    submitAnalysisMutation.data?.id,
-    submitAnalysisMutation.isPending,
-  );
+  // Analysis coordinator: single source of truth for job state
+  const {
+    job: coordinatorJob,
+    isRunning: coordinatorIsRunning,
+    progress: coordinatorProgress,
+    currentStep: coordinatorStep,
+    result: coordinatorResult,
+    error: coordinatorError,
+    startAnalysis: coordinatorStartAnalysis,
+    cancel: coordinatorCancel,
+    dismiss: coordinatorDismiss,
+  } = useAnalysisForFile(selectedFile?.file_path);
+
+  // Global coordinator for checking running jobs across all files
+  const { runningJobs, queuePreference, cancelAnalysis } =
+    useAnalysisCoordinator();
+
+  // Queue dialog state - shown when starting analysis while another is running
+  const [queueDialogOpen, setQueueDialogOpen] = useState(false);
+  const [queueDialogRunningJob, setQueueDialogRunningJob] =
+    useState<AnalysisJob | null>(null);
+  const pendingAnalysisRef = useRef<{
+    request: DDAAnalysisRequest;
+    channelNames: string[];
+  } | null>(null);
 
   // Store ALL parameters locally for instant UI updates - only sync to store when running analysis
   const [localParameters, setLocalParameters] = useState<DDAParameters>({
     variants: storedAnalysisParameters.variants,
     windowLength: storedAnalysisParameters.windowLength,
     windowStep: storedAnalysisParameters.windowStep,
-    delays: storedAnalysisParameters.delays || [7, 10], // Default delays if not set
+    delays: storedAnalysisParameters.delays || [...DDA_ANALYSIS.DEFAULT_DELAYS],
     timeStart: 0,
-    timeEnd: selectedFile?.duration || 30,
+    timeEnd: selectedFile?.duration || DDA_ANALYSIS.DEFAULT_TIME_END,
     selectedChannels: [],
     preprocessing: {
-      highpass: 0.5,
+      highpass: DDA_ANALYSIS.DEFAULT_HIGHPASS,
       lowpass: 70,
       notch: [50],
     },
@@ -200,26 +237,26 @@ export const DDAAnalysis = memo(function DDAAnalysis({
     ctWindowStep: undefined,
     ctChannelPairs: [],
     cdChannelPairs: [],
-    variantChannelConfigs: {}, // Initialize empty per-variant configs
-    parallelCores: 1, // Default to serial execution
+    variantChannelConfigs: {},
+    parallelCores: 1,
     nsgResourceConfig: {
       runtimeHours: 1.0,
-      cores: 4, // Default to 4 cores for NSG
+      cores: 4,
       nodes: 1,
     },
-    expertMode: false, // Deprecated - now controlled by app-level setting
+    expertMode: false,
     modelParameters: {
-      dm: 4,
-      order: 4,
-      nr_tau: 2,
-      encoding: [1, 2, 10], // EEG Standard preset as default
+      dm: DDA_ANALYSIS.DEFAULT_MODEL_DIMENSION,
+      order: DDA_ANALYSIS.DEFAULT_POLYNOMIAL_ORDER,
+      nr_tau: DDA_ANALYSIS.DEFAULT_NR_TAU,
+      encoding: [...DDA_ANALYSIS.DEFAULT_ENCODING],
     },
   });
 
   // Use local parameters directly - no need to merge with store
   const parameters = localParameters;
 
-  const [localIsRunning, setLocalIsRunning] = useState(false); // Local UI state for this component
+  const [localIsRunning, setLocalIsRunning] = useState(false); // Legacy: kept for NSG/Server submissions
   const [results, setResults] = useState<DDAResult | null>(null);
   const [analysisName, setAnalysisName] = useState("");
   const [isCancelling, setIsCancelling] = useState(false); // Track cancellation in progress
@@ -228,21 +265,22 @@ export const DDAAnalysis = memo(function DDAAnalysis({
     typeof setTimeout
   > | null>(null);
 
-  // Derive state from mutation and progress events
-  // Use localIsRunning as the primary indicator since it's set synchronously
-  const progress =
-    progressEvent?.progress_percent ||
-    (localIsRunning || submitAnalysisMutation.isPending ? 50 : 0);
+  // Derive state from coordinator (primary) or legacy mutation (fallback for NSG/Server)
+  // Coordinator is the single source of truth for local DDA analysis
+  const isRunningFromCoordinator = coordinatorIsRunning;
+  const progress = coordinatorProgress || (localIsRunning ? 50 : 0);
   const analysisStatus =
-    progressEvent?.current_step ||
-    (submitAnalysisMutation.isPending
+    coordinatorStep ||
+    (localIsRunning
       ? "Running DDA analysis..."
-      : submitAnalysisMutation.isSuccess
+      : coordinatorJob?.status === "completed"
         ? "Analysis completed successfully!"
         : "");
-  const error = submitAnalysisMutation.error
-    ? (submitAnalysisMutation.error as Error).message
-    : null;
+  const error =
+    coordinatorError ||
+    (submitAnalysisMutation.error
+      ? (submitAnalysisMutation.error as Error).message
+      : null);
   const [previewingAnalysis, setPreviewingAnalysis] =
     useState<DDAResult | null>(null);
   const [saveStatus, setSaveStatus] = useState<{
@@ -404,44 +442,41 @@ export const DDAAnalysis = memo(function DDAAnalysis({
   ]);
 
   // Preview analysis from history in dedicated window
-  const previewAnalysis = useCallback(
-    async (analysis: DDAResult) => {
-      try {
-        // Validate analysis object
-        if (!analysis || !analysis.id) {
-          loggers.dda.error("Invalid analysis object", { analysis });
-          return;
-        }
+  const previewAnalysis = useCallback(async (analysis: DDAResult) => {
+    try {
+      // Validate analysis object
+      if (!analysis || !analysis.id) {
+        loggers.dda.error("Invalid analysis object", { analysis });
+        return;
+      }
 
-        loggers.dda.debug("Preview analysis - Using ID for lookup", {
+      loggers.dda.debug("Preview analysis - Using ID for lookup", {
+        id: analysis.id,
+      });
+
+      // Get full analysis data from history (preview window needs all data)
+      const fullAnalysis = await tauriBackendService.getDDAFromHistoryFull(
+        analysis.id,
+      );
+      if (fullAnalysis) {
+        // Import TauriService dynamically to avoid SSR issues
+        const { TauriService } = await import("@/services/tauriService");
+        const tauriService = TauriService.getInstance();
+
+        // Open analysis preview in dedicated window
+        await tauriService.openAnalysisPreviewWindow(fullAnalysis);
+
+        // Still set the previewing analysis for the blue notification
+        setPreviewingAnalysis(fullAnalysis);
+      } else {
+        loggers.dda.warn("No analysis data returned for ID", {
           id: analysis.id,
         });
-
-        // Get full analysis data from history (in case the list only has metadata)
-        const fullAnalysis = await apiService.getAnalysisFromHistory(
-          analysis.id,
-        );
-        if (fullAnalysis) {
-          // Import TauriService dynamically to avoid SSR issues
-          const { TauriService } = await import("@/services/tauriService");
-          const tauriService = TauriService.getInstance();
-
-          // Open analysis preview in dedicated window
-          await tauriService.openAnalysisPreviewWindow(fullAnalysis);
-
-          // Still set the previewing analysis for the blue notification
-          setPreviewingAnalysis(fullAnalysis);
-        } else {
-          loggers.dda.warn("No analysis data returned for ID", {
-            id: analysis.id,
-          });
-        }
-      } catch (error) {
-        loggers.dda.error("Failed to load analysis preview", { error });
       }
-    },
-    [apiService],
-  );
+    } catch (error) {
+      loggers.dda.error("Failed to load analysis preview", { error });
+    }
+  }, []);
 
   // Delete analysis from history with optimistic update
   const handleDeleteAnalysis = useCallback(
@@ -589,233 +624,344 @@ export const DDAAnalysis = memo(function DDAAnalysis({
     }
   }, [currentAnalysis, results]);
 
-  // Auto-populate parameters when loading an analysis from history
+  // Handle coordinator job completion - save to history, record workflow, update state
+  // This effect runs when coordinatorResult changes (i.e., when analysis completes)
+  const prevCoordinatorResultRef = useRef<typeof coordinatorResult>(undefined);
   useEffect(() => {
-    if (currentAnalysis?.parameters && selectedFile?.channels) {
-      const params = currentAnalysis.parameters;
-      const fileChannels = selectedFile.channels;
+    // Only process if we have a new result (different from previous)
+    if (
+      coordinatorResult &&
+      coordinatorResult !== prevCoordinatorResultRef.current
+    ) {
+      prevCoordinatorResultRef.current = coordinatorResult;
 
-      loggers.dda.debug("Auto-populating parameters from loaded analysis", {
-        variants: params.variants,
-        hasVariantConfigs: !!params.variant_configs,
-        topLevelChannels: currentAnalysis.channels,
-        paramsChannels: params.channels,
-        windowLength: params.window_length,
-        windowStep: params.window_step,
+      // Enhance result with proper channel names and analysis name
+      const resultWithChannels = {
+        ...coordinatorResult,
+        name: analysisName.trim() || coordinatorResult.name,
+      };
+
+      loggers.dda.info("Coordinator analysis complete", {
+        id: resultWithChannels.id,
+        filePath: resultWithChannels.file_path,
       });
 
-      // NEW: Build per-variant channel configs from variant_configs (if available)
-      const newVariantChannelConfigs: typeof localParameters.variantChannelConfigs =
-        {};
+      // Update local state
+      setResults(resultWithChannels);
+      setCurrentAnalysis(resultWithChannels);
+      addAnalysisToHistory(resultWithChannels);
+      setAnalysisName(""); // Clear name after successful analysis
+      setResultsFromPersistence(false); // Mark as fresh analysis
 
-      if (params.variant_configs) {
-        loggers.dda.debug("Loading from variant_configs", {
-          variant_configs: params.variant_configs,
+      // Record DDA analysis execution if recording is active
+      if (isWorkflowRecording && selectedFile) {
+        const channelIndices = parameters.selectedChannels
+          .map((channelName) => selectedFile.channels.indexOf(channelName))
+          .filter((idx) => idx !== -1);
+
+        loggers.dda.debug("Recording DDA analysis with channel indices", {
+          channelIndices,
         });
-
-        // Iterate through each variant in variant_configs
-        Object.entries(params.variant_configs).forEach(
-          ([variantId, config]) => {
-            newVariantChannelConfigs[variantId] = {};
-
-            // Convert channel indices to channel names
-            if (
-              config.selectedChannels &&
-              Array.isArray(config.selectedChannels)
-            ) {
-              newVariantChannelConfigs[variantId].selectedChannels =
-                config.selectedChannels.map(
-                  (idx) => fileChannels[idx] || `Channel ${idx}`,
-                );
-            }
-
-            // Convert ctChannelPairs (for CT) from indices to names
-            if (config.ctChannelPairs && Array.isArray(config.ctChannelPairs)) {
-              newVariantChannelConfigs[variantId].ctChannelPairs =
-                config.ctChannelPairs.map(
-                  ([idx1, idx2]) =>
-                    [
-                      fileChannels[idx1] || `Channel ${idx1}`,
-                      fileChannels[idx2] || `Channel ${idx2}`,
-                    ] as [string, string],
-                );
-            }
-
-            // Convert cdChannelPairs (for CD) from indices to names
-            if (config.cdChannelPairs && Array.isArray(config.cdChannelPairs)) {
-              newVariantChannelConfigs[variantId].cdChannelPairs =
-                config.cdChannelPairs.map(
-                  ([idx1, idx2]) =>
-                    [
-                      fileChannels[idx1] || `Channel ${idx1}`,
-                      fileChannels[idx2] || `Channel ${idx2}`,
-                    ] as [string, string],
-                );
-            }
+        const analysisAction = createRunDDAAnalysisAction(
+          coordinatorResult.id,
+          channelIndices,
+        );
+        autoRecordActionMutation.mutate(
+          {
+            action: analysisAction,
+            activeFileId: selectedFile.file_path,
+          },
+          {
+            onSuccess: () => {
+              incrementActionCount();
+              loggers.dda.debug("Recorded DDA analysis execution");
+            },
+            onError: (error) => {
+              loggers.dda.error("Failed to record DDA analysis", { error });
+            },
           },
         );
-
-        loggers.dda.debug("Populated variantChannelConfigs", {
-          configs: newVariantChannelConfigs,
-        });
       }
 
-      // FALLBACK: Use top-level channels from DDAResult or params.channels (legacy)
-      const channelNames = currentAnalysis.channels || params.channels || [];
-
-      loggers.dda.debug("Checking for CT/CD pairs", {
-        hasCTPairs: !!params.ct_channel_pairs,
-        ctPairsLength: params.ct_channel_pairs?.length,
-        ctPairsValue: params.ct_channel_pairs,
-        hasCDPairs: !!params.cd_channel_pairs,
-        cdPairsLength: params.cd_channel_pairs?.length,
-        cdPairsValue: params.cd_channel_pairs,
+      // Save to history asynchronously (non-blocking)
+      saveToHistoryMutation.mutate(resultWithChannels, {
+        onError: (err) => {
+          loggers.dda.error("Background save to history failed", {
+            error: err,
+          });
+        },
       });
-
-      // FALLBACK: Convert CT channel pairs from indices to names (legacy format)
-      let ctPairs: [string, string][] = [];
-      if (params.ct_channel_pairs && Array.isArray(params.ct_channel_pairs)) {
-        ctPairs = params.ct_channel_pairs.map(([idx1, idx2]) => {
-          // If the pair contains numbers (indices), convert to channel names
-          if (typeof idx1 === "number" && typeof idx2 === "number") {
-            return [fileChannels[idx1] || "", fileChannels[idx2] || ""] as [
-              string,
-              string,
-            ];
-          }
-          // Otherwise assume they're already channel names
-          return [String(idx1), String(idx2)] as [string, string];
-        });
-        loggers.dda.debug("Converted CT pairs", { ctPairs });
-      }
-
-      // FALLBACK: Convert CD channel pairs from indices to names (legacy format)
-      let cdPairs: [string, string][] = [];
-      if (params.cd_channel_pairs && Array.isArray(params.cd_channel_pairs)) {
-        cdPairs = params.cd_channel_pairs.map(([idx1, idx2]) => {
-          // If the pair contains numbers (indices), convert to channel names
-          if (typeof idx1 === "number" && typeof idx2 === "number") {
-            return [fileChannels[idx1] || "", fileChannels[idx2] || ""] as [
-              string,
-              string,
-            ];
-          }
-          // Otherwise assume they're already channel names
-          return [String(idx1), String(idx2)] as [string, string];
-        });
-        loggers.dda.debug("Converted CD pairs", { cdPairs });
-      }
-
-      // LEGACY FALLBACK: If no variant_configs, build from legacy format
-      if (
-        !params.variant_configs &&
-        params.variants &&
-        params.variants.length > 0
-      ) {
-        loggers.dda.debug("Building variantChannelConfigs from legacy format");
-
-        params.variants.forEach((variantId) => {
-          newVariantChannelConfigs[variantId] = {};
-
-          // For ST, DE, SY: Use top-level channels
-          if (
-            variantId === "single_timeseries" ||
-            variantId === "dynamical_ergodicity" ||
-            variantId === "synchronization"
-          ) {
-            if (channelNames.length > 0) {
-              newVariantChannelConfigs[variantId].selectedChannels =
-                channelNames;
-            }
-          }
-
-          // For CT: Use ct_channel_pairs or generate defaults
-          if (variantId === "cross_timeseries") {
-            if (ctPairs.length > 0) {
-              newVariantChannelConfigs[variantId].ctChannelPairs = ctPairs;
-            } else if (channelNames.length >= 2) {
-              // Generate default pairs from first N channels (sequential pairs)
-              const defaultPairs: [string, string][] = [];
-              const maxPairs = Math.min(4, Math.floor(channelNames.length / 2)); // Max 4 pairs
-              for (let i = 0; i < maxPairs * 2; i += 2) {
-                if (i + 1 < channelNames.length) {
-                  defaultPairs.push([channelNames[i], channelNames[i + 1]]);
-                }
-              }
-              if (defaultPairs.length > 0) {
-                newVariantChannelConfigs[variantId].ctChannelPairs =
-                  defaultPairs;
-                loggers.dda.debug("Generated default CT pairs", {
-                  pairs: defaultPairs,
-                });
-              }
-            }
-          }
-
-          // For CD: Use cd_channel_pairs or generate defaults
-          if (variantId === "cross_dynamical") {
-            if (cdPairs.length > 0) {
-              newVariantChannelConfigs[variantId].cdChannelPairs = cdPairs;
-            } else if (channelNames.length >= 2) {
-              // Generate default directed pairs (same as CT for simplicity)
-              const defaultPairs: [string, string][] = [];
-              const maxPairs = Math.min(4, Math.floor(channelNames.length / 2)); // Max 4 pairs
-              for (let i = 0; i < maxPairs * 2; i += 2) {
-                if (i + 1 < channelNames.length) {
-                  defaultPairs.push([channelNames[i], channelNames[i + 1]]);
-                }
-              }
-              if (defaultPairs.length > 0) {
-                newVariantChannelConfigs[variantId].cdChannelPairs =
-                  defaultPairs;
-                loggers.dda.debug("Generated default CD pairs", {
-                  pairs: defaultPairs,
-                });
-              }
-            }
-          }
-        });
-
-        loggers.dda.debug("Built variantChannelConfigs from legacy", {
-          configs: newVariantChannelConfigs,
-        });
-      }
-
-      // Cast to any for backwards compatibility with legacy stored parameters
-      const legacyParams = params as any;
-      setLocalParameters((prev) => ({
-        ...prev,
-        variants: params.variants || prev.variants,
-        windowLength: params.window_length || prev.windowLength,
-        windowStep: params.window_step || prev.windowStep,
-        delays: params.delay_list || legacyParams.delays || prev.delays,
-        timeStart: params.start_time ?? prev.timeStart,
-        timeEnd: params.end_time ?? prev.timeEnd,
-        selectedChannels: channelNames,
-        ctWindowLength: params.ct_window_length || prev.ctWindowLength,
-        ctWindowStep: params.ct_window_step || prev.ctWindowStep,
-        ctChannelPairs: ctPairs.length > 0 ? ctPairs : prev.ctChannelPairs,
-        cdChannelPairs: cdPairs.length > 0 ? cdPairs : prev.cdChannelPairs,
-        // NEW: Set per-variant configs if available, otherwise keep previous
-        variantChannelConfigs:
-          Object.keys(newVariantChannelConfigs).length > 0
-            ? newVariantChannelConfigs
-            : prev.variantChannelConfigs,
-        // Note: expertMode is now controlled at app level, not per-analysis
-        modelParameters:
-          params.model_dimension ||
-          params.polynomial_order ||
-          params.model_params
-            ? {
-                dm: params.model_dimension || 4,
-                order: params.polynomial_order || 4,
-                nr_tau: params.nr_tau || 2,
-                encoding: params.model_params || [1, 2, 10],
-              }
-            : prev.modelParameters,
-      }));
     }
-  }, [currentAnalysis?.id, selectedFile?.channels]); // Only re-run when analysis ID or file channels change
+  }, [
+    coordinatorResult,
+    analysisName,
+    selectedFile,
+    isWorkflowRecording,
+    parameters.selectedChannels,
+    setCurrentAnalysis,
+    addAnalysisToHistory,
+    incrementActionCount,
+    autoRecordActionMutation,
+    saveToHistoryMutation,
+  ]);
+
+  // Auto-populate parameters when loading an analysis from history
+  // CRITICAL: Defer this heavy work to prevent UI freeze during initial load
+  useEffect(() => {
+    if (!currentAnalysis?.parameters || !selectedFile?.channels) return;
+
+    // Use RAF to yield to the browser before doing heavy work
+    const rafId = requestAnimationFrame(() => {
+      // Wrap in startTransition to mark as non-urgent
+      startTransition(() => {
+        const params = currentAnalysis.parameters;
+        const fileChannels = selectedFile.channels;
+
+        loggers.dda.debug("Auto-populating parameters from loaded analysis", {
+          variants: params.variants,
+          hasVariantConfigs: !!params.variant_configs,
+          topLevelChannels: currentAnalysis.channels,
+          paramsChannels: params.channels,
+          windowLength: params.window_length,
+          windowStep: params.window_step,
+        });
+
+        // NEW: Build per-variant channel configs from variant_configs (if available)
+        const newVariantChannelConfigs: typeof localParameters.variantChannelConfigs =
+          {};
+
+        if (params.variant_configs) {
+          loggers.dda.debug("Loading from variant_configs", {
+            variant_configs: params.variant_configs,
+          });
+
+          // Iterate through each variant in variant_configs
+          Object.entries(params.variant_configs).forEach(
+            ([variantId, config]) => {
+              newVariantChannelConfigs[variantId] = {};
+
+              // Convert channel indices to channel names
+              if (
+                config.selectedChannels &&
+                Array.isArray(config.selectedChannels)
+              ) {
+                newVariantChannelConfigs[variantId].selectedChannels =
+                  config.selectedChannels.map(
+                    (idx) => fileChannels[idx] || `Channel ${idx}`,
+                  );
+              }
+
+              // Convert ctChannelPairs (for CT) from indices to names
+              if (
+                config.ctChannelPairs &&
+                Array.isArray(config.ctChannelPairs)
+              ) {
+                newVariantChannelConfigs[variantId].ctChannelPairs =
+                  config.ctChannelPairs.map(
+                    ([idx1, idx2]) =>
+                      [
+                        fileChannels[idx1] || `Channel ${idx1}`,
+                        fileChannels[idx2] || `Channel ${idx2}`,
+                      ] as [string, string],
+                  );
+              }
+
+              // Convert cdChannelPairs (for CD) from indices to names
+              if (
+                config.cdChannelPairs &&
+                Array.isArray(config.cdChannelPairs)
+              ) {
+                newVariantChannelConfigs[variantId].cdChannelPairs =
+                  config.cdChannelPairs.map(
+                    ([idx1, idx2]) =>
+                      [
+                        fileChannels[idx1] || `Channel ${idx1}`,
+                        fileChannels[idx2] || `Channel ${idx2}`,
+                      ] as [string, string],
+                  );
+              }
+            },
+          );
+
+          loggers.dda.debug("Populated variantChannelConfigs", {
+            configs: newVariantChannelConfigs,
+          });
+        }
+
+        // FALLBACK: Use top-level channels from DDAResult or params.channels (legacy)
+        const channelNames = currentAnalysis.channels || params.channels || [];
+
+        loggers.dda.debug("Checking for CT/CD pairs", {
+          hasCTPairs: !!params.ct_channel_pairs,
+          ctPairsLength: params.ct_channel_pairs?.length,
+          ctPairsValue: params.ct_channel_pairs,
+          hasCDPairs: !!params.cd_channel_pairs,
+          cdPairsLength: params.cd_channel_pairs?.length,
+          cdPairsValue: params.cd_channel_pairs,
+        });
+
+        // FALLBACK: Convert CT channel pairs from indices to names (legacy format)
+        let ctPairs: [string, string][] = [];
+        if (params.ct_channel_pairs && Array.isArray(params.ct_channel_pairs)) {
+          ctPairs = params.ct_channel_pairs.map(([idx1, idx2]) => {
+            // If the pair contains numbers (indices), convert to channel names
+            if (typeof idx1 === "number" && typeof idx2 === "number") {
+              return [fileChannels[idx1] || "", fileChannels[idx2] || ""] as [
+                string,
+                string,
+              ];
+            }
+            // Otherwise assume they're already channel names
+            return [String(idx1), String(idx2)] as [string, string];
+          });
+          loggers.dda.debug("Converted CT pairs", { ctPairs });
+        }
+
+        // FALLBACK: Convert CD channel pairs from indices to names (legacy format)
+        let cdPairs: [string, string][] = [];
+        if (params.cd_channel_pairs && Array.isArray(params.cd_channel_pairs)) {
+          cdPairs = params.cd_channel_pairs.map(([idx1, idx2]) => {
+            // If the pair contains numbers (indices), convert to channel names
+            if (typeof idx1 === "number" && typeof idx2 === "number") {
+              return [fileChannels[idx1] || "", fileChannels[idx2] || ""] as [
+                string,
+                string,
+              ];
+            }
+            // Otherwise assume they're already channel names
+            return [String(idx1), String(idx2)] as [string, string];
+          });
+          loggers.dda.debug("Converted CD pairs", { cdPairs });
+        }
+
+        // LEGACY FALLBACK: If no variant_configs, build from legacy format
+        if (
+          !params.variant_configs &&
+          params.variants &&
+          params.variants.length > 0
+        ) {
+          loggers.dda.debug(
+            "Building variantChannelConfigs from legacy format",
+          );
+
+          params.variants.forEach((variantId) => {
+            newVariantChannelConfigs[variantId] = {};
+
+            // For ST, DE, SY: Use top-level channels
+            if (
+              variantId === "single_timeseries" ||
+              variantId === "dynamical_ergodicity" ||
+              variantId === "synchronization"
+            ) {
+              if (channelNames.length > 0) {
+                newVariantChannelConfigs[variantId].selectedChannels =
+                  channelNames;
+              }
+            }
+
+            // For CT: Use ct_channel_pairs or generate defaults
+            if (variantId === "cross_timeseries") {
+              if (ctPairs.length > 0) {
+                newVariantChannelConfigs[variantId].ctChannelPairs = ctPairs;
+              } else if (channelNames.length >= 2) {
+                // Generate default pairs from first N channels (sequential pairs)
+                const defaultPairs: [string, string][] = [];
+                const maxPairs = Math.min(
+                  4,
+                  Math.floor(channelNames.length / 2),
+                ); // Max 4 pairs
+                for (let i = 0; i < maxPairs * 2; i += 2) {
+                  if (i + 1 < channelNames.length) {
+                    defaultPairs.push([channelNames[i], channelNames[i + 1]]);
+                  }
+                }
+                if (defaultPairs.length > 0) {
+                  newVariantChannelConfigs[variantId].ctChannelPairs =
+                    defaultPairs;
+                  loggers.dda.debug("Generated default CT pairs", {
+                    pairs: defaultPairs,
+                  });
+                }
+              }
+            }
+
+            // For CD: Use cd_channel_pairs or generate defaults
+            if (variantId === "cross_dynamical") {
+              if (cdPairs.length > 0) {
+                newVariantChannelConfigs[variantId].cdChannelPairs = cdPairs;
+              } else if (channelNames.length >= 2) {
+                // Generate default directed pairs (same as CT for simplicity)
+                const defaultPairs: [string, string][] = [];
+                const maxPairs = Math.min(
+                  4,
+                  Math.floor(channelNames.length / 2),
+                ); // Max 4 pairs
+                for (let i = 0; i < maxPairs * 2; i += 2) {
+                  if (i + 1 < channelNames.length) {
+                    defaultPairs.push([channelNames[i], channelNames[i + 1]]);
+                  }
+                }
+                if (defaultPairs.length > 0) {
+                  newVariantChannelConfigs[variantId].cdChannelPairs =
+                    defaultPairs;
+                  loggers.dda.debug("Generated default CD pairs", {
+                    pairs: defaultPairs,
+                  });
+                }
+              }
+            }
+          });
+
+          loggers.dda.debug("Built variantChannelConfigs from legacy", {
+            configs: newVariantChannelConfigs,
+          });
+        }
+
+        // Type for legacy parameters that may have 'delays' instead of 'delay_list'
+        type LegacyParams = typeof params & { delays?: number[] };
+        const legacyParams = params as LegacyParams;
+        setLocalParameters((prev) => ({
+          ...prev,
+          variants: params.variants || prev.variants,
+          windowLength: params.window_length || prev.windowLength,
+          windowStep: params.window_step || prev.windowStep,
+          delays: params.delay_list || legacyParams.delays || prev.delays,
+          timeStart: params.start_time ?? prev.timeStart,
+          timeEnd: params.end_time ?? prev.timeEnd,
+          selectedChannels: channelNames,
+          ctWindowLength: params.ct_window_length || prev.ctWindowLength,
+          ctWindowStep: params.ct_window_step || prev.ctWindowStep,
+          ctChannelPairs: ctPairs.length > 0 ? ctPairs : prev.ctChannelPairs,
+          cdChannelPairs: cdPairs.length > 0 ? cdPairs : prev.cdChannelPairs,
+          // NEW: Set per-variant configs if available, otherwise keep previous
+          variantChannelConfigs:
+            Object.keys(newVariantChannelConfigs).length > 0
+              ? newVariantChannelConfigs
+              : prev.variantChannelConfigs,
+          // Note: expertMode is now controlled at app level, not per-analysis
+          modelParameters:
+            params.model_dimension ||
+            params.polynomial_order ||
+            params.model_params
+              ? {
+                  dm:
+                    params.model_dimension ||
+                    DDA_ANALYSIS.DEFAULT_MODEL_DIMENSION,
+                  order:
+                    params.polynomial_order ||
+                    DDA_ANALYSIS.DEFAULT_POLYNOMIAL_ORDER,
+                  nr_tau: params.nr_tau || DDA_ANALYSIS.DEFAULT_NR_TAU,
+                  encoding: params.model_params || [
+                    ...DDA_ANALYSIS.DEFAULT_ENCODING,
+                  ],
+                }
+              : prev.modelParameters,
+        }));
+      }); // end startTransition
+    }); // end RAF
+
+    return () => cancelAnimationFrame(rafId);
+  }, [currentAnalysis?.id, selectedFile?.channels, selectedFile?.file_path]);
 
   // Check for NSG credentials on mount
   useEffect(() => {
@@ -1015,13 +1161,7 @@ export const DDAAnalysis = memo(function DDAAnalysis({
       ctConfig?.ctChannelPairs &&
       ctConfig.ctChannelPairs.length > 0 &&
       selectedFile
-        ? ctConfig.ctChannelPairs
-            .map(([ch1, ch2]) => {
-              const idx1 = selectedFile!.channels.indexOf(ch1);
-              const idx2 = selectedFile!.channels.indexOf(ch2);
-              return [idx1, idx2] as [number, number];
-            })
-            .filter(([idx1, idx2]) => idx1 !== -1 && idx2 !== -1)
+        ? channelPairsToIndices(ctConfig.ctChannelPairs, selectedFile.channels)
         : undefined;
 
     // Get CD channel pairs from variant config
@@ -1030,57 +1170,53 @@ export const DDAAnalysis = memo(function DDAAnalysis({
       cdConfig?.cdChannelPairs &&
       cdConfig.cdChannelPairs.length > 0 &&
       selectedFile
-        ? cdConfig.cdChannelPairs
-            .map(([from, to]) => {
-              const fromIdx = selectedFile!.channels.indexOf(from);
-              const toIdx = selectedFile!.channels.indexOf(to);
-              return [fromIdx, toIdx] as [number, number];
-            })
-            .filter(([fromIdx, toIdx]) => fromIdx !== -1 && toIdx !== -1)
+        ? channelPairsToIndices(cdConfig.cdChannelPairs, selectedFile.channels)
         : undefined;
 
     // Convert channel names to indices BEFORE creating the request
     const channelNames = Array.from(allChannels);
-    const channelIndices = channelNames
-      .map((ch) => selectedFile!.channels.indexOf(ch))
-      .filter((idx) => idx !== -1);
+    const channelIndices = channelNamesToIndices(
+      channelNames,
+      selectedFile.channels,
+    );
 
     // Build variant_configs from variantChannelConfigs
-    const variantConfigs: { [variantId: string]: any } = {};
+    // Type for variant config with channel indices
+    interface VariantConfigWithIndices {
+      selectedChannels?: number[];
+      ctChannelPairs?: [number, number][];
+      cdChannelPairs?: [number, number][];
+    }
+    const variantConfigs: Record<string, VariantConfigWithIndices> = {};
 
     parameters.variants.forEach((variantId) => {
       const config = parameters.variantChannelConfigs[variantId];
       if (!config) return;
 
-      const variantConfig: any = {};
+      const variantConfig: VariantConfigWithIndices = {};
 
       // Handle individual channels (ST, DE, SY)
       if (config.selectedChannels && config.selectedChannels.length > 0) {
-        variantConfig.selectedChannels = config.selectedChannels
-          .map((ch) => selectedFile!.channels.indexOf(ch))
-          .filter((idx) => idx !== -1);
+        variantConfig.selectedChannels = channelNamesToIndices(
+          config.selectedChannels,
+          selectedFile.channels,
+        );
       }
 
       // Handle CT channel pairs
       if (config.ctChannelPairs && config.ctChannelPairs.length > 0) {
-        variantConfig.ctChannelPairs = config.ctChannelPairs
-          .map(([ch1, ch2]) => {
-            const idx1 = selectedFile!.channels.indexOf(ch1);
-            const idx2 = selectedFile!.channels.indexOf(ch2);
-            return [idx1, idx2] as [number, number];
-          })
-          .filter(([idx1, idx2]) => idx1 !== -1 && idx2 !== -1);
+        variantConfig.ctChannelPairs = channelPairsToIndices(
+          config.ctChannelPairs,
+          selectedFile.channels,
+        );
       }
 
       // Handle CD directed pairs
       if (config.cdChannelPairs && config.cdChannelPairs.length > 0) {
-        variantConfig.cdChannelPairs = config.cdChannelPairs
-          .map(([from, to]) => {
-            const fromIdx = selectedFile!.channels.indexOf(from);
-            const toIdx = selectedFile!.channels.indexOf(to);
-            return [fromIdx, toIdx] as [number, number];
-          })
-          .filter(([fromIdx, toIdx]) => fromIdx !== -1 && toIdx !== -1);
+        variantConfig.cdChannelPairs = channelPairsToIndices(
+          config.cdChannelPairs,
+          selectedFile.channels,
+        );
       }
 
       // Only add to variantConfigs if there's actual configuration
@@ -1121,10 +1257,47 @@ export const DDAAnalysis = memo(function DDAAnalysis({
       variantConfigs: request.variant_configs,
     });
 
+    // Check if there's already a running analysis
+    const currentRunningJobs = runningJobs.filter(
+      (job) => job.status === "running" || job.status === "pending",
+    );
+
+    if (currentRunningJobs.length > 0) {
+      // There's already a running analysis - check user preference
+      if (queuePreference === "parallel") {
+        // User wants to run in parallel - proceed
+        loggers.dda.debug("Running in parallel (user preference)");
+      } else if (queuePreference === "sequential") {
+        // User wants to queue - inform them and don't start
+        toast.info(
+          "Analysis Queued",
+          "Your analysis will start after the current one completes. Switch preference in settings to run in parallel.",
+        );
+        return;
+      } else {
+        // queuePreference === "ask" - show the dialog
+        loggers.dda.debug("Showing queue dialog");
+        pendingAnalysisRef.current = { request, channelNames };
+        setQueueDialogRunningJob(currentRunningJobs[0]);
+        setQueueDialogOpen(true);
+        return;
+      }
+    }
+
+    // Proceed with submission
+    await executeAnalysisSubmission(request, channelNames);
+  };
+
+  /**
+   * Execute the analysis submission - called directly or after queue dialog confirmation
+   */
+  const executeAnalysisSubmission = async (
+    request: DDAAnalysisRequest,
+    channelNames: string[],
+  ) => {
     // Record DDA parameters if recording is active
-    console.log("[DDA-ANALYSIS] isWorkflowRecording:", isWorkflowRecording);
-    if (isWorkflowRecording) {
-      console.log("[DDA-ANALYSIS] Recording DDA parameters action...");
+    if (isWorkflowRecording && selectedFile) {
+      loggers.dda.debug("Recording DDA parameters action");
       try {
         // Record main window parameters, with optional CT-specific overrides
         const paramAction = createSetDDAParametersAction(
@@ -1138,131 +1311,92 @@ export const DDAAnalysis = memo(function DDAAnalysis({
           activeFileId: selectedFile?.file_path,
         });
         incrementActionCount();
-        console.log("[DDA-ANALYSIS] DDA parameters recorded successfully");
-        loggers.dda.debug("Recorded DDA parameters to workflow");
+        loggers.dda.debug("DDA parameters recorded to workflow");
       } catch (error) {
-        console.error("[DDA-ANALYSIS] Failed to record DDA parameters:", error);
         loggers.dda.error("Failed to record DDA parameters to workflow", {
           error,
         });
       }
-    } else {
-      console.log(
-        "[DDA-ANALYSIS] Skipping recording - isWorkflowRecording is false",
-      );
     }
 
-    // Submit analysis using mutation
-    // Use flushSync to ensure the progress bar renders immediately before the async operation
-    loggers.dda.debug("Starting analysis, showing progress bar");
+    // Submit analysis using coordinator (single source of truth)
+    loggers.dda.debug("Starting analysis via coordinator");
     analysisStartTimeRef.current = Date.now();
-    flushSync(() => {
-      setLocalIsRunning(true);
-      setDDARunning(true);
-    });
 
-    // Helper to hide progress with minimum display time
-    const hideProgressBar = (callback: () => void) => {
-      const elapsed = Date.now() - (analysisStartTimeRef.current || 0);
-      const remainingTime = Math.max(
-        0,
-        DDA_ANALYSIS.MIN_PROGRESS_DISPLAY_TIME - elapsed,
+    // Start analysis via coordinator - it handles job registration and event listening
+    const result = await coordinatorStartAnalysis(request, channelNames);
+
+    if (!result.success) {
+      loggers.dda.error("Failed to start analysis", { error: result.error });
+      toast.error(
+        "Analysis Failed",
+        result.error || "Failed to start analysis",
       );
-
-      if (remainingTime > 0) {
-        minProgressDisplayTimeRef.current = setTimeout(() => {
-          setLocalIsRunning(false);
-          setDDARunning(false);
-          callback();
-        }, remainingTime);
-      } else {
-        setLocalIsRunning(false);
-        setDDARunning(false);
-        callback();
-      }
-    };
-
-    submitAnalysisMutation.mutate(request, {
-      onSuccess: (result) => {
-        // Ensure channels are properly set in the result
-        // The backend may return empty or generic channel names, so we use the actual names
-        const resultWithChannels = {
-          ...result,
-          channels: channelNames, // Use the actual channel names, not the indices
-          name: analysisName.trim() || result.name,
-        };
-
-        loggers.dda.info("Analysis complete", {
-          id: resultWithChannels.id,
-          filePath: resultWithChannels.file_path,
-        });
-
-        // Hide progress bar with minimum display time, then update results
-        hideProgressBar(() => {
-          setResults(resultWithChannels);
-          setCurrentAnalysis(resultWithChannels);
-          addAnalysisToHistory(resultWithChannels);
-          setAnalysisName(""); // Clear name after successful analysis
-          setResultsFromPersistence(false); // Mark as fresh analysis, not from persistence
-
-          // Record DDA analysis execution if recording is active
-          if (isWorkflowRecording && selectedFile) {
-            // Convert channel names to their actual indices in the file's channel list
-            const channelIndices = parameters.selectedChannels
-              .map((channelName) => selectedFile!.channels.indexOf(channelName))
-              .filter((idx) => idx !== -1); // Remove any channels not found
-
-            loggers.dda.debug("Recording DDA analysis with channel indices", {
-              channelIndices,
-            });
-            const analysisAction = createRunDDAAnalysisAction(
-              result.id,
-              channelIndices,
-            );
-            autoRecordActionMutation.mutate(
-              {
-                action: analysisAction,
-                activeFileId: selectedFile?.file_path,
-              },
-              {
-                onSuccess: () => {
-                  incrementActionCount();
-                  loggers.dda.debug("Recorded DDA analysis execution");
-                },
-                onError: (error) => {
-                  loggers.dda.error("Failed to record DDA analysis", { error });
-                },
-              },
-            );
-          }
-
-          // Save to history asynchronously (non-blocking)
-          saveToHistoryMutation.mutate(resultWithChannels, {
-            onError: (err) => {
-              loggers.dda.error("Background save to history failed", {
-                error: err,
-              });
-            },
-          });
-        });
-      },
-      onError: (err) => {
-        loggers.dda.error("DDA analysis failed", {
-          error: err,
-          errorName: err instanceof Error ? err.name : undefined,
-          errorMessage: err instanceof Error ? err.message : String(err),
-          request: {
-            file_path: selectedFile?.file_path,
-            channels: parameters.selectedChannels,
-            time_range: [parameters.timeStart, parameters.timeEnd],
-            variants: parameters.variants,
-          },
-        });
-        // Hide progress bar with minimum display time for errors too
-        hideProgressBar(() => {});
-      },
-    });
+    } else {
+      loggers.dda.info("Analysis started via coordinator", {
+        analysisId: result.analysisId,
+      });
+    }
   };
+
+  /**
+   * Handle the user's choice from the queue dialog
+   */
+  const handleQueueAction = useCallback(
+    async (action: QueueAction) => {
+      const pending = pendingAnalysisRef.current;
+      if (!pending) {
+        loggers.dda.warn("No pending analysis for queue action");
+        return;
+      }
+
+      switch (action) {
+        case "parallel":
+          // Run both in parallel
+          loggers.dda.info("User chose to run in parallel");
+          await executeAnalysisSubmission(
+            pending.request,
+            pending.channelNames,
+          );
+          break;
+
+        case "queue":
+          // Don't start now - inform user
+          loggers.dda.info("User chose to queue analysis");
+          toast.info(
+            "Analysis Queued",
+            "Your analysis will start after the current one completes.",
+          );
+          break;
+
+        case "cancel-current":
+          // Cancel the current analysis and start the new one
+          loggers.dda.info("User chose to cancel current and start new");
+          if (queueDialogRunningJob) {
+            const success = await cancelAnalysis(queueDialogRunningJob.id);
+            if (success) {
+              // Wait a moment for cancellation to process
+              await new Promise((resolve) => setTimeout(resolve, 100));
+              await executeAnalysisSubmission(
+                pending.request,
+                pending.channelNames,
+              );
+            } else {
+              toast.error(
+                "Cancel Failed",
+                "Could not cancel the current analysis",
+              );
+            }
+          }
+          break;
+      }
+
+      // Clear pending
+      pendingAnalysisRef.current = null;
+      setQueueDialogRunningJob(null);
+    },
+    [cancelAnalysis, queueDialogRunningJob],
+  );
 
   const submitToNSG = async () => {
     if (!TauriService.isTauri()) {
@@ -1363,21 +1497,19 @@ export const DDAAnalysis = memo(function DDAAnalysis({
             : undefined,
         ct_channel_pairs:
           parameters.ctChannelPairs?.length > 0
-            ? parameters.ctChannelPairs.map((pair) => {
-                const idx0 = selectedFile.channels.indexOf(pair[0]);
-                const idx1 = selectedFile.channels.indexOf(pair[1]);
-                return [idx0 >= 0 ? idx0 : 0, idx1 >= 0 ? idx1 : 0];
-              })
+            ? channelPairsToIndicesWithFallback(
+                parameters.ctChannelPairs,
+                selectedFile.channels,
+              )
             : null,
         parallel_cores: parameters.nsgResourceConfig?.cores || 4, // Use NSG cores setting
         resource_config: parameters.nsgResourceConfig,
       };
 
       // Map channel indices back to names for display
-      const channelNames =
-        request.channels?.map(
-          (idx) => selectedFile.channels[idx] || `Unknown(${idx})`,
-        ) || [];
+      const channelNames = request.channels
+        ? channelIndicesToNames(request.channels, selectedFile.channels)
+        : [];
 
       loggers.nsg.info("NSG DDA Analysis Parameters", {
         file: selectedFile.file_path,
@@ -1631,23 +1763,18 @@ export const DDAAnalysis = memo(function DDAAnalysis({
   };
 
   // Handle cancellation of running analysis
+  // Handle cancellation using coordinator
   const handleCancelAnalysis = useCallback(async () => {
     setIsCancelling(true);
     try {
-      const result = await apiService.cancelDDAAnalysis();
-      if (result.success) {
-        loggers.dda.info("Analysis cancelled", {
-          analysisId: result.cancelled_analysis_id,
-        });
+      const success = await coordinatorCancel();
+      if (success) {
+        loggers.dda.info("Analysis cancelled via coordinator");
         toast.info("Analysis Cancelled", "DDA analysis was cancelled");
         setLocalIsRunning(false);
-        setDDARunning(false);
       } else {
-        loggers.dda.warn("Failed to cancel", { message: result.message });
-        toast.error(
-          "Cancel Failed",
-          result.message || "Could not cancel analysis",
-        );
+        loggers.dda.warn("Failed to cancel via coordinator");
+        toast.error("Cancel Failed", "Could not cancel analysis");
       }
     } catch (error) {
       loggers.dda.error("Error cancelling", { error });
@@ -1658,7 +1785,7 @@ export const DDAAnalysis = memo(function DDAAnalysis({
     } finally {
       setIsCancelling(false);
     }
-  }, [apiService, setDDARunning]);
+  }, [coordinatorCancel]);
 
   const handleExportConfig = async () => {
     if (!selectedFile) return;
@@ -1867,7 +1994,7 @@ export const DDAAnalysis = memo(function DDAAnalysis({
   return (
     <div className="h-full flex flex-col overflow-hidden relative">
       <AnalysisProgressOverlay
-        isVisible={ddaRunning || localIsRunning}
+        isVisible={coordinatorIsRunning || localIsRunning}
         progress={progress}
         statusMessage={analysisStatus}
         estimatedTime={estimatedTime}
@@ -1879,7 +2006,7 @@ export const DDAAnalysis = memo(function DDAAnalysis({
         <AnalysisToolbar
           analysisName={analysisName}
           onAnalysisNameChange={setAnalysisName}
-          isRunning={ddaRunning || localIsRunning}
+          isRunning={coordinatorIsRunning || localIsRunning}
           isSubmittingToServer={isSubmittingToServer}
           isSubmittingToNsg={isSubmittingToNsg}
           isServerConnected={isServerConnected}
@@ -1953,7 +2080,7 @@ export const DDAAnalysis = memo(function DDAAnalysis({
                   "Change selected variants",
                 )
               }
-              disabled={ddaRunning || localIsRunning}
+              disabled={coordinatorIsRunning || localIsRunning}
             />
 
             {/* Time Range & Window Parameters - Combined for compactness */}
@@ -1977,7 +2104,7 @@ export const DDAAnalysis = memo(function DDAAnalysis({
                   onEndTimeChange={(value) =>
                     updateParameter("timeEnd", value, "Change end time")
                   }
-                  disabled={ddaRunning || localIsRunning}
+                  disabled={coordinatorIsRunning || localIsRunning}
                   showDuration={true}
                 />
 
@@ -1988,7 +2115,7 @@ export const DDAAnalysis = memo(function DDAAnalysis({
                     windowStep={parameters.windowStep}
                     sampleRate={selectedFile?.sample_rate || 256}
                     duration={parameters.timeEnd - parameters.timeStart}
-                    disabled={ddaRunning || localIsRunning}
+                    disabled={coordinatorIsRunning || localIsRunning}
                     onWindowLengthChange={(value) =>
                       updateParameter(
                         "windowLength",
@@ -2034,7 +2161,7 @@ export const DDAAnalysis = memo(function DDAAnalysis({
                 onChange={(delays) => {
                   updateParameter("delays", delays, "Change delay values");
                 }}
-                disabled={ddaRunning || localIsRunning}
+                disabled={coordinatorIsRunning || localIsRunning}
                 sampleRate={selectedFile?.sample_rate || 256}
               />
             )}
@@ -2088,7 +2215,7 @@ export const DDAAnalysis = memo(function DDAAnalysis({
                   variants={availableVariants}
                   selectedVariants={parameters.variants}
                   channels={selectedFile.channels}
-                  disabled={ddaRunning || localIsRunning}
+                  disabled={coordinatorIsRunning || localIsRunning}
                   channelConfigs={parameters.variantChannelConfigs}
                   onConfigChange={(variantId, config) => {
                     // Real-time validation is handled by useEffect
@@ -2188,7 +2315,6 @@ export const DDAAnalysis = memo(function DDAAnalysis({
         <SensitivityAnalysisDialog
           open={showSensitivityDialog}
           onOpenChange={setShowSensitivityDialog}
-          apiService={apiService}
           baseConfig={{
             file_path: selectedFile.file_path,
             channels:
@@ -2254,6 +2380,17 @@ export const DDAAnalysis = memo(function DDAAnalysis({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Queue Dialog - shown when starting analysis while another is running */}
+      {queueDialogRunningJob && (
+        <AnalysisQueueDialog
+          open={queueDialogOpen}
+          onOpenChange={setQueueDialogOpen}
+          runningJob={queueDialogRunningJob}
+          newFileName={selectedFile?.file_name || "file"}
+          onAction={handleQueueAction}
+        />
+      )}
     </div>
   );
 });

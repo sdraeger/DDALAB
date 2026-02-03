@@ -3,9 +3,12 @@ pub mod api_commands; // Unified API commands (local and remote)
 pub mod bids_export_commands;
 pub mod data_directory_commands;
 pub mod dda_export_commands;
+pub mod dda_ipc_commands; // DDA analysis via pure IPC (no HTTP)
 pub mod debug_commands;
 pub mod edf_commands; // EDF/neurophysiology data access via IPC
 pub mod file_commands;
+pub mod file_ipc_commands; // File operations via pure IPC (no HTTP)
+pub mod ica_ipc_commands; // ICA analysis via pure IPC (no HTTP)
 pub mod lsl_discovery; // LSL stream discovery
 pub mod migration_commands;
 pub mod native_updater_commands;
@@ -24,9 +27,12 @@ pub use api_commands::*;
 pub use bids_export_commands::*;
 pub use data_directory_commands::*;
 pub use dda_export_commands::*;
+pub use dda_ipc_commands::*;
 pub use debug_commands::*;
 pub use edf_commands::*;
 pub use file_commands::*;
+pub use file_ipc_commands::*;
+pub use ica_ipc_commands::*;
 pub use lsl_discovery::*;
 pub use migration_commands::*;
 pub use native_updater_commands::*;

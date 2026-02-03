@@ -21,6 +21,7 @@ import { createWorkflowSlice } from "./slices/workflowSlice";
 import { createStreamingSlice } from "./slices/streamingSlice";
 import { createPreprocessingSlice } from "./slices/preprocessingSlice";
 import { createPersistenceSlice } from "./slices/persistenceSlice";
+import { createAnalysisSlice } from "./slices/analysisSlice";
 
 // Re-export types for backward compatibility
 export type {
@@ -38,6 +39,13 @@ export type {
   AppState,
 } from "./slices/types";
 export type { PreprocessingState } from "./slices/preprocessingSlice";
+export type {
+  AnalysisState,
+  AnalysisJob,
+  AnalysisJobStatus,
+  AnalysisQueuePreference,
+  InterruptedAnalysis,
+} from "./slices/analysisSlice";
 
 /**
  * Main application store
@@ -60,5 +68,6 @@ export const useAppStore = create<AppState>()(
     ...createStreamingSlice(set, get, store),
     ...createPreprocessingSlice(set, get, store),
     ...createPersistenceSlice(set, get, store),
+    ...createAnalysisSlice(set, get, store),
   })),
 );

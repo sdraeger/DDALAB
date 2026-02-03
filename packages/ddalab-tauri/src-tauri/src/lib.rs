@@ -7,12 +7,12 @@
 //!
 //! The backend is organized into several key modules:
 //!
-//! - [`api`] - HTTP API server with handlers for file operations, DDA analysis, and streaming
 //! - [`file_readers`] - Support for multiple neurophysiology file formats (EDF, BrainVision, XDF, etc.)
 //! - [`file_writers`] - Export data to various formats
 //! - [`streaming`] - Real-time data acquisition and processing
 //! - [`ica`] - Independent Component Analysis for artifact removal
 //! - [`sync`] - Multi-device synchronization
+//! - [`nsg`] - Neuroscience Gateway (NSG) integration for HPC job submission
 //!
 //! ## File Format Support
 //!
@@ -44,7 +44,7 @@
 //! // Process with DDA...
 //! ```
 
-pub mod api; // Modular API with server startup, handlers, auth, etc.
+pub mod api;
 pub mod db;
 pub mod edf;
 pub mod file_readers;

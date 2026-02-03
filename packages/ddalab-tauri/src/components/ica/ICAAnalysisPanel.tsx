@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useCallback } from "react";
-import { ApiService } from "@/services/apiService";
 import { useICAWorkflow } from "@/hooks/useICAAnalysis";
 import { ICAAnalysisRequest, ICAParametersRequest } from "@/types/ica";
 import { ICAResults } from "./ICAResults";
@@ -11,11 +10,7 @@ import { useSearchableItems, createActionItem } from "@/hooks/useSearchable";
 import { handleError } from "@/utils/errorHandler";
 import { History, FolderOpen } from "lucide-react";
 
-interface ICAAnalysisPanelProps {
-  apiService: ApiService;
-}
-
-export function ICAAnalysisPanel({ apiService }: ICAAnalysisPanelProps) {
+export function ICAAnalysisPanel() {
   const selectedFile = useAppStore((state) => state.fileManager.selectedFile);
   const timeWindow = useAppStore(
     useShallow((state) => state.fileManager.timeWindow),
@@ -25,7 +20,7 @@ export function ICAAnalysisPanel({ apiService }: ICAAnalysisPanelProps) {
   const icaState = useAppStore(useShallow((state) => state.ica));
   const updateICAState = useAppStore((state) => state.updateICAState);
 
-  const ica = useICAWorkflow(apiService);
+  const ica = useICAWorkflow();
 
   // Destructure ICA state
   const {

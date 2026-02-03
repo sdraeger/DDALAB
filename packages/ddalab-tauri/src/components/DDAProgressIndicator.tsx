@@ -2,6 +2,7 @@
 
 import { useAppStore } from "@/store/appStore";
 import { useDDAProgress } from "@/hooks/useDDAAnalysis";
+import { mapStatusToPhase } from "@/types/api";
 import { Brain, Loader2 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
@@ -19,9 +20,12 @@ export function DDAProgressIndicator() {
     return null;
   }
 
-  const progress = progressEvent?.progress_percent || 0;
-  const currentStep = progressEvent?.current_step || "Initializing analysis...";
-  const phase = progressEvent?.phase || "preprocessing";
+  // Backend uses camelCase: progress, message, status
+  const progress = progressEvent?.progress || 0;
+  const currentStep = progressEvent?.message || "Initializing analysis...";
+  const phase = progressEvent
+    ? mapStatusToPhase(progressEvent.status)
+    : "preprocessing";
 
   return (
     <div className="fixed bottom-4 right-4 bg-background border border-border rounded-lg shadow-lg p-4 w-96 z-50">

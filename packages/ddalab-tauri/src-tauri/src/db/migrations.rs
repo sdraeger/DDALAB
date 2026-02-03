@@ -30,7 +30,8 @@ pub trait Migration: Send + Sync {
 }
 
 /// Registry of all migrations in order
-pub static ALL_MIGRATIONS: &[&dyn Migration] = &[&MigrateLegacyDDAParameters];
+pub static ALL_MIGRATIONS: &[&dyn Migration] =
+    &[&MigrateLegacyDDAParameters, &AddMsgpackBlobColumn];
 
 /// Migration runner that tracks and applies migrations
 pub struct MigrationRunner<'a> {
@@ -227,6 +228,34 @@ fn migrate_parameters_json(params_json: &str) -> Result<String> {
     }
 
     serde_json::to_string(&params).context("Failed to serialize migrated parameters")
+}
+
+/// Migration: Add msgpack_lz4 BLOB column for pre-serialized DDA results
+///
+/// Stores LZ4-compressed MessagePack binary directly in SQLite, avoiding:
+/// - JSON parsing (~1 second for 47MB)
+/// - MessagePack serialization (~400ms)
+/// - LZ4 compression (~600ms)
+///
+/// On read, we just return the blob directly - instant access.
+pub struct AddMsgpackBlobColumn;
+
+impl Migration for AddMsgpackBlobColumn {
+    fn version(&self) -> &'static str {
+        "20260130000001"
+    }
+
+    fn description(&self) -> &'static str {
+        "Add msgpack_lz4 BLOB column for pre-serialized DDA results"
+    }
+
+    fn up(&self, conn: &Connection) -> Result<()> {
+        conn.execute("ALTER TABLE analyses ADD COLUMN msgpack_lz4 BLOB", [])
+            .context("Failed to add msgpack_lz4 column")?;
+
+        log::info!("Added msgpack_lz4 column for fast DDA result loading");
+        Ok(())
+    }
 }
 
 #[cfg(test)]

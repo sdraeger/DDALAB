@@ -99,3 +99,34 @@ export function throttle<T extends (...args: any[]) => any>(
     }
   };
 }
+
+/**
+ * Yield control to the main thread to allow browser repaints.
+ * Use this in long-running loops or heavy operations to keep UI responsive.
+ *
+ * Uses scheduler.yield() when available (Chrome 115+), falls back to setTimeout(0).
+ *
+ * @example
+ * for (let i = 0; i < items.length; i++) {
+ *   processItem(items[i]);
+ *   if (i % 100 === 0) await yieldToMain();
+ * }
+ */
+export function yieldToMain(): Promise<void> {
+  // Use scheduler.yield() if available (Chrome 115+, more efficient)
+  if (
+    typeof scheduler !== "undefined" &&
+    typeof scheduler.yield === "function"
+  ) {
+    return scheduler.yield();
+  }
+  // Fallback to setTimeout(0) which yields to the event loop
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+// Add scheduler type declaration for TypeScript
+declare global {
+  const scheduler: {
+    yield?: () => Promise<void>;
+  };
+}

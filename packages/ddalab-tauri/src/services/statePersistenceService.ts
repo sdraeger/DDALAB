@@ -82,10 +82,15 @@ export class StatePersistenceService {
       // Throttle - schedule for later if not already scheduled
       if (!this.throttleTimer) {
         const delay = this.THROTTLE_MS - timeSinceLastSave;
-        this.throttleTimer = setTimeout(() => {
+        this.throttleTimer = setTimeout(async () => {
           this.throttleTimer = null;
           if (this.pendingSave) {
-            this.executeSave(this.pendingSave);
+            try {
+              await this.executeSave(this.pendingSave);
+            } catch (error) {
+              // Log but don't throw from setTimeout callback
+              console.error("Throttled save failed:", error);
+            }
           }
         }, delay);
       }

@@ -113,6 +113,25 @@ export const useOpenFilesStore = create<OpenFilesStore>()(
           await fileStateManager.loadFileState(filePath);
 
           set((state) => {
+            // Double-check for duplicates inside set() to prevent race conditions
+            // (another async openFile call may have added this file during loadFileState)
+            const alreadyExists = state.files.some(
+              (f) => f.filePath === filePath,
+            );
+            if (alreadyExists) {
+              // File was added by concurrent call, just make it active
+              state.activeFilePath = filePath;
+              state.isLoading = false;
+              const existingIdx = state.files.findIndex(
+                (f) => f.filePath === filePath,
+              );
+              if (existingIdx >= 0) {
+                state.files[existingIdx].lastActiveAt =
+                  new Date().toISOString();
+              }
+              return;
+            }
+
             // Check if we need to evict old files
             if (state.files.length >= maxOpenFiles) {
               // Find oldest non-pinned file
@@ -358,6 +377,31 @@ export const useOpenFilesStore = create<OpenFilesStore>()(
         files: state.files,
         activeFilePath: state.activeFilePath,
       }),
+      onRehydrateStorage: () => (state) => {
+        // Deduplicate files on rehydration (fixes corrupted localStorage state)
+        if (state?.files) {
+          const seen = new Set<string>();
+          const deduped: OpenFile[] = [];
+          for (const file of state.files) {
+            if (!seen.has(file.filePath)) {
+              seen.add(file.filePath);
+              deduped.push(file);
+            } else {
+              logger.warn("Removed duplicate file from persisted state", {
+                filePath: file.filePath,
+              });
+            }
+          }
+          if (deduped.length !== state.files.length) {
+            state.files = deduped;
+            logger.info("Deduplicated files on rehydration", {
+              before:
+                state.files.length + (state.files.length - deduped.length),
+              after: deduped.length,
+            });
+          }
+        }
+      },
     },
   ),
 );

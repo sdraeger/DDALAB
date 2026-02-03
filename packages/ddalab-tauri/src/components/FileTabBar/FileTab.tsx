@@ -12,6 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { AnalysisIndicator } from "./AnalysisIndicator";
 
 interface FileTabProps {
   file: OpenFile;
@@ -23,6 +24,7 @@ interface FileTabProps {
   onUnpin: (filePath: string) => void;
   onCloseOthers: (filePath: string) => void;
   onCloseToRight: (filePath: string) => void;
+  onNavigateToAnalysis?: (filePath: string) => void;
 }
 
 /**
@@ -41,6 +43,7 @@ export const FileTab = memo(
       onUnpin,
       onCloseOthers,
       onCloseToRight,
+      onNavigateToAnalysis,
       ...props
     },
     ref,
@@ -165,6 +168,16 @@ export const FileTab = memo(
           <span className="flex-1 truncate text-left text-xs font-medium">
             {file.fileName}
           </span>
+
+          {/* Analysis status indicator */}
+          <AnalysisIndicator
+            filePath={file.filePath}
+            onNavigateToAnalysis={
+              onNavigateToAnalysis
+                ? () => onNavigateToAnalysis(file.filePath)
+                : undefined
+            }
+          />
 
           {/* Modified indicator */}
           {file.isModified && (

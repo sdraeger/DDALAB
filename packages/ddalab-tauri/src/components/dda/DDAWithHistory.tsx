@@ -1,7 +1,15 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, startTransition } from "react";
-import { ApiService } from "@/services/apiService";
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  startTransition,
+  useDeferredValue,
+  lazy,
+  Suspense,
+} from "react";
 import { DDAResult } from "@/types/api";
 import { useScrollTrap } from "@/hooks/useScrollTrap";
 import { useDDAWithHistoryState } from "@/store/selectors";
@@ -13,18 +21,34 @@ import {
 } from "@/hooks/useDDAAnalysis";
 import { DDAHistorySidebar } from "./DDAHistorySidebar";
 import { DDAAnalysis } from "@/components/DDAAnalysis";
-import { DDAResults } from "@/components/DDAResults";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Loader2, Settings, BarChart3, Cloud, ArrowLeft } from "lucide-react";
+import { createLogger } from "@/lib/logger";
+import { normalizePath } from "@/utils/channelUtils";
+import { wasmHeatmapWorker } from "@/services/wasmHeatmapWorkerService";
 
-interface DDAWithHistoryProps {
-  apiService: ApiService;
-}
+// Pre-warm the heatmap worker when hovering over Results tab
+// This reduces cold-start latency when viewing results
+const handleResultsTabHover = () => {
+  wasmHeatmapWorker.warmup().catch(() => {
+    // Ignore warmup errors - worker will be initialized on first use anyway
+  });
+};
 
-export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
+// Lazy load DDAResults to defer heavy bundle loading until results tab is viewed
+// This significantly reduces initial render blocking
+const DDAResults = lazy(() =>
+  import("@/components/DDAResults").then((mod) => ({
+    default: mod.DDAResults,
+  })),
+);
+
+const logger = createLogger("DDAHistory");
+
+export function DDAWithHistory() {
   // Consolidated state selector - single subscription instead of 16 separate ones
   // Uses useShallow for shallow equality comparison to minimize re-renders
   const {
@@ -63,13 +87,13 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
   } = useScrollTrap({ activationDelay: 100 });
 
   // Fetch history from server using TanStack Query
-  const historyEnabled = isServerReady && !!apiService.getSessionToken();
+  const historyEnabled = isServerReady;
 
   const {
     data: allHistory,
     isLoading: historyLoading,
     refetch: refetchHistory,
-  } = useDDAHistory(apiService, historyEnabled);
+  } = useDDAHistory(historyEnabled);
 
   // Sync TanStack Query history to Zustand store for global search
   useEffect(() => {
@@ -81,10 +105,9 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
   // Handle pending analysis ID from global search
   useEffect(() => {
     if (pendingAnalysisId && pendingAnalysisId !== selectedAnalysisId) {
-      console.log(
-        "[DDA HISTORY] Loading analysis from global search:",
+      logger.debug("Loading analysis from global search", {
         pendingAnalysisId,
-      );
+      });
       setSelectedAnalysisId(pendingAnalysisId);
       setActiveTab("results");
       // Clear the pending ID after processing
@@ -94,12 +117,6 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
 
   // Memoize filtered history to prevent unnecessary re-renders
   const fileHistory = useMemo(() => {
-    // Normalize path for comparison (handle trailing slashes, backslashes, etc.)
-    const normalizePath = (path: string | undefined | null): string => {
-      if (!path) return "";
-      return path.replace(/\\/g, "/").replace(/\/+$/, "");
-    };
-
     const normalizedCurrentPath = normalizePath(currentFilePath);
     return (
       allHistory?.filter(
@@ -108,21 +125,42 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
     );
   }, [allHistory, currentFilePath]);
 
-  // Fetch full analysis data when a history item is selected
-  // TanStack Query will cache this and prevent duplicate requests
+  // Track if user has explicitly requested results (clicked history item or switched to results tab)
+  // This prevents auto-loading heavy data on initial tab visit
+  const [userRequestedResults, setUserRequestedResults] = useState(false);
+
+  // Fetch full analysis data when:
+  // 1. A history item is selected AND
+  // 2. Either:
+  //    a. It's different from the current analysis, OR
+  //    b. Current analysis data is not actually loaded (just the ID from persistence)
+  // 3. User has explicitly requested to view results (not just auto-select on tab open)
+  // This defers the heavy JSON parsing until user actually wants to see results
+  const needsToFetch =
+    selectedAnalysisId !== currentAnalysisId ||
+    (selectedAnalysisId === currentAnalysisId && !currentAnalysis?.results);
+
+  const shouldLoadFullData =
+    !!selectedAnalysisId &&
+    needsToFetch &&
+    (userRequestedResults || activeTab === "results");
+
   const {
-    data: selectedAnalysisData,
+    data: rawSelectedAnalysisData,
     isLoading: isLoadingAnalysis,
     isFetching: isFetchingAnalysis,
-  } = useAnalysisFromHistory(
-    apiService,
-    selectedAnalysisId,
-    !!selectedAnalysisId && selectedAnalysisId !== currentAnalysisId,
-  );
+  } = useAnalysisFromHistory(selectedAnalysisId, shouldLoadFullData);
+
+  // PERF: Defer the heavy analysis data to prevent UI blocking during React updates
+  // This allows the loading spinner to remain responsive while data is processed
+  const selectedAnalysisData = useDeferredValue(rawSelectedAnalysisData);
+
+  // Track if we're showing stale data while new data is being processed
+  const isProcessingData = rawSelectedAnalysisData !== selectedAnalysisData;
 
   // Mutations
-  const deleteAnalysisMutation = useDeleteAnalysis(apiService);
-  const renameAnalysisMutation = useRenameAnalysis(apiService);
+  const deleteAnalysisMutation = useDeleteAnalysis();
+  const renameAnalysisMutation = useRenameAnalysis();
 
   // Track previous currentAnalysisId to detect actual changes
   const prevCurrentAnalysisId = useRef<string | null | undefined>(null);
@@ -132,63 +170,29 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
     // Check if currentAnalysisId actually changed (not just a re-render)
     const currentAnalysisIdChanged =
       prevCurrentAnalysisId.current !== currentAnalysisId;
+    const filePathsMatch = currentAnalysisFilePath === currentFilePath;
 
-    console.log("[DDA HISTORY SYNC]");
-    console.log("  currentAnalysisId:", currentAnalysisId);
-    console.log("  selectedAnalysisId:", selectedAnalysisId);
-    console.log("  prevCurrentAnalysisId:", prevCurrentAnalysisId.current);
-    console.log("  currentAnalysisIdChanged:", currentAnalysisIdChanged);
-    console.log("  currentAnalysisFilePath:", currentAnalysisFilePath);
-    console.log("  currentFilePath:", currentFilePath);
-    console.log(
-      "  filePathsMatch:",
-      currentAnalysisFilePath === currentFilePath,
-    );
-
-    if (currentAnalysisFilePath === currentFilePath && currentAnalysisId) {
+    if (filePathsMatch && currentAnalysisId) {
       // ONLY sync when currentAnalysisId actually changed (new analysis completed)
       // This prevents overriding the user's manual selection from history
       if (
         currentAnalysisIdChanged &&
         selectedAnalysisId !== currentAnalysisId
       ) {
-        console.log(
-          "[DDA HISTORY] Syncing selectedAnalysisId to currentAnalysisId:",
-          currentAnalysisId,
-          "( changed:",
-          currentAnalysisIdChanged,
-          ")",
-        );
-        setSelectedAnalysisId(currentAnalysisId);
-      } else if (selectedAnalysisId === currentAnalysisId) {
-        console.log("[DDA HISTORY] Already in sync:", {
+        logger.debug("Syncing selection to current analysis", {
           currentAnalysisId: currentAnalysisId?.slice(0, 8),
-          selectedAnalysisId: selectedAnalysisId?.slice(0, 8),
         });
-      } else {
-        console.log(
-          "[DDA HISTORY] User has different selection, not overriding:",
-          {
-            currentAnalysisId: currentAnalysisId?.slice(0, 8),
-            selectedAnalysisId: selectedAnalysisId?.slice(0, 8),
-          },
-        );
+        setSelectedAnalysisId(currentAnalysisId);
       }
     } else if (!currentAnalysisId && fileHistory.length > 0) {
       // Auto-select most recent for this file
-      // Re-enabled now that backend is optimized (<50ms instead of 9s)
       const mostRecentId = fileHistory[0].id;
       if (selectedAnalysisId !== mostRecentId) {
-        console.log(
-          "[DDA HISTORY] Auto-selecting most recent analysis:",
-          mostRecentId,
-        );
+        logger.debug("Auto-selecting most recent analysis", { mostRecentId });
         setSelectedAnalysisId(mostRecentId);
       }
     } else if (!currentAnalysisId && selectedAnalysisId !== null) {
-      console.log(
-        "[DDA HISTORY] Clearing selectedAnalysisId (no current analysis)",
-      );
+      logger.debug("Clearing selection (no current analysis)");
       setSelectedAnalysisId(null);
     }
 
@@ -208,15 +212,10 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
   const lastSetAnalysisId = useRef<string | null>(null);
 
   useEffect(() => {
-    // Skip if no selected analysis data
-    if (!selectedAnalysisData) {
-      return;
-    }
+    if (!selectedAnalysisData) return;
 
     // Skip if this is the same analysis we just set (prevents duplicate calls)
-    if (lastSetAnalysisId.current === selectedAnalysisData.id) {
-      return;
-    }
+    if (lastSetAnalysisId.current === selectedAnalysisData.id) return;
 
     // Skip if this analysis is already the current one (prevents duplicate calls)
     if (currentAnalysisId === selectedAnalysisData.id) {
@@ -224,32 +223,46 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
       return;
     }
 
-    // Set the loaded analysis as current
-    setCurrentAnalysis(selectedAnalysisData);
+    // Set state with transition to keep UI responsive
+    startTransition(() => {
+      setCurrentAnalysis(selectedAnalysisData);
+    });
     lastSetAnalysisId.current = selectedAnalysisData.id;
   }, [selectedAnalysisData?.id, currentAnalysisId, setCurrentAnalysis]);
 
   const handleSelectAnalysis = (analysis: DDAResult) => {
     // Prevent multiple clicks while loading
     if (isLoadingAnalysis || isFetchingAnalysis) {
-      console.log("[DDA] Already loading, ignoring click");
       return;
     }
 
-    // Don't re-select the same analysis
+    logger.debug("Selecting analysis", { id: analysis.id });
+
+    // Mark that user explicitly requested results (enables full data loading)
+    // This must happen even if the analysis is already selected (e.g., by auto-select)
+    setUserRequestedResults(true);
+
+    // If already selected, just switch to results tab
     if (selectedAnalysisId === analysis.id) {
-      console.log("[DDA] Analysis already selected:", analysis.id);
+      startTransition(() => {
+        setActiveTab("results");
+      });
       return;
     }
 
-    console.log("[DDA] Selecting analysis:", analysis.id);
+    // CRITICAL: Switch to results tab FIRST to show loading overlay
+    // Then use RAF to yield to the browser before triggering the fetch
+    // This ensures the loading spinner renders and animates before
+    // Tauri's JSON deserialization blocks the main thread
+    setActiveTab("results");
 
-    // Use startTransition to mark this update as non-urgent
-    // This keeps the UI responsive during analysis switching
-    startTransition(() => {
-      setSelectedAnalysisId(analysis.id);
-      // Switch to Results tab when selecting from history
-      setActiveTab("results");
+    // Use double RAF to ensure the loading overlay is painted
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        startTransition(() => {
+          setSelectedAnalysisId(analysis.id);
+        });
+      });
     });
   };
 
@@ -272,7 +285,7 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
       // Refresh history
       await refetchHistory();
     } catch (error) {
-      console.error("[DDA] Failed to delete analysis:", error);
+      logger.error("Failed to delete analysis", { error });
     }
   };
 
@@ -284,7 +297,7 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
       });
       await refetchHistory();
     } catch (error) {
-      console.error("[DDA] Failed to rename analysis:", error);
+      logger.error("Failed to rename analysis", { error });
     }
   };
 
@@ -333,59 +346,44 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
   ]);
 
   // Auto-switch to Results tab when a new analysis completes
+  // Use startTransition to mark this as non-urgent, allowing the browser to paint first
   useEffect(() => {
     if (currentAnalysis && currentAnalysis.status === "completed") {
-      setActiveTab("results");
+      startTransition(() => {
+        setActiveTab("results");
+      });
     }
   }, [currentAnalysisId]);
 
-  // CRITICAL FIX: Deferred mounting to prevent UI freeze
-  // When analysis changes, hide results first, then show on next frame
-  // This allows browser to paint loading state before mounting heavy component
+  // Show results immediately when analysis is available
+  // The data loading already happens off-thread, no need for artificial delays
   useEffect(() => {
     if (displayAnalysis) {
-      // Hide results immediately
-      setShowResults(false);
-
-      // Show results on next animation frame
+      const t0 = performance.now();
+      console.log(
+        `[DDA UI] displayAnalysis changed to id=${displayAnalysis.id.slice(0, 8)}, showing results`,
+      );
+      // Use requestAnimationFrame to batch with next paint, avoiding layout thrashing
       const rafId = requestAnimationFrame(() => {
-        setShowResults(true);
+        startTransition(() => {
+          setShowResults(true);
+          console.log(
+            `[DDA UI] setShowResults(true) at t=${(performance.now() - t0).toFixed(1)}ms`,
+          );
+        });
       });
-
       return () => cancelAnimationFrame(rafId);
     } else {
       setShowResults(false);
     }
   }, [displayAnalysis?.id]);
 
-  // Log what we're about to display
+  // Debug log when display analysis changes (only log ID to reduce noise)
   useEffect(() => {
-    console.log("[DDA HISTORY] Display state changed:", {
-      selectedAnalysisId,
-      currentAnalysisId,
-      hasDisplayAnalysis: !!displayAnalysis,
-      displayAnalysisId: displayAnalysis?.id,
-      displaySource:
-        displayAnalysis?.id === currentAnalysisId
-          ? "currentAnalysis"
-          : "selectedAnalysisData",
-      hasResultsData: !!displayAnalysis?.results,
-      hasScales: !!displayAnalysis?.results?.scales,
-      scalesLength: displayAnalysis?.results?.scales?.length,
-      variantsCount: displayAnalysis?.results?.variants?.length,
-      hasMatrixData: !!displayAnalysis?.results?.variants?.[0]?.dda_matrix,
-      matrixChannels: displayAnalysis?.results?.variants?.[0]?.dda_matrix
-        ? Object.keys(displayAnalysis.results.variants[0].dda_matrix).length
-        : 0,
-      isLoadingAnalysis,
-      isFetchingAnalysis,
-    });
-  }, [
-    displayAnalysis?.id,
-    selectedAnalysisId,
-    isLoadingAnalysis,
-    isFetchingAnalysis,
-  ]);
+    if (displayAnalysis?.id) {
+      logger.debug("Display analysis changed", { id: displayAnalysis.id });
+    }
+  }, [displayAnalysis?.id]);
 
   return (
     <div className="flex h-full">
@@ -394,7 +392,12 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
         history={fileHistory}
         currentAnalysisId={currentAnalysisId || null}
         selectedAnalysisId={selectedAnalysisId}
-        isLoading={historyLoading || isLoadingAnalysis || isFetchingAnalysis}
+        isLoading={
+          historyLoading ||
+          isLoadingAnalysis ||
+          isFetchingAnalysis ||
+          isProcessingData
+        }
         isCollapsed={isHistoryCollapsed}
         onToggleCollapse={() => togglePanelCollapsed("dda-history")}
         onSelectAnalysis={handleSelectAnalysis}
@@ -419,6 +422,7 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
               value="results"
               className="flex items-center gap-2"
               disabled={!displayAnalysis}
+              onMouseEnter={handleResultsTabHover}
             >
               <BarChart3 className="h-4 w-4" />
               Results
@@ -435,7 +439,7 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
           >
             <div className="p-4 h-full">
               <ErrorBoundary>
-                <DDAAnalysis apiService={apiService} />
+                <DDAAnalysis />
               </ErrorBoundary>
             </div>
           </TabsContent>
@@ -449,14 +453,17 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
             style={resultsScrollProps.style}
           >
             {/* Show loading state when fetching from history (before displayAnalysis is available) */}
+            {/* Also show during data processing (structured clone from worker) */}
             {!displayAnalysis &&
-            (isLoadingAnalysis || isFetchingAnalysis) &&
+            (isLoadingAnalysis || isFetchingAnalysis || isProcessingData) &&
             selectedAnalysisId ? (
               <div className="flex items-center justify-center h-full min-h-[400px]">
                 <div className="text-center">
                   <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
                   <p className="text-sm text-muted-foreground">
-                    Loading analysis...
+                    {isProcessingData
+                      ? "Processing analysis data..."
+                      : "Loading analysis..."}
                   </p>
                 </div>
               </div>
@@ -480,8 +487,10 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
                 {/* Mount DDAResults only after RAF fires */}
                 {showResults && (
                   <>
-                    {/* Loading overlay for fetching data */}
-                    {(isLoadingAnalysis || isFetchingAnalysis) &&
+                    {/* Loading overlay for fetching/processing data */}
+                    {(isLoadingAnalysis ||
+                      isFetchingAnalysis ||
+                      isProcessingData) &&
                       selectedAnalysisId && (
                         <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center rounded-lg">
                           <div className="text-center">
@@ -519,8 +528,22 @@ export function DDAWithHistory({ apiService }: DDAWithHistoryProps) {
                       )}
 
                     {/* CRITICAL FIX: Add key prop to help React track component identity */}
+                    {/* Suspense wrapper for lazy-loaded DDAResults */}
                     <ErrorBoundary key={displayAnalysis.id}>
-                      <DDAResults result={displayAnalysis} />
+                      <Suspense
+                        fallback={
+                          <div className="flex items-center justify-center min-h-[400px]">
+                            <div className="text-center">
+                              <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
+                              <p className="text-sm text-muted-foreground">
+                                Loading visualization components...
+                              </p>
+                            </div>
+                          </div>
+                        }
+                      >
+                        <DDAResults result={displayAnalysis} />
+                      </Suspense>
                     </ErrorBoundary>
                   </>
                 )}

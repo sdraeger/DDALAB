@@ -1,6 +1,6 @@
 use crate::state_manager::AppStateManager;
-use ddalab_tauri::api::handlers::dda::DDARequest;
 use ddalab_tauri::db::{NSGJob, NSGJobStatus};
+use ddalab_tauri::nsg::models::DDARequest;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 

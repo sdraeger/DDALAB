@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiService } from "@/services/apiService";
+import { tauriBackendService } from "@/services/tauriBackendService";
 import { TauriService } from "@/services/tauriService";
 
 export interface HealthCheckResult {
@@ -12,35 +12,26 @@ export interface HealthCheckResult {
 // Query keys factory for health checks
 export const healthKeys = {
   all: ["health"] as const,
-  check: (baseURL: string) => [...healthKeys.all, "check", baseURL] as const,
+  check: () => [...healthKeys.all, "check"] as const,
 };
 
 // Health check hook with automatic polling
-export function useHealthCheck(
-  apiService: ApiService,
-  options?: {
-    enabled?: boolean;
-    refetchInterval?: number;
-    onHealthChange?: (isHealthy: boolean) => void;
-  },
-) {
+export function useHealthCheck(options?: {
+  enabled?: boolean;
+  refetchInterval?: number;
+  onHealthChange?: (isHealthy: boolean) => void;
+}) {
   return useQuery({
-    queryKey: healthKeys.check(apiService.baseURL),
+    queryKey: healthKeys.check(),
     queryFn: async (): Promise<HealthCheckResult> => {
       const startTime = Date.now();
 
       try {
-        // In Tauri, use the Tauri command instead of axios
-        // This avoids CORS and connection issues during startup
         if (TauriService.isTauri()) {
-          const isConnected = await TauriService.checkApiConnection(
-            apiService.baseURL,
-          );
+          // In Tauri mode, always healthy (no HTTP server needed)
+          // Optionally verify backend is responsive via IPC
+          await tauriBackendService.checkHealth();
           const responseTime = Date.now() - startTime;
-
-          if (!isConnected) {
-            throw new Error("Embedded API server not responding");
-          }
 
           return {
             isHealthy: true,
@@ -48,8 +39,8 @@ export function useHealthCheck(
             timestamp: Date.now(),
           };
         } else {
-          // For external mode, use regular HTTP request
-          await apiService.checkHealth();
+          // Non-Tauri mode (web browser) - backend service handles health check
+          await tauriBackendService.checkHealth();
           const responseTime = Date.now() - startTime;
 
           return {
@@ -83,22 +74,17 @@ export function useHealthCheck(
 }
 
 // Health check without polling (manual checks only)
-export function useHealthCheckManual(apiService: ApiService) {
+export function useHealthCheckManual() {
   return useQuery({
-    queryKey: healthKeys.check(apiService.baseURL),
+    queryKey: healthKeys.check(),
     queryFn: async (): Promise<HealthCheckResult> => {
       const startTime = Date.now();
 
       try {
         if (TauriService.isTauri()) {
-          const isConnected = await TauriService.checkApiConnection(
-            apiService.baseURL,
-          );
+          // In Tauri mode, verify backend is responsive via IPC
+          await tauriBackendService.checkHealth();
           const responseTime = Date.now() - startTime;
-
-          if (!isConnected) {
-            throw new Error("Embedded API server not responding");
-          }
 
           return {
             isHealthy: true,
@@ -106,7 +92,7 @@ export function useHealthCheckManual(apiService: ApiService) {
             timestamp: Date.now(),
           };
         } else {
-          await apiService.checkHealth();
+          await tauriBackendService.checkHealth();
           const responseTime = Date.now() - startTime;
 
           return {
@@ -139,11 +125,10 @@ export function useInvalidateHealthCheck() {
   const queryClient = useQueryClient();
 
   return {
-    invalidate: (baseURL: string) =>
-      queryClient.invalidateQueries({ queryKey: healthKeys.check(baseURL) }),
+    invalidate: () =>
+      queryClient.invalidateQueries({ queryKey: healthKeys.check() }),
     invalidateAll: () =>
       queryClient.invalidateQueries({ queryKey: healthKeys.all }),
-    refetch: (baseURL: string) =>
-      queryClient.refetchQueries({ queryKey: healthKeys.check(baseURL) }),
+    refetch: () => queryClient.refetchQueries({ queryKey: healthKeys.check() }),
   };
 }

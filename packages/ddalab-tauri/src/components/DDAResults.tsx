@@ -8,6 +8,8 @@ import {
   useMemo,
   memo,
   useTransition,
+  lazy,
+  Suspense,
 } from "react";
 import { useAppStore } from "@/store/appStore";
 import { profiler } from "@/utils/performance";
@@ -32,6 +34,7 @@ import { loggers } from "@/lib/logger";
 import { usePopoutWindows } from "@/hooks/usePopoutWindows";
 import { useDDAAnnotations } from "@/hooks/useAnnotations";
 import { useDDAExport } from "@/hooks/useDDAExport";
+import { useDDAChannelData } from "@/hooks/useDDAAnalysis";
 import { AnnotationContextMenu } from "@/components/annotations/AnnotationContextMenu";
 import { AnnotationMarker } from "@/components/annotations/AnnotationMarker";
 import { PlotInfo } from "@/types/annotations";
@@ -46,15 +49,43 @@ import { ShareResultDialog } from "@/components/dda/ShareResultDialog";
 import { ExportMenu } from "@/components/dda/ExportMenu";
 import { ColorRangeControl } from "@/components/dda/ColorRangeControl";
 import { PlotToolbar } from "@/components/dda/PlotToolbar";
-import {
-  DDAHeatmapPlot,
-  type DDAHeatmapPlotHandle,
-} from "@/components/dda/DDAHeatmapPlot";
-import {
-  DDALinePlot,
-  type DDALinePlotHandle,
-} from "@/components/dda/DDALinePlot";
-import { PhaseSpacePlot } from "@/components/dda/PhaseSpacePlot";
+// Lazy-load heavy plot components to prevent bundle evaluation blocking UI
+// These components import uPlot which has significant module initialization cost
+// By lazy-loading, the uPlot bundle only loads when plots are actually rendered
+const DDAHeatmapPlot = lazy(() => {
+  const t0 = performance.now();
+  console.log("[DDA LAZY] Starting DDAHeatmapPlot import...");
+  return import("@/components/dda/DDAHeatmapPlot").then((mod) => {
+    console.log(
+      `[DDA LAZY] DDAHeatmapPlot loaded in ${(performance.now() - t0).toFixed(1)}ms`,
+    );
+    return { default: mod.DDAHeatmapPlot };
+  });
+});
+const DDALinePlot = lazy(() => {
+  const t0 = performance.now();
+  console.log("[DDA LAZY] Starting DDALinePlot import...");
+  return import("@/components/dda/DDALinePlot").then((mod) => {
+    console.log(
+      `[DDA LAZY] DDALinePlot loaded in ${(performance.now() - t0).toFixed(1)}ms`,
+    );
+    return { default: mod.DDALinePlot };
+  });
+});
+const PhaseSpacePlot = lazy(() => {
+  const t0 = performance.now();
+  console.log("[DDA LAZY] Starting PhaseSpacePlot import...");
+  return import("@/components/dda/PhaseSpacePlot").then((mod) => {
+    console.log(
+      `[DDA LAZY] PhaseSpacePlot loaded in ${(performance.now() - t0).toFixed(1)}ms`,
+    );
+    return { default: mod.PhaseSpacePlot };
+  });
+});
+
+// Type-only imports for handles (no runtime cost)
+import type { DDAHeatmapPlotHandle } from "@/components/dda/DDAHeatmapPlot";
+import type { DDALinePlotHandle } from "@/components/dda/DDALinePlot";
 
 interface DDAResultsProps {
   result: DDAResult;
@@ -65,6 +96,11 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   // Progressive rendering to prevent UI freeze
   // Render controls first, defer heavy plot containers to next frame
   const [showPlots, setShowPlots] = useState(false);
+
+  // Staggered plot loading to prevent simultaneous WASM computations
+  // Heatmap loads first, then lineplot after a delay
+  const [showHeatmap, setShowHeatmap] = useState(false);
+  const [showLinePlot, setShowLinePlot] = useState(false);
 
   // useTransition for non-blocking heavy state updates
   // This allows the UI to remain responsive while processing channel/variant changes
@@ -163,12 +199,35 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   );
 
   // CRITICAL FIX: Progressive rendering - defer plot containers to prevent UI freeze
-  // Render controls first, then mount heavy plot containers on next frame
+  // Use longer delays to ensure browser can process input events between chunks
+  // Each setTimeout creates a new task, allowing event loop to handle input
+  // Note: Data loading state is handled in render logic, not here
   useEffect(() => {
-    const rafId = requestAnimationFrame(() => {
+    let timeoutIds: ReturnType<typeof setTimeout>[] = [];
+
+    // First delay: Let the component fully mount and browser process initial render
+    const t1 = setTimeout(() => {
       setShowPlots(true);
-    });
-    return () => cancelAnimationFrame(rafId);
+    }, 16); // One frame delay
+    timeoutIds.push(t1);
+
+    // Second delay: Mount heatmap after plots container is ready
+    // 100ms gives browser time to process showPlots render + handle input
+    const t2 = setTimeout(() => {
+      setShowHeatmap(true);
+    }, 150);
+    timeoutIds.push(t2);
+
+    // Third delay: Mount line plot after heatmap has started its async work
+    // 300ms total ensures heatmap worker is running before lineplot starts
+    const t3 = setTimeout(() => {
+      setShowLinePlot(true);
+    }, 350);
+    timeoutIds.push(t3);
+
+    return () => {
+      timeoutIds.forEach(clearTimeout);
+    };
   }, []);
 
   // Persist plot heights to localStorage with debouncing
@@ -212,46 +271,55 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   }, []);
 
   // Get available channels from the CURRENT variant's dda_matrix (source of truth)
-  // NOTE: This needs to be computed AFTER currentVariantData, so we'll move it later
-
-  const [selectedChannels, setSelectedChannels] = useState<string[]>(() => {
-    const firstVariant = result.results.variants[0];
-    if (firstVariant && firstVariant.dda_matrix) {
-      return Object.keys(firstVariant.dda_matrix);
-    }
-    return result.channels;
-  });
+  // IMPORTANT: Initialize empty to avoid blocking - will be populated via useEffect
+  const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
+  const [channelsInitialized, setChannelsInitialized] = useState(false);
 
   const [selectedVariant, setSelectedVariant] = useState<number>(0);
   const [colorRange, setColorRange] = useState<[number, number]>([0, 1]);
   const [autoScale, setAutoScale] = useState(true);
 
-  const availableVariants = useMemo(() => {
-    if (result.results.variants && result.results.variants.length > 0) {
-      return [...result.results.variants].sort((a, b) => {
-        const orderA = VARIANT_ORDER[a.variant_id] ?? 99;
-        const orderB = VARIANT_ORDER[b.variant_id] ?? 99;
-        return orderA - orderB;
-      });
-    }
-    // Fallback to legacy format
-    if (result.results.dda_matrix) {
-      return [
-        {
-          variant_id: "legacy",
-          variant_name: "Combined Results",
-          dda_matrix: result.results.dda_matrix,
-          exponents: result.results.exponents || {},
-          quality_metrics: result.results.quality_metrics || {},
-        },
-      ];
-    }
-    return [];
-  }, [result.id]); // Only recalculate when result.id changes, not when object ref changes
+  // PERFORMANCE: Use state + deferred effect instead of useMemo for heavy computations
+  // This allows the skeleton to render immediately, then compute variants in next frame
+  const [availableVariants, setAvailableVariants] = useState<
+    typeof result.results.variants
+  >([]);
+
+  // Defer variant computation to avoid blocking initial render
+  // Use setTimeout (not RAF) to create a new task that doesn't block current frame
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      let variants: typeof result.results.variants = [];
+
+      if (result.results.variants && result.results.variants.length > 0) {
+        variants = [...result.results.variants].sort((a, b) => {
+          const orderA = VARIANT_ORDER[a.variant_id] ?? 99;
+          const orderB = VARIANT_ORDER[b.variant_id] ?? 99;
+          return orderA - orderB;
+        });
+      } else if (result.results.dda_matrix) {
+        // Fallback to legacy format
+        variants = [
+          {
+            variant_id: "legacy",
+            variant_name: "Combined Results",
+            dda_matrix: result.results.dda_matrix,
+            exponents: result.results.exponents || {},
+            quality_metrics: result.results.quality_metrics || {},
+          },
+        ];
+      }
+
+      setAvailableVariants(variants);
+    }, 0); // setTimeout(0) creates a new macrotask, allowing input events to process
+
+    return () => clearTimeout(timeoutId);
+  }, [result.id]); // Only recalculate when result.id changes
 
   // Safe scales array - derives from dda_matrix if scales is missing from stored results
-  const safeScales = useMemo((): number[] => {
-    // Use existing scales if available
+  // Use state + effect to avoid blocking with Object.values()
+  const [safeScales, setSafeScales] = useState<number[]>(() => {
+    // Only use pre-existing scales synchronously (they're already an array)
     const originalScales = result.results?.scales;
     if (
       originalScales &&
@@ -260,26 +328,23 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     ) {
       return originalScales;
     }
-
-    // Derive scales from dda_matrix data if available
-    const firstVariant = availableVariants[0];
-    if (firstVariant?.dda_matrix) {
-      const firstChannel = Object.values(firstVariant.dda_matrix)[0];
-      if (Array.isArray(firstChannel) && firstChannel.length > 0) {
-        return Array.from({ length: firstChannel.length }, (_, i) => i);
-      }
-    }
-
     return [];
-  }, [result.results?.scales, availableVariants]);
+  });
 
   // Generate available plots for annotation visibility
-  const availablePlots = useMemo<PlotInfo[]>(() => {
+  // PERFORMANCE: Defer until variants are loaded to avoid blocking initial render
+  const [availablePlots, setAvailablePlots] = useState<PlotInfo[]>([
+    { id: "timeseries", label: "Data Visualization" },
+  ]);
+
+  useEffect(() => {
+    if (availableVariants.length === 0) return;
+
     const plots: PlotInfo[] = [
       { id: "timeseries", label: "Data Visualization" },
     ];
 
-    // Add all DDA variant plots - use for...of for better performance
+    // Add all DDA variant plots
     for (const variant of availableVariants) {
       plots.push({
         id: `dda:${variant.variant_id}:heatmap`,
@@ -291,7 +356,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       });
     }
 
-    return plots;
+    setAvailablePlots(plots);
   }, [availableVariants]);
 
   // Memoize current variant data to prevent re-renders when variant hasn't changed
@@ -300,25 +365,122 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     [availableVariants, selectedVariant],
   );
 
-  // Get available channels from the CURRENT variant's dda_matrix
-  const availableChannels = useMemo(() => {
-    if (currentVariantData?.dda_matrix) {
-      return Object.keys(currentVariantData.dda_matrix);
+  // Get available channels from result metadata (always available)
+  // This is the list of channels the analysis was run on
+  const [availableChannels, setAvailableChannels] = useState<string[]>(
+    () => result.channels || [],
+  );
+
+  // PROGRESSIVE LOADING: Fetch channel data on-demand from worker cache
+  // The metadata (result) is loaded instantly, but the large dda_matrix data
+  // is fetched separately to avoid blocking the UI with structured clone
+  const {
+    data: channelData,
+    isLoading: isLoadingChannelData,
+    isFetching: isFetchingChannelData,
+  } = useDDAChannelData(
+    result.id,
+    currentVariantData?.variant_id,
+    selectedChannels,
+    // Only fetch when we have selected channels and the variant is ready
+    selectedChannels.length > 0 && !!currentVariantData?.variant_id,
+  );
+
+  // Merge fetched channel data with variant metadata for rendering
+  // This creates a complete dda_matrix from progressively loaded data
+  const effectiveDDAMatrix = useMemo((): Record<string, number[]> => {
+    // If we have fetched channel data, use it
+    if (channelData?.ddaMatrix) {
+      return channelData.ddaMatrix;
     }
-    return result.channels;
-  }, [currentVariantData?.dda_matrix, result.channels]);
+    // Fallback to variant's dda_matrix (may be populated for new/live results)
+    return currentVariantData?.dda_matrix || {};
+  }, [channelData?.ddaMatrix, currentVariantData?.dda_matrix]);
 
-  // Update selectedChannels when variant changes
+  // Initialize scales from result metadata (window_indices)
+  // PROGRESSIVE LOADING: scales come from metadata, not from dda_matrix
   useEffect(() => {
-    if (!currentVariantData?.dda_matrix) return;
+    const rafId = requestAnimationFrame(() => {
+      // Use window_indices from metadata (primary)
+      const windowIndices = result.results?.window_indices;
+      if (
+        windowIndices &&
+        Array.isArray(windowIndices) &&
+        windowIndices.length > 0
+      ) {
+        setSafeScales(windowIndices);
+        return;
+      }
 
-    setSelectedChannels((prev) => {
-      const hasChanged =
-        prev.length !== availableChannels.length ||
-        prev.some((ch, i) => ch !== availableChannels[i]);
-      return hasChanged ? availableChannels : prev;
+      // Fallback to scales (legacy)
+      const originalScales = result.results?.scales;
+      if (
+        originalScales &&
+        Array.isArray(originalScales) &&
+        originalScales.length > 0
+      ) {
+        setSafeScales(originalScales);
+        return;
+      }
+
+      // Last resort: derive from fetched channel data
+      if (channelData?.windowIndices && channelData.windowIndices.length > 0) {
+        setSafeScales(channelData.windowIndices);
+      }
     });
-  }, [currentVariantData?.variant_id, result.id, availableChannels]);
+
+    return () => cancelAnimationFrame(rafId);
+  }, [
+    result.results?.window_indices,
+    result.results?.scales,
+    channelData?.windowIndices,
+  ]);
+
+  // Initialize available channels from result metadata
+  // PROGRESSIVE LOADING: channel list comes from metadata, not from dda_matrix
+  useEffect(() => {
+    const rafId = requestAnimationFrame(() => {
+      // Use channels from result metadata (always available)
+      const channels = result.channels || [];
+      if (channels.length > 0) {
+        setAvailableChannels(channels);
+
+        // Initialize selected channels on first load
+        if (!channelsInitialized) {
+          setSelectedChannels(channels);
+          setChannelsInitialized(true);
+        }
+      }
+    });
+
+    return () => cancelAnimationFrame(rafId);
+  }, [result.channels, channelsInitialized]);
+
+  // Update selectedChannels when variant changes (after initial load)
+  // PROGRESSIVE LOADING: Use result.channels as the source of truth
+  useEffect(() => {
+    if (!channelsInitialized) return;
+
+    // Defer channel update to avoid blocking
+    const rafId = requestAnimationFrame(() => {
+      const channels = result.channels || [];
+      if (channels.length === 0) return;
+
+      setSelectedChannels((prev) => {
+        const hasChanged =
+          prev.length !== channels.length ||
+          prev.some((ch, i) => ch !== channels[i]);
+        return hasChanged ? channels : prev;
+      });
+    });
+
+    return () => cancelAnimationFrame(rafId);
+  }, [
+    currentVariantData?.variant_id,
+    result.id,
+    result.channels,
+    channelsInitialized,
+  ]);
 
   // Reset view mode to default when switching to a variant that doesn't support the current view
 
@@ -326,12 +488,14 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   const currentVariantId = currentVariantData?.variant_id || "legacy";
 
   // Annotation hooks for heatmap and line plot
+  // Only enable when respective plots are shown to avoid blocking initial render
   const heatmapAnnotations = useDDAAnnotations({
     resultId: result.id,
     variantId: currentVariantId,
     plotType: "heatmap",
     ddaResult: result,
     sampleRate: sampleRate,
+    enabled: showHeatmap, // Skip computation until heatmap is mounted
   });
 
   const linePlotAnnotations = useDDAAnnotations({
@@ -340,6 +504,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     plotType: "line",
     ddaResult: result,
     sampleRate: sampleRate,
+    enabled: showLinePlot, // Skip computation until line plot is mounted
   });
 
   // Export functionality hook - extracts all export/share/popout logic
@@ -501,13 +666,16 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       </Card>
 
       {/* Visualization Area - Deferred rendering to prevent UI freeze */}
-      {!showPlots && (
+      {/* Show loading state when data is being fetched OR when progressive rendering hasn't started */}
+      {(!showPlots || isLoadingChannelData || isFetchingChannelData) && (
         <Card className="mt-4 animate-fade-in">
           <CardContent className="flex items-center justify-center p-12">
             <div className="text-center">
               <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
               <p className="text-sm text-muted-foreground">
-                Initializing visualization...
+                {isLoadingChannelData || isFetchingChannelData
+                  ? "Loading analysis data..."
+                  : "Initializing visualization..."}
               </p>
             </div>
           </CardContent>
@@ -559,297 +727,373 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
               {/* Only render plots for the active variant to avoid running effects for invisible tabs */}
               {index === selectedVariant ? (
                 <div className="space-y-4">
-                  {/* Heatmap */}
-                  {(viewMode === "heatmap" || viewMode === "all") && (
-                    <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-base">
-                          DDA Matrix Heatmap - {variant.variant_name}
-                        </CardTitle>
-                        <CardDescription>
-                          Log-transformed DDA matrix values across time points
-                          and channels
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <DDAHeatmapPlot
-                          ref={heatmapPlotRef}
-                          variantId={variant.variant_id}
-                          ddaMatrix={variant.dda_matrix || {}}
-                          selectedChannels={selectedChannels}
-                          scales={safeScales}
-                          colorScheme={colorScheme}
-                          colorRange={colorRange}
-                          autoScale={autoScale}
-                          onColorRangeChange={setColorRange}
-                          height={heatmapHeight}
-                          onContextMenu={heatmapAnnotations.openContextMenu}
-                        >
-                          {/* Annotation overlay - Tabs view */}
-                          {heatmapPlotRef.current?.getUplotInstance() &&
-                            heatmapAnnotations.annotations.length > 0 && (
-                              <svg
-                                className="absolute top-0 left-0"
-                                style={{
-                                  width:
-                                    heatmapPlotRef.current.getContainerRef()
-                                      ?.clientWidth || 0,
-                                  height:
-                                    heatmapPlotRef.current.getContainerRef()
-                                      ?.clientHeight || 0,
-                                  pointerEvents: "none",
-                                }}
-                              >
-                                {heatmapAnnotations.annotations.map(
-                                  (annotation) => {
-                                    if (safeScales.length === 0) return null;
-                                    const u =
-                                      heatmapPlotRef.current?.getUplotInstance();
-                                    if (!u) return null;
-
-                                    const bbox = u.bbox;
-                                    if (!bbox) return null;
-
-                                    const canvasX = u.valToPos(
-                                      annotation.position,
-                                      "x",
-                                    );
-                                    if (
-                                      canvasX === null ||
-                                      canvasX === undefined ||
-                                      !isFinite(canvasX)
-                                    )
-                                      return null;
-
-                                    const xPosition = canvasX + bbox.left;
-                                    const yOffset = bbox.top;
-                                    const plotHeight = bbox.height;
-
-                                    return (
-                                      <AnnotationMarker
-                                        key={annotation.id}
-                                        annotation={annotation}
-                                        plotHeight={plotHeight}
-                                        xPosition={xPosition}
-                                        yOffset={yOffset}
-                                        onRightClick={(e, ann) => {
-                                          e.preventDefault();
-                                          heatmapAnnotations.openContextMenu(
-                                            e.clientX,
-                                            e.clientY,
-                                            ann.position,
-                                            ann,
-                                          );
-                                        }}
-                                        onClick={(ann) => {
-                                          const rect = heatmapPlotRef.current
-                                            ?.getContainerRef()
-                                            ?.getBoundingClientRect();
-                                          if (rect) {
-                                            heatmapAnnotations.handleAnnotationClick(
-                                              ann,
-                                              rect.left + xPosition,
-                                              rect.top + 50,
-                                            );
-                                          }
-                                        }}
-                                      />
-                                    );
-                                  },
-                                )}
-                              </svg>
-                            )}
-                        </DDAHeatmapPlot>
-
-                        <ResizeHandle
-                          plotType="heatmap"
-                          currentHeight={heatmapHeight}
-                          onHeightChange={(newHeight) => {
-                            setHeatmapHeight(newHeight);
-                            const u =
-                              heatmapPlotRef.current?.getUplotInstance();
-                            if (u) {
-                              u.setSize({
-                                width: u.width,
-                                height: newHeight,
-                              });
+                  {/* Heatmap loading placeholder - shown during progressive rendering OR data fetch */}
+                  {(viewMode === "heatmap" || viewMode === "all") &&
+                    (!showHeatmap ||
+                      isLoadingChannelData ||
+                      isFetchingChannelData) && (
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-base">
+                            DDA Matrix Heatmap - {variant.variant_name}
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <PlotLoadingSkeleton
+                            height={heatmapHeight}
+                            title={
+                              isLoadingChannelData || isFetchingChannelData
+                                ? "Loading analysis data..."
+                                : "Preparing heatmap..."
                             }
-                          }}
-                        />
-
-                        {/* Annotation context menu */}
-                        {heatmapAnnotations.contextMenu && (
-                          <AnnotationContextMenu
-                            x={heatmapAnnotations.contextMenu.x}
-                            y={heatmapAnnotations.contextMenu.y}
-                            plotPosition={
-                              heatmapAnnotations.contextMenu.plotPosition
-                            }
-                            existingAnnotation={
-                              heatmapAnnotations.contextMenu.annotation
-                            }
-                            onCreateAnnotation={
-                              heatmapAnnotations.handleCreateAnnotation
-                            }
-                            onEditAnnotation={
-                              heatmapAnnotations.handleUpdateAnnotation
-                            }
-                            onDeleteAnnotation={
-                              heatmapAnnotations.handleDeleteAnnotation
-                            }
-                            onClose={heatmapAnnotations.closeContextMenu}
-                            availablePlots={heatmapAnnotations.availablePlots}
-                            currentPlotId={heatmapAnnotations.currentPlotId}
                           />
-                        )}
-                      </CardContent>
-                    </Card>
-                  )}
+                        </CardContent>
+                      </Card>
+                    )}
+                  {/* Heatmap - uses staggered loading to prevent simultaneous WASM calls */}
+                  {(viewMode === "heatmap" || viewMode === "all") &&
+                    showHeatmap &&
+                    !isLoadingChannelData &&
+                    !isFetchingChannelData && (
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-base">
+                            DDA Matrix Heatmap - {variant.variant_name}
+                          </CardTitle>
+                          <CardDescription>
+                            Log-transformed DDA matrix values across time points
+                            and channels
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <Suspense
+                            fallback={
+                              <PlotLoadingSkeleton
+                                height={heatmapHeight}
+                                title="Loading heatmap component..."
+                              />
+                            }
+                          >
+                            <DDAHeatmapPlot
+                              ref={heatmapPlotRef}
+                              variantId={variant.variant_id}
+                              ddaMatrix={effectiveDDAMatrix}
+                              selectedChannels={selectedChannels}
+                              scales={safeScales}
+                              colorScheme={colorScheme}
+                              colorRange={colorRange}
+                              autoScale={autoScale}
+                              onColorRangeChange={setColorRange}
+                              height={heatmapHeight}
+                              onContextMenu={heatmapAnnotations.openContextMenu}
+                            >
+                              {/* Annotation overlay - Tabs view */}
+                              {heatmapPlotRef.current?.getUplotInstance() &&
+                                heatmapAnnotations.annotations.length > 0 && (
+                                  <svg
+                                    className="absolute top-0 left-0"
+                                    style={{
+                                      width:
+                                        heatmapPlotRef.current.getContainerRef()
+                                          ?.clientWidth || 0,
+                                      height:
+                                        heatmapPlotRef.current.getContainerRef()
+                                          ?.clientHeight || 0,
+                                      pointerEvents: "none",
+                                    }}
+                                  >
+                                    {heatmapAnnotations.annotations.map(
+                                      (annotation) => {
+                                        if (safeScales.length === 0)
+                                          return null;
+                                        const u =
+                                          heatmapPlotRef.current?.getUplotInstance();
+                                        if (!u) return null;
 
-                  {/* Line Plot */}
-                  {(viewMode === "lineplot" || viewMode === "all") && (
-                    <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-base">
-                          DDA Time Series - {variant.variant_name}
-                        </CardTitle>
-                        <CardDescription>
-                          DDA output time series - one line per channel (each
-                          row of the DDA matrix)
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <DDALinePlot
-                          ref={linePlotPlotRef}
-                          variantId={variant.variant_id}
-                          ddaMatrix={variant.dda_matrix || {}}
-                          selectedChannels={selectedChannels}
-                          scales={safeScales}
-                          height={linePlotHeight}
-                          onContextMenu={linePlotAnnotations.openContextMenu}
-                        >
-                          {/* Annotation overlay - Tabs view */}
-                          {linePlotPlotRef.current?.getUplotInstance() &&
-                            linePlotAnnotations.annotations.length > 0 && (
-                              <svg
-                                className="absolute top-0 left-0"
-                                style={{
-                                  width:
-                                    linePlotPlotRef.current.getContainerRef()
-                                      ?.clientWidth || 0,
-                                  height:
-                                    linePlotPlotRef.current.getContainerRef()
-                                      ?.clientHeight || 0,
-                                  pointerEvents: "none",
-                                }}
-                              >
-                                {linePlotAnnotations.annotations.map(
-                                  (annotation) => {
-                                    if (safeScales.length === 0) return null;
-                                    const u =
-                                      linePlotPlotRef.current?.getUplotInstance();
-                                    if (!u) return null;
+                                        const bbox = u.bbox;
+                                        if (!bbox) return null;
 
-                                    const bbox = u.bbox;
-                                    if (!bbox) return null;
+                                        const canvasX = u.valToPos(
+                                          annotation.position,
+                                          "x",
+                                        );
+                                        if (
+                                          canvasX === null ||
+                                          canvasX === undefined ||
+                                          !isFinite(canvasX)
+                                        )
+                                          return null;
 
-                                    const canvasX = u.valToPos(
-                                      annotation.position,
-                                      "x",
-                                    );
-                                    if (
-                                      canvasX === null ||
-                                      canvasX === undefined ||
-                                      !isFinite(canvasX)
-                                    )
-                                      return null;
+                                        const xPosition = canvasX + bbox.left;
+                                        const yOffset = bbox.top;
+                                        const plotHeight = bbox.height;
 
-                                    const xPosition = canvasX + bbox.left;
-                                    const yOffset = bbox.top;
-                                    const plotHeight = bbox.height;
-
-                                    return (
-                                      <AnnotationMarker
-                                        key={annotation.id}
-                                        annotation={annotation}
-                                        plotHeight={plotHeight}
-                                        xPosition={xPosition}
-                                        yOffset={yOffset}
-                                        onRightClick={(e, ann) => {
-                                          e.preventDefault();
-                                          linePlotAnnotations.openContextMenu(
-                                            e.clientX,
-                                            e.clientY,
-                                            ann.position,
-                                            ann,
-                                          );
-                                        }}
-                                        onClick={(ann) => {
-                                          const rect = linePlotPlotRef.current
-                                            ?.getContainerRef()
-                                            ?.getBoundingClientRect();
-                                          if (rect) {
-                                            linePlotAnnotations.handleAnnotationClick(
-                                              ann,
-                                              rect.left + xPosition,
-                                              rect.top + 50,
-                                            );
-                                          }
-                                        }}
-                                      />
-                                    );
-                                  },
+                                        return (
+                                          <AnnotationMarker
+                                            key={annotation.id}
+                                            annotation={annotation}
+                                            plotHeight={plotHeight}
+                                            xPosition={xPosition}
+                                            yOffset={yOffset}
+                                            onRightClick={(e, ann) => {
+                                              e.preventDefault();
+                                              heatmapAnnotations.openContextMenu(
+                                                e.clientX,
+                                                e.clientY,
+                                                ann.position,
+                                                ann,
+                                              );
+                                            }}
+                                            onClick={(ann) => {
+                                              const rect =
+                                                heatmapPlotRef.current
+                                                  ?.getContainerRef()
+                                                  ?.getBoundingClientRect();
+                                              if (rect) {
+                                                heatmapAnnotations.handleAnnotationClick(
+                                                  ann,
+                                                  rect.left + xPosition,
+                                                  rect.top + 50,
+                                                );
+                                              }
+                                            }}
+                                          />
+                                        );
+                                      },
+                                    )}
+                                  </svg>
                                 )}
-                              </svg>
-                            )}
-                        </DDALinePlot>
+                            </DDAHeatmapPlot>
+                          </Suspense>
 
-                        <ResizeHandle
-                          plotType="lineplot"
-                          currentHeight={linePlotHeight}
-                          onHeightChange={(newHeight) => {
-                            setLinePlotHeight(newHeight);
-                            const u =
-                              linePlotPlotRef.current?.getUplotInstance();
-                            if (u) {
-                              u.setSize({
-                                width: u.width,
-                                height: newHeight,
-                              });
-                            }
-                          }}
-                        />
-
-                        {/* Annotation context menu */}
-                        {linePlotAnnotations.contextMenu && (
-                          <AnnotationContextMenu
-                            x={linePlotAnnotations.contextMenu.x}
-                            y={linePlotAnnotations.contextMenu.y}
-                            plotPosition={
-                              linePlotAnnotations.contextMenu.plotPosition
-                            }
-                            existingAnnotation={
-                              linePlotAnnotations.contextMenu.annotation
-                            }
-                            onCreateAnnotation={
-                              linePlotAnnotations.handleCreateAnnotation
-                            }
-                            onEditAnnotation={
-                              linePlotAnnotations.handleUpdateAnnotation
-                            }
-                            onDeleteAnnotation={
-                              linePlotAnnotations.handleDeleteAnnotation
-                            }
-                            onClose={linePlotAnnotations.closeContextMenu}
-                            availablePlots={availablePlots}
-                            currentPlotId={`dda:${
-                              getCurrentVariantData()?.variant_id
-                            }:lineplot`}
+                          <ResizeHandle
+                            plotType="heatmap"
+                            currentHeight={heatmapHeight}
+                            onHeightChange={(newHeight) => {
+                              setHeatmapHeight(newHeight);
+                              const u =
+                                heatmapPlotRef.current?.getUplotInstance();
+                              if (u) {
+                                u.setSize({
+                                  width: u.width,
+                                  height: newHeight,
+                                });
+                              }
+                            }}
                           />
-                        )}
-                      </CardContent>
-                    </Card>
-                  )}
+
+                          {/* Annotation context menu */}
+                          {heatmapAnnotations.contextMenu && (
+                            <AnnotationContextMenu
+                              x={heatmapAnnotations.contextMenu.x}
+                              y={heatmapAnnotations.contextMenu.y}
+                              plotPosition={
+                                heatmapAnnotations.contextMenu.plotPosition
+                              }
+                              existingAnnotation={
+                                heatmapAnnotations.contextMenu.annotation
+                              }
+                              onCreateAnnotation={
+                                heatmapAnnotations.handleCreateAnnotation
+                              }
+                              onEditAnnotation={
+                                heatmapAnnotations.handleUpdateAnnotation
+                              }
+                              onDeleteAnnotation={
+                                heatmapAnnotations.handleDeleteAnnotation
+                              }
+                              onClose={heatmapAnnotations.closeContextMenu}
+                              availablePlots={heatmapAnnotations.availablePlots}
+                              currentPlotId={heatmapAnnotations.currentPlotId}
+                            />
+                          )}
+                        </CardContent>
+                      </Card>
+                    )}
+
+                  {/* Line Plot loading placeholder - shown during progressive rendering OR data fetch */}
+                  {(viewMode === "lineplot" || viewMode === "all") &&
+                    (!showLinePlot ||
+                      isLoadingChannelData ||
+                      isFetchingChannelData) && (
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-base">
+                            DDA Time Series - {variant.variant_name}
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <PlotLoadingSkeleton
+                            height={linePlotHeight}
+                            title={
+                              isLoadingChannelData || isFetchingChannelData
+                                ? "Loading analysis data..."
+                                : "Preparing line plot..."
+                            }
+                          />
+                        </CardContent>
+                      </Card>
+                    )}
+                  {/* Line Plot - uses staggered loading to prevent simultaneous WASM calls */}
+                  {(viewMode === "lineplot" || viewMode === "all") &&
+                    showLinePlot &&
+                    !isLoadingChannelData &&
+                    !isFetchingChannelData && (
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-base">
+                            DDA Time Series - {variant.variant_name}
+                          </CardTitle>
+                          <CardDescription>
+                            DDA output time series - one line per channel (each
+                            row of the DDA matrix)
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <Suspense
+                            fallback={
+                              <PlotLoadingSkeleton
+                                height={linePlotHeight}
+                                title="Loading line plot component..."
+                              />
+                            }
+                          >
+                            <DDALinePlot
+                              ref={linePlotPlotRef}
+                              variantId={variant.variant_id}
+                              ddaMatrix={effectiveDDAMatrix}
+                              selectedChannels={selectedChannels}
+                              scales={safeScales}
+                              height={linePlotHeight}
+                              onContextMenu={
+                                linePlotAnnotations.openContextMenu
+                              }
+                            >
+                              {/* Annotation overlay - Tabs view */}
+                              {linePlotPlotRef.current?.getUplotInstance() &&
+                                linePlotAnnotations.annotations.length > 0 && (
+                                  <svg
+                                    className="absolute top-0 left-0"
+                                    style={{
+                                      width:
+                                        linePlotPlotRef.current.getContainerRef()
+                                          ?.clientWidth || 0,
+                                      height:
+                                        linePlotPlotRef.current.getContainerRef()
+                                          ?.clientHeight || 0,
+                                      pointerEvents: "none",
+                                    }}
+                                  >
+                                    {linePlotAnnotations.annotations.map(
+                                      (annotation) => {
+                                        if (safeScales.length === 0)
+                                          return null;
+                                        const u =
+                                          linePlotPlotRef.current?.getUplotInstance();
+                                        if (!u) return null;
+
+                                        const bbox = u.bbox;
+                                        if (!bbox) return null;
+
+                                        const canvasX = u.valToPos(
+                                          annotation.position,
+                                          "x",
+                                        );
+                                        if (
+                                          canvasX === null ||
+                                          canvasX === undefined ||
+                                          !isFinite(canvasX)
+                                        )
+                                          return null;
+
+                                        const xPosition = canvasX + bbox.left;
+                                        const yOffset = bbox.top;
+                                        const plotHeight = bbox.height;
+
+                                        return (
+                                          <AnnotationMarker
+                                            key={annotation.id}
+                                            annotation={annotation}
+                                            plotHeight={plotHeight}
+                                            xPosition={xPosition}
+                                            yOffset={yOffset}
+                                            onRightClick={(e, ann) => {
+                                              e.preventDefault();
+                                              linePlotAnnotations.openContextMenu(
+                                                e.clientX,
+                                                e.clientY,
+                                                ann.position,
+                                                ann,
+                                              );
+                                            }}
+                                            onClick={(ann) => {
+                                              const rect =
+                                                linePlotPlotRef.current
+                                                  ?.getContainerRef()
+                                                  ?.getBoundingClientRect();
+                                              if (rect) {
+                                                linePlotAnnotations.handleAnnotationClick(
+                                                  ann,
+                                                  rect.left + xPosition,
+                                                  rect.top + 50,
+                                                );
+                                              }
+                                            }}
+                                          />
+                                        );
+                                      },
+                                    )}
+                                  </svg>
+                                )}
+                            </DDALinePlot>
+                          </Suspense>
+
+                          <ResizeHandle
+                            plotType="lineplot"
+                            currentHeight={linePlotHeight}
+                            onHeightChange={(newHeight) => {
+                              setLinePlotHeight(newHeight);
+                              const u =
+                                linePlotPlotRef.current?.getUplotInstance();
+                              if (u) {
+                                u.setSize({
+                                  width: u.width,
+                                  height: newHeight,
+                                });
+                              }
+                            }}
+                          />
+
+                          {/* Annotation context menu */}
+                          {linePlotAnnotations.contextMenu && (
+                            <AnnotationContextMenu
+                              x={linePlotAnnotations.contextMenu.x}
+                              y={linePlotAnnotations.contextMenu.y}
+                              plotPosition={
+                                linePlotAnnotations.contextMenu.plotPosition
+                              }
+                              existingAnnotation={
+                                linePlotAnnotations.contextMenu.annotation
+                              }
+                              onCreateAnnotation={
+                                linePlotAnnotations.handleCreateAnnotation
+                              }
+                              onEditAnnotation={
+                                linePlotAnnotations.handleUpdateAnnotation
+                              }
+                              onDeleteAnnotation={
+                                linePlotAnnotations.handleDeleteAnnotation
+                              }
+                              onClose={linePlotAnnotations.closeContextMenu}
+                              availablePlots={availablePlots}
+                              currentPlotId={`dda:${
+                                getCurrentVariantData()?.variant_id
+                              }:lineplot`}
+                            />
+                          )}
+                        </CardContent>
+                      </Card>
+                    )}
 
                   {/* Network Motifs (CD-DDA only) */}
                   {(viewMode === "network" || viewMode === "all") &&
@@ -872,12 +1116,21 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
                   {/* Phase Space Plot */}
                   {viewMode === "phasespace" && filePath && (
-                    <PhaseSpacePlot
-                      filePath={filePath}
-                      channels={fileChannels}
-                      sampleRate={sampleRate}
-                      className="min-h-[600px]"
-                    />
+                    <Suspense
+                      fallback={
+                        <PlotLoadingSkeleton
+                          height={600}
+                          title="Loading phase space component..."
+                        />
+                      }
+                    >
+                      <PhaseSpacePlot
+                        filePath={filePath}
+                        channels={fileChannels}
+                        sampleRate={sampleRate}
+                        className="min-h-[600px]"
+                      />
+                    </Suspense>
                   )}
                 </div>
               ) : (
@@ -891,274 +1144,364 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       ) : showPlots ? (
         <div className="flex flex-col space-y-4 animate-fade-in">
           {/* Single variant view */}
-          {/* Heatmap */}
-          {(viewMode === "heatmap" || viewMode === "all") && (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">
-                  DDA Matrix Heatmap -{" "}
-                  {getCurrentVariantData()?.variant_name || "Unknown"}
-                </CardTitle>
-                <CardDescription>
-                  Log-transformed DDA matrix values across time points and
-                  channels
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <DDAHeatmapPlot
-                  ref={heatmapPlotRef}
-                  variantId={getCurrentVariantData()?.variant_id || "unknown"}
-                  ddaMatrix={getCurrentVariantData()?.dda_matrix || {}}
-                  selectedChannels={selectedChannels}
-                  scales={safeScales}
-                  colorScheme={colorScheme}
-                  colorRange={colorRange}
-                  autoScale={autoScale}
-                  onColorRangeChange={setColorRange}
-                  height={heatmapHeight}
-                  onContextMenu={heatmapAnnotations.openContextMenu}
-                >
-                  {/* Annotation overlay */}
-                  {heatmapPlotRef.current?.getUplotInstance() &&
-                    heatmapAnnotations.annotations.length > 0 && (
-                      <svg
-                        className="absolute top-0 left-0"
-                        style={{
-                          width:
-                            heatmapPlotRef.current.getContainerRef()
-                              ?.clientWidth || 0,
-                          height:
-                            heatmapPlotRef.current.getContainerRef()
-                              ?.clientHeight || 0,
-                          pointerEvents: "none",
-                        }}
-                      >
-                        {heatmapAnnotations.annotations.map((annotation) => {
-                          if (safeScales.length === 0) return null;
-                          const u = heatmapPlotRef.current?.getUplotInstance();
-                          if (!u) return null;
-
-                          const bbox = u.bbox;
-                          if (!bbox) return null;
-
-                          const canvasX = u.valToPos(annotation.position, "x");
-                          if (canvasX === null || canvasX === undefined)
-                            return null;
-
-                          const xPosition = canvasX + bbox.left;
-                          const yOffset = bbox.top;
-                          const plotHeight = bbox.height;
-
-                          return (
-                            <AnnotationMarker
-                              key={annotation.id}
-                              annotation={annotation}
-                              plotHeight={plotHeight}
-                              xPosition={xPosition}
-                              yOffset={yOffset}
-                              onRightClick={(e, ann) => {
-                                e.preventDefault();
-                                heatmapAnnotations.openContextMenu(
-                                  e.clientX,
-                                  e.clientY,
-                                  ann.position,
-                                  ann,
-                                );
-                              }}
-                              onClick={(ann) => {
-                                const rect = heatmapPlotRef.current
-                                  ?.getContainerRef()
-                                  ?.getBoundingClientRect();
-                                if (rect) {
-                                  heatmapAnnotations.handleAnnotationClick(
-                                    ann,
-                                    rect.left + xPosition,
-                                    rect.top + 50,
-                                  );
-                                }
-                              }}
-                            />
-                          );
-                        })}
-                      </svg>
-                    )}
-                </DDAHeatmapPlot>
-
-                <ResizeHandle
-                  plotType="heatmap"
-                  currentHeight={heatmapHeight}
-                  onHeightChange={(newHeight) => {
-                    setHeatmapHeight(newHeight);
-                    const u = heatmapPlotRef.current?.getUplotInstance();
-                    if (u) {
-                      u.setSize({
-                        width: u.width,
-                        height: newHeight,
-                      });
+          {/* Heatmap loading placeholder - shown during progressive rendering OR data fetch */}
+          {(viewMode === "heatmap" || viewMode === "all") &&
+            (!showHeatmap || isLoadingChannelData || isFetchingChannelData) && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">
+                    DDA Matrix Heatmap -{" "}
+                    {getCurrentVariantData()?.variant_name || "Unknown"}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <PlotLoadingSkeleton
+                    height={heatmapHeight}
+                    title={
+                      isLoadingChannelData || isFetchingChannelData
+                        ? "Loading analysis data..."
+                        : "Preparing heatmap..."
                     }
-                  }}
-                />
-
-                {/* Annotation context menu */}
-                {heatmapAnnotations.contextMenu && (
-                  <AnnotationContextMenu
-                    x={heatmapAnnotations.contextMenu.x}
-                    y={heatmapAnnotations.contextMenu.y}
-                    plotPosition={heatmapAnnotations.contextMenu.plotPosition}
-                    existingAnnotation={
-                      heatmapAnnotations.contextMenu.annotation
-                    }
-                    onCreateAnnotation={
-                      heatmapAnnotations.handleCreateAnnotation
-                    }
-                    onEditAnnotation={heatmapAnnotations.handleUpdateAnnotation}
-                    onDeleteAnnotation={
-                      heatmapAnnotations.handleDeleteAnnotation
-                    }
-                    onClose={heatmapAnnotations.closeContextMenu}
-                    availablePlots={heatmapAnnotations.availablePlots}
-                    currentPlotId={heatmapAnnotations.currentPlotId}
                   />
-                )}
-              </CardContent>
-            </Card>
-          )}
+                </CardContent>
+              </Card>
+            )}
+          {/* Heatmap - uses staggered loading */}
+          {(viewMode === "heatmap" || viewMode === "all") &&
+            showHeatmap &&
+            !isLoadingChannelData &&
+            !isFetchingChannelData && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">
+                    DDA Matrix Heatmap -{" "}
+                    {getCurrentVariantData()?.variant_name || "Unknown"}
+                  </CardTitle>
+                  <CardDescription>
+                    Log-transformed DDA matrix values across time points and
+                    channels
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Suspense
+                    fallback={
+                      <PlotLoadingSkeleton
+                        height={heatmapHeight}
+                        title="Loading heatmap component..."
+                      />
+                    }
+                  >
+                    <DDAHeatmapPlot
+                      ref={heatmapPlotRef}
+                      variantId={
+                        getCurrentVariantData()?.variant_id || "unknown"
+                      }
+                      ddaMatrix={effectiveDDAMatrix}
+                      selectedChannels={selectedChannels}
+                      scales={safeScales}
+                      colorScheme={colorScheme}
+                      colorRange={colorRange}
+                      autoScale={autoScale}
+                      onColorRangeChange={setColorRange}
+                      height={heatmapHeight}
+                      onContextMenu={heatmapAnnotations.openContextMenu}
+                    >
+                      {/* Annotation overlay */}
+                      {heatmapPlotRef.current?.getUplotInstance() &&
+                        heatmapAnnotations.annotations.length > 0 && (
+                          <svg
+                            className="absolute top-0 left-0"
+                            style={{
+                              width:
+                                heatmapPlotRef.current.getContainerRef()
+                                  ?.clientWidth || 0,
+                              height:
+                                heatmapPlotRef.current.getContainerRef()
+                                  ?.clientHeight || 0,
+                              pointerEvents: "none",
+                            }}
+                          >
+                            {heatmapAnnotations.annotations.map(
+                              (annotation) => {
+                                if (safeScales.length === 0) return null;
+                                const u =
+                                  heatmapPlotRef.current?.getUplotInstance();
+                                if (!u) return null;
 
-          {/* Line Plot */}
-          {(viewMode === "lineplot" || viewMode === "all") && (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">
-                  DDA Time Series -{" "}
-                  {getCurrentVariantData()?.variant_name || "Unknown"}
-                </CardTitle>
-                <CardDescription>
-                  DDA output time series - one line per channel (each row of the
-                  DDA matrix)
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <DDALinePlot
-                  ref={linePlotPlotRef}
-                  variantId={getCurrentVariantData()?.variant_id || "unknown"}
-                  ddaMatrix={getCurrentVariantData()?.dda_matrix || {}}
-                  selectedChannels={selectedChannels}
-                  scales={safeScales}
-                  height={linePlotHeight}
-                  onContextMenu={linePlotAnnotations.openContextMenu}
-                >
-                  {/* Annotation overlay */}
-                  {linePlotPlotRef.current?.getUplotInstance() &&
-                    linePlotAnnotations.annotations.length > 0 && (
-                      <svg
-                        className="absolute top-0 left-0"
-                        style={{
-                          width:
-                            linePlotPlotRef.current.getContainerRef()
-                              ?.clientWidth || 0,
-                          height:
-                            linePlotPlotRef.current.getContainerRef()
-                              ?.clientHeight || 0,
-                          pointerEvents: "none",
-                        }}
-                      >
-                        {linePlotAnnotations.annotations.map((annotation) => {
-                          if (safeScales.length === 0) return null;
-                          const u = linePlotPlotRef.current?.getUplotInstance();
-                          if (!u) return null;
+                                const bbox = u.bbox;
+                                if (!bbox) return null;
 
-                          // Get uPlot bbox for accurate dimensions and offsets
-                          const bbox = u.bbox;
-                          if (!bbox) return null;
-
-                          // Use uPlot's valToPos to convert scale value to pixel position (relative to canvas)
-                          const canvasX = u.valToPos(annotation.position, "x");
-                          if (canvasX === null || canvasX === undefined)
-                            return null;
-
-                          // Add bbox offsets since SVG is positioned at (0,0) but canvas starts at (bbox.left, bbox.top)
-                          const xPosition = canvasX + bbox.left;
-                          const yOffset = bbox.top;
-                          const plotHeight = bbox.height;
-
-                          return (
-                            <AnnotationMarker
-                              key={annotation.id}
-                              annotation={annotation}
-                              plotHeight={plotHeight}
-                              xPosition={xPosition}
-                              yOffset={yOffset}
-                              onRightClick={(e, ann) => {
-                                e.preventDefault();
-                                linePlotAnnotations.openContextMenu(
-                                  e.clientX,
-                                  e.clientY,
-                                  ann.position,
-                                  ann,
+                                const canvasX = u.valToPos(
+                                  annotation.position,
+                                  "x",
                                 );
-                              }}
-                              onClick={(ann) => {
-                                const rect = linePlotPlotRef.current
-                                  ?.getContainerRef()
-                                  ?.getBoundingClientRect();
-                                if (rect) {
-                                  linePlotAnnotations.handleAnnotationClick(
-                                    ann,
-                                    rect.left + xPosition,
-                                    rect.top + 50,
-                                  );
-                                }
-                              }}
-                            />
-                          );
-                        })}
-                      </svg>
-                    )}
-                </DDALinePlot>
+                                if (canvasX === null || canvasX === undefined)
+                                  return null;
 
-                <ResizeHandle
-                  plotType="lineplot"
-                  currentHeight={linePlotHeight}
-                  onHeightChange={(newHeight) => {
-                    setLinePlotHeight(newHeight);
-                    const u = linePlotPlotRef.current?.getUplotInstance();
-                    if (u) {
-                      u.setSize({
-                        width: u.width,
-                        height: newHeight,
-                      });
-                    }
-                  }}
-                />
+                                const xPosition = canvasX + bbox.left;
+                                const yOffset = bbox.top;
+                                const plotHeight = bbox.height;
 
-                {/* Annotation context menu */}
-                {linePlotAnnotations.contextMenu && (
-                  <AnnotationContextMenu
-                    x={linePlotAnnotations.contextMenu.x}
-                    y={linePlotAnnotations.contextMenu.y}
-                    plotPosition={linePlotAnnotations.contextMenu.plotPosition}
-                    existingAnnotation={
-                      linePlotAnnotations.contextMenu.annotation
-                    }
-                    onCreateAnnotation={
-                      linePlotAnnotations.handleCreateAnnotation
-                    }
-                    onEditAnnotation={
-                      linePlotAnnotations.handleUpdateAnnotation
-                    }
-                    onDeleteAnnotation={
-                      linePlotAnnotations.handleDeleteAnnotation
-                    }
-                    onClose={linePlotAnnotations.closeContextMenu}
-                    availablePlots={availablePlots}
-                    currentPlotId={`dda:${
-                      getCurrentVariantData()?.variant_id
-                    }:lineplot`}
+                                return (
+                                  <AnnotationMarker
+                                    key={annotation.id}
+                                    annotation={annotation}
+                                    plotHeight={plotHeight}
+                                    xPosition={xPosition}
+                                    yOffset={yOffset}
+                                    onRightClick={(e, ann) => {
+                                      e.preventDefault();
+                                      heatmapAnnotations.openContextMenu(
+                                        e.clientX,
+                                        e.clientY,
+                                        ann.position,
+                                        ann,
+                                      );
+                                    }}
+                                    onClick={(ann) => {
+                                      const rect = heatmapPlotRef.current
+                                        ?.getContainerRef()
+                                        ?.getBoundingClientRect();
+                                      if (rect) {
+                                        heatmapAnnotations.handleAnnotationClick(
+                                          ann,
+                                          rect.left + xPosition,
+                                          rect.top + 50,
+                                        );
+                                      }
+                                    }}
+                                  />
+                                );
+                              },
+                            )}
+                          </svg>
+                        )}
+                    </DDAHeatmapPlot>
+                  </Suspense>
+
+                  <ResizeHandle
+                    plotType="heatmap"
+                    currentHeight={heatmapHeight}
+                    onHeightChange={(newHeight) => {
+                      setHeatmapHeight(newHeight);
+                      const u = heatmapPlotRef.current?.getUplotInstance();
+                      if (u) {
+                        u.setSize({
+                          width: u.width,
+                          height: newHeight,
+                        });
+                      }
+                    }}
                   />
-                )}
-              </CardContent>
-            </Card>
-          )}
+
+                  {/* Annotation context menu */}
+                  {heatmapAnnotations.contextMenu && (
+                    <AnnotationContextMenu
+                      x={heatmapAnnotations.contextMenu.x}
+                      y={heatmapAnnotations.contextMenu.y}
+                      plotPosition={heatmapAnnotations.contextMenu.plotPosition}
+                      existingAnnotation={
+                        heatmapAnnotations.contextMenu.annotation
+                      }
+                      onCreateAnnotation={
+                        heatmapAnnotations.handleCreateAnnotation
+                      }
+                      onEditAnnotation={
+                        heatmapAnnotations.handleUpdateAnnotation
+                      }
+                      onDeleteAnnotation={
+                        heatmapAnnotations.handleDeleteAnnotation
+                      }
+                      onClose={heatmapAnnotations.closeContextMenu}
+                      availablePlots={heatmapAnnotations.availablePlots}
+                      currentPlotId={heatmapAnnotations.currentPlotId}
+                    />
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+          {/* Line Plot loading placeholder - shown during progressive rendering OR data fetch */}
+          {(viewMode === "lineplot" || viewMode === "all") &&
+            (!showLinePlot ||
+              isLoadingChannelData ||
+              isFetchingChannelData) && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">
+                    DDA Time Series -{" "}
+                    {getCurrentVariantData()?.variant_name || "Unknown"}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <PlotLoadingSkeleton
+                    height={linePlotHeight}
+                    title={
+                      isLoadingChannelData || isFetchingChannelData
+                        ? "Loading analysis data..."
+                        : "Preparing line plot..."
+                    }
+                  />
+                </CardContent>
+              </Card>
+            )}
+          {/* Line Plot - uses staggered loading */}
+          {(viewMode === "lineplot" || viewMode === "all") &&
+            showLinePlot &&
+            !isLoadingChannelData &&
+            !isFetchingChannelData && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">
+                    DDA Time Series -{" "}
+                    {getCurrentVariantData()?.variant_name || "Unknown"}
+                  </CardTitle>
+                  <CardDescription>
+                    DDA output time series - one line per channel (each row of
+                    the DDA matrix)
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Suspense
+                    fallback={
+                      <PlotLoadingSkeleton
+                        height={linePlotHeight}
+                        title="Loading line plot component..."
+                      />
+                    }
+                  >
+                    <DDALinePlot
+                      ref={linePlotPlotRef}
+                      variantId={
+                        getCurrentVariantData()?.variant_id || "unknown"
+                      }
+                      ddaMatrix={effectiveDDAMatrix}
+                      selectedChannels={selectedChannels}
+                      scales={safeScales}
+                      height={linePlotHeight}
+                      onContextMenu={linePlotAnnotations.openContextMenu}
+                    >
+                      {/* Annotation overlay */}
+                      {linePlotPlotRef.current?.getUplotInstance() &&
+                        linePlotAnnotations.annotations.length > 0 && (
+                          <svg
+                            className="absolute top-0 left-0"
+                            style={{
+                              width:
+                                linePlotPlotRef.current.getContainerRef()
+                                  ?.clientWidth || 0,
+                              height:
+                                linePlotPlotRef.current.getContainerRef()
+                                  ?.clientHeight || 0,
+                              pointerEvents: "none",
+                            }}
+                          >
+                            {linePlotAnnotations.annotations.map(
+                              (annotation) => {
+                                if (safeScales.length === 0) return null;
+                                const u =
+                                  linePlotPlotRef.current?.getUplotInstance();
+                                if (!u) return null;
+
+                                // Get uPlot bbox for accurate dimensions and offsets
+                                const bbox = u.bbox;
+                                if (!bbox) return null;
+
+                                // Use uPlot's valToPos to convert scale value to pixel position (relative to canvas)
+                                const canvasX = u.valToPos(
+                                  annotation.position,
+                                  "x",
+                                );
+                                if (canvasX === null || canvasX === undefined)
+                                  return null;
+
+                                // Add bbox offsets since SVG is positioned at (0,0) but canvas starts at (bbox.left, bbox.top)
+                                const xPosition = canvasX + bbox.left;
+                                const yOffset = bbox.top;
+                                const plotHeight = bbox.height;
+
+                                return (
+                                  <AnnotationMarker
+                                    key={annotation.id}
+                                    annotation={annotation}
+                                    plotHeight={plotHeight}
+                                    xPosition={xPosition}
+                                    yOffset={yOffset}
+                                    onRightClick={(e, ann) => {
+                                      e.preventDefault();
+                                      linePlotAnnotations.openContextMenu(
+                                        e.clientX,
+                                        e.clientY,
+                                        ann.position,
+                                        ann,
+                                      );
+                                    }}
+                                    onClick={(ann) => {
+                                      const rect = linePlotPlotRef.current
+                                        ?.getContainerRef()
+                                        ?.getBoundingClientRect();
+                                      if (rect) {
+                                        linePlotAnnotations.handleAnnotationClick(
+                                          ann,
+                                          rect.left + xPosition,
+                                          rect.top + 50,
+                                        );
+                                      }
+                                    }}
+                                  />
+                                );
+                              },
+                            )}
+                          </svg>
+                        )}
+                    </DDALinePlot>
+                  </Suspense>
+
+                  <ResizeHandle
+                    plotType="lineplot"
+                    currentHeight={linePlotHeight}
+                    onHeightChange={(newHeight) => {
+                      setLinePlotHeight(newHeight);
+                      const u = linePlotPlotRef.current?.getUplotInstance();
+                      if (u) {
+                        u.setSize({
+                          width: u.width,
+                          height: newHeight,
+                        });
+                      }
+                    }}
+                  />
+
+                  {/* Annotation context menu */}
+                  {linePlotAnnotations.contextMenu && (
+                    <AnnotationContextMenu
+                      x={linePlotAnnotations.contextMenu.x}
+                      y={linePlotAnnotations.contextMenu.y}
+                      plotPosition={
+                        linePlotAnnotations.contextMenu.plotPosition
+                      }
+                      existingAnnotation={
+                        linePlotAnnotations.contextMenu.annotation
+                      }
+                      onCreateAnnotation={
+                        linePlotAnnotations.handleCreateAnnotation
+                      }
+                      onEditAnnotation={
+                        linePlotAnnotations.handleUpdateAnnotation
+                      }
+                      onDeleteAnnotation={
+                        linePlotAnnotations.handleDeleteAnnotation
+                      }
+                      onClose={linePlotAnnotations.closeContextMenu}
+                      availablePlots={availablePlots}
+                      currentPlotId={`dda:${
+                        getCurrentVariantData()?.variant_id
+                      }:lineplot`}
+                    />
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
           {/* Network Motifs (CD-DDA only) - Single variant view */}
           {(viewMode === "network" || viewMode === "all") &&
@@ -1184,12 +1527,21 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
           {/* Phase Space Plot - Single variant view */}
           {viewMode === "phasespace" && filePath && (
-            <PhaseSpacePlot
-              filePath={filePath}
-              channels={fileChannels}
-              sampleRate={sampleRate}
-              className="min-h-[600px]"
-            />
+            <Suspense
+              fallback={
+                <PlotLoadingSkeleton
+                  height={600}
+                  title="Loading phase space component..."
+                />
+              }
+            >
+              <PhaseSpacePlot
+                filePath={filePath}
+                channels={fileChannels}
+                sampleRate={sampleRate}
+                className="min-h-[600px]"
+              />
+            </Suspense>
           )}
         </div>
       ) : null}

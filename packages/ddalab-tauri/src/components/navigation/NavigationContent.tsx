@@ -12,7 +12,6 @@ import {
 } from "react";
 import type { LucideIcon } from "lucide-react";
 import { useAppStore } from "@/store/appStore";
-import { ApiService } from "@/services/apiService";
 import type { PrimaryNavTab, SecondaryNavTab } from "@/types/navigation";
 
 // Eagerly load lightweight components
@@ -225,11 +224,7 @@ function DelayedLoadingFallback() {
   );
 }
 
-interface NavigationContentProps {
-  apiService: ApiService;
-}
-
-export function NavigationContent({ apiService }: NavigationContentProps) {
+export function NavigationContent() {
   // Preload commonly used tabs after initial render
   usePreloadTabs();
 
@@ -305,7 +300,7 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
               <div className="flex-1 min-h-0 overflow-y-auto">
                 <ErrorBoundary>
                   <Suspense fallback={<DelayedLoadingFallback />}>
-                    <TimeSeriesPlotECharts apiService={apiService} />
+                    <TimeSeriesPlotECharts />
                   </Suspense>
                 </ErrorBoundary>
               </div>
@@ -354,7 +349,7 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
             </div>
             <div className="flex-1 min-h-0">
               <Suspense fallback={<DelayedLoadingFallback />}>
-                <DDAWithHistory apiService={apiService} />
+                <DDAWithHistory />
               </Suspense>
             </div>
           </div>
@@ -377,7 +372,7 @@ export function NavigationContent({ apiService }: NavigationContentProps) {
             </div>
             <div className="flex-1 min-h-0">
               <Suspense fallback={<DelayedLoadingFallback />}>
-                <ICAAnalysisPanel apiService={apiService} />
+                <ICAAnalysisPanel />
               </Suspense>
             </div>
           </div>

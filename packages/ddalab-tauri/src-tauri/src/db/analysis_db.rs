@@ -124,6 +124,7 @@ impl AnalysisDatabase {
     }
 
     pub fn get_analysis(&self, id: &str) -> Result<Option<AnalysisResult>> {
+        let start = std::time::Instant::now();
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT id, file_path, timestamp, variant_name, variant_display_name,
@@ -136,6 +137,24 @@ impl AnalysisDatabase {
                 let parameters_json: String = row.get(5)?;
                 let plot_data_json: Option<String> = row.get(7)?;
 
+                // Use simd-json for faster parsing of large plot_data (can be 47MB+)
+                // simd-json is 2-5x faster than serde_json for large payloads
+                let plot_data = if let Some(mut json_str) = plot_data_json {
+                    let parse_start = std::time::Instant::now();
+                    // simd-json requires mutable access to the input buffer
+                    let bytes = unsafe { json_str.as_bytes_mut() };
+                    let parsed: serde_json::Value = simd_json::from_slice(bytes)
+                        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+                    log::debug!(
+                        "simd-json parsed plot_data ({} bytes) in {:.1}ms",
+                        bytes.len(),
+                        parse_start.elapsed().as_secs_f64() * 1000.0
+                    );
+                    Some(parsed)
+                } else {
+                    None
+                };
+
                 Ok(AnalysisResult {
                     id: row.get(0)?,
                     file_path: row.get(1)?,
@@ -145,15 +164,61 @@ impl AnalysisDatabase {
                     parameters: serde_json::from_str(&parameters_json)
                         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
                     chunk_position: row.get(6)?,
-                    plot_data: plot_data_json
-                        .map(|s| serde_json::from_str(&s))
-                        .transpose()
-                        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
+                    plot_data,
                     name: row.get(8)?,
                 })
             })
             .optional()
             .context("Failed to get analysis")?;
+
+        log::info!(
+            "get_analysis({}) completed in {:.1}ms",
+            id,
+            start.elapsed().as_secs_f64() * 1000.0
+        );
+
+        Ok(result)
+    }
+
+    /// Get analysis metadata only (no plot_data) for fast loading.
+    /// Returns the lightweight columns without the 47MB+ plot_data blob.
+    /// Use this for fast initial display, then load full data on-demand.
+    pub fn get_analysis_metadata(&self, id: &str) -> Result<Option<AnalysisResult>> {
+        let start = std::time::Instant::now();
+        let conn = self.conn.lock();
+
+        // PERFORMANCE: Only fetch lightweight columns, NOT plot_data
+        let mut stmt = conn.prepare(
+            "SELECT id, file_path, timestamp, variant_name, variant_display_name,
+                    parameters, chunk_position, name
+             FROM analyses WHERE id = ?1",
+        )?;
+
+        let result = stmt
+            .query_row(params![id], |row| {
+                let parameters_json: String = row.get(5)?;
+
+                Ok(AnalysisResult {
+                    id: row.get(0)?,
+                    file_path: row.get(1)?,
+                    timestamp: row.get(2)?,
+                    variant_name: row.get(3)?,
+                    variant_display_name: row.get(4)?,
+                    parameters: serde_json::from_str(&parameters_json)
+                        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
+                    chunk_position: row.get(6)?,
+                    plot_data: None, // Not loaded for performance
+                    name: row.get(7)?,
+                })
+            })
+            .optional()
+            .context("Failed to get analysis metadata")?;
+
+        log::info!(
+            "get_analysis_metadata({}) completed in {:.1}ms",
+            id,
+            start.elapsed().as_secs_f64() * 1000.0
+        );
 
         Ok(result)
     }
@@ -316,5 +381,62 @@ impl AnalysisDatabase {
             .context("Failed to get file paths")?;
 
         Ok(paths)
+    }
+
+    /// Save pre-serialized LZ4+MessagePack bytes for fast retrieval
+    ///
+    /// This stores the compressed bytes directly in SQLite, avoiding:
+    /// - JSON parsing
+    /// - MessagePack serialization
+    /// - LZ4 compression
+    ///
+    /// On read, we just return the blob - no processing needed.
+    pub fn save_msgpack_blob(&self, id: &str, msgpack_lz4_bytes: &[u8]) -> Result<()> {
+        let start = std::time::Instant::now();
+
+        self.conn
+            .lock()
+            .execute(
+                "UPDATE analyses SET msgpack_lz4 = ?1 WHERE id = ?2",
+                params![msgpack_lz4_bytes, id],
+            )
+            .context("Failed to save msgpack blob")?;
+
+        log::debug!(
+            "Saved msgpack blob ({} bytes) for {} in {:.1}ms",
+            msgpack_lz4_bytes.len(),
+            id,
+            start.elapsed().as_secs_f64() * 1000.0
+        );
+
+        Ok(())
+    }
+
+    /// Get pre-serialized LZ4+MessagePack bytes for fast loading
+    ///
+    /// Returns None if the blob doesn't exist (needs to be generated and stored).
+    pub fn get_msgpack_blob(&self, id: &str) -> Result<Option<Vec<u8>>> {
+        let start = std::time::Instant::now();
+        let conn = self.conn.lock();
+
+        let result: Option<Vec<u8>> = conn
+            .query_row(
+                "SELECT msgpack_lz4 FROM analyses WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .optional()
+            .context("Failed to get msgpack blob")?;
+
+        if let Some(ref blob) = result {
+            log::info!(
+                "Retrieved msgpack blob ({} bytes) for {} in {:.1}ms",
+                blob.len(),
+                id,
+                start.elapsed().as_secs_f64() * 1000.0
+            );
+        }
+
+        Ok(result)
     }
 }

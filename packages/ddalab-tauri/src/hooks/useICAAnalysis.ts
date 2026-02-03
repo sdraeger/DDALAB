@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, useRef, useCallback } from "react";
-import { ApiService } from "@/services/apiService";
+import { useState, useCallback } from "react";
+import { tauriBackendService } from "@/services/tauriBackendService";
 import {
   ICAAnalysisRequest,
   ICAResult,
@@ -18,30 +18,16 @@ export const icaKeys = {
 };
 
 /**
- * Hook to submit ICA analysis with mutation and cancellation support
+ * Hook to submit ICA analysis with mutation support
+ * Note: Cancellation is not supported via Tauri IPC - analysis runs to completion
  */
-export function useSubmitICAAnalysis(apiService: ApiService) {
+export function useSubmitICAAnalysis() {
   const queryClient = useQueryClient();
-  const abortControllerRef = useRef<AbortController | null>(null);
 
   const mutation = useMutation({
     mutationFn: async (request: ICAAnalysisRequest) => {
-      abortControllerRef.current = new AbortController();
-
-      try {
-        const result = await apiService.submitICAAnalysis(
-          request,
-          abortControllerRef.current.signal,
-        );
-        return result;
-      } catch (error) {
-        if (error instanceof Error && error.name === "CanceledError") {
-          throw new Error("Analysis cancelled by user");
-        }
-        throw error;
-      } finally {
-        abortControllerRef.current = null;
-      }
+      const result = await tauriBackendService.submitICAAnalysis(request);
+      return result;
     },
     onSuccess: (result) => {
       queryClient.setQueryData<ICAResult[]>(icaKeys.results(), (old) => {
@@ -52,10 +38,8 @@ export function useSubmitICAAnalysis(apiService: ApiService) {
   });
 
   const cancel = useCallback(() => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
-    }
+    // Cancellation not supported via Tauri IPC
+    // Analysis runs to completion once started
   }, []);
 
   return {
@@ -65,12 +49,26 @@ export function useSubmitICAAnalysis(apiService: ApiService) {
 }
 
 /**
- * Hook to fetch all ICA analysis results
+ * Hook to fetch all ICA analysis results (with full data)
+ * Fetches history entries first, then loads full results for each
  */
-export function useICAResults(apiService: ApiService) {
+export function useICAResults() {
   return useQuery({
     queryKey: icaKeys.results(),
-    queryFn: () => apiService.getICAResults(),
+    queryFn: async (): Promise<ICAResult[]> => {
+      // Get history entries (lightweight)
+      const historyEntries = await tauriBackendService.getICAResults();
+
+      // Fetch full results for each entry
+      const fullResults = await Promise.all(
+        historyEntries.map((entry) =>
+          tauriBackendService.getICAResult(entry.id),
+        ),
+      );
+
+      // Filter out nulls and return
+      return fullResults.filter((r): r is ICAResult => r !== null);
+    },
     staleTime: 30000, // 30 seconds
   });
 }
@@ -78,10 +76,10 @@ export function useICAResults(apiService: ApiService) {
 /**
  * Hook to fetch a specific ICA analysis result
  */
-export function useICAResult(apiService: ApiService, analysisId: string) {
+export function useICAResult(analysisId: string) {
   return useQuery({
     queryKey: icaKeys.result(analysisId),
-    queryFn: () => apiService.getICAResult(analysisId),
+    queryFn: () => tauriBackendService.getICAResult(analysisId),
     enabled: !!analysisId,
   });
 }
@@ -89,11 +87,12 @@ export function useICAResult(apiService: ApiService, analysisId: string) {
 /**
  * Hook to delete an ICA analysis result
  */
-export function useDeleteICAResult(apiService: ApiService) {
+export function useDeleteICAResult() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (analysisId: string) => apiService.deleteICAResult(analysisId),
+    mutationFn: (analysisId: string) =>
+      tauriBackendService.deleteICAResult(analysisId),
     onSuccess: (_, analysisId) => {
       // Remove from cache
       queryClient.setQueryData<ICAResult[]>(icaKeys.results(), (old) => {
@@ -106,10 +105,13 @@ export function useDeleteICAResult(apiService: ApiService) {
 /**
  * Hook to reconstruct data without selected components (artifact removal)
  */
-export function useReconstructWithoutComponents(apiService: ApiService) {
+export function useReconstructWithoutComponents() {
   return useMutation({
     mutationFn: (request: ReconstructRequest) =>
-      apiService.reconstructWithoutComponents(request),
+      tauriBackendService.icaReconstructWithoutComponents(
+        request.analysis_id,
+        request.components_to_remove,
+      ),
   });
 }
 
@@ -154,11 +156,11 @@ export function useArtifactComponents() {
 /**
  * Combined hook for complete ICA workflow
  */
-export function useICAWorkflow(apiService: ApiService) {
-  const submitAnalysis = useSubmitICAAnalysis(apiService);
-  const results = useICAResults(apiService);
-  const deleteResult = useDeleteICAResult(apiService);
-  const reconstruct = useReconstructWithoutComponents(apiService);
+export function useICAWorkflow() {
+  const submitAnalysis = useSubmitICAAnalysis();
+  const results = useICAResults();
+  const deleteResult = useDeleteICAResult();
+  const reconstruct = useReconstructWithoutComponents();
   const artifacts = useArtifactComponents();
 
   return {

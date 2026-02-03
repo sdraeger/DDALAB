@@ -1,6 +1,5 @@
 use super::client::NSGClient;
-use super::models::{NSGCredentials, NSGResourceConfig};
-use crate::api::handlers::dda::DDARequest;
+use super::models::{DDARequest, NSGCredentials, NSGResourceConfig};
 use crate::db::{NSGJob, NSGJobStatus, NSGJobsDatabase};
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;

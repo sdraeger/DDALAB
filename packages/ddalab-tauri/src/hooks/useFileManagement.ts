@@ -1,8 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ApiService } from "@/services/apiService";
+import { tauriBackendService } from "@/services/tauriBackendService";
 import type { EDFFileInfo } from "@/types/api";
 import {
-  createQueryErrorHandler,
   createMutationErrorHandler,
   queryErrorHandlers,
 } from "@/utils/errorHandler";
@@ -20,24 +19,20 @@ export const fileManagementKeys = {
   availableFiles: () => [...fileManagementKeys.all, "availableFiles"] as const,
 };
 
-export function useAvailableFiles(apiService: ApiService) {
+export function useAvailableFiles() {
   return useQuery({
     queryKey: fileManagementKeys.availableFiles(),
-    queryFn: () => apiService.getAvailableFiles(),
+    queryFn: () => tauriBackendService.listDataFiles(),
     staleTime: 5 * 60 * 1000, // 5 minutes
     gcTime: 10 * 60 * 1000,
     ...queryErrorHandlers.file("List"),
   });
 }
 
-export function useFileInfo(
-  apiService: ApiService,
-  filePath: string,
-  enabled: boolean = true,
-) {
+export function useFileInfo(filePath: string, enabled: boolean = true) {
   return useQuery({
     queryKey: fileManagementKeys.fileInfo(filePath),
-    queryFn: () => apiService.getFileInfo(filePath),
+    queryFn: () => tauriBackendService.getEdfInfo(filePath),
     enabled: enabled && !!filePath,
     staleTime: 10 * 60 * 1000, // 10 minutes - file metadata rarely changes
     gcTime: 30 * 60 * 1000,
@@ -57,34 +52,32 @@ export interface DirectoryListingResult {
   }>;
 }
 
-export function useDirectoryListing(
-  apiService: ApiService,
-  path: string,
-  enabled: boolean = true,
-) {
+export function useDirectoryListing(path: string, enabled: boolean = true) {
   const finalEnabled = enabled && !!path;
 
-  logger.debug("useDirectoryListing called", {
-    path,
-    enabled,
-    finalEnabled,
-  });
+  // Note: Debug logging removed to avoid performance impact from logging on every render
 
   return useQuery({
     queryKey: fileManagementKeys.directory(path),
-    queryFn: async () => {
-      logger.info("Directory listing query executing", { path });
+    queryFn: async (): Promise<DirectoryListingResult> => {
       try {
-        const result = await apiService.listDirectory(path);
-        logger.info("Directory listing query succeeded", {
-          path,
-          fileCount: result.files?.length || 0,
-        });
-        return result;
+        const result = await tauriBackendService.listDirectory(path);
+        // Transform DirectoryListing (camelCase from Tauri) to DirectoryListingResult (snake_case)
+        const transformed: DirectoryListingResult = {
+          files: result.entries.map((entry) => ({
+            name: entry.name,
+            path: entry.path,
+            is_directory: entry.isDirectory,
+            size: entry.size,
+            last_modified: entry.modified,
+            is_annex_placeholder: entry.isAnnexPlaceholder,
+          })),
+        };
+        return transformed;
       } catch (error) {
         // Better error serialization for logging
         let errorMessage = "Unknown error";
-        let errorDetails: any = {};
+        let errorDetails: Record<string, unknown> = {};
 
         if (error instanceof Error) {
           errorMessage = error.message;
@@ -92,7 +85,7 @@ export function useDirectoryListing(
           errorDetails.stack = error.stack?.split("\n").slice(0, 3).join("\n");
         } else if (typeof error === "object" && error !== null) {
           errorMessage = JSON.stringify(error);
-          errorDetails = error;
+          errorDetails = error as Record<string, unknown>;
         } else {
           errorMessage = String(error);
         }
@@ -112,11 +105,11 @@ export function useDirectoryListing(
   });
 }
 
-export function useLoadFileInfo(apiService: ApiService) {
+export function useLoadFileInfo() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (filePath: string) => apiService.getFileInfo(filePath),
+    mutationFn: (filePath: string) => tauriBackendService.getEdfInfo(filePath),
     onSuccess: (data, filePath) => {
       queryClient.setQueryData(fileManagementKeys.fileInfo(filePath), data);
     },
@@ -127,11 +120,24 @@ export function useLoadFileInfo(apiService: ApiService) {
   });
 }
 
-export function useRefreshDirectory(apiService: ApiService) {
+export function useRefreshDirectory() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (path: string) => apiService.listDirectory(path),
+    mutationFn: async (path: string): Promise<DirectoryListingResult> => {
+      const result = await tauriBackendService.listDirectory(path);
+      // Transform DirectoryListing (camelCase from Tauri) to DirectoryListingResult (snake_case)
+      return {
+        files: result.entries.map((entry) => ({
+          name: entry.name,
+          path: entry.path,
+          is_directory: entry.isDirectory,
+          size: entry.size,
+          last_modified: entry.modified,
+          is_annex_placeholder: entry.isAnnexPlaceholder,
+        })),
+      };
+    },
     onSuccess: (data, path) => {
       queryClient.setQueryData(fileManagementKeys.directory(path), data);
       queryClient.invalidateQueries({
