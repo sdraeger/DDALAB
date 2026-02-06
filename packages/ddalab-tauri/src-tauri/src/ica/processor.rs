@@ -184,80 +184,25 @@ impl ICAProcessor {
             build_start.elapsed().as_secs_f64()
         );
 
-        // Preprocess: centering
-        if params.preprocessing.centering {
+        // Preprocess: centering (if enabled)
+        let data_matrix = if params.preprocessing.centering {
             log::info!("[ICA-PROC] Centering data...");
             let center_start = std::time::Instant::now();
-            let data_matrix_centered = Self::center_data(&data_matrix);
+            let centered = Self::center_data(&data_matrix);
             log::info!(
                 "[ICA-PROC] Data centered in {:.2}s",
                 center_start.elapsed().as_secs_f64()
             );
-            // Use centered data
-            let data_matrix = data_matrix_centered;
+            centered
+        } else {
+            data_matrix
+        };
 
-            // Calculate total variance before ICA (parallel)
-            log::info!("[ICA-PROC] Calculating total variance...");
-            let total_variance: f64 = (0..n_channels)
-                .into_par_iter()
-                .map(|j| {
-                    let col = data_matrix.column(j);
-                    let mean = col.mean().unwrap_or(0.0);
-                    col.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n_samples as f64
-                })
-                .sum();
-            log::info!("[ICA-PROC] Total variance: {:.4}", total_variance);
+        // Wrap data_matrix in Arc to avoid deep copies - both fit and predict need access
+        let data_matrix = std::sync::Arc::new(data_matrix);
 
-            // Create dataset for linfa
-            log::info!("[ICA-PROC] Creating linfa dataset...");
-            let dataset = DatasetBase::from(data_matrix.clone());
-
-            // Configure FastICA
-            log::info!(
-                "[ICA-PROC] Configuring FastICA: n_components={}, max_iter={}, tol={}",
-                n_components,
-                params.max_iterations,
-                params.tolerance
-            );
-            let ica = FastIca::params()
-                .ncomponents(n_components)
-                .max_iter(params.max_iterations)
-                .tol(params.tolerance);
-
-            // Run FastICA
-            log::info!("[ICA-PROC] Running FastICA fitting (this may take a while)...");
-            let fit_start = std::time::Instant::now();
-            let ica_result = ica
-                .fit(&dataset)
-                .map_err(|e| anyhow!("FastICA failed: {:?}", e))?;
-            log::info!(
-                "[ICA-PROC] FastICA fit completed in {:.2}s",
-                fit_start.elapsed().as_secs_f64()
-            );
-
-            // Transform data to get independent components
-            log::info!("[ICA-PROC] Transforming data to get independent components...");
-            let transform_start = std::time::Instant::now();
-            let sources_array = ica_result.predict(&data_matrix);
-            log::info!(
-                "[ICA-PROC] Transform completed in {:.2}s",
-                transform_start.elapsed().as_secs_f64()
-            );
-
-            // Continue with the rest of the processing using sources_array
-            return Self::process_ica_results(
-                sources_array,
-                data_matrix,
-                channels,
-                n_components,
-                n_samples,
-                sample_rate,
-                total_variance,
-                params,
-            );
-        }
-
-        // Non-centered path - calculate total variance (parallel)
+        // Calculate total variance before ICA (parallel)
+        log::info!("[ICA-PROC] Calculating total variance...");
         let total_variance: f64 = (0..n_channels)
             .into_par_iter()
             .map(|j| {
@@ -266,18 +211,26 @@ impl ICAProcessor {
                 col.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n_samples as f64
             })
             .sum();
+        log::info!("[ICA-PROC] Total variance: {:.4}", total_variance);
 
-        // Create dataset for linfa
-        let dataset = DatasetBase::from(data_matrix.clone());
+        // Create dataset for linfa - use a view to avoid cloning the matrix
+        log::info!("[ICA-PROC] Creating linfa dataset...");
+        let dataset = DatasetBase::from(data_matrix.view());
 
         // Configure FastICA
+        log::info!(
+            "[ICA-PROC] Configuring FastICA: n_components={}, max_iter={}, tol={}",
+            n_components,
+            params.max_iterations,
+            params.tolerance
+        );
         let ica = FastIca::params()
             .ncomponents(n_components)
             .max_iter(params.max_iterations)
             .tol(params.tolerance);
 
         // Run FastICA
-        log::info!("[ICA-PROC] Running FastICA fitting (non-centered)...");
+        log::info!("[ICA-PROC] Running FastICA fitting...");
         let fit_start = std::time::Instant::now();
         let ica_result = ica
             .fit(&dataset)
@@ -288,11 +241,22 @@ impl ICAProcessor {
         );
 
         // Transform data to get independent components
-        let sources_array = ica_result.predict(&data_matrix);
+        log::info!("[ICA-PROC] Transforming data to get independent components...");
+        let transform_start = std::time::Instant::now();
+        let sources_array = ica_result.predict(data_matrix.as_ref());
+        log::info!(
+            "[ICA-PROC] Transform completed in {:.2}s",
+            transform_start.elapsed().as_secs_f64()
+        );
+
+        // Unwrap Arc - we're the sole owner at this point, so try_unwrap should succeed
+        // If it doesn't (shouldn't happen), fall back to cloning
+        let data_matrix_owned =
+            std::sync::Arc::try_unwrap(data_matrix).unwrap_or_else(|arc| (*arc).clone());
 
         Self::process_ica_results(
             sources_array,
-            data_matrix,
+            data_matrix_owned,
             channels,
             n_components,
             n_samples,
@@ -339,9 +303,10 @@ impl ICAProcessor {
                 // Extract spatial map (mixing matrix column)
                 let spatial_map: Vec<f64> = mixing.column(i).to_vec();
 
-                // Calculate quality metrics
-                let kurtosis = QualityMetrics::kurtosis(&time_series);
-                let non_gaussianity = QualityMetrics::non_gaussianity(&time_series);
+                // Calculate quality metrics using optimized single-pass computation
+                // This combines kurtosis and non_gaussianity calculation to avoid
+                // redundant mean/variance passes over the data
+                let metrics = QualityMetrics::compute_combined(&time_series);
 
                 // Calculate variance explained
                 let component_variance: f64 =
@@ -359,8 +324,8 @@ impl ICAProcessor {
                     component_id: i,
                     spatial_map,
                     time_series,
-                    kurtosis,
-                    non_gaussianity,
+                    kurtosis: metrics.kurtosis,
+                    non_gaussianity: metrics.non_gaussianity,
                     variance_explained,
                     power_spectrum: Some(power_spectrum),
                 }

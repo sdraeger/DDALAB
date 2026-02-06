@@ -9,6 +9,90 @@
 use super::filters::{create_filter, FilterConfig, FilterType, SosFilter};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Mutex;
+
+/// Cache key for filter coefficients.
+/// Uses ordered bits representation for f64 to enable Hash/Eq.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct FilterCacheKey {
+    filter_type: FilterTypeKey,
+    /// Frequency as bits (using to_bits for exact comparison)
+    frequency_bits: u64,
+    /// High frequency as bits (for bandpass/notch)
+    frequency_high_bits: Option<u64>,
+    /// Filter order
+    order: usize,
+    /// Sample rate as bits
+    sample_rate_bits: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum FilterTypeKey {
+    Lowpass,
+    Highpass,
+    Bandpass,
+    Notch,
+}
+
+impl From<FilterType> for FilterTypeKey {
+    fn from(ft: FilterType) -> Self {
+        match ft {
+            FilterType::Lowpass => FilterTypeKey::Lowpass,
+            FilterType::Highpass => FilterTypeKey::Highpass,
+            FilterType::Bandpass => FilterTypeKey::Bandpass,
+            FilterType::Notch => FilterTypeKey::Notch,
+        }
+    }
+}
+
+impl FilterCacheKey {
+    fn from_config(config: &FilterConfig) -> Self {
+        Self {
+            filter_type: config.filter_type.into(),
+            frequency_bits: config.frequency.to_bits(),
+            frequency_high_bits: config.frequency_high.map(|f| f.to_bits()),
+            order: config.order,
+            sample_rate_bits: config.sample_rate.to_bits(),
+        }
+    }
+}
+
+/// Global cache for filter coefficients to avoid redundant computation.
+/// The cache stores SosFilter instances which contain the computed coefficients.
+static FILTER_CACHE: std::sync::LazyLock<Mutex<HashMap<FilterCacheKey, SosFilter>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Get a filter from the cache or create and cache it.
+/// Returns a fresh clone of the cached filter (with reset state).
+fn get_or_create_filter(config: &FilterConfig) -> Result<SosFilter, String> {
+    let key = FilterCacheKey::from_config(config);
+
+    // Try to get from cache first
+    {
+        let cache = FILTER_CACHE.lock().unwrap();
+        if let Some(filter) = cache.get(&key) {
+            return Ok(filter.clone_fresh());
+        }
+    }
+
+    // Create the filter (expensive operation)
+    let filter = create_filter(config)?;
+
+    // Cache it
+    {
+        let mut cache = FILTER_CACHE.lock().unwrap();
+        cache.insert(key, filter.clone());
+    }
+
+    Ok(filter)
+}
+
+/// Get a filter from cache, returning None if creation fails.
+/// This is a convenience wrapper for optional filter creation.
+fn get_or_create_filter_opt(config: &FilterConfig) -> Option<SosFilter> {
+    get_or_create_filter(config).ok()
+}
 
 /// Configuration for the preprocessing pipeline
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -275,7 +359,7 @@ impl PreprocessingPipeline {
 
     /// Process all channels in parallel (for batch processing)
     pub fn process_all_channels(&mut self, channels: &mut [Vec<f64>]) {
-        // Pre-create template filters once (computing coefficients is expensive)
+        // Get template filters from cache (coefficients are cached to avoid redundant computation)
         // Each parallel thread will clone_fresh() to get independent state
         let notch_template = if self.config.notch_enabled {
             let notch_config = FilterConfig {
@@ -285,7 +369,7 @@ impl PreprocessingPipeline {
                 order: 2,
                 sample_rate: self.config.sample_rate,
             };
-            create_filter(&notch_config).ok()
+            get_or_create_filter_opt(&notch_config)
         } else {
             None
         };
@@ -298,7 +382,7 @@ impl PreprocessingPipeline {
                 order: self.config.filter_order,
                 sample_rate: self.config.sample_rate,
             };
-            create_filter(&bp_config).ok()
+            get_or_create_filter_opt(&bp_config)
         } else {
             None
         };
@@ -322,9 +406,29 @@ impl PreprocessingPipeline {
         channels: &[Vec<f64>],
         channel_names: &[String],
     ) -> PreprocessingResult {
+        // Clone data since we don't own it, then delegate to owned version
+        let owned_channels = channels.to_vec();
+        let owned_names = channel_names.to_vec();
+        self.process_batch_owned(owned_channels, owned_names)
+    }
+
+    /// Process a batch of data in-place and return the result (takes ownership, avoids copy)
+    ///
+    /// Use this with `std::mem::take` to avoid unnecessary data copies when the caller
+    /// no longer needs the original data:
+    /// ```ignore
+    /// let channels = std::mem::take(&mut chunk.data);
+    /// let names = std::mem::take(&mut chunk.channel_names);
+    /// let result = pipeline.process_batch_owned(channels, names);
+    /// ```
+    pub fn process_batch_owned(
+        &self,
+        mut channels: Vec<Vec<f64>>,
+        channel_names: Vec<String>,
+    ) -> PreprocessingResult {
         let start = std::time::Instant::now();
 
-        // Pre-create template filters once (computing coefficients is expensive)
+        // Get template filters from cache (coefficients are cached to avoid redundant computation)
         let notch_template = if self.config.notch_enabled {
             let notch_config = FilterConfig {
                 filter_type: FilterType::Notch,
@@ -333,7 +437,7 @@ impl PreprocessingPipeline {
                 order: 2,
                 sample_rate: self.config.sample_rate,
             };
-            create_filter(&notch_config).ok()
+            get_or_create_filter_opt(&notch_config)
         } else {
             None
         };
@@ -346,14 +450,13 @@ impl PreprocessingPipeline {
                 order: self.config.filter_order,
                 sample_rate: self.config.sample_rate,
             };
-            create_filter(&bp_config).ok()
+            get_or_create_filter_opt(&bp_config)
         } else {
             None
         };
 
-        // Clone and process in parallel
-        let mut processed: Vec<Vec<f64>> = channels.to_vec();
-        processed.par_iter_mut().for_each(|channel| {
+        // Process in-place in parallel (no copy needed since we own the data)
+        channels.par_iter_mut().for_each(|channel| {
             if let Some(ref template) = notch_template {
                 let mut notch = template.clone_fresh();
                 notch.process_signal(channel);
@@ -367,8 +470,8 @@ impl PreprocessingPipeline {
         let processing_time_ms = start.elapsed().as_secs_f64() * 1000.0;
 
         PreprocessingResult {
-            channels: processed,
-            channel_names: channel_names.to_vec(),
+            channels,
+            channel_names,
             config: self.config.clone(),
             processing_time_ms,
             warnings: self.warnings.clone(),
@@ -396,6 +499,25 @@ pub fn preprocess_batch(
 ) -> Result<PreprocessingResult, String> {
     let pipeline = PreprocessingPipeline::new(config.clone(), channels.len())?;
     Ok(pipeline.process_batch(channels, channel_names))
+}
+
+/// Stateless batch preprocessing function that takes ownership (avoids data copy)
+///
+/// Use this with `std::mem::take` when the caller no longer needs the original data:
+/// ```ignore
+/// let channels = std::mem::take(&mut chunk.data);
+/// let names = std::mem::take(&mut chunk.channel_labels);
+/// let result = preprocess_batch_owned(channels, names, &config)?;
+/// chunk.data = result.channels;
+/// chunk.channel_labels = result.channel_names;
+/// ```
+pub fn preprocess_batch_owned(
+    channels: Vec<Vec<f64>>,
+    channel_names: Vec<String>,
+    config: &PreprocessingConfig,
+) -> Result<PreprocessingResult, String> {
+    let pipeline = PreprocessingPipeline::new(config.clone(), channels.len())?;
+    Ok(pipeline.process_batch_owned(channels, channel_names))
 }
 
 #[cfg(test)]
@@ -471,5 +593,51 @@ mod tests {
             .warnings
             .iter()
             .any(|w| w.contains("Bandpass filter skipped")));
+    }
+
+    #[test]
+    fn test_filter_coefficient_caching() {
+        let config = PreprocessingConfig {
+            sample_rate: 1000.0,
+            notch_enabled: true,
+            notch_frequency: 50.0,
+            bandpass_enabled: true,
+            bandpass_low: 1.0,
+            bandpass_high: 100.0,
+            ..Default::default()
+        };
+
+        // Generate test data
+        let channels: Vec<Vec<f64>> = (0..4)
+            .map(|_| (0..1000).map(|i| (i as f64 * 0.01).sin()).collect())
+            .collect();
+        let names: Vec<String> = (0..4).map(|i| format!("Ch{}", i)).collect();
+
+        // Run multiple times - the cache should be hit on subsequent runs
+        let start1 = std::time::Instant::now();
+        let result1 = preprocess_batch(&channels, &names, &config).unwrap();
+        let time1 = start1.elapsed();
+
+        let start2 = std::time::Instant::now();
+        let result2 = preprocess_batch(&channels, &names, &config).unwrap();
+        let time2 = start2.elapsed();
+
+        let start3 = std::time::Instant::now();
+        let result3 = preprocess_batch(&channels, &names, &config).unwrap();
+        let time3 = start3.elapsed();
+
+        // All results should be equivalent
+        assert_eq!(result1.channels.len(), result2.channels.len());
+        assert_eq!(result2.channels.len(), result3.channels.len());
+
+        // Verify cache is being used by checking that it contains entries
+        let cache = FILTER_CACHE.lock().unwrap();
+        assert!(
+            !cache.is_empty(),
+            "Filter cache should have entries after processing"
+        );
+
+        // Log times for debugging (subsequent runs should be similar or faster)
+        println!("Processing times: {:?}, {:?}, {:?}", time1, time2, time3);
     }
 }
