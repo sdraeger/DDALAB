@@ -374,25 +374,28 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   // PROGRESSIVE LOADING: Fetch channel data on-demand from worker cache
   // The metadata (result) is loaded instantly, but the large dda_matrix data
   // is fetched separately to avoid blocking the UI with structured clone
+  const currentVariantId = currentVariantData?.variant_id;
   const {
     data: channelData,
     isLoading: isLoadingChannelData,
     isFetching: isFetchingChannelData,
   } = useDDAChannelData(
     result.id,
-    currentVariantData?.variant_id,
+    currentVariantId,
     selectedChannels,
     // Only fetch when we have selected channels and the variant is ready
-    selectedChannels.length > 0 && !!currentVariantData?.variant_id,
+    selectedChannels.length > 0 && !!currentVariantId,
   );
 
   // Merge fetched channel data with variant metadata for rendering
   // This creates a complete dda_matrix from progressively loaded data
+  // TanStack Query keys by variantId, so channelData is always for the current variant
   const effectiveDDAMatrix = useMemo((): Record<string, number[]> => {
-    // If we have fetched channel data, use it
+    // If we have fetched channel data, use it (TanStack Query guarantees it's for current variant)
     if (channelData?.ddaMatrix) {
       return channelData.ddaMatrix;
     }
+
     // Fallback to variant's dda_matrix (may be populated for new/live results)
     return currentVariantData?.dda_matrix || {};
   }, [channelData?.ddaMatrix, currentVariantData?.dda_matrix]);
@@ -484,14 +487,12 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
   // Reset view mode to default when switching to a variant that doesn't support the current view
 
-  // Extract current variant ID for annotation hooks
-  const currentVariantId = currentVariantData?.variant_id || "legacy";
-
   // Annotation hooks for heatmap and line plot
   // Only enable when respective plots are shown to avoid blocking initial render
+  const annotationVariantId = currentVariantId || "legacy";
   const heatmapAnnotations = useDDAAnnotations({
     resultId: result.id,
-    variantId: currentVariantId,
+    variantId: annotationVariantId,
     plotType: "heatmap",
     ddaResult: result,
     sampleRate: sampleRate,
@@ -500,7 +501,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
   const linePlotAnnotations = useDDAAnnotations({
     resultId: result.id,
-    variantId: currentVariantId,
+    variantId: annotationVariantId,
     plotType: "line",
     ddaResult: result,
     sampleRate: sampleRate,

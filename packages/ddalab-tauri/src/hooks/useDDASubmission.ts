@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState, useEffect } from "react";
+import { useCallback, useRef, useState, useEffect, useMemo } from "react";
 import { flushSync } from "react-dom";
 import { TauriService, NotificationType } from "@/services/tauriService";
 import { tauriBackendService } from "@/services/tauriBackendService";
@@ -122,6 +122,13 @@ export function useDDASubmission({
     };
   }, []);
 
+  // Build channel index map once for O(1) lookups instead of O(n) indexOf calls
+  const channelIndexMap = useMemo(() => {
+    const map = new Map<string, number>();
+    selectedFile?.channels.forEach((ch, idx) => map.set(ch, idx));
+    return map;
+  }, [selectedFile?.channels]);
+
   // Helper to extract all channels from variant configurations
   const extractAllChannels = useCallback((): Set<string> => {
     const allChannels = new Set<string>();
@@ -211,8 +218,8 @@ export function useDDASubmission({
         selectedFile
           ? ctConfig.ctChannelPairs
               .map(([ch1, ch2]) => {
-                const idx1 = selectedFile.channels.indexOf(ch1);
-                const idx2 = selectedFile.channels.indexOf(ch2);
+                const idx1 = channelIndexMap.get(ch1) ?? -1;
+                const idx2 = channelIndexMap.get(ch2) ?? -1;
                 return [idx1, idx2] as [number, number];
               })
               .filter(([idx1, idx2]) => idx1 !== -1 && idx2 !== -1)
@@ -226,8 +233,8 @@ export function useDDASubmission({
         selectedFile
           ? cdConfig.cdChannelPairs
               .map(([from, to]) => {
-                const fromIdx = selectedFile.channels.indexOf(from);
-                const toIdx = selectedFile.channels.indexOf(to);
+                const fromIdx = channelIndexMap.get(from) ?? -1;
+                const toIdx = channelIndexMap.get(to) ?? -1;
                 return [fromIdx, toIdx] as [number, number];
               })
               .filter(([fromIdx, toIdx]) => fromIdx !== -1 && toIdx !== -1)
@@ -236,7 +243,7 @@ export function useDDASubmission({
       // Convert channel names to indices
       const channelNames = Array.from(allChannels);
       const channelIndices = channelNames
-        .map((ch) => selectedFile.channels.indexOf(ch))
+        .map((ch) => channelIndexMap.get(ch) ?? -1)
         .filter((idx) => idx !== -1);
 
       // Build variant_configs from variantChannelConfigs
@@ -250,15 +257,15 @@ export function useDDASubmission({
 
         if (config.selectedChannels && config.selectedChannels.length > 0) {
           variantConfig.selectedChannels = config.selectedChannels
-            .map((ch) => selectedFile.channels.indexOf(ch))
+            .map((ch) => channelIndexMap.get(ch) ?? -1)
             .filter((idx) => idx !== -1);
         }
 
         if (config.ctChannelPairs && config.ctChannelPairs.length > 0) {
           variantConfig.ctChannelPairs = config.ctChannelPairs
             .map(([ch1, ch2]) => {
-              const idx1 = selectedFile.channels.indexOf(ch1);
-              const idx2 = selectedFile.channels.indexOf(ch2);
+              const idx1 = channelIndexMap.get(ch1) ?? -1;
+              const idx2 = channelIndexMap.get(ch2) ?? -1;
               return [idx1, idx2] as [number, number];
             })
             .filter(([idx1, idx2]) => idx1 !== -1 && idx2 !== -1);
@@ -267,8 +274,8 @@ export function useDDASubmission({
         if (config.cdChannelPairs && config.cdChannelPairs.length > 0) {
           variantConfig.cdChannelPairs = config.cdChannelPairs
             .map(([from, to]) => {
-              const fromIdx = selectedFile.channels.indexOf(from);
-              const toIdx = selectedFile.channels.indexOf(to);
+              const fromIdx = channelIndexMap.get(from) ?? -1;
+              const toIdx = channelIndexMap.get(to) ?? -1;
               return [fromIdx, toIdx] as [number, number];
             })
             .filter(([fromIdx, toIdx]) => fromIdx !== -1 && toIdx !== -1);
@@ -355,6 +362,7 @@ export function useDDASubmission({
       setDDARunning,
       onAnalysisComplete,
       onError,
+      channelIndexMap,
     ],
   );
 
@@ -396,7 +404,7 @@ export function useDDASubmission({
         channels:
           channelArray.length > 0
             ? channelArray.map((ch) => {
-                const channelIndex = selectedFile.channels.indexOf(ch);
+                const channelIndex = channelIndexMap.get(ch) ?? -1;
                 return channelIndex >= 0 ? channelIndex : 0;
               })
             : null,
@@ -440,8 +448,8 @@ export function useDDASubmission({
         ct_channel_pairs:
           parameters.ctChannelPairs?.length > 0
             ? parameters.ctChannelPairs.map((pair) => {
-                const idx0 = selectedFile.channels.indexOf(pair[0]);
-                const idx1 = selectedFile.channels.indexOf(pair[1]);
+                const idx0 = channelIndexMap.get(pair[0]) ?? -1;
+                const idx1 = channelIndexMap.get(pair[1]) ?? -1;
                 return [idx0 >= 0 ? idx0 : 0, idx1 >= 0 ? idx1 : 0];
               })
             : null,
@@ -511,6 +519,7 @@ export function useDDASubmission({
     appExpertMode,
     hasNsgCredentials,
     extractAllChannels,
+    channelIndexMap,
   ]);
 
   // Submit to remote server
