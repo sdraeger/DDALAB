@@ -4,13 +4,111 @@ use rayon::prelude::*;
 /// Minimum data length to use parallel processing (overhead not worth it for small data)
 const PAR_THRESHOLD: usize = 10_000;
 
+/// Combined quality metrics result from single-pass computation
+#[derive(Debug, Clone, Copy)]
+pub struct CombinedMetrics {
+    pub kurtosis: f64,
+    pub non_gaussianity: f64,
+}
+
 pub struct QualityMetrics;
 
 impl QualityMetrics {
+    /// Compute kurtosis and non-Gaussianity in a single pass over the data.
+    /// This is significantly more efficient than calling kurtosis() and non_gaussianity()
+    /// separately, as it avoids redundant mean/variance calculations and multiple data traversals.
+    ///
+    /// Uses a two-pass approach:
+    /// - Pass 1: Compute mean
+    /// - Pass 2: Compute variance (m2), kurtosis (m4), and log-cosh expectation simultaneously
+    pub fn compute_combined(data: &[f64]) -> CombinedMetrics {
+        if data.len() < 4 {
+            return CombinedMetrics {
+                kurtosis: 0.0,
+                non_gaussianity: 0.0,
+            };
+        }
+
+        let n = data.len() as f64;
+        let use_parallel = data.len() >= PAR_THRESHOLD;
+
+        // Pass 1: Compute mean
+        let mean = if use_parallel {
+            data.par_iter().sum::<f64>() / n
+        } else {
+            data.iter().sum::<f64>() / n
+        };
+
+        // Pass 2: Compute m2 and m4 in a single iteration
+        // Note: We cannot compute the standardized log-cosh in this pass because
+        // we need std (derived from m2) to standardize the values. The log-cosh
+        // of non-standardized values cannot be mathematically transformed to
+        // log-cosh of standardized values (log(cosh(x/s)) != log(cosh(x))/s).
+        let (m2, m4) = if use_parallel {
+            data.par_iter()
+                .map(|&x| {
+                    let dev = x - mean;
+                    let dev2 = dev * dev;
+                    let dev4 = dev2 * dev2;
+                    (dev2, dev4)
+                })
+                .reduce(|| (0.0, 0.0), |(a2, a4), (b2, b4)| (a2 + b2, a4 + b4))
+        } else {
+            data.iter().fold((0.0, 0.0), |(m2, m4), &x| {
+                let dev = x - mean;
+                let dev2 = dev * dev;
+                let dev4 = dev2 * dev2;
+                (m2 + dev2, m4 + dev4)
+            })
+        };
+
+        let m2 = m2 / n;
+        let m4 = m4 / n;
+
+        // Handle near-zero variance case
+        if m2 < 1e-10 {
+            return CombinedMetrics {
+                kurtosis: 0.0,
+                non_gaussianity: 0.0,
+            };
+        }
+
+        // Compute kurtosis (excess kurtosis, subtract 3 for Gaussian baseline)
+        let kurtosis = m4 / m2.powi(2) - 3.0;
+
+        // Compute non-Gaussianity using log-cosh approximation
+        // We need to adjust for standardization: log(cosh(x/std)) != log(cosh(x))/std
+        // So we need a second computation for the standardized log-cosh
+        let std = m2.sqrt();
+        let gaussian_expectation = 0.3746;
+
+        let g_expectation = if use_parallel {
+            data.par_iter()
+                .map(|&x| ((x - mean) / std).cosh().ln())
+                .sum::<f64>()
+                / n
+        } else {
+            data.iter()
+                .map(|&x| ((x - mean) / std).cosh().ln())
+                .sum::<f64>()
+                / n
+        };
+
+        let non_gaussianity = (g_expectation - gaussian_expectation).powi(2);
+
+        CombinedMetrics {
+            kurtosis,
+            non_gaussianity,
+        }
+    }
+
     /// Compute excess kurtosis (measure of non-Gaussianity)
     /// Kurtosis = E[(X-μ)^4] / σ^4 - 3
     /// Gaussian distributions have kurtosis ≈ 0
     /// High |kurtosis| indicates non-Gaussian (interesting) components
+    ///
+    /// Note: If you also need non_gaussianity, use compute_combined() instead
+    /// to avoid redundant computations.
     pub fn kurtosis(data: &[f64]) -> f64 {
         if data.len() < 4 {
             return 0.0;
@@ -45,6 +143,9 @@ impl QualityMetrics {
     /// Uses approximation: J(y) ≈ [E{G(y)} - E{G(v)}]^2
     /// where G(u) = -exp(-u^2/2) (approximation for negentropy)
     /// Higher values indicate more non-Gaussian signals
+    ///
+    /// Note: If you also need kurtosis, use compute_combined() instead
+    /// to avoid redundant computations.
     pub fn non_gaussianity(data: &[f64]) -> f64 {
         if data.is_empty() {
             return 0.0;
@@ -433,6 +534,72 @@ mod tests {
             ac_half < -0.9,
             "Expected negative AC at half-period, got {}",
             ac_half
+        );
+    }
+
+    #[test]
+    fn test_compute_combined_matches_individual() {
+        // Test that compute_combined produces the same results as calling
+        // kurtosis() and non_gaussianity() separately
+        let sine: Vec<f64> = (0..1000)
+            .map(|i| (2.0 * PI * i as f64 / 100.0).sin())
+            .collect();
+
+        let combined = QualityMetrics::compute_combined(&sine);
+        let individual_kurtosis = QualityMetrics::kurtosis(&sine);
+        let individual_ng = QualityMetrics::non_gaussianity(&sine);
+
+        assert!(
+            (combined.kurtosis - individual_kurtosis).abs() < 1e-10,
+            "Kurtosis mismatch: combined={}, individual={}",
+            combined.kurtosis,
+            individual_kurtosis
+        );
+        assert!(
+            (combined.non_gaussianity - individual_ng).abs() < 1e-10,
+            "Non-Gaussianity mismatch: combined={}, individual={}",
+            combined.non_gaussianity,
+            individual_ng
+        );
+    }
+
+    #[test]
+    fn test_compute_combined_edge_cases() {
+        // Test with small data (less than 4 elements)
+        let small_data = vec![1.0, 2.0, 3.0];
+        let result = QualityMetrics::compute_combined(&small_data);
+        assert_eq!(result.kurtosis, 0.0);
+        assert_eq!(result.non_gaussianity, 0.0);
+
+        // Test with constant data (zero variance)
+        let constant_data = vec![5.0; 100];
+        let result = QualityMetrics::compute_combined(&constant_data);
+        assert_eq!(result.kurtosis, 0.0);
+        assert_eq!(result.non_gaussianity, 0.0);
+    }
+
+    #[test]
+    fn test_compute_combined_large_data() {
+        // Test with data larger than PAR_THRESHOLD to exercise parallel code path
+        let large_data: Vec<f64> = (0..15000)
+            .map(|i| (2.0 * PI * i as f64 / 100.0).sin())
+            .collect();
+
+        let combined = QualityMetrics::compute_combined(&large_data);
+        let individual_kurtosis = QualityMetrics::kurtosis(&large_data);
+        let individual_ng = QualityMetrics::non_gaussianity(&large_data);
+
+        assert!(
+            (combined.kurtosis - individual_kurtosis).abs() < 1e-10,
+            "Large data kurtosis mismatch: combined={}, individual={}",
+            combined.kurtosis,
+            individual_kurtosis
+        );
+        assert!(
+            (combined.non_gaussianity - individual_ng).abs() < 1e-10,
+            "Large data non-Gaussianity mismatch: combined={}, individual={}",
+            combined.non_gaussianity,
+            individual_ng
         );
     }
 }

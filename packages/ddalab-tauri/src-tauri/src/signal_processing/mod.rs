@@ -13,5 +13,6 @@ pub use filters::{
     BiquadFilter, ButterworthFilter, FilterConfig, FilterType, NotchFilter, SosFilter,
 };
 pub use pipeline::{
-    preprocess_batch, PreprocessingConfig, PreprocessingPipeline, PreprocessingResult,
+    preprocess_batch, preprocess_batch_owned, PreprocessingConfig, PreprocessingPipeline,
+    PreprocessingResult,
 };
