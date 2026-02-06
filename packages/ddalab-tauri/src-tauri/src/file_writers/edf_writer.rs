@@ -229,35 +229,6 @@ impl EDFWriter {
         Ok(calibration_params)
     }
 
-    /// Pre-compute all digital values for a channel (parallelized)
-    fn compute_channel_digital_values(
-        samples: &[f64],
-        physical_min: f64,
-        physical_max: f64,
-        digital_min: i64,
-        digital_max: i64,
-        total_output_samples: usize,
-    ) -> Vec<i16> {
-        let gain = (physical_max - physical_min) / (digital_max - digital_min) as f64;
-        let offset = physical_max - gain * digital_max as f64;
-
-        let mut result = Vec::with_capacity(total_output_samples);
-
-        // Convert all samples
-        for sample_idx in 0..total_output_samples {
-            let digital_value = if sample_idx < samples.len() {
-                let physical_value = samples[sample_idx];
-                let raw_digital = ((physical_value - offset) / gain).round() as i64;
-                raw_digital.clamp(digital_min, digital_max) as i16
-            } else {
-                0i16 // Padding for incomplete records
-            };
-            result.push(digital_value);
-        }
-
-        result
-    }
-
     fn write_data_records<W: Write>(
         writer: &mut W,
         data: &IntermediateData,
@@ -265,59 +236,39 @@ impl EDFWriter {
         num_data_records: usize,
         calibration_params: &[(f64, f64, i64, i64)],
     ) -> FileWriterResult<()> {
-        let total_output_samples = num_data_records * num_samples_per_record;
-        let use_parallel = data.num_samples() >= PARALLEL_THRESHOLD;
+        let channel_conversions: Vec<(f64, f64, i64, i64)> = calibration_params
+            .iter()
+            .map(|&(physical_min, physical_max, digital_min, digital_max)| {
+                let gain = (physical_max - physical_min) / (digital_max - digital_min) as f64;
+                let offset = physical_max - gain * digital_max as f64;
+                (gain, offset, digital_min, digital_max)
+            })
+            .collect();
 
-        // Pre-compute all digital values for all channels
-        let channel_digital_values: Vec<Vec<i16>> = if use_parallel {
-            // Parallel computation for large datasets
-            data.channels
-                .par_iter()
-                .zip(calibration_params.par_iter())
-                .map(
-                    |(channel, &(physical_min, physical_max, digital_min, digital_max))| {
-                        Self::compute_channel_digital_values(
-                            &channel.samples,
-                            physical_min,
-                            physical_max,
-                            digital_min,
-                            digital_max,
-                            total_output_samples,
-                        )
-                    },
-                )
-                .collect()
-        } else {
-            // Sequential for small datasets
-            data.channels
-                .iter()
-                .zip(calibration_params.iter())
-                .map(
-                    |(channel, &(physical_min, physical_max, digital_min, digital_max))| {
-                        Self::compute_channel_digital_values(
-                            &channel.samples,
-                            physical_min,
-                            physical_max,
-                            digital_min,
-                            digital_max,
-                            total_output_samples,
-                        )
-                    },
-                )
-                .collect()
-        };
+        let mut record_buf = vec![0u8; num_samples_per_record * 2];
 
-        // Write data records sequentially (I/O must be sequential)
         for record_idx in 0..num_data_records {
             let start_sample = record_idx * num_samples_per_record;
 
-            for (ch_idx, _) in data.channels.iter().enumerate() {
+            for (ch_idx, channel) in data.channels.iter().enumerate() {
+                let (gain, offset, digital_min, digital_max) = channel_conversions[ch_idx];
+                let samples = &channel.samples;
+                let samples_len = samples.len();
+
                 for sample_offset in 0..num_samples_per_record {
                     let sample_idx = start_sample + sample_offset;
-                    let digital_value = channel_digital_values[ch_idx][sample_idx];
-                    let bytes = digital_value.to_le_bytes();
-                    writer.write_all(&bytes)?;
+                    let digital_value = if sample_idx < samples_len {
+                        let raw = ((samples[sample_idx] - offset) / gain).round() as i64;
+                        raw.clamp(digital_min, digital_max) as i16
+                    } else {
+                        0i16
+                    };
+                    let byte_offset = sample_offset * 2;
+                    record_buf[byte_offset..byte_offset + 2]
+                        .copy_from_slice(&digital_value.to_le_bytes());
                 }
+
+                writer.write_all(&record_buf)?;
             }
         }
 

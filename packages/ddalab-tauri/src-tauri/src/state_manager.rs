@@ -176,6 +176,7 @@ impl AppStateManager {
                                         file_path,
                                         None,
                                         &annotation,
+                                        None,
                                     ) {
                                         log::warn!("Failed to migrate annotation: {}", e);
                                     }
@@ -234,8 +235,28 @@ impl AppStateManager {
         }
     }
 
+    /// Returns a clone of the UI state. Use this only when ownership is required
+    /// (e.g., for serialization in Tauri commands). For read-only access, prefer
+    /// `with_ui_state()` or specific accessor methods like `get_window_state()`.
     pub fn get_ui_state(&self) -> UIState {
         self.ui_state.read().clone()
+    }
+
+    /// Provides read-only access to UI state without cloning.
+    /// The callback receives a reference to the state and can return a value.
+    /// This is more efficient than `get_ui_state()` when you only need to read data.
+    pub fn with_ui_state<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&UIState) -> R,
+    {
+        let state = self.ui_state.read();
+        f(&state)
+    }
+
+    /// Gets a specific window state by ID without cloning the entire UIState.
+    /// Returns None if the window ID is not found.
+    pub fn get_window_state(&self, window_id: &str) -> Option<crate::models::WindowState> {
+        self.ui_state.read().windows.get(window_id).cloned()
     }
 
     pub fn update_ui_state<F>(&self, updater: F) -> Result<(), String>
