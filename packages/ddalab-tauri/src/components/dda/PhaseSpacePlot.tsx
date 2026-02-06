@@ -145,8 +145,13 @@ function PhaseSpacePlotComponent({
     if (!chartInstanceRef.current || !result) return;
 
     const chart = chartInstanceRef.current;
-    const zMin = Math.min(...result.points.map((p) => p[2]));
-    const zMax = Math.max(...result.points.map((p) => p[2]));
+    let zMin = Infinity,
+      zMax = -Infinity;
+    for (let i = 0; i < result.points.length; i++) {
+      const z = result.points[i][2];
+      if (z < zMin) zMin = z;
+      if (z > zMax) zMax = z;
+    }
 
     const option: any = {
       backgroundColor: "#0c0c0f",

@@ -1,14 +1,7 @@
 "use client";
 
-import React, { useMemo } from "react";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import React, { useMemo, useCallback } from "react";
+import { FixedSizeList as List } from "react-window";
 import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
 import { toast } from "@/components/ui/toaster";
@@ -30,12 +23,15 @@ export interface DataTableViewProps {
   className?: string;
 }
 
+const ROW_HEIGHT = 36;
+const TABLE_HEIGHT = 600;
+
 export const DataTableView: React.FC<DataTableViewProps> = ({
   data,
   columns,
   title,
   description,
-  maxRows = 1000,
+  maxRows = 10000,
   enableExport = true,
   exportFilename = "data-export.csv",
   className = "",
@@ -79,6 +75,34 @@ export const DataTableView: React.FC<DataTableViewProps> = ({
 
   const isTruncated = data.length > maxRows;
 
+  const Row = useCallback(
+    ({ index, style }: { index: number; style: React.CSSProperties }) => {
+      const row = displayData[index];
+      return (
+        <div
+          style={style}
+          className={`flex items-center border-b ${index % 2 === 0 ? "" : "bg-muted/30"}`}
+        >
+          {columns.map((column, colIdx) => {
+            const value = row[column.accessor];
+            const formatted = column.formatter
+              ? column.formatter(value)
+              : String(value ?? "-");
+            return (
+              <div
+                key={colIdx}
+                className="flex-1 px-4 font-mono text-sm truncate"
+              >
+                {formatted}
+              </div>
+            );
+          })}
+        </div>
+      );
+    },
+    [displayData, columns],
+  );
+
   return (
     <div className={`space-y-4 ${className}`}>
       <div className="flex items-center justify-between">
@@ -108,37 +132,23 @@ export const DataTableView: React.FC<DataTableViewProps> = ({
       </div>
 
       <div className="border rounded-lg overflow-hidden">
-        <div className="max-h-[600px] overflow-auto">
-          <Table>
-            <TableHeader className="sticky top-0 bg-background z-10">
-              <TableRow>
-                {columns.map((column, idx) => (
-                  <TableHead key={idx} className="font-semibold">
-                    {column.header}
-                  </TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {displayData.map((row, rowIdx) => (
-                <TableRow key={rowIdx}>
-                  {columns.map((column, colIdx) => {
-                    const value = row[column.accessor];
-                    const formatted = column.formatter
-                      ? column.formatter(value)
-                      : String(value ?? "-");
-
-                    return (
-                      <TableCell key={colIdx} className="font-mono text-sm">
-                        {formatted}
-                      </TableCell>
-                    );
-                  })}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+        {/* Sticky header */}
+        <div className="flex items-center border-b bg-background">
+          {columns.map((column, idx) => (
+            <div key={idx} className="flex-1 px-4 py-2 font-semibold text-sm">
+              {column.header}
+            </div>
+          ))}
         </div>
+        {/* Virtualized rows */}
+        <List
+          height={Math.min(TABLE_HEIGHT, displayData.length * ROW_HEIGHT)}
+          itemCount={displayData.length}
+          itemSize={ROW_HEIGHT}
+          width="100%"
+        >
+          {Row}
+        </List>
       </div>
 
       {isTruncated && (

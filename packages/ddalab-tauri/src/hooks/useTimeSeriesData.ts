@@ -21,6 +21,43 @@ const CACHE_LIMITS = {
 } as const;
 
 /**
+ * Find k oldest entries from array by dataUpdatedAt in O(n) time
+ * Uses linear scan instead of O(n log n) sort
+ */
+function findOldestEntries<T extends { state: { dataUpdatedAt?: number } }>(
+  entries: T[],
+  k: number,
+): T[] {
+  if (k <= 0 || entries.length === 0) return [];
+  if (k >= entries.length) return [...entries];
+
+  // For small k, use k linear passes (O(k*n) which is O(n) when k is constant)
+  const result: T[] = [];
+  const used = new Set<number>();
+
+  for (let i = 0; i < k; i++) {
+    let oldestIdx = -1;
+    let oldestTime = Infinity;
+
+    for (let j = 0; j < entries.length; j++) {
+      if (used.has(j)) continue;
+      const time = entries[j].state.dataUpdatedAt || 0;
+      if (time < oldestTime) {
+        oldestTime = time;
+        oldestIdx = j;
+      }
+    }
+
+    if (oldestIdx !== -1) {
+      result.push(entries[oldestIdx]);
+      used.add(oldestIdx);
+    }
+  }
+
+  return result;
+}
+
+/**
  * Evict oldest chunk queries when cache exceeds limit
  * Uses LRU-style eviction based on query dataUpdatedAt
  */
@@ -32,13 +69,11 @@ function evictOldChunkQueries(queryClient: QueryClient, maxQueries: number) {
 
   if (chunkQueries.length <= maxQueries) return;
 
-  // Sort by last update time (oldest first)
-  const sorted = chunkQueries.sort(
-    (a, b) => (a.state.dataUpdatedAt || 0) - (b.state.dataUpdatedAt || 0),
-  );
+  const numToEvict = chunkQueries.length - maxQueries;
 
-  // Remove oldest queries until we're under the limit
-  const toRemove = sorted.slice(0, chunkQueries.length - maxQueries);
+  // Find oldest entries in O(n) instead of O(n log n) sort
+  const toRemove = findOldestEntries(chunkQueries, numToEvict);
+
   for (const query of toRemove) {
     queryClient.removeQueries({ queryKey: query.queryKey, exact: true });
   }
@@ -63,11 +98,11 @@ function evictOldOverviewQueries(queryClient: QueryClient, maxQueries: number) {
 
   if (overviewQueries.length <= maxQueries) return;
 
-  const sorted = overviewQueries.sort(
-    (a, b) => (a.state.dataUpdatedAt || 0) - (b.state.dataUpdatedAt || 0),
-  );
+  const numToEvict = overviewQueries.length - maxQueries;
 
-  const toRemove = sorted.slice(0, overviewQueries.length - maxQueries);
+  // Find oldest entries in O(n) instead of O(n log n) sort
+  const toRemove = findOldestEntries(overviewQueries, numToEvict);
+
   for (const query of toRemove) {
     queryClient.removeQueries({ queryKey: query.queryKey, exact: true });
   }
@@ -490,6 +525,71 @@ export function useTimeSeriesCacheMonitor(intervalMs: number = 60_000) {
 }
 
 /**
+ * Hook to fetch multiple chunks in a single batched IPC call
+ * This is more efficient than useMultipleChunks when fetching many chunks
+ * as it reduces IPC overhead by combining requests into a single call.
+ *
+ * @param filePath - Path to the EDF/CSV file
+ * @param chunkRequests - Array of chunk requests (start, size, channels)
+ * @param enabled - Whether to enable the query (default: true)
+ *
+ * @returns Query result with all chunk data
+ *
+ * @example
+ * const { data: chunks, isLoading } = useBatchedChunks(
+ *   '/path/to/file.edf',
+ *   [
+ *     { start: 0, size: 1000, channels: ['Channel 1'] },
+ *     { start: 1000, size: 1000, channels: ['Channel 1'] },
+ *     { start: 2000, size: 1000, channels: ['Channel 1'] }
+ *   ],
+ *   true
+ * );
+ */
+export function useBatchedChunks(
+  filePath: string,
+  chunkRequests: Array<{
+    start: number;
+    size: number;
+    channels?: string[];
+    preprocessing?: {
+      highpass?: number;
+      lowpass?: number;
+      notch?: number[];
+    };
+  }>,
+  enabled: boolean = true,
+) {
+  // Create a stable query key that captures all request parameters
+  const requestsKey = chunkRequests
+    .map(
+      (r) =>
+        `${r.start}:${r.size}:${r.channels?.join(",") || ""}:${r.preprocessing?.highpass || ""}:${r.preprocessing?.lowpass || ""}:${r.preprocessing?.notch?.join(",") || ""}`,
+    )
+    .join("|");
+
+  return useQuery({
+    queryKey: [...timeSeriesKeys.chunks(), "batch", filePath, requestsKey],
+    queryFn: async () => {
+      return tauriBackendService.getEdfChunksBatch(
+        filePath,
+        chunkRequests.map((r) => ({
+          chunkStart: r.start,
+          chunkSize: r.size,
+          channels: r.channels,
+          preprocessing: r.preprocessing,
+        })),
+      );
+    },
+    enabled: enabled && !!filePath && chunkRequests.length > 0,
+    staleTime: 2 * 60 * 1000, // 2 minutes - chunk data is immutable but memory-heavy
+    gcTime: 5 * 60 * 1000, // 5 minutes - aggressive GC to prevent memory bloat
+    retry: 2,
+    refetchOnWindowFocus: false,
+  });
+}
+
+/**
  * Hook to prefetch chunk data ahead of time
  * Useful for progressive loading or anticipating user navigation
  *
@@ -537,6 +637,67 @@ export function usePrefetchChunkData() {
         );
       },
       staleTime: 2 * 60 * 1000, // 2 minutes (was 30 min)
+    });
+  };
+}
+
+/**
+ * Hook to prefetch multiple chunks in a single batched IPC call
+ * More efficient than multiple individual prefetch calls
+ *
+ * @returns Prefetch function
+ *
+ * @example
+ * const prefetchBatchedChunks = usePrefetchBatchedChunks();
+ *
+ * // Prefetch next several chunks when user scrolls near end
+ * useEffect(() => {
+ *   if (userNearEndOfView) {
+ *     prefetchBatchedChunks('/path/to/file.edf', [
+ *       { start: nextChunkStart, size: chunkSize },
+ *       { start: nextChunkStart + chunkSize, size: chunkSize },
+ *       { start: nextChunkStart + chunkSize * 2, size: chunkSize }
+ *     ]);
+ *   }
+ * }, [userNearEndOfView]);
+ */
+export function usePrefetchBatchedChunks() {
+  const queryClient = useQueryClient();
+
+  return (
+    filePath: string,
+    chunkRequests: Array<{
+      start: number;
+      size: number;
+      channels?: string[];
+      preprocessing?: {
+        highpass?: number;
+        lowpass?: number;
+        notch?: number[];
+      };
+    }>,
+  ) => {
+    const requestsKey = chunkRequests
+      .map(
+        (r) =>
+          `${r.start}:${r.size}:${r.channels?.join(",") || ""}:${r.preprocessing?.highpass || ""}:${r.preprocessing?.lowpass || ""}:${r.preprocessing?.notch?.join(",") || ""}`,
+      )
+      .join("|");
+
+    queryClient.prefetchQuery({
+      queryKey: [...timeSeriesKeys.chunks(), "batch", filePath, requestsKey],
+      queryFn: async () => {
+        return tauriBackendService.getEdfChunksBatch(
+          filePath,
+          chunkRequests.map((r) => ({
+            chunkStart: r.start,
+            chunkSize: r.size,
+            channels: r.channels,
+            preprocessing: r.preprocessing,
+          })),
+        );
+      },
+      staleTime: 2 * 60 * 1000, // 2 minutes
     });
   };
 }

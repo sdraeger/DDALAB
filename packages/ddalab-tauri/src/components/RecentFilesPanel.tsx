@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import {
   useRecentFilesStore,
   formatFileSize,
@@ -75,11 +75,15 @@ interface RecentFileItemProps {
   };
   isFavorite: boolean;
   onSelect: (path: string) => void;
-  onToggleFavorite: () => void;
-  onRemove: () => void;
+  onToggleFavorite: (file: {
+    path: string;
+    name: string;
+    type: string;
+  }) => void;
+  onRemove: (file: { path: string; name: string; type: string }) => void;
 }
 
-function RecentFileItem({
+const RecentFileItem = memo(function RecentFileItem({
   path,
   name,
   type,
@@ -93,13 +97,33 @@ function RecentFileItem({
 }: RecentFileItemProps) {
   const FileIcon = getFileIcon(type);
 
+  const handleClick = useCallback(() => {
+    onSelect(path);
+  }, [onSelect, path]);
+
+  const handleToggleFavorite = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      onToggleFavorite({ path, name, type });
+    },
+    [onToggleFavorite, path, name, type],
+  );
+
+  const handleRemove = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      onRemove({ path, name, type });
+    },
+    [onRemove, path, name, type],
+  );
+
   return (
     <div
       className={cn(
         "group flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors",
         "hover:bg-accent",
       )}
-      onClick={() => onSelect(path)}
+      onClick={handleClick}
     >
       {/* Icon */}
       <div className="flex-shrink-0">
@@ -157,12 +181,7 @@ function RecentFileItem({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleFavorite();
-            }}
-          >
+          <DropdownMenuItem onClick={handleToggleFavorite}>
             {isFavorite ? (
               <>
                 <StarOff className="h-4 w-4 mr-2" />
@@ -176,13 +195,7 @@ function RecentFileItem({
             )}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onClick={(e) => {
-              e.stopPropagation();
-              onRemove();
-            }}
-            className="text-destructive"
-          >
+          <DropdownMenuItem onClick={handleRemove} className="text-destructive">
             <Trash2 className="h-4 w-4 mr-2" />
             Remove from recent
           </DropdownMenuItem>
@@ -190,7 +203,7 @@ function RecentFileItem({
       </DropdownMenu>
     </div>
   );
-}
+});
 
 interface RecentFilesPanelProps {
   onFileSelect: (path: string) => void;
@@ -219,6 +232,20 @@ export function RecentFilesPanel({
   const displayedFiles = useMemo(
     () => recentFiles.slice(0, maxItems),
     [recentFiles, maxItems],
+  );
+
+  const handleToggleFavorite = useCallback(
+    (file: { path: string; name: string; type: string }) => {
+      toggleFavorite(file);
+    },
+    [toggleFavorite],
+  );
+
+  const handleRemoveRecentFile = useCallback(
+    (file: { path: string; name: string; type: string }) => {
+      removeRecentFile(file.path);
+    },
+    [removeRecentFile],
   );
 
   const hasFiles = displayedFiles.length > 0 || favorites.length > 0;
@@ -256,20 +283,8 @@ export function RecentFilesPanel({
                 accessCount={0}
                 isFavorite={true}
                 onSelect={onFileSelect}
-                onToggleFavorite={() =>
-                  toggleFavorite({
-                    path: file.path,
-                    name: file.name,
-                    type: file.type,
-                  })
-                }
-                onRemove={() =>
-                  toggleFavorite({
-                    path: file.path,
-                    name: file.name,
-                    type: file.type,
-                  })
-                }
+                onToggleFavorite={handleToggleFavorite}
+                onRemove={handleToggleFavorite}
               />
             ))}
           </div>
@@ -309,14 +324,8 @@ export function RecentFilesPanel({
                   metadata={file.metadata}
                   isFavorite={isFavorite(file.path)}
                   onSelect={onFileSelect}
-                  onToggleFavorite={() =>
-                    toggleFavorite({
-                      path: file.path,
-                      name: file.name,
-                      type: file.type,
-                    })
-                  }
-                  onRemove={() => removeRecentFile(file.path)}
+                  onToggleFavorite={handleToggleFavorite}
+                  onRemove={handleRemoveRecentFile}
                 />
               ))}
             </div>
