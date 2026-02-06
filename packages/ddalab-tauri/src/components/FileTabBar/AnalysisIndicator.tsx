@@ -3,11 +3,7 @@
 import React, { memo } from "react";
 import { Loader2, CheckCircle2, XCircle, Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
-import {
-  useFileHasRunningAnalysis,
-  useFileHasCompletedAnalysis,
-  useAnalysisForFile,
-} from "@/hooks/useAnalysisCoordinator";
+import { useAnalysisForFile } from "@/hooks/useAnalysisCoordinator";
 import {
   Popover,
   PopoverContent,
@@ -35,10 +31,16 @@ export const AnalysisIndicator = memo(function AnalysisIndicator({
   filePath,
   onNavigateToAnalysis,
 }: AnalysisIndicatorProps) {
-  const isRunning = useFileHasRunningAnalysis(filePath);
-  const hasCompleted = useFileHasCompletedAnalysis(filePath);
-  const { job, progress, currentStep, cancel, dismiss, hasError } =
-    useAnalysisForFile(filePath);
+  const {
+    job,
+    progress,
+    currentStep,
+    cancel,
+    dismiss,
+    isRunning,
+    isCompleted: hasCompleted,
+    hasError,
+  } = useAnalysisForFile(filePath);
 
   // Don't show anything if no analysis activity
   if (!isRunning && !hasCompleted && !hasError) {

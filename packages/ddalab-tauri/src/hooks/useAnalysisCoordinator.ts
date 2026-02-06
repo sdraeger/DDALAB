@@ -10,23 +10,16 @@
  * - Graceful error handling with visibility
  */
 
-import { useEffect, useCallback, useMemo, useRef } from "react";
+import { useEffect, useCallback } from "react";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { useShallow } from "zustand/shallow";
 import { useAppStore } from "@/store/appStore";
 import { tauriBackendService } from "@/services/tauriBackendService";
 import { TauriService, NotificationType } from "@/services/tauriService";
 import { loggers } from "@/lib/logger";
-import type {
-  DDAProgressEvent,
-  DDAResult,
-  DDAAnalysisRequest,
-} from "@/types/api";
+import type { DDAProgressEvent, DDAAnalysisRequest } from "@/types/api";
 import { mapStatusToPhase } from "@/types/api";
-import type {
-  AnalysisJob,
-  AnalysisQueuePreference,
-} from "@/store/slices/analysisSlice";
+import type { AnalysisJob } from "@/store/slices/analysisSlice";
 
 // Module-level flag to prevent multiple listeners across hot reloads
 let globalListenerInitialized = false;
@@ -324,7 +317,21 @@ export function useAnalysisEventListener() {
  * Use this for global analysis state (all jobs, running status, etc.)
  */
 export function useAnalysisCoordinator() {
-  const jobs = useAppStore(useShallow((state) => state.analysis.jobs));
+  // Only subscribe to job IDs/statuses we care about — not entire job objects
+  const runningJobs = useAppStore(
+    useShallow((state) => {
+      const running: AnalysisJob[] = [];
+      for (const job of Object.values(state.analysis.jobs)) {
+        if (job.status === "running" || job.status === "pending") {
+          running.push(job);
+        }
+      }
+      return running;
+    }),
+  );
+  const allJobs = useAppStore(
+    useShallow((state) => Object.values(state.analysis.jobs)),
+  );
   const queuePreference = useAppStore(
     (state) => state.analysis.queuePreference,
   );
@@ -335,8 +342,6 @@ export function useAnalysisCoordinator() {
   const registerJob = useAppStore((state) => state.registerJob);
   const removeJob = useAppStore((state) => state.removeJob);
   const cancelJob = useAppStore((state) => state.cancelJob);
-  const hasRunningJobs = useAppStore((state) => state.hasRunningJobs);
-  const getRunningJobs = useAppStore((state) => state.getRunningJobs);
   const setQueuePreference = useAppStore((state) => state.setQueuePreference);
   const addInterruptedAnalysis = useAppStore(
     (state) => state.addInterruptedAnalysis,
@@ -348,11 +353,12 @@ export function useAnalysisCoordinator() {
     (state) => state.clearInterruptedAnalyses,
   );
   const setDDARunning = useAppStore((state) => state.setDDARunning);
+  const setSubmittingForFile = useAppStore(
+    (state) => state.setSubmittingForFile,
+  );
 
-  /**
-   * Start a new analysis job.
-   * Registers the job in the coordinator and submits to backend.
-   */
+  const isRunning = runningJobs.length > 0;
+
   const startAnalysis = useCallback(
     async (
       filePath: string,
@@ -365,20 +371,15 @@ export function useAnalysisCoordinator() {
           variants: request.variants,
         });
 
-        // Set global running state
+        // Set submitting state IMMEDIATELY for UI feedback before async invoke
+        setSubmittingForFile(filePath);
         setDDARunning(true);
-
-        // Track pending submission so we can associate events with this file
         registerPendingSubmission(filePath);
 
-        // Submit to backend - this returns a DDAResult with the ID
-        // NOTE: The backend emits progress events during this call,
-        // which get buffered since the job isn't registered yet
         const result = await tauriBackendService.submitDDAAnalysis(request);
 
         clearPendingSubmission(filePath);
 
-        // Register job in coordinator
         registerJob({
           id: result.id,
           filePath,
@@ -388,17 +389,20 @@ export function useAnalysisCoordinator() {
           phase: "initializing",
         });
 
+        // Clear submitting state now that job is registered
+        setSubmittingForFile(null);
+
         loggers.dda.info("Analysis registered", {
           analysisId: result.id,
           filePath,
         });
 
-        // Process any events that were buffered while waiting for the invoke to return
         processBufferedEvents(result.id);
 
         return { success: true, analysisId: result.id };
       } catch (error) {
         clearPendingSubmission(filePath);
+        setSubmittingForFile(null);
         setDDARunning(false);
         const errorMessage =
           error instanceof Error ? error.message : "Failed to start analysis";
@@ -406,12 +410,9 @@ export function useAnalysisCoordinator() {
         return { success: false, error: errorMessage };
       }
     },
-    [registerJob, setDDARunning],
+    [registerJob, setDDARunning, setSubmittingForFile],
   );
 
-  /**
-   * Cancel a running analysis.
-   */
   const cancelAnalysis = useCallback(
     async (analysisId: string): Promise<boolean> => {
       try {
@@ -432,24 +433,8 @@ export function useAnalysisCoordinator() {
     [cancelJob],
   );
 
-  /**
-   * Get all jobs as an array (for iteration)
-   */
-  const allJobs = useMemo(() => Object.values(jobs), [jobs]);
-
-  /**
-   * Check if we're running jobs
-   */
-  const isRunning = useMemo(() => hasRunningJobs(), [jobs]);
-
-  /**
-   * Get running jobs
-   */
-  const runningJobs = useMemo(() => getRunningJobs(), [jobs]);
-
   return {
     // State
-    jobs,
     allJobs,
     isRunning,
     runningJobs,
@@ -474,30 +459,35 @@ export function useAnalysisCoordinator() {
  * @param filePath - The file path to get analysis state for
  */
 export function useAnalysisForFile(filePath: string | undefined) {
-  const getJobForFile = useAppStore((state) => state.getJobForFile);
-  const fileToJob = useAppStore(
-    useShallow((state) => state.analysis.fileToJob),
-  );
-  const jobs = useAppStore(useShallow((state) => state.analysis.jobs));
-
   const registerJob = useAppStore((state) => state.registerJob);
   const cancelJob = useAppStore((state) => state.cancelJob);
   const removeJob = useAppStore((state) => state.removeJob);
   const setDDARunning = useAppStore((state) => state.setDDARunning);
+  const setSubmittingForFile = useAppStore(
+    (state) => state.setSubmittingForFile,
+  );
 
-  // Get job for this file
-  const job = useMemo((): AnalysisJob | undefined => {
+  // Single targeted selector: only re-renders when THIS file's job changes
+  const job = useAppStore((state): AnalysisJob | undefined => {
     if (!filePath) return undefined;
-    const jobId = fileToJob[filePath];
-    return jobId ? jobs[jobId] : undefined;
-  }, [filePath, fileToJob, jobs]);
+    const jobId = state.analysis.fileToJob[filePath];
+    return jobId ? state.analysis.jobs[jobId] : undefined;
+  });
 
-  // Derived convenience values
-  const isRunning = job?.status === "running" || job?.status === "pending";
+  // Check if this file is currently submitting (before job ID is known)
+  const isSubmitting = useAppStore(
+    (state) => state.analysis.submittingForFile === filePath,
+  );
+
+  // Derived convenience values - include isSubmitting for immediate UI feedback
+  const isRunning =
+    job?.status === "running" || job?.status === "pending" || isSubmitting;
   const isCompleted = job?.status === "completed";
   const hasError = job?.status === "error";
   const progress = job?.progress ?? 0;
-  const currentStep = job?.currentStep ?? "";
+  // Show "Starting analysis..." during submission phase before job is registered
+  const currentStep =
+    job?.currentStep ?? (isSubmitting ? "Starting analysis..." : "");
   const result = job?.result;
   const error = job?.error;
 
@@ -514,6 +504,8 @@ export function useAnalysisForFile(filePath: string | undefined) {
       }
 
       try {
+        // Set submitting state IMMEDIATELY for UI feedback before async invoke
+        setSubmittingForFile(filePath);
         setDDARunning(true);
 
         // Track pending submission so events can be buffered
@@ -532,19 +524,23 @@ export function useAnalysisForFile(filePath: string | undefined) {
           phase: "initializing",
         });
 
+        // Clear submitting state now that job is registered
+        setSubmittingForFile(null);
+
         // Process any buffered events that arrived during the invoke
         processBufferedEvents(ddaResult.id);
 
         return { success: true, analysisId: ddaResult.id };
       } catch (err) {
         if (filePath) clearPendingSubmission(filePath);
+        setSubmittingForFile(null);
         setDDARunning(false);
         const errorMessage =
           err instanceof Error ? err.message : "Failed to start analysis";
         return { success: false, error: errorMessage };
       }
     },
-    [filePath, registerJob, setDDARunning],
+    [filePath, registerJob, setDDARunning, setSubmittingForFile],
   );
 
   /**
@@ -606,18 +602,13 @@ export function useAnalysisForFile(filePath: string | undefined) {
 export function useFileHasRunningAnalysis(
   filePath: string | undefined,
 ): boolean {
-  const fileToJob = useAppStore(
-    useShallow((state) => state.analysis.fileToJob),
-  );
-  const jobs = useAppStore(useShallow((state) => state.analysis.jobs));
-
-  return useMemo(() => {
+  return useAppStore((state) => {
     if (!filePath) return false;
-    const jobId = fileToJob[filePath];
+    const jobId = state.analysis.fileToJob[filePath];
     if (!jobId) return false;
-    const job = jobs[jobId];
+    const job = state.analysis.jobs[jobId];
     return job?.status === "running" || job?.status === "pending";
-  }, [filePath, fileToJob, jobs]);
+  });
 }
 
 /**
@@ -629,16 +620,11 @@ export function useFileHasRunningAnalysis(
 export function useFileHasCompletedAnalysis(
   filePath: string | undefined,
 ): boolean {
-  const fileToJob = useAppStore(
-    useShallow((state) => state.analysis.fileToJob),
-  );
-  const jobs = useAppStore(useShallow((state) => state.analysis.jobs));
-
-  return useMemo(() => {
+  return useAppStore((state) => {
     if (!filePath) return false;
-    const jobId = fileToJob[filePath];
+    const jobId = state.analysis.fileToJob[filePath];
     if (!jobId) return false;
-    const job = jobs[jobId];
+    const job = state.analysis.jobs[jobId];
     return job?.status === "completed";
-  }, [filePath, fileToJob, jobs]);
+  });
 }

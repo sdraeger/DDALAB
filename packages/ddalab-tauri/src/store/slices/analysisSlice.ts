@@ -74,12 +74,16 @@ export interface AnalysisState {
   jobs: Record<string, AnalysisJob>;
   /** Quick lookup: which job is running for a file? (filePath → analysisId) */
   fileToJob: Record<string, string>;
+  /** Count of jobs with status "running" or "pending" for O(1) hasRunningJobs checks */
+  runningJobCount: number;
   /** User preference for parallel vs sequential execution */
   queuePreference: AnalysisQueuePreference;
   /** Analyses that were interrupted (e.g., by app restart) */
   interruptedAnalyses: InterruptedAnalysis[];
   /** Whether the coordinator's event listener is initialized */
   isListenerInitialized: boolean;
+  /** File path that's currently submitting (before job ID is known) */
+  submittingForFile: string | null;
 }
 
 export interface AnalysisActions {
@@ -121,6 +125,8 @@ export interface AnalysisActions {
   setListenerInitialized: (initialized: boolean) => void;
   /** Cancel a running job (sets status to error with cancellation message) */
   cancelJob: (analysisId: string) => void;
+  /** Set the file that's currently submitting (before job ID is known) */
+  setSubmittingForFile: (filePath: string | null) => void;
 }
 
 export interface AnalysisSlice extends AnalysisActions {
@@ -134,9 +140,11 @@ export interface AnalysisSlice extends AnalysisActions {
 export const defaultAnalysisState: AnalysisState = {
   jobs: {},
   fileToJob: {},
+  runningJobCount: 0,
   queuePreference: "ask",
   interruptedAnalyses: [],
   isListenerInitialized: false,
+  submittingForFile: null,
 };
 
 // ============================================================================
@@ -160,6 +168,10 @@ export const createAnalysisSlice: ImmerStateCreator<AnalysisSlice> = (
       state.analysis.jobs[job.id] = fullJob;
       // Map file to job for quick lookup
       state.analysis.fileToJob[job.filePath] = job.id;
+      // Increment running count if job is running or pending
+      if (job.status === "running" || job.status === "pending") {
+        state.analysis.runningJobCount++;
+      }
     });
   },
 
@@ -187,11 +199,15 @@ export const createAnalysisSlice: ImmerStateCreator<AnalysisSlice> = (
     set((state) => {
       const job = state.analysis.jobs[analysisId];
       if (job) {
+        // Decrement running count if job was running or pending
+        if (job.status === "running" || job.status === "pending") {
+          state.analysis.runningJobCount--;
+        }
         job.status = "completed";
         job.progress = 100;
         job.phase = "completed";
         job.completedAt = Date.now();
-        job.result = result;
+        job.result = Object.freeze(result);
         job.currentStep = "Analysis complete";
       }
     });
@@ -201,6 +217,10 @@ export const createAnalysisSlice: ImmerStateCreator<AnalysisSlice> = (
     set((state) => {
       const job = state.analysis.jobs[analysisId];
       if (job) {
+        // Decrement running count if job was running or pending
+        if (job.status === "running" || job.status === "pending") {
+          state.analysis.runningJobCount--;
+        }
         job.status = "error";
         job.phase = "error" as DDAProgressPhase;
         job.completedAt = Date.now();
@@ -214,6 +234,10 @@ export const createAnalysisSlice: ImmerStateCreator<AnalysisSlice> = (
     set((state) => {
       const job = state.analysis.jobs[analysisId];
       if (job) {
+        // Decrement running count if job was running or pending
+        if (job.status === "running" || job.status === "pending") {
+          state.analysis.runningJobCount--;
+        }
         // Remove from fileToJob mapping
         delete state.analysis.fileToJob[job.filePath];
         // Remove job
@@ -234,9 +258,7 @@ export const createAnalysisSlice: ImmerStateCreator<AnalysisSlice> = (
 
   hasRunningJobs: () => {
     const { analysis } = get();
-    return Object.values(analysis.jobs).some(
-      (job) => job.status === "running" || job.status === "pending",
-    );
+    return analysis.runningJobCount > 0;
   },
 
   getRunningJobs: () => {
@@ -291,11 +313,19 @@ export const createAnalysisSlice: ImmerStateCreator<AnalysisSlice> = (
     set((state) => {
       const job = state.analysis.jobs[analysisId];
       if (job && (job.status === "running" || job.status === "pending")) {
+        // Decrement running count since job was running or pending
+        state.analysis.runningJobCount--;
         job.status = "error";
         job.completedAt = Date.now();
         job.error = "Analysis cancelled by user";
         job.currentStep = "Cancelled";
       }
+    });
+  },
+
+  setSubmittingForFile: (filePath) => {
+    set((state) => {
+      state.analysis.submittingForFile = filePath;
     });
   },
 });
