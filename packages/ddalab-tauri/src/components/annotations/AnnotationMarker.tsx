@@ -1,4 +1,4 @@
-import React from "react";
+import React, { memo, useCallback } from "react";
 import { PlotAnnotation } from "@/types/annotations";
 
 interface AnnotationMarkerProps {
@@ -10,7 +10,7 @@ interface AnnotationMarkerProps {
   onClick?: (annotation: PlotAnnotation) => void;
 }
 
-export const AnnotationMarker: React.FC<AnnotationMarkerProps> = ({
+const AnnotationMarkerComponent: React.FC<AnnotationMarkerProps> = ({
   annotation,
   plotHeight,
   xPosition,
@@ -20,20 +20,30 @@ export const AnnotationMarker: React.FC<AnnotationMarkerProps> = ({
 }) => {
   const color = annotation.color || "#ef4444"; // Default red color
 
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      onRightClick(e, annotation);
+    },
+    [onRightClick, annotation],
+  );
+
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      onClick?.(annotation);
+    },
+    [onClick, annotation],
+  );
+
   return (
     <g
       className="annotation-marker cursor-pointer"
       style={{ pointerEvents: "auto" }}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        onRightClick(e, annotation);
-      }}
-      onClick={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        onClick?.(annotation);
-      }}
+      onContextMenu={handleContextMenu}
+      onClick={handleClick}
     >
       {/* Vertical line - uses full plot height from bbox */}
       <line
@@ -86,3 +96,5 @@ export const AnnotationMarker: React.FC<AnnotationMarkerProps> = ({
     </g>
   );
 };
+
+export const AnnotationMarker = memo(AnnotationMarkerComponent);

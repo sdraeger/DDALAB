@@ -182,7 +182,7 @@ export const GlobalSearch = memo(function GlobalSearch({
   useEffect(() => {
     const debounceTimer = setTimeout(() => {
       performSearch(query);
-    }, 150);
+    }, 300);
 
     return () => clearTimeout(debounceTimer);
   }, [query, performSearch]);

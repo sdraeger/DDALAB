@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback, memo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AnnotationContextMenuProps } from "@/types/annotations";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 
-export const AnnotationContextMenu: React.FC<AnnotationContextMenuProps> = ({
+const AnnotationContextMenuComponent: React.FC<AnnotationContextMenuProps> = ({
   x,
   y,
   plotPosition,
@@ -72,7 +72,7 @@ export const AnnotationContextMenu: React.FC<AnnotationContextMenuProps> = ({
     };
   }, [onClose]);
 
-  const togglePlot = (plotId: string) => {
+  const togglePlot = useCallback((plotId: string) => {
     setVisibleInPlots((prev) => {
       const newSet = new Set(prev);
       if (newSet.has(plotId)) {
@@ -82,37 +82,50 @@ export const AnnotationContextMenu: React.FC<AnnotationContextMenuProps> = ({
       }
       return newSet;
     });
-  };
+  }, []);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!label.trim()) return;
+  const handleSubmit = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!label.trim()) return;
 
-    const plotsArray = Array.from(visibleInPlots);
+      const plotsArray = Array.from(visibleInPlots);
 
-    // If no plots selected, delete the annotation
-    if (plotsArray.length === 0) {
-      if (existingAnnotation && onDeleteAnnotation) {
-        onDeleteAnnotation(existingAnnotation.id);
+      // If no plots selected, delete the annotation
+      if (plotsArray.length === 0) {
+        if (existingAnnotation && onDeleteAnnotation) {
+          onDeleteAnnotation(existingAnnotation.id);
+        }
+        onClose();
+        return;
+      }
+
+      if (existingAnnotation && onEditAnnotation) {
+        onEditAnnotation(existingAnnotation.id, label, description, plotsArray);
+      } else {
+        onCreateAnnotation(plotPosition, label, description, plotsArray);
       }
       onClose();
-      return;
-    }
+    },
+    [
+      label,
+      description,
+      visibleInPlots,
+      existingAnnotation,
+      onDeleteAnnotation,
+      onEditAnnotation,
+      onCreateAnnotation,
+      plotPosition,
+      onClose,
+    ],
+  );
 
-    if (existingAnnotation && onEditAnnotation) {
-      onEditAnnotation(existingAnnotation.id, label, description, plotsArray);
-    } else {
-      onCreateAnnotation(plotPosition, label, description, plotsArray);
-    }
-    onClose();
-  };
-
-  const handleDelete = () => {
+  const handleDelete = useCallback(() => {
     if (existingAnnotation && onDeleteAnnotation) {
       onDeleteAnnotation(existingAnnotation.id);
     }
     onClose();
-  };
+  }, [existingAnnotation, onDeleteAnnotation, onClose]);
 
   return (
     <div
@@ -202,3 +215,5 @@ export const AnnotationContextMenu: React.FC<AnnotationContextMenuProps> = ({
     </div>
   );
 };
+
+export const AnnotationContextMenu = memo(AnnotationContextMenuComponent);

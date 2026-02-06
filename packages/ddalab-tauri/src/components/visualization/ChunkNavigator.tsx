@@ -94,20 +94,25 @@ export function ChunkNavigator({
   const [isEditingTime, setIsEditingTime] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Calculate viewing range
-  const viewStart = currentTime;
-  const viewEnd = Math.min(currentTime + timeWindow, duration);
-  const viewPercent =
-    duration > 0 ? ((viewEnd - viewStart) / duration) * 100 : 0;
-  const positionPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
+  // Calculate viewing range and active preset - memoized to avoid recalculation on every render
+  const { viewStart, viewEnd, viewPercent, positionPercent, activePreset } =
+    useMemo(() => {
+      const start = currentTime;
+      const end = Math.min(currentTime + timeWindow, duration);
+      const viewPct = duration > 0 ? ((end - start) / duration) * 100 : 0;
+      const posPct = duration > 0 ? (currentTime / duration) * 100 : 0;
+      const preset =
+        VIEW_PRESETS.find((p) => Math.abs(p.windowSeconds - timeWindow) < 0.5)
+          ?.id || null;
 
-  // Determine active preset
-  const activePreset = useMemo(() => {
-    return (
-      VIEW_PRESETS.find((p) => Math.abs(p.windowSeconds - timeWindow) < 0.5)
-        ?.id || null
-    );
-  }, [timeWindow]);
+      return {
+        viewStart: start,
+        viewEnd: end,
+        viewPercent: viewPct,
+        positionPercent: posPct,
+        activePreset: preset,
+      };
+    }, [currentTime, timeWindow, duration]);
 
   // Handle preset selection
   const handlePresetSelect = useCallback(

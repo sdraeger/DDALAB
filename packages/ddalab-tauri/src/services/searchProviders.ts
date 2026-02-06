@@ -30,6 +30,58 @@ function getState() {
   return getStateManager();
 }
 
+interface IndexedNavItem {
+  id: PrimaryNavTab;
+  label: string;
+  icon: string;
+  description: string;
+  secondaryTabs: SecondaryNavTab[] | null;
+  _lowerId: string;
+  _lowerLabel: string;
+  _lowerDescription: string;
+}
+
+interface IndexedSecondaryTabItem {
+  id: SecondaryNavTab;
+  label: string;
+  icon?: string;
+  description?: string;
+  enabled?: boolean;
+  parentNavId: PrimaryNavTab;
+  parentLabel: string;
+  _lowerId: string;
+  _lowerLabel: string;
+  _lowerDescription?: string;
+}
+
+const INDEXED_NAV_ITEMS: IndexedNavItem[] = Object.values(navigationConfig).map(
+  (nav) => ({
+    ...nav,
+    _lowerId: nav.id.toLowerCase(),
+    _lowerLabel: nav.label.toLowerCase(),
+    _lowerDescription: nav.description.toLowerCase(),
+  }),
+);
+
+const INDEXED_SECONDARY_TABS: IndexedSecondaryTabItem[] = [];
+Object.values(navigationConfig).forEach((nav) => {
+  if (nav.secondaryTabs) {
+    nav.secondaryTabs.forEach((tabId) => {
+      const tab = secondaryTabConfig[tabId];
+      if (tab && tab.enabled !== false) {
+        INDEXED_SECONDARY_TABS.push({
+          ...tab,
+          parentNavId: nav.id,
+          parentLabel: nav.label,
+          _lowerId: tab.id.toLowerCase(),
+          _lowerLabel: tab.label.toLowerCase(),
+          _lowerDescription: tab.description?.toLowerCase(),
+        });
+      }
+    });
+  }
+});
+
 export class NavigationSearchProvider implements SearchProvider {
   name = "Navigation";
 
@@ -37,12 +89,10 @@ export class NavigationSearchProvider implements SearchProvider {
     const results: SearchResult[] = [];
     const lowerQuery = query.toLowerCase();
 
-    Object.values(navigationConfig).forEach((nav) => {
-      const matchesLabel = nav.label.toLowerCase().includes(lowerQuery);
-      const matchesDescription = nav.description
-        .toLowerCase()
-        .includes(lowerQuery);
-      const matchesId = nav.id.toLowerCase().includes(lowerQuery);
+    INDEXED_NAV_ITEMS.forEach((nav) => {
+      const matchesLabel = nav._lowerLabel.includes(lowerQuery);
+      const matchesDescription = nav._lowerDescription.includes(lowerQuery);
+      const matchesId = nav._lowerId.includes(lowerQuery);
 
       if (matchesLabel || matchesDescription || matchesId) {
         results.push({
@@ -54,40 +104,33 @@ export class NavigationSearchProvider implements SearchProvider {
           icon: nav.icon,
           keywords: [nav.id, nav.label, nav.description],
           action: () => {
-            getState()?.setPrimaryNav(nav.id as PrimaryNavTab);
+            getState()?.setPrimaryNav(nav.id);
           },
         });
       }
+    });
 
-      if (nav.secondaryTabs) {
-        nav.secondaryTabs.forEach((tabId) => {
-          const tab = secondaryTabConfig[tabId];
-          if (!tab || tab.enabled === false) return;
+    INDEXED_SECONDARY_TABS.forEach((tab) => {
+      const matchesTabLabel = tab._lowerLabel.includes(lowerQuery);
+      const matchesTabDesc = tab._lowerDescription?.includes(lowerQuery);
+      const matchesTabId = tab._lowerId.includes(lowerQuery);
 
-          const matchesTabLabel = tab.label.toLowerCase().includes(lowerQuery);
-          const matchesTabDesc = tab.description
-            ?.toLowerCase()
-            .includes(lowerQuery);
-          const matchesTabId = tab.id.toLowerCase().includes(lowerQuery);
-
-          if (matchesTabLabel || matchesTabDesc || matchesTabId) {
-            results.push({
-              id: `nav-secondary-${tab.id}`,
-              type: "navigation",
-              title: tab.label,
-              description: tab.description,
-              subtitle: nav.label,
-              category: "Secondary Navigation",
-              icon: tab.icon,
-              keywords: [tab.id, tab.label, tab.description || ""],
-              action: () => {
-                const state = getState();
-                if (!state) return;
-                state.setPrimaryNav(nav.id as PrimaryNavTab);
-                state.setSecondaryNav(tabId as SecondaryNavTab);
-              },
-            });
-          }
+      if (matchesTabLabel || matchesTabDesc || matchesTabId) {
+        results.push({
+          id: `nav-secondary-${tab.id}`,
+          type: "navigation",
+          title: tab.label,
+          description: tab.description,
+          subtitle: tab.parentLabel,
+          category: "Secondary Navigation",
+          icon: tab.icon,
+          keywords: [tab.id, tab.label, tab.description || ""],
+          action: () => {
+            const state = getState();
+            if (!state) return;
+            state.setPrimaryNav(tab.parentNavId);
+            state.setSecondaryNav(tab.id);
+          },
         });
       }
     });
@@ -96,10 +139,36 @@ export class NavigationSearchProvider implements SearchProvider {
   }
 }
 
+interface IndexedSettingsSection {
+  id: string;
+  label: string;
+  description: string;
+  keywords: string[];
+  _lowerId: string;
+  _lowerLabel: string;
+  _lowerDescription: string;
+  _lowerKeywords: string[];
+}
+
+function createIndexedSettingsSection(section: {
+  id: string;
+  label: string;
+  description: string;
+  keywords: string[];
+}): IndexedSettingsSection {
+  return {
+    ...section,
+    _lowerId: section.id.toLowerCase(),
+    _lowerLabel: section.label.toLowerCase(),
+    _lowerDescription: section.description.toLowerCase(),
+    _lowerKeywords: section.keywords.map((kw) => kw.toLowerCase()),
+  };
+}
+
 export class SettingsSearchProvider implements SearchProvider {
   name = "Settings";
 
-  private settingsSections = [
+  private settingsSections: IndexedSettingsSection[] = [
     {
       id: "engine",
       label: "Analysis Engine",
@@ -136,21 +205,19 @@ export class SettingsSearchProvider implements SearchProvider {
       description: "Application updates and version information",
       keywords: ["updates", "version", "upgrade", "changelog"],
     },
-  ];
+  ].map(createIndexedSettingsSection);
 
   search(query: string): SearchResult[] {
     const results: SearchResult[] = [];
     const lowerQuery = query.toLowerCase();
 
     this.settingsSections.forEach((section) => {
-      const matchesLabel = section.label.toLowerCase().includes(lowerQuery);
-      const matchesDescription = section.description
-        .toLowerCase()
-        .includes(lowerQuery);
-      const matchesKeywords = section.keywords.some((kw) =>
-        kw.toLowerCase().includes(lowerQuery),
+      const matchesLabel = section._lowerLabel.includes(lowerQuery);
+      const matchesDescription = section._lowerDescription.includes(lowerQuery);
+      const matchesKeywords = section._lowerKeywords.some((kw) =>
+        kw.includes(lowerQuery),
       );
-      const matchesId = section.id.toLowerCase().includes(lowerQuery);
+      const matchesId = section._lowerId.includes(lowerQuery);
 
       if (matchesLabel || matchesDescription || matchesKeywords || matchesId) {
         results.push({
@@ -343,10 +410,40 @@ export class AnalysisSearchProvider implements SearchProvider {
   }
 }
 
+interface IndexedAction {
+  id: string;
+  title: string;
+  description: string;
+  keywords: string[];
+  icon: string;
+  action: () => void;
+  _lowerId: string;
+  _lowerTitle: string;
+  _lowerDescription: string;
+  _lowerKeywords: string[];
+}
+
+function createIndexedAction(action: {
+  id: string;
+  title: string;
+  description: string;
+  keywords: string[];
+  icon: string;
+  action: () => void;
+}): IndexedAction {
+  return {
+    ...action,
+    _lowerId: action.id.toLowerCase(),
+    _lowerTitle: action.title.toLowerCase(),
+    _lowerDescription: action.description.toLowerCase(),
+    _lowerKeywords: action.keywords.map((kw) => kw.toLowerCase()),
+  };
+}
+
 export class ActionSearchProvider implements SearchProvider {
   name = "Actions";
 
-  private actions = [
+  private actions: IndexedAction[] = [
     {
       id: "run-dda",
       title: "Run DDA Analysis",
@@ -405,21 +502,19 @@ export class ActionSearchProvider implements SearchProvider {
         state.setSidebarOpen(!isOpen);
       },
     },
-  ];
+  ].map(createIndexedAction);
 
   search(query: string): SearchResult[] {
     const results: SearchResult[] = [];
     const lowerQuery = query.toLowerCase();
 
     this.actions.forEach((action) => {
-      const matchesTitle = action.title.toLowerCase().includes(lowerQuery);
-      const matchesDescription = action.description
-        .toLowerCase()
-        .includes(lowerQuery);
-      const matchesKeywords = action.keywords.some((kw) =>
-        kw.toLowerCase().includes(lowerQuery),
+      const matchesTitle = action._lowerTitle.includes(lowerQuery);
+      const matchesDescription = action._lowerDescription.includes(lowerQuery);
+      const matchesKeywords = action._lowerKeywords.some((kw) =>
+        kw.includes(lowerQuery),
       );
-      const matchesId = action.id.toLowerCase().includes(lowerQuery);
+      const matchesId = action._lowerId.includes(lowerQuery);
 
       if (matchesTitle || matchesDescription || matchesKeywords || matchesId) {
         results.push({
@@ -539,10 +634,30 @@ export class FileMetadataSearchProvider implements SearchProvider {
   }
 }
 
+interface IndexedFileFormat {
+  type: string;
+  description: string;
+  keywords: string[];
+  _lowerType: string;
+  _lowerDescription: string;
+}
+
+function createIndexedFileFormat(format: {
+  type: string;
+  description: string;
+  keywords: string[];
+}): IndexedFileFormat {
+  return {
+    ...format,
+    _lowerType: format.type.toLowerCase(),
+    _lowerDescription: format.description.toLowerCase(),
+  };
+}
+
 export class FileFormatSearchProvider implements SearchProvider {
   name = "FileFormat";
 
-  private formats = [
+  private formats: IndexedFileFormat[] = [
     {
       type: "EDF",
       description: "European Data Format",
@@ -583,17 +698,15 @@ export class FileFormatSearchProvider implements SearchProvider {
       description: "Neuroimaging format",
       keywords: ["nii", "nifti", "neuroimaging"],
     },
-  ];
+  ].map(createIndexedFileFormat);
 
   search(query: string): SearchResult[] {
     const results: SearchResult[] = [];
     const lowerQuery = query.toLowerCase();
 
     this.formats.forEach((format) => {
-      const matchesType = format.type.toLowerCase().includes(lowerQuery);
-      const matchesDescription = format.description
-        .toLowerCase()
-        .includes(lowerQuery);
+      const matchesType = format._lowerType.includes(lowerQuery);
+      const matchesDescription = format._lowerDescription.includes(lowerQuery);
       const matchesKeywords = format.keywords.some((kw) =>
         kw.includes(lowerQuery),
       );
@@ -608,7 +721,6 @@ export class FileFormatSearchProvider implements SearchProvider {
           icon: "File",
           keywords: format.keywords,
           action: () => {
-            // Navigate to file manager
             getState()?.setPrimaryNav("explore");
           },
         });
@@ -621,10 +733,30 @@ export class FileFormatSearchProvider implements SearchProvider {
 
 // === Analysis & Results ===
 
+interface IndexedDDAVariant {
+  name: string;
+  description: string;
+  keywords: string[];
+  _lowerName: string;
+  _lowerDescription: string;
+}
+
+function createIndexedDDAVariant(variant: {
+  name: string;
+  description: string;
+  keywords: string[];
+}): IndexedDDAVariant {
+  return {
+    ...variant,
+    _lowerName: variant.name.toLowerCase(),
+    _lowerDescription: variant.description.toLowerCase(),
+  };
+}
+
 export class DDAVariantSearchProvider implements SearchProvider {
   name = "DDAVariant";
 
-  private variants = [
+  private variants: IndexedDDAVariant[] = [
     {
       name: "ST-DDA",
       description: "Single-Timeseries delay differential analysis",
@@ -655,17 +787,15 @@ export class DDAVariantSearchProvider implements SearchProvider {
       description: "Model selection analysis",
       keywords: ["select", "selection", "model"],
     },
-  ];
+  ].map(createIndexedDDAVariant);
 
   search(query: string): SearchResult[] {
     const results: SearchResult[] = [];
     const lowerQuery = query.toLowerCase();
 
     this.variants.forEach((variant) => {
-      const matchesName = variant.name.toLowerCase().includes(lowerQuery);
-      const matchesDescription = variant.description
-        .toLowerCase()
-        .includes(lowerQuery);
+      const matchesName = variant._lowerName.includes(lowerQuery);
+      const matchesDescription = variant._lowerDescription.includes(lowerQuery);
       const matchesKeywords = variant.keywords.some((kw) =>
         kw.includes(lowerQuery),
       );
@@ -1150,6 +1280,106 @@ export class DataSourceSearchProvider implements SearchProvider {
 
 // === Quick Actions ===
 
+interface IndexedQuickAction {
+  id: string;
+  title: string;
+  description: string;
+  keywords: string[];
+  action: () => void;
+  _lowerTitle: string;
+  _lowerDescription: string;
+}
+
+function createIndexedQuickAction(action: {
+  id: string;
+  title: string;
+  description: string;
+  keywords: string[];
+  action: () => void;
+}): IndexedQuickAction {
+  return {
+    ...action,
+    _lowerTitle: action.title.toLowerCase(),
+    _lowerDescription: action.description.toLowerCase(),
+  };
+}
+
+const QUICK_ACTIONS: IndexedQuickAction[] = [
+  {
+    id: "export-results",
+    title: "Export Results",
+    description: "Export analysis results to CSV or JSON",
+    keywords: ["export", "save", "download", "results", "csv", "json"],
+    action: () => {
+      getState()?.setPrimaryNav("analyze");
+    },
+  },
+  {
+    id: "export-plot",
+    title: "Export Plot",
+    description: "Export current plot as PNG, SVG, or PDF",
+    keywords: ["export", "plot", "image", "png", "svg", "pdf", "figure"],
+    action: () => {
+      getState()?.setPrimaryNav("analyze");
+    },
+  },
+  {
+    id: "clear-cache",
+    title: "Clear Cache",
+    description: "Clear application cache and temporary data",
+    keywords: ["clear", "cache", "reset", "clean", "temporary"],
+    action: () => {
+      getState()?.setPrimaryNav("settings");
+    },
+  },
+  {
+    id: "view-logs",
+    title: "View Application Logs",
+    description: "Open debug logs and diagnostics",
+    keywords: ["logs", "debug", "diagnostics", "errors", "troubleshoot"],
+    action: () => {
+      getState()?.setPrimaryNav("settings");
+    },
+  },
+  {
+    id: "check-updates",
+    title: "Check for Updates",
+    description: "Check if a newer version of DDALAB is available",
+    keywords: ["update", "upgrade", "version", "new", "latest"],
+    action: () => {
+      getState()?.setPrimaryNav("settings");
+    },
+  },
+  {
+    id: "network-motifs",
+    title: "Network Motifs",
+    description: "View network motif analysis from DDA results",
+    keywords: ["network", "motifs", "graph", "connectivity", "patterns"],
+    action: () => {
+      getState()?.setPrimaryNav("analyze");
+    },
+  },
+  {
+    id: "time-series-view",
+    title: "Time Series Viewer",
+    description: "View and explore time series data from current file",
+    keywords: ["time", "series", "view", "plot", "signal", "waveform"],
+    action: () => {
+      getState()?.setPrimaryNav("explore");
+      getState()?.setSecondaryNav("timeseries");
+    },
+  },
+  {
+    id: "channel-selection",
+    title: "Select Channels",
+    description: "Choose which channels to analyze",
+    keywords: ["channel", "select", "electrode", "choose"],
+    action: () => {
+      getState()?.setPrimaryNav("analyze");
+    },
+  },
+].map(createIndexedQuickAction);
+
 export class QuickActionsSearchProvider implements SearchProvider {
   name = "QuickActions";
 
@@ -1157,87 +1387,9 @@ export class QuickActionsSearchProvider implements SearchProvider {
     const results: SearchResult[] = [];
     const lowerQuery = query.toLowerCase();
 
-    const quickActions = [
-      {
-        id: "export-results",
-        title: "Export Results",
-        description: "Export analysis results to CSV or JSON",
-        keywords: ["export", "save", "download", "results", "csv", "json"],
-        action: () => {
-          getState()?.setPrimaryNav("analyze");
-        },
-      },
-      {
-        id: "export-plot",
-        title: "Export Plot",
-        description: "Export current plot as PNG, SVG, or PDF",
-        keywords: ["export", "plot", "image", "png", "svg", "pdf", "figure"],
-        action: () => {
-          getState()?.setPrimaryNav("analyze");
-        },
-      },
-      {
-        id: "clear-cache",
-        title: "Clear Cache",
-        description: "Clear application cache and temporary data",
-        keywords: ["clear", "cache", "reset", "clean", "temporary"],
-        action: () => {
-          getState()?.setPrimaryNav("settings");
-        },
-      },
-      {
-        id: "view-logs",
-        title: "View Application Logs",
-        description: "Open debug logs and diagnostics",
-        keywords: ["logs", "debug", "diagnostics", "errors", "troubleshoot"],
-        action: () => {
-          getState()?.setPrimaryNav("settings");
-        },
-      },
-      {
-        id: "check-updates",
-        title: "Check for Updates",
-        description: "Check if a newer version of DDALAB is available",
-        keywords: ["update", "upgrade", "version", "new", "latest"],
-        action: () => {
-          getState()?.setPrimaryNav("settings");
-        },
-      },
-      {
-        id: "network-motifs",
-        title: "Network Motifs",
-        description: "View network motif analysis from DDA results",
-        keywords: ["network", "motifs", "graph", "connectivity", "patterns"],
-        action: () => {
-          getState()?.setPrimaryNav("analyze");
-        },
-      },
-      {
-        id: "time-series-view",
-        title: "Time Series Viewer",
-        description: "View and explore time series data from current file",
-        keywords: ["time", "series", "view", "plot", "signal", "waveform"],
-        action: () => {
-          getState()?.setPrimaryNav("explore");
-          getState()?.setSecondaryNav("timeseries");
-        },
-      },
-      {
-        id: "channel-selection",
-        title: "Select Channels",
-        description: "Choose which channels to analyze",
-        keywords: ["channel", "select", "electrode", "choose"],
-        action: () => {
-          getState()?.setPrimaryNav("analyze");
-        },
-      },
-    ];
-
-    quickActions.forEach((action) => {
-      const matchesTitle = action.title.toLowerCase().includes(lowerQuery);
-      const matchesDescription = action.description
-        .toLowerCase()
-        .includes(lowerQuery);
+    QUICK_ACTIONS.forEach((action) => {
+      const matchesTitle = action._lowerTitle.includes(lowerQuery);
+      const matchesDescription = action._lowerDescription.includes(lowerQuery);
       const matchesKeywords = action.keywords.some((kw) =>
         kw.includes(lowerQuery),
       );
@@ -1262,6 +1414,69 @@ export class QuickActionsSearchProvider implements SearchProvider {
 
 // === Help & Documentation ===
 
+interface IndexedHelpTopic {
+  id: string;
+  title: string;
+  description: string;
+  keywords: string[];
+  _lowerTitle: string;
+  _lowerDescription: string;
+}
+
+function createIndexedHelpTopic(topic: {
+  id: string;
+  title: string;
+  description: string;
+  keywords: string[];
+}): IndexedHelpTopic {
+  return {
+    ...topic,
+    _lowerTitle: topic.title.toLowerCase(),
+    _lowerDescription: topic.description.toLowerCase(),
+  };
+}
+
+const HELP_TOPICS: IndexedHelpTopic[] = [
+  {
+    id: "help-dda",
+    title: "What is DDA?",
+    description: "Learn about Delay Differential Analysis",
+    keywords: ["help", "dda", "what", "learn", "about", "delay differential"],
+  },
+  {
+    id: "help-variants",
+    title: "DDA Variants Explained",
+    description: "Understand ST-DDA, CT-DDA, CD-DDA, and other variants",
+    keywords: ["help", "variant", "st", "ct", "cd", "de", "sy", "explained"],
+  },
+  {
+    id: "help-parameters",
+    title: "Parameter Selection Guide",
+    description:
+      "How to choose window length, scale range, and other parameters",
+    keywords: ["help", "parameter", "window", "scale", "guide", "choose"],
+  },
+  {
+    id: "help-interpretation",
+    title: "Interpreting Results",
+    description: "How to interpret DDA matrices and exponents",
+    keywords: [
+      "help",
+      "interpret",
+      "results",
+      "matrix",
+      "exponent",
+      "understand",
+    ],
+  },
+  {
+    id: "help-file-formats",
+    title: "Supported File Formats",
+    description: "EDF, BrainVision, XDF, and other supported formats",
+    keywords: ["help", "format", "edf", "file", "support", "import"],
+  },
+].map(createIndexedHelpTopic);
+
 export class HelpSearchProvider implements SearchProvider {
   name = "Help";
 
@@ -1269,68 +1484,9 @@ export class HelpSearchProvider implements SearchProvider {
     const results: SearchResult[] = [];
     const lowerQuery = query.toLowerCase();
 
-    const helpTopics = [
-      {
-        id: "help-dda",
-        title: "What is DDA?",
-        description: "Learn about Delay Differential Analysis",
-        keywords: [
-          "help",
-          "dda",
-          "what",
-          "learn",
-          "about",
-          "delay differential",
-        ],
-      },
-      {
-        id: "help-variants",
-        title: "DDA Variants Explained",
-        description: "Understand ST-DDA, CT-DDA, CD-DDA, and other variants",
-        keywords: [
-          "help",
-          "variant",
-          "st",
-          "ct",
-          "cd",
-          "de",
-          "sy",
-          "explained",
-        ],
-      },
-      {
-        id: "help-parameters",
-        title: "Parameter Selection Guide",
-        description:
-          "How to choose window length, scale range, and other parameters",
-        keywords: ["help", "parameter", "window", "scale", "guide", "choose"],
-      },
-      {
-        id: "help-interpretation",
-        title: "Interpreting Results",
-        description: "How to interpret DDA matrices and exponents",
-        keywords: [
-          "help",
-          "interpret",
-          "results",
-          "matrix",
-          "exponent",
-          "understand",
-        ],
-      },
-      {
-        id: "help-file-formats",
-        title: "Supported File Formats",
-        description: "EDF, BrainVision, XDF, and other supported formats",
-        keywords: ["help", "format", "edf", "file", "support", "import"],
-      },
-    ];
-
-    helpTopics.forEach((topic) => {
-      const matchesTitle = topic.title.toLowerCase().includes(lowerQuery);
-      const matchesDescription = topic.description
-        .toLowerCase()
-        .includes(lowerQuery);
+    HELP_TOPICS.forEach((topic) => {
+      const matchesTitle = topic._lowerTitle.includes(lowerQuery);
+      const matchesDescription = topic._lowerDescription.includes(lowerQuery);
       const matchesKeywords = topic.keywords.some((kw) =>
         kw.includes(lowerQuery),
       );
@@ -1345,7 +1501,7 @@ export class HelpSearchProvider implements SearchProvider {
           icon: "Home",
           keywords: topic.keywords,
           action: () => {
-            // TODO: Open help modal or navigate to docs for topic: ${topic.id}
+            // TODO: Open help modal or navigate to docs
           },
         });
       }
@@ -1476,10 +1632,34 @@ export class BookmarksSearchProvider implements SearchProvider {
   }
 }
 
+interface IndexedWidgetType {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  keywords: string[];
+  _lowerName: string;
+  _lowerDescription: string;
+}
+
+function createIndexedWidgetType(widget: {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  keywords: string[];
+}): IndexedWidgetType {
+  return {
+    ...widget,
+    _lowerName: widget.name.toLowerCase(),
+    _lowerDescription: widget.description.toLowerCase(),
+  };
+}
+
 export class DashboardWidgetsSearchProvider implements SearchProvider {
   name = "DashboardWidgets";
 
-  private widgetTypes = [
+  private widgetTypes: IndexedWidgetType[] = [
     {
       id: "timeseries-widget",
       name: "Time Series Chart",
@@ -1515,17 +1695,15 @@ export class DashboardWidgetsSearchProvider implements SearchProvider {
       category: "Controls",
       keywords: ["channel", "select", "electrode"],
     },
-  ];
+  ].map(createIndexedWidgetType);
 
   search(query: string): SearchResult[] {
     const results: SearchResult[] = [];
     const lowerQuery = query.toLowerCase();
 
     this.widgetTypes.forEach((widget) => {
-      const matchesName = widget.name.toLowerCase().includes(lowerQuery);
-      const matchesDescription = widget.description
-        .toLowerCase()
-        .includes(lowerQuery);
+      const matchesName = widget._lowerName.includes(lowerQuery);
+      const matchesDescription = widget._lowerDescription.includes(lowerQuery);
       const matchesKeywords = widget.keywords.some((kw) =>
         kw.includes(lowerQuery),
       );
@@ -1556,49 +1734,81 @@ export class DashboardWidgetsSearchProvider implements SearchProvider {
   }
 }
 
+interface IndexedAnalysisTemplate {
+  id: string;
+  name: string;
+  description: string;
+  parameters: {
+    variants: string[];
+    windowLength: number;
+    windowStep: number;
+    delays: number[];
+  };
+  _lowerName: string;
+  _lowerDescription: string;
+}
+
+function createIndexedAnalysisTemplate(template: {
+  id: string;
+  name: string;
+  description: string;
+  parameters: {
+    variants: string[];
+    windowLength: number;
+    windowStep: number;
+    delays: number[];
+  };
+}): IndexedAnalysisTemplate {
+  return {
+    ...template,
+    _lowerName: template.name.toLowerCase(),
+    _lowerDescription: template.description.toLowerCase(),
+  };
+}
+
+const BUILT_IN_TEMPLATES: IndexedAnalysisTemplate[] = [
+  {
+    id: "fast-screening",
+    name: "Fast Screening",
+    description: "Quick analysis with shorter windows for rapid exploration",
+    parameters: {
+      variants: ["single_timeseries"],
+      windowLength: 32,
+      windowStep: 5,
+      delays: [5, 7, 10],
+    },
+  },
+  {
+    id: "detailed-analysis",
+    name: "Detailed Analysis",
+    description: "Comprehensive analysis with longer windows",
+    parameters: {
+      variants: ["single_timeseries", "cross_timeseries"],
+      windowLength: 128,
+      windowStep: 20,
+      delays: [7, 10, 15, 20],
+    },
+  },
+  {
+    id: "multi-variant",
+    name: "Multi-Variant Suite",
+    description: "Run all DDA variants for complete characterization",
+    parameters: {
+      variants: [
+        "single_timeseries",
+        "cross_timeseries",
+        "cross_dynamical",
+        "synchronization",
+      ],
+      windowLength: 64,
+      windowStep: 10,
+      delays: [7, 10, 15],
+    },
+  },
+].map(createIndexedAnalysisTemplate);
+
 export class AnalysisPresetsSearchProvider implements SearchProvider {
   name = "AnalysisPresets";
-
-  private builtInTemplates = [
-    {
-      id: "fast-screening",
-      name: "Fast Screening",
-      description: "Quick analysis with shorter windows for rapid exploration",
-      parameters: {
-        variants: ["single_timeseries"],
-        windowLength: 32,
-        windowStep: 5,
-        delays: [5, 7, 10],
-      },
-    },
-    {
-      id: "detailed-analysis",
-      name: "Detailed Analysis",
-      description: "Comprehensive analysis with longer windows",
-      parameters: {
-        variants: ["single_timeseries", "cross_timeseries"],
-        windowLength: 128,
-        windowStep: 20,
-        delays: [7, 10, 15, 20],
-      },
-    },
-    {
-      id: "multi-variant",
-      name: "Multi-Variant Suite",
-      description: "Run all DDA variants for complete characterization",
-      parameters: {
-        variants: [
-          "single_timeseries",
-          "cross_timeseries",
-          "cross_dynamical",
-          "synchronization",
-        ],
-        windowLength: 64,
-        windowStep: 10,
-        delays: [7, 10, 15],
-      },
-    },
-  ];
 
   search(query: string): SearchResult[] {
     const results: SearchResult[] = [];
@@ -1646,11 +1856,10 @@ export class AnalysisPresetsSearchProvider implements SearchProvider {
       }
     });
 
-    this.builtInTemplates.forEach((template) => {
-      const matchesName = template.name.toLowerCase().includes(lowerQuery);
-      const matchesDescription = template.description
-        .toLowerCase()
-        .includes(lowerQuery);
+    BUILT_IN_TEMPLATES.forEach((template) => {
+      const matchesName = template._lowerName.includes(lowerQuery);
+      const matchesDescription =
+        template._lowerDescription.includes(lowerQuery);
 
       if (matchesName || matchesDescription || "preset".includes(lowerQuery)) {
         results.push({
