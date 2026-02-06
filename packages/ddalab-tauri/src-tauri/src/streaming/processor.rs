@@ -78,18 +78,18 @@ impl ChannelRingBuffer {
         }
 
         // Write samples to all channels
-        // Note: We iterate once through samples and update write_pos per sample
-        for sample_idx in 0..num_new {
-            for (ch_idx, channel_samples) in samples.iter().enumerate() {
-                if ch_idx >= self.buffers.len() {
-                    continue;
-                }
-                if sample_idx < channel_samples.len() {
-                    self.buffers[ch_idx][self.write_pos] = channel_samples[sample_idx];
-                }
+        // Iterate channel-first for better cache locality
+        let capacity = self.capacity;
+        for (ch_idx, channel_samples) in samples.iter().enumerate() {
+            if ch_idx >= self.buffers.len() {
+                continue;
             }
-            self.write_pos = (self.write_pos + 1) % self.capacity;
+            for (sample_idx, &value) in channel_samples.iter().enumerate().take(num_new) {
+                let write_idx = (self.write_pos + sample_idx) % capacity;
+                self.buffers[ch_idx][write_idx] = value;
+            }
         }
+        self.write_pos = (self.write_pos + num_new) % self.capacity;
 
         // Update count (saturates at capacity)
         self.count = (self.count + num_new).min(self.capacity);
@@ -118,7 +118,7 @@ impl ChannelRingBuffer {
 
         // Parallelize across channels for better performance
         // Threshold: only parallelize for files with many channels
-        const PAR_THRESHOLD: usize = 8;
+        const PAR_THRESHOLD: usize = 32;
 
         let result: Vec<Vec<f32>> = if self.buffers.len() >= PAR_THRESHOLD {
             self.buffers
@@ -375,10 +375,17 @@ impl StreamingDDAProcessor {
     /// Rejects data if buffer would overflow (DoS protection).
     pub fn process_chunk(&self, chunk: &DataChunk) -> StreamResult<Vec<StreamingDDAResult>> {
         // Add chunk samples to ringbuffer
-        let mut buffer = self.sample_buffer.lock();
+        // Release lock before any logging to avoid 1-10ms stalls
+        let (push_result, total_samples) = {
+            let mut buffer = self.sample_buffer.lock();
+            let result = buffer.push_samples(&chunk.samples);
+            let len = buffer.len();
+            (result, len)
+        };
+        // Lock released here
 
-        // Try to push samples to ringbuffer
-        if let Err(e) = buffer.push_samples(&chunk.samples) {
+        // Handle push failure after lock is released
+        if let Err(e) = push_result {
             let rejected = self.rejected_samples.fetch_add(1, Ordering::Relaxed);
             if rejected % 100 == 0 {
                 log::warn!(
@@ -389,9 +396,6 @@ impl StreamingDDAProcessor {
             }
             return Ok(Vec::new()); // Gracefully drop data instead of crashing
         }
-
-        let total_samples = buffer.len();
-        drop(buffer); // Release lock
 
         // Calculate how many windows we can process
         let stride = (self.config.window_size as f64 * (1.0 - self.config.window_overlap)) as usize;
@@ -638,21 +642,25 @@ impl StreamingDDAProcessor {
 
     /// Write window data to a temporary ASCII file for DDA processing
     fn write_window_to_file(&self, window: &WindowData, path: &PathBuf) -> StreamResult<()> {
-        use std::io::Write;
+        use std::fmt::Write as FmtWrite;
+        use std::io::{BufWriter, Write};
 
-        let mut file = std::fs::File::create(path).map_err(|e| StreamError::Io(e))?;
+        let file = std::fs::File::create(path).map_err(|e| StreamError::Io(e))?;
+        let mut writer = BufWriter::new(file);
 
-        // Write samples in column format (each row is a time point, each column is a channel)
         let num_samples = window.samples[0].len();
+        let num_channels = window.samples.len();
 
+        let mut line_buffer = String::with_capacity(num_channels * 20);
         for sample_idx in 0..num_samples {
-            let values: Vec<String> = window
-                .samples
-                .iter()
-                .map(|channel| channel[sample_idx].to_string())
-                .collect();
-
-            writeln!(file, "{}", values.join("\t")).map_err(|e| StreamError::Io(e))?;
+            line_buffer.clear();
+            for (ch_idx, channel) in window.samples.iter().enumerate() {
+                if ch_idx > 0 {
+                    line_buffer.push('\t');
+                }
+                write!(line_buffer, "{}", channel[sample_idx]).unwrap();
+            }
+            writeln!(writer, "{}", line_buffer).map_err(|e| StreamError::Io(e))?;
         }
 
         Ok(())
@@ -706,15 +714,33 @@ struct WindowData {
     timestamp: f64,
 }
 
-/// Compute summary statistics for a variant result
+/// Compute summary statistics for a variant result using single-pass algorithm
 fn compute_variant_summary(variant: &dda_rs::VariantResult) -> VariantSummary {
-    let mut all_values: Vec<f64> = variant
+    // Single pass computation using sum of squares for variance
+    let (sum, sq_sum, min, max, count) = variant
         .q_matrix
         .par_iter()
-        .flat_map(|row| row.par_iter().copied())
-        .collect();
+        .flat_map(|row| row.par_iter())
+        .fold(
+            || (0.0f64, 0.0f64, f64::INFINITY, f64::NEG_INFINITY, 0usize),
+            |(sum, sq_sum, min, max, cnt), &val| {
+                (
+                    sum + val,
+                    sq_sum + val * val,
+                    min.min(val),
+                    max.max(val),
+                    cnt + 1,
+                )
+            },
+        )
+        .reduce(
+            || (0.0, 0.0, f64::INFINITY, f64::NEG_INFINITY, 0),
+            |(s1, sq1, min1, max1, c1), (s2, sq2, min2, max2, c2)| {
+                (s1 + s2, sq1 + sq2, min1.min(min2), max1.max(max2), c1 + c2)
+            },
+        );
 
-    if all_values.is_empty() {
+    if count == 0 {
         return VariantSummary {
             variant_id: variant.variant_id.clone(),
             variant_name: variant.variant_name.clone(),
@@ -727,24 +753,19 @@ fn compute_variant_summary(variant: &dda_rs::VariantResult) -> VariantSummary {
         };
     }
 
-    all_values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-
-    let len = all_values.len() as f64;
-    let mean = all_values.par_iter().sum::<f64>() / len;
-    let variance = all_values
-        .par_iter()
-        .map(|v| (v - mean).powi(2))
-        .sum::<f64>()
-        / len;
-    let std_dev = variance.sqrt();
+    let mean = sum / count as f64;
+    // Variance using E[X^2] - E[X]^2 formula
+    let variance = (sq_sum / count as f64) - mean * mean;
+    // Clamp to zero to handle floating point precision issues
+    let std_dev = variance.max(0.0).sqrt();
 
     VariantSummary {
         variant_id: variant.variant_id.clone(),
         variant_name: variant.variant_name.clone(),
         mean,
         std_dev,
-        min: all_values[0],
-        max: all_values[all_values.len() - 1],
+        min,
+        max,
         num_channels: variant.q_matrix.len(),
         num_timepoints: variant.q_matrix.first().map(|r| r.len()).unwrap_or(0),
     }
