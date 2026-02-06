@@ -87,28 +87,32 @@ pub fn compute_file_hash<P: AsRef<Path>>(file_path: P) -> Result<String> {
     let mut file = File::open(path)
         .with_context(|| format!("Failed to open file for hashing: {}", path.display()))?;
 
-    // Read and hash blocks in parallel
-    let block_hashes: Vec<blake3::Hash> = blocks_to_sample
+    // Read and hash blocks in parallel, collecting results
+    let block_results: Vec<Result<blake3::Hash, std::io::Error>> = blocks_to_sample
         .par_iter()
         .map(|&block_index| {
-            // Clone file handle for parallel access
-            let mut local_file = File::open(path).expect("Failed to open file in parallel block");
+            // Open file handle for this parallel task
+            let mut local_file = File::open(path)?;
 
             // Seek to block position
             let offset = block_index as u64 * BLOCK_SIZE as u64;
-            local_file
-                .seek(SeekFrom::Start(offset))
-                .expect("Failed to seek in file");
+            local_file.seek(SeekFrom::Start(offset))?;
 
             // Read block (may be less than BLOCK_SIZE for last block)
             let mut buffer = vec![0u8; BLOCK_SIZE];
-            let bytes_read = local_file.read(&mut buffer).expect("Failed to read block");
+            let bytes_read = local_file.read(&mut buffer)?;
             buffer.truncate(bytes_read);
 
             // Hash this block
-            blake3::hash(&buffer)
+            Ok(blake3::hash(&buffer))
         })
         .collect();
+
+    // Check for any errors in parallel operations
+    let block_hashes: Vec<blake3::Hash> = block_results
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()
+        .with_context(|| format!("Failed to read blocks from file: {}", path.display()))?;
 
     // Combine all hashes with metadata into final hash
     let final_hash = compute_final_hash(file_size, stride as u64, &block_hashes);
