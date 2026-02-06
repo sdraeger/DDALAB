@@ -90,21 +90,242 @@ impl DataWindow {
     }
 }
 
-/// Thread-safe LRU cache for data windows
+/// Node in the LRU doubly-linked list (uses indices for O(1) operations)
+#[derive(Debug)]
+struct LruNode {
+    window: Arc<DataWindow>,
+    prev: Option<usize>,
+    next: Option<usize>,
+}
+
+/// O(1) LRU cache using HashMap + index-based doubly-linked list
+///
+/// This implementation provides O(1) for all operations:
+/// - get: O(1) lookup + O(1) move-to-back
+/// - insert: O(1) insertion + O(1) eviction
+/// - eviction: O(1) removal from front
+struct LruCache {
+    /// Maps keys to node indices for O(1) lookup
+    key_to_index: HashMap<WindowKey, usize>,
+    /// Node storage - uses indices for linked list pointers
+    nodes: Vec<Option<LruNode>>,
+    /// Free list for recycling node slots
+    free_indices: Vec<usize>,
+    /// Head of the LRU list (oldest/least recently used)
+    head: Option<usize>,
+    /// Tail of the LRU list (newest/most recently used)
+    tail: Option<usize>,
+    /// Current total size in bytes
+    current_size_bytes: usize,
+}
+
+impl LruCache {
+    fn new() -> Self {
+        Self {
+            key_to_index: HashMap::new(),
+            nodes: Vec::new(),
+            free_indices: Vec::new(),
+            head: None,
+            tail: None,
+            current_size_bytes: 0,
+        }
+    }
+
+    /// Get a window by key and move it to most-recently-used position - O(1)
+    fn get(&mut self, key: &WindowKey) -> Option<Arc<DataWindow>> {
+        let &idx = self.key_to_index.get(key)?;
+        let window = self.nodes[idx].as_ref()?.window.clone();
+        self.move_to_tail(idx);
+        Some(window)
+    }
+
+    /// Insert or update a window - O(1)
+    fn insert(&mut self, window: DataWindow) -> Option<Arc<DataWindow>> {
+        let key = window.key.clone();
+        let size = window.size_bytes;
+        let arc_window = Arc::new(window);
+
+        // Remove existing entry if present
+        let old = if let Some(&old_idx) = self.key_to_index.get(&key) {
+            let old_window = self.remove_node(old_idx);
+            self.key_to_index.remove(&key);
+            old_window
+        } else {
+            None
+        };
+
+        // Allocate new node
+        let new_idx = self.allocate_node(LruNode {
+            window: arc_window,
+            prev: None,
+            next: None,
+        });
+
+        // Add to tail (most recently used)
+        self.append_to_tail(new_idx);
+        self.key_to_index.insert(key, new_idx);
+        self.current_size_bytes += size;
+
+        old
+    }
+
+    /// Evict the least recently used entry - O(1)
+    fn evict_oldest(&mut self) -> Option<(WindowKey, Arc<DataWindow>)> {
+        let head_idx = self.head?;
+        let node = self.nodes[head_idx].as_ref()?;
+        let key = node.window.key.clone();
+
+        let window = self.remove_node(head_idx)?;
+        self.key_to_index.remove(&key);
+
+        Some((key, window))
+    }
+
+    fn len(&self) -> usize {
+        self.key_to_index.len()
+    }
+
+    fn clear(&mut self) {
+        self.key_to_index.clear();
+        self.nodes.clear();
+        self.free_indices.clear();
+        self.head = None;
+        self.tail = None;
+        self.current_size_bytes = 0;
+    }
+
+    /// Allocate a node slot, reusing freed slots when available
+    fn allocate_node(&mut self, node: LruNode) -> usize {
+        if let Some(idx) = self.free_indices.pop() {
+            self.nodes[idx] = Some(node);
+            idx
+        } else {
+            let idx = self.nodes.len();
+            self.nodes.push(Some(node));
+            idx
+        }
+    }
+
+    /// Remove a node and return its window, freeing the slot for reuse
+    fn remove_node(&mut self, idx: usize) -> Option<Arc<DataWindow>> {
+        let node = self.nodes[idx].take()?;
+        let size = node.window.size_bytes;
+
+        // Update linked list pointers
+        match (node.prev, node.next) {
+            (Some(prev), Some(next)) => {
+                // Middle node
+                if let Some(ref mut prev_node) = self.nodes[prev] {
+                    prev_node.next = Some(next);
+                }
+                if let Some(ref mut next_node) = self.nodes[next] {
+                    next_node.prev = Some(prev);
+                }
+            }
+            (Some(prev), None) => {
+                // Tail node
+                if let Some(ref mut prev_node) = self.nodes[prev] {
+                    prev_node.next = None;
+                }
+                self.tail = Some(prev);
+            }
+            (None, Some(next)) => {
+                // Head node
+                if let Some(ref mut next_node) = self.nodes[next] {
+                    next_node.prev = None;
+                }
+                self.head = Some(next);
+            }
+            (None, None) => {
+                // Only node
+                self.head = None;
+                self.tail = None;
+            }
+        }
+
+        self.free_indices.push(idx);
+        self.current_size_bytes = self.current_size_bytes.saturating_sub(size);
+
+        Some(node.window)
+    }
+
+    /// Move an existing node to the tail (most recently used) - O(1)
+    fn move_to_tail(&mut self, idx: usize) {
+        if self.tail == Some(idx) {
+            return; // Already at tail
+        }
+
+        let node = match self.nodes[idx].as_ref() {
+            Some(n) => n,
+            None => return,
+        };
+
+        let prev = node.prev;
+        let next = node.next;
+
+        // Unlink from current position
+        if let Some(prev_idx) = prev {
+            if let Some(ref mut prev_node) = self.nodes[prev_idx] {
+                prev_node.next = next;
+            }
+        } else {
+            self.head = next;
+        }
+
+        if let Some(next_idx) = next {
+            if let Some(ref mut next_node) = self.nodes[next_idx] {
+                next_node.prev = prev;
+            }
+        }
+
+        // Append to tail
+        if let Some(tail_idx) = self.tail {
+            if let Some(ref mut tail_node) = self.nodes[tail_idx] {
+                tail_node.next = Some(idx);
+            }
+        }
+
+        if let Some(ref mut node) = self.nodes[idx] {
+            node.prev = self.tail;
+            node.next = None;
+        }
+
+        self.tail = Some(idx);
+
+        if self.head.is_none() {
+            self.head = Some(idx);
+        }
+    }
+
+    /// Append a new node to the tail - O(1)
+    fn append_to_tail(&mut self, idx: usize) {
+        if let Some(tail_idx) = self.tail {
+            if let Some(ref mut tail_node) = self.nodes[tail_idx] {
+                tail_node.next = Some(idx);
+            }
+            if let Some(ref mut node) = self.nodes[idx] {
+                node.prev = Some(tail_idx);
+                node.next = None;
+            }
+        } else {
+            // First node
+            self.head = Some(idx);
+        }
+        self.tail = Some(idx);
+    }
+}
+
+/// Thread-safe LRU cache for data windows with O(1) operations
 pub struct WindowCache {
-    windows: RwLock<HashMap<WindowKey, Arc<DataWindow>>>,
-    access_order: RwLock<Vec<WindowKey>>,
+    cache: RwLock<LruCache>,
     config: LazyReaderConfig,
-    current_size_bytes: RwLock<usize>,
 }
 
 impl WindowCache {
     pub fn new(config: LazyReaderConfig) -> Self {
         Self {
-            windows: RwLock::new(HashMap::new()),
-            access_order: RwLock::new(Vec::new()),
+            cache: RwLock::new(LruCache::new()),
             config,
-            current_size_bytes: RwLock::new(0),
         }
     }
 
@@ -112,67 +333,38 @@ impl WindowCache {
         Self::new(LazyReaderConfig::default())
     }
 
+    /// Get a cached window by key - O(1)
     pub fn get(&self, key: &WindowKey) -> Option<Arc<DataWindow>> {
-        let windows = self.windows.read();
-        if let Some(window) = windows.get(key) {
-            let mut order = self.access_order.write();
-            if let Some(pos) = order.iter().position(|k| k == key) {
-                order.remove(pos);
-            }
-            order.push(key.clone());
-            Some(Arc::clone(window))
-        } else {
-            None
-        }
+        self.cache.write().get(key)
     }
 
+    /// Insert a window into the cache - O(1)
     pub fn insert(&self, window: DataWindow) {
-        let key = window.key.clone();
         let size = window.size_bytes;
-        self.evict_if_needed(size);
 
-        let mut windows = self.windows.write();
-        let mut order = self.access_order.write();
-        let mut current_size = self.current_size_bytes.write();
+        let mut cache = self.cache.write();
 
-        if let Some(old) = windows.remove(&key) {
-            *current_size = current_size.saturating_sub(old.size_bytes);
-            if let Some(pos) = order.iter().position(|k| k == &key) {
-                order.remove(pos);
-            }
-        }
-
-        windows.insert(key.clone(), Arc::new(window));
-        order.push(key);
-        *current_size += size;
-    }
-
-    fn evict_if_needed(&self, new_size_bytes: usize) {
-        let mut windows = self.windows.write();
-        let mut order = self.access_order.write();
-        let mut current_size = self.current_size_bytes.write();
-
-        while !order.is_empty()
-            && (windows.len() >= self.config.max_cached_windows
-                || *current_size + new_size_bytes > self.config.max_cache_bytes)
+        // Evict entries if needed (O(1) per eviction)
+        while cache.len() >= self.config.max_cached_windows
+            || cache.current_size_bytes + size > self.config.max_cache_bytes
         {
-            let oldest_key = order.remove(0);
-            if let Some(removed) = windows.remove(&oldest_key) {
-                *current_size = current_size.saturating_sub(removed.size_bytes);
+            if cache.evict_oldest().is_none() {
+                break;
             }
         }
+
+        cache.insert(window);
     }
 
     pub fn clear(&self) {
-        self.windows.write().clear();
-        self.access_order.write().clear();
-        *self.current_size_bytes.write() = 0;
+        self.cache.write().clear();
     }
 
     pub fn stats(&self) -> CacheStats {
+        let cache = self.cache.read();
         CacheStats {
-            num_windows: self.windows.read().len(),
-            total_size_bytes: *self.current_size_bytes.read(),
+            num_windows: cache.len(),
+            total_size_bytes: cache.current_size_bytes,
             max_windows: self.config.max_cached_windows,
             max_size_bytes: self.config.max_cache_bytes,
         }
@@ -216,16 +408,33 @@ pub trait LazyFileReader: Send + Sync {
     fn read_window(&self, request: &WindowRequest) -> FileResult<DataWindow>;
     fn format_name(&self) -> &str;
 
+    /// Get a reference to cached metadata without cloning (optional optimization)
+    ///
+    /// Returns `None` by default. Readers that cache their metadata should override
+    /// this to return a reference, avoiding allocation on each call.
+    fn metadata_ref(&self) -> Option<&FileMetadata> {
+        None
+    }
+
     fn read_window_cached(
         &self,
         request: &WindowRequest,
         cache: &WindowCache,
     ) -> FileResult<Arc<DataWindow>> {
-        let metadata = self.metadata()?;
-        let channels = request
-            .channels
-            .clone()
-            .unwrap_or_else(|| metadata.channels.clone());
+        // Use metadata_ref to avoid cloning when possible
+        let owned_metadata;
+        let metadata: &FileMetadata = if let Some(meta_ref) = self.metadata_ref() {
+            meta_ref
+        } else {
+            owned_metadata = self.metadata()?;
+            &owned_metadata
+        };
+
+        // Use Cow to avoid cloning channels when reading all channels
+        let channels: std::borrow::Cow<'_, [String]> = match &request.channels {
+            Some(ch) => std::borrow::Cow::Borrowed(ch),
+            None => std::borrow::Cow::Borrowed(&metadata.channels),
+        };
 
         let key = WindowKey::new(
             &metadata.file_path,
@@ -337,6 +546,10 @@ impl LazyEDFReader {
 impl LazyFileReader for LazyEDFReader {
     fn metadata(&self) -> FileResult<FileMetadata> {
         Ok(self.metadata.clone())
+    }
+
+    fn metadata_ref(&self) -> Option<&FileMetadata> {
+        Some(&self.metadata)
     }
 
     fn read_window(&self, request: &WindowRequest) -> FileResult<DataWindow> {
@@ -563,6 +776,10 @@ impl LazyTextReader {
 impl LazyFileReader for LazyTextReader {
     fn metadata(&self) -> FileResult<FileMetadata> {
         Ok(self.metadata.clone())
+    }
+
+    fn metadata_ref(&self) -> Option<&FileMetadata> {
+        Some(&self.metadata)
     }
 
     fn read_window(&self, request: &WindowRequest) -> FileResult<DataWindow> {

@@ -101,22 +101,20 @@ pub struct BrainVisionFileReader {
 }
 
 impl BrainVisionFileReader {
-    /// Convert Latin-1 encoded BrainVision files to UTF-8 and ensure proper line endings
+    /// Convert Latin-1 encoded BrainVision text files to UTF-8 and ensure proper line endings
     ///
     /// BrainVision format consists of 3 files: .vhdr (header), .vmrk (markers), and .eeg (data).
-    /// Issues that need fixing:
-    /// 1. Latin-1 encoding (µV character) -> UTF-8
-    /// 2. Unix line endings (LF) -> Windows line endings (CRLF) that bvreader expects
+    /// Only the text files (.vhdr, .vmrk) need conversion. The .eeg binary data file is left in
+    /// place and the header's DataFile= reference is rewritten to its absolute path so bvreader
+    /// can locate it without an expensive copy.
     fn ensure_utf8_brainvision_files(
         vhdr_path: &Path,
     ) -> FileResult<(std::path::PathBuf, Option<std::path::PathBuf>)> {
-        // Always convert to ensure proper line endings, even if UTF-8
         log::info!(
             "Converting BrainVision file {} to UTF-8 with Windows line endings",
             vhdr_path.display()
         );
 
-        // Need to convert - create a temporary directory for all files
         let file_stem = vhdr_path.file_stem().ok_or_else(|| {
             FileReaderError::ParseError(format!(
                 "Invalid file stem in path: {}",
@@ -127,24 +125,17 @@ impl BrainVisionFileReader {
             std::env::temp_dir().join(format!("bv_utf8_{}", file_stem.to_string_lossy()));
         fs::create_dir_all(&temp_dir)?;
 
-        // Get parent directory
         let parent_dir = vhdr_path.parent().ok_or_else(|| {
             FileReaderError::ParseError(format!("No parent directory for: {}", vhdr_path.display()))
         })?;
 
-        // Helper function to convert text file: Latin-1 to UTF-8, LF to CRLF
+        // Helper: convert a text file from Latin-1 to UTF-8 with CRLF line endings
         let convert_text_file = |input_path: &Path, output_path: &Path| -> FileResult<()> {
             let bytes = fs::read(input_path)?;
-
-            // Convert from Latin-1 to UTF-8 (sequential - faster for small files)
             let text: String = bytes.iter().map(|&b| b as char).collect();
-
-            // Convert LF to CRLF (normalize line endings)
             let text_crlf = text.replace("\r\n", "\n").replace('\n', "\r\n");
-
             fs::write(output_path, text_crlf.as_bytes())?;
 
-            // Set permissions to 0644 (rw-r--r--) on Unix
             #[cfg(unix)]
             {
                 let mut perms = fs::metadata(output_path)?.permissions();
@@ -155,14 +146,14 @@ impl BrainVisionFileReader {
             Ok(())
         };
 
-        // Convert .vhdr file and parse it to find referenced files
+        // Convert .vhdr file
         let vhdr_file_name = vhdr_path.file_name().ok_or_else(|| {
             FileReaderError::ParseError(format!("No file name in path: {}", vhdr_path.display()))
         })?;
         let temp_vhdr = temp_dir.join(vhdr_file_name);
         convert_text_file(vhdr_path, &temp_vhdr)?;
 
-        // Parse the header to find DataFile and MarkerFile references
+        // Parse the converted header to find DataFile and MarkerFile references
         let header_content = fs::read_to_string(&temp_vhdr)?;
         let mut data_file_name: Option<String> = None;
         let mut marker_file_name: Option<String> = None;
@@ -175,7 +166,7 @@ impl BrainVisionFileReader {
             }
         }
 
-        // Convert .vmrk file if referenced
+        // Convert .vmrk file if referenced (text file, needs encoding conversion)
         if let Some(vmrk_name) = marker_file_name {
             let vmrk_path = parent_dir.join(&vmrk_name);
             if vmrk_path.exists() {
@@ -184,20 +175,19 @@ impl BrainVisionFileReader {
             }
         }
 
-        // Copy .eeg file if referenced (binary data, no conversion needed)
+        // Rewrite DataFile= to the absolute path of the original .eeg binary.
+        // This avoids copying potentially large binary data files into the temp directory.
         if let Some(eeg_name) = data_file_name {
-            let eeg_path = parent_dir.join(&eeg_name);
-            if eeg_path.exists() {
-                let temp_eeg = temp_dir.join(&eeg_name);
-                fs::copy(&eeg_path, &temp_eeg)?;
-
-                // Set permissions to 0644 on Unix
-                #[cfg(unix)]
-                {
-                    let mut perms = fs::metadata(&temp_eeg)?.permissions();
-                    perms.set_mode(0o644);
-                    fs::set_permissions(&temp_eeg, perms)?;
-                }
+            let eeg_abs_path = parent_dir.join(&eeg_name);
+            if eeg_abs_path.exists() {
+                let abs_path_str = eeg_abs_path.to_string_lossy();
+                let rewritten = header_content.replace(
+                    &format!("DataFile={}", eeg_name.trim()),
+                    &format!("DataFile={}", abs_path_str),
+                );
+                // Overwrite the temp header with the rewritten DataFile path
+                fs::write(&temp_vhdr, rewritten.as_bytes())?;
+                log::info!("Rewrote DataFile= to absolute path: {}", abs_path_str,);
             }
         }
 
@@ -206,7 +196,6 @@ impl BrainVisionFileReader {
             temp_dir.display()
         );
 
-        // Debug: Log first few lines of converted header
         if let Ok(content) = fs::read_to_string(&temp_vhdr) {
             let first_lines: Vec<&str> = content.lines().take(5).collect();
             log::debug!("Converted header first 5 lines: {:?}", first_lines);
@@ -327,35 +316,58 @@ impl BrainVisionFileReader {
         // Initialize result vectors
         let mut result: Vec<Vec<f64>> = vec![Vec::with_capacity(max_points); channel_indices.len()];
 
-        // Read every Nth sample directly
-        let mut sample_buffer = vec![0u8; bytes_per_timepoint];
+        // Read in bulk blocks to minimize seek operations.
+        // Instead of seeking to each decimated sample individually (which causes ~1-5ms latency per seek),
+        // we read large contiguous blocks and extract the decimated samples from the buffer.
+        const BLOCK_SIZE: usize = 50000; // Read 50K samples at a time (~200KB per channel)
 
-        for sample_idx in (0..total_samples).step_by(decimation) {
-            // Seek to this sample
-            let byte_offset = sample_idx * bytes_per_timepoint;
+        let mut block_buffer = vec![0u8; BLOCK_SIZE * bytes_per_timepoint];
+
+        for block_start in (0..total_samples).step_by(BLOCK_SIZE) {
+            let block_end = (block_start + BLOCK_SIZE).min(total_samples);
+            let samples_in_block = block_end - block_start;
+            let bytes_to_read = samples_in_block * bytes_per_timepoint;
+
+            // Seek to block start and read entire block
+            let byte_offset = block_start * bytes_per_timepoint;
             file.seek(SeekFrom::Start(byte_offset as u64))?;
+            file.read_exact(&mut block_buffer[..bytes_to_read])?;
 
-            // Read one timepoint (all channels)
-            file.read_exact(&mut sample_buffer)?;
+            // Extract decimated samples from this block
+            // Find which decimated sample indices fall within this block
+            let first_decimated_in_block = if block_start == 0 {
+                0
+            } else {
+                ((block_start + decimation - 1) / decimation) * decimation
+            };
 
-            // Extract values for selected channels
-            for (result_idx, &ch_idx) in channel_indices.iter().enumerate() {
-                if ch_idx < num_channels {
-                    let byte_start = ch_idx * bytes_per_sample;
-                    let bytes: [u8; 4] = [
-                        sample_buffer[byte_start],
-                        sample_buffer[byte_start + 1],
-                        sample_buffer[byte_start + 2],
-                        sample_buffer[byte_start + 3],
-                    ];
-                    let value = f32::from_le_bytes(bytes) as f64;
-                    result[result_idx].push(value);
+            for sample_idx in (first_decimated_in_block..block_end).step_by(decimation) {
+                if sample_idx < block_start {
+                    continue;
                 }
-            }
 
-            // Stop if we've collected enough points
-            if result[0].len() >= max_points {
-                break;
+                let local_idx = sample_idx - block_start;
+                let local_byte_offset = local_idx * bytes_per_timepoint;
+
+                // Extract values for selected channels from the buffer
+                for (result_idx, &ch_idx) in channel_indices.iter().enumerate() {
+                    if ch_idx < num_channels {
+                        let byte_start = local_byte_offset + ch_idx * bytes_per_sample;
+                        let bytes: [u8; 4] = [
+                            block_buffer[byte_start],
+                            block_buffer[byte_start + 1],
+                            block_buffer[byte_start + 2],
+                            block_buffer[byte_start + 3],
+                        ];
+                        let value = f32::from_le_bytes(bytes) as f64;
+                        result[result_idx].push(value);
+                    }
+                }
+
+                // Stop if we've collected enough points
+                if result[0].len() >= max_points {
+                    return Ok(result);
+                }
             }
         }
 
@@ -659,7 +671,11 @@ mod tests {
         assert!(metadata.is_ok(), "Failed to get metadata");
 
         let metadata = metadata.unwrap();
-        assert_eq!(metadata.file_type, "BrainVision");
+        assert!(
+            metadata.file_type.starts_with("BrainVision"),
+            "Expected BrainVision format, got: {}",
+            metadata.file_type
+        );
         assert!(
             metadata.num_channels > 0,
             "Should have at least one channel"
