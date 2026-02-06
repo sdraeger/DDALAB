@@ -1,3 +1,4 @@
+use crate::utils::{read_to_string_with_limit, MAX_CONFIG_FILE_SIZE};
 use anyhow::{Context, Result};
 use flatten_json_object::Flattener;
 use json_objects_to_csv::Json2Csv;
@@ -99,7 +100,8 @@ impl AnnotationFile {
 
     /// Import from JSON file
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let json = std::fs::read_to_string(path).context("Failed to read annotation file")?;
+        let json = read_to_string_with_limit(path.as_ref(), MAX_CONFIG_FILE_SIZE)
+            .context("Failed to read annotation file")?;
         let annotation_file: AnnotationFile =
             serde_json::from_str(&json).context("Failed to parse annotation file")?;
         Ok(annotation_file)

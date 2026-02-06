@@ -66,7 +66,14 @@ impl<'a> MigrationRunner<'a> {
                 [version],
                 |row| row.get(0),
             )
-            .unwrap_or(0);
+            .unwrap_or_else(|e| {
+                log::warn!(
+                    "Failed to check if migration {} is applied: {}. Assuming not applied.",
+                    version,
+                    e
+                );
+                0
+            });
         Ok(count > 0)
     }
 
