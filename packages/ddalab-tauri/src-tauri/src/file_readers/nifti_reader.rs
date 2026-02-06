@@ -27,6 +27,7 @@
 use super::{FileMetadata, FileReader, FileReaderError, FileResult};
 use nifti::{IntoNdArray, NiftiObject, NiftiVolume, ReaderOptions};
 use rayon::prelude::*;
+use std::collections::HashMap;
 use std::path::Path;
 
 pub struct NIfTIFileReader {
@@ -38,6 +39,8 @@ pub struct NIfTIFileReader {
     num_voxels: usize,
     /// Number of time points (1 for 3D volumes)
     num_timepoints: usize,
+    /// Cache for O(1) channel name to index lookups
+    channel_index_cache: HashMap<String, usize>,
 }
 
 impl NIfTIFileReader {
@@ -96,6 +99,13 @@ impl NIfTIFileReader {
             })
             .collect();
 
+        // Build channel index cache for O(1) lookups
+        let channel_index_cache: HashMap<String, usize> = channels
+            .iter()
+            .enumerate()
+            .map(|(idx, name)| (name.clone(), idx))
+            .collect();
+
         // Extract timing information from header
         // pixdim[4] typically stores TR (repetition time) in seconds
         let pixdim = header.pixdim;
@@ -143,6 +153,7 @@ impl NIfTIFileReader {
             dims: shape.to_vec(),
             num_voxels,
             num_timepoints,
+            channel_index_cache,
         })
     }
 
@@ -212,6 +223,10 @@ impl FileReader for NIfTIFileReader {
         Ok(self.metadata.clone())
     }
 
+    fn metadata_ref(&self) -> Option<&FileMetadata> {
+        Some(&self.metadata)
+    }
+
     fn read_chunk(
         &self,
         start_sample: usize,
@@ -229,11 +244,11 @@ impl FileReader for NIfTIFileReader {
         // Read full volume
         let full_data = self.read_volume()?;
 
-        // Determine which channels to return
+        // Determine which channels to return using O(1) HashMap lookup
         let channel_indices: Vec<usize> = if let Some(ch_names) = channels {
             ch_names
                 .iter()
-                .filter_map(|name| self.metadata.channels.iter().position(|ch| ch == name))
+                .filter_map(|name| self.channel_index_cache.get(name).copied())
                 .collect()
         } else {
             (0..self.num_voxels).collect()

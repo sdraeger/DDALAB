@@ -1,16 +1,17 @@
 use super::{FileMetadata, FileReader, FileReaderError, FileResult};
 use crate::text_reader::TextFileReader as CoreTextReader;
-use rayon::prelude::*;
 use std::collections::HashMap;
 use std::path::Path;
 
 /// CSV File Reader
 ///
 /// Implementation of FileReader trait for CSV files.
+/// Uses streaming reads via CoreTextReader to avoid loading entire files into memory.
 
 pub struct CSVFileReader {
     reader: CoreTextReader,
     path: String,
+    channel_map: HashMap<String, usize>,
 }
 
 impl CSVFileReader {
@@ -18,9 +19,18 @@ impl CSVFileReader {
         let reader = CoreTextReader::from_csv(path)
             .map_err(|e| FileReaderError::ParseError(format!("Failed to parse CSV: {}", e)))?;
 
+        let channel_map: HashMap<String, usize> = reader
+            .info
+            .channel_labels
+            .iter()
+            .enumerate()
+            .map(|(i, name)| (name.clone(), i))
+            .collect();
+
         Ok(Self {
             reader,
             path: path.to_string_lossy().to_string(),
+            channel_map,
         })
     }
 }
@@ -63,39 +73,22 @@ impl FileReader for CSVFileReader {
 
         // Determine which channels to read using O(1) HashMap lookup
         let channel_indices: Vec<usize> = if let Some(selected) = channels {
-            // Build channel name -> index map for O(1) lookups
-            let channel_map: HashMap<&str, usize> = all_channels
-                .iter()
-                .enumerate()
-                .map(|(i, name)| (name.as_str(), i))
-                .collect();
             selected
                 .iter()
-                .filter_map(|ch| channel_map.get(ch.as_str()).copied())
+                .filter_map(|ch| self.channel_map.get(ch).copied())
                 .collect()
         } else {
             (0..all_channels.len()).collect()
         };
 
-        // Extract selected channels from the data matrix
-        let mut result = Vec::with_capacity(channel_indices.len());
-
-        for &ch_idx in &channel_indices {
-            if ch_idx >= self.reader.data.len() {
-                continue;
-            }
-
-            let channel_data = &self.reader.data[ch_idx];
-            let end_sample = (start_sample + num_samples).min(channel_data.len());
-
-            if start_sample < channel_data.len() {
-                result.push(channel_data[start_sample..end_sample].to_vec());
-            } else {
-                result.push(Vec::new());
-            }
+        if channel_indices.is_empty() {
+            return Ok(Vec::new());
         }
 
-        Ok(result)
+        // Use streaming read_window to read only the requested range
+        self.reader
+            .read_window(start_sample, num_samples, &channel_indices)
+            .map_err(|e| FileReaderError::ParseError(e))
     }
 
     fn read_overview(
@@ -103,23 +96,26 @@ impl FileReader for CSVFileReader {
         max_points: usize,
         channels: Option<&[String]>,
     ) -> FileResult<Vec<Vec<f64>>> {
-        let metadata = self.metadata()?;
-        let total_samples = metadata.num_samples;
+        let all_channels = &self.reader.info.channel_labels;
 
-        // Calculate decimation factor
-        let decimation = (total_samples as f64 / max_points as f64).ceil() as usize;
-        let decimation = decimation.max(1);
+        // Determine which channels to read using O(1) HashMap lookup
+        let channel_indices: Vec<usize> = if let Some(selected) = channels {
+            selected
+                .iter()
+                .filter_map(|ch| self.channel_map.get(ch).copied())
+                .collect()
+        } else {
+            (0..all_channels.len()).collect()
+        };
 
-        // Read full data and decimate
-        let full_data = self.read_chunk(0, total_samples, channels)?;
+        if channel_indices.is_empty() {
+            return Ok(Vec::new());
+        }
 
-        // Parallelize channel decimation for better performance (order preserved by rayon)
-        let decimated: Vec<Vec<f64>> = full_data
-            .into_par_iter()
-            .map(|channel_data| channel_data.iter().step_by(decimation).copied().collect())
-            .collect();
-
-        Ok(decimated)
+        // Use streaming read_overview for memory-efficient decimated reads
+        self.reader
+            .read_overview(max_points, &channel_indices)
+            .map_err(|e| FileReaderError::ParseError(e))
     }
 
     fn format_name(&self) -> &str {

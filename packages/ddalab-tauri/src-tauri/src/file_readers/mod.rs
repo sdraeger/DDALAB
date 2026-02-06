@@ -79,6 +79,9 @@ pub fn parse_edf_datetime(date_str: &str, time_str: &str) -> Option<String> {
 }
 
 /// Common metadata for all file formats
+///
+/// This struct is designed to be shared via `Arc` to avoid unnecessary cloning
+/// of the channel list when metadata is accessed multiple times.
 #[derive(Debug, Clone)]
 pub struct FileMetadata {
     pub file_path: String,
@@ -91,6 +94,14 @@ pub struct FileMetadata {
     pub channels: Vec<String>,
     pub start_time: Option<String>,
     pub file_type: String,
+}
+
+impl FileMetadata {
+    /// Get channel labels as a slice (avoids cloning)
+    #[inline]
+    pub fn channel_labels(&self) -> &[String] {
+        &self.channels
+    }
 }
 
 /// Result type alias for file reader operations
@@ -132,7 +143,17 @@ impl From<std::io::Error> for FileReaderError {
 /// Each format (EDF, BrainVision, EEGLAB, etc.) implements this trait.
 pub trait FileReader: Send + Sync {
     /// Get metadata about the file without loading all data
+    ///
+    /// Note: For performance, prefer `metadata_ref()` when available to avoid cloning.
     fn metadata(&self) -> FileResult<FileMetadata>;
+
+    /// Get a reference to cached metadata without cloning (optional optimization)
+    ///
+    /// Returns `None` by default. Readers that cache their metadata should override
+    /// this to return a reference, avoiding allocation on each call.
+    fn metadata_ref(&self) -> Option<&FileMetadata> {
+        None
+    }
 
     /// Read a chunk of data from the file
     ///
@@ -228,7 +249,7 @@ impl FileReaderFactory {
 
     /// Get list of recognized but unsupported MEG extensions
     pub fn meg_extensions() -> Vec<&'static str> {
-        vec!["ds", "sqd", "meg4", "con", "kit"]
+        vec!["fif", "ds", "sqd", "meg4", "con", "kit"]
     }
 
     /// Get list of all recognized extensions (supported + conversion required + MEG)
@@ -296,10 +317,17 @@ impl FileReaderFactory {
         reader: &dyn FileReader,
         selected_channels: Option<&[String]>,
     ) -> FileResult<IntermediateData> {
-        // Get metadata first
-        let file_metadata = reader.metadata()?;
+        // Try to get metadata reference first to avoid cloning when possible
+        // Fall back to owned metadata if reference not available
+        let owned_metadata;
+        let file_metadata: &FileMetadata = if let Some(meta_ref) = reader.metadata_ref() {
+            meta_ref
+        } else {
+            owned_metadata = reader.metadata()?;
+            &owned_metadata
+        };
 
-        // Create intermediate metadata
+        // Create intermediate metadata - use references where possible
         let mut custom_metadata = std::collections::HashMap::new();
         custom_metadata.insert("file_size".to_string(), file_metadata.file_size.to_string());
         custom_metadata.insert(
@@ -319,10 +347,11 @@ impl FileReaderFactory {
 
         let mut intermediate_data = IntermediateData::new(intermediate_metadata);
 
-        // Determine which channels to read
-        let channels_to_read = selected_channels
-            .map(|c| c.to_vec())
-            .unwrap_or_else(|| file_metadata.channels.clone());
+        // Determine which channels to read - avoid cloning when reading all channels
+        let channels_to_read: std::borrow::Cow<'_, [String]> = match selected_channels {
+            Some(c) => std::borrow::Cow::Borrowed(c),
+            None => std::borrow::Cow::Borrowed(&file_metadata.channels),
+        };
 
         // Read full data for all selected channels
         let chunk_data =
@@ -376,7 +405,7 @@ mod tests {
         assert!(FileReaderFactory::is_supported(Path::new("test.edf")));
         assert!(FileReaderFactory::is_supported(Path::new("test.vhdr")));
         assert!(!FileReaderFactory::is_supported(Path::new("test.xyz")));
-        assert!(!FileReaderFactory::is_supported(Path::new("test.fif")));
+        assert!(FileReaderFactory::is_supported(Path::new("test.fif"))); // FIF is supported (we have a reader)
     }
 
     #[test]

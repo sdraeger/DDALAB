@@ -30,43 +30,36 @@
  */
 
 use super::{FileMetadata, FileReader, FileReaderError, FileResult};
+use parking_lot::Mutex;
 use rayon::prelude::*;
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 
 use fiff::{
-    channel_type_name,
-    dir_tree_find,
-    // Core functions
-    open_fiff,
-    type_size,
-    ChannelInfo,
-    // Data structures
-    MeasInfo,
-    Tag,
-    TreeNode,
-    FIFFB_CONTINUOUS_DATA,
-    // Block type constants
-    FIFFB_RAW_DATA,
-    // Channel type constants
-    FIFFV_MEG_CH,
-    FIFFV_STIM_CH,
-    FIFF_DATA_BUFFER,
-    FIFF_DATA_SKIP,
-    // Tag kind constants
-    FIFF_FIRST_SAMPLE,
-    FIFF_MEAS_DATE,
+    channel_type_name, dir_tree_find, open_fiff, type_size, ChannelInfo, MeasInfo, Tag, TreeNode,
+    FIFFB_CONTINUOUS_DATA, FIFFB_RAW_DATA, FIFFT_DAU_PACK16, FIFFT_DOUBLE, FIFFT_FLOAT, FIFFT_INT,
+    FIFFT_SHORT, FIFF_DATA_BUFFER, FIFF_DATA_SKIP, FIFF_FIRST_SAMPLE,
 };
+#[cfg(test)]
+use fiff::{FIFFV_MEG_CH, FIFFV_STIM_CH};
 
-pub struct FIFFileReader {
-    file_path: String,
-    metadata: FileMetadata,
+struct FIFReaderCore {
     reader: BufReader<File>,
     raw_node: TreeNode,
     meas_info: MeasInfo,
     first_samp: i64,
     last_samp: i64,
+}
+
+pub struct FIFFileReader {
+    file_path: String,
+    metadata: FileMetadata,
+    core: Mutex<FIFReaderCore>,
+    /// Cache for O(1) channel name to index lookups.
+    /// Built once during initialization to avoid repeated linear searches.
+    channel_index_cache: HashMap<String, usize>,
 }
 
 impl FIFFileReader {
@@ -153,6 +146,13 @@ impl FIFFileReader {
             .map(|ch| ch.ch_name.clone())
             .collect();
 
+        // Build channel name to index cache for O(1) lookups
+        let channel_index_cache: HashMap<String, usize> = channels
+            .iter()
+            .enumerate()
+            .map(|(idx, name)| (name.clone(), idx))
+            .collect();
+
         let metadata = FileMetadata {
             file_path: file_path.clone(),
             file_name: path
@@ -172,20 +172,25 @@ impl FIFFileReader {
 
         log::info!("FIF total initialization: {:?}", start_total.elapsed());
 
-        Ok(Self {
-            file_path,
-            metadata,
+        let core = FIFReaderCore {
             reader,
             raw_node,
             meas_info,
             first_samp,
             last_samp,
+        };
+
+        Ok(Self {
+            file_path,
+            metadata,
+            core: Mutex::new(core),
+            channel_index_cache,
         })
     }
 
-    /// Get data channel indices (excluding stimulus, etc.)
     pub fn data_channel_indices(&self) -> Vec<usize> {
-        self.meas_info
+        let core = self.core.lock();
+        core.meas_info
             .channels
             .iter()
             .enumerate()
@@ -194,9 +199,9 @@ impl FIFFileReader {
             .collect()
     }
 
-    /// Get data channel names (excluding stimulus, etc.)
     pub fn data_channel_names(&self) -> Vec<String> {
-        self.meas_info
+        let core = self.core.lock();
+        core.meas_info
             .channels
             .iter()
             .filter(|ch| ch.is_data_channel())
@@ -204,22 +209,23 @@ impl FIFFileReader {
             .collect()
     }
 
-    /// Get channel info by type
-    pub fn channels_by_type(&self, kind: i32) -> Vec<(usize, &ChannelInfo)> {
-        self.meas_info
+    pub fn channels_by_type(&self, kind: i32) -> Vec<(usize, ChannelInfo)> {
+        let core = self.core.lock();
+        core.meas_info
             .channels
             .iter()
             .enumerate()
             .filter(|(_, ch)| ch.kind == kind)
+            .map(|(idx, ch)| (idx, ch.clone()))
             .collect()
     }
 
-    /// Print channel type summary
     pub fn print_channel_summary(&self) {
         use std::collections::HashMap;
+        let core = self.core.lock();
         let mut type_counts: HashMap<i32, usize> = HashMap::new();
 
-        for ch in &self.meas_info.channels {
+        for ch in &core.meas_info.channels {
             *type_counts.entry(ch.kind).or_insert(0) += 1;
         }
 
@@ -234,16 +240,115 @@ impl FIFFileReader {
         }
     }
 
-    /// Read data from specific data buffers
+    /// Parse only selected channels from a FIFF data buffer tag.
+    ///
+    /// This is an optimization over `Tag::as_samples()` which allocates and parses
+    /// all channels. For files with 1000+ channels where only 10 are requested,
+    /// this avoids 99% of memory allocation and parsing work.
+    ///
+    /// The FIFF format stores data interleaved by time sample:
+    /// [ch0_t0, ch1_t0, ..., chN_t0, ch0_t1, ch1_t1, ..., chN_t1, ...]
+    ///
+    /// We skip over unwanted channels by advancing the byte offset.
+    fn parse_selected_channels(
+        tag: &Tag,
+        nchan: usize,
+        channel_indices: &[usize],
+    ) -> Result<Vec<Vec<f64>>, FileReaderError> {
+        let type_sz = type_size(tag.type_).ok_or_else(|| {
+            FileReaderError::ParseError(format!("Unknown FIFF type: {}", tag.type_))
+        })?;
+
+        let nsamp = tag.size as usize / (type_sz * nchan);
+        let num_selected = channel_indices.len();
+        let data = &tag.data;
+
+        // Pre-allocate only for selected channels
+        let mut samples = vec![vec![0.0f64; nsamp]; num_selected];
+
+        // Build a sorted list of (original_index, output_index) for efficient iteration
+        let mut sorted_indices: Vec<(usize, usize)> = channel_indices
+            .iter()
+            .enumerate()
+            .map(|(out_idx, &orig_idx)| (orig_idx, out_idx))
+            .collect();
+        sorted_indices.sort_by_key(|(orig_idx, _)| *orig_idx);
+
+        // Use direct byte access with from_be_bytes for efficiency
+        let bytes_per_sample = type_sz * nchan;
+
+        match tag.type_ {
+            FIFFT_SHORT | FIFFT_DAU_PACK16 => {
+                for samp_idx in 0..nsamp {
+                    let sample_offset = samp_idx * bytes_per_sample;
+                    for &(orig_ch_idx, out_idx) in &sorted_indices {
+                        let byte_pos = sample_offset + orig_ch_idx * 2;
+                        let bytes: [u8; 2] =
+                            data[byte_pos..byte_pos + 2].try_into().map_err(|_| {
+                                FileReaderError::ParseError("Failed to read i16 bytes".to_string())
+                            })?;
+                        samples[out_idx][samp_idx] = i16::from_be_bytes(bytes) as f64;
+                    }
+                }
+            }
+            FIFFT_INT => {
+                for samp_idx in 0..nsamp {
+                    let sample_offset = samp_idx * bytes_per_sample;
+                    for &(orig_ch_idx, out_idx) in &sorted_indices {
+                        let byte_pos = sample_offset + orig_ch_idx * 4;
+                        let bytes: [u8; 4] =
+                            data[byte_pos..byte_pos + 4].try_into().map_err(|_| {
+                                FileReaderError::ParseError("Failed to read i32 bytes".to_string())
+                            })?;
+                        samples[out_idx][samp_idx] = i32::from_be_bytes(bytes) as f64;
+                    }
+                }
+            }
+            FIFFT_FLOAT => {
+                for samp_idx in 0..nsamp {
+                    let sample_offset = samp_idx * bytes_per_sample;
+                    for &(orig_ch_idx, out_idx) in &sorted_indices {
+                        let byte_pos = sample_offset + orig_ch_idx * 4;
+                        let bytes: [u8; 4] =
+                            data[byte_pos..byte_pos + 4].try_into().map_err(|_| {
+                                FileReaderError::ParseError("Failed to read f32 bytes".to_string())
+                            })?;
+                        samples[out_idx][samp_idx] = f32::from_be_bytes(bytes) as f64;
+                    }
+                }
+            }
+            FIFFT_DOUBLE => {
+                for samp_idx in 0..nsamp {
+                    let sample_offset = samp_idx * bytes_per_sample;
+                    for &(orig_ch_idx, out_idx) in &sorted_indices {
+                        let byte_pos = sample_offset + orig_ch_idx * 8;
+                        let bytes: [u8; 8] =
+                            data[byte_pos..byte_pos + 8].try_into().map_err(|_| {
+                                FileReaderError::ParseError("Failed to read f64 bytes".to_string())
+                            })?;
+                        samples[out_idx][samp_idx] = f64::from_be_bytes(bytes);
+                    }
+                }
+            }
+            _ => {
+                return Err(FileReaderError::ParseError(format!(
+                    "Unsupported data type for samples: {}",
+                    tag.type_
+                )));
+            }
+        }
+
+        Ok(samples)
+    }
+
     fn read_data_range(
-        &mut self,
+        &self,
         start_sample: usize,
         num_samples: usize,
         channels: Option<&[String]>,
     ) -> FileResult<Vec<Vec<f64>>> {
         let start_read = std::time::Instant::now();
 
-        // Validate range
         if start_sample >= self.metadata.num_samples {
             return Err(FileReaderError::ParseError(format!(
                 "Start sample {} is beyond file end ({})",
@@ -251,8 +356,9 @@ impl FIFFileReader {
             )));
         }
 
-        let nchan = self.meas_info.nchan;
-        let directory = &self.raw_node.directory;
+        let mut core = self.core.lock();
+        let nchan = core.meas_info.nchan;
+        let directory_entries = core.raw_node.directory.clone();
 
         log::info!(
             "FIF read_data_range request: start={}, num={}, channels={:?}",
@@ -261,11 +367,11 @@ impl FIFFileReader {
             channels.map(|c| c.len())
         );
 
-        // Determine which channels to read
+        // Use cached HashMap for O(1) channel lookups instead of O(n) linear search
         let channel_indices: Vec<usize> = if let Some(ch_names) = channels {
             ch_names
                 .iter()
-                .filter_map(|name| self.metadata.channels.iter().position(|ch| ch == name))
+                .filter_map(|name| self.channel_index_cache.get(name).copied())
                 .collect()
         } else {
             (0..nchan).collect()
@@ -274,12 +380,10 @@ impl FIFFileReader {
         let num_selected_channels = channel_indices.len();
         let mut result = vec![vec![0.0f64; num_samples]; num_selected_channels];
 
-        // Track position in output
         let mut current_sample = 0usize;
         let mut buffer_start = 0usize;
 
-        // Read data buffers
-        for (entry_idx, entry) in directory.iter().enumerate() {
+        for (entry_idx, entry) in directory_entries.iter().enumerate() {
             if entry.kind != FIFF_DATA_BUFFER {
                 continue;
             }
@@ -310,14 +414,8 @@ impl FIFFileReader {
                 continue;
             }
 
-            // Read the tag data
-            let tag = Tag::read_at(&mut self.reader, entry.pos).map_err(|e| {
+            let tag = Tag::read_at(&mut core.reader, entry.pos).map_err(|e| {
                 FileReaderError::ParseError(format!("Failed to read data buffer: {}", e))
-            })?;
-
-            // Parse samples (all channels)
-            let all_samples = tag.as_samples(nchan).map_err(|e| {
-                FileReaderError::ParseError(format!("Failed to parse samples: {}", e))
             })?;
 
             // Determine which part of this buffer to use
@@ -329,20 +427,49 @@ impl FIFFileReader {
 
             let samples_to_copy = (buffer_nsamp - buf_offset).min(num_samples - current_sample);
 
-            log::info!("FIF buffer copy: buf_offset={}, samples_to_copy={}, current_sample={}, all_samples_len={}",
-                buf_offset, samples_to_copy, current_sample, if all_samples.is_empty() { 0 } else { all_samples[0].len() });
+            // Optimization: Only parse selected channels when reading a subset.
+            // For 1000-channel MEG files reading only 10 channels, this avoids 99%
+            // of memory allocation and parsing work.
+            let reading_all_channels = num_selected_channels == nchan;
 
-            // Copy selected channels in parallel for better performance on many-channel files
-            // Use indexed parallel iteration on result for safe mutable access
-            result
-                .par_iter_mut()
-                .enumerate()
-                .for_each(|(out_ch_idx, channel_data)| {
-                    let orig_ch_idx = channel_indices[out_ch_idx];
-                    let src = &all_samples[orig_ch_idx][buf_offset..buf_offset + samples_to_copy];
-                    let dst = &mut channel_data[current_sample..current_sample + samples_to_copy];
-                    dst.copy_from_slice(src);
-                });
+            if reading_all_channels {
+                // Parse all channels (original behavior)
+                let all_samples = tag.as_samples(nchan).map_err(|e| {
+                    FileReaderError::ParseError(format!("Failed to parse samples: {}", e))
+                })?;
+
+                log::info!("FIF buffer copy (all channels): buf_offset={}, samples_to_copy={}, current_sample={}, all_samples_len={}",
+                    buf_offset, samples_to_copy, current_sample, if all_samples.is_empty() { 0 } else { all_samples[0].len() });
+
+                // Copy all channels in parallel
+                result
+                    .par_iter_mut()
+                    .enumerate()
+                    .for_each(|(ch_idx, channel_data)| {
+                        let src = &all_samples[ch_idx][buf_offset..buf_offset + samples_to_copy];
+                        let dst =
+                            &mut channel_data[current_sample..current_sample + samples_to_copy];
+                        dst.copy_from_slice(src);
+                    });
+            } else {
+                // Parse only selected channels (optimized path)
+                let selected_samples =
+                    Self::parse_selected_channels(&tag, nchan, &channel_indices)?;
+
+                log::info!("FIF buffer copy (selective): buf_offset={}, samples_to_copy={}, current_sample={}, selected_channels={}",
+                    buf_offset, samples_to_copy, current_sample, num_selected_channels);
+
+                // Copy selected channels in parallel
+                result
+                    .par_iter_mut()
+                    .zip(selected_samples.par_iter())
+                    .for_each(|(channel_data, src_channel)| {
+                        let src = &src_channel[buf_offset..buf_offset + samples_to_copy];
+                        let dst =
+                            &mut channel_data[current_sample..current_sample + samples_to_copy];
+                        dst.copy_from_slice(src);
+                    });
+            }
 
             log::info!(
                 "FIF buffer copied {} samples for {} channels",
@@ -370,15 +497,15 @@ impl FIFFileReader {
             num_samples
         );
 
-        // Apply calibration (cal × range) to convert from raw ADC counts to physical units
-        // Parallelize across channels for better performance on many-channel MEG files
-        let meas_channels = &self.meas_info.channels;
+        let meas_channels = core.meas_info.channels.clone();
+        drop(core);
+
         result
             .par_iter_mut()
             .zip(channel_indices.par_iter())
             .for_each(|(channel_data, &orig_ch_idx)| {
                 let ch_info = &meas_channels[orig_ch_idx];
-                let scaling = ch_info.calibration(); // Returns f64: cal * range
+                let scaling = ch_info.calibration();
 
                 if scaling != 1.0 {
                     for sample in channel_data.iter_mut() {
@@ -397,16 +524,17 @@ impl FileReader for FIFFileReader {
         Ok(self.metadata.clone())
     }
 
+    fn metadata_ref(&self) -> Option<&FileMetadata> {
+        Some(&self.metadata)
+    }
+
     fn read_chunk(
         &self,
         start_sample: usize,
         num_samples: usize,
         channels: Option<&[String]>,
     ) -> FileResult<Vec<Vec<f64>>> {
-        // Need to make self mutable for reading
-        // Create a new reader instance
-        let mut reader_copy = Self::new(Path::new(&self.file_path))?;
-        reader_copy.read_data_range(start_sample, num_samples, channels)
+        self.read_data_range(start_sample, num_samples, channels)
     }
 
     fn read_overview(
@@ -736,9 +864,9 @@ mod tests {
         eprintln!("MEG channels: {}", meg_channels.len());
         eprintln!("STIM channels: {}", stim_channels.len());
 
-        // Print first few channel names and their types
         eprintln!("First 10 channels:");
-        for (idx, ch) in raw.meas_info.channels.iter().take(10).enumerate() {
+        let core = raw.core.lock();
+        for (idx, ch) in core.meas_info.channels.iter().take(10).enumerate() {
             eprintln!(
                 "  {}: {} ({}) - cal={}, range={}",
                 idx,

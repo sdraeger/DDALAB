@@ -1,8 +1,9 @@
 use super::{FileMetadata, FileReader, FileReaderError, FileResult};
 use hdf5::File as H5File;
+use ndarray::s;
 use rayon::prelude::*;
-use std::collections::HashMap;
 use std::path::Path;
+use std::sync::OnceLock;
 
 /// NWB (Neurodata Without Borders) File Reader
 ///
@@ -15,11 +16,13 @@ use std::path::Path;
 /// - Unit conversion (physical values)
 /// - Lazy loading for large files
 /// - Multiple recording support
+/// - Cached metadata for efficient repeated access
 pub struct NWBFileReader {
     path: String,
     file: H5File,
     electrical_series_name: String,
-    metadata_cache: Option<NWBMetadata>,
+    /// Cached metadata using interior mutability for thread-safe lazy initialization
+    metadata_cache: OnceLock<NWBMetadata>,
 }
 
 #[derive(Debug, Clone)]
@@ -78,7 +81,7 @@ impl NWBFileReader {
             path: path.to_string_lossy().to_string(),
             file,
             electrical_series_name: series_name,
-            metadata_cache: None,
+            metadata_cache: OnceLock::new(),
         })
     }
 
@@ -117,12 +120,14 @@ impl NWBFileReader {
         ))
     }
 
-    /// Read and cache metadata
-    fn read_metadata(&mut self) -> FileResult<NWBMetadata> {
-        if let Some(ref cached) = self.metadata_cache {
-            return Ok(cached.clone());
-        }
+    /// Get cached metadata or read and cache it (thread-safe lazy initialization)
+    fn get_metadata(&self) -> FileResult<&NWBMetadata> {
+        self.metadata_cache
+            .get_or_try_init(|| self.read_metadata_from_file())
+    }
 
+    /// Read metadata from file (internal helper, does not cache)
+    fn read_metadata_from_file(&self) -> FileResult<NWBMetadata> {
         let series_path = format!("/acquisition/{}", self.electrical_series_name);
         let series = self.file.group(&series_path).map_err(|e| {
             FileReaderError::ParseError(format!(
@@ -173,7 +178,7 @@ impl NWBFileReader {
         // Read electrode table to get channel names
         let channel_names = self.read_electrode_table(&series, num_channels)?;
 
-        let metadata = NWBMetadata {
+        Ok(NWBMetadata {
             sample_rate,
             num_channels,
             num_samples,
@@ -183,10 +188,7 @@ impl NWBFileReader {
             offset,
             unit,
             start_time: start_time_opt,
-        };
-
-        self.metadata_cache = Some(metadata.clone());
-        Ok(metadata)
+        })
     }
 
     /// Read timing information (sample rate and start time)
@@ -322,46 +324,35 @@ impl NWBFileReader {
             .dataset("data")
             .map_err(|e| FileReaderError::ParseError(format!("No data dataset found: {}", e)))?;
 
-        let metadata = self
-            .metadata_cache
-            .as_ref()
-            .ok_or_else(|| FileReaderError::InvalidData("Metadata not loaded".to_string()))?;
+        let metadata = self.get_metadata()?;
 
-        // Read data slice: [start_sample:start_sample+num_samples, channel_indices]
         let end_sample = (start_sample + num_samples).min(metadata.num_samples);
-        let actual_samples = end_sample - start_sample;
 
-        let mut result = vec![Vec::with_capacity(actual_samples); channel_indices.len()];
-
-        // HDF5 data is stored as [time, channel]
-        // We need to read it and transpose for our format [channel][time]
-        for (ch_idx, &global_ch_idx) in channel_indices.iter().enumerate() {
+        for &global_ch_idx in channel_indices {
             if global_ch_idx >= metadata.num_channels {
                 return Err(FileReaderError::InvalidData(format!(
                     "Channel index {} out of range (max {})",
                     global_ch_idx, metadata.num_channels
                 )));
             }
-
-            // Read column for this channel
-            let mut channel_data = Vec::with_capacity(actual_samples);
-            for sample_idx in start_sample..end_sample {
-                let value: f64 = data
-                    .read_slice_2d::<f64, _, _>(
-                        sample_idx..sample_idx + 1,
-                        global_ch_idx..global_ch_idx + 1,
-                    )
-                    .map_err(|e| {
-                        FileReaderError::ParseError(format!("Failed to read data: {}", e))
-                    })?[0];
-
-                // Apply unit conversion: physical_value = data * conversion + offset
-                let physical_value = value * metadata.conversion_factor + metadata.offset;
-                channel_data.push(physical_value);
-            }
-
-            result[ch_idx] = channel_data;
         }
+
+        let bulk: ndarray::Array2<f64> = data
+            .read_slice_2d(start_sample..end_sample, ..)
+            .map_err(|e| FileReaderError::ParseError(format!("Failed to bulk-read data: {}", e)))?;
+
+        let conversion = metadata.conversion_factor;
+        let offset = metadata.offset;
+
+        let result: Vec<Vec<f64>> = channel_indices
+            .par_iter()
+            .map(|&ch_idx| {
+                bulk.slice(s![.., ch_idx])
+                    .iter()
+                    .map(|&v| v * conversion + offset)
+                    .collect()
+            })
+            .collect();
 
         Ok(result)
     }
@@ -402,12 +393,7 @@ impl NWBFileReader {
 
 impl FileReader for NWBFileReader {
     fn metadata(&self) -> FileResult<FileMetadata> {
-        // Need mutable reference to cache metadata
-        // For now, create a temporary reader to read metadata
-        let mut temp_reader =
-            Self::with_series_name(Path::new(&self.path), Some(&self.electrical_series_name))?;
-
-        let nwb_metadata = temp_reader.read_metadata()?;
+        let nwb_metadata = self.get_metadata()?;
 
         Ok(FileMetadata {
             file_path: self.path.clone(),
@@ -421,8 +407,8 @@ impl FileReader for NWBFileReader {
             num_channels: nwb_metadata.num_channels,
             num_samples: nwb_metadata.num_samples,
             duration: nwb_metadata.duration,
-            channels: nwb_metadata.channel_names,
-            start_time: nwb_metadata.start_time,
+            channels: nwb_metadata.channel_names.clone(),
+            start_time: nwb_metadata.start_time.clone(),
             file_type: "NWB".to_string(),
         })
     }
@@ -433,11 +419,7 @@ impl FileReader for NWBFileReader {
         num_samples: usize,
         channels: Option<&[String]>,
     ) -> FileResult<Vec<Vec<f64>>> {
-        // Need metadata to resolve channel names
-        let mut temp_reader =
-            Self::with_series_name(Path::new(&self.path), Some(&self.electrical_series_name))?;
-
-        let metadata = temp_reader.read_metadata()?;
+        let metadata = self.get_metadata()?;
 
         // Resolve channel indices
         let channel_indices: Vec<usize> = if let Some(selected) = channels {
@@ -455,7 +437,7 @@ impl FileReader for NWBFileReader {
             ));
         }
 
-        temp_reader.read_raw_chunk(start_sample, num_samples, &channel_indices)
+        self.read_raw_chunk(start_sample, num_samples, &channel_indices)
     }
 
     fn read_overview(
@@ -463,8 +445,8 @@ impl FileReader for NWBFileReader {
         max_points: usize,
         channels: Option<&[String]>,
     ) -> FileResult<Vec<Vec<f64>>> {
-        let file_metadata = self.metadata()?;
-        let total_samples = file_metadata.num_samples;
+        let nwb_metadata = self.get_metadata()?;
+        let total_samples = nwb_metadata.num_samples;
 
         // Calculate decimation factor
         let decimation = (total_samples as f64 / max_points as f64).ceil() as usize;
