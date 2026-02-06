@@ -412,12 +412,20 @@ export const NSGJobManager = memo(function NSGJobManager() {
     | "completed";
   type SortDirection = "asc" | "desc";
   const [sortColumn, setSortColumn] = useState<SortColumn>(() => {
-    const saved = localStorage.getItem("nsgJobManager_sortColumn");
-    return (saved as SortColumn) || "created";
+    try {
+      const saved = localStorage.getItem("nsgJobManager_sortColumn");
+      return (saved as SortColumn) || "created";
+    } catch {
+      return "created";
+    }
   });
   const [sortDirection, setSortDirection] = useState<SortDirection>(() => {
-    const saved = localStorage.getItem("nsgJobManager_sortDirection");
-    return (saved as SortDirection) || "desc";
+    try {
+      const saved = localStorage.getItem("nsgJobManager_sortDirection");
+      return (saved as SortDirection) || "desc";
+    } catch {
+      return "desc";
+    }
   });
 
   // Register NSG jobs as searchable items
@@ -463,8 +471,12 @@ export const NSGJobManager = memo(function NSGJobManager() {
     debouncedUpdate(
       "nsgJobManager_sortPreferences",
       () => {
-        localStorage.setItem("nsgJobManager_sortColumn", sortColumn);
-        localStorage.setItem("nsgJobManager_sortDirection", sortDirection);
+        try {
+          localStorage.setItem("nsgJobManager_sortColumn", sortColumn);
+          localStorage.setItem("nsgJobManager_sortDirection", sortDirection);
+        } catch {
+          // Ignore localStorage errors (e.g., private browsing, quota exceeded)
+        }
       },
       150, // Debounce for 150ms
     );
