@@ -77,7 +77,8 @@ impl AnalysisDatabase {
             -- Composite indexes for common query patterns
             CREATE INDEX IF NOT EXISTS idx_analyses_file_path_created_at ON analyses(file_path, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_analyses_variant_name ON analyses(variant_name);
-            CREATE INDEX IF NOT EXISTS idx_analyses_file_path_variant ON analyses(file_path, variant_name);",
+            CREATE INDEX IF NOT EXISTS idx_analyses_file_path_variant ON analyses(file_path, variant_name);
+            CREATE INDEX IF NOT EXISTS idx_analyses_variant_file ON analyses(variant_name, file_path);",
         )
         .context("Failed to create analyses table")?;
 
@@ -340,6 +341,22 @@ impl AnalysisDatabase {
         );
 
         Ok(analyses)
+    }
+
+    /// Update only the plot_data column for an analysis.
+    /// PERFORMANCE: Avoids loading the full 47MB+ row just to overwrite one field.
+    pub fn update_plot_data(&self, id: &str, plot_data: &serde_json::Value) -> Result<bool> {
+        let plot_data_json = serde_json::to_string(plot_data)?;
+        let now = chrono::Utc::now().to_rfc3339();
+        let rows_affected = self
+            .conn
+            .lock()
+            .execute(
+                "UPDATE analyses SET plot_data = ?1, updated_at = ?2 WHERE id = ?3",
+                params![plot_data_json, now, id],
+            )
+            .context("Failed to update plot_data")?;
+        Ok(rows_affected > 0)
     }
 
     pub fn delete_analysis(&self, id: &str) -> Result<()> {

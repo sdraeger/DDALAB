@@ -477,7 +477,7 @@ impl FileStateDatabase {
         }))
     }
 
-    /// Save the file state registry
+    /// Save the file state registry (full - kept for backward compat)
     pub fn save_registry(&self, registry: &FileStateRegistry) -> Result<()> {
         let registry_json = serde_json::to_string(registry)
             .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
@@ -490,15 +490,78 @@ impl FileStateDatabase {
         Ok(())
     }
 
+    /// Save only the lightweight registry metadata (active file paths, version)
+    /// without re-serializing all file states
+    pub fn save_registry_metadata(
+        &self,
+        active_file_path: Option<&str>,
+        last_active_file_path: Option<&str>,
+    ) -> Result<()> {
+        let metadata = serde_json::json!({
+            "activeFilePath": active_file_path,
+            "lastActiveFilePath": last_active_file_path,
+            "version": "1.0.0",
+            "lastUpdated": chrono::Utc::now().to_rfc3339(),
+        });
+        let metadata_json = serde_json::to_string(&metadata)
+            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+
+        self.conn.lock().execute(
+            "INSERT OR REPLACE INTO file_state_registry (key, value) VALUES ('registry_meta', ?1)",
+            params![metadata_json],
+        )?;
+
+        Ok(())
+    }
+
     /// Load the file state registry
     pub fn get_registry(&self) -> Result<FileStateRegistry> {
         let conn = self.conn.lock();
-        let mut stmt =
-            conn.prepare("SELECT value FROM file_state_registry WHERE key = 'registry'")?;
 
+        // Try loading lightweight metadata first
+        let mut stmt =
+            conn.prepare("SELECT value FROM file_state_registry WHERE key = 'registry_meta'")?;
         let mut rows = stmt.query(params![])?;
 
         if let Some(row) = rows.next()? {
+            let meta_json: String = row.get(0)?;
+            let meta: serde_json::Value = serde_json::from_str(&meta_json)
+                .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+
+            return Ok(FileStateRegistry {
+                files: HashMap::new(),
+                active_file_path: meta
+                    .get("activeFilePath")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+                last_active_file_path: meta
+                    .get("lastActiveFilePath")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+                metadata: RegistryMetadata {
+                    version: meta
+                        .get("version")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("1.0.0")
+                        .to_string(),
+                    last_updated: meta
+                        .get("lastUpdated")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                },
+            });
+        }
+
+        drop(rows);
+        drop(stmt);
+
+        // Fall back to legacy full blob
+        let mut stmt2 =
+            conn.prepare("SELECT value FROM file_state_registry WHERE key = 'registry'")?;
+        let mut rows2 = stmt2.query(params![])?;
+
+        if let Some(row) = rows2.next()? {
             let registry_json: String = row.get(0)?;
             let registry: FileStateRegistry = serde_json::from_str(&registry_json)
                 .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;

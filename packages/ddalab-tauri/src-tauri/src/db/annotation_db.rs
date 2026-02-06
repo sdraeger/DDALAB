@@ -126,31 +126,42 @@ impl AnnotationDatabase {
         Ok(())
     }
 
+    /// Save an annotation to the database.
+    ///
+    /// # Arguments
+    /// * `file_path` - The path to the file being annotated
+    /// * `channel` - Optional channel name for channel-specific annotations
+    /// * `annotation` - The annotation to save
+    /// * `file_hash` - Optional pre-computed file hash. If None, the hash will be computed.
+    ///                 Pass a pre-computed hash to avoid blocking file I/O during DB operations.
     pub fn save_annotation(
         &self,
         file_path: &str,
         channel: Option<&str>,
         annotation: &Annotation,
+        file_hash: Option<String>,
     ) -> Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
         let visible_in_plots_json = serde_json::to_string(&annotation.visible_in_plots)
             .context("Failed to serialize visible_in_plots")?;
 
-        // Compute file hash if file exists
-        let file_hash = if std::path::Path::new(file_path).exists() {
-            match crate::utils::file_hash::compute_file_hash(file_path) {
-                Ok(hash) => {
-                    log::debug!("Computed file hash for annotation: {}", hash);
-                    Some(hash)
+        // Use provided hash or compute it if file exists
+        let file_hash = file_hash.or_else(|| {
+            if std::path::Path::new(file_path).exists() {
+                match crate::utils::file_hash::compute_file_hash(file_path) {
+                    Ok(hash) => {
+                        log::debug!("Computed file hash for annotation: {}", hash);
+                        Some(hash)
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to compute file hash for {}: {}", file_path, e);
+                        None
+                    }
                 }
-                Err(e) => {
-                    log::warn!("Failed to compute file hash for {}: {}", file_path, e);
-                    None
-                }
+            } else {
+                None
             }
-        } else {
-            None
-        };
+        });
 
         self.conn.lock().execute(
             "INSERT OR REPLACE INTO annotations
