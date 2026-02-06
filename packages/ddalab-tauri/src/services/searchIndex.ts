@@ -3,6 +3,7 @@
  *
  * Features:
  * - Inverted token index for O(1) token lookups
+ * - Prefix trie for O(k) prefix matching (k = query length)
  * - Pre-computed trigram cache for fast similarity matching
  * - Lazy rebuilding with debouncing
  * - Incremental add/remove without full rebuild
@@ -11,6 +12,28 @@
 
 import { SearchResult } from "@/types/search";
 import { generateTrigrams } from "./fuzzySearch";
+
+/**
+ * Trie node for prefix matching
+ */
+interface TrieNode {
+  children: Map<string, TrieNode>;
+  /** Item IDs that have this exact token */
+  itemIds: Set<string>;
+  /** Item IDs that have tokens starting with this prefix (includes descendants) */
+  prefixItemIds: Set<string>;
+}
+
+/**
+ * Create a new trie node
+ */
+function createTrieNode(): TrieNode {
+  return {
+    children: new Map(),
+    itemIds: new Set(),
+    prefixItemIds: new Set(),
+  };
+}
 
 interface IndexedItem {
   id: string;
@@ -64,6 +87,7 @@ export class SearchIndex {
   private items: Map<string, IndexedItem> = new Map();
   private invertedIndex: Map<string, Set<string>> = new Map(); // token -> item IDs
   private trigramIndex: Map<string, Set<string>> = new Map(); // trigram -> item IDs
+  private prefixTrie: TrieNode = createTrieNode(); // trie for O(k) prefix lookups
 
   // Index state management
   private isDirty = false;
@@ -76,6 +100,67 @@ export class SearchIndex {
 
   constructor(autoRebuild = true) {
     this.autoRebuild = autoRebuild;
+  }
+
+  /**
+   * Insert a token into the prefix trie
+   */
+  private trieInsert(token: string, itemId: string): void {
+    let node = this.prefixTrie;
+    // Add itemId to prefixItemIds at each level
+    node.prefixItemIds.add(itemId);
+
+    for (const char of token) {
+      if (!node.children.has(char)) {
+        node.children.set(char, createTrieNode());
+      }
+      node = node.children.get(char)!;
+      node.prefixItemIds.add(itemId);
+    }
+    // Mark exact match at leaf
+    node.itemIds.add(itemId);
+  }
+
+  /**
+   * Remove a token from the prefix trie
+   */
+  private trieRemove(token: string, itemId: string): void {
+    const path: TrieNode[] = [this.prefixTrie];
+    let node = this.prefixTrie;
+    node.prefixItemIds.delete(itemId);
+
+    for (const char of token) {
+      const child = node.children.get(char);
+      if (!child) return; // Token not in trie
+      child.prefixItemIds.delete(itemId);
+      path.push(child);
+      node = child;
+    }
+    node.itemIds.delete(itemId);
+
+    // Clean up empty nodes from bottom up
+    for (let i = path.length - 1; i > 0; i--) {
+      const current = path[i];
+      if (current.children.size === 0 && current.itemIds.size === 0) {
+        const parent = path[i - 1];
+        const char = token[i - 1];
+        parent.children.delete(char);
+      }
+    }
+  }
+
+  /**
+   * Find all items with tokens starting with the given prefix
+   * O(k) where k = prefix length
+   */
+  private trieFindByPrefix(prefix: string): Set<string> {
+    let node = this.prefixTrie;
+    for (const char of prefix) {
+      const child = node.children.get(char);
+      if (!child) return new Set();
+      node = child;
+    }
+    return node.prefixItemIds;
   }
 
   /**
@@ -132,12 +217,14 @@ export class SearchIndex {
     // Store item
     this.items.set(id, indexedItem);
 
-    // Update inverted index
+    // Update inverted index and prefix trie
     allTokens.forEach((token) => {
       if (!this.invertedIndex.has(token)) {
         this.invertedIndex.set(token, new Set());
       }
       this.invertedIndex.get(token)!.add(id);
+      // Also insert into prefix trie for O(k) prefix lookups
+      this.trieInsert(token, id);
     });
 
     // Update trigram index
@@ -156,7 +243,7 @@ export class SearchIndex {
     const item = this.items.get(id);
     if (!item) return false;
 
-    // Remove from inverted index
+    // Remove from inverted index and prefix trie
     item.tokens.forEach((token) => {
       const itemSet = this.invertedIndex.get(token);
       if (itemSet) {
@@ -165,6 +252,8 @@ export class SearchIndex {
           this.invertedIndex.delete(token);
         }
       }
+      // Also remove from prefix trie
+      this.trieRemove(token, id);
     });
 
     // Remove from trigram index
@@ -200,6 +289,7 @@ export class SearchIndex {
     this.items.clear();
     this.invertedIndex.clear();
     this.trigramIndex.clear();
+    this.prefixTrie = createTrieNode();
 
     // Add all items
     this.addItems(results);
@@ -246,6 +336,7 @@ export class SearchIndex {
 
   /**
    * Find items by query tokens (multi-word)
+   * Uses prefix trie for O(k) prefix matching instead of O(n) scan
    */
   findByTokens(tokens: string[]): Map<string, number> {
     const scores = new Map<string, number>();
@@ -253,7 +344,7 @@ export class SearchIndex {
     tokens.forEach((token) => {
       const normalized = normalizeForIndex(token);
 
-      // Exact token match
+      // Exact token match - O(1) lookup
       const exactMatches = this.invertedIndex.get(normalized);
       if (exactMatches) {
         exactMatches.forEach((id) => {
@@ -261,12 +352,13 @@ export class SearchIndex {
         });
       }
 
-      // Prefix match (token starts with query)
-      this.invertedIndex.forEach((itemIds, indexedToken) => {
-        if (indexedToken.startsWith(normalized)) {
-          itemIds.forEach((id) => {
-            scores.set(id, (scores.get(id) || 0) + 5);
-          });
+      // Prefix match using trie - O(k) where k = token length
+      const prefixMatches = this.trieFindByPrefix(normalized);
+      prefixMatches.forEach((id) => {
+        // Add prefix score (less than exact match)
+        // Only add if not already an exact match to avoid double-counting
+        if (!exactMatches?.has(id)) {
+          scores.set(id, (scores.get(id) || 0) + 5);
         }
       });
     });
@@ -336,6 +428,7 @@ export class SearchIndex {
     this.items.clear();
     this.invertedIndex.clear();
     this.trigramIndex.clear();
+    this.prefixTrie = createTrieNode();
     this.isDirty = false;
 
     if (this.rebuildTimer) {

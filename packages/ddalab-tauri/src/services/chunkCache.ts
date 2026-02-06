@@ -5,14 +5,23 @@
  * - Toggling channel visibility
  * - Changing preprocessing filters
  * - Navigating back to previously viewed time ranges
+ *
+ * Uses a doubly-linked list with Map for O(1) LRU operations.
  */
 
 import { ChunkData } from "@/types/api";
+
+interface LRUNode {
+  key: string;
+  prev: LRUNode | null;
+  next: LRUNode | null;
+}
 
 interface CacheEntry {
   data: ChunkData;
   timestamp: number;
   size: number; // Estimated memory size in bytes
+  node: LRUNode; // Reference to LRU list node for O(1) removal
 }
 
 interface CacheStats {
@@ -25,14 +34,16 @@ interface CacheStats {
 
 export class ChunkCache {
   private cache: Map<string, CacheEntry>;
-  private accessOrder: string[]; // LRU tracking
+  private head: LRUNode | null; // Least recently used (front)
+  private tail: LRUNode | null; // Most recently used (back)
   private maxSize: number; // Max cache size in bytes
   private currentSize: number;
   private stats: CacheStats;
 
   constructor(maxSizeMB: number = 100) {
     this.cache = new Map();
-    this.accessOrder = [];
+    this.head = null;
+    this.tail = null;
     this.maxSize = maxSizeMB * 1024 * 1024; // Convert to bytes
     this.currentSize = 0;
     this.stats = {
@@ -85,28 +96,63 @@ export class ChunkCache {
   }
 
   /**
-   * Update LRU order when key is accessed
+   * Remove a node from the doubly-linked list - O(1)
    */
-  private touch(key: string): void {
-    // Remove from current position
-    const index = this.accessOrder.indexOf(key);
-    if (index > -1) {
-      this.accessOrder.splice(index, 1);
+  private removeNode(node: LRUNode): void {
+    if (node.prev) {
+      node.prev.next = node.next;
+    } else {
+      this.head = node.next;
     }
-    // Add to end (most recently used)
-    this.accessOrder.push(key);
+
+    if (node.next) {
+      node.next.prev = node.prev;
+    } else {
+      this.tail = node.prev;
+    }
+
+    node.prev = null;
+    node.next = null;
   }
 
   /**
-   * Evict least recently used entries until size is under limit
+   * Add a node to the tail (most recently used) - O(1)
+   */
+  private addToTail(node: LRUNode): void {
+    node.prev = this.tail;
+    node.next = null;
+
+    if (this.tail) {
+      this.tail.next = node;
+    } else {
+      this.head = node;
+    }
+
+    this.tail = node;
+  }
+
+  /**
+   * Move existing node to tail (most recently used) - O(1)
+   */
+  private moveToTail(node: LRUNode): void {
+    if (node === this.tail) {
+      return; // Already at tail
+    }
+    this.removeNode(node);
+    this.addToTail(node);
+  }
+
+  /**
+   * Evict least recently used entries until size is under limit - O(1) per eviction
    */
   private evictIfNeeded(): void {
-    while (this.currentSize > this.maxSize && this.accessOrder.length > 0) {
-      const lruKey = this.accessOrder.shift()!; // Remove least recently used
-      const entry = this.cache.get(lruKey);
+    while (this.currentSize > this.maxSize && this.head) {
+      const lruNode = this.head;
+      const entry = this.cache.get(lruNode.key);
 
       if (entry) {
-        this.cache.delete(lruKey);
+        this.removeNode(lruNode);
+        this.cache.delete(lruNode.key);
         this.currentSize -= entry.size;
         this.stats.evictions++;
       }
@@ -114,7 +160,7 @@ export class ChunkCache {
   }
 
   /**
-   * Get chunk from cache
+   * Get chunk from cache - O(1)
    */
   get(
     filePath: string,
@@ -127,7 +173,7 @@ export class ChunkCache {
 
     if (entry) {
       this.stats.hits++;
-      this.touch(key);
+      this.moveToTail(entry.node);
       return entry.data;
     }
 
@@ -136,7 +182,7 @@ export class ChunkCache {
   }
 
   /**
-   * Store chunk in cache
+   * Store chunk in cache - O(1)
    */
   set(
     filePath: string,
@@ -157,18 +203,23 @@ export class ChunkCache {
     const existing = this.cache.get(key);
     if (existing) {
       this.currentSize -= existing.size;
+      this.removeNode(existing.node);
     }
+
+    // Create new LRU node
+    const node: LRUNode = { key, prev: null, next: null };
 
     // Add new entry
     const entry: CacheEntry = {
       data,
       timestamp: Date.now(),
       size,
+      node,
     };
 
     this.cache.set(key, entry);
     this.currentSize += size;
-    this.touch(key);
+    this.addToTail(node);
 
     // Evict old entries if over limit
     this.evictIfNeeded();
@@ -179,19 +230,15 @@ export class ChunkCache {
   }
 
   /**
-   * Clear all entries for a specific file
+   * Clear all entries for a specific file - O(n) where n is entries for that file
    */
   clearFile(filePath: string): void {
+    const prefix = `${filePath}:`;
     for (const [key, entry] of this.cache.entries()) {
-      if (key.startsWith(`${filePath}:`)) {
+      if (key.startsWith(prefix)) {
+        this.removeNode(entry.node);
         this.cache.delete(key);
         this.currentSize -= entry.size;
-
-        // Remove from LRU order
-        const index = this.accessOrder.indexOf(key);
-        if (index > -1) {
-          this.accessOrder.splice(index, 1);
-        }
       }
     }
 
@@ -200,11 +247,12 @@ export class ChunkCache {
   }
 
   /**
-   * Clear entire cache
+   * Clear entire cache - O(1)
    */
   clear(): void {
     this.cache.clear();
-    this.accessOrder = [];
+    this.head = null;
+    this.tail = null;
     this.currentSize = 0;
     this.stats.totalSize = 0;
     this.stats.entryCount = 0;

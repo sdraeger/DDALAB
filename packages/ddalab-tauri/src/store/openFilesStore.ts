@@ -134,21 +134,26 @@ export const useOpenFilesStore = create<OpenFilesStore>()(
 
             // Check if we need to evict old files
             if (state.files.length >= maxOpenFiles) {
-              // Find oldest non-pinned file
-              const unpinnedFiles = state.files
-                .map((f, i) => ({ ...f, index: i }))
-                .filter((f) => !f.isPinned)
-                .sort(
-                  (a, b) =>
-                    new Date(a.lastActiveAt).getTime() -
-                    new Date(b.lastActiveAt).getTime(),
-                );
+              // Find oldest non-pinned file in O(n) instead of O(n log n) sort
+              let oldestIndex = -1;
+              let oldestTime = Infinity;
 
-              if (unpinnedFiles.length > 0) {
-                // Remove oldest unpinned file
-                state.files.splice(unpinnedFiles[0].index, 1);
+              for (let i = 0; i < state.files.length; i++) {
+                const file = state.files[i];
+                if (!file.isPinned) {
+                  const time = new Date(file.lastActiveAt).getTime();
+                  if (time < oldestTime) {
+                    oldestTime = time;
+                    oldestIndex = i;
+                  }
+                }
+              }
+
+              if (oldestIndex !== -1) {
+                const evictedPath = state.files[oldestIndex].filePath;
+                state.files.splice(oldestIndex, 1);
                 logger.debug("LRU evicted file", {
-                  evicted: unpinnedFiles[0].filePath,
+                  evicted: evictedPath,
                 });
               }
             }
