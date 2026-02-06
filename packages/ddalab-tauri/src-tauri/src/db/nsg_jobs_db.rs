@@ -1,7 +1,8 @@
 use anyhow::{Context, Result};
+use parking_lot::Mutex;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -120,15 +121,19 @@ pub struct NSGJobsDatabase {
 }
 
 impl NSGJobsDatabase {
-    /// Acquire the database connection lock, returning an error if the lock is poisoned
-    fn get_conn(&self) -> Result<std::sync::MutexGuard<'_, Connection>> {
-        self.conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Database lock poisoned: {}", e))
+    fn get_conn(&self) -> parking_lot::MutexGuard<'_, Connection> {
+        self.conn.lock()
     }
 
     pub fn new(db_path: &Path) -> Result<Self> {
         let conn = Connection::open(db_path).context("Failed to open NSG jobs database")?;
+
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA synchronous = NORMAL;
+             PRAGMA cache_size = -64000;",
+        )
+        .context("Failed to set SQLite pragmas")?;
 
         let db = Self {
             conn: Arc::new(Mutex::new(conn)),
@@ -140,7 +145,7 @@ impl NSGJobsDatabase {
     }
 
     fn init_schema(&self) -> Result<()> {
-        let conn = self.get_conn()?;
+        let conn = self.get_conn();
 
         conn.execute(
             "CREATE TABLE IF NOT EXISTS nsg_jobs (
@@ -191,7 +196,7 @@ impl NSGJobsDatabase {
     }
 
     pub fn save_job(&self, job: &NSGJob) -> Result<()> {
-        let conn = self.get_conn()?;
+        let conn = self.get_conn();
 
         let output_files_json =
             serde_json::to_string(&job.output_files).context("Failed to serialize output files")?;
@@ -226,7 +231,7 @@ impl NSGJobsDatabase {
     }
 
     pub fn update_job(&self, job: &NSGJob) -> Result<()> {
-        let conn = self.get_conn()?;
+        let conn = self.get_conn();
 
         let output_files_json =
             serde_json::to_string(&job.output_files).context("Failed to serialize output files")?;
@@ -269,7 +274,7 @@ impl NSGJobsDatabase {
     }
 
     pub fn get_job(&self, job_id: &str) -> Result<Option<NSGJob>> {
-        let conn = self.get_conn()?;
+        let conn = self.get_conn();
 
         let job = conn
             .query_row(
@@ -339,7 +344,7 @@ impl NSGJobsDatabase {
     }
 
     pub fn list_jobs(&self) -> Result<Vec<NSGJob>> {
-        let conn = self.get_conn()?;
+        let conn = self.get_conn();
 
         let mut stmt = conn
             .prepare(
@@ -413,14 +418,14 @@ impl NSGJobsDatabase {
     }
 
     pub fn get_active_jobs(&self) -> Result<Vec<NSGJob>> {
-        let conn = self.get_conn()?;
+        let conn = self.get_conn();
 
         let mut stmt = conn
             .prepare(
                 "SELECT id, nsg_job_id, tool, status, created_at, submitted_at, completed_at,
                     dda_params, input_file_path, output_files, error_message, last_polled, progress
              FROM nsg_jobs
-             WHERE status IN ('submitted', 'queue', 'running')
+             WHERE status IN ('submitted', 'queue', 'inputstaging', 'running')
              ORDER BY created_at ASC",
             )
             .context("Failed to prepare active jobs query")?;
@@ -488,7 +493,7 @@ impl NSGJobsDatabase {
     }
 
     pub fn delete_job(&self, job_id: &str) -> Result<()> {
-        let conn = self.get_conn()?;
+        let conn = self.get_conn();
 
         conn.execute("DELETE FROM nsg_jobs WHERE id = ?1", params![job_id])
             .context("Failed to delete job from database")?;
@@ -496,10 +501,8 @@ impl NSGJobsDatabase {
         Ok(())
     }
 
-    /// Delete all jobs with a specific status in a single query (avoids N+1 problem)
-    /// Returns the number of jobs deleted
     pub fn delete_jobs_by_status(&self, status: &NSGJobStatus) -> Result<usize> {
-        let conn = self.get_conn()?;
+        let conn = self.get_conn();
 
         let deleted = conn
             .execute(
@@ -516,6 +519,7 @@ impl NSGJobsDatabase {
             "pending" => NSGJobStatus::Pending,
             "submitted" => NSGJobStatus::Submitted,
             "queue" => NSGJobStatus::Queue,
+            "inputstaging" => NSGJobStatus::InputStaging,
             "running" => NSGJobStatus::Running,
             "completed" => NSGJobStatus::Completed,
             "failed" => NSGJobStatus::Failed,

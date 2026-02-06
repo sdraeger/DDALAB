@@ -118,10 +118,11 @@ impl ICADatabase {
         Ok(result)
     }
 
+    /// Get all analyses metadata WITHOUT the results blob for fast list views.
     pub fn get_all_analyses(&self, limit: usize) -> Result<Vec<ICAStoredResult>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, name, file_path, channels, created_at, status, results
+            "SELECT id, name, file_path, channels, created_at, status
              FROM ica_analyses
              ORDER BY created_at DESC
              LIMIT ?1",
@@ -130,7 +131,6 @@ impl ICADatabase {
         let analyses = stmt
             .query_map(params![limit], |row| {
                 let channels_json: String = row.get(3)?;
-                let results_json: String = row.get(6)?;
 
                 Ok(ICAStoredResult {
                     id: row.get(0)?,
@@ -140,8 +140,7 @@ impl ICADatabase {
                         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
                     created_at: row.get(4)?,
                     status: row.get(5)?,
-                    results: serde_json::from_str(&results_json)
-                        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
+                    results: Value::Null,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()
