@@ -1,8 +1,6 @@
-use crate::edf::EDFReader;
 use crate::file_readers::FileReaderFactory;
 use crate::file_writers::{FileWriterFactory, WriterConfig};
 use crate::intermediate_format::{ChannelData, DataMetadata, IntermediateData};
-use crate::text_reader::TextFileReader;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
@@ -208,28 +206,118 @@ fn check_cancelled(token: &CancellationToken) -> Result<(), String> {
     }
 }
 
+/// Validate and canonicalize an output directory path to prevent path traversal attacks.
+/// Returns the canonicalized path if valid.
+///
+/// Security measures:
+/// 1. Canonicalizes the path to resolve all symlinks and normalize components
+/// 2. Validates the result is an absolute path
+/// 3. Prevents URL-encoded sequences by working with canonical paths
+/// 4. For new directories, validates parent exists and can be canonicalized
+fn validate_output_directory(output_directory: &str) -> Result<PathBuf, String> {
+    let output_dir = PathBuf::from(output_directory);
+
+    // Canonicalize path if it exists, or validate parent if it doesn't
+    let canonical_path = if output_dir.exists() {
+        output_dir
+            .canonicalize()
+            .map_err(|e| format!("Failed to canonicalize output directory: {}", e))?
+    } else {
+        // For new directories, validate parent exists and is safe
+        if let Some(parent) = output_dir.parent() {
+            if parent.as_os_str().is_empty() {
+                return Err(
+                    "Invalid output directory: relative paths without parent not allowed"
+                        .to_string(),
+                );
+            }
+            if parent.exists() {
+                let canonical_parent = parent
+                    .canonicalize()
+                    .map_err(|e| format!("Failed to canonicalize parent directory: {}", e))?;
+
+                // Get the final component (the new directory name)
+                if let Some(dir_name) = output_dir.file_name() {
+                    let dir_name_str = dir_name.to_string_lossy();
+                    // Validate the directory name doesn't contain path separators or traversal patterns
+                    if dir_name_str.contains('/') || dir_name_str.contains('\\') {
+                        return Err("Invalid output directory name: path separators not allowed"
+                            .to_string());
+                    }
+                    if dir_name_str == ".." || dir_name_str == "." {
+                        return Err(
+                            "Invalid output directory name: traversal patterns not allowed"
+                                .to_string(),
+                        );
+                    }
+                    canonical_parent.join(dir_name)
+                } else {
+                    return Err("Invalid output directory path: no directory name".to_string());
+                }
+            } else {
+                return Err("Parent directory does not exist".to_string());
+            }
+        } else {
+            return Err("Invalid output directory path".to_string());
+        }
+    };
+
+    // Final validation: ensure the path is absolute after canonicalization
+    if !canonical_path.is_absolute() {
+        return Err("Output directory must resolve to an absolute path".to_string());
+    }
+
+    Ok(canonical_path)
+}
+
+/// Validate a filename to ensure it doesn't contain path traversal attempts.
+/// This prevents escaping from the validated output directory.
+fn validate_output_filename(filename: &str) -> Result<(), String> {
+    if filename.is_empty() {
+        return Err("Output filename cannot be empty".to_string());
+    }
+
+    // Check for path separators
+    if filename.contains('/') || filename.contains('\\') {
+        return Err("Invalid output filename: path separators not allowed".to_string());
+    }
+
+    // Check for path traversal patterns
+    if filename == ".."
+        || filename == "."
+        || filename.starts_with("../")
+        || filename.starts_with("..\\")
+    {
+        return Err("Invalid output filename: path traversal patterns not allowed".to_string());
+    }
+
+    // Check for null bytes (can be used to truncate paths in some systems)
+    if filename.contains('\0') {
+        return Err("Invalid output filename: null bytes not allowed".to_string());
+    }
+
+    Ok(())
+}
+
 fn segment_file_blocking(
     params: SegmentFileParams,
     cancellation_token: &CancellationToken,
     operation_id: &str,
 ) -> Result<SegmentFileResult, String> {
-    // Load the file into IntermediateData
     let file_path = PathBuf::from(&params.file_path);
-    let data = load_file_to_intermediate(&file_path)?;
 
-    // Check for cancellation after loading
-    check_cancelled(cancellation_token)?;
+    let reader = FileReaderFactory::create_reader(&file_path)
+        .map_err(|e| format!("Failed to create file reader: {}", e))?;
 
-    // Convert start and end to samples
-    let start_sample = time_to_samples(
-        params.start_time,
-        &params.start_unit,
-        data.metadata.sample_rate,
-    )?;
+    let file_metadata = reader
+        .metadata()
+        .map_err(|e| format!("Failed to read file metadata: {}", e))?;
 
-    let end_sample = time_to_samples(params.end_time, &params.end_unit, data.metadata.sample_rate)?;
+    let sample_rate = file_metadata.sample_rate;
+    let total_samples = file_metadata.num_samples;
 
-    let total_samples = data.num_samples();
+    let start_sample = time_to_samples(params.start_time, &params.start_unit, sample_rate)?;
+    let end_sample = time_to_samples(params.end_time, &params.end_unit, sample_rate)?;
 
     if start_sample >= end_sample {
         return Err("Start time must be less than end time".to_string());
@@ -242,8 +330,8 @@ fn segment_file_blocking(
         ));
     }
 
-    // Clamp end_sample to total_samples
     let end_sample = end_sample.min(total_samples);
+    let num_samples = end_sample - start_sample;
 
     log::info!(
         "[FILE_CUT] Extracting samples {} to {} (total: {})",
@@ -252,65 +340,100 @@ fn segment_file_blocking(
         total_samples
     );
 
-    // Filter channels if specified
-    let filtered_data = if let Some(channel_indices) = &params.selected_channels {
-        filter_channels(&data, channel_indices)?
-    } else {
-        data
-    };
-
-    // Check for cancellation after filtering
     check_cancelled(cancellation_token)?;
 
-    // Extract the segment
-    let segment = extract_segment(&filtered_data, start_sample, end_sample)?;
+    let all_channel_labels = &file_metadata.channels;
 
-    // Check for cancellation after extraction
+    let selected_labels: Vec<String> = if let Some(channel_indices) = &params.selected_channels {
+        channel_indices
+            .iter()
+            .map(|&idx| {
+                all_channel_labels
+                    .get(idx)
+                    .cloned()
+                    .ok_or_else(|| format!("Channel index {} out of range", idx))
+            })
+            .collect::<Result<Vec<_>, _>>()?
+    } else {
+        all_channel_labels.clone()
+    };
+
+    if selected_labels.is_empty() {
+        return Err("No channels selected".to_string());
+    }
+
+    let chunk_data = reader
+        .read_chunk(start_sample, num_samples, Some(&selected_labels))
+        .map_err(|e| format!("Failed to read data chunk: {}", e))?;
+
+    check_cancelled(cancellation_token)?;
+
+    let segment_duration = num_samples as f64 / sample_rate;
+
+    let mut custom_metadata = std::collections::HashMap::new();
+    custom_metadata.insert("num_samples".to_string(), num_samples.to_string());
+
+    let metadata = DataMetadata {
+        source_file: file_path.to_string_lossy().to_string(),
+        source_format: file_metadata.file_type.clone(),
+        sample_rate,
+        duration: segment_duration,
+        start_time: file_metadata.start_time.clone(),
+        subject_id: None,
+        custom_metadata,
+    };
+
+    let mut segment = IntermediateData::new(metadata);
+    for (idx, label) in selected_labels.iter().enumerate() {
+        if let Some(samples) = chunk_data.get(idx) {
+            segment.add_channel(ChannelData {
+                label: label.clone(),
+                channel_type: "Unknown".to_string(),
+                unit: "uV".to_string(),
+                samples: samples.clone(),
+                sample_rate: Some(sample_rate),
+            });
+        }
+    }
+
     check_cancelled(cancellation_token)?;
 
     // Determine output format
     let output_format = determine_output_format(&params.output_format, &file_path)?;
 
     // Validate and canonicalize output directory path to prevent path traversal attacks
-    let output_dir = PathBuf::from(&params.output_directory);
+    // This handles URL-encoded sequences, symlinks, and other bypass attempts
+    let validated_output_dir = validate_output_directory(&params.output_directory)?;
 
-    // Check for path traversal patterns
-    if params.output_directory.contains("..") || params.output_directory.contains("~") {
-        return Err("Invalid output directory: path traversal not allowed".to_string());
-    }
-
-    // Canonicalize path if it exists, or validate parent if it doesn't
-    let validated_output_dir = if output_dir.exists() {
-        output_dir
-            .canonicalize()
-            .map_err(|e| format!("Failed to canonicalize output directory: {}", e))?
-    } else {
-        // For new directories, validate parent exists and is safe
-        if let Some(parent) = output_dir.parent() {
-            if parent.exists() {
-                parent
-                    .canonicalize()
-                    .map_err(|e| format!("Failed to canonicalize parent directory: {}", e))?
-                    .join(output_dir.file_name().unwrap())
-            } else {
-                return Err("Parent directory does not exist".to_string());
-            }
-        } else {
-            return Err("Invalid output directory path".to_string());
-        }
-    };
+    // Validate filename to prevent path traversal via the filename
+    validate_output_filename(&params.output_filename)?;
 
     // Create output directory if it doesn't exist
     std::fs::create_dir_all(&validated_output_dir)
         .map_err(|e| format!("Failed to create output directory: {}", e))?;
 
-    // Validate filename doesn't contain path separators
-    if params.output_filename.contains('/') || params.output_filename.contains('\\') {
-        return Err("Invalid output filename: path separators not allowed".to_string());
-    }
-
     // Construct output path
     let output_path = validated_output_dir.join(&params.output_filename);
+
+    // Final safety check: verify the output path is still within the validated directory
+    // This catches edge cases where filename could somehow escape
+    let canonical_output = if output_path.exists() {
+        output_path.canonicalize()
+    } else {
+        // For new files, the parent is already canonical
+        Ok(output_path.clone())
+    };
+
+    if let Ok(canonical) = canonical_output {
+        if !canonical.starts_with(&validated_output_dir) {
+            log::warn!(
+                "Path traversal attempt detected: {:?} is outside {:?}",
+                canonical,
+                validated_output_dir
+            );
+            return Err("Access denied: output path escapes validated directory".to_string());
+        }
+    }
 
     // Check for cancellation before writing
     check_cancelled(cancellation_token)?;
@@ -326,189 +449,12 @@ fn segment_file_blocking(
     })
 }
 
-fn load_file_to_intermediate(file_path: &Path) -> Result<IntermediateData, String> {
-    let extension = file_path
-        .extension()
-        .and_then(|s| s.to_str())
-        .ok_or("Invalid file extension")?
-        .to_lowercase();
-
-    match extension.as_str() {
-        "edf" => {
-            // Read EDF file
-            let mut reader =
-                EDFReader::new(file_path).map_err(|e| format!("Failed to open EDF file: {}", e))?;
-
-            // Extract metadata from header
-            let num_signals = reader.signal_headers.len();
-            let num_records = reader.header.num_data_records as usize;
-            let record_duration = reader.header.duration_of_data_record;
-
-            // Get sample rate from first signal
-            let sample_rate = reader.signal_headers[0].sample_frequency(record_duration);
-            let duration = record_duration * num_records as f64;
-
-            // Create metadata
-            let metadata = DataMetadata {
-                source_file: file_path.to_string_lossy().to_string(),
-                source_format: "EDF".to_string(),
-                sample_rate,
-                duration,
-                start_time: Some(format!(
-                    "{} {}",
-                    reader.header.start_date, reader.header.start_time
-                )),
-                subject_id: Some(reader.header.patient_id.clone()),
-                custom_metadata: std::collections::HashMap::new(),
-            };
-
-            let mut data = IntermediateData::new(metadata);
-
-            // Read all records and collect samples per channel
-            let mut channel_samples: Vec<Vec<f64>> = vec![Vec::new(); num_signals];
-
-            for record_idx in 0..num_records {
-                let physical_record = reader
-                    .read_physical_record(record_idx)
-                    .map_err(|e| format!("Failed to read EDF record {}: {}", record_idx, e))?;
-
-                // Append samples from this record to each channel
-                for (ch_idx, signal_data) in physical_record.iter().enumerate() {
-                    channel_samples[ch_idx].extend(signal_data);
-                }
-            }
-
-            // Create ChannelData for each signal
-            for (ch_idx, signal_header) in reader.signal_headers.iter().enumerate() {
-                data.add_channel(ChannelData {
-                    label: signal_header.label.clone(),
-                    channel_type: "EEG".to_string(),
-                    unit: signal_header.physical_dimension.clone(),
-                    samples: channel_samples[ch_idx].clone(),
-                    sample_rate: Some(signal_header.sample_frequency(record_duration)),
-                });
-            }
-
-            Ok(data)
-        }
-        "csv" => {
-            // Read CSV file
-            let text_reader = TextFileReader::from_csv(file_path)
-                .map_err(|e| format!("Failed to read CSV file: {}", e))?;
-
-            // Convert to IntermediateData
-            convert_text_reader_to_intermediate(text_reader, file_path, "CSV")
-        }
-        "ascii" | "txt" => {
-            // Read ASCII file
-            let text_reader = TextFileReader::from_ascii(file_path)
-                .map_err(|e| format!("Failed to read ASCII file: {}", e))?;
-
-            // Convert to IntermediateData
-            convert_text_reader_to_intermediate(text_reader, file_path, "ASCII")
-        }
-        _ => Err(format!("Unsupported file format: {}", extension)),
-    }
-}
-
-fn convert_text_reader_to_intermediate(
-    reader: TextFileReader,
-    file_path: &Path,
-    format: &str,
-) -> Result<IntermediateData, String> {
-    // Assume default sample rate of 250 Hz for text files
-    let sample_rate = 250.0;
-    let num_samples = reader.info.num_samples;
-    let duration = num_samples as f64 / sample_rate;
-
-    // Create metadata
-    let metadata = DataMetadata {
-        source_file: file_path.to_string_lossy().to_string(),
-        source_format: format.to_string(),
-        sample_rate,
-        duration,
-        start_time: None,
-        subject_id: None,
-        custom_metadata: std::collections::HashMap::new(),
-    };
-
-    let mut data = IntermediateData::new(metadata);
-
-    // Add channels
-    for (ch_idx, label) in reader.info.channel_labels.iter().enumerate() {
-        data.add_channel(ChannelData {
-            label: label.clone(),
-            channel_type: "Unknown".to_string(),
-            unit: "unknown".to_string(),
-            samples: reader.data[ch_idx].clone(),
-            sample_rate: Some(sample_rate),
-        });
-    }
-
-    Ok(data)
-}
-
 fn time_to_samples(time: f64, unit: &str, sample_rate: f64) -> Result<usize, String> {
     match unit {
         "seconds" => Ok((time * sample_rate) as usize),
         "samples" => Ok(time as usize),
         _ => Err(format!("Invalid time unit: {}", unit)),
     }
-}
-
-fn filter_channels(
-    data: &IntermediateData,
-    channel_indices: &[usize],
-) -> Result<IntermediateData, String> {
-    let mut filtered = IntermediateData::new(data.metadata.clone());
-
-    for &idx in channel_indices {
-        if idx < data.channels.len() {
-            filtered.add_channel(data.channels[idx].clone());
-        } else {
-            return Err(format!("Channel index {} out of range", idx));
-        }
-    }
-
-    if filtered.num_channels() == 0 {
-        return Err("No channels selected".to_string());
-    }
-
-    Ok(filtered)
-}
-
-fn extract_segment(
-    data: &IntermediateData,
-    start: usize,
-    end: usize,
-) -> Result<IntermediateData, String> {
-    let mut segment = IntermediateData::new(data.metadata.clone());
-
-    // Update duration for the segment
-    let segment_duration = (end - start) as f64 / data.metadata.sample_rate;
-    segment.metadata.duration = segment_duration;
-
-    for channel in &data.channels {
-        if end > channel.samples.len() {
-            return Err(format!(
-                "End sample {} exceeds channel data length {}",
-                end,
-                channel.samples.len()
-            ));
-        }
-
-        let segment_samples = channel.samples[start..end].to_vec();
-
-        segment.add_channel(ChannelData {
-            label: channel.label.clone(),
-            channel_type: channel.channel_type.clone(),
-            unit: channel.unit.clone(),
-            samples: segment_samples,
-            sample_rate: channel.sample_rate,
-        });
-    }
-
-    Ok(segment)
 }
 
 fn determine_output_format(format: &str, input_path: &Path) -> Result<String, String> {
@@ -666,9 +612,23 @@ fn parse_file_size_from_annex(line: &str) -> Option<u64> {
     None
 }
 
-/// Validate that a filename is safe for use with git commands.
+/// Characters that are unsafe in filenames when used with shell commands.
+/// These could potentially be exploited for command injection if code
+/// ever passes filenames through a shell (even though we use Command::arg()).
+const SHELL_METACHARACTERS: &[char] = &[
+    '$', '`', '|', ';', '&', '(', ')', '{', '}', '[', ']', '<', '>', '!', '?', '*', '"', '\'',
+];
+
+/// Validate that a filename is safe for use with shell commands.
 /// Returns Ok if safe, Err with explanation if not.
-fn validate_git_filename(filename: &str) -> Result<(), String> {
+///
+/// This function provides defense-in-depth validation. While Rust's Command::arg()
+/// properly escapes arguments and doesn't invoke a shell, we still validate filenames
+/// to protect against:
+/// 1. Potential future code changes that might use shell invocation
+/// 2. Filenames that could cause issues with git or other tools
+/// 3. Path traversal and injection attempts
+pub fn validate_safe_filename(filename: &str) -> Result<(), String> {
     // Reject empty filenames
     if filename.is_empty() {
         return Err("Filename cannot be empty".to_string());
@@ -677,7 +637,7 @@ fn validate_git_filename(filename: &str) -> Result<(), String> {
     // Reject filenames starting with dash (could be interpreted as options)
     if filename.starts_with('-') {
         return Err(
-            "Filename cannot start with '-' (could be interpreted as git option)".to_string(),
+            "Filename cannot start with '-' (could be interpreted as a command option)".to_string(),
         );
     }
 
@@ -691,13 +651,45 @@ fn validate_git_filename(filename: &str) -> Result<(), String> {
         return Err("Filename cannot contain null bytes".to_string());
     }
 
-    // Reject special git-annex patterns that could be exploited
-    if filename.starts_with('.') && filename != "." && !filename.starts_with("..") {
-        // Allow hidden files but log them
-        log::debug!("[GIT_ANNEX] Processing hidden file: {}", filename);
+    // Reject shell metacharacters that could be exploited for injection
+    for ch in SHELL_METACHARACTERS {
+        if filename.contains(*ch) {
+            return Err(format!(
+                "Filename cannot contain shell metacharacter '{}'",
+                ch.escape_default()
+            ));
+        }
+    }
+
+    // Reject whitespace characters (spaces, tabs, etc.)
+    // These could cause argument splitting issues in some contexts
+    if filename.chars().any(|c| c.is_whitespace()) {
+        return Err("Filename cannot contain whitespace characters".to_string());
+    }
+
+    // Reject control characters (ASCII 0-31 except those already checked)
+    if filename.chars().any(|c| c.is_control()) {
+        return Err("Filename cannot contain control characters".to_string());
+    }
+
+    // Reject special directory references
+    if filename == "." || filename == ".." {
+        return Err("Filename cannot be '.' or '..'".to_string());
+    }
+
+    // Log hidden files for debugging purposes (but allow them)
+    if filename.starts_with('.') {
+        log::debug!("[FILENAME_VALIDATION] Processing hidden file: {}", filename);
     }
 
     Ok(())
+}
+
+/// Validate that a filename is safe for use with git commands.
+/// This is an alias for validate_safe_filename for backwards compatibility
+/// and semantic clarity when used in git-related contexts.
+fn validate_git_filename(filename: &str) -> Result<(), String> {
+    validate_safe_filename(filename)
 }
 
 /// Run git annex get to download a file managed by git-annex

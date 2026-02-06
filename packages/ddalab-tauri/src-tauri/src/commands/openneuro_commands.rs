@@ -47,9 +47,11 @@ fn validate_dataset_id(dataset_id: &str) -> Result<(), String> {
 }
 
 /// Validate a git reference (branch name, tag name) for safety.
-/// Prevents command injection by allowing only safe characters.
-/// Allows alphanumeric characters, dots, dashes, underscores, and forward slashes.
-/// Rejects shell metacharacters and other potentially dangerous characters.
+/// Uses ALLOWLIST approach - only permits known-safe characters.
+/// Prevents git option injection and other command injection attacks.
+///
+/// Valid characters: ASCII alphanumeric [a-zA-Z0-9], dots, underscores, forward slashes
+/// Dashes are allowed but NOT at the start (prevents --option injection)
 fn validate_git_ref(git_ref: &str) -> Result<(), String> {
     if git_ref.is_empty() {
         return Err("Git reference cannot be empty".to_string());
@@ -59,28 +61,175 @@ fn validate_git_ref(git_ref: &str) -> Result<(), String> {
         return Err("Git reference too long (max 256 characters)".to_string());
     }
 
-    // Check for git-specific dangerous patterns
+    // CRITICAL: Reject any ref starting with '-' or '--' to prevent git option injection
+    // e.g., "--upload-pack=malicious" could be interpreted as a git option
     if git_ref.starts_with('-') {
-        return Err(
-            "Git reference cannot start with a dash (potential option injection)".to_string(),
-        );
+        return Err("Git reference cannot start with '-' (potential option injection)".to_string());
     }
 
+    // Reject '..' which could enable path traversal or git revision range attacks
     if git_ref.contains("..") {
         return Err("Git reference cannot contain '..' (potential path traversal)".to_string());
     }
 
-    // Allow only safe characters: alphanumeric, dots, dashes, underscores, forward slashes
+    // Reject refs ending with '.lock' (git internal files)
+    if git_ref.ends_with(".lock") {
+        return Err("Git reference cannot end with '.lock'".to_string());
+    }
+
+    // Reject refs starting with '.' (hidden files/dirs)
+    if git_ref.starts_with('.') {
+        return Err("Git reference cannot start with '.'".to_string());
+    }
+
+    // Reject consecutive slashes
+    if git_ref.contains("//") {
+        return Err("Git reference cannot contain consecutive slashes".to_string());
+    }
+
+    // Reject refs ending with '/'
+    if git_ref.ends_with('/') {
+        return Err("Git reference cannot end with '/'".to_string());
+    }
+
+    // ALLOWLIST validation: only permit [a-zA-Z0-9._/-]
+    // This is stricter than git's own rules but safer
     for c in git_ref.chars() {
-        if !c.is_ascii_alphanumeric() && c != '.' && c != '-' && c != '_' && c != '/' {
+        let is_allowed = c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '/' || c == '-';
+        if !is_allowed {
             return Err(format!(
-                "Invalid git reference: '{}'. Only alphanumeric characters, dots, dashes, underscores, and forward slashes are allowed. Found invalid character: '{}'",
+                "Invalid git reference: '{}'. Only alphanumeric characters (a-z, A-Z, 0-9), dots, dashes, underscores, and forward slashes are allowed. Found invalid character: '{}'",
                 git_ref, c
             ));
         }
     }
 
+    // Additional check: each path component cannot start with '-'
+    // e.g., "refs/-malicious" should be rejected
+    for component in git_ref.split('/') {
+        if component.starts_with('-') {
+            return Err(format!(
+                "Git reference path component cannot start with '-': '{}'",
+                component
+            ));
+        }
+        if component.is_empty() && !git_ref.is_empty() {
+            // This catches leading slashes like "/refs/heads/main"
+            return Err("Git reference cannot have empty path components".to_string());
+        }
+    }
+
     Ok(())
+}
+
+/// Validate and canonicalize a destination path for git operations.
+/// Uses canonicalization to resolve symlinks and prevent path traversal attacks.
+/// Returns the validated, canonicalized PathBuf.
+fn validate_destination_path(path_str: &str) -> Result<PathBuf, String> {
+    if path_str.is_empty() {
+        return Err("Destination path cannot be empty".to_string());
+    }
+
+    // Reject paths with suspicious patterns early
+    if path_str.contains("..") {
+        return Err("Destination path cannot contain '..' (path traversal attempt)".to_string());
+    }
+
+    // Reject paths containing null bytes
+    if path_str.contains('\0') {
+        return Err("Destination path cannot contain null bytes".to_string());
+    }
+
+    let path = PathBuf::from(path_str);
+
+    // Canonicalize the path to resolve symlinks and relative components
+    // This is the key security measure - it resolves the actual filesystem path
+    let canonical_path = if path.exists() {
+        path.canonicalize().map_err(|e| {
+            format!(
+                "Failed to canonicalize destination path '{}': {}",
+                path_str, e
+            )
+        })?
+    } else {
+        // If the path doesn't exist, validate and canonicalize its parent
+        if let Some(parent) = path.parent() {
+            if parent.as_os_str().is_empty() {
+                // Relative path with no parent, use current directory
+                let current_dir = std::env::current_dir()
+                    .map_err(|e| format!("Failed to get current directory: {}", e))?;
+                let canonical_parent = current_dir
+                    .canonicalize()
+                    .map_err(|e| format!("Failed to canonicalize current directory: {}", e))?;
+                canonical_parent.join(
+                    path.file_name()
+                        .ok_or("Invalid destination path: no filename")?,
+                )
+            } else if parent.exists() {
+                let canonical_parent = parent.canonicalize().map_err(|e| {
+                    format!(
+                        "Failed to canonicalize parent directory '{}': {}",
+                        parent.display(),
+                        e
+                    )
+                })?;
+                canonical_parent.join(
+                    path.file_name()
+                        .ok_or("Invalid destination path: no filename")?,
+                )
+            } else {
+                return Err(format!(
+                    "Parent directory does not exist: {}",
+                    parent.display()
+                ));
+            }
+        } else {
+            return Err(
+                "Invalid destination path: unable to determine parent directory".to_string(),
+            );
+        }
+    };
+
+    // Verify the path is absolute after canonicalization
+    if !canonical_path.is_absolute() {
+        return Err("Destination path must resolve to an absolute path".to_string());
+    }
+
+    // Additional safety: reject paths that could write to system directories
+    let path_str_lower = canonical_path.to_string_lossy().to_lowercase();
+    let dangerous_prefixes = [
+        "/etc",
+        "/bin",
+        "/sbin",
+        "/usr/bin",
+        "/usr/sbin",
+        "/lib",
+        "/usr/lib",
+        "/boot",
+        "/dev",
+        "/proc",
+        "/sys",
+        "c:\\windows",
+        "c:\\program files",
+        "c:\\programdata",
+    ];
+
+    for prefix in dangerous_prefixes {
+        if path_str_lower.starts_with(prefix) {
+            return Err(format!(
+                "Destination path cannot be in system directory: {}",
+                prefix
+            ));
+        }
+    }
+
+    log::debug!(
+        "[OPENNEURO] Validated destination path: {} -> {}",
+        path_str,
+        canonical_path.display()
+    );
+
+    Ok(canonical_path)
 }
 
 /// Information about a running download process for safe cancellation
@@ -92,6 +241,45 @@ pub struct ProcessInfo {
     pub started_at: std::time::Instant,
     /// Command that was executed (for verification)
     pub command: String,
+}
+
+/// Cross-platform helper to get the process name for a given PID.
+/// Returns None if the process doesn't exist or we can't determine its name.
+#[cfg(unix)]
+fn get_process_name(pid: u32) -> Option<String> {
+    // On Linux, use /proc/{pid}/comm
+    #[cfg(target_os = "linux")]
+    {
+        let proc_path = format!("/proc/{}/comm", pid);
+        if let Ok(comm) = std::fs::read_to_string(&proc_path) {
+            return Some(comm.trim().to_string());
+        }
+    }
+
+    // On macOS (and other BSDs), use `ps -p <pid> -o comm=`
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command as StdCommand;
+        if let Ok(output) = StdCommand::new("ps")
+            .args(["-p", &pid.to_string(), "-o", "comm="])
+            .output()
+        {
+            if output.status.success() {
+                let comm = String::from_utf8_lossy(&output.stdout);
+                let comm = comm.trim();
+                if !comm.is_empty() {
+                    // ps on macOS returns the full path, extract just the binary name
+                    let name = std::path::Path::new(comm)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or(comm);
+                    return Some(name.to_string());
+                }
+            }
+        }
+    }
+
+    None
 }
 
 // State for tracking active downloads
@@ -326,10 +514,9 @@ pub async fn download_openneuro_dataset(
         validate_git_ref(tag)?;
     }
 
-    // Validate destination path doesn't contain suspicious patterns
-    if options.destination_path.contains("..") {
-        return Err("Destination path cannot contain '..' (path traversal attempt)".to_string());
-    }
+    // Validate and canonicalize destination path to prevent path traversal attacks
+    let dest_path = validate_destination_path(&options.destination_path)?;
+    let dataset_path = dest_path.join(&options.dataset_id);
 
     // Register this download with ProcessInfo for safe cancellation
     {
@@ -350,9 +537,6 @@ pub async fn download_openneuro_dataset(
     } else {
         format!("https://openneuro.org/git/0/{}", options.dataset_id)
     };
-
-    let dest_path = PathBuf::from(&options.destination_path);
-    let dataset_path = dest_path.join(&options.dataset_id);
 
     // Check if this is a resume operation
     let is_resume = dataset_path.exists() && dataset_path.join(".git").exists();
@@ -878,10 +1062,8 @@ pub async fn cancel_openneuro_download(
                     {
                         use std::process::Command as StdCommand;
                         // Verify process is still running and is a git-related process
-                        // by checking /proc/{pid}/comm or similar before killing
-                        let proc_path = format!("/proc/{}/comm", process_info.pid);
-                        if let Ok(comm) = std::fs::read_to_string(&proc_path) {
-                            let comm = comm.trim();
+                        // using cross-platform process name lookup
+                        if let Some(comm) = get_process_name(process_info.pid) {
                             if comm != "git" && comm != "git-annex" {
                                 log::warn!(
                                     "Process {} is '{}', not '{}' - not killing",
@@ -891,10 +1073,20 @@ pub async fn cancel_openneuro_download(
                                 );
                                 return Err("Process identity mismatch".to_string());
                             }
+                            log::info!(
+                                "Verified process {} is '{}', proceeding with termination",
+                                process_info.pid,
+                                comm
+                            );
+                        } else {
+                            // Could not determine process name - process may have already exited
+                            log::warn!(
+                                "Could not verify process {} identity, it may have already terminated",
+                                process_info.pid
+                            );
+                            // Don't proceed with kill if we can't verify the process
+                            return Err("Could not verify process identity".to_string());
                         }
-                        // On macOS, /proc doesn't exist, so we fall through and rely on
-                        // the timestamp check and the fact that we're signaling with SIGTERM
-                        // which allows the process to clean up gracefully
 
                         let _ = StdCommand::new("kill")
                             .arg("-TERM")
