@@ -38,22 +38,55 @@ export interface SearchableItem {
   priority?: number;
 }
 
+/**
+ * Indexed item with pre-computed lowercase strings for O(1) comparison
+ */
+interface IndexedSearchableItem extends SearchableItem {
+  _lowerTitle: string;
+  _lowerSubtitle?: string;
+  _lowerDescription?: string;
+  _lowerKeywords?: string[];
+  _lowerCategory?: string;
+}
+
 type RegistryListener = () => void;
 
+/**
+ * Create an indexed version of a searchable item with pre-computed lowercase strings
+ */
+function createIndexedItem(item: SearchableItem): IndexedSearchableItem {
+  return {
+    ...item,
+    _lowerTitle: item.title.toLowerCase(),
+    _lowerSubtitle: item.subtitle?.toLowerCase(),
+    _lowerDescription: item.description?.toLowerCase(),
+    _lowerKeywords: item.keywords?.map((kw) => kw.toLowerCase()),
+    _lowerCategory: item.category?.toLowerCase(),
+  };
+}
+
 class SearchRegistry {
-  private items: Map<string, SearchableItem> = new Map();
+  private items: Map<string, IndexedSearchableItem> = new Map();
   private listeners: Set<RegistryListener> = new Set();
+  private searchCache: Map<
+    string,
+    { results: SearchResult[]; timestamp: number }
+  > = new Map();
+  private cacheMaxAge = 100; // Cache results for 100ms
+  private cacheVersion = 0; // Incremented on item changes to invalidate cache
 
   /**
    * Register a searchable item
    * @returns Cleanup function to unregister
    */
   register(item: SearchableItem): () => void {
-    this.items.set(item.id, item);
+    this.items.set(item.id, createIndexedItem(item));
+    this.invalidateCache();
     this.notifyListeners();
 
     return () => {
       this.items.delete(item.id);
+      this.invalidateCache();
       this.notifyListeners();
     };
   }
@@ -63,11 +96,13 @@ class SearchRegistry {
    * @returns Cleanup function to unregister all
    */
   registerMany(items: SearchableItem[]): () => void {
-    items.forEach((item) => this.items.set(item.id, item));
+    items.forEach((item) => this.items.set(item.id, createIndexedItem(item)));
+    this.invalidateCache();
     this.notifyListeners();
 
     return () => {
       items.forEach((item) => this.items.delete(item.id));
+      this.invalidateCache();
       this.notifyListeners();
     };
   }
@@ -78,7 +113,8 @@ class SearchRegistry {
   update(id: string, updates: Partial<SearchableItem>): void {
     const existing = this.items.get(id);
     if (existing) {
-      this.items.set(id, { ...existing, ...updates });
+      this.items.set(id, createIndexedItem({ ...existing, ...updates }));
+      this.invalidateCache();
       this.notifyListeners();
     }
   }
@@ -88,8 +124,17 @@ class SearchRegistry {
    */
   unregister(id: string): void {
     if (this.items.delete(id)) {
+      this.invalidateCache();
       this.notifyListeners();
     }
+  }
+
+  /**
+   * Invalidate the search cache
+   */
+  private invalidateCache(): void {
+    this.cacheVersion++;
+    this.searchCache.clear();
   }
 
   /**
@@ -116,22 +161,30 @@ class SearchRegistry {
   }
 
   /**
-   * Search registered items
+   * Search registered items using pre-computed lowercase strings
+   * Uses caching to avoid redundant searches within debounce window
    */
   search(query: string): SearchResult[] {
     const lowerQuery = query.toLowerCase();
+
+    // Check cache first
+    const cacheKey = `${this.cacheVersion}:${lowerQuery}`;
+    const cached = this.searchCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < this.cacheMaxAge) {
+      return cached.results;
+    }
+
     const results: SearchResult[] = [];
 
     this.items.forEach((item) => {
-      const matchesTitle = item.title.toLowerCase().includes(lowerQuery);
-      const matchesSubtitle = item.subtitle?.toLowerCase().includes(lowerQuery);
-      const matchesDescription = item.description
-        ?.toLowerCase()
-        .includes(lowerQuery);
-      const matchesKeywords = item.keywords?.some((kw) =>
-        kw.toLowerCase().includes(lowerQuery),
+      // Use pre-computed lowercase strings - no .toLowerCase() calls during search
+      const matchesTitle = item._lowerTitle.includes(lowerQuery);
+      const matchesSubtitle = item._lowerSubtitle?.includes(lowerQuery);
+      const matchesDescription = item._lowerDescription?.includes(lowerQuery);
+      const matchesKeywords = item._lowerKeywords?.some((kw) =>
+        kw.includes(lowerQuery),
       );
-      const matchesCategory = item.category?.toLowerCase().includes(lowerQuery);
+      const matchesCategory = item._lowerCategory?.includes(lowerQuery);
 
       if (
         matchesTitle ||
@@ -161,6 +214,9 @@ class SearchRegistry {
       const priorityB = (b.metadata?.priority as number) || 0;
       return priorityB - priorityA;
     });
+
+    // Cache the results
+    this.searchCache.set(cacheKey, { results, timestamp: Date.now() });
 
     return results;
   }

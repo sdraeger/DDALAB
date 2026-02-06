@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useAppStore } from "@/store/appStore";
 import { useShallow } from "zustand/react/shallow";
 import { TauriService } from "@/services/tauriService";
@@ -43,11 +43,11 @@ interface FileAnnotationsResult {
 
 export function AnnotationsTab() {
   const selectedFile = useAppStore((state) => state.fileManager.selectedFile);
-  const storeAnnotations = useAppStore(
-    useShallow((state) => state.annotations),
+  const timeSeriesAnnotations = useAppStore(
+    useShallow((state) => state.annotations.timeSeries),
   );
-  const ddaAnalysisHistory = useAppStore(
-    useShallow((state) => state.dda.analysisHistory),
+  const ddaResultAnnotations = useAppStore(
+    useShallow((state) => state.annotations.ddaResults),
   );
   const setPrimaryNav = useAppStore((state) => state.setPrimaryNav);
   const setSecondaryNav = useAppStore((state) => state.setSecondaryNav);
@@ -56,10 +56,6 @@ export function AnnotationsTab() {
     (state) => state.loadAllFileAnnotations,
   );
 
-  const [annotationsByFile, setAnnotationsByFile] = useState<
-    Map<string, AnnotationWithFile[]>
-  >(new Map());
-  const [ddaAnnotationCount, setDDAAnnotationCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isLoadingAll, setIsLoadingAll] = useState(true);
@@ -77,21 +73,14 @@ export function AnnotationsTab() {
     loadAll();
   }, [loadAllFileAnnotations]);
 
-  // Load annotations from store (includes both time series and DDA annotations)
-  useEffect(() => {
-    loadAllAnnotations();
-  }, [storeAnnotations]);
-
-  const loadAllAnnotations = () => {
+  // Derive annotations from store data (memoized instead of useState + useEffect)
+  const annotationsByFile = useMemo(() => {
     const annotationsMap = new Map<string, AnnotationWithFile[]>();
-    let ddaCount = 0;
 
-    // Load time series annotations from store
-    Object.entries(storeAnnotations.timeSeries).forEach(
+    Object.entries(timeSeriesAnnotations).forEach(
       ([filePath, fileAnnotations]) => {
         const allAnnotations: AnnotationWithFile[] = [];
 
-        // Add global annotations
         fileAnnotations.globalAnnotations.forEach((ann) => {
           allAnnotations.push({
             annotation: ann,
@@ -100,7 +89,6 @@ export function AnnotationsTab() {
           });
         });
 
-        // Add channel-specific annotations
         if (fileAnnotations.channelAnnotations) {
           Object.entries(fileAnnotations.channelAnnotations).forEach(
             ([channel, anns]) => {
@@ -116,7 +104,6 @@ export function AnnotationsTab() {
           );
         }
 
-        // Sort by position
         allAnnotations.sort(
           (a, b) => a.annotation.position - b.annotation.position,
         );
@@ -124,54 +111,61 @@ export function AnnotationsTab() {
       },
     );
 
-    // Count DDA annotations
-    Object.values(storeAnnotations.ddaResults).forEach((ddaResult) => {
-      ddaCount += ddaResult.annotations.length;
+    return annotationsMap;
+  }, [timeSeriesAnnotations]);
+
+  const ddaAnnotationCount = useMemo(() => {
+    let count = 0;
+    Object.values(ddaResultAnnotations).forEach((ddaResult) => {
+      count += ddaResult.annotations.length;
     });
+    return count;
+  }, [ddaResultAnnotations]);
 
-    setAnnotationsByFile(annotationsMap);
-    setDDAAnnotationCount(ddaCount);
-  };
-
-  const handleExport = async (
-    filePath: string,
-    format: "json" | "csv" = "json",
-  ) => {
-    try {
-      const exportedPath = await TauriService.exportAnnotations(
-        filePath,
-        format,
-      );
-      if (exportedPath) {
-        setSuccessMessage(
-          `Annotations exported successfully as ${format.toUpperCase()}`,
+  const handleExport = useCallback(
+    async (filePath: string, format: "json" | "csv" = "json") => {
+      try {
+        const exportedPath = await TauriService.exportAnnotations(
+          filePath,
+          format,
         );
-        setTimeout(() => setSuccessMessage(null), TOAST_DURATIONS.SHORT);
-      }
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to export annotations",
-      );
-    }
-  };
-
-  const handleExportAll = async (format: "json" | "csv" = "json") => {
-    try {
-      const exportedPath = await TauriService.exportAllAnnotations(format);
-      if (exportedPath) {
-        setSuccessMessage(
-          `All annotations exported successfully as ${format.toUpperCase()}`,
+        if (exportedPath) {
+          setSuccessMessage(
+            `Annotations exported successfully as ${format.toUpperCase()}`,
+          );
+          setTimeout(() => setSuccessMessage(null), TOAST_DURATIONS.SHORT);
+        }
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Failed to export annotations",
         );
-        setTimeout(() => setSuccessMessage(null), TOAST_DURATIONS.SHORT);
       }
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to export all annotations",
-      );
-    }
-  };
+    },
+    [],
+  );
 
-  const handleImport = async () => {
+  const handleExportAll = useCallback(
+    async (format: "json" | "csv" = "json") => {
+      try {
+        const exportedPath = await TauriService.exportAllAnnotations(format);
+        if (exportedPath) {
+          setSuccessMessage(
+            `All annotations exported successfully as ${format.toUpperCase()}`,
+          );
+          setTimeout(() => setSuccessMessage(null), TOAST_DURATIONS.SHORT);
+        }
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to export all annotations",
+        );
+      }
+    },
+    [],
+  );
+
+  const handleImport = useCallback(async () => {
     if (!currentFilePath) return;
 
     try {
@@ -193,7 +187,7 @@ export function AnnotationsTab() {
           : "Failed to preview import annotations",
       );
     }
-  };
+  }, [currentFilePath]);
 
   const handleConfirmImport = useCallback(
     async (
@@ -234,115 +228,122 @@ export function AnnotationsTab() {
     setPreviewData(null);
   }, []);
 
-  const handleDelete = async (
-    id: string,
-    filePath: string,
-    channel?: string,
-  ) => {
-    const deleteAnnotation = useAppStore.getState().deleteTimeSeriesAnnotation;
-    deleteAnnotation(filePath, id, channel);
-  };
+  const handleDelete = useCallback(
+    async (id: string, filePath: string, channel?: string) => {
+      const deleteAnnotation =
+        useAppStore.getState().deleteTimeSeriesAnnotation;
+      deleteAnnotation(filePath, id, channel);
+    },
+    [],
+  );
 
-  const handleTimeSeriesAnnotationClick = (
-    filePath: string,
-    position: number,
-  ) => {
-    try {
-      // Get store state
-      const storeState = useAppStore.getState();
+  const handleTimeSeriesAnnotationClick = useCallback(
+    (filePath: string, position: number) => {
+      try {
+        // Get store state
+        const storeState = useAppStore.getState();
 
-      // Check if this file is already selected
-      const file = storeState.fileManager.selectedFile;
+        // Check if this file is already selected
+        const file = storeState.fileManager.selectedFile;
 
-      if (!file || file.file_path !== filePath) {
-        console.warn("[ANNOTATION] File not selected:", filePath);
-        setError(`Please select the file first: ${filePath.split("/").pop()}`);
-        return;
+        if (!file || file.file_path !== filePath) {
+          console.warn("[ANNOTATION] File not selected:", filePath);
+          setError(
+            `Please select the file first: ${filePath.split("/").pop()}`,
+          );
+          return;
+        }
+
+        // Calculate time window from plot state
+        const sampleRate = file.sample_rate || 256;
+        const chunkSize = storeState.plot.chunkSize || 5 * sampleRate; // Default to 5 seconds if not set
+        const timeWindow = chunkSize / sampleRate;
+
+        // Center the view around the annotation
+        // Start at annotation position minus half the time window
+        let centeredStart = position - timeWindow / 2;
+
+        // Clamp to valid bounds
+        // Don't go before start of file
+        centeredStart = Math.max(0, centeredStart);
+        // Don't go past end of file (ensure full window fits)
+        const maxStart = Math.max(0, file.duration - timeWindow);
+        centeredStart = Math.min(maxStart, centeredStart);
+
+        // CRITICAL FIX: Convert time (seconds) to samples
+        // The plot state expects chunkStart in samples, not seconds
+        const centeredStartSamples = Math.floor(centeredStart * sampleRate);
+
+        console.log("[ANNOTATION] Centering on annotation:", {
+          filePath,
+          annotationPosition: position,
+          timeWindow,
+          centeredStart,
+          centeredStartSamples,
+          sampleRate,
+        });
+
+        // Update plot position - pass samples, not time
+        storeState.updatePlotState({ chunkStart: centeredStartSamples });
+
+        // Navigate to timeseries tab
+        setPrimaryNav("explore");
+        setSecondaryNav("timeseries");
+
+        console.log(
+          "[ANNOTATION] Navigated to time series annotation (centered)",
+        );
+      } catch (err) {
+        console.error("[ANNOTATION] Error navigating to annotation:", err);
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to navigate to annotation",
+        );
       }
+    },
+    [setPrimaryNav, setSecondaryNav],
+  );
 
-      // Calculate time window from plot state
-      const sampleRate = file.sample_rate || 256;
-      const chunkSize = storeState.plot.chunkSize || 5 * sampleRate; // Default to 5 seconds if not set
-      const timeWindow = chunkSize / sampleRate;
+  const handleDDAAnnotationClick = useCallback(
+    (resultId: string, variantId: string, plotType: string) => {
+      try {
+        // Find the DDA result (read from store at click time, not via subscription)
+        const result = useAppStore
+          .getState()
+          .dda.analysisHistory.find((r) => r.id === resultId);
 
-      // Center the view around the annotation
-      // Start at annotation position minus half the time window
-      let centeredStart = position - timeWindow / 2;
+        if (!result) {
+          console.warn("[ANNOTATION] DDA result not found:", resultId);
+          setError(`DDA result not found: ${resultId}`);
+          return;
+        }
 
-      // Clamp to valid bounds
-      // Don't go before start of file
-      centeredStart = Math.max(0, centeredStart);
-      // Don't go past end of file (ensure full window fits)
-      const maxStart = Math.max(0, file.duration - timeWindow);
-      centeredStart = Math.min(maxStart, centeredStart);
+        // Set as current analysis
+        setCurrentAnalysis(result);
 
-      // CRITICAL FIX: Convert time (seconds) to samples
-      // The plot state expects chunkStart in samples, not seconds
-      const centeredStartSamples = Math.floor(centeredStart * sampleRate);
+        // Navigate to DDA tab
+        setPrimaryNav("analyze");
 
-      console.log("[ANNOTATION] Centering on annotation:", {
-        filePath,
-        annotationPosition: position,
-        timeWindow,
-        centeredStart,
-        centeredStartSamples,
-        sampleRate,
-      });
-
-      // Update plot position - pass samples, not time
-      storeState.updatePlotState({ chunkStart: centeredStartSamples });
-
-      // Navigate to timeseries tab
-      setPrimaryNav("explore");
-      setSecondaryNav("timeseries");
-
-      console.log(
-        "[ANNOTATION] Navigated to time series annotation (centered)",
-      );
-    } catch (err) {
-      console.error("[ANNOTATION] Error navigating to annotation:", err);
-      setError(
-        err instanceof Error ? err.message : "Failed to navigate to annotation",
-      );
-    }
-  };
-
-  const handleDDAAnnotationClick = (
-    resultId: string,
-    variantId: string,
-    plotType: string,
-  ) => {
-    try {
-      // Find the DDA result
-      const result = ddaAnalysisHistory.find((r) => r.id === resultId);
-
-      if (!result) {
-        console.warn("[ANNOTATION] DDA result not found:", resultId);
-        setError(`DDA result not found: ${resultId}`);
-        return;
+        // Note: The DDA component should handle showing the correct variant/plot type
+        // based on what's in the URL or state
+      } catch (err) {
+        console.error("[ANNOTATION] Error navigating to DDA result:", err);
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to navigate to DDA result",
+        );
       }
+    },
+    [setCurrentAnalysis, setPrimaryNav],
+  );
 
-      // Set as current analysis
-      setCurrentAnalysis(result);
-
-      // Navigate to DDA tab
-      setPrimaryNav("analyze");
-
-      // Note: The DDA component should handle showing the correct variant/plot type
-      // based on what's in the URL or state
-    } catch (err) {
-      console.error("[ANNOTATION] Error navigating to DDA result:", err);
-      setError(
-        err instanceof Error ? err.message : "Failed to navigate to DDA result",
-      );
-    }
-  };
-
-  const formatPosition = (position: number) => {
+  const formatPosition = useCallback((position: number) => {
     const minutes = Math.floor(position / 60);
     const seconds = (position % 60).toFixed(2);
     return `${minutes}:${seconds.padStart(5, "0")}`;
-  };
+  }, []);
 
   const totalAnnotations = Array.from(annotationsByFile.values()).reduce(
     (sum, annotations) => sum + annotations.length,
@@ -587,7 +588,7 @@ export function AnnotationsTab() {
               DDA Result Annotations
             </h3>
             <div className="space-y-4">
-              {Object.entries(storeAnnotations.ddaResults).map(
+              {Object.entries(ddaResultAnnotations).map(
                 ([key, ddaResult]) =>
                   ddaResult.annotations.length > 0 && (
                     <Card key={key} className="p-4">
