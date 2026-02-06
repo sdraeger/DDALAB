@@ -1,13 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, useEffect, useRef } from "react";
-import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { tauriBackendService } from "@/services/tauriBackendService";
-import {
-  DDAAnalysisRequest,
-  DDAResult,
-  DDAProgressEvent,
-  DDAResultMetadata,
-} from "@/types/api";
+import { DDAAnalysisRequest, DDAResult, DDAResultMetadata } from "@/types/api";
 import { useAppStore } from "@/store/appStore";
 import { TauriService, NotificationType } from "@/services/tauriService";
 
@@ -185,6 +178,11 @@ export function useDDAHistory(enabled: boolean = true) {
           { length: entry.channelsCount || 0 },
           (_, i) => `ch${i}`,
         );
+        // Create placeholder variants for count display
+        const placeholderVariants = Array.from(
+          { length: entry.variantsCount || 1 },
+          (_, i) => `variant${i}`,
+        );
 
         return {
           id: entry.id,
@@ -196,7 +194,7 @@ export function useDDAHistory(enabled: boolean = true) {
             channels: placeholderChannels,
             start_time: 0,
             end_time: 0,
-            variants: entry.variantName ? [entry.variantName] : [],
+            variants: placeholderVariants,
             delay_list: [],
           },
           results: {
@@ -392,95 +390,6 @@ export function useDeleteDDAFromHistory() {
       queryClient.invalidateQueries({ queryKey: ddaKeys.history() });
     },
   });
-}
-
-/**
- * Hook to listen to DDA progress events from Tauri backend
- *
- * This hook sets up an event listener for real-time progress updates
- * during DDA analysis computation. The backend emits events as the
- * analysis progresses through different phases.
- *
- * @param analysisId - Analysis ID to track (optional - tracks all if not provided)
- * @param enabled - Whether to enable the listener (default: true)
- * @returns Current progress state
- * @deprecated Use `useAnalysisForFile` from `@/hooks/useAnalysisCoordinator` instead.
- *
- * The analysis coordinator provides:
- * - Single event listener (eliminates duplicate listeners)
- * - File-scoped tracking (results tied to specific files)
- * - Proper job lifecycle management
- *
- * Migration example:
- * ```ts
- * // Before:
- * const progressEvent = useDDAProgress(analysisId, isPending);
- * const progress = progressEvent?.progress_percent || 0;
- *
- * // After:
- * import { useAnalysisForFile } from '@/hooks/useAnalysisCoordinator';
- * const { progress, currentStep, isRunning, result } = useAnalysisForFile(filePath);
- * ```
- */
-export function useDDAProgress(
-  analysisId?: string,
-  enabled: boolean = true,
-): DDAProgressEvent | null {
-  const [progress, setProgress] = useState<DDAProgressEvent | null>(null);
-  const hasWarnedRef = useRef(false);
-
-  useEffect(() => {
-    // Log deprecation warning once in development
-    if (process.env.NODE_ENV === "development" && !hasWarnedRef.current) {
-      hasWarnedRef.current = true;
-      console.warn(
-        "[DEPRECATED] useDDAProgress is deprecated. " +
-          "Use useAnalysisForFile from @/hooks/useAnalysisCoordinator instead. " +
-          "See JSDoc for migration example.",
-      );
-    }
-
-    if (!enabled) return;
-
-    let unlisten: UnlistenFn | null = null;
-    let cancelled = false;
-
-    // Set up event listener with proper async handling
-    const setupListener = async () => {
-      try {
-        const unlistenFn = await listen<DDAProgressEvent>(
-          "dda-progress",
-          (event) => {
-            // Backend uses camelCase: analysisId
-            if (!analysisId || event.payload.analysisId === analysisId) {
-              setProgress(event.payload);
-            }
-          },
-        );
-        // Only assign if not cancelled during setup
-        if (!cancelled) {
-          unlisten = unlistenFn;
-        } else {
-          // Cleanup immediately if component unmounted during setup
-          unlistenFn();
-        }
-      } catch (error) {
-        console.error("[DDA] Failed to setup progress listener:", error);
-      }
-    };
-
-    setupListener();
-
-    // Cleanup listener on unmount
-    return () => {
-      cancelled = true;
-      if (unlisten) {
-        unlisten();
-      }
-    };
-  }, [analysisId, enabled]);
-
-  return progress;
 }
 
 /**

@@ -31,7 +31,7 @@ import type {
  * @see src/hooks/useWorkflowQueries.ts
  */
 export function useWorkflow() {
-  const { workflowRecording } = useAppStore();
+  const workflowRecording = useAppStore((state) => state.workflowRecording);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [workflowInfo, setWorkflowInfo] = useState<WorkflowInfo | null>(null);

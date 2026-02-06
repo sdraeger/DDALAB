@@ -106,6 +106,37 @@ export interface ChunkDataResponse {
   totalSamples?: number;
 }
 
+/** Single chunk request within a batch */
+export interface BatchChunkRequest {
+  chunkStart: number;
+  chunkSize: number;
+  channels?: string[];
+  highpass?: number;
+  lowpass?: number;
+  notch?: number[];
+}
+
+/** Parameters for batched chunk fetching */
+export interface GetChunksBatchParams {
+  filePath: string;
+  requests: BatchChunkRequest[];
+}
+
+/** Result for a single chunk in a batch response */
+export interface BatchChunkResult {
+  index: number;
+  success: boolean;
+  data?: ChunkDataResponse;
+  error?: string;
+}
+
+/** Response for batched chunk fetching */
+export interface GetChunksBatchResponse {
+  results: BatchChunkResult[];
+  totalRequested: number;
+  totalSucceeded: number;
+}
+
 // ============================================================================
 // File Command Types
 // ============================================================================
@@ -210,6 +241,21 @@ export interface DDAHistoryEntry {
   createdAt: string;
   variantName: string;
   channelsCount: number;
+  variantsCount: number;
+}
+
+/** Lightweight DDA result summary for list views - excludes q_matrix/plot_data */
+export interface DDAResultSummary {
+  id: string;
+  name?: string;
+  filePath: string;
+  createdAt: string;
+  status: string;
+  channelsCount: number;
+  variantsCount: number;
+  variantNames: string[];
+  windowLength: number;
+  windowStep: number;
 }
 
 /** Cancel DDA response */
@@ -381,6 +427,58 @@ class TauriBackendServiceImpl {
       chunk_size: response.chunkSize,
       file_path: filePath,
     };
+  }
+
+  /**
+   * Get multiple chunks in a single IPC call (batched for efficiency)
+   * This reduces IPC overhead when fetching multiple contiguous or nearby chunks
+   */
+  async getEdfChunksBatch(
+    filePath: string,
+    requests: Array<{
+      chunkStart: number;
+      chunkSize: number;
+      channels?: string[];
+      preprocessing?: PreprocessingParams;
+    }>,
+  ): Promise<ChunkData[]> {
+    const params: GetChunksBatchParams = {
+      filePath,
+      requests: requests.map((r) => ({
+        chunkStart: r.chunkStart,
+        chunkSize: r.chunkSize,
+        channels: r.channels,
+        highpass: r.preprocessing?.highpass,
+        lowpass: r.preprocessing?.lowpass,
+        notch: r.preprocessing?.notch,
+      })),
+    };
+
+    const response = await invoke<GetChunksBatchResponse>(
+      "get_edf_chunks_batch",
+      {
+        params,
+      },
+    );
+
+    // Map Rust responses to frontend ChunkData format, preserving order
+    return response.results.map((result) => {
+      if (!result.success || !result.data) {
+        throw new Error(
+          result.error || `Failed to fetch chunk at index ${result.index}`,
+        );
+      }
+
+      return {
+        data: result.data.data,
+        channels: result.data.channelLabels,
+        timestamps: [],
+        sample_rate: result.data.samplingFrequency,
+        chunk_start: result.data.chunkStart,
+        chunk_size: result.data.chunkSize,
+        file_path: filePath,
+      };
+    });
   }
 
   /**
@@ -595,6 +693,14 @@ class TauriBackendServiceImpl {
    */
   async listDDAHistory(limit?: number): Promise<DDAHistoryEntry[]> {
     return invoke<DDAHistoryEntry[]>("list_dda_history", { limit });
+  }
+
+  /**
+   * List all DDA history summaries (lightweight, excludes q_matrix/plot_data).
+   * Use this for list views that need more metadata than DDAHistoryEntry.
+   */
+  async listDDASummaries(limit?: number): Promise<DDAResultSummary[]> {
+    return invoke<DDAResultSummary[]>("list_dda_summaries", { limit });
   }
 
   /**

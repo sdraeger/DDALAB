@@ -36,7 +36,7 @@ export const createPlotSlice: ImmerStateCreator<PlotSlice> = (set, get) => ({
 
   setCurrentChunk: (chunk) => {
     set((state) => {
-      state.plot.currentChunk = chunk;
+      state.plot.currentChunk = chunk ? Object.freeze(chunk) : chunk;
     });
   },
 

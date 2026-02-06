@@ -65,9 +65,24 @@ import { DataTableView } from "@/components/ui/data-table-view";
 // Internal component - wrapped with memo at export
 function TimeSeriesPlotComponent() {
   // Use selective subscriptions with useShallow to prevent unnecessary re-renders
-  const fileManager = useAppStore(useShallow((state) => state.fileManager));
-  const plot = useAppStore(useShallow((state) => state.plot));
-  const dda = useAppStore(useShallow((state) => state.dda));
+  const fileManager = useAppStore(
+    useShallow((state) => ({
+      selectedFile: state.fileManager.selectedFile,
+      selectedChannels: state.fileManager.selectedChannels,
+    })),
+  );
+  const plot = useAppStore(
+    useShallow((state) => ({
+      currentChunk: state.plot.currentChunk,
+      preprocessing: state.plot.preprocessing,
+    })),
+  );
+  const dda = useAppStore(
+    useShallow((state) => ({
+      currentAnalysis: state.dda.currentAnalysis,
+      analysisHistory: state.dda.analysisHistory,
+    })),
+  );
   const updatePlotState = useAppStore((state) => state.updatePlotState);
   const setCurrentChunk = useAppStore((state) => state.setCurrentChunk);
   const persistSelectedChannels = useAppStore(
@@ -153,8 +168,7 @@ function TimeSeriesPlotComponent() {
   const [error, setError] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [loadChunkTimeout, setLoadChunkTimeout] =
-    useState<NodeJS.Timeout | null>(null);
+  const loadChunkTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // AbortController to cancel pending API requests when channel selection changes
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -219,14 +233,6 @@ function TimeSeriesPlotComponent() {
     channelOffsetRef.current = channelOffset;
     timeWindowRef.current = timeWindow;
   }, [channelOffset, timeWindow]);
-
-  // Log when filePath changes to debug OverviewPlot key
-  useEffect(() => {
-    console.log(
-      "[TimeSeriesPlot] filePath changed, OverviewPlot key should be:",
-      filePath || "no-file",
-    );
-  }, [filePath]);
 
   // Destroy uPlot when file changes to prevent cursor errors on stale data
   useEffect(() => {
@@ -318,8 +324,12 @@ function TimeSeriesPlotComponent() {
             (v) => typeof v === "number" && !isNaN(v),
           );
           if (validData.length === 0) return 0;
-          const min = Math.min(...validData);
-          const max = Math.max(...validData);
+          let min = Infinity,
+            max = -Infinity;
+          for (let i = 0; i < validData.length; i++) {
+            if (validData[i] < min) min = validData[i];
+            if (validData[i] > max) max = validData[i];
+          }
           return max - min;
         });
         const maxRange = Math.max(...channelRanges);
@@ -703,17 +713,15 @@ function TimeSeriesPlotComponent() {
       setCurrentTime(time);
       userZoomRef.current = null;
 
-      if (loadChunkTimeout) {
-        clearTimeout(loadChunkTimeout);
+      if (loadChunkTimeoutRef.current) {
+        clearTimeout(loadChunkTimeoutRef.current);
       }
 
-      const timeoutId = setTimeout(() => {
+      loadChunkTimeoutRef.current = setTimeout(() => {
         loadChunk(time);
       }, 200);
-
-      setLoadChunkTimeout(timeoutId);
     },
-    [loadChunk, loadChunkTimeout],
+    [loadChunk],
   );
 
   const handleChannelToggle = (channel: string, checked: boolean) => {
@@ -775,21 +783,37 @@ function TimeSeriesPlotComponent() {
     selectedChannels,
   ]);
 
-  // Track if we've loaded data for the current file
   const loadedFileRef = useRef<string | null>(null);
+  const prevTimeWindowRef = useRef(timeWindow);
+  const prevPreprocessingRef = useRef(preprocessing);
+  const prevChannelsRef = useRef(selectedChannels);
 
   useEffect(() => {
+    if (
+      !fileManager.selectedFile ||
+      fileManager.selectedFile.channels.length === 0
+    )
+      return;
+    if (selectedChannels.length === 0) return;
+
+    const availableChannels = fileManager.selectedFile.channels;
+    const allChannelsValid = selectedChannels.every((ch) =>
+      availableChannels.includes(ch),
+    );
+    if (!allChannelsValid) return;
+
     const currentFilePath = filePath || null;
-    const hasChannelsSelected = selectedChannels.length > 0;
     const isNewFile = currentFilePath !== loadedFileRef.current;
     const isInitialChannelSet = isInitialChannelSetRef.current;
+    const channelsChanged = prevChannelsRef.current !== selectedChannels;
+    const timeWindowChanged = prevTimeWindowRef.current !== timeWindow;
+    const preprocessingChanged = prevPreprocessingRef.current !== preprocessing;
 
-    if (
-      fileManager.selectedFile &&
-      fileManager.selectedFile.channels?.length > 0 &&
-      hasChannelsSelected &&
-      (isNewFile || isInitialChannelSet)
-    ) {
+    prevTimeWindowRef.current = timeWindow;
+    prevPreprocessingRef.current = preprocessing;
+    prevChannelsRef.current = selectedChannels;
+
+    if (isNewFile || isInitialChannelSet) {
       if (isNewFile && uplotRef.current) {
         uplotRef.current.destroy();
         uplotRef.current = null;
@@ -801,48 +825,37 @@ function TimeSeriesPlotComponent() {
       setCurrentTime(0);
       loadedFileRef.current = currentFilePath;
       isInitialChannelSetRef.current = false;
-    } else if (!isNewFile && !isInitialChannelSet && hasChannelsSelected) {
-      if (loadChunkTimeout) {
-        clearTimeout(loadChunkTimeout);
+      return;
+    }
+
+    if (channelsChanged) {
+      if (loadChunkTimeoutRef.current) {
+        clearTimeout(loadChunkTimeoutRef.current);
       }
-      const timeoutId = setTimeout(() => {
+      loadChunkTimeoutRef.current = setTimeout(() => {
         loadChunk(currentTime);
       }, 600);
-      setLoadChunkTimeout(timeoutId);
+      return;
     }
-  }, [filePath, selectedChannels, loadChunk]);
 
-  // Handle time window changes separately to avoid recreating plot
-  // NOTE: This effect only runs when timeWindow changes, NOT when file/channels change
-  // File/channel changes are handled by the previous effect
-  useEffect(() => {
-    if (
-      fileManager.selectedFile &&
-      selectedChannels.length > 0 &&
-      currentTime >= 0
-    ) {
-      const availableChannels = fileManager.selectedFile.channels;
-      const allChannelsValid = selectedChannels.every((ch) =>
-        availableChannels.includes(ch),
-      );
-
-      if (!allChannelsValid) return;
-
-      loadChunk(currentTime);
+    if (timeWindowChanged || preprocessingChanged) {
+      if (loadChunkTimeoutRef.current) {
+        clearTimeout(loadChunkTimeoutRef.current);
+      }
+      loadChunkTimeoutRef.current = setTimeout(() => {
+        loadChunk(currentTime);
+      }, 300);
+      return;
     }
-  }, [timeWindow]);
+  }, [filePath, selectedChannels, timeWindow, preprocessing, loadChunk]);
 
-  // Cleanup timeout on unmount
   useEffect(() => {
     return () => {
-      if (loadChunkTimeout) {
-        clearTimeout(loadChunkTimeout);
+      if (loadChunkTimeoutRef.current) {
+        clearTimeout(loadChunkTimeoutRef.current);
       }
     };
-  }, [loadChunkTimeout]);
-
-  // Overview data is now loaded via TanStack Query hooks above
-  // No need for manual useEffect - the hooks handle caching, loading states, and refetching
+  }, []);
 
   useEffect(() => {
     updatePlotState({ preprocessing });
@@ -872,19 +885,6 @@ function TimeSeriesPlotComponent() {
       recordPreprocessing();
     }
   }, [preprocessing, updatePlotState]);
-
-  useEffect(() => {
-    if (fileManager.selectedFile && selectedChannels.length > 0) {
-      const availableChannels = fileManager.selectedFile.channels;
-      const allChannelsValid = selectedChannels.every((ch) =>
-        availableChannels.includes(ch),
-      );
-
-      if (!allChannelsValid) return;
-
-      loadChunk(currentTime);
-    }
-  }, [preprocessing]);
 
   // Update popout windows when data changes
   useEffect(() => {

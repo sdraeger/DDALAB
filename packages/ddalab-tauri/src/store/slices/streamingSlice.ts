@@ -137,7 +137,7 @@ export const createStreamingSlice: ImmerStateCreator<StreamingSlice> = (
           dataChunks.splice(0, removeCount);
         }
 
-        dataChunks.push(chunk);
+        dataChunks.push(Object.freeze(chunk));
       }
     });
   },
@@ -153,7 +153,7 @@ export const createStreamingSlice: ImmerStateCreator<StreamingSlice> = (
           ddaResults.splice(0, removeCount);
         }
 
-        ddaResults.push(result);
+        ddaResults.push(Object.freeze(result));
       }
     });
   },

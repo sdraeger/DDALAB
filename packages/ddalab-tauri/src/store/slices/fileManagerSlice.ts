@@ -231,44 +231,45 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
                 return;
               }
 
-              // Apply the cached state
-              if (cachedState.plot) {
-                const plotState = cachedState.plot as FilePlotState;
-                const chunkStartTime =
-                  (plotState.chunkStart || 0) / file.sample_rate;
-                const isOutOfBounds = chunkStartTime >= file.duration;
+              // Apply the cached state - batch plot and DDA updates into a single set()
+              const cachedPlotState = cachedState.plot as
+                | FilePlotState
+                | undefined;
+              const cachedDdaState = cachedState.dda as
+                | FileDDAState
+                | undefined;
 
-                set((state) => {
+              set((state) => {
+                // Apply plot state from cache
+                if (cachedPlotState) {
+                  const chunkStartTime =
+                    (cachedPlotState.chunkStart || 0) / file.sample_rate;
+                  const isOutOfBounds = chunkStartTime >= file.duration;
+
                   state.plot.chunkStart = isOutOfBounds
                     ? 0
-                    : plotState.chunkStart || 0;
-                  state.plot.chunkSize = plotState.chunkSize || 8192;
-                  state.plot.amplitude = plotState.amplitude || 1.0;
+                    : cachedPlotState.chunkStart || 0;
+                  state.plot.chunkSize = cachedPlotState.chunkSize || 8192;
+                  state.plot.amplitude = cachedPlotState.amplitude || 1.0;
                   state.plot.showAnnotations =
-                    plotState.showAnnotations ?? true;
-                  state.plot.preprocessing = plotState.preprocessing;
+                    cachedPlotState.showAnnotations ?? true;
+                  state.plot.preprocessing = cachedPlotState.preprocessing;
                   state.plot.selectedChannelColors =
-                    plotState.channelColors || {};
+                    cachedPlotState.channelColors || {};
                   state.fileManager.selectedChannels =
-                    plotState.selectedChannels || [];
-                });
-              }
+                    cachedPlotState.selectedChannels || [];
+                }
 
-              if (cachedState.dda) {
-                const ddaState = cachedState.dda as FileDDAState;
-                if (!isFileStillSelected()) return;
-
-                set((state) => {
-                  if (ddaState.lastParameters) {
-                    Object.assign(
-                      state.dda.analysisParameters,
-                      ddaState.lastParameters,
-                    );
-                  }
-                  state.dda.currentAnalysis = null;
-                  state.dda.analysisHistory = [];
-                });
-              }
+                // Apply DDA state from cache
+                if (cachedDdaState?.lastParameters) {
+                  Object.assign(
+                    state.dda.analysisParameters,
+                    cachedDdaState.lastParameters,
+                  );
+                }
+                state.dda.currentAnalysis = null;
+                state.dda.analysisHistory = [];
+              });
 
               // Handle annotations from cached state
               if (cachedState.annotations) {
@@ -412,63 +413,47 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
             return;
           }
 
-          if (fileState.plot) {
-            const plotState = fileState.plot as FilePlotState;
-            const chunkStartTime =
-              (plotState.chunkStart || 0) / file.sample_rate;
-            const isOutOfBounds = chunkStartTime >= file.duration;
+          // Batch plot and DDA state updates into a single set() call
+          const loadedPlotState = fileState.plot as FilePlotState | undefined;
+          const loadedDdaState = fileState.dda as FileDDAState | undefined;
 
-            // Guard: Check again before applying plot state
-            if (!isFileStillSelected()) return;
+          // Guard: Check before applying state
+          if (!isFileStillSelected()) return;
 
-            set((state) => {
+          set((state) => {
+            // Apply plot state
+            if (loadedPlotState) {
+              const chunkStartTime =
+                (loadedPlotState.chunkStart || 0) / file.sample_rate;
+              const isOutOfBounds = chunkStartTime >= file.duration;
+
               state.plot.chunkStart = isOutOfBounds
                 ? 0
-                : plotState.chunkStart || 0;
-              state.plot.chunkSize = plotState.chunkSize || 8192;
-              state.plot.amplitude = plotState.amplitude || 1.0;
-              state.plot.showAnnotations = plotState.showAnnotations ?? true;
-              state.plot.preprocessing = plotState.preprocessing;
-              state.plot.selectedChannelColors = plotState.channelColors || {};
+                : loadedPlotState.chunkStart || 0;
+              state.plot.chunkSize = loadedPlotState.chunkSize || 8192;
+              state.plot.amplitude = loadedPlotState.amplitude || 1.0;
+              state.plot.showAnnotations =
+                loadedPlotState.showAnnotations ?? true;
+              state.plot.preprocessing = loadedPlotState.preprocessing;
+              state.plot.selectedChannelColors =
+                loadedPlotState.channelColors || {};
               state.fileManager.selectedChannels =
-                plotState.selectedChannels || [];
-            });
-          } else {
-            // Guard: Check before applying default state
-            if (!isFileStillSelected()) return;
-
-            set((state) => {
+                loadedPlotState.selectedChannels || [];
+            } else {
               state.plot.chunkStart = 0;
-              state.plot.chunkSize = state.plot.chunkSize || 8192;
               state.fileManager.selectedChannels = [];
-            });
-          }
+            }
 
-          if (fileState.dda) {
-            const ddaState = fileState.dda as FileDDAState;
-
-            // Guard: Check before applying DDA state
-            if (!isFileStillSelected()) return;
-
-            set((state) => {
-              if (ddaState.lastParameters) {
-                Object.assign(
-                  state.dda.analysisParameters,
-                  ddaState.lastParameters,
-                );
-              }
-              state.dda.currentAnalysis = null;
-              state.dda.analysisHistory = [];
-            });
-          } else {
-            // Guard: Check before applying default DDA state
-            if (!isFileStillSelected()) return;
-
-            set((state) => {
-              state.dda.currentAnalysis = null;
-              state.dda.analysisHistory = [];
-            });
-          }
+            // Apply DDA state
+            if (loadedDdaState?.lastParameters) {
+              Object.assign(
+                state.dda.analysisParameters,
+                loadedDdaState.lastParameters,
+              );
+            }
+            state.dda.currentAnalysis = null;
+            state.dda.analysisHistory = [];
+          });
 
           const annotationState = fileState.annotations as
             | FileAnnotationState
@@ -593,24 +578,14 @@ export const createFileManagerSlice: ImmerStateCreator<FileManagerSlice> = (
               // Guard: Check before applying fallback annotation state
               if (!isFileStillSelected()) return;
 
-              if (annotationState?.timeSeries) {
-                set((state) => {
-                  state.annotations.timeSeries[file.file_path] = {
-                    filePath: file.file_path,
-                    globalAnnotations: annotationState.timeSeries?.global || [],
-                    channelAnnotations:
-                      annotationState.timeSeries?.channels || {},
-                  };
-                });
-              } else {
-                set((state) => {
-                  state.annotations.timeSeries[file.file_path] = {
-                    filePath: file.file_path,
-                    globalAnnotations: [],
-                    channelAnnotations: {},
-                  };
-                });
-              }
+              set((state) => {
+                state.annotations.timeSeries[file.file_path] = {
+                  filePath: file.file_path,
+                  globalAnnotations: annotationState?.timeSeries?.global || [],
+                  channelAnnotations:
+                    annotationState?.timeSeries?.channels || {},
+                };
+              });
             }
           })();
 

@@ -11,15 +11,17 @@ import { useShallow } from "zustand/react/shallow";
 import { StreamSourceConfig, StreamingDDAConfig } from "@/types/streaming";
 
 export function useStreamingData(streamId: string | null) {
-  const streaming = useAppStore(useShallow((state) => state.streaming));
+  const session = useAppStore(
+    (state) => (streamId ? state.streaming.sessions[streamId] : null) ?? null,
+  );
+  const plotData = useAppStore(
+    (state) => (streamId ? state.streaming.plotData[streamId] : null) ?? null,
+  );
   const createStreamSession = useAppStore((state) => state.createStreamSession);
   const stopStreamSession = useAppStore((state) => state.stopStreamSession);
   const pauseStreamSession = useAppStore((state) => state.pauseStreamSession);
   const resumeStreamSession = useAppStore((state) => state.resumeStreamSession);
   const clearStreamPlotData = useAppStore((state) => state.clearStreamPlotData);
-
-  const session = streamId ? streaming.sessions[streamId] : null;
-  const plotData = streamId ? streaming.plotData[streamId] : null;
 
   // Derived state (note: backend uses capital letters)
   const isRunning = session?.state.type === "Running";

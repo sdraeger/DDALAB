@@ -20,6 +20,121 @@ export const defaultAnnotationState: AnnotationState = {
   ddaResults: {},
 };
 
+const EMPTY_ANNOTATIONS: PlotAnnotation[] = [];
+
+type AnnotationCache = {
+  timeSeries: Record<string, PlotAnnotation[]>;
+  dda: Record<string, PlotAnnotation[]>;
+};
+
+const annotationCache: AnnotationCache = {
+  timeSeries: {},
+  dda: {},
+};
+
+function getTimeSeriesCacheKey(filePath: string, channel?: string): string {
+  return channel ? `${filePath}:${channel}` : filePath;
+}
+
+function computeTimeSeriesAnnotations(
+  fileAnnotations: TimeSeriesAnnotations | undefined,
+  channel?: string,
+): PlotAnnotation[] {
+  if (!fileAnnotations) return EMPTY_ANNOTATIONS;
+
+  if (channel && fileAnnotations.channelAnnotations?.[channel]) {
+    return [
+      ...fileAnnotations.globalAnnotations,
+      ...fileAnnotations.channelAnnotations[channel],
+    ];
+  }
+  return fileAnnotations.globalAnnotations;
+}
+
+function invalidateTimeSeriesCache(filePath: string): void {
+  const keysToDelete = Object.keys(annotationCache.timeSeries).filter(
+    (key) => key === filePath || key.startsWith(`${filePath}:`),
+  );
+  for (const key of keysToDelete) {
+    delete annotationCache.timeSeries[key];
+  }
+}
+
+function invalidateDDACache(key: string): void {
+  delete annotationCache.dda[key];
+}
+
+/**
+ * Persist time series annotation changes for a specific file.
+ * Only updates the timeSeries portion, preserving existing ddaResults.
+ */
+async function persistTimeSeriesAnnotation(
+  filePath: string,
+  fileAnnotations: TimeSeriesAnnotations,
+): Promise<void> {
+  const fileStateManager = getInitializedFileStateManager();
+  const existingState = fileStateManager.getModuleState<FileAnnotationState>(
+    filePath,
+    "annotations",
+  );
+
+  const fileAnnotationState: FileAnnotationState = {
+    timeSeries: {
+      global: fileAnnotations.globalAnnotations,
+      channels: fileAnnotations.channelAnnotations || {},
+    },
+    ddaResults: existingState?.ddaResults || {},
+    lastUpdated: new Date().toISOString(),
+  };
+
+  await fileStateManager.updateModuleState(
+    filePath,
+    "annotations",
+    fileAnnotationState,
+  );
+}
+
+/**
+ * Persist DDA annotation changes for a specific key.
+ * Only updates the specific ddaResults key, preserving everything else.
+ */
+async function persistDdaAnnotation(
+  filePath: string,
+  ddaKey: string,
+  annotations: PlotAnnotation[],
+  fileTimeSeries: TimeSeriesAnnotations | undefined,
+): Promise<void> {
+  const fileStateManager = getInitializedFileStateManager();
+  const existingState = fileStateManager.getModuleState<FileAnnotationState>(
+    filePath,
+    "annotations",
+  );
+
+  const fileAnnotationState: FileAnnotationState = {
+    timeSeries: {
+      global:
+        fileTimeSeries?.globalAnnotations ||
+        existingState?.timeSeries?.global ||
+        [],
+      channels:
+        fileTimeSeries?.channelAnnotations ||
+        existingState?.timeSeries?.channels ||
+        {},
+    },
+    ddaResults: {
+      ...existingState?.ddaResults,
+      [ddaKey]: annotations,
+    },
+    lastUpdated: new Date().toISOString(),
+  };
+
+  await fileStateManager.updateModuleState(
+    filePath,
+    "annotations",
+    fileAnnotationState,
+  );
+}
+
 export const createAnnotationSlice: ImmerStateCreator<AnnotationSlice> = (
   set,
   get,
@@ -54,37 +169,18 @@ export const createAnnotationSlice: ImmerStateCreator<AnnotationSlice> = (
           annotation,
         );
       }
+
+      invalidateTimeSeriesCache(filePath);
     });
 
     setTimeout(async () => {
       if (TauriService.isTauri()) {
         try {
-          const fileStateManager = getInitializedFileStateManager();
           const currentAnnotations = get().annotations;
           const fileAnnotations = currentAnnotations.timeSeries[filePath];
 
           if (fileAnnotations) {
-            const ddaResultsForFile: Record<string, PlotAnnotation[]> = {};
-            Object.entries(currentAnnotations.ddaResults).forEach(
-              ([key, value]) => {
-                ddaResultsForFile[key] = value.annotations;
-              },
-            );
-
-            const fileAnnotationState: FileAnnotationState = {
-              timeSeries: {
-                global: fileAnnotations.globalAnnotations,
-                channels: fileAnnotations.channelAnnotations || {},
-              },
-              ddaResults: ddaResultsForFile,
-              lastUpdated: new Date().toISOString(),
-            };
-
-            await fileStateManager.updateModuleState(
-              filePath,
-              "annotations",
-              fileAnnotationState,
-            );
+            await persistTimeSeriesAnnotation(filePath, fileAnnotations);
           }
         } catch {
           // Silent fail - annotation save is handled by primary database
@@ -114,37 +210,18 @@ export const createAnnotationSlice: ImmerStateCreator<AnnotationSlice> = (
       } else {
         updateAnnotationInArray(fileAnnotations.globalAnnotations);
       }
+
+      invalidateTimeSeriesCache(filePath);
     });
 
     setTimeout(async () => {
       if (TauriService.isTauri()) {
         try {
-          const fileStateManager = getInitializedFileStateManager();
           const currentAnnotations = get().annotations;
           const fileAnnotations = currentAnnotations.timeSeries[filePath];
 
           if (fileAnnotations) {
-            const ddaResultsForFile: Record<string, PlotAnnotation[]> = {};
-            Object.entries(currentAnnotations.ddaResults).forEach(
-              ([key, value]) => {
-                ddaResultsForFile[key] = value.annotations;
-              },
-            );
-
-            const fileAnnotationState: FileAnnotationState = {
-              timeSeries: {
-                global: fileAnnotations.globalAnnotations,
-                channels: fileAnnotations.channelAnnotations || {},
-              },
-              ddaResults: ddaResultsForFile,
-              lastUpdated: new Date().toISOString(),
-            };
-
-            await fileStateManager.updateModuleState(
-              filePath,
-              "annotations",
-              fileAnnotationState,
-            );
+            await persistTimeSeriesAnnotation(filePath, fileAnnotations);
           }
         } catch {
           // Silent fail - annotation update is handled by primary database
@@ -173,6 +250,8 @@ export const createAnnotationSlice: ImmerStateCreator<AnnotationSlice> = (
           fileAnnotations.globalAnnotations.splice(index, 1);
         }
       }
+
+      invalidateTimeSeriesCache(filePath);
     });
 
     setTimeout(async () => {
@@ -180,32 +259,11 @@ export const createAnnotationSlice: ImmerStateCreator<AnnotationSlice> = (
         try {
           await TauriService.deleteAnnotation(annotationId);
 
-          const fileStateManager = getInitializedFileStateManager();
           const currentAnnotations = get().annotations;
           const fileAnnotations = currentAnnotations.timeSeries[filePath];
 
           if (fileAnnotations) {
-            const ddaResultsForFile: Record<string, PlotAnnotation[]> = {};
-            Object.entries(currentAnnotations.ddaResults).forEach(
-              ([key, value]) => {
-                ddaResultsForFile[key] = value.annotations;
-              },
-            );
-
-            const fileAnnotationState: FileAnnotationState = {
-              timeSeries: {
-                global: fileAnnotations.globalAnnotations,
-                channels: fileAnnotations.channelAnnotations || {},
-              },
-              ddaResults: ddaResultsForFile,
-              lastUpdated: new Date().toISOString(),
-            };
-
-            await fileStateManager.updateModuleState(
-              filePath,
-              "annotations",
-              fileAnnotationState,
-            );
+            await persistTimeSeriesAnnotation(filePath, fileAnnotations);
           }
         } catch {
           // Silent fail - annotation will be deleted on next save
@@ -218,15 +276,17 @@ export const createAnnotationSlice: ImmerStateCreator<AnnotationSlice> = (
     const state = get();
     const fileAnnotations = state.annotations.timeSeries[filePath];
 
-    if (!fileAnnotations) return [];
+    if (!fileAnnotations) return EMPTY_ANNOTATIONS;
 
-    if (channel && fileAnnotations.channelAnnotations?.[channel]) {
-      return [
-        ...fileAnnotations.globalAnnotations,
-        ...fileAnnotations.channelAnnotations[channel],
-      ];
+    const cacheKey = getTimeSeriesCacheKey(filePath, channel);
+    const cached = annotationCache.timeSeries[cacheKey];
+    if (cached !== undefined) {
+      return cached;
     }
-    return fileAnnotations.globalAnnotations;
+
+    const result = computeTimeSeriesAnnotations(fileAnnotations, channel);
+    annotationCache.timeSeries[cacheKey] = result;
+    return result;
   },
 
   loadAllFileAnnotations: async () => {
@@ -309,6 +369,8 @@ export const createAnnotationSlice: ImmerStateCreator<AnnotationSlice> = (
       set((state) => {
         state.annotations.timeSeries = mergedAnnotations;
       });
+
+      annotationCache.timeSeries = {};
     } catch {
       // Silent fail - annotations unavailable
     }
@@ -328,37 +390,26 @@ export const createAnnotationSlice: ImmerStateCreator<AnnotationSlice> = (
       }
 
       state.annotations.ddaResults[key].annotations.push(annotation);
+
+      invalidateDDACache(key);
     });
 
     setTimeout(async () => {
       const { fileManager } = get();
       if (TauriService.isTauri() && fileManager.selectedFile) {
         try {
-          const fileStateManager = getInitializedFileStateManager();
+          const key = `${resultId}_${variantId}_${plotType}`;
           const currentAnnotations = get().annotations;
           const filePath = fileManager.selectedFile.file_path;
           const fileTimeSeries = currentAnnotations.timeSeries[filePath];
+          const ddaAnnotations =
+            currentAnnotations.ddaResults[key]?.annotations || [];
 
-          const ddaResultsForFile: Record<string, PlotAnnotation[]> = {};
-          Object.entries(currentAnnotations.ddaResults).forEach(
-            ([key, value]) => {
-              ddaResultsForFile[key] = value.annotations;
-            },
-          );
-
-          const fileAnnotationState: FileAnnotationState = {
-            timeSeries: {
-              global: fileTimeSeries?.globalAnnotations || [],
-              channels: fileTimeSeries?.channelAnnotations || {},
-            },
-            ddaResults: ddaResultsForFile,
-            lastUpdated: new Date().toISOString(),
-          };
-
-          await fileStateManager.updateModuleState(
+          await persistDdaAnnotation(
             filePath,
-            "annotations",
-            fileAnnotationState,
+            key,
+            ddaAnnotations,
+            fileTimeSeries,
           );
         } catch {
           // Silent fail - DDA annotation save is non-critical
@@ -374,8 +425,9 @@ export const createAnnotationSlice: ImmerStateCreator<AnnotationSlice> = (
     annotationId,
     updates,
   ) => {
+    const key = `${resultId}_${variantId}_${plotType}`;
+
     set((state) => {
-      const key = `${resultId}_${variantId}_${plotType}`;
       const plotAnnotations = state.annotations.ddaResults[key];
 
       if (!plotAnnotations) return;
@@ -390,37 +442,25 @@ export const createAnnotationSlice: ImmerStateCreator<AnnotationSlice> = (
           updatedAt: new Date().toISOString(),
         };
       }
+
+      invalidateDDACache(key);
     });
 
     setTimeout(async () => {
       const { fileManager } = get();
       if (TauriService.isTauri() && fileManager.selectedFile) {
         try {
-          const fileStateManager = getInitializedFileStateManager();
           const currentAnnotations = get().annotations;
           const filePath = fileManager.selectedFile.file_path;
           const fileTimeSeries = currentAnnotations.timeSeries[filePath];
+          const ddaAnnotations =
+            currentAnnotations.ddaResults[key]?.annotations || [];
 
-          const ddaResultsForFile: Record<string, PlotAnnotation[]> = {};
-          Object.entries(currentAnnotations.ddaResults).forEach(
-            ([key, value]) => {
-              ddaResultsForFile[key] = value.annotations;
-            },
-          );
-
-          const fileAnnotationState: FileAnnotationState = {
-            timeSeries: {
-              global: fileTimeSeries?.globalAnnotations || [],
-              channels: fileTimeSeries?.channelAnnotations || {},
-            },
-            ddaResults: ddaResultsForFile,
-            lastUpdated: new Date().toISOString(),
-          };
-
-          await fileStateManager.updateModuleState(
+          await persistDdaAnnotation(
             filePath,
-            "annotations",
-            fileAnnotationState,
+            key,
+            ddaAnnotations,
+            fileTimeSeries,
           );
         } catch {
           // Silent fail - DDA annotation update is non-critical
@@ -430,8 +470,9 @@ export const createAnnotationSlice: ImmerStateCreator<AnnotationSlice> = (
   },
 
   deleteDDAAnnotation: (resultId, variantId, plotType, annotationId) => {
+    const key = `${resultId}_${variantId}_${plotType}`;
+
     set((state) => {
-      const key = `${resultId}_${variantId}_${plotType}`;
       const plotAnnotations = state.annotations.ddaResults[key];
 
       if (!plotAnnotations) return;
@@ -442,37 +483,25 @@ export const createAnnotationSlice: ImmerStateCreator<AnnotationSlice> = (
       if (index !== -1) {
         plotAnnotations.annotations.splice(index, 1);
       }
+
+      invalidateDDACache(key);
     });
 
     setTimeout(async () => {
       const { fileManager } = get();
       if (TauriService.isTauri() && fileManager.selectedFile) {
         try {
-          const fileStateManager = getInitializedFileStateManager();
           const currentAnnotations = get().annotations;
           const filePath = fileManager.selectedFile.file_path;
           const fileTimeSeries = currentAnnotations.timeSeries[filePath];
+          const ddaAnnotations =
+            currentAnnotations.ddaResults[key]?.annotations || [];
 
-          const ddaResultsForFile: Record<string, PlotAnnotation[]> = {};
-          Object.entries(currentAnnotations.ddaResults).forEach(
-            ([key, value]) => {
-              ddaResultsForFile[key] = value.annotations;
-            },
-          );
-
-          const fileAnnotationState: FileAnnotationState = {
-            timeSeries: {
-              global: fileTimeSeries?.globalAnnotations || [],
-              channels: fileTimeSeries?.channelAnnotations || {},
-            },
-            ddaResults: ddaResultsForFile,
-            lastUpdated: new Date().toISOString(),
-          };
-
-          await fileStateManager.updateModuleState(
+          await persistDdaAnnotation(
             filePath,
-            "annotations",
-            fileAnnotationState,
+            key,
+            ddaAnnotations,
+            fileTimeSeries,
           );
         } catch {
           // Silent fail - DDA annotation delete is non-critical
@@ -482,8 +511,22 @@ export const createAnnotationSlice: ImmerStateCreator<AnnotationSlice> = (
   },
 
   getDDAAnnotations: (resultId, variantId, plotType) => {
-    const state = get();
     const key = `${resultId}_${variantId}_${plotType}`;
-    return state.annotations.ddaResults[key]?.annotations || [];
+
+    const cached = annotationCache.dda[key];
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    const state = get();
+    const annotations = state.annotations.ddaResults[key]?.annotations;
+
+    if (!annotations) {
+      annotationCache.dda[key] = EMPTY_ANNOTATIONS;
+      return EMPTY_ANNOTATIONS;
+    }
+
+    annotationCache.dda[key] = annotations;
+    return annotations;
   },
 });

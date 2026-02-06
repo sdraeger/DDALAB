@@ -92,6 +92,8 @@ async function waitForReady(): Promise<void> {
 
 let requestCounter = 0;
 
+const WORKER_TIMEOUT_MS = 30000; // 30 second timeout
+
 function generateRequestId(): string {
   return `req_${++requestCounter}_${Date.now()}`;
 }
@@ -130,9 +132,20 @@ export function useDecimationWorker(): UseDecimationWorkerResult {
       const id = generateRequestId();
 
       return new Promise((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+          sharedPendingRequests.delete(id);
+          reject(new Error(`Worker timeout for request ${id}`));
+        }, WORKER_TIMEOUT_MS);
+
         sharedPendingRequests.set(id, {
-          resolve: resolve as (data: number[] | number[][]) => void,
-          reject,
+          resolve: (result) => {
+            clearTimeout(timeoutId);
+            resolve(result as number[]);
+          },
+          reject: (error) => {
+            clearTimeout(timeoutId);
+            reject(error);
+          },
         });
 
         worker.postMessage({
@@ -164,9 +177,20 @@ export function useDecimationWorker(): UseDecimationWorkerResult {
       const id = generateRequestId();
 
       return new Promise((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+          sharedPendingRequests.delete(id);
+          reject(new Error(`Worker timeout for request ${id}`));
+        }, WORKER_TIMEOUT_MS);
+
         sharedPendingRequests.set(id, {
-          resolve: resolve as (data: number[] | number[][]) => void,
-          reject,
+          resolve: (result) => {
+            clearTimeout(timeoutId);
+            resolve(result as number[][]);
+          },
+          reject: (error) => {
+            clearTimeout(timeoutId);
+            reject(error);
+          },
         });
 
         worker.postMessage({

@@ -17,8 +17,10 @@ interface StatePersistenceProviderProps {
 export function StatePersistenceProvider({
   children,
 }: StatePersistenceProviderProps) {
-  const { initializeFromTauri, forceSave, saveCurrentState, isInitialized } =
-    useAppStore();
+  const initializeFromTauri = useAppStore((state) => state.initializeFromTauri);
+  const forceSave = useAppStore((state) => state.forceSave);
+  const saveCurrentState = useAppStore((state) => state.saveCurrentState);
+  const isInitialized = useAppStore((state) => state.isInitialized);
   const saveIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const isInitializedRef = useRef(false);
 
@@ -300,15 +302,20 @@ export function StatePersistenceProvider({
  * Hook to manually trigger state saves
  */
 export function useStatePersistence() {
-  const store = useAppStore();
+  const saveNow = useAppStore((state) => state.saveCurrentState);
+  const forceSave = useAppStore((state) => state.forceSave);
+  const clearState = useAppStore((state) => state.clearPersistedState);
+  const getState = useAppStore((state) => state.getPersistedState);
+  const createSnapshot = useAppStore((state) => state.createStateSnapshot);
+  const isInitialized = useAppStore((state) => state.isInitialized);
 
   return {
-    saveNow: store.saveCurrentState,
-    forceSave: store.forceSave,
-    clearState: store.clearPersistedState,
-    getState: store.getPersistedState,
-    createSnapshot: store.createStateSnapshot,
-    isInitialized: store.isInitialized,
+    saveNow,
+    forceSave,
+    clearState,
+    getState,
+    createSnapshot,
+    isInitialized,
   };
 }
 
@@ -316,11 +323,9 @@ export function useStatePersistence() {
  * Hook to save specific data types
  */
 export function useDataPersistence() {
-  const store = useAppStore();
+  const savePlotData = useAppStore((state) => state.savePlotData);
+  const saveAnalysis = useAppStore((state) => state.saveAnalysisResult);
+  const saveState = useAppStore((state) => state.saveCurrentState);
 
-  return {
-    savePlotData: store.savePlotData,
-    saveAnalysis: store.saveAnalysisResult,
-    saveState: store.saveCurrentState,
-  };
+  return { savePlotData, saveAnalysis, saveState };
 }

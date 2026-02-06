@@ -193,9 +193,12 @@ export class FileStateManager {
 
     if (this.options.persistToBackend) {
       try {
-        await invoke("save_file_state_registry", { registry: this.registry });
+        await invoke("save_file_state_registry_metadata", {
+          activeFilePath: this.registry.activeFilePath,
+          lastActiveFilePath: this.registry.lastActiveFilePath,
+        });
       } catch {
-        // Registry save failed
+        // Registry metadata save failed
       }
     }
 
@@ -263,7 +266,10 @@ export class FileStateManager {
     delete this.registry.files[filePath];
 
     if (this.options.persistToBackend) {
-      await invoke("save_file_state_registry", { registry: this.registry });
+      await invoke("save_file_state_registry_metadata", {
+        activeFilePath: this.registry.activeFilePath,
+        lastActiveFilePath: this.registry.lastActiveFilePath,
+      });
     }
   }
 
