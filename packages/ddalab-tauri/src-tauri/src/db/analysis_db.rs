@@ -140,11 +140,12 @@ impl AnalysisDatabase {
 
                 // Use simd-json for faster parsing of large plot_data (can be 47MB+)
                 // simd-json is 2-5x faster than serde_json for large payloads
-                let plot_data = if let Some(mut json_str) = plot_data_json {
+                let plot_data = if let Some(json_str) = plot_data_json {
                     let parse_start = std::time::Instant::now();
-                    // simd-json requires mutable access to the input buffer
-                    let bytes = unsafe { json_str.as_bytes_mut() };
-                    let parsed: serde_json::Value = simd_json::from_slice(bytes)
+                    // Convert String to Vec<u8> for safe mutable access
+                    // (simd-json modifies the buffer in place, which would violate String's UTF-8 invariants)
+                    let mut bytes = json_str.into_bytes();
+                    let parsed: serde_json::Value = simd_json::from_slice(&mut bytes)
                         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
                     log::debug!(
                         "simd-json parsed plot_data ({} bytes) in {:.1}ms",

@@ -9,6 +9,7 @@ use parking_lot::Mutex;
 use rusqlite::{params, Connection};
 use sha2::{Digest, Sha256};
 use std::path::Path;
+use zeroize::Zeroize;
 
 /// Secure string that zeros its contents on drop
 /// Prevents credentials from lingering in memory
@@ -42,11 +43,9 @@ impl SecureString {
 
 impl Drop for SecureString {
     fn drop(&mut self) {
-        // Zero out memory before dropping
-        for byte in &mut self.0 {
-            // Volatile write to prevent compiler optimization
-            unsafe { std::ptr::write_volatile(byte as *mut u8, 0) };
-        }
+        // Zero out memory before dropping using zeroize crate
+        // This provides proper volatile semantics and compiler barrier guarantees
+        self.0.zeroize();
     }
 }
 

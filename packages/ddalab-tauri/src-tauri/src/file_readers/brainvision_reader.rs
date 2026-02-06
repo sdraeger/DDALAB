@@ -353,6 +353,10 @@ impl BrainVisionFileReader {
                 for (result_idx, &ch_idx) in channel_indices.iter().enumerate() {
                     if ch_idx < num_channels {
                         let byte_start = local_byte_offset + ch_idx * bytes_per_sample;
+                        // Bounds check to prevent panic on malformed files
+                        if byte_start + 3 >= block_buffer.len() {
+                            continue; // Skip incomplete samples at buffer boundary
+                        }
                         let bytes: [u8; 4] = [
                             block_buffer[byte_start],
                             block_buffer[byte_start + 1],
