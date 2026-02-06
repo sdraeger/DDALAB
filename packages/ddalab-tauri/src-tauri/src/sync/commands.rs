@@ -6,10 +6,16 @@ use super::types::{
 };
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
+
+static SYNC_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+    reqwest::Client::builder()
+        .build()
+        .expect("Failed to create HTTP client")
+});
 
 /// Emit sync connection status change event to frontend
 fn emit_sync_connection_change(app: &AppHandle, connected: bool) {
@@ -103,10 +109,9 @@ pub async fn sync_connect(
         endpoint: Some(local_endpoint.clone()),
     };
 
-    let client = reqwest::Client::new();
     let login_url = format!("{}/auth/login", http_base_url);
 
-    let response = client
+    let response = SYNC_CLIENT
         .post(&login_url)
         .json(&login_request)
         .send()

@@ -5,8 +5,9 @@ use crate::api::handlers::{
     get_analysis_result, get_analysis_status, get_dda_results, get_edf_cache_stats, get_edf_data,
     get_edf_info, get_edf_overview, get_edf_window, get_file_chunk, get_file_info, get_ica_result,
     get_ica_results, get_overview_progress, get_running_analysis_status, health,
-    list_analysis_history, list_files, reconstruct_without_components, rename_analysis_result,
-    run_dda_analysis, run_ica_analysis, save_analysis_to_history, update_data_directory,
+    list_analysis_history, list_analysis_summaries, list_files, reconstruct_without_components,
+    rename_analysis_result, run_dda_analysis, run_ica_analysis, save_analysis_to_history,
+    update_data_directory,
 };
 use crate::api::state::ApiState;
 use axum::{
@@ -117,6 +118,7 @@ fn build_protected_routes(state: Arc<ApiState>) -> Router<Arc<ApiState>> {
         )
         .route("/api/dda/status/{analysis_id}", get(get_analysis_status))
         .route("/api/dda/history", get(list_analysis_history))
+        .route("/api/dda/history/summaries", get(list_analysis_summaries))
         .route("/api/dda/history/save", post(save_analysis_to_history))
         .route("/api/dda/history/{analysis_id}", get(get_analysis_result))
         .route(

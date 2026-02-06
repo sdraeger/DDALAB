@@ -1,6 +1,7 @@
 use arboard::Clipboard;
 use serde::Serialize;
 use std::fs;
+use std::io::{Read, Seek, SeekFrom};
 use std::net::TcpStream;
 use std::process::Command;
 use std::time::Duration;
@@ -53,18 +54,37 @@ pub async fn get_logs_path(_app_handle: AppHandle) -> Result<String, String> {
 
 #[tauri::command]
 pub async fn read_logs_content(_app_handle: AppHandle) -> Result<String, String> {
-    // Logs are written to system temp directory (same as main.rs:35)
+    const MAX_SIZE: u64 = 1_048_576;
+
     let log_file = std::env::temp_dir().join("ddalab.log");
 
-    // Check if log file exists
     if !log_file.exists() {
         return Ok(String::from(
             "Log file not found. The application may not have generated any logs yet.",
         ));
     }
 
-    // Read the log file content
-    fs::read_to_string(&log_file).map_err(|e| format!("Failed to read log file: {}", e))
+    let mut file =
+        fs::File::open(&log_file).map_err(|e| format!("Failed to open log file: {}", e))?;
+
+    let file_len = file
+        .metadata()
+        .map_err(|e| format!("Failed to get file metadata: {}", e))?
+        .len();
+
+    let mut content = String::new();
+
+    if file_len > MAX_SIZE {
+        file.seek(SeekFrom::Start(file_len - MAX_SIZE))
+            .map_err(|e| format!("Failed to seek in log file: {}", e))?;
+        file.read_to_string(&mut content)
+            .map_err(|e| format!("Failed to read log file: {}", e))?;
+    } else {
+        file.read_to_string(&mut content)
+            .map_err(|e| format!("Failed to read log file: {}", e))?;
+    }
+
+    Ok(content)
 }
 
 #[tauri::command]

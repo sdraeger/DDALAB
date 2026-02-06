@@ -7,7 +7,7 @@ use crate::api::utils::{
 };
 use crate::edf::EDFReader;
 use crate::file_readers::{global_cache, FileReaderFactory, LazyReaderFactory, WindowRequest};
-use crate::signal_processing::{preprocess_batch, PreprocessingConfig};
+use crate::signal_processing::{preprocess_batch_owned, PreprocessingConfig};
 use crate::text_reader::TextFileReader;
 use axum::{
     extract::{Query, State},
@@ -374,11 +374,13 @@ fn apply_preprocessing_to_chunk(
             );
         }
 
-        let result =
-            preprocess_batch(&chunk.data, &chunk.channel_labels, &config).map_err(|e| {
-                log::error!("[PREPROCESSING] Filter error: {}", e);
-                ApiError::InternalError(format!("Preprocessing failed: {}", e))
-            })?;
+        // Use std::mem::take to avoid unnecessary data copy - we're replacing chunk.data anyway
+        let channels = std::mem::take(&mut chunk.data);
+        let channel_labels = std::mem::take(&mut chunk.channel_labels);
+        let result = preprocess_batch_owned(channels, channel_labels, &config).map_err(|e| {
+            log::error!("[PREPROCESSING] Filter error: {}", e);
+            ApiError::InternalError(format!("Preprocessing failed: {}", e))
+        })?;
 
         // Log output statistics for debugging
         let elapsed = start_time.elapsed();
@@ -400,6 +402,7 @@ fn apply_preprocessing_to_chunk(
         }
 
         chunk.data = result.channels;
+        chunk.channel_labels = result.channel_names;
 
         log::info!(
             "[PREPROCESSING] Applied filters to {} channels in {:.1}ms",
@@ -723,14 +726,18 @@ fn read_text_file_chunk(
     let (channels_to_read, channel_labels): (Vec<usize>, Vec<String>) = if let Some(ref selected) =
         selected_channels
     {
+        // Build HashMap for O(1) lookups instead of O(n) per channel
+        let channel_map: HashMap<&str, usize> = all_channel_labels
+            .iter()
+            .enumerate()
+            .map(|(i, label)| (label.as_str(), i))
+            .collect();
+
         let mut indices = Vec::new();
         let mut labels = Vec::new();
 
         for channel_name in selected {
-            if let Some(idx) = all_channel_labels
-                .iter()
-                .position(|label| label == channel_name)
-            {
+            if let Some(&idx) = channel_map.get(channel_name.as_str()) {
                 indices.push(idx);
                 labels.push(channel_name.clone());
             } else {
@@ -810,14 +817,20 @@ fn generate_edf_file_overview(
     let channel_labels: Vec<String>;
 
     if let Some(ref selected) = selected_channels {
-        let filtered_channels: Vec<usize> = selected
-            .par_iter()
-            .filter_map(|name| {
-                edf.signal_headers
-                    .iter()
-                    .position(|h| h.label.trim() == name.trim())
-            })
+        // Build HashMap for O(1) lookups instead of O(n) per channel
+        let channel_map: HashMap<String, usize> = edf
+            .signal_headers
+            .iter()
+            .enumerate()
+            .map(|(i, h)| (h.label.trim().to_string(), i))
             .collect();
+
+        let mut filtered_channels = Vec::with_capacity(selected.len());
+        for name in selected {
+            if let Some(&idx) = channel_map.get(name.trim()) {
+                filtered_channels.push(idx);
+            }
+        }
 
         if filtered_channels.is_empty() {
             let num_fallback_channels = edf.signal_headers.len().min(10);
@@ -932,10 +945,21 @@ fn generate_text_file_overview(
     let channel_labels: Vec<String>;
 
     if let Some(ref selected) = selected_channels {
-        let filtered_channels: Vec<usize> = selected
-            .par_iter()
-            .filter_map(|name| reader.info.channel_labels.iter().position(|n| n == name))
+        // Build HashMap for O(1) lookups instead of O(n) per channel
+        let channel_map: HashMap<&str, usize> = reader
+            .info
+            .channel_labels
+            .iter()
+            .enumerate()
+            .map(|(i, label)| (label.as_str(), i))
             .collect();
+
+        let mut filtered_channels = Vec::with_capacity(selected.len());
+        for name in selected {
+            if let Some(&idx) = channel_map.get(name.as_str()) {
+                filtered_channels.push(idx);
+            }
+        }
 
         if filtered_channels.is_empty() {
             let num_fallback_channels = reader.info.num_channels.min(10);

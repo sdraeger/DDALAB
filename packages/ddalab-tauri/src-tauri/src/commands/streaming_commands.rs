@@ -17,39 +17,43 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 
 /// Global state for managing active stream controllers
+///
+/// Uses RwLock for the outer map to allow concurrent read access (get_controller, list_controllers)
+/// while only requiring exclusive access for writes (add_controller, remove_controller).
+/// The inner Mutex<StreamController> allows concurrent operations on different streams.
 pub struct StreamingState {
-    controllers: Mutex<HashMap<String, Arc<Mutex<StreamController>>>>,
+    controllers: RwLock<HashMap<String, Arc<Mutex<StreamController>>>>,
     dda_binary_path: PathBuf,
 }
 
 impl StreamingState {
     pub fn new(dda_binary_path: PathBuf) -> Self {
         Self {
-            controllers: Mutex::new(HashMap::new()),
+            controllers: RwLock::new(HashMap::new()),
             dda_binary_path,
         }
     }
 
     pub async fn add_controller(&self, id: String, controller: StreamController) {
         self.controllers
-            .lock()
+            .write()
             .await
             .insert(id, Arc::new(Mutex::new(controller)));
     }
 
     pub async fn get_controller(&self, id: &str) -> Option<Arc<Mutex<StreamController>>> {
-        self.controllers.lock().await.get(id).cloned()
+        self.controllers.read().await.get(id).cloned()
     }
 
     pub async fn remove_controller(&self, id: &str) -> Option<Arc<Mutex<StreamController>>> {
-        self.controllers.lock().await.remove(id)
+        self.controllers.write().await.remove(id)
     }
 
     pub async fn list_controllers(&self) -> Vec<String> {
-        self.controllers.lock().await.keys().cloned().collect()
+        self.controllers.read().await.keys().cloned().collect()
     }
 }
 
@@ -247,12 +251,13 @@ pub async fn resume_stream(
 }
 
 /// Get latest data chunks from a stream
+/// Returns Arc references for efficient memory sharing (Arc<T> serializes transparently as T)
 #[tauri::command]
 pub async fn get_stream_data(
     state: State<'_, Arc<StreamingState>>,
     stream_id: String,
     count: usize,
-) -> Result<Vec<DataChunk>, String> {
+) -> Result<Vec<Arc<DataChunk>>, String> {
     let controller = state
         .get_controller(&stream_id)
         .await
