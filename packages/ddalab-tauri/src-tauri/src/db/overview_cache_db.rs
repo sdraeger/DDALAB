@@ -88,10 +88,13 @@ impl OverviewCacheDatabase {
 
             CREATE INDEX IF NOT EXISTS idx_overview_cache_file_path
                 ON overview_cache(file_path);
-            CREATE INDEX IF NOT EXISTS idx_overview_cache_is_complete
-                ON overview_cache(is_complete);
             CREATE INDEX IF NOT EXISTS idx_overview_cache_composite
                 ON overview_cache(file_path, max_points, channels);
+            -- Partial index for incomplete caches - much more efficient than full index
+            -- since incomplete caches are rare (most complete quickly)
+            CREATE INDEX IF NOT EXISTS idx_overview_cache_incomplete
+                ON overview_cache(id)
+                WHERE is_complete = 0;
 
             CREATE TABLE IF NOT EXISTS overview_cache_data (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

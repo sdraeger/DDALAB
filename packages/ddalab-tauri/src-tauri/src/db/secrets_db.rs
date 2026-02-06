@@ -94,6 +94,13 @@ impl SecretsDatabase {
     pub fn new(db_path: &Path) -> Result<Self> {
         let conn = Connection::open(db_path).context("Failed to open secrets database")?;
 
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA synchronous = NORMAL;
+             PRAGMA cache_size = -64000;",
+        )
+        .context("Failed to set SQLite pragmas")?;
+
         // Create secrets table if it doesn't exist
         conn.execute(
             "CREATE TABLE IF NOT EXISTS secrets (

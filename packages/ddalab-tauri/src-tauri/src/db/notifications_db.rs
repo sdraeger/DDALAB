@@ -88,6 +88,13 @@ impl NotificationsDatabase {
     pub fn new(db_path: &Path) -> Result<Self> {
         let conn = Connection::open(db_path).context("Failed to open notifications database")?;
 
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA synchronous = NORMAL;
+             PRAGMA cache_size = -64000;",
+        )
+        .context("Failed to set SQLite pragmas")?;
+
         let db = Self {
             conn: Arc::new(Mutex::new(conn)),
         };
