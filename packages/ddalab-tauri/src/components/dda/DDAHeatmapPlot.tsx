@@ -5,6 +5,7 @@ import {
   useRef,
   useEffect,
   useCallback,
+  useMemo,
   memo,
   forwardRef,
   useImperativeHandle,
@@ -273,17 +274,11 @@ const DDAHeatmapPlotComponent = forwardRef<
   // so it must NOT be in the query key to avoid infinite loops.
   // When autoScale is false, colorRange is an INPUT and must be in the key.
   // Memoize the matrix key to avoid expensive Object.keys on every render
-  // The matrix itself rarely changes - use variantId as a stable proxy
-  const matrixKeyRef = useRef<string>("");
-  const matrixKeyComputed = useRef(false);
-
-  // Lazily compute the matrix key only once per variant
-  if (!matrixKeyComputed.current || matrixKeyRef.current === "") {
-    // Use a simple length check as proxy - if matrix has same number of keys, it's likely the same
+  // Must recompute when ddaMatrix changes (e.g., data loads from cache)
+  const matrixKey = useMemo(() => {
     const keyCount = ddaMatrix ? Object.keys(ddaMatrix).length : 0;
-    matrixKeyRef.current = `${variantId}_${keyCount}`;
-    matrixKeyComputed.current = true;
-  }
+    return `${variantId}_${keyCount}`;
+  }, [ddaMatrix, variantId]);
 
   const {
     data: computedData,
@@ -298,7 +293,7 @@ const DDAHeatmapPlotComponent = forwardRef<
       // Only include colorRange in key when it's an input (autoScale=false)
       ...(autoScale ? [] : [colorRange[0], colorRange[1]]),
       colorScheme,
-      matrixKeyRef.current,
+      matrixKey,
     ],
     queryFn: () =>
       computeHeatmapDataAsync(

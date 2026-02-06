@@ -1099,41 +1099,41 @@ export const DDAAnalysis = memo(function DDAAnalysis(
     availableVariants,
   ]);
 
+  const allChannels = useMemo(() => {
+    const channels = new Set<string>();
+
+    parameters.variants.forEach((variantId) => {
+      const config = parameters.variantChannelConfigs[variantId];
+
+      if (config) {
+        if (config.selectedChannels) {
+          config.selectedChannels.forEach((ch) => channels.add(ch));
+        }
+        if (config.ctChannelPairs) {
+          config.ctChannelPairs.forEach(([ch1, ch2]) => {
+            channels.add(ch1);
+            channels.add(ch2);
+          });
+        }
+        if (config.cdChannelPairs) {
+          config.cdChannelPairs.forEach(([from, to]) => {
+            channels.add(from);
+            channels.add(to);
+          });
+        }
+      }
+    });
+
+    return Array.from(channels);
+  }, [parameters.variants, parameters.variantChannelConfigs]);
+
   const runAnalysis = async () => {
     if (!selectedFile) {
       loggers.dda.error("Please select a file");
       return;
     }
 
-    // Extract all channels from variant configurations
-    const allChannels = new Set<string>();
-
-    parameters.variants.forEach((variantId) => {
-      const config = parameters.variantChannelConfigs[variantId];
-
-      if (config) {
-        // Add single channels (for ST, DE, SY)
-        if (config.selectedChannels) {
-          config.selectedChannels.forEach((ch) => allChannels.add(ch));
-        }
-        // Add channels from CT pairs
-        if (config.ctChannelPairs) {
-          config.ctChannelPairs.forEach(([ch1, ch2]) => {
-            allChannels.add(ch1);
-            allChannels.add(ch2);
-          });
-        }
-        // Add channels from CD pairs
-        if (config.cdChannelPairs) {
-          config.cdChannelPairs.forEach(([from, to]) => {
-            allChannels.add(from);
-            allChannels.add(to);
-          });
-        }
-      }
-    });
-
-    if (allChannels.size === 0) {
+    if (allChannels.length === 0) {
       setChannelValidationError(
         "Please configure channels for at least one variant before running analysis",
       );
@@ -1174,9 +1174,8 @@ export const DDAAnalysis = memo(function DDAAnalysis(
         : undefined;
 
     // Convert channel names to indices BEFORE creating the request
-    const channelNames = Array.from(allChannels);
     const channelIndices = channelNamesToIndices(
-      channelNames,
+      allChannels,
       selectedFile.channels,
     );
 
@@ -1247,7 +1246,7 @@ export const DDAAnalysis = memo(function DDAAnalysis(
     loggers.dda.info("LOCAL DDA Analysis Parameters", {
       file: selectedFile.file_path,
       sampleRate: selectedFile.sample_rate,
-      channelNames,
+      channelNames: allChannels,
       channelIndices: request.channels,
       timeRange: { start: request.start_time, end: request.end_time },
       window: { length: request.window_length, step: request.window_step },
@@ -1277,7 +1276,7 @@ export const DDAAnalysis = memo(function DDAAnalysis(
       } else {
         // queuePreference === "ask" - show the dialog
         loggers.dda.debug("Showing queue dialog");
-        pendingAnalysisRef.current = { request, channelNames };
+        pendingAnalysisRef.current = { request, channelNames: allChannels };
         setQueueDialogRunningJob(currentRunningJobs[0]);
         setQueueDialogOpen(true);
         return;
@@ -1285,7 +1284,7 @@ export const DDAAnalysis = memo(function DDAAnalysis(
     }
 
     // Proceed with submission
-    await executeAnalysisSubmission(request, channelNames);
+    await executeAnalysisSubmission(request, allChannels);
   };
 
   /**

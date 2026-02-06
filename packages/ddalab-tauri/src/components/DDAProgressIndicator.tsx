@@ -1,31 +1,22 @@
 "use client";
 
-import { useAppStore } from "@/store/appStore";
-import { useDDAProgress } from "@/hooks/useDDAAnalysis";
-import { mapStatusToPhase } from "@/types/api";
+import { useAnalysisCoordinator } from "@/hooks/useAnalysisCoordinator";
 import { Brain, Loader2 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 
 export function DDAProgressIndicator() {
-  const isRunning = useAppStore((state) => state.dda.isRunning);
-  const currentAnalysisId = useAppStore(
-    (state) => state.dda.currentAnalysis?.id,
-  );
+  const { isRunning, runningJobs } = useAnalysisCoordinator();
 
-  // Get progress from the hook (it listens to Tauri events)
-  const progressEvent = useDDAProgress(currentAnalysisId, isRunning);
-
-  if (!isRunning) {
+  if (!isRunning || runningJobs.length === 0) {
     return null;
   }
 
-  // Backend uses camelCase: progress, message, status
-  const progress = progressEvent?.progress || 0;
-  const currentStep = progressEvent?.message || "Initializing analysis...";
-  const phase = progressEvent
-    ? mapStatusToPhase(progressEvent.status)
-    : "preprocessing";
+  // Get the first running job's progress
+  const currentJob = runningJobs[0];
+  const progress = currentJob?.progress || 0;
+  const currentStep = currentJob?.currentStep || "Initializing analysis...";
+  const phase = currentJob?.phase || "preprocessing";
 
   return (
     <div className="fixed bottom-4 right-4 bg-background border border-border rounded-lg shadow-lg p-4 w-96 z-50">
