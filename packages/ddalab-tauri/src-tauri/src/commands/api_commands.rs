@@ -4,8 +4,60 @@ use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager, State};
 use tokio::task::JoinHandle;
+
+// ============================================================================
+// Shared HTTP Client & Health Cache
+// ============================================================================
+
+/// Shared reqwest client for all API health/connection checks.
+/// Reusing a single client enables HTTP connection pooling and avoids
+/// the overhead of TLS handshake on every request.
+static API_HTTP_CLIENT: std::sync::LazyLock<reqwest::Client> = std::sync::LazyLock::new(|| {
+    let mut builder = reqwest::Client::builder().timeout(Duration::from_secs(5));
+
+    // Only accept invalid certificates in debug mode for local development
+    // In production, proper certificate validation is enforced
+    #[cfg(debug_assertions)]
+    {
+        log::warn!(
+            "SECURITY: Running in debug mode - accepting invalid certificates for local development"
+        );
+        builder = builder.danger_accept_invalid_certs(true);
+    }
+
+    #[cfg(not(debug_assertions))]
+    {
+        log::info!("Running in release mode - certificate validation is enforced");
+    }
+
+    builder
+        .build()
+        .expect("Failed to create shared HTTP client")
+});
+
+/// Time-to-live for cached health check results.
+const HEALTH_CACHE_TTL: Duration = Duration::from_secs(5);
+
+/// Cached health check result keyed by the API base URL.
+struct HealthCacheEntry {
+    result: serde_json::Value,
+    fetched_at: Instant,
+}
+
+/// Global health status cache protected by a tokio RwLock so it can be
+/// held across `.await` points without blocking other tasks.
+static HEALTH_CACHE: std::sync::LazyLock<tokio::sync::RwLock<Option<HealthCacheEntry>>> =
+    std::sync::LazyLock::new(|| tokio::sync::RwLock::new(None));
+
+/// Invalidate the cached health status so the next check hits the server.
+/// Call this when the server is started or stopped to avoid stale results.
+async fn invalidate_health_cache() {
+    let mut cache = HEALTH_CACHE.write().await;
+    *cache = None;
+}
 
 // ============================================================================
 // API Connection Configuration
@@ -281,6 +333,9 @@ pub async fn start_local_api_server(
 
     log::info!("⏰ Starting API server...");
 
+    // Invalidate health cache so the first check after start hits the new server
+    invalidate_health_cache().await;
+
     // Start the server
     match start_api_server(server_config, data_dir, dda_binary_path).await {
         Ok(result) => {
@@ -384,6 +439,9 @@ pub async fn stop_local_api_server(state: State<'_, ApiServerState>) -> Result<(
         conn_config.session_token = None;
     }
 
+    // Invalidate health cache so subsequent checks reflect the stopped server
+    invalidate_health_cache().await;
+
     // Give the server a moment to shut down
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
@@ -400,6 +458,71 @@ pub async fn stop_local_api_server(state: State<'_, ApiServerState>) -> Result<(
 // API Connection Testing
 // ============================================================================
 
+/// Perform a health check against the given URL, using the shared client and
+/// returning a cached result when the previous check is still fresh.
+async fn fetch_health_status(url: &str) -> serde_json::Value {
+    // Fast path: return cached result if still valid
+    {
+        let cache = HEALTH_CACHE.read().await;
+        if let Some(ref entry) = *cache {
+            if entry.fetched_at.elapsed() < HEALTH_CACHE_TTL {
+                log::debug!("Returning cached health status for {}", url);
+                return entry.result.clone();
+            }
+        }
+    }
+
+    // Cache miss or stale -- perform the actual HTTP request
+    let result = match API_HTTP_CLIENT
+        .get(&format!("{}/api/health", url))
+        .send()
+        .await
+    {
+        Ok(response) => {
+            if response.status().is_success() {
+                match response.json::<serde_json::Value>().await {
+                    Ok(health_data) => serde_json::json!({
+                        "status": "connected",
+                        "healthy": true,
+                        "url": url,
+                        "health": health_data
+                    }),
+                    Err(_) => serde_json::json!({
+                        "status": "connected",
+                        "healthy": false,
+                        "url": url,
+                        "error": "Invalid health response"
+                    }),
+                }
+            } else {
+                serde_json::json!({
+                    "status": "connected",
+                    "healthy": false,
+                    "url": url,
+                    "error": format!("HTTP {}", response.status())
+                })
+            }
+        }
+        Err(e) => serde_json::json!({
+            "status": "disconnected",
+            "healthy": false,
+            "url": url,
+            "error": e.to_string()
+        }),
+    };
+
+    // Store in cache
+    {
+        let mut cache = HEALTH_CACHE.write().await;
+        *cache = Some(HealthCacheEntry {
+            result: result.clone(),
+            fetched_at: Instant::now(),
+        });
+    }
+
+    result
+}
+
 /// Check if the configured API server is reachable
 #[tauri::command]
 pub async fn check_api_connection(
@@ -410,45 +533,7 @@ pub async fn check_api_connection(
 
     log::info!("Checking API connection to: {}", url);
 
-    let client = reqwest::Client::builder()
-        .danger_accept_invalid_certs(true) // Accept self-signed certs
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
-
-    match client.get(&format!("{}/api/health", url)).send().await {
-        Ok(response) => {
-            if response.status().is_success() {
-                match response.json::<serde_json::Value>().await {
-                    Ok(health_data) => Ok(serde_json::json!({
-                        "status": "connected",
-                        "healthy": true,
-                        "url": url,
-                        "health": health_data
-                    })),
-                    Err(_) => Ok(serde_json::json!({
-                        "status": "connected",
-                        "healthy": false,
-                        "url": url,
-                        "error": "Invalid health response"
-                    })),
-                }
-            } else {
-                Ok(serde_json::json!({
-                    "status": "connected",
-                    "healthy": false,
-                    "url": url,
-                    "error": format!("HTTP {}", response.status())
-                }))
-            }
-        }
-        Err(e) => Ok(serde_json::json!({
-            "status": "disconnected",
-            "healthy": false,
-            "url": url,
-            "error": e.to_string()
-        })),
-    }
+    Ok(fetch_health_status(&url).await)
 }
 
 /// Get current API server status
@@ -457,26 +542,13 @@ pub async fn get_api_status(state: State<'_, ApiServerState>) -> Result<serde_js
     let config = state.connection_config.read().clone();
     let is_local_running_flag = *state.is_local_server_running.lock();
 
-    // Check if server is actually reachable (more reliable than the flag)
+    // Check if server is actually reachable via the cached health helper
     let url = config.url();
-    let is_actually_running = {
-        let client = reqwest::Client::builder()
-            .danger_accept_invalid_certs(true)
-            .timeout(std::time::Duration::from_secs(2))
-            .build()
-            .ok();
-
-        if let Some(client) = client {
-            client
-                .get(&format!("{}/api/health", url))
-                .send()
-                .await
-                .map(|r| r.status().is_success())
-                .unwrap_or(false)
-        } else {
-            false
-        }
-    };
+    let health = fetch_health_status(&url).await;
+    let is_actually_running = health
+        .get("healthy")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     Ok(serde_json::json!({
         "url": url,
@@ -512,15 +584,14 @@ pub async fn connect_to_remote_api(
         using_encryption: false,
     };
 
-    // Test connection
+    // Test connection using the shared client
     let url = config.url();
-    let client = reqwest::Client::builder()
-        .danger_accept_invalid_certs(true)
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
-    match client.get(&format!("{}/api/health", url)).send().await {
+    match API_HTTP_CLIENT
+        .get(&format!("{}/api/health", url))
+        .send()
+        .await
+    {
         Ok(response) if response.status().is_success() => {
             log::info!("Successfully connected to remote API server");
 
