@@ -9,15 +9,30 @@
 ///
 /// This implementation focuses on the .set + .fdt pair format which is most common
 /// and can be read without complex MATLAB struct parsing.
+///
+/// Data loading is lazy for .fdt files - the binary data is only read when requested
+/// via read_chunk(), not at construction time. This keeps memory usage low for large files.
 use super::{FileMetadata, FileReader, FileReaderError, FileResult};
 use matfile::{MatFile, NumericData};
 use rayon::prelude::*;
 use std::fs::File;
-use std::io::{BufReader, Read};
-use std::path::Path;
+use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::path::{Path, PathBuf};
+
+/// Source of EEG data - either loaded in memory or lazy from .fdt file
+enum DataSource {
+    /// Data loaded in memory (for embedded MAT file data)
+    InMemory(Vec<Vec<f64>>),
+    /// Lazy loading from .fdt file (stores path and format info)
+    LazyFdt {
+        fdt_path: PathBuf,
+        num_channels: usize,
+        num_samples: usize,
+    },
+}
 
 pub struct EEGLABFileReader {
-    data: Vec<Vec<f64>>,
+    data_source: DataSource,
     metadata: FileMetadata,
 }
 
@@ -52,15 +67,10 @@ impl EEGLABFileReader {
         // Try to extract metadata from various possible locations
         let eeglab_meta = Self::extract_metadata(&mat_file, path)?;
 
-        // Determine data source and load data
-        let data = Self::load_data(path, &mat_file, &eeglab_meta)?;
+        // Determine data source - use lazy loading for .fdt files
+        let (data_source, num_channels, num_samples) =
+            Self::determine_data_source(path, &mat_file, &eeglab_meta)?;
 
-        let num_samples = if !data.is_empty() {
-            data[0].len()
-        } else {
-            eeglab_meta.pnts
-        };
-        let num_channels = data.len();
         let sample_rate = if eeglab_meta.srate > 0.0 {
             eeglab_meta.srate
         } else {
@@ -92,7 +102,10 @@ impl EEGLABFileReader {
             file_type: "EEGLAB".to_string(),
         };
 
-        Ok(Self { data, metadata })
+        Ok(Self {
+            data_source,
+            metadata,
+        })
     }
 
     /// Check if file is HDF5 format (MATLAB v7.3)
@@ -171,23 +184,39 @@ impl EEGLABFileReader {
         }
     }
 
-    /// Load data from either .fdt file or embedded in .set
-    fn load_data(
+    /// Determine the data source - either lazy .fdt or in-memory from .set
+    /// Returns (DataSource, num_channels, num_samples)
+    fn determine_data_source(
         path: &Path,
         mat_file: &MatFile,
         meta: &EEGLabMetadata,
-    ) -> FileResult<Vec<Vec<f64>>> {
-        // Strategy 1: Try to load from .fdt file (most reliable)
+    ) -> FileResult<(DataSource, usize, usize)> {
+        // Strategy 1: Use lazy loading for .fdt files (most reliable and memory-efficient)
         let fdt_path = path.with_extension("fdt");
         if fdt_path.exists() && meta.nbchan > 0 && meta.pnts > 0 {
-            return Self::load_fdt_data(&fdt_path, meta.nbchan, meta.pnts, meta.trials);
+            // Validate the .fdt file exists and has expected size
+            let total_samples = meta.pnts * meta.trials;
+            Self::validate_fdt_file(&fdt_path, meta.nbchan, total_samples)?;
+
+            return Ok((
+                DataSource::LazyFdt {
+                    fdt_path,
+                    num_channels: meta.nbchan,
+                    num_samples: total_samples,
+                },
+                meta.nbchan,
+                total_samples,
+            ));
         }
 
-        // Strategy 2: Try to find a "data" array in the MAT file
+        // Strategy 2: Try to find a "data" array in the MAT file (load into memory)
         if let Some(data_arr) = mat_file.find_by_name("data") {
             let size = data_arr.size();
             if size.len() >= 2 {
-                return Self::extract_matrix_data(data_arr.data(), size[0], size[1]);
+                let data = Self::extract_matrix_data(data_arr.data(), size[0], size[1])?;
+                let num_channels = data.len();
+                let num_samples = data.first().map(|c| c.len()).unwrap_or(0);
+                return Ok((DataSource::InMemory(data), num_channels, num_samples));
             }
         }
 
@@ -199,7 +228,9 @@ impl EEGLABFileReader {
                 // Likely channels x samples
                 if let Ok(data) = Self::extract_matrix_data(arr.data(), size[0], size[1]) {
                     if !data.is_empty() {
-                        return Ok(data);
+                        let num_channels = data.len();
+                        let num_samples = data.first().map(|c| c.len()).unwrap_or(0);
+                        return Ok((DataSource::InMemory(data), num_channels, num_samples));
                     }
                 }
             }
@@ -216,31 +247,58 @@ impl EEGLABFileReader {
         ))
     }
 
-    /// Load data from .fdt binary file (float32 format, little-endian)
-    fn load_fdt_data(
+    /// Validate that .fdt file exists and has expected size
+    fn validate_fdt_file(
         fdt_path: &Path,
         num_channels: usize,
-        num_points: usize,
-        num_trials: usize,
-    ) -> FileResult<Vec<Vec<f64>>> {
+        total_samples: usize,
+    ) -> FileResult<()> {
         let file = File::open(fdt_path)?;
         let file_size = file.metadata()?.len();
-        let total_samples = num_points * num_trials;
         let total_values = num_channels * total_samples;
         let expected_size = (total_values * 4) as u64; // float32 = 4 bytes
 
-        // Validate file size
         if file_size < expected_size {
             return Err(FileReaderError::InvalidData(format!(
-                ".fdt file size ({} bytes) is smaller than expected ({} bytes) for {} channels × {} samples × {} trials",
-                file_size, expected_size, num_channels, num_points, num_trials
+                ".fdt file size ({} bytes) is smaller than expected ({} bytes) for {} channels × {} samples",
+                file_size, expected_size, num_channels, total_samples
             )));
         }
+        Ok(())
+    }
 
+    /// Read a chunk of data from .fdt binary file (float32 format, little-endian)
+    /// Only reads the requested sample range, seeking to the correct position.
+    fn read_fdt_chunk(
+        fdt_path: &Path,
+        num_channels: usize,
+        total_samples: usize,
+        start_sample: usize,
+        num_samples_to_read: usize,
+    ) -> FileResult<Vec<Vec<f64>>> {
+        let file = File::open(fdt_path)?;
         let mut reader = BufReader::new(file);
 
-        // Read all bytes and convert to float32
-        let mut bytes = vec![0u8; total_values * 4];
+        // Calculate actual samples to read (clamp to file bounds)
+        let end_sample = (start_sample + num_samples_to_read).min(total_samples);
+        let actual_samples = end_sample.saturating_sub(start_sample);
+
+        if actual_samples == 0 {
+            return Ok(vec![Vec::new(); num_channels]);
+        }
+
+        // EEGLAB stores data as [channels, timepoints] in column-major (Fortran) order
+        // So data layout is: ch0_t0, ch1_t0, ch2_t0, ..., ch0_t1, ch1_t1, ch2_t1, ...
+        // Each "frame" contains all channels for one time point
+        let frame_size_bytes = num_channels * 4; // 4 bytes per float32
+
+        // Seek to the start sample
+        let start_offset = (start_sample * frame_size_bytes) as u64;
+        reader.seek(SeekFrom::Start(start_offset))?;
+
+        // Read only the required bytes
+        let bytes_to_read = actual_samples * frame_size_bytes;
+        let mut bytes = vec![0u8; bytes_to_read];
         reader.read_exact(&mut bytes)?;
 
         // Convert bytes to f32 (little-endian)
@@ -250,13 +308,11 @@ impl EEGLABFileReader {
             .collect();
 
         // Reorganize into channels using parallel processing
-        // EEGLAB stores data as [channels, timepoints] in column-major (Fortran) order
-        // So data layout is: ch0_t0, ch1_t0, ch2_t0, ..., ch0_t1, ch1_t1, ch2_t1, ...
         let channels: Vec<Vec<f64>> = (0..num_channels)
             .into_par_iter()
             .map(|ch_idx| {
-                let mut channel_data = Vec::with_capacity(total_samples);
-                for sample_idx in 0..total_samples {
+                let mut channel_data = Vec::with_capacity(actual_samples);
+                for sample_idx in 0..actual_samples {
                     let idx = sample_idx * num_channels + ch_idx;
                     if idx < raw_data.len() {
                         channel_data.push(raw_data[idx] as f64);
@@ -267,6 +323,15 @@ impl EEGLABFileReader {
             .collect();
 
         Ok(channels)
+    }
+
+    /// Load all data from .fdt file (used for caching when needed)
+    fn load_fdt_data_full(
+        fdt_path: &Path,
+        num_channels: usize,
+        total_samples: usize,
+    ) -> FileResult<Vec<Vec<f64>>> {
+        Self::read_fdt_chunk(fdt_path, num_channels, total_samples, 0, total_samples)
     }
 
     /// Extract matrix data from NumericData
@@ -319,6 +384,10 @@ impl FileReader for EEGLABFileReader {
         Ok(self.metadata.clone())
     }
 
+    fn metadata_ref(&self) -> Option<&FileMetadata> {
+        Some(&self.metadata)
+    }
+
     fn read_chunk(
         &self,
         start_sample: usize,
@@ -337,25 +406,52 @@ impl FileReader for EEGLABFileReader {
             (0..all_channels.len()).collect()
         };
 
-        // Extract selected channels from the data matrix
-        let mut result = Vec::with_capacity(channel_indices.len());
+        // Get the raw data based on source type
+        match &self.data_source {
+            DataSource::InMemory(data) => {
+                // Extract selected channels from the in-memory data matrix
+                let mut result = Vec::with_capacity(channel_indices.len());
 
-        for &ch_idx in &channel_indices {
-            if ch_idx >= self.data.len() {
-                continue;
+                for &ch_idx in &channel_indices {
+                    if ch_idx >= data.len() {
+                        continue;
+                    }
+
+                    let channel_data = &data[ch_idx];
+                    let end_sample = (start_sample + num_samples).min(channel_data.len());
+
+                    if start_sample < channel_data.len() {
+                        result.push(channel_data[start_sample..end_sample].to_vec());
+                    } else {
+                        result.push(Vec::new());
+                    }
+                }
+
+                Ok(result)
             }
+            DataSource::LazyFdt {
+                fdt_path,
+                num_channels,
+                num_samples: total_samples,
+            } => {
+                // Read chunk directly from .fdt file
+                let all_data = Self::read_fdt_chunk(
+                    fdt_path,
+                    *num_channels,
+                    *total_samples,
+                    start_sample,
+                    num_samples,
+                )?;
 
-            let channel_data = &self.data[ch_idx];
-            let end_sample = (start_sample + num_samples).min(channel_data.len());
+                // Filter to selected channels
+                let result: Vec<Vec<f64>> = channel_indices
+                    .iter()
+                    .filter_map(|&ch_idx| all_data.get(ch_idx).cloned())
+                    .collect();
 
-            if start_sample < channel_data.len() {
-                result.push(channel_data[start_sample..end_sample].to_vec());
-            } else {
-                result.push(Vec::new());
+                Ok(result)
             }
         }
-
-        Ok(result)
     }
 
     fn read_overview(
@@ -369,7 +465,8 @@ impl FileReader for EEGLABFileReader {
         let decimation = (total_samples as f64 / max_points as f64).ceil() as usize;
         let decimation = decimation.max(1);
 
-        // Read full data and decimate
+        // For lazy loading, we can read the full data or use strided reads
+        // For now, read full data and decimate (still better than loading at construction)
         let full_data = self.read_chunk(0, total_samples, channels)?;
 
         // Parallelize channel decimation for better performance

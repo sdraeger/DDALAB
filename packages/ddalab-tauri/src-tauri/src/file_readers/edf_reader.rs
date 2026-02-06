@@ -1,7 +1,6 @@
 use super::{parse_edf_datetime, FileMetadata, FileReader, FileReaderError, FileResult};
 use crate::edf::EDFReader as CoreEDFReader;
 use parking_lot::Mutex;
-use rayon::prelude::*;
 use std::collections::HashMap;
 /// EDF (European Data Format) File Reader
 ///
@@ -18,12 +17,17 @@ pub struct EDFFileReader {
     /// Cached channel name to index map for O(1) lookups.
     /// Built once on file open and reused for all read_chunk calls.
     channel_map: HashMap<String, usize>,
+    /// Cached file size from construction to avoid repeated syscalls
+    cached_file_size: u64,
 }
 
 impl EDFFileReader {
     pub fn new(path: &Path) -> FileResult<Self> {
         let edf = CoreEDFReader::new(path)
             .map_err(|e| FileReaderError::ParseError(format!("Failed to open EDF: {}", e)))?;
+
+        // Cache file size at construction to avoid repeated syscalls
+        let cached_file_size = std::fs::metadata(path)?.len();
 
         // Build channel map once at construction time
         let channel_map: HashMap<String, usize> = edf
@@ -37,6 +41,7 @@ impl EDFFileReader {
             edf: Mutex::new(edf),
             path: path.to_string_lossy().to_string(),
             channel_map,
+            cached_file_size,
         })
     }
 }
@@ -88,7 +93,7 @@ impl FileReader for EDFFileReader {
                 .and_then(|n| n.to_str())
                 .unwrap_or("unknown")
                 .to_string(),
-            file_size: std::fs::metadata(&self.path)?.len(),
+            file_size: self.cached_file_size,
             sample_rate,
             num_channels,
             num_samples,
@@ -157,23 +162,79 @@ impl FileReader for EDFFileReader {
         max_points: usize,
         channels: Option<&[String]>,
     ) -> FileResult<Vec<Vec<f64>>> {
-        let metadata = self.metadata()?;
-        let total_samples = metadata.num_samples;
+        let mut edf = self.edf.lock();
+        let signal_headers = &edf.signal_headers;
 
-        // Calculate decimation factor
+        if signal_headers.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let num_records = edf.header.num_data_records as usize;
+        let samples_per_record = signal_headers[0].num_samples_per_record;
+        let total_samples = num_records * samples_per_record;
+
+        // Determine channel indices to read
+        let channel_indices: Vec<usize> = if let Some(selected) = channels {
+            selected
+                .iter()
+                .filter_map(|ch| self.channel_map.get(ch).copied())
+                .collect()
+        } else {
+            (0..signal_headers.len()).collect()
+        };
+
+        // Calculate decimation factor based on total samples vs max_points
         let decimation = (total_samples as f64 / max_points as f64).ceil() as usize;
         let decimation = decimation.max(1);
 
-        // Read full data and decimate
-        let full_data = self.read_chunk(0, total_samples, channels)?;
+        // Calculate record step: how many records to skip between reads
+        // If decimation <= samples_per_record, we read every record but subsample within
+        // If decimation > samples_per_record, we skip entire records
+        let record_step = (decimation / samples_per_record).max(1);
+        let sample_step_in_record = if record_step == 1 {
+            decimation.min(samples_per_record)
+        } else {
+            1
+        };
 
-        // Parallelize channel decimation for better performance
-        let decimated: Vec<Vec<f64>> = full_data
-            .into_par_iter()
-            .map(|channel_data| channel_data.iter().step_by(decimation).copied().collect())
+        // Pre-calculate gain and offset for selected channels
+        let gains_offsets: Vec<(f64, f64)> = channel_indices
+            .iter()
+            .map(|&idx| {
+                let sh = &signal_headers[idx];
+                (sh.gain(), sh.offset())
+            })
             .collect();
 
-        Ok(decimated)
+        // Initialize result vectors
+        let mut result: Vec<Vec<f64>> = channel_indices.iter().map(|_| Vec::new()).collect();
+
+        // Read records at decimated positions
+        let mut record_idx = 0;
+        while record_idx < num_records {
+            let record = edf.read_record(record_idx).map_err(|e| {
+                FileReaderError::ParseError(format!("Failed to read record {}: {}", record_idx, e))
+            })?;
+
+            // Extract samples from selected channels with subsampling
+            for (out_idx, &ch_idx) in channel_indices.iter().enumerate() {
+                let (gain, offset) = gains_offsets[out_idx];
+                let channel_samples = &record[ch_idx];
+
+                // Take samples at step intervals within this record
+                let mut sample_idx = 0;
+                while sample_idx < channel_samples.len() {
+                    let digital = channel_samples[sample_idx];
+                    let physical = gain * digital as f64 + offset;
+                    result[out_idx].push(physical);
+                    sample_idx += sample_step_in_record;
+                }
+            }
+
+            record_idx += record_step;
+        }
+
+        Ok(result)
     }
 
     fn format_name(&self) -> &str {

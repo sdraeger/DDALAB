@@ -30,6 +30,8 @@ struct XDFStream {
     stream_type: String,
     channel_count: usize,
     channel_labels: Vec<String>,
+    /// Cache for O(1) channel name to index lookups
+    channel_index_map: HashMap<String, usize>,
     nominal_srate: f64,
     samples: Vec<XDFSample>,
 }
@@ -165,12 +167,21 @@ impl XDFFileReader {
         for (stream_id, header) in stream_headers {
             let samples = stream_samples.remove(&stream_id).unwrap_or_default();
 
+            // Build channel index map for O(1) lookups
+            let channel_index_map: HashMap<String, usize> = header
+                .channel_labels
+                .iter()
+                .enumerate()
+                .map(|(idx, label)| (label.clone(), idx))
+                .collect();
+
             self.streams.push(XDFStream {
                 stream_id,
                 name: header.name,
                 stream_type: header.stream_type,
                 channel_count: header.channel_count,
                 channel_labels: header.channel_labels,
+                channel_index_map,
                 nominal_srate: header.nominal_srate,
                 samples,
             });
@@ -430,11 +441,11 @@ impl FileReader for XDFFileReader {
     ) -> FileResult<Vec<Vec<f64>>> {
         let stream = self.get_selected_stream()?;
 
-        // Determine channel indices
+        // Determine channel indices using cached HashMap for O(1) lookups
         let channel_indices: Vec<usize> = if let Some(selected) = channels {
             selected
                 .iter()
-                .filter_map(|name| stream.channel_labels.iter().position(|n| n == name))
+                .filter_map(|name| stream.channel_index_map.get(name).copied())
                 .collect()
         } else {
             (0..stream.channel_count).collect()
