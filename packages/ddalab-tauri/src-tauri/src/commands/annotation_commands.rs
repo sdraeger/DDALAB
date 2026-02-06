@@ -1006,7 +1006,7 @@ pub async fn import_annotations(
                 visible_in_plots: vec![],
             };
             annotation_db
-                .save_annotation(&target_file_path, None, &annotation)
+                .save_annotation(&target_file_path, None, &annotation, None)
                 .map_err(|e| format!("Failed to save annotation: {}", e))?;
             imported_count += 1;
             log::info!(
@@ -1068,7 +1068,7 @@ pub async fn import_annotations(
                     visible_in_plots: vec![],
                 };
                 annotation_db
-                    .save_annotation(&target_file_path, Some(&channel), &annotation)
+                    .save_annotation(&target_file_path, Some(&channel), &annotation, None)
                     .map_err(|e| format!("Failed to save annotation: {}", e))?;
                 imported_count += 1;
                 log::info!(
@@ -1211,7 +1211,7 @@ pub async fn import_selected_annotations(
             };
             // KEY FIX: Save to the annotation's original source file, not the target file
             annotation_db
-                .save_annotation(&source_file, channel.as_deref(), &annotation)
+                .save_annotation(&source_file, channel.as_deref(), &annotation, None)
                 .map_err(|e| format!("Failed to save annotation to {}: {}", source_file, e))?;
             imported_count += 1;
             log::info!(

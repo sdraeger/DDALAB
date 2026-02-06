@@ -1,4 +1,12 @@
 use serde::{Deserialize, Serialize};
+use std::sync::LazyLock;
+
+static UPDATE_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+    reqwest::Client::builder()
+        .user_agent("DDALAB")
+        .build()
+        .expect("Failed to create HTTP client")
+});
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UpdateInfo {
@@ -18,12 +26,7 @@ pub async fn check_for_updates() -> Result<UpdateInfo, String> {
     log::info!("Checking for updates. Current version: {}", current_version);
 
     // Fetch latest release from GitHub API
-    let client = reqwest::Client::builder()
-        .user_agent("DDALAB")
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
-
-    let response = client
+    let response = UPDATE_CLIENT
         .get("https://api.github.com/repos/sdraeger/DDALAB/releases/latest")
         .send()
         .await

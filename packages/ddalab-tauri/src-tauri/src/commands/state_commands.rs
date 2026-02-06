@@ -106,8 +106,7 @@ pub async fn get_window_state(
     state_manager: State<'_, AppStateManager>,
     window_id: String,
 ) -> Result<Option<WindowState>, String> {
-    let ui_state = state_manager.get_ui_state();
-    Ok(ui_state.windows.get(&window_id).cloned())
+    Ok(state_manager.get_window_state(&window_id))
 }
 
 #[tauri::command]
@@ -203,69 +202,70 @@ pub async fn get_saved_state(
     state_manager: State<'_, AppStateManager>,
 ) -> Result<serde_json::Value, String> {
     // Build a complete AppState for frontend compatibility
-    let ui_state = state_manager.get_ui_state();
-
-    // Debug: Log loaded values
-    if let Some(plot_filters) = ui_state.ui_extras.get("plot_filters") {
-        if let Some(ch) = plot_filters.get("chartHeight") {
-            log::info!("[get_saved_state] Loaded chartHeight: {}", ch);
+    // Use with_ui_state to avoid cloning the entire UIState
+    let state_json = state_manager.with_ui_state(|ui_state| {
+        // Debug: Log loaded values
+        if let Some(plot_filters) = ui_state.ui_extras.get("plot_filters") {
+            if let Some(ch) = plot_filters.get("chartHeight") {
+                log::info!("[get_saved_state] Loaded chartHeight: {}", ch);
+            }
         }
-    }
-    if let Some(sw) = ui_state.ui_extras.get("sidebarWidth") {
-        log::info!("[get_saved_state] Loaded sidebarWidth: {}", sw);
-    }
-    if let Some(pw) = ui_state.ui_extras.get("popoutWindows") {
-        log::info!(
-            "[get_saved_state] Loaded popoutWindows count: {}",
-            pw.as_array().map(|a| a.len()).unwrap_or(0)
-        );
-    }
+        if let Some(sw) = ui_state.ui_extras.get("sidebarWidth") {
+            log::info!("[get_saved_state] Loaded sidebarWidth: {}", sw);
+        }
+        if let Some(pw) = ui_state.ui_extras.get("popoutWindows") {
+            log::info!(
+                "[get_saved_state] Loaded popoutWindows count: {}",
+                pw.as_array().map(|a| a.len()).unwrap_or(0)
+            );
+        }
 
-    // Get saved plot filters from ui_extras, or use empty object as default
-    let plot_filters = ui_state
-        .ui_extras
-        .get("plot_filters")
-        .cloned()
-        .unwrap_or_else(|| serde_json::json!({}));
-    let plot_preprocessing = ui_state.ui_extras.get("plot_preprocessing").cloned();
+        // Get saved plot filters from ui_extras, or use empty object as default
+        let plot_filters = ui_state
+            .ui_extras
+            .get("plot_filters")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}));
+        let plot_preprocessing = ui_state.ui_extras.get("plot_preprocessing").cloned();
 
-    // Create a JSON object with all expected fields (using snake_case for TypeScript compatibility)
-    let state_json = serde_json::json!({
-        "version": ui_state.version,
-        "active_tab": ui_state.active_tab,
-        "sidebar_collapsed": ui_state.sidebar_collapsed,
-        "panel_sizes": ui_state.panel_sizes,
-        "file_manager": {
-            "selected_file": ui_state.last_selected_file,
-            "current_path": ui_state.file_manager.current_path,
-            "selected_channels": ui_state.file_manager.selected_channels,
-            "search_query": ui_state.file_manager.search_query,
-            "sort_by": ui_state.file_manager.sort_by,
-            "sort_order": ui_state.file_manager.sort_order,
-            "show_hidden": ui_state.file_manager.show_hidden,
-        },
-        "plot": {
-            "visible_channels": [],
-            "time_range": [0.0, 30.0],
-            "amplitude_range": [-100.0, 100.0],
-            "zoom_level": 1.0,
-            "annotations": [],
-            "color_scheme": "default",
-            "plot_mode": "raw",
-            "filters": plot_filters,
-            "preprocessing": plot_preprocessing,
-        },
-        "dda": {
-            "selected_variants": ["single_timeseries"],
-            "parameters": {},
-            "last_analysis_id": null,
-            "current_analysis": null,
-            "analysis_history": [],
-            "analysis_parameters": {},
-            "running": false,
-        },
-        "ui": ui_state.ui_extras,
-        "windows": ui_state.windows,
+        // Create a JSON object with all expected fields (using snake_case for TypeScript compatibility)
+        serde_json::json!({
+            "version": ui_state.version,
+            "active_tab": ui_state.active_tab,
+            "sidebar_collapsed": ui_state.sidebar_collapsed,
+            "panel_sizes": ui_state.panel_sizes,
+            "file_manager": {
+                "selected_file": ui_state.last_selected_file,
+                "current_path": ui_state.file_manager.current_path,
+                "selected_channels": ui_state.file_manager.selected_channels,
+                "search_query": ui_state.file_manager.search_query,
+                "sort_by": ui_state.file_manager.sort_by,
+                "sort_order": ui_state.file_manager.sort_order,
+                "show_hidden": ui_state.file_manager.show_hidden,
+            },
+            "plot": {
+                "visible_channels": [],
+                "time_range": [0.0, 30.0],
+                "amplitude_range": [-100.0, 100.0],
+                "zoom_level": 1.0,
+                "annotations": [],
+                "color_scheme": "default",
+                "plot_mode": "raw",
+                "filters": plot_filters,
+                "preprocessing": plot_preprocessing,
+            },
+            "dda": {
+                "selected_variants": ["single_timeseries"],
+                "parameters": {},
+                "last_analysis_id": null,
+                "current_analysis": null,
+                "analysis_history": [],
+                "analysis_parameters": {},
+                "running": false,
+            },
+            "ui": ui_state.ui_extras.clone(),
+            "windows": ui_state.windows.clone(),
+        })
     });
 
     log::debug!("converted UI state to AppState JSON successfully");
@@ -356,18 +356,10 @@ pub async fn save_plot_data(
     analysis_id: Option<String>,
 ) -> Result<(), String> {
     if let Some(id) = analysis_id {
-        // Load the analysis, update plot_data, and save it back
-        if let Some(mut analysis) = state_manager
+        state_manager
             .get_analysis_db()
-            .get_analysis(&id)
-            .map_err(|e| e.to_string())?
-        {
-            analysis.plot_data = Some(plot_data);
-            state_manager
-                .get_analysis_db()
-                .save_analysis(&analysis)
-                .map_err(|e| e.to_string())?;
-        }
+            .update_plot_data(&id, &plot_data)
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -390,7 +382,7 @@ pub async fn save_annotation(
     );
     state_manager
         .get_annotation_db()
-        .save_annotation(&file_path, channel.as_deref(), &annotation)
+        .save_annotation(&file_path, channel.as_deref(), &annotation, None)
         .map_err(|e| e.to_string())
 }
 
@@ -724,6 +716,25 @@ pub async fn save_file_state_registry(
     state_manager
         .get_file_state_db()
         .save_registry(&registry)
+        .map_err(|e| e.to_string())
+}
+
+/// Save only the lightweight registry metadata (active file paths)
+/// without re-serializing all file states
+#[tauri::command]
+pub async fn save_file_state_registry_metadata(
+    state_manager: State<'_, AppStateManager>,
+    active_file_path: Option<String>,
+    last_active_file_path: Option<String>,
+) -> Result<(), String> {
+    log::debug!("save_file_state_registry_metadata called");
+
+    state_manager
+        .get_file_state_db()
+        .save_registry_metadata(
+            active_file_path.as_deref(),
+            last_active_file_path.as_deref(),
+        )
         .map_err(|e| e.to_string())
 }
 

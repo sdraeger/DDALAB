@@ -30,6 +30,12 @@ pub struct PhaseSpaceResult {
 /// Creates points (x(t), x(t-τ), x(t-2τ)) for attractor reconstruction
 #[tauri::command]
 pub async fn compute_phase_space(request: PhaseSpaceRequest) -> Result<PhaseSpaceResult, String> {
+    tokio::task::spawn_blocking(move || compute_phase_space_blocking(request))
+        .await
+        .map_err(|e| format!("Task join error: {}", e))?
+}
+
+fn compute_phase_space_blocking(request: PhaseSpaceRequest) -> Result<PhaseSpaceResult, String> {
     let path = Path::new(&request.file_path);
 
     if !path.exists() {
@@ -45,7 +51,6 @@ pub async fn compute_phase_space(request: PhaseSpaceRequest) -> Result<PhaseSpac
         ));
     }
 
-    // Create reader and get metadata
     let reader = FileReaderFactory::create_reader(path)
         .map_err(|e| format!("Failed to open file: {}", e))?;
 
@@ -60,7 +65,6 @@ pub async fn compute_phase_space(request: PhaseSpaceRequest) -> Result<PhaseSpac
         ));
     }
 
-    // Get the channel label
     let channel_label = metadata
         .channels
         .get(request.channel_index)
@@ -71,7 +75,6 @@ pub async fn compute_phase_space(request: PhaseSpaceRequest) -> Result<PhaseSpac
     let total_samples = metadata.num_samples;
     let delay = request.delay;
 
-    // Calculate sample range
     let start = request.start_sample.unwrap_or(0);
     let end = request
         .end_sample
@@ -84,7 +87,6 @@ pub async fn compute_phase_space(request: PhaseSpaceRequest) -> Result<PhaseSpac
 
     let num_samples = end - start;
 
-    // Need at least 2*delay + 1 samples for one point
     if num_samples < 2 * delay + 1 {
         return Err(format!(
             "Not enough samples for delay embedding. Need at least {} samples, have {}",
@@ -93,7 +95,6 @@ pub async fn compute_phase_space(request: PhaseSpaceRequest) -> Result<PhaseSpac
         ));
     }
 
-    // Read only the channel we need
     let channel_names = vec![channel_label.clone()];
     let data = reader
         .read_chunk(start, num_samples, Some(&channel_names))
@@ -105,7 +106,6 @@ pub async fn compute_phase_space(request: PhaseSpaceRequest) -> Result<PhaseSpac
 
     let samples = &data[0];
 
-    // Calculate maximum possible points
     let max_possible_points = samples.len().saturating_sub(2 * delay);
     if max_possible_points == 0 {
         return Err("Not enough data points for phase space reconstruction".to_string());
@@ -113,15 +113,12 @@ pub async fn compute_phase_space(request: PhaseSpaceRequest) -> Result<PhaseSpac
 
     let target_points = request.max_points.unwrap_or(10000).min(max_possible_points);
 
-    // Compute downsampling stride if needed
     let stride = if target_points < max_possible_points {
         max_possible_points / target_points
     } else {
         1
     };
 
-    // Compute phase space embedding: (x(t), x(t-τ), x(t-2τ))
-    // We iterate from 2*delay onwards so we can look back
     let mut points: Vec<[f64; 3]> = Vec::with_capacity(target_points);
 
     for i in (2 * delay..samples.len()).step_by(stride.max(1)) {

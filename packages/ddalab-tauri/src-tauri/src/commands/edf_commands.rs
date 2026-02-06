@@ -9,8 +9,9 @@ use ddalab_tauri::edf::EDFReader;
 use ddalab_tauri::file_readers::{
     global_cache, FileReaderFactory, LazyReaderFactory, WindowRequest,
 };
-use ddalab_tauri::signal_processing::{preprocess_batch, PreprocessingConfig};
+use ddalab_tauri::signal_processing::{preprocess_batch_owned, PreprocessingConfig};
 use ddalab_tauri::text_reader::TextFileReader;
+use futures_util::future;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -72,6 +73,44 @@ pub struct GetChunkParams {
     pub channels: Option<Vec<String>>,
     #[serde(flatten)]
     pub preprocessing: Option<PreprocessingParams>,
+}
+
+/// Single chunk request within a batch
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchChunkRequest {
+    pub chunk_start: usize,
+    pub chunk_size: usize,
+    pub channels: Option<Vec<String>>,
+    #[serde(flatten)]
+    pub preprocessing: Option<PreprocessingParams>,
+}
+
+/// Parameters for batched chunk fetching (multiple chunks from same file)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetChunksBatchParams {
+    pub file_path: String,
+    pub requests: Vec<BatchChunkRequest>,
+}
+
+/// Response for a single chunk in a batch
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchChunkResult {
+    pub index: usize,
+    pub success: bool,
+    pub data: Option<ChunkData>,
+    pub error: Option<String>,
+}
+
+/// Response for batched chunk fetching
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetChunksBatchResponse {
+    pub results: Vec<BatchChunkResult>,
+    pub total_requested: usize,
+    pub total_succeeded: usize,
 }
 
 /// Parameters for get_edf_overview command
@@ -281,13 +320,243 @@ pub async fn get_edf_chunk(
         chunk
     };
 
-    let chunk_arc = Arc::new(processed_chunk.clone());
+    let chunk_arc = Arc::new(processed_chunk);
     {
         let mut chunk_cache = state.chunks_cache.write();
-        chunk_cache.insert_arc(chunk_key, chunk_arc);
+        chunk_cache.insert_arc(chunk_key, Arc::clone(&chunk_arc));
     }
 
-    Ok(processed_chunk)
+    Ok((*chunk_arc).clone())
+}
+
+/// Get multiple chunks in a single IPC call (batched for efficiency)
+/// This reduces IPC overhead when fetching multiple contiguous or nearby chunks
+#[tauri::command]
+pub async fn get_edf_chunks_batch(
+    state: State<'_, Arc<ApiState>>,
+    params: GetChunksBatchParams,
+) -> Result<GetChunksBatchResponse, String> {
+    let file_path = params.file_path.clone();
+    let path = std::path::Path::new(&file_path);
+
+    check_git_annex_symlink(path).map_err(|e| format!("{:?}", e))?;
+
+    if !path.exists() {
+        return Err(format!("File not found: {}", file_path));
+    }
+
+    let total_requested = params.requests.len();
+    let mut results: Vec<BatchChunkResult> = Vec::with_capacity(total_requested);
+    let mut total_succeeded = 0;
+
+    // Check cache for all requests first
+    let mut cache_hits: Vec<(usize, ChunkData)> = Vec::new();
+    let mut cache_misses: Vec<(usize, &BatchChunkRequest)> = Vec::new();
+
+    {
+        let chunk_cache = state.chunks_cache.read();
+        for (index, request) in params.requests.iter().enumerate() {
+            let preprocessing = request.preprocessing.clone().unwrap_or_default();
+            let base_key = if let Some(ref channels) = request.channels {
+                format!(
+                    "{}:{}:{}:{}",
+                    file_path,
+                    request.chunk_start,
+                    request.chunk_size,
+                    channels.join(",")
+                )
+            } else {
+                format!(
+                    "{}:{}:{}",
+                    file_path, request.chunk_start, request.chunk_size
+                )
+            };
+            let chunk_key = format!("{}{}", base_key, preprocessing.cache_key_suffix());
+
+            if let Some(chunk) = chunk_cache.get(&chunk_key) {
+                cache_hits.push((index, (*chunk).clone()));
+            } else {
+                cache_misses.push((index, request));
+            }
+        }
+    }
+
+    log::info!(
+        "[BATCH] Processing {} requests: {} cache hits, {} cache misses",
+        total_requested,
+        cache_hits.len(),
+        cache_misses.len()
+    );
+
+    // Process cache hits
+    for (index, chunk) in cache_hits {
+        results.push(BatchChunkResult {
+            index,
+            success: true,
+            data: Some(chunk),
+            error: None,
+        });
+        total_succeeded += 1;
+    }
+
+    // Process cache misses in parallel using tokio tasks
+    if !cache_misses.is_empty() {
+        let file_path_arc = Arc::new(file_path.clone());
+        let state_arc = Arc::clone(&state);
+
+        let futures: Vec<_> = cache_misses
+            .into_iter()
+            .map(|(index, request)| {
+                let file_path = Arc::clone(&file_path_arc);
+                let state = Arc::clone(&state_arc);
+                let request = request.clone();
+
+                async move {
+                    let preprocessing = request.preprocessing.clone().unwrap_or_default();
+                    let chunk_start = request.chunk_start;
+                    let chunk_size = request.chunk_size;
+                    let selected_channels = request.channels.clone();
+
+                    // Generate cache key
+                    let base_key = if let Some(ref channels) = selected_channels {
+                        format!(
+                            "{}:{}:{}:{}",
+                            file_path,
+                            chunk_start,
+                            chunk_size,
+                            channels.join(",")
+                        )
+                    } else {
+                        format!("{}:{}:{}", file_path, chunk_start, chunk_size)
+                    };
+                    let chunk_key = format!("{}{}", base_key, preprocessing.cache_key_suffix());
+
+                    // Read chunk
+                    let file_path_clone = (*file_path).clone();
+                    let chunk_result =
+                        tokio::task::spawn_blocking(move || -> Result<ChunkData, String> {
+                            let path = std::path::Path::new(&file_path_clone);
+
+                            match FileType::from_path(path) {
+                                FileType::CSV => {
+                                    let reader = TextFileReader::from_csv(path)?;
+                                    read_text_file_chunk(
+                                        reader,
+                                        &file_path_clone,
+                                        chunk_start as f64,
+                                        chunk_size as f64,
+                                        true,
+                                        selected_channels,
+                                    )
+                                }
+                                FileType::ASCII => {
+                                    let reader = TextFileReader::from_ascii(path)?;
+                                    read_text_file_chunk(
+                                        reader,
+                                        &file_path_clone,
+                                        chunk_start as f64,
+                                        chunk_size as f64,
+                                        true,
+                                        selected_channels,
+                                    )
+                                }
+                                FileType::EDF => read_edf_file_chunk(
+                                    path,
+                                    &file_path_clone,
+                                    chunk_start as f64,
+                                    chunk_size as f64,
+                                    true,
+                                    selected_channels,
+                                ),
+                                FileType::FIF | FileType::BrainVision | FileType::EEGLAB => {
+                                    read_chunk_with_file_reader(
+                                        path,
+                                        &file_path_clone,
+                                        chunk_start as f64,
+                                        chunk_size as f64,
+                                        true,
+                                        selected_channels,
+                                    )
+                                }
+                                FileType::MEG => Err(format!(
+                                    "MEG files are not yet supported for analysis: {}",
+                                    file_path_clone
+                                )),
+                                FileType::Unknown => {
+                                    Err(format!("Unknown file type: {}", file_path_clone))
+                                }
+                            }
+                        })
+                        .await;
+
+                    match chunk_result {
+                        Ok(Ok(chunk)) => {
+                            // Apply preprocessing if needed
+                            let processed_chunk = if preprocessing.is_enabled() {
+                                match apply_preprocessing_to_chunk(chunk, &preprocessing) {
+                                    Ok(c) => c,
+                                    Err(e) => return (index, Err(e)),
+                                }
+                            } else {
+                                chunk
+                            };
+
+                            // Cache the result
+                            let chunk_arc = Arc::new(processed_chunk.clone());
+                            {
+                                let mut chunk_cache = state.chunks_cache.write();
+                                chunk_cache.insert_arc(chunk_key, chunk_arc);
+                            }
+
+                            (index, Ok(processed_chunk))
+                        }
+                        Ok(Err(e)) => (index, Err(e)),
+                        Err(e) => (index, Err(format!("Task join error: {}", e))),
+                    }
+                }
+            })
+            .collect();
+
+        // Execute all futures concurrently
+        let batch_results = future::join_all(futures).await;
+
+        for (index, result) in batch_results {
+            match result {
+                Ok(chunk) => {
+                    results.push(BatchChunkResult {
+                        index,
+                        success: true,
+                        data: Some(chunk),
+                        error: None,
+                    });
+                    total_succeeded += 1;
+                }
+                Err(e) => {
+                    results.push(BatchChunkResult {
+                        index,
+                        success: false,
+                        data: None,
+                        error: Some(e),
+                    });
+                }
+            }
+        }
+    }
+
+    // Sort results by index to maintain request order
+    results.sort_by_key(|r| r.index);
+
+    log::info!(
+        "[BATCH] Completed: {}/{} succeeded",
+        total_succeeded,
+        total_requested
+    );
+
+    Ok(GetChunksBatchResponse {
+        results,
+        total_requested,
+        total_succeeded,
+    })
 }
 
 /// Get downsampled overview data for file visualization (minimap)
@@ -397,13 +666,13 @@ pub async fn get_edf_overview(
     .map_err(|e| format!("Task join error: {}", e))?
     .map_err(|e| format!("Failed to generate overview: {}", e))?;
 
-    let chunk_arc = Arc::new(chunk.clone());
+    let chunk_arc = Arc::new(chunk);
     {
         let mut chunk_cache = state.chunks_cache.write();
-        chunk_cache.insert_arc(cache_key, chunk_arc);
+        chunk_cache.insert_arc(cache_key, Arc::clone(&chunk_arc));
     }
 
-    Ok(chunk)
+    Ok((*chunk_arc).clone())
 }
 
 /// Get overview computation progress
@@ -690,7 +959,7 @@ fn read_text_file_chunk(
             (
                 (0..num_fallback_channels).collect(),
                 all_channel_labels
-                    .par_iter()
+                    .iter()
                     .take(num_fallback_channels)
                     .cloned()
                     .collect(),
@@ -757,7 +1026,7 @@ fn generate_edf_file_overview(
 
     if let Some(ref selected) = selected_channels {
         let filtered_channels: Vec<usize> = selected
-            .par_iter()
+            .iter()
             .filter_map(|name| {
                 edf.signal_headers
                     .iter()
@@ -771,14 +1040,14 @@ fn generate_edf_file_overview(
             channels_to_read = (0..num_fallback_channels).collect();
             channel_labels = edf
                 .signal_headers
-                .par_iter()
+                .iter()
                 .take(num_fallback_channels)
                 .map(|h| h.label.trim().to_string())
                 .collect();
         } else {
             channels_to_read = filtered_channels;
             channel_labels = channels_to_read
-                .par_iter()
+                .iter()
                 .map(|&idx| edf.signal_headers[idx].label.trim().to_string())
                 .collect();
         }
@@ -786,7 +1055,7 @@ fn generate_edf_file_overview(
         channels_to_read = (0..edf.signal_headers.len()).collect();
         channel_labels = edf
             .signal_headers
-            .par_iter()
+            .iter()
             .map(|h| h.label.trim().to_string())
             .collect();
     }
@@ -828,16 +1097,8 @@ fn generate_edf_file_overview(
                 continue;
             }
 
-            let min_val = chunk
-                .par_iter()
-                .copied()
-                .reduce_with(f64::min)
-                .unwrap_or(f64::INFINITY);
-            let max_val = chunk
-                .par_iter()
-                .copied()
-                .reduce_with(f64::max)
-                .unwrap_or(f64::NEG_INFINITY);
+            let min_val = chunk.iter().copied().fold(f64::INFINITY, f64::min);
+            let max_val = chunk.iter().copied().fold(f64::NEG_INFINITY, f64::max);
 
             channel_downsampled.push(min_val);
             channel_downsampled.push(max_val);
@@ -937,16 +1198,8 @@ fn generate_text_file_overview(
                 continue;
             }
 
-            let min_val = chunk
-                .par_iter()
-                .copied()
-                .reduce_with(f64::min)
-                .unwrap_or(f64::INFINITY);
-            let max_val = chunk
-                .par_iter()
-                .copied()
-                .reduce_with(f64::max)
-                .unwrap_or(f64::NEG_INFINITY);
+            let min_val = chunk.iter().copied().fold(f64::INFINITY, f64::min);
+            let max_val = chunk.iter().copied().fold(f64::NEG_INFINITY, f64::max);
 
             channel_downsampled.push(min_val);
             channel_downsampled.push(max_val);
@@ -1057,11 +1310,13 @@ fn apply_preprocessing_to_chunk(
             );
         }
 
-        let result =
-            preprocess_batch(&chunk.data, &chunk.channel_labels, &config).map_err(|e| {
-                log::error!("[PREPROCESSING] Filter error: {}", e);
-                format!("Preprocessing failed: {}", e)
-            })?;
+        // Use std::mem::take to avoid unnecessary data copy - we're replacing chunk.data anyway
+        let channels = std::mem::take(&mut chunk.data);
+        let channel_labels = std::mem::take(&mut chunk.channel_labels);
+        let result = preprocess_batch_owned(channels, channel_labels, &config).map_err(|e| {
+            log::error!("[PREPROCESSING] Filter error: {}", e);
+            format!("Preprocessing failed: {}", e)
+        })?;
 
         let elapsed = start_time.elapsed();
         if let Some(first_channel) = result.channels.first() {
@@ -1082,6 +1337,7 @@ fn apply_preprocessing_to_chunk(
         }
 
         chunk.data = result.channels;
+        chunk.channel_labels = result.channel_names;
 
         log::info!(
             "[PREPROCESSING] Applied filters to {} channels in {:.1}ms",
