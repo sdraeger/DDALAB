@@ -2,6 +2,7 @@ use crate::db::{
     AnalysisDatabase, AnnotationDatabase, FileStateDatabase, NotificationsDatabase, SecretsDatabase,
 };
 use crate::models::{AppState, UIState};
+use crate::utils::{read_to_string_with_limit, MAX_CONFIG_FILE_SIZE};
 use ddalab_tauri::nsg::{NSGJobManager, NSGJobPoller};
 use parking_lot::RwLock;
 use std::collections::HashMap;
@@ -45,7 +46,7 @@ impl AppStateManager {
 
         // Load UI state from JSON
         let ui_state: UIState = if ui_state_path.exists() {
-            let content = fs::read_to_string(&ui_state_path)
+            let content = read_to_string_with_limit(&ui_state_path, MAX_CONFIG_FILE_SIZE)
                 .map_err(|e| format!("Failed to read UI state file: {}", e))?;
             serde_json::from_str(&content).unwrap_or_default()
         } else {
@@ -129,7 +130,7 @@ impl AppStateManager {
     }
 
     fn migrate_from_old_state(&self, old_state_path: &PathBuf) -> Result<(), String> {
-        let content = fs::read_to_string(old_state_path)
+        let content = read_to_string_with_limit(old_state_path, MAX_CONFIG_FILE_SIZE)
             .map_err(|e| format!("Failed to read old state: {}", e))?;
 
         let old_state: AppState = serde_json::from_str(&content)

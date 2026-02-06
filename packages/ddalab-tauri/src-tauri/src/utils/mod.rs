@@ -1,7 +1,59 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub mod certs;
 pub mod file_hash;
+
+/// Maximum file size for reading entire files into memory (100 MB)
+pub const MAX_FILE_READ_SIZE: u64 = 100 * 1024 * 1024;
+
+/// Maximum file size for config/JSON files (10 MB)
+pub const MAX_CONFIG_FILE_SIZE: u64 = 10 * 1024 * 1024;
+
+/// Read a file to string with size validation to prevent OOM on large/malicious files
+///
+/// # Arguments
+/// * `path` - Path to the file
+/// * `max_size` - Maximum allowed file size in bytes
+///
+/// # Returns
+/// File contents as String, or error if file is too large or unreadable
+pub fn read_to_string_with_limit(path: &Path, max_size: u64) -> std::io::Result<String> {
+    let metadata = std::fs::metadata(path)?;
+    if metadata.len() > max_size {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "File too large: {} bytes (max: {} bytes)",
+                metadata.len(),
+                max_size
+            ),
+        ));
+    }
+    std::fs::read_to_string(path)
+}
+
+/// Read a file to bytes with size validation to prevent OOM on large/malicious files
+///
+/// # Arguments
+/// * `path` - Path to the file
+/// * `max_size` - Maximum allowed file size in bytes
+///
+/// # Returns
+/// File contents as Vec<u8>, or error if file is too large or unreadable
+pub fn read_with_limit(path: &Path, max_size: u64) -> std::io::Result<Vec<u8>> {
+    let metadata = std::fs::metadata(path)?;
+    if metadata.len() > max_size {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "File too large: {} bytes (max: {} bytes)",
+                metadata.len(),
+                max_size
+            ),
+        ));
+    }
+    std::fs::read(path)
+}
 
 /// Get the application configuration directory
 pub fn get_app_config_dir() -> Result<PathBuf, String> {

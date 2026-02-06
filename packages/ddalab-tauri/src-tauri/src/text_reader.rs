@@ -13,10 +13,17 @@
 // - Builds a line position index during construction (byte offsets only)
 // - Reads only requested sample ranges from disk
 // - Supports streaming reads for large files (multi-GB)
+//
+// Security:
+// - Maximum line length limit prevents OOM on malformed files
 
 use std::fs::File;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::Path;
+
+/// Maximum line length to prevent OOM on malformed files (10 MB per line)
+/// This allows for ~1 million columns of 10-digit numbers
+const MAX_LINE_LENGTH: usize = 10 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct TextFileInfo {
@@ -69,6 +76,14 @@ impl TextFileReader {
             return Err("File is empty".to_string());
         }
 
+        // Validate line length to prevent OOM on malformed files
+        if first_line_len > MAX_LINE_LENGTH {
+            return Err(format!(
+                "Line too long: {} bytes (max: {} bytes)",
+                first_line_len, MAX_LINE_LENGTH
+            ));
+        }
+
         // Parse first line
         let first_values = Self::parse_line(&line_buf, delimiter)?;
         num_channels = first_values.len();
@@ -97,6 +112,14 @@ impl TextFileReader {
 
             if bytes_read == 0 {
                 break;
+            }
+
+            // Validate line length to prevent OOM on malformed files
+            if bytes_read > MAX_LINE_LENGTH {
+                return Err(format!(
+                    "Line too long at position {}: {} bytes (max: {} bytes)",
+                    current_pos, bytes_read, MAX_LINE_LENGTH
+                ));
             }
 
             if !line_buf.trim().is_empty() {

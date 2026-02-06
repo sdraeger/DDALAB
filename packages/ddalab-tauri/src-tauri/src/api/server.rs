@@ -44,6 +44,21 @@ pub async fn start_api_server(
     data_directory: PathBuf,
     dda_binary_path: Option<PathBuf>,
 ) -> anyhow::Result<ApiServerResult> {
+    // Validate port number is in acceptable range
+    // Ports 1-1023 are privileged, 0 means random assignment
+    if config.port == 0 || config.port > 65535 {
+        anyhow::bail!(
+            "Invalid port number: {}. Port must be between 1 and 65535.",
+            config.port
+        );
+    }
+    if config.port < 1024 {
+        log::warn!(
+            "Port {} is a privileged port (< 1024). This may require elevated permissions.",
+            config.port
+        );
+    }
+
     log::info!("Initializing API server...");
     log::info!("Data directory: {:?}", data_directory);
     log::info!("Port: {}", config.port);
