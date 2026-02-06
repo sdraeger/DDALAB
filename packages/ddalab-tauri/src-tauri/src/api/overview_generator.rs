@@ -6,10 +6,13 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use rayon::prelude::*;
-
 /// Segment size for progressive generation (samples per segment)
 const SEGMENT_SIZE: usize = 100_000;
+
+/// Number of EDF data records to read per chunk during streaming overview generation.
+/// Controls peak memory: only RECORDS_PER_CHUNK * samples_per_record * 8 bytes per channel
+/// are held in memory at a time, rather than the entire signal.
+const RECORDS_PER_CHUNK: usize = 100;
 
 /// Progressive overview generator with cancellation support
 #[derive(Clone)]
@@ -168,23 +171,27 @@ impl ProgressiveOverviewGenerator {
         Ok((channels_to_read, channel_labels))
     }
 
-    /// Generate overview progressively with checkpointing (synchronous, runs in blocking task)
+    /// Generate overview progressively with checkpointing (synchronous, runs in blocking task).
+    ///
+    /// Reads EDF data in chunks of RECORDS_PER_CHUNK records at a time to avoid
+    /// loading the entire signal into memory. Bucket min/max accumulators track
+    /// partial results across chunk boundaries.
     fn generate_progressive_sync(
         &self,
         cache_metadata: &OverviewCacheMetadata,
         file_path: &Path,
         channels_to_read: &[usize],
-        channel_labels: &[String],
+        _channel_labels: &[String],
         sample_rate: f64,
-        duration: f64,
+        _duration: f64,
         total_samples: usize,
         max_points: usize,
         cancel_flag: Option<Arc<AtomicBool>>,
     ) -> Result<ChunkData, String> {
         let bucket_size = (total_samples as f64 / max_points as f64).ceil() as usize;
         let bucket_size = bucket_size.max(1);
+        let num_buckets = (total_samples + bucket_size - 1) / bucket_size;
 
-        // Determine starting point for each channel
         let mut channel_start_positions: Vec<usize> = Vec::with_capacity(channels_to_read.len());
         for idx in 0..channels_to_read.len() {
             let last_end = self
@@ -196,7 +203,6 @@ impl ProgressiveOverviewGenerator {
             channel_start_positions.push(last_end);
         }
 
-        // Process each channel
         for (channel_idx, &signal_idx) in channels_to_read.iter().enumerate() {
             let _profile_channel =
                 ProfileScope::new(format!("overview_channel_processing_ch{}", channel_idx));
@@ -209,107 +215,108 @@ impl ProgressiveOverviewGenerator {
 
             let mut edf =
                 EDFReader::new(file_path).map_err(|e| format!("Failed to open EDF file: {}", e))?;
-            let full_data = edf
-                .read_signal_window(signal_idx, 0.0, duration)
-                .map_err(|e| format!("Failed to read signal data: {}", e))?;
 
-            // Process in segments
-            let mut current_position = start_sample;
+            let record_duration = edf.header.duration_of_data_record;
+            let num_records = edf.header.num_data_records as usize;
+            let mut bucket_min = vec![f64::INFINITY; num_buckets];
+            let mut bucket_max = vec![f64::NEG_INFINITY; num_buckets];
 
-            while current_position < total_samples {
-                // Check for cancellation
+            let mut global_sample_offset: usize = 0;
+            let mut record_cursor: usize = 0;
+            let mut last_fully_emitted_bucket: usize = start_sample / bucket_size;
+            let mut pending_segments: Vec<OverviewSegment> = Vec::new();
+            let mut segment_start = start_sample;
+
+            while record_cursor < num_records {
                 if let Some(ref flag) = cancel_flag {
                     if flag.load(Ordering::Relaxed) {
                         log::info!("[PROGRESSIVE OVERVIEW] Generation cancelled");
+                        if !pending_segments.is_empty() {
+                            self.cache_db
+                                .save_segments_batch(&pending_segments)
+                                .map_err(|e| format!("Failed to save segments: {}", e))?;
+                        }
                         return Err("Overview generation cancelled".to_string());
                     }
                 }
 
-                let segment_end = (current_position + SEGMENT_SIZE).min(total_samples);
+                let records_to_read = RECORDS_PER_CHUNK.min(num_records - record_cursor);
+                let chunk_start_time = record_cursor as f64 * record_duration;
+                let chunk_duration = records_to_read as f64 * record_duration;
 
-                // Downsample this segment using min-max bucketing
-                let segment_start_bucket = current_position / bucket_size;
-                // Use saturating arithmetic to prevent overflow
-                let segment_end_bucket =
-                    segment_end.saturating_add(bucket_size).saturating_sub(1) / bucket_size;
+                let chunk_data = edf
+                    .read_signal_window(signal_idx, chunk_start_time, chunk_duration)
+                    .map_err(|e| format!("Failed to read signal chunk: {}", e))?;
 
-                let bucket_indices: Vec<usize> =
-                    (segment_start_bucket..segment_end_bucket).collect();
+                let chunk_len = chunk_data.len();
 
-                // Process buckets in parallel
-                let _profile = ProfileScope::new(format!(
-                    "overview_bucketing_ch{}_seg{}",
-                    channel_idx, current_position
-                ));
+                for (i, &val) in chunk_data.iter().enumerate() {
+                    let global_idx = global_sample_offset + i;
+                    if global_idx < start_sample {
+                        continue;
+                    }
+                    let b = global_idx / bucket_size;
+                    if b >= num_buckets {
+                        break;
+                    }
+                    if val < bucket_min[b] {
+                        bucket_min[b] = val;
+                    }
+                    if val > bucket_max[b] {
+                        bucket_max[b] = val;
+                    }
+                }
 
-                let downsampled_segment: Vec<f64> = bucket_indices
-                    .par_iter()
-                    .filter_map(|&bucket_idx| {
-                        let bucket_start = bucket_idx * bucket_size;
-                        // Use saturating arithmetic to prevent overflow
-                        let bucket_end = bucket_idx
-                            .saturating_add(1)
-                            .saturating_mul(bucket_size)
-                            .min(total_samples);
+                global_sample_offset += chunk_len;
+                record_cursor += records_to_read;
 
-                        let data_start = bucket_start.max(current_position);
-                        let data_end = bucket_end.min(segment_end);
+                let is_final = record_cursor >= num_records;
+                let current_position = global_sample_offset.min(total_samples);
+                if current_position - segment_start >= SEGMENT_SIZE || is_final {
+                    let emit_up_to_bucket = if is_final {
+                        num_buckets
+                    } else {
+                        current_position / bucket_size
+                    };
 
-                        if data_start >= data_end {
-                            return None;
-                        }
+                    let downsampled: Vec<f64> = (last_fully_emitted_bucket..emit_up_to_bucket)
+                        .flat_map(|b| {
+                            if bucket_min[b] <= bucket_max[b] {
+                                vec![bucket_min[b], bucket_max[b]]
+                            } else {
+                                vec![]
+                            }
+                        })
+                        .collect();
 
-                        let bucket_data = &full_data[data_start..data_end];
+                    if !downsampled.is_empty() {
+                        pending_segments.push(OverviewSegment {
+                            cache_id: cache_metadata.id,
+                            channel_index: channel_idx,
+                            segment_start,
+                            segment_end: current_position,
+                            data: downsampled,
+                        });
+                    }
 
-                        if bucket_data.is_empty() {
-                            return None;
-                        }
-
-                        // Parallel min/max computation
-                        let min_val = bucket_data
-                            .par_iter()
-                            .copied()
-                            .reduce_with(f64::min)
-                            .unwrap_or(f64::INFINITY);
-                        let max_val = bucket_data
-                            .par_iter()
-                            .copied()
-                            .reduce_with(f64::max)
-                            .unwrap_or(f64::NEG_INFINITY);
-
-                        Some(vec![min_val, max_val])
-                    })
-                    .flatten()
-                    .collect();
-
-                // Save segment to database
-                let segment = OverviewSegment {
-                    cache_id: cache_metadata.id,
-                    channel_index: channel_idx,
-                    segment_start: current_position,
-                    segment_end,
-                    data: downsampled_segment,
-                };
-
-                self.cache_db
-                    .save_segment(&segment)
-                    .map_err(|e| format!("Failed to save segment: {}", e))?;
-
-                current_position = segment_end;
-
-                // Update progress in database after each segment
-                // Use saturating arithmetic to prevent overflow
-                let samples_processed = channel_idx
-                    .saturating_mul(total_samples)
-                    .saturating_add(current_position);
-                let total_work = channels_to_read.len().saturating_mul(total_samples);
-                self.cache_db
-                    .update_progress(cache_metadata.id, samples_processed, total_work)
-                    .map_err(|e| format!("Failed to update progress: {}", e))?;
+                    last_fully_emitted_bucket = emit_up_to_bucket;
+                    segment_start = current_position;
+                }
             }
+
+            if !pending_segments.is_empty() {
+                self.cache_db
+                    .save_segments_batch(&pending_segments)
+                    .map_err(|e| format!("Failed to save segments: {}", e))?;
+            }
+
+            let samples_processed = channel_idx.saturating_add(1).saturating_mul(total_samples);
+            let total_work = channels_to_read.len().saturating_mul(total_samples);
+            self.cache_db
+                .update_progress(cache_metadata.id, samples_processed, total_work)
+                .map_err(|e| format!("Failed to update progress: {}", e))?;
         }
 
-        // Retrieve complete overview from cache
         self.retrieve_cached_overview_sync(cache_metadata, sample_rate, total_samples)
     }
 

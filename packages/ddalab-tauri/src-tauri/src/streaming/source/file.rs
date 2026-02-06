@@ -10,7 +10,9 @@ use super::{DataChunk, DataFormat, SourceMetadata, StreamSource};
 use crate::file_readers::{FileMetadata, FileReader, FileReaderFactory};
 use crate::streaming::types::{StreamError, StreamResult};
 use async_trait::async_trait;
+use parking_lot::Mutex;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
 
@@ -23,6 +25,7 @@ pub struct FileStreamSource {
     metadata: Option<SourceMetadata>,
     is_connected: bool,
     current_position: usize,
+    reader: Option<Arc<Mutex<Box<dyn FileReader>>>>,
 }
 
 impl FileStreamSource {
@@ -41,6 +44,7 @@ impl FileStreamSource {
             metadata: None,
             is_connected: false,
             current_position: 0,
+            reader: None,
         }
     }
 
@@ -74,13 +78,16 @@ impl FileStreamSource {
             return Ok(None);
         }
 
-        // Read chunk (spawn blocking for I/O)
-        let path_clone = self.path.clone();
+        let reader = self
+            .reader
+            .as_ref()
+            .ok_or_else(|| StreamError::Connection("File reader not initialized".to_string()))?;
+
+        let reader_clone = Arc::clone(reader);
         let start = self.current_position;
 
         let samples = tokio::task::spawn_blocking(move || -> Result<Vec<Vec<f64>>, String> {
-            let reader = FileReaderFactory::create_reader(&path_clone)
-                .map_err(|e| format!("Failed to create reader: {:?}", e))?;
+            let reader = reader_clone.lock();
             reader
                 .read_chunk(start, samples_to_read, None)
                 .map_err(|e| format!("Failed to read chunk: {:?}", e))
@@ -117,18 +124,20 @@ impl StreamSource for FileStreamSource {
             return Ok(());
         }
 
-        // Open the file and get metadata
         let path = self.path.clone();
-        let file_metadata = tokio::task::spawn_blocking(move || {
+        let (file_metadata, reader) = tokio::task::spawn_blocking(move || {
             let reader = FileReaderFactory::create_reader(&path)
                 .map_err(|e| format!("Failed to open file: {:?}", e))?;
-            reader
+            let metadata = reader
                 .metadata()
-                .map_err(|e| format!("Failed to get metadata: {:?}", e))
+                .map_err(|e| format!("Failed to get metadata: {:?}", e))?;
+            Ok::<(FileMetadata, Box<dyn FileReader>), String>((metadata, reader))
         })
         .await
         .map_err(|e| StreamError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))?
         .map_err(|e| StreamError::Connection(e))?;
+
+        self.reader = Some(Arc::new(Mutex::new(reader)));
 
         // Store metadata
         self.metadata = Some(SourceMetadata {
@@ -216,6 +225,7 @@ impl StreamSource for FileStreamSource {
         log::info!("Stopping file stream");
         self.is_connected = false;
         self.current_position = 0;
+        self.reader = None;
         Ok(())
     }
 

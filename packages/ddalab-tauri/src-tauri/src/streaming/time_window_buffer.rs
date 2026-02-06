@@ -38,7 +38,7 @@ impl Default for TimeWindowConfig {
 /// Entry with timestamp for automatic expiration
 #[derive(Debug, Clone)]
 struct TimestampedChunk {
-    chunk: DataChunk,
+    chunk: Arc<DataChunk>,
     timestamp: f64,
 }
 
@@ -73,9 +73,9 @@ impl TimeWindowBuffer {
 
         let mut data = self.data.write();
 
-        // Add new chunk
+        // Add new chunk wrapped in Arc
         data.push_back(TimestampedChunk {
-            chunk,
+            chunk: Arc::new(chunk),
             timestamp: now,
         });
 
@@ -110,7 +110,8 @@ impl TimeWindowBuffer {
     }
 
     /// Get recent data chunks with optional downsampling
-    pub fn get_data(&self, max_count: Option<usize>) -> Vec<DataChunk> {
+    /// Returns Arc references to avoid expensive deep clones of sample data
+    pub fn get_data(&self, max_count: Option<usize>) -> Vec<Arc<DataChunk>> {
         let data = self.data.read();
 
         let limit = max_count.unwrap_or(data.len()).min(data.len());
@@ -120,18 +121,19 @@ impl TimeWindowBuffer {
         }
 
         // If we have more data than requested, take evenly spaced samples (decimation)
+        // Arc::clone is cheap (just increments reference count)
         if data.len() > limit {
             let step = data.len() as f64 / limit as f64;
             (0..limit)
                 .into_par_iter()
                 .map(|i| {
                     let idx = (i as f64 * step) as usize;
-                    data[idx].chunk.clone()
+                    Arc::clone(&data[idx].chunk)
                 })
                 .collect()
         } else {
             // Return all data
-            data.par_iter().map(|tc| tc.chunk.clone()).collect()
+            data.par_iter().map(|tc| Arc::clone(&tc.chunk)).collect()
         }
     }
 
@@ -147,19 +149,18 @@ impl TimeWindowBuffer {
 
         // Take most recent results
         results
-            .par_iter()
+            .iter()
             .rev()
             .take(limit)
             .map(|(r, _)| r.clone())
-            .collect::<Vec<_>>()
-            .into_par_iter()
             .rev()
             .collect()
     }
 
     /// Get downsampled data for efficient display
     /// Returns at most max_display_points, intelligently sampled
-    pub fn get_display_data(&self) -> Vec<DataChunk> {
+    /// Returns Arc references to avoid expensive deep clones
+    pub fn get_display_data(&self) -> Vec<Arc<DataChunk>> {
         self.get_data(Some(self.config.max_display_points))
     }
 

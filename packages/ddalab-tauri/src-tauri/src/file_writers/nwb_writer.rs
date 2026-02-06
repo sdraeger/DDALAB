@@ -10,7 +10,9 @@ use super::{FileWriter, FileWriterError, FileWriterResult, WriterConfig};
 #[cfg(feature = "nwb-support")]
 use crate::intermediate_format::IntermediateData;
 #[cfg(feature = "nwb-support")]
-use hdf5::{File as H5File, Result as H5Result};
+use hdf5::File as H5File;
+#[cfg(feature = "nwb-support")]
+use ndarray::Array2;
 #[cfg(feature = "nwb-support")]
 use std::path::Path;
 
@@ -77,16 +79,6 @@ impl NWBWriter {
         let num_samples = data.num_samples();
         let num_channels = data.num_channels();
 
-        let mut samples_array = vec![vec![0.0f64; num_samples]; num_channels];
-        for (ch_idx, channel) in data.channels.iter().enumerate() {
-            samples_array[ch_idx] = channel.samples.clone();
-        }
-
-        let flat_samples: Vec<f64> = samples_array
-            .iter()
-            .flat_map(|ch| ch.iter().cloned())
-            .collect();
-
         let dataset = electrical_series
             .new_dataset::<f64>()
             .shape([num_samples, num_channels])
@@ -95,9 +87,17 @@ impl NWBWriter {
                 FileWriterError::WriteError(format!("Failed to create data dataset: {}", e))
             })?;
 
-        dataset
-            .write(&flat_samples)
-            .map_err(|e| FileWriterError::WriteError(format!("Failed to write data: {}", e)))?;
+        {
+            let mut array = Array2::<f64>::zeros((num_samples, num_channels));
+            for (ch_idx, channel) in data.channels.iter().enumerate() {
+                for (s_idx, &val) in channel.samples.iter().enumerate() {
+                    array[[s_idx, ch_idx]] = val;
+                }
+            }
+            dataset
+                .write(&array)
+                .map_err(|e| FileWriterError::WriteError(format!("Failed to write data: {}", e)))?;
+        }
 
         dataset
             .new_attr_builder()
@@ -149,7 +149,7 @@ impl NWBWriter {
             FileWriterError::WriteError(format!("Failed to write starting_time: {}", e))
         })?;
 
-        let channel_labels: Vec<String> = data.channels.iter().map(|ch| ch.label.clone()).collect();
+        let channel_labels: Vec<&str> = data.channels.iter().map(|ch| ch.label.as_str()).collect();
         let electrodes = electrical_series
             .new_dataset_builder()
             .with_data(&channel_labels)

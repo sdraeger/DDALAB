@@ -511,7 +511,8 @@ impl StreamController {
     /// - Time-based expiration (only last 30 seconds kept)
     /// - Intelligent downsampling (max 2000 points)
     /// - No memory unbounded growth
-    pub fn get_latest_data(&self, _count: usize) -> Vec<DataChunk> {
+    /// Returns Arc references to avoid expensive deep clones
+    pub fn get_latest_data(&self, _count: usize) -> Vec<Arc<DataChunk>> {
         // Use time window buffer for downsampled, time-bounded data
         self.time_window.get_display_data()
     }
