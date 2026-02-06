@@ -92,6 +92,7 @@ bvreader = "0.1.5"                                             # BrainVision for
 matfile = { version = "0.5.0", features = ["ndarray"] }        # MATLAB .mat/.set files
 ndarray = "0.16.1"                                             # Array processing for MAT files
 fiff = "0.1.0"                                                 # FIFF/FIF format parser (MEG/EEG)
+byteorder = "1.5"                                              # Byte order conversions for binary file formats
 nifti = { version = "0.17.0", features = ["ndarray_volumes"] }
 hdf5 = { version = "0.8", optional = true }                    # HDF5 support for NWB files (optional due to compatibility issues)
 quick-xml = "0.38"                                             # XML parsing for XDF files
@@ -122,6 +123,7 @@ rustfft = "6.4.1"     # FFT for spectral analysis of components
 tokio-util = "0.7.17" # CancellationToken for graceful task cancellation
 http-body-util = "0.1" # Body utilities for encryption middleware
 arboard = "3"          # Cross-platform clipboard support
+fs2 = "0.4"            # File system utilities (disk space checking)
 
 [dev-dependencies]
 hyper = "1.7.0"

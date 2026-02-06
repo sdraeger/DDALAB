@@ -18,6 +18,23 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use uuid::Uuid;
 
+/// Lightweight DDA result entry for list views - excludes q_matrix and plot_data
+/// to reduce serialization overhead for IPC and API responses.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DDAResultSummary {
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub file_path: String,
+    pub created_at: String,
+    pub status: String,
+    pub channels_count: usize,
+    pub variants_count: usize,
+    pub variant_names: Vec<String>,
+    pub window_length: u32,
+    pub window_step: u32,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TimeRange {
     pub start: f64,
@@ -503,7 +520,7 @@ pub async fn run_dda_analysis(
     }
 
     // Run DDA analysis using the unified run() method
-    let dda_result = runner
+    let mut dda_result = runner
         .run(
             &dda_request,
             Some(start_bound),
@@ -519,7 +536,7 @@ pub async fn run_dda_analysis(
     let dda_time = dda_start.elapsed();
     log::info!("DDA analysis completed in {:.2}s", dda_time.as_secs_f64());
 
-    // Use reference to avoid 51MB+ clone - q_matrix is only read, not mutated
+    // Use reference for reads; ownership transferred via std::mem::take at DDAResult creation
     let q_matrix = &dda_result.q_matrix;
     let analysis_id = dda_result.id.clone();
 
@@ -772,7 +789,7 @@ pub async fn run_dda_analysis(
         },
         "timeseries": {
             "time": (0..num_timepoints).map(|i| i as f64 * 0.1).collect::<Vec<f64>>(),
-            "complexity": q_matrix.clone()
+            "complexity": q_matrix
         },
         "scales": scales,
         "variants": variants_array,
@@ -789,7 +806,7 @@ pub async fn run_dda_analysis(
     let plot_data = serde_json::json!({
         "time_series": {
             "x": (0..num_timepoints).map(|i| i as f64 * 0.1).collect::<Vec<f64>>(),
-            "y": q_matrix.clone()
+            "y": q_matrix
         }
     });
 
@@ -801,7 +818,7 @@ pub async fn run_dda_analysis(
         parameters,
         results,
         plot_data: Some(plot_data),
-        q_matrix: Some(q_matrix.clone()),
+        q_matrix: Some(std::mem::take(&mut dda_result.q_matrix)),
         created_at: Utc::now().to_rfc3339(),
         status: "completed".to_string(),
     };
@@ -967,6 +984,81 @@ pub async fn get_analysis_status(
     }
 }
 
+/// List analysis history with lightweight summaries (excludes q_matrix/plot_data).
+/// This is the optimized endpoint for list views that only need metadata.
+pub async fn list_analysis_summaries(
+    State(state): State<Arc<ApiState>>,
+) -> Json<Vec<DDAResultSummary>> {
+    if let Some(ref db) = state.analysis_db {
+        match db.get_recent_analyses(50) {
+            Ok(analyses) => {
+                log::info!(
+                    "Retrieved {} analyses from SQLite database (summary view)",
+                    analyses.len()
+                );
+
+                let summaries: Vec<DDAResultSummary> = analyses
+                    .iter()
+                    .filter_map(|analysis| {
+                        let parameters = match parse_dda_parameters(analysis.parameters.clone()) {
+                            Ok(p) => p,
+                            Err(e) => {
+                                log::warn!(
+                                    "Failed to parse parameters for analysis {}: {}",
+                                    analysis.id,
+                                    e
+                                );
+                                return None;
+                            }
+                        };
+
+                        Some(DDAResultSummary {
+                            id: analysis.id.clone(),
+                            name: analysis.name.clone(),
+                            file_path: analysis.file_path.clone(),
+                            created_at: analysis.timestamp.clone(),
+                            status: "completed".to_string(),
+                            channels_count: parameters.selected_channels.len(),
+                            variants_count: parameters.variants.len(),
+                            variant_names: parameters.variants.clone(),
+                            window_length: parameters.window_length,
+                            window_step: parameters.window_step,
+                        })
+                    })
+                    .collect();
+
+                return Json(summaries);
+            }
+            Err(e) => {
+                log::error!("Failed to retrieve analyses from database: {}", e);
+            }
+        }
+    }
+
+    log::warn!("Using in-memory cache for analysis summaries");
+    let analysis_cache = state.analysis_results.read();
+    let mut summaries: Vec<DDAResultSummary> = analysis_cache
+        .values()
+        .map(|arc| {
+            let result = &**arc;
+            DDAResultSummary {
+                id: result.id.clone(),
+                name: result.name.clone(),
+                file_path: result.file_path.clone(),
+                created_at: result.created_at.clone(),
+                status: result.status.clone(),
+                channels_count: result.channels.len(),
+                variants_count: result.parameters.variants.len(),
+                variant_names: result.parameters.variants.clone(),
+                window_length: result.parameters.window_length,
+                window_step: result.parameters.window_step,
+            }
+        })
+        .collect();
+    summaries.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    Json(summaries)
+}
+
 pub async fn list_analysis_history(State(state): State<Arc<ApiState>>) -> Json<Vec<DDAResult>> {
     if let Some(ref db) = state.analysis_db {
         match db.get_recent_analyses(50) {
@@ -1022,7 +1114,24 @@ pub async fn list_analysis_history(State(state): State<Arc<ApiState>>) -> Json<V
 
     log::warn!("Using in-memory cache for analysis history");
     let analysis_cache = state.analysis_results.read();
-    let mut results: Vec<DDAResult> = analysis_cache.values().map(|arc| (**arc).clone()).collect();
+    let mut results: Vec<DDAResult> = analysis_cache
+        .values()
+        .map(|arc| {
+            let result = &**arc;
+            DDAResult {
+                id: result.id.clone(),
+                name: result.name.clone(),
+                file_path: result.file_path.clone(),
+                channels: result.channels.clone(),
+                parameters: result.parameters.clone(),
+                results: result.results.clone(),
+                plot_data: None, // Exclude heavy field from list view
+                q_matrix: None,  // Exclude heavy field from list view
+                created_at: result.created_at.clone(),
+                status: result.status.clone(),
+            }
+        })
+        .collect();
     results.sort_by(|a, b| b.created_at.cmp(&a.created_at));
     Json(results)
 }

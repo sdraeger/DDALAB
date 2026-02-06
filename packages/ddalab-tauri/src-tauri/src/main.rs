@@ -120,6 +120,7 @@ fn main() {
             clear_file_navigation_state,
             get_file_specific_state,
             save_file_state_registry,
+            save_file_state_registry_metadata,
             get_file_state_registry,
             get_tracked_files,
             // Window management commands
@@ -280,6 +281,7 @@ fn main() {
             // EDF data access commands (IPC)
             get_edf_info,
             get_edf_chunk,
+            get_edf_chunks_batch,
             get_edf_overview,
             get_edf_overview_progress,
             get_edf_window,
@@ -292,6 +294,7 @@ fn main() {
             get_dda_result_by_id,
             get_dda_results_for_file,
             list_dda_history,
+            list_dda_summaries,
             save_dda_to_history,
             get_dda_from_history,
             get_dda_from_history_msgpack,

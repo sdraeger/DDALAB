@@ -1,8 +1,16 @@
 use anyhow::{Context, Result};
+use parking_lot::Mutex;
 use rayon::prelude::*;
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::time::SystemTime;
+
+/// In-memory file hash cache keyed by (path, mtime, size).
+/// Avoids recomputing hashes for the same unchanged file across repeated calls.
+static FILE_HASH_CACHE: std::sync::LazyLock<Mutex<HashMap<(PathBuf, u64, u64), String>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Block size for sampling (64 KB)
 /// Provides good I/O performance and reasonable granularity
@@ -41,14 +49,29 @@ const BLOCK_SIZE: usize = 65_536; // 64 KB
 pub fn compute_file_hash<P: AsRef<Path>>(file_path: P) -> Result<String> {
     let path = file_path.as_ref();
 
-    // Get file size
-    let file_size = std::fs::metadata(path)
-        .with_context(|| format!("Failed to read file metadata: {}", path.display()))?
-        .len();
+    // Get file metadata for cache key and size
+    let metadata = std::fs::metadata(path)
+        .with_context(|| format!("Failed to read file metadata: {}", path.display()))?;
+    let file_size = metadata.len();
 
     if file_size == 0 {
-        // Empty file - return hash of empty data
         return Ok(blake3::hash(&[]).to_hex().to_string());
+    }
+
+    // Cache lookup by (canonical path, mtime_epoch_nanos, size)
+    let mtime_nanos = metadata
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
+    let cache_key = (path.to_path_buf(), mtime_nanos, file_size);
+
+    {
+        let cache = FILE_HASH_CACHE.lock();
+        if let Some(cached) = cache.get(&cache_key) {
+            return Ok(cached.clone());
+        }
     }
 
     // Calculate total blocks in file
@@ -89,8 +112,14 @@ pub fn compute_file_hash<P: AsRef<Path>>(file_path: P) -> Result<String> {
 
     // Combine all hashes with metadata into final hash
     let final_hash = compute_final_hash(file_size, stride as u64, &block_hashes);
+    let hash_string = final_hash.to_hex().to_string();
 
-    Ok(final_hash.to_hex().to_string())
+    // Store in cache for subsequent calls
+    FILE_HASH_CACHE
+        .lock()
+        .insert(cache_key, hash_string.clone());
+
+    Ok(hash_string)
 }
 
 /// Calculate adaptive stride based on file size

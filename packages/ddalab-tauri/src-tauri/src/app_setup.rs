@@ -64,8 +64,7 @@ pub fn setup_app(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Restore window state if available
-    let ui_state = state_manager.get_ui_state();
-    if let Some(saved_window_state) = ui_state.windows.get("main") {
+    if let Some(saved_window_state) = state_manager.get_window_state("main") {
         log::info!(
             "📐 Restoring window state: position={:?}, size={:?}, maximized={}",
             saved_window_state.position,

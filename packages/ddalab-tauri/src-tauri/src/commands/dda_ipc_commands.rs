@@ -118,6 +118,25 @@ pub struct DDAHistoryEntry {
     pub created_at: String,
     pub variant_name: String,
     pub channels_count: usize,
+    pub variants_count: usize,
+}
+
+/// Lightweight DDA result summary for list views - excludes q_matrix and plot_data
+/// to reduce IPC serialization overhead.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DDAResultSummary {
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub file_path: String,
+    pub created_at: String,
+    pub status: String,
+    pub channels_count: usize,
+    pub variants_count: usize,
+    pub variant_names: Vec<String>,
+    pub window_length: u32,
+    pub window_step: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -375,7 +394,7 @@ fn calculate_mean(values: &[f64]) -> f64 {
     if values.is_empty() {
         return 0.0;
     }
-    values.par_iter().sum::<f64>() / values.len() as f64
+    values.iter().sum::<f64>() / values.len() as f64
 }
 
 fn calculate_std(values: &[f64]) -> f64 {
@@ -383,7 +402,7 @@ fn calculate_std(values: &[f64]) -> f64 {
         return 0.0;
     }
     let mean = calculate_mean(values);
-    let variance = values.par_iter().map(|v| (v - mean).powi(2)).sum::<f64>() / values.len() as f64;
+    let variance = values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / values.len() as f64;
     variance.sqrt()
 }
 
@@ -831,11 +850,13 @@ pub async fn submit_dda_analysis(
         vec![serde_json::json!({
             "variant_id": "single_timeseries",
             "variant_name": "Single Timeseries (ST)",
-            "dda_matrix": dda_matrix.clone(),
+            "dda_matrix": &dda_matrix,
             "exponents": serde_json::json!({}),
             "quality_metrics": serde_json::json!({})
         })]
     };
+
+    let time_axis: Vec<f64> = (0..num_timepoints).map(|i| i as f64 * 0.1).collect();
 
     let mut results = serde_json::json!({
         "summary": {
@@ -846,12 +867,12 @@ pub async fn submit_dda_analysis(
             "num_channels": num_channels
         },
         "timeseries": {
-            "time": (0..num_timepoints).map(|i| i as f64 * 0.1).collect::<Vec<f64>>(),
-            "complexity": q_matrix.clone()
+            "time": &time_axis,
+            "complexity": &q_matrix
         },
         "scales": scales,
         "variants": variants_array,
-        "dda_matrix": dda_matrix.clone()
+        "dda_matrix": &dda_matrix
     });
 
     if let Some(ref error_vals) = dda_result.error_values {
@@ -862,8 +883,8 @@ pub async fn submit_dda_analysis(
 
     let plot_data = serde_json::json!({
         "time_series": {
-            "x": (0..num_timepoints).map(|i| i as f64 * 0.1).collect::<Vec<f64>>(),
-            "y": q_matrix.clone()
+            "x": time_axis,
+            "y": &q_matrix
         }
     });
 
@@ -1080,13 +1101,30 @@ pub async fn get_dda_results_for_file(
             Ok(analyses) => {
                 let entries: Vec<DDAHistoryEntry> = analyses
                     .iter()
-                    .map(|a| DDAHistoryEntry {
-                        id: a.id.clone(),
-                        name: a.name.clone(),
-                        file_path: a.file_path.clone(),
-                        created_at: a.timestamp.clone(),
-                        variant_name: a.variant_display_name.clone(),
-                        channels_count: 0, // Will be populated from parameters if needed
+                    .map(|a| {
+                        // Extract counts from the parameters JSON
+                        let channels_count = a
+                            .parameters
+                            .get("selected_channels")
+                            .and_then(|v| v.as_array())
+                            .map(|arr| arr.len())
+                            .unwrap_or(0);
+                        let variants_count = a
+                            .parameters
+                            .get("variants")
+                            .and_then(|v| v.as_array())
+                            .map(|arr| arr.len())
+                            .unwrap_or(1);
+
+                        DDAHistoryEntry {
+                            id: a.id.clone(),
+                            name: a.name.clone(),
+                            file_path: a.file_path.clone(),
+                            created_at: a.timestamp.clone(),
+                            variant_name: a.variant_display_name.clone(),
+                            channels_count,
+                            variants_count,
+                        }
                     })
                     .collect();
                 return Ok(entries);
@@ -1115,13 +1153,30 @@ pub async fn list_dda_history(
             Ok(analyses) => {
                 let entries: Vec<DDAHistoryEntry> = analyses
                     .iter()
-                    .map(|a| DDAHistoryEntry {
-                        id: a.id.clone(),
-                        name: a.name.clone(),
-                        file_path: a.file_path.clone(),
-                        created_at: a.timestamp.clone(),
-                        variant_name: a.variant_display_name.clone(),
-                        channels_count: 0,
+                    .map(|a| {
+                        // Extract counts from the parameters JSON
+                        let channels_count = a
+                            .parameters
+                            .get("selected_channels")
+                            .and_then(|v| v.as_array())
+                            .map(|arr| arr.len())
+                            .unwrap_or(0);
+                        let variants_count = a
+                            .parameters
+                            .get("variants")
+                            .and_then(|v| v.as_array())
+                            .map(|arr| arr.len())
+                            .unwrap_or(1); // Default to 1 for legacy entries
+
+                        DDAHistoryEntry {
+                            id: a.id.clone(),
+                            name: a.name.clone(),
+                            file_path: a.file_path.clone(),
+                            created_at: a.timestamp.clone(),
+                            variant_name: a.variant_display_name.clone(),
+                            channels_count,
+                            variants_count,
+                        }
                     })
                     .collect();
                 return Ok(entries);
@@ -1133,6 +1188,84 @@ pub async fn list_dda_history(
     }
 
     Ok(Vec::new())
+}
+
+/// List all DDA history summaries (lightweight, excludes q_matrix/plot_data).
+/// This is the optimized endpoint for list views that need more metadata than DDAHistoryEntry
+/// but not the full DDAResult.
+#[tauri::command]
+pub async fn list_dda_summaries(
+    api_state: State<'_, Arc<ApiState>>,
+    limit: Option<usize>,
+) -> Result<Vec<DDAResultSummary>, String> {
+    log::debug!("[DDA_IPC] list_dda_summaries called");
+
+    let limit = limit.unwrap_or(50);
+
+    if let Some(ref db) = api_state.analysis_db {
+        match db.get_recent_analyses(limit) {
+            Ok(analyses) => {
+                let summaries: Vec<DDAResultSummary> = analyses
+                    .iter()
+                    .filter_map(|a| {
+                        let parameters = match ddalab_tauri::api::models::parse_dda_parameters(
+                            a.parameters.clone(),
+                        ) {
+                            Ok(p) => p,
+                            Err(e) => {
+                                log::warn!(
+                                    "[DDA_IPC] Failed to parse parameters for {}: {}",
+                                    a.id,
+                                    e
+                                );
+                                return None;
+                            }
+                        };
+
+                        Some(DDAResultSummary {
+                            id: a.id.clone(),
+                            name: a.name.clone(),
+                            file_path: a.file_path.clone(),
+                            created_at: a.timestamp.clone(),
+                            status: "completed".to_string(),
+                            channels_count: parameters.selected_channels.len(),
+                            variants_count: parameters.variants.len(),
+                            variant_names: parameters.variants.clone(),
+                            window_length: parameters.window_length,
+                            window_step: parameters.window_step,
+                        })
+                    })
+                    .collect();
+                return Ok(summaries);
+            }
+            Err(e) => {
+                log::error!("[DDA_IPC] Failed to get analyses from database: {}", e);
+            }
+        }
+    }
+
+    // Fallback to in-memory cache
+    let analysis_cache = api_state.analysis_results.read();
+    let mut summaries: Vec<DDAResultSummary> = analysis_cache
+        .values()
+        .map(|arc| {
+            let result = &**arc;
+            DDAResultSummary {
+                id: result.id.clone(),
+                name: result.name.clone(),
+                file_path: result.file_path.clone(),
+                created_at: result.created_at.clone(),
+                status: result.status.clone(),
+                channels_count: result.channels.len(),
+                variants_count: result.parameters.variants.len(),
+                variant_names: result.parameters.variants.clone(),
+                window_length: result.parameters.window_length,
+                window_step: result.parameters.window_step,
+            }
+        })
+        .collect();
+    summaries.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    Ok(summaries)
 }
 
 /// Save a DDA result to history (for results computed elsewhere)

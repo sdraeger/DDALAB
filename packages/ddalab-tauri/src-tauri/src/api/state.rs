@@ -1,4 +1,4 @@
-use crate::api::auth::constant_time_eq;
+use crate::api::auth::{constant_time_eq, AuthRateLimiter, TokenInfo, TokenVerifyResult};
 use crate::api::handlers::ica::ICAResultResponse;
 use crate::api::models::{ChunkData, DDAResult, EDFFileInfo};
 use crate::db::analysis_db::AnalysisDatabase;
@@ -8,7 +8,7 @@ use crate::models::AnalysisResult;
 use crate::utils::get_database_path;
 use parking_lot::{Mutex, RwLock};
 use serde_json::json;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -231,8 +231,10 @@ pub struct ApiState {
     pub analysis_db: Option<Arc<AnalysisDatabase>>,
     pub overview_cache_db: Option<Arc<OverviewCacheDatabase>>,
     pub ica_db: Option<Arc<ICADatabase>>,
-    pub session_token: Arc<RwLock<Option<String>>>,
+    pub session_token: Arc<RwLock<Option<TokenInfo>>>,
+    pub revoked_tokens: Arc<RwLock<HashSet<String>>>,
     pub require_auth: Arc<RwLock<bool>>,
+    pub auth_rate_limiter: Arc<AuthRateLimiter>,
     pub ica_history: Mutex<Vec<ICAResultResponse>>,
     /// Current running analysis ID (for cancellation tracking)
     pub current_analysis_id: Arc<RwLock<Option<String>>>,
@@ -367,7 +369,9 @@ impl ApiState {
             overview_cache_db,
             ica_db,
             session_token: Arc::new(RwLock::new(None)),
+            revoked_tokens: Arc::new(RwLock::new(HashSet::new())),
             require_auth: Arc::new(RwLock::new(true)),
+            auth_rate_limiter: Arc::new(AuthRateLimiter::new()),
             ica_history: Mutex::new(ica_history),
             current_analysis_id: Arc::new(RwLock::new(None)),
             cancellation_token: Arc::new(CancellationToken::new()),
@@ -379,21 +383,146 @@ impl ApiState {
         state
     }
 
-    /// Set the session token for API authentication
+    /// Set the session token for API authentication with default TTL (1 hour)
     pub fn set_session_token(&self, token: String) {
-        *self.session_token.write() = Some(token);
-        log::info!("🔐 Session token configured");
+        self.set_session_token_with_ttl(token, crate::api::auth::DEFAULT_TOKEN_TTL_SECS);
     }
 
-    /// Get the session token
+    /// Set the session token with a custom TTL in seconds
+    pub fn set_session_token_with_ttl(&self, token: String, ttl_secs: u64) {
+        let token_info = TokenInfo::new(token, ttl_secs);
+        *self.session_token.write() = Some(token_info);
+        log::info!("🔐 Session token configured with {}s TTL", ttl_secs);
+    }
+
+    /// Get the session token string (if valid and not expired)
     pub fn get_session_token(&self) -> Option<String> {
-        self.session_token.read().clone()
+        let guard = self.session_token.read();
+        if let Some(ref token_info) = *guard {
+            if !token_info.is_expired() {
+                return Some(token_info.token.clone());
+            }
+        }
+        None
     }
 
-    /// Verify if the provided token matches the session token
-    pub fn verify_session_token(&self, token: &str) -> bool {
-        if let Some(expected_token) = self.session_token.read().as_ref() {
-            constant_time_eq(expected_token.as_bytes(), token.as_bytes())
+    /// Get token info including expiration details
+    pub fn get_token_info(&self) -> Option<(String, u64)> {
+        let guard = self.session_token.read();
+        if let Some(ref token_info) = *guard {
+            if !token_info.is_expired() {
+                return Some((token_info.token.clone(), token_info.remaining_secs()));
+            }
+        }
+        None
+    }
+
+    /// Verify if the provided token matches the session token and is not expired
+    pub fn verify_session_token(&self, token: &str) -> TokenVerifyResult {
+        // Check if token is revoked first
+        if self.revoked_tokens.read().contains(token) {
+            return TokenVerifyResult::Revoked;
+        }
+
+        let guard = self.session_token.read();
+        if let Some(ref token_info) = *guard {
+            // Check expiration first
+            if token_info.is_expired() {
+                return TokenVerifyResult::Expired;
+            }
+
+            // Constant-time comparison to prevent timing attacks
+            if constant_time_eq(token_info.token.as_bytes(), token.as_bytes()) {
+                TokenVerifyResult::Valid
+            } else {
+                TokenVerifyResult::Invalid
+            }
+        } else {
+            TokenVerifyResult::NoToken
+        }
+    }
+
+    /// Revoke the current session token
+    pub fn revoke_current_token(&self) {
+        let mut session = self.session_token.write();
+        if let Some(ref token_info) = *session {
+            self.revoked_tokens.write().insert(token_info.token.clone());
+            log::info!("🔐 Session token revoked");
+        }
+        *session = None;
+    }
+
+    /// Revoke a specific token by value
+    pub fn revoke_token(&self, token: &str) {
+        self.revoked_tokens.write().insert(token.to_string());
+        log::info!("🔐 Token revoked");
+
+        // If it's the current token, clear it
+        let mut session = self.session_token.write();
+        if let Some(ref token_info) = *session {
+            if token_info.token == token {
+                *session = None;
+            }
+        }
+    }
+
+    /// Refresh the current token (extend expiration)
+    pub fn refresh_token(&self) -> Option<String> {
+        let mut guard = self.session_token.write();
+        if let Some(ref mut token_info) = *guard {
+            if !token_info.is_expired() {
+                token_info.extend(crate::api::auth::DEFAULT_TOKEN_TTL_SECS);
+                log::debug!(
+                    "🔐 Token refreshed, new expiration in {}s",
+                    token_info.remaining_secs()
+                );
+                return Some(token_info.token.clone());
+            }
+        }
+        None
+    }
+
+    /// Generate a new session token, revoking the old one
+    pub fn rotate_token(&self) -> String {
+        // Revoke old token
+        self.revoke_current_token();
+
+        // Generate and set new token
+        let new_token = crate::api::auth::generate_session_token();
+        self.set_session_token(new_token.clone());
+        log::info!("🔐 Token rotated");
+        new_token
+    }
+
+    /// Clean up expired tokens and auth rate limiter state
+    pub fn cleanup_auth_state(&self) {
+        // Clean up rate limiter
+        self.auth_rate_limiter.cleanup();
+
+        // Check if current token is expired and clear it
+        let mut session = self.session_token.write();
+        if let Some(ref token_info) = *session {
+            if token_info.is_expired() {
+                log::info!("🔐 Expired session token cleaned up");
+                *session = None;
+            }
+        }
+
+        // Limit the size of revoked tokens set (keep last 100)
+        let mut revoked = self.revoked_tokens.write();
+        if revoked.len() > 100 {
+            // Just clear old revoked tokens since they're no longer useful
+            // after the original token would have expired anyway
+            revoked.clear();
+            log::debug!("🔐 Cleared old revoked tokens cache");
+        }
+    }
+
+    /// Check if a token is currently valid (not expired)
+    pub fn is_token_valid(&self) -> bool {
+        let guard = self.session_token.read();
+        if let Some(ref token_info) = *guard {
+            !token_info.is_expired()
         } else {
             false
         }
