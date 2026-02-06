@@ -1552,8 +1552,12 @@ function normalizeHeatmapJS(data: number[]): number[] {
   const finite = data.filter(Number.isFinite);
   if (finite.length === 0) return data.map(() => 0.5);
 
-  const min = Math.min(...finite);
-  const max = Math.max(...finite);
+  let min = Infinity,
+    max = -Infinity;
+  for (let i = 0; i < finite.length; i++) {
+    if (finite[i] < min) min = finite[i];
+    if (finite[i] > max) max = finite[i];
+  }
   const range = max - min;
 
   if (range < 1e-10) return data.map(() => 0.5);

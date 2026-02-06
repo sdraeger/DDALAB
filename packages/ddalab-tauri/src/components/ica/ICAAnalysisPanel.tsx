@@ -17,12 +17,6 @@ export function ICAAnalysisPanel() {
   );
 
   // Use global ICA state from store for persistence across tab switches
-  const icaState = useAppStore(useShallow((state) => state.ica));
-  const updateICAState = useAppStore((state) => state.updateICAState);
-
-  const ica = useICAWorkflow();
-
-  // Destructure ICA state
   const {
     selectedChannels: icaSelectedChannels,
     nComponents,
@@ -32,7 +26,21 @@ export function ICAAnalysisPanel() {
     whitening,
     selectedResultId,
     isSubmitting: globalIsSubmitting,
-  } = icaState;
+  } = useAppStore(
+    useShallow((state) => ({
+      selectedChannels: state.ica.selectedChannels,
+      nComponents: state.ica.nComponents,
+      maxIterations: state.ica.maxIterations,
+      tolerance: state.ica.tolerance,
+      centering: state.ica.centering,
+      whitening: state.ica.whitening,
+      selectedResultId: state.ica.selectedResultId,
+      isSubmitting: state.ica.isSubmitting,
+    })),
+  );
+  const updateICAState = useAppStore((state) => state.updateICAState);
+
+  const ica = useICAWorkflow();
 
   const setSelectedResultId = useCallback(
     (id: string | null) => updateICAState({ selectedResultId: id }),

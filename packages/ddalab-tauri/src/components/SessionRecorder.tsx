@@ -35,13 +35,19 @@ import {
 import { toast } from "@/components/ui/toaster";
 
 export function SessionRecorder() {
-  const {
-    workflowRecording,
-    startWorkflowRecording,
-    stopWorkflowRecording,
-    fileManager,
-    incrementActionCount,
-  } = useAppStore();
+  const workflowRecording = useAppStore((state) => state.workflowRecording);
+  const startWorkflowRecording = useAppStore(
+    (state) => state.startWorkflowRecording,
+  );
+  const stopWorkflowRecording = useAppStore(
+    (state) => state.stopWorkflowRecording,
+  );
+  const fileManager = useAppStore((state) => ({
+    selectedFile: state.fileManager.selectedFile,
+  }));
+  const incrementActionCount = useAppStore(
+    (state) => state.incrementActionCount,
+  );
 
   // React Query mutations
   const newWorkflowMutation = useNewWorkflow();

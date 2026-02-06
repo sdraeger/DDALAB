@@ -10,7 +10,8 @@ import type {
 } from "@/types/sync";
 
 export function useSync() {
-  const { sync, updateSyncStatus } = useAppStore();
+  const sync = useAppStore((state) => state.sync);
+  const updateSyncStatus = useAppStore((state) => state.updateSyncStatus);
   const { isConnected, isLoading, error } = sync;
 
   const checkConnection = useCallback(async () => {

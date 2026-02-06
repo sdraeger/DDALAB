@@ -402,8 +402,12 @@ function applyNormalization(
     return data.map((val) => (val - mean) / stdDev);
   } else {
     // minmax
-    const min = Math.min(...data);
-    const max = Math.max(...data);
+    let min = Infinity,
+      max = -Infinity;
+    for (let i = 0; i < data.length; i++) {
+      if (data[i] < min) min = data[i];
+      if (data[i] > max) max = data[i];
+    }
     const [targetMin, targetMax] = range || [0, 1];
 
     if (max === min) return data;
