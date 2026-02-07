@@ -5,6 +5,7 @@ import {
   useRef,
   useEffect,
   useCallback,
+  useMemo,
   memo,
   forwardRef,
   useImperativeHandle,
@@ -125,17 +126,13 @@ const DDALinePlotComponent = forwardRef<DDALinePlotHandle, DDALinePlotProps>(
     const [isRendering, setIsRendering] = useState(false);
     const [isDOMMounted, setIsDOMMounted] = useState(false);
 
-    // Memoize the matrix key to avoid expensive Object.keys on every render
-    // The matrix itself rarely changes - use variantId as a stable proxy
-    const matrixKeyRef = useRef<string>("");
-    const matrixKeyComputed = useRef(false);
-
-    // Lazily compute the matrix key only once per variant
-    if (!matrixKeyComputed.current || matrixKeyRef.current === "") {
-      const keyCount = ddaMatrix ? Object.keys(ddaMatrix).length : 0;
-      matrixKeyRef.current = `${variantId}_${keyCount}`;
-      matrixKeyComputed.current = true;
-    }
+    // Memoize the matrix key - must recompute when ddaMatrix changes
+    // IMPORTANT: Include actual channel keys, not just count - different variants
+    // may have same channel count but different keys (e.g., ST: "Ch1" vs CT: "Ch1-Ch2")
+    const matrixKey = useMemo(() => {
+      const keys = ddaMatrix ? Object.keys(ddaMatrix).sort().join("|") : "";
+      return `${variantId}_${keys}`;
+    }, [ddaMatrix, variantId]);
 
     // Use TanStack Query to handle async data preparation
     // This allows the loading skeleton to render while computation runs
@@ -149,7 +146,7 @@ const DDALinePlotComponent = forwardRef<DDALinePlotHandle, DDALinePlotProps>(
         variantId,
         selectedChannels.join(","),
         scales.length,
-        matrixKeyRef.current,
+        matrixKey,
       ],
       queryFn: () => prepareLineDataAsync(ddaMatrix, selectedChannels, scales),
       staleTime: Infinity,

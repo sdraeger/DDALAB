@@ -55,7 +55,9 @@ export function useNotifications(limit?: number): UseNotificationsResult {
       });
     };
 
-    setupListener();
+    setupListener().catch((err) =>
+      console.error("[Notifications] Failed to setup listener:", err),
+    );
 
     return () => {
       if (unlisten) {
@@ -117,7 +119,12 @@ export function useUnreadNotificationCount(): number {
       });
     };
 
-    setupListener();
+    setupListener().catch((err) =>
+      console.error(
+        "[Notifications] Failed to setup unread count listener:",
+        err,
+      ),
+    );
 
     return () => {
       if (unlisten) {

@@ -275,9 +275,11 @@ const DDAHeatmapPlotComponent = forwardRef<
   // When autoScale is false, colorRange is an INPUT and must be in the key.
   // Memoize the matrix key to avoid expensive Object.keys on every render
   // Must recompute when ddaMatrix changes (e.g., data loads from cache)
+  // IMPORTANT: Include actual channel keys, not just count - different variants
+  // may have same channel count but different keys (e.g., ST: "Ch1" vs CT: "Ch1-Ch2")
   const matrixKey = useMemo(() => {
-    const keyCount = ddaMatrix ? Object.keys(ddaMatrix).length : 0;
-    return `${variantId}_${keyCount}`;
+    const keys = ddaMatrix ? Object.keys(ddaMatrix).sort().join("|") : "";
+    return `${variantId}_${keys}`;
   }, [ddaMatrix, variantId]);
 
   const {

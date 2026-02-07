@@ -2,7 +2,7 @@
  * Hook for managing model encoding presets with localStorage persistence
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 export interface ModelPreset {
   id: string;
@@ -69,6 +69,7 @@ const BUILTIN_DATA_PRESETS: ModelPreset[] = [
 
 export const useModelPresets = () => {
   const [customPresets, setCustomPresets] = useState<ModelPreset[]>([]);
+  const isInitialized = useRef(false);
 
   // Load custom presets from localStorage on mount
   useEffect(() => {
@@ -76,15 +77,21 @@ export const useModelPresets = () => {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored);
-        setCustomPresets(parsed);
+        if (Array.isArray(parsed)) {
+          setCustomPresets(parsed);
+        }
       }
     } catch {
       // Ignore localStorage errors
     }
+    // Mark as initialized after first load to prevent save effect from
+    // overwriting localStorage with empty array before load completes
+    isInitialized.current = true;
   }, []);
 
-  // Save custom presets to localStorage whenever they change
+  // Save custom presets to localStorage whenever they change (after initial load)
   useEffect(() => {
+    if (!isInitialized.current) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(customPresets));
     } catch {
@@ -122,7 +129,7 @@ export const useModelPresets = () => {
     (preset: Omit<ModelPreset, "id" | "isCustom" | "createdAt">) => {
       const newPreset: ModelPreset = {
         ...preset,
-        id: `custom-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        id: `custom-${crypto.randomUUID()}`,
         isCustom: true,
         createdAt: new Date().toISOString(),
       };

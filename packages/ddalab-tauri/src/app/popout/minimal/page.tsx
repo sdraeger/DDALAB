@@ -54,6 +54,7 @@ function PopoutContent() {
 
     let unlistenData: (() => void) | undefined;
     let unlistenLock: (() => void) | undefined;
+    let keydownHandler: ((e: KeyboardEvent) => void) | undefined;
 
     const initializeTauri = async () => {
       try {
@@ -87,17 +88,14 @@ function PopoutContent() {
           timestamp: Date.now(),
         });
 
-        // Setup window controls
-        const setupControls = () => {
-          window.addEventListener("keydown", async (e) => {
-            if (e.key === "Escape") {
-              const currentWindow = getCurrentWindow();
-              await currentWindow.close();
-            }
-          });
+        // Setup window controls with proper cleanup
+        keydownHandler = async (e: KeyboardEvent) => {
+          if (e.key === "Escape") {
+            const currentWindow = getCurrentWindow();
+            await currentWindow.close();
+          }
         };
-
-        setupControls();
+        window.addEventListener("keydown", keydownHandler);
 
         // Make functions globally available for button clicks
         (window as any).closeWindow = async () => {
@@ -110,20 +108,18 @@ function PopoutContent() {
         };
         (window as any).toggleLock = async () => {
           try {
-            const eventName = isLocked
+            const locked = isLockedRef.current;
+            const lockEventName = locked
               ? `unlock-window-${windowId}`
               : `lock-window-${windowId}`;
-            await emit(eventName);
+            await emit(lockEventName);
           } catch {
             // Window may have been closed
           }
         };
         (window as any).refreshContent = () => {
-          if (currentData) {
-            // Trigger re-render by updating state
-            setCurrentData({ ...currentData });
-            setStatus("Content refreshed");
-          }
+          setCurrentData((prev: any) => (prev ? { ...prev } : prev));
+          setStatus("Content refreshed");
         };
       } catch (error) {
         console.error("Failed to initialize Tauri:", error);
@@ -137,8 +133,9 @@ function PopoutContent() {
     return () => {
       if (unlistenData) unlistenData();
       if (unlistenLock) unlistenLock();
+      if (keydownHandler) window.removeEventListener("keydown", keydownHandler);
     };
-  }, [isClient, windowId, isLocked]);
+  }, [isClient, windowId]);
 
   // Plot rendering functions
   const renderTimeSeriesPlot = useCallback(() => {

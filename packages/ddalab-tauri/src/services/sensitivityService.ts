@@ -116,10 +116,13 @@ export function generateSensitivityReport(
     });
 
   // Find best performing parameter set (highest mean Q)
-  const bestComparison = comparisons.reduce(
-    (best, current) => (current.mean_q > best.mean_q ? current : best),
-    comparisons[0],
-  );
+  const bestComparison =
+    comparisons.length > 0
+      ? comparisons.reduce(
+          (best, current) => (current.mean_q > best.mean_q ? current : best),
+          comparisons[0],
+        )
+      : null;
 
   const bestParams: ParameterSet | null = bestComparison
     ? {

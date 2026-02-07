@@ -288,6 +288,12 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   // Defer variant computation to avoid blocking initial render
   // Use setTimeout (not RAF) to create a new task that doesn't block current frame
   useEffect(() => {
+    console.log("[DDAResults] Variant effect triggered", {
+      resultId: result.id,
+      variantsLength: result.results.variants?.length,
+      variants: result.results.variants?.map((v) => v.variant_id),
+    });
+
     const timeoutId = setTimeout(() => {
       let variants: typeof result.results.variants = [];
 
@@ -310,11 +316,15 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         ];
       }
 
+      console.log("[DDAResults] Setting availableVariants", {
+        count: variants.length,
+        ids: variants.map((v) => v.variant_id),
+      });
       setAvailableVariants(variants);
     }, 0); // setTimeout(0) creates a new macrotask, allowing input events to process
 
     return () => clearTimeout(timeoutId);
-  }, [result.id]); // Only recalculate when result.id changes
+  }, [result.id, result.results.variants?.length]); // Recalculate when variants are populated
 
   // Safe scales array - derives from dda_matrix if scales is missing from stored results
   // Use state + effect to avoid blocking with Object.values()
@@ -399,6 +409,50 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     // Fallback to variant's dda_matrix (may be populated for new/live results)
     return currentVariantData?.dda_matrix || {};
   }, [channelData?.ddaMatrix, currentVariantData?.dda_matrix]);
+
+  // EFFECTIVE CHANNELS: The actual channels to render in plots
+  // Different variants have different channel naming schemes:
+  // - ST: single channels like "EEG1", "EEG2"
+  // - CT, CD, DE, SY: channel pairs like "EEG1-EEG2"
+  // We need to use the actual keys from effectiveDDAMatrix, not selectedChannels
+  const effectiveChannels = useMemo((): string[] => {
+    const matrixKeys = Object.keys(effectiveDDAMatrix);
+    if (matrixKeys.length === 0) {
+      return selectedChannels; // Fallback while loading
+    }
+
+    // Check if selectedChannels match the matrix keys
+    const hasMatch = selectedChannels.some((ch) => matrixKeys.includes(ch));
+    if (hasMatch) {
+      // Filter to only channels that exist in the matrix
+      return selectedChannels.filter((ch) => matrixKeys.includes(ch));
+    }
+
+    // No match - use the matrix keys directly (variant has different channel naming)
+    return matrixKeys;
+  }, [effectiveDDAMatrix, selectedChannels]);
+
+  // VARIANT CHANNEL SYNC: When channelData returns different channels than selectedChannels
+  // (e.g., ST uses "Ch1" but CT uses "Ch1-Ch2"), update selections to match variant
+  useEffect(() => {
+    if (!channelData?.ddaMatrix) return;
+
+    const variantChannels = Object.keys(channelData.ddaMatrix);
+    if (variantChannels.length === 0) return;
+
+    // Use functional update to avoid selectedChannels in deps (prevents infinite loop)
+    setSelectedChannels((prevSelected) => {
+      // Check if current selection matches variant channels
+      const hasMatch = variantChannels.some((ch) => prevSelected.includes(ch));
+
+      // If no overlap (different channel naming scheme), use variant channels
+      if (!hasMatch && prevSelected.length > 0) {
+        setAvailableChannels(variantChannels);
+        return variantChannels;
+      }
+      return prevSelected;
+    });
+  }, [channelData?.ddaMatrix, currentVariantId]);
 
   // Initialize scales from result metadata (window_indices)
   // PROGRESSIVE LOADING: scales come from metadata, not from dda_matrix
@@ -779,7 +833,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                               ref={heatmapPlotRef}
                               variantId={variant.variant_id}
                               ddaMatrix={effectiveDDAMatrix}
-                              selectedChannels={selectedChannels}
+                              selectedChannels={effectiveChannels}
                               scales={safeScales}
                               colorScheme={colorScheme}
                               colorRange={colorRange}
@@ -963,7 +1017,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                               ref={linePlotPlotRef}
                               variantId={variant.variant_id}
                               ddaMatrix={effectiveDDAMatrix}
-                              selectedChannels={selectedChannels}
+                              selectedChannels={effectiveChannels}
                               scales={safeScales}
                               height={linePlotHeight}
                               onContextMenu={
@@ -1198,7 +1252,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                         getCurrentVariantData()?.variant_id || "unknown"
                       }
                       ddaMatrix={effectiveDDAMatrix}
-                      selectedChannels={selectedChannels}
+                      selectedChannels={effectiveChannels}
                       scales={safeScales}
                       colorScheme={colorScheme}
                       colorRange={colorRange}
@@ -1236,7 +1290,11 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                                   annotation.position,
                                   "x",
                                 );
-                                if (canvasX === null || canvasX === undefined)
+                                if (
+                                  canvasX === null ||
+                                  canvasX === undefined ||
+                                  !isFinite(canvasX)
+                                )
                                   return null;
 
                                 const xPosition = canvasX + bbox.left;
@@ -1377,7 +1435,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                         getCurrentVariantData()?.variant_id || "unknown"
                       }
                       ddaMatrix={effectiveDDAMatrix}
-                      selectedChannels={selectedChannels}
+                      selectedChannels={effectiveChannels}
                       scales={safeScales}
                       height={linePlotHeight}
                       onContextMenu={linePlotAnnotations.openContextMenu}
@@ -1413,7 +1471,11 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
                                   annotation.position,
                                   "x",
                                 );
-                                if (canvasX === null || canvasX === undefined)
+                                if (
+                                  canvasX === null ||
+                                  canvasX === undefined ||
+                                  !isFinite(canvasX)
+                                )
                                   return null;
 
                                 // Add bbox offsets since SVG is positioned at (0,0) but canvas starts at (bbox.left, bbox.top)

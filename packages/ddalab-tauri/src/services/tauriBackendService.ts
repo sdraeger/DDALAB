@@ -953,16 +953,47 @@ class TauriBackendServiceImpl {
     }
   }
 
+  private static readonly WORKER_REQUEST_TIMEOUT_MS = 60_000; // 60 second timeout
+
+  private registerPendingRequest(
+    id: string,
+    resolve: (result: unknown) => void,
+    reject: (error: Error) => void,
+  ): void {
+    const timeout = setTimeout(() => {
+      if (this.pendingRequests.has(id)) {
+        this.pendingRequests.delete(id);
+        reject(
+          new Error(
+            `Worker request ${id} timed out after ${TauriBackendServiceImpl.WORKER_REQUEST_TIMEOUT_MS}ms`,
+          ),
+        );
+      }
+    }, TauriBackendServiceImpl.WORKER_REQUEST_TIMEOUT_MS);
+
+    this.pendingRequests.set(id, {
+      resolve: (result: unknown) => {
+        clearTimeout(timeout);
+        resolve(result);
+      },
+      reject: (error: Error) => {
+        clearTimeout(timeout);
+        reject(error);
+      },
+    });
+  }
+
   private decodeAndCacheInWorker(
     compressedData: ArrayBuffer,
     analysisId: string,
   ): Promise<DDAResultMetadata | null> {
     return new Promise((resolve, reject) => {
       const id = `decode-${++this.decodeRequestCounter}`;
-      this.pendingRequests.set(id, {
-        resolve: resolve as (result: unknown) => void,
+      this.registerPendingRequest(
+        id,
+        resolve as (result: unknown) => void,
         reject,
-      });
+      );
 
       const request: DDADecodeRequest = {
         id,
@@ -983,10 +1014,11 @@ class TauriBackendServiceImpl {
   ): Promise<{ ddaMatrix: Record<string, number[]>; windowIndices: number[] }> {
     return new Promise((resolve, reject) => {
       const id = `getData-${++this.decodeRequestCounter}`;
-      this.pendingRequests.set(id, {
-        resolve: resolve as (result: unknown) => void,
+      this.registerPendingRequest(
+        id,
+        resolve as (result: unknown) => void,
         reject,
-      });
+      );
 
       const request: DDAGetDataRequest = {
         id,

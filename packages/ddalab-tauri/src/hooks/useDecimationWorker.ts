@@ -75,6 +75,20 @@ function getOrCreateWorker(): Worker {
 
   sharedWorker.onerror = (error) => {
     console.error("[DecimationWorker] Error:", error);
+    // Reset worker state so it can be recreated on next use
+    sharedWorker = null;
+    sharedWorkerReady = false;
+    sharedReadyPromise = null;
+    sharedReadyResolve = null;
+    // Reject all pending requests
+    for (const [id, pending] of sharedPendingRequests.entries()) {
+      sharedPendingRequests.delete(id);
+      pending.reject(
+        new Error(
+          `Decimation worker failed: ${error.message || "Unknown error"}`,
+        ),
+      );
+    }
   };
 
   // Initialize the worker

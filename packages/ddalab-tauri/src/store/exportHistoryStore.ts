@@ -37,7 +37,7 @@ export const useExportHistoryStore = create<ExportHistoryState>()(
       maxExports: 100,
 
       addExport: (record) => {
-        const id = `export-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+        const id = `export-${crypto.randomUUID()}`;
         set((state) => {
           state.exports.unshift({
             ...record,

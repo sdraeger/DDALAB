@@ -321,15 +321,24 @@ async function handleComputeRequest(
   const request = event.data;
 
   if (request.type === "compute") {
-    const response = await handleComputeRequest(request);
+    try {
+      const response = await handleComputeRequest(request);
 
-    // Transfer the ImageBitmap for zero-copy transfer to main thread
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const workerSelf = self as any;
-    if (response.payload?.imageBitmap) {
-      workerSelf.postMessage(response, [response.payload.imageBitmap]);
-    } else {
-      workerSelf.postMessage(response);
+      // Transfer the ImageBitmap for zero-copy transfer to main thread
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const workerSelf = self as any;
+      if (response.payload?.imageBitmap) {
+        workerSelf.postMessage(response, [response.payload.imageBitmap]);
+      } else {
+        workerSelf.postMessage(response);
+      }
+    } catch (error) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (self as any).postMessage({
+        id: request.id,
+        type: "error",
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 };
