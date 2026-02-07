@@ -1140,6 +1140,25 @@ export class TauriService {
     }
   }
 
+  // CLI Install/Uninstall Commands
+  static async installCli(): Promise<string> {
+    const api = await getTauriAPI();
+    if (!api) throw new Error("Not running in Tauri environment");
+    return await api.invoke("install_cli");
+  }
+
+  static async uninstallCli(): Promise<string> {
+    const api = await getTauriAPI();
+    if (!api) throw new Error("Not running in Tauri environment");
+    return await api.invoke("uninstall_cli");
+  }
+
+  static async getCliInstallStatus(): Promise<boolean> {
+    const api = await getTauriAPI();
+    if (!api) throw new Error("Not running in Tauri environment");
+    return await api.invoke("cli_install_status");
+  }
+
   // Git-annex support
   static async checkAnnexPlaceholder(filePath: string): Promise<boolean> {
     try {
