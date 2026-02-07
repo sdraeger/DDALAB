@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect, useRef, memo } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import {
   Search,
   Download,
@@ -33,166 +33,118 @@ import {
 } from "../hooks/useOpenNeuro";
 import { Badge } from "./ui/badge";
 
-// Memoized dataset card component to prevent unnecessary re-renders
-const DatasetCard = memo(
-  ({
-    dataset,
-    isSelected,
-    onSelect,
-    onOpenInBrowser,
-  }: {
-    dataset: OpenNeuroDataset;
-    isSelected: boolean;
-    onSelect: (dataset: OpenNeuroDataset) => void;
-    onOpenInBrowser: (id: string) => void;
-  }) => {
-    const [tagsReady, setTagsReady] = useState(!dataset.summary);
-    const hasSummary = !!dataset.summary;
+const MODALITY_BADGE_CLASSES: Record<string, string> = {
+  eeg: "bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-700",
+  meg: "bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-700",
+  ieeg: "bg-violet-100 dark:bg-violet-950 text-violet-700 dark:text-violet-300 border-violet-300 dark:border-violet-700",
+  mri: "bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700",
+  anat: "bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700",
+  fmri: "bg-cyan-100 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300 border-cyan-300 dark:border-cyan-700",
+  func: "bg-cyan-100 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300 border-cyan-300 dark:border-cyan-700",
+  dwi: "bg-teal-100 dark:bg-teal-950 text-teal-700 dark:text-teal-300 border-teal-300 dark:border-teal-700",
+  pet: "bg-orange-100 dark:bg-orange-950 text-orange-700 dark:text-orange-300 border-orange-300 dark:border-orange-700",
+};
+const DEFAULT_BADGE_CLASS =
+  "bg-gray-100 dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-700";
 
-    useEffect(() => {
-      if (!hasSummary) {
-        setTagsReady(false);
-        return;
-      }
-      const timer = setTimeout(() => setTagsReady(true), 500);
-      return () => clearTimeout(timer);
-    }, [hasSummary]);
+function DatasetCard({
+  dataset,
+  isSelected,
+  onSelect,
+  onOpenInBrowser,
+}: {
+  dataset: OpenNeuroDataset;
+  isSelected: boolean;
+  onSelect: (dataset: OpenNeuroDataset) => void;
+  onOpenInBrowser: (id: string) => void;
+}) {
+  const modalities = dataset.summary?.modalities;
+  const hasModalities = modalities && modalities.length > 0;
 
-    return (
-      <div
-        onClick={() => onSelect(dataset)}
-        className={`p-4 border rounded-lg cursor-pointer transition-all ${
-          isSelected
-            ? "bg-primary/10 border-primary shadow-sm ring-2 ring-primary/20"
-            : "hover:bg-accent hover:shadow-sm"
-        }`}
-      >
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex-1 min-w-0">
-            <div className="font-semibold text-lg">{dataset.id}</div>
-            {dataset.name && dataset.name !== dataset.id && (
-              <div className="text-sm font-medium text-muted-foreground mt-1">
-                {dataset.name}
+  return (
+    <div
+      onClick={() => onSelect(dataset)}
+      className={`p-4 border rounded-lg cursor-pointer transition-all ${
+        isSelected
+          ? "bg-primary/10 border-primary shadow-sm ring-2 ring-primary/20"
+          : "hover:bg-accent hover:shadow-sm"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold text-lg">{dataset.id}</div>
+          {dataset.name && dataset.name !== dataset.id && (
+            <div className="text-sm font-medium text-muted-foreground mt-1">
+              {dataset.name}
+            </div>
+          )}
+          <div className="flex items-center gap-2 mt-3 flex-wrap">
+            {/* Spinner while summary is not yet loaded */}
+            {!dataset.summary && (
+              <div className="flex items-center gap-1.5 text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                <span className="text-xs">Loading tags...</span>
               </div>
             )}
-            <div className="flex items-center gap-2 mt-3 flex-wrap">
-              {/* Spinner while tags are resolving */}
-              {!tagsReady && (
-                <div className="flex items-center gap-1.5 text-muted-foreground">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  <span className="text-xs">Loading tags...</span>
+            {/* Badges render immediately when data is available */}
+            {hasModalities && (
+              <div className="flex items-center gap-2 flex-wrap animate-fade-in">
+                {modalities.some((m) =>
+                  ["eeg", "meg", "ieeg"].includes(m.toLowerCase()),
+                ) && (
+                  <Badge
+                    variant="outline"
+                    className="text-xs font-semibold bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700"
+                  >
+                    NEMAR
+                  </Badge>
+                )}
+                {isDDACompatibleDataset(dataset) && (
+                  <Badge variant="success" className="text-xs font-semibold">
+                    DDA Ready
+                  </Badge>
+                )}
+                <div className="flex items-center gap-1">
+                  {modalities.map((modality) => (
+                    <Badge
+                      key={modality}
+                      variant="outline"
+                      className={`text-xs font-medium ${MODALITY_BADGE_CLASSES[modality.toLowerCase()] ?? DEFAULT_BADGE_CLASS}`}
+                    >
+                      {modality.toUpperCase()}
+                    </Badge>
+                  ))}
                 </div>
-              )}
-              {/* Badges fade in once ready */}
-              {tagsReady &&
-                dataset.summary?.modalities &&
-                dataset.summary.modalities.length > 0 && (
-                  <div className="flex items-center gap-2 flex-wrap animate-fade-in">
-                    {/* NEMAR Badge */}
-                    {dataset.summary.modalities.some((m) =>
-                      ["eeg", "meg", "ieeg"].includes(m.toLowerCase()),
-                    ) && (
-                      <Badge
-                        variant="outline"
-                        className="text-xs font-semibold bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700"
-                      >
-                        NEMAR
-                      </Badge>
-                    )}
-                    {/* DDA Ready Badge */}
-                    {isDDACompatibleDataset(dataset) && (
-                      <Badge
-                        variant="success"
-                        className="text-xs font-semibold"
-                      >
-                        DDA Ready
-                      </Badge>
-                    )}
-                    {/* Modality badges with distinct colors */}
-                    <div className="flex items-center gap-1">
-                      {dataset.summary.modalities.map((modality) => {
-                        const modalityLower = modality.toLowerCase();
-                        let badgeClass = "";
-
-                        if (modalityLower === "eeg") {
-                          badgeClass =
-                            "bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-700";
-                        } else if (modalityLower === "meg") {
-                          badgeClass =
-                            "bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-700";
-                        } else if (modalityLower === "ieeg") {
-                          badgeClass =
-                            "bg-violet-100 dark:bg-violet-950 text-violet-700 dark:text-violet-300 border-violet-300 dark:border-violet-700";
-                        } else if (
-                          modalityLower === "mri" ||
-                          modalityLower === "anat"
-                        ) {
-                          badgeClass =
-                            "bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700";
-                        } else if (
-                          modalityLower === "fmri" ||
-                          modalityLower === "func"
-                        ) {
-                          badgeClass =
-                            "bg-cyan-100 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300 border-cyan-300 dark:border-cyan-700";
-                        } else if (modalityLower === "dwi") {
-                          badgeClass =
-                            "bg-teal-100 dark:bg-teal-950 text-teal-700 dark:text-teal-300 border-teal-300 dark:border-teal-700";
-                        } else if (modalityLower === "pet") {
-                          badgeClass =
-                            "bg-orange-100 dark:bg-orange-950 text-orange-700 dark:text-orange-300 border-orange-300 dark:border-orange-700";
-                        } else {
-                          badgeClass =
-                            "bg-gray-100 dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-700";
-                        }
-
-                        return (
-                          <Badge
-                            key={modality}
-                            variant="outline"
-                            className={`text-xs font-medium ${badgeClass}`}
-                          >
-                            {modality.toUpperCase()}
-                          </Badge>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              {tagsReady &&
-                dataset.summary &&
-                (!dataset.summary.modalities ||
-                  dataset.summary.modalities.length === 0) && (
-                  <span className="text-xs text-muted-foreground animate-fade-in">
-                    No modalities
-                  </span>
-                )}
-              {dataset.snapshots && dataset.snapshots.length > 0 && (
-                <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <Database className="h-3 w-3" />
-                  {dataset.snapshots.length} snapshot
-                  {dataset.snapshots.length !== 1 ? "s" : ""}
-                </span>
-              )}
-            </div>
+              </div>
+            )}
+            {dataset.summary && !hasModalities && (
+              <span className="text-xs text-muted-foreground">
+                No modalities
+              </span>
+            )}
+            {dataset.snapshots && dataset.snapshots.length > 0 && (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                <Database className="h-3 w-3" />
+                {dataset.snapshots.length} snapshot
+                {dataset.snapshots.length !== 1 ? "s" : ""}
+              </span>
+            )}
           </div>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenInBrowser(dataset.id);
-            }}
-            className="p-2 hover:bg-accent rounded-lg transition-colors"
-            title="Open in browser"
-          >
-            <ExternalLink className="h-4 w-4" />
-          </button>
         </div>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenInBrowser(dataset.id);
+          }}
+          className="p-2 hover:bg-accent rounded-lg transition-colors"
+          title="Open in browser"
+        >
+          <ExternalLink className="h-4 w-4" />
+        </button>
       </div>
-    );
-  },
-);
-
-DatasetCard.displayName = "DatasetCard";
+    </div>
+  );
+}
 
 type SortOption = "newest" | "subjects" | "alphabetical" | "largest";
 
