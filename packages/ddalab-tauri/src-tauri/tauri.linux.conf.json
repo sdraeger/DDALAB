@@ -2,7 +2,8 @@
   "bundle": {
     "resources": {
       "popout.html": "popout.html",
-      "../../../bin/run_DDA_AsciiEdf": "bin/run_DDA_AsciiEdf"
+      "../../../bin/run_DDA_AsciiEdf": "bin/run_DDA_AsciiEdf",
+      "../../../packages/dda-cli/target/release/ddalab": "bin/ddalab"
     }
   }
 }
