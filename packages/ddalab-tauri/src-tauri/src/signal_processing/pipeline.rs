@@ -7,10 +7,10 @@
 //! Designed for real-time streaming and batch processing.
 
 use super::filters::{create_filter, FilterConfig, FilterType, SosFilter};
+use parking_lot::Mutex;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Mutex;
 
 /// Cache key for filter coefficients.
 /// Uses ordered bits representation for f64 to enable Hash/Eq.
@@ -70,7 +70,7 @@ fn get_or_create_filter(config: &FilterConfig) -> Result<SosFilter, String> {
 
     // Try to get from cache first
     {
-        let cache = FILTER_CACHE.lock().unwrap();
+        let cache = FILTER_CACHE.lock();
         if let Some(filter) = cache.get(&key) {
             return Ok(filter.clone_fresh());
         }
@@ -81,7 +81,7 @@ fn get_or_create_filter(config: &FilterConfig) -> Result<SosFilter, String> {
 
     // Cache it
     {
-        let mut cache = FILTER_CACHE.lock().unwrap();
+        let mut cache = FILTER_CACHE.lock();
         cache.insert(key, filter.clone());
     }
 
@@ -631,7 +631,7 @@ mod tests {
         assert_eq!(result2.channels.len(), result3.channels.len());
 
         // Verify cache is being used by checking that it contains entries
-        let cache = FILTER_CACHE.lock().unwrap();
+        let cache = FILTER_CACHE.lock();
         assert!(
             !cache.is_empty(),
             "Filter cache should have entries after processing"

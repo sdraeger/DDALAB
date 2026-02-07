@@ -245,7 +245,12 @@ impl EDFWriter {
             })
             .collect();
 
-        let mut record_buf = vec![0u8; num_samples_per_record * 2];
+        let record_buf_size = num_samples_per_record.checked_mul(2).ok_or_else(|| {
+            FileWriterError::WriteError(
+                "Buffer size overflow: num_samples_per_record too large".to_string(),
+            )
+        })?;
+        let mut record_buf = vec![0u8; record_buf_size];
 
         for record_idx in 0..num_data_records {
             let start_sample = record_idx * num_samples_per_record;
