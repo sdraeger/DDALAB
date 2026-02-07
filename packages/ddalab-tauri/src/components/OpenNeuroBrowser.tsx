@@ -46,6 +46,18 @@ const DatasetCard = memo(
     onSelect: (dataset: OpenNeuroDataset) => void;
     onOpenInBrowser: (id: string) => void;
   }) => {
+    const [tagsReady, setTagsReady] = useState(!dataset.summary);
+    const hasSummary = !!dataset.summary;
+
+    useEffect(() => {
+      if (!hasSummary) {
+        setTagsReady(false);
+        return;
+      }
+      const timer = setTimeout(() => setTagsReady(true), 500);
+      return () => clearTimeout(timer);
+    }, [hasSummary]);
+
     return (
       <div
         onClick={() => onSelect(dataset)}
@@ -64,9 +76,18 @@ const DatasetCard = memo(
               </div>
             )}
             <div className="flex items-center gap-2 mt-3 flex-wrap">
-              {dataset.summary?.modalities &&
+              {/* Spinner while tags are resolving */}
+              {!tagsReady && (
+                <div className="flex items-center gap-1.5 text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <span className="text-xs">Loading tags...</span>
+                </div>
+              )}
+              {/* Badges fade in once ready */}
+              {tagsReady &&
+                dataset.summary?.modalities &&
                 dataset.summary.modalities.length > 0 && (
-                  <>
+                  <div className="flex items-center gap-2 flex-wrap animate-fade-in">
                     {/* NEMAR Badge */}
                     {dataset.summary.modalities.some((m) =>
                       ["eeg", "meg", "ieeg"].includes(m.toLowerCase()),
@@ -93,7 +114,6 @@ const DatasetCard = memo(
                         const modalityLower = modality.toLowerCase();
                         let badgeClass = "";
 
-                        // Color scheme based on modality type
                         if (modalityLower === "eeg") {
                           badgeClass =
                             "bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-700";
@@ -137,7 +157,15 @@ const DatasetCard = memo(
                         );
                       })}
                     </div>
-                  </>
+                  </div>
+                )}
+              {tagsReady &&
+                dataset.summary &&
+                (!dataset.summary.modalities ||
+                  dataset.summary.modalities.length === 0) && (
+                  <span className="text-xs text-muted-foreground animate-fade-in">
+                    No modalities
+                  </span>
                 )}
               {dataset.snapshots && dataset.snapshots.length > 0 && (
                 <span className="flex items-center gap-1 text-xs text-muted-foreground">
