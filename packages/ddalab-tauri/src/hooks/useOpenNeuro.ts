@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { invoke } from "@tauri-apps/api/core";
 import {
   openNeuroService,
   DownloadOptions,
@@ -140,5 +141,29 @@ export function useCancelDownload() {
   return useMutation({
     mutationFn: (datasetId: string) =>
       openNeuroService.cancelDownload(datasetId),
+  });
+}
+
+export interface BidsFileInfo {
+  path: string;
+  fileName: string;
+  extension: string;
+  size: number;
+  subject: string | null;
+  modalityDir: string | null;
+}
+
+export interface BidsScanResult {
+  files: BidsFileInfo[];
+  ddaCompatibleCount: number;
+}
+
+export function useScanBidsDirectory(path: string, enabled = false) {
+  return useQuery({
+    queryKey: [...openNeuroKeys.all, "bidsScan", path],
+    queryFn: () =>
+      invoke<BidsScanResult>("scan_bids_directory", { directoryPath: path }),
+    enabled: enabled && !!path,
+    staleTime: 5 * 60 * 1000,
   });
 }

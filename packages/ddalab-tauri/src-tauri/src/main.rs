@@ -311,7 +311,13 @@ fn main() {
             get_ica_results,
             get_ica_result_by_id,
             delete_ica_result,
-            ica_reconstruct_without_components
+            ica_reconstruct_without_components,
+            // CLI install/uninstall commands
+            install_cli,
+            uninstall_cli,
+            cli_install_status,
+            // BIDS directory scanner
+            scan_bids_directory
         ])
         .manage(AppSyncState::new())
         .manage(parking_lot::RwLock::new(

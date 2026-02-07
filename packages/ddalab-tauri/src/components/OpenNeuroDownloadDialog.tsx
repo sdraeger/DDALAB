@@ -11,6 +11,7 @@ import {
   ChevronDown,
   File,
   FolderOpen,
+  Activity,
 } from "lucide-react";
 import {
   openNeuroService,
@@ -18,7 +19,10 @@ import {
   type DownloadProgress,
   type OpenNeuroDataset,
   type OpenNeuroFile,
+  isDDACompatibleFile,
 } from "../services/openNeuroService";
+import { useDownloadedDatasetsStore } from "../store/downloadedDatasetsStore";
+import { useAppStore } from "../store/appStore";
 import { open } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -300,7 +304,20 @@ export const OpenNeuroDownloadDialog = memo(function OpenNeuroDownloadDialog({
     downloadMutation.mutate(options, {
       onSuccess: (resultPath) => {
         console.log("[DOWNLOAD] Completed successfully:", resultPath);
-        setRetryCount(0); // Reset retry count on success
+        setRetryCount(0);
+
+        // Track in downloaded datasets store
+        if (dataset) {
+          useDownloadedDatasetsStore.getState().addDataset({
+            datasetId: dataset.id,
+            name: dataset.name || dataset.id,
+            path: resultPath,
+            snapshotTag: selectedSnapshot,
+            modalities: dataset.summary?.modalities || [],
+            subjects: dataset.summary?.subjects,
+            size: dataset.summary?.size,
+          });
+        }
       },
       onError: (err) => {
         console.error("[DOWNLOAD] Failed:", err);
@@ -415,6 +432,11 @@ export const OpenNeuroDownloadDialog = memo(function OpenNeuroDownloadDialog({
 
           {/* Name and size */}
           <span className="text-sm flex-1">{node.name}</span>
+          {!node.isDirectory && isDDACompatibleFile(node.name) && (
+            <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-1.5 py-0.5 rounded font-medium">
+              DDA
+            </span>
+          )}
           {!node.isDirectory && node.size > 0 && (
             <span className="text-xs text-muted-foreground">
               {formatFileSize(node.size)}
@@ -740,6 +762,21 @@ export const OpenNeuroDownloadDialog = memo(function OpenNeuroDownloadDialog({
               <div className="text-xs text-muted-foreground mt-1">
                 Current: {progress.current_file}
               </div>
+            )}
+            {progress.phase === "completed" && downloadMutation.data && (
+              <button
+                onClick={() => {
+                  const appStore = useAppStore.getState();
+                  appStore.setDataDirectoryPath(downloadMutation.data);
+                  appStore.setPrimaryNav("explore");
+                  appStore.setSecondaryNav("timeseries");
+                  onClose();
+                }}
+                className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white hover:bg-green-700 rounded-lg transition-colors font-medium"
+              >
+                <Activity className="h-4 w-4" />
+                Open & Analyze
+              </button>
             )}
           </div>
         )}

@@ -482,6 +482,13 @@ class OpenNeuroService {
               BIDSVersion
               DatasetDOI
             }
+            summary {
+              modalities
+              subjects
+              tasks
+              size
+              totalFiles
+            }
           }
           snapshots {
             edges {
@@ -520,6 +527,15 @@ class OpenNeuroService {
             tag: edge.node.tag,
             created: edge.node.created,
           })) || [],
+        summary: node.latestSnapshot?.summary
+          ? {
+              modalities: node.latestSnapshot.summary.modalities || [],
+              subjects: node.latestSnapshot.summary.subjects,
+              tasks: node.latestSnapshot.summary.tasks || [],
+              size: node.latestSnapshot.summary.size,
+              totalFiles: node.latestSnapshot.summary.totalFiles,
+            }
+          : undefined,
       };
     } catch (error) {
       throw error;
@@ -760,6 +776,31 @@ class OpenNeuroService {
       throw error;
     }
   }
+}
+
+// ========== DDA COMPATIBILITY UTILITIES ==========
+
+export const DDA_COMPATIBLE_EXTENSIONS = new Set([
+  "edf",
+  "set",
+  "vhdr",
+  "fif",
+  "csv",
+  "txt",
+  "xdf",
+]);
+
+export const DDA_COMPATIBLE_MODALITIES = new Set(["eeg", "meg", "ieeg"]);
+
+export function isDDACompatibleFile(filename: string): boolean {
+  const ext = filename.split(".").pop()?.toLowerCase() || "";
+  return DDA_COMPATIBLE_EXTENSIONS.has(ext);
+}
+
+export function isDDACompatibleDataset(dataset: OpenNeuroDataset): boolean {
+  return (dataset.summary?.modalities || []).some((m) =>
+    DDA_COMPATIBLE_MODALITIES.has(m.toLowerCase()),
+  );
 }
 
 // Export singleton instance
