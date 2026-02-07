@@ -1,0 +1,3 @@
+[submodule "packages/dda-py"]
+	path = packages/dda-py
+	url = git@github.com:sdraeger/dda-py.git
