@@ -83,7 +83,7 @@ const DEFAULT_FILTERS: NotificationFilters = {
 };
 
 function generateId(): string {
-  return `notif-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  return `notif-${crypto.randomUUID()}`;
 }
 
 export const useNotificationStore = create<NotificationState>()(

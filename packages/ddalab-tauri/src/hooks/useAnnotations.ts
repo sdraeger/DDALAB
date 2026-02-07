@@ -90,7 +90,7 @@ export const useTimeSeriesAnnotations = ({
       visibleInPlots?: string[],
     ) => {
       const annotation: PlotAnnotation = {
-        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        id: crypto.randomUUID(),
         position,
         label,
         description,
@@ -326,7 +326,7 @@ export const useDDAAnnotations = ({
       const currentPlotId = `dda:${variantId}:${plotType === "heatmap" ? "heatmap" : "lineplot"}`;
 
       const annotation: PlotAnnotation = {
-        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        id: crypto.randomUUID(),
         position: timeSeconds, // Store in seconds, not scale value
         label,
         description,

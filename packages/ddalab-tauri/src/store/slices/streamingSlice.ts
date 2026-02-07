@@ -22,6 +22,8 @@ export const defaultStreamingState: StreamingState = {
   },
 };
 
+let isCreatingSession = false;
+
 export const createStreamingSlice: ImmerStateCreator<StreamingSlice> = (
   set,
   get,
@@ -29,6 +31,11 @@ export const createStreamingSlice: ImmerStateCreator<StreamingSlice> = (
   streaming: defaultStreamingState,
 
   createStreamSession: async (sourceConfig, ddaConfig) => {
+    if (isCreatingSession) {
+      throw new Error("Session creation already in progress");
+    }
+    isCreatingSession = true;
+
     const { invoke } = await import("@tauri-apps/api/core");
 
     try {
@@ -80,6 +87,8 @@ export const createStreamingSlice: ImmerStateCreator<StreamingSlice> = (
       return streamId;
     } catch {
       throw new Error("Failed to create streaming session");
+    } finally {
+      isCreatingSession = false;
     }
   },
 
@@ -280,7 +289,7 @@ export const createStreamingSlice: ImmerStateCreator<StreamingSlice> = (
       }
 
       const historyEntry = {
-        id: `history-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        id: `history-${crypto.randomUUID()}`,
         sourceConfig,
         ddaConfig,
         timestamp: Date.now(),

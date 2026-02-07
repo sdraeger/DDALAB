@@ -311,6 +311,18 @@ function handleGetData(request: DDAGetDataRequest): void {
     }
   }
 
+  // FALLBACK: If no channels matched (e.g., ST channels vs CT pair channels),
+  // return ALL channels from this variant's dda_matrix.
+  // This handles variant switching where channel naming differs.
+  if (Object.keys(ddaMatrix).length === 0 && channels.length > 0) {
+    console.log(
+      `[DDADecodeWorker] No matching channels for ${variantId}, returning all variant channels`,
+    );
+    for (const [key, value] of Object.entries(variant.dda_matrix)) {
+      ddaMatrix[key] = value;
+    }
+  }
+
   const windowIndices =
     result.results.window_indices || result.results.scales || [];
 

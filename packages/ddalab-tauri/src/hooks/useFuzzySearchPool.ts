@@ -22,16 +22,23 @@ const CHUNK_SIZE = 500; // Process 500 targets per worker chunk
 let workers: Worker[] = [];
 let workerReady: boolean[] = [];
 let pendingRequests = new Map<string, PendingRequest>();
+let requestWorkerMap = new Map<string, number>();
 let requestCounter = 0;
 let poolInitialized = false;
 let initPromise: Promise<void> | null = null;
+let poolTerminating = false;
 
 function getOrCreatePool(): Promise<void> {
+  // If pool is being terminated, wait for termination to complete
+  if (poolTerminating) {
+    return Promise.reject(new Error("Worker pool is being terminated"));
+  }
+
   if (poolInitialized) return Promise.resolve();
 
   if (initPromise) return initPromise;
 
-  initPromise = new Promise((resolve) => {
+  initPromise = new Promise((resolve, reject) => {
     let readyCount = 0;
 
     for (let i = 0; i < POOL_SIZE; i++) {
@@ -43,6 +50,9 @@ function getOrCreatePool(): Promise<void> {
       workerReady.push(false);
 
       worker.onmessage = (event: MessageEvent<FuzzySearchResponse>) => {
+        // Ignore messages if pool was terminated during init
+        if (poolTerminating) return;
+
         const response = event.data;
 
         if (response.type === "ready") {
@@ -60,6 +70,7 @@ function getOrCreatePool(): Promise<void> {
           if (pending) {
             if (response.type === "error") {
               pendingRequests.delete(response.id);
+              requestWorkerMap.delete(response.id);
               pending.reject(new Error(response.error || "Worker error"));
             } else if (response.type === "result" && response.results) {
               // Check if this is a chunked request
@@ -77,11 +88,14 @@ function getOrCreatePool(): Promise<void> {
                 if (pending.completedChunks === pending.totalChunks) {
                   // All chunks complete, merge results
                   const merged = pending.partialResults.flat();
-                  pendingRequests.delete(response.id.replace(/_chunk\d+$/, ""));
+                  const baseId = response.id.replace(/_chunk\d+$/, "");
+                  pendingRequests.delete(baseId);
+                  requestWorkerMap.delete(baseId);
                   pending.resolve(merged);
                 }
               } else {
                 pendingRequests.delete(response.id);
+                requestWorkerMap.delete(response.id);
                 pending.resolve(response.results);
               }
             }
@@ -91,6 +105,24 @@ function getOrCreatePool(): Promise<void> {
 
       worker.onerror = (error) => {
         console.error(`[FuzzySearchPool] Worker ${i} error:`, error);
+        workerReady[i] = false;
+        // Only reject requests assigned to this specific worker
+        const rejectedPendings = new Set<PendingRequest>();
+        for (const [id, workerIdx] of requestWorkerMap.entries()) {
+          if (workerIdx === i) {
+            const pending = pendingRequests.get(id);
+            if (pending && !rejectedPendings.has(pending)) {
+              rejectedPendings.add(pending);
+              pending.reject(
+                new Error(
+                  `Worker ${i} failed: ${error.message || "Unknown error"}`,
+                ),
+              );
+            }
+            pendingRequests.delete(id);
+            requestWorkerMap.delete(id);
+          }
+        }
       };
 
       workers.push(worker);
@@ -125,6 +157,7 @@ export async function levenshteinBatchParallel(
 
     return new Promise((resolve, reject) => {
       pendingRequests.set(id, { resolve, reject });
+      requestWorkerMap.set(id, workerIdx);
       workers[workerIdx].postMessage({
         type: "levenshteinBatch",
         id,
@@ -160,6 +193,7 @@ export async function levenshteinBatchParallel(
 
       // Also register chunk ID pointing to same pending request
       pendingRequests.set(chunkId, pending);
+      requestWorkerMap.set(chunkId, workerIdx);
 
       workers[workerIdx].postMessage({
         type: "levenshteinBatch",
@@ -187,6 +221,7 @@ export async function trigramBatchParallel(
 
     return new Promise((resolve, reject) => {
       pendingRequests.set(id, { resolve, reject });
+      requestWorkerMap.set(id, workerIdx);
       workers[workerIdx].postMessage({
         type: "trigramBatch",
         id,
@@ -219,6 +254,7 @@ export async function trigramBatchParallel(
       const workerIdx = idx % POOL_SIZE;
 
       pendingRequests.set(chunkId, pending);
+      requestWorkerMap.set(chunkId, workerIdx);
 
       workers[workerIdx].postMessage({
         type: "trigramBatch",
@@ -234,10 +270,22 @@ export async function trigramBatchParallel(
  * Terminate all workers in the pool
  */
 export function terminatePool(): void {
+  // Set terminating flag to prevent new requests and ignore pending callbacks
+  poolTerminating = true;
+
+  // Reject all pending requests before termination
+  for (const [id, pending] of pendingRequests.entries()) {
+    pending.reject(new Error("Worker pool terminated"));
+  }
+  pendingRequests.clear();
+  requestWorkerMap.clear();
+
   workers.forEach((worker) => worker.terminate());
   workers = [];
   workerReady = [];
-  pendingRequests.clear();
   poolInitialized = false;
   initPromise = null;
+
+  // Reset terminating flag so pool can be recreated if needed
+  poolTerminating = false;
 }

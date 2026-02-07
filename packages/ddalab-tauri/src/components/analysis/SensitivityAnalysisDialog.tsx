@@ -62,7 +62,7 @@ export interface SensitivityAnalysisDialogProps {
 type TemplateKey = keyof typeof PARAMETER_SET_TEMPLATES;
 
 function generateId(): string {
-  return `ps_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  return `ps_${crypto.randomUUID()}`;
 }
 
 function createParameterSetFromTemplate(
