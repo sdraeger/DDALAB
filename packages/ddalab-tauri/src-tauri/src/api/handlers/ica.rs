@@ -178,20 +178,22 @@ pub async fn run_ica_analysis(
             time_range.end
         );
         let sample_rate = intermediate_data.metadata.sample_rate;
-        let start_sample = (time_range.start * sample_rate) as usize;
-        let end_sample = (time_range.end * sample_rate) as usize;
+        let start_sample = (time_range.start.max(0.0) * sample_rate) as usize;
+        let end_sample = (time_range.end.max(0.0) * sample_rate) as usize;
 
         // Use parallel iteration for time range slicing
-        intermediate_data
-            .channels
-            .par_iter_mut()
-            .for_each(|channel| {
-                if end_sample < channel.samples.len() {
-                    channel.samples = channel.samples[start_sample..end_sample].to_vec();
-                } else if start_sample < channel.samples.len() {
-                    channel.samples = channel.samples[start_sample..].to_vec();
-                }
-            });
+        if start_sample < end_sample {
+            intermediate_data
+                .channels
+                .par_iter_mut()
+                .for_each(|channel| {
+                    if end_sample < channel.samples.len() {
+                        channel.samples = channel.samples[start_sample..end_sample].to_vec();
+                    } else if start_sample < channel.samples.len() {
+                        channel.samples = channel.samples[start_sample..].to_vec();
+                    }
+                });
+        }
         log::info!(
             "[ICA] After time range: {} samples/channel",
             intermediate_data

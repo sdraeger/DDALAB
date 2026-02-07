@@ -542,8 +542,12 @@ impl StreamingDDAProcessor {
             .or_else(|| Some((0..window.samples.len()).collect()));
 
         // Build DDA request
+        let file_path_str = temp_file
+            .to_str()
+            .ok_or_else(|| StreamError::Parse("Invalid UTF-8 in temp file path".to_string()))?
+            .to_string();
         let request = DDARequest {
-            file_path: temp_file.to_str().unwrap().to_string(),
+            file_path: file_path_str,
             channels,
             time_range: TimeRange {
                 start: 0.0,

@@ -10,6 +10,17 @@ use std::os::unix::fs::PermissionsExt;
 /// Implementation of FileReader trait for BrainVision format (.vhdr, .vmrk, .eeg files).
 use std::path::Path;
 
+/// Validate that a referenced file path from a header doesn't escape the parent directory
+fn validate_header_path(name: &str) -> Result<(), FileReaderError> {
+    if std::path::Path::new(name).is_absolute() || name.contains("..") {
+        return Err(FileReaderError::ParseError(format!(
+            "Invalid file reference in header (path traversal detected): {}",
+            name
+        )));
+    }
+    Ok(())
+}
+
 /// Simple BrainVision header parser for AnyWave-exported files
 #[derive(Debug)]
 struct SimpleBVHeader {
@@ -168,6 +179,7 @@ impl BrainVisionFileReader {
 
         // Convert .vmrk file if referenced (text file, needs encoding conversion)
         if let Some(vmrk_name) = marker_file_name {
+            validate_header_path(&vmrk_name)?;
             let vmrk_path = parent_dir.join(&vmrk_name);
             if vmrk_path.exists() {
                 let temp_vmrk = temp_dir.join(&vmrk_name);
@@ -178,6 +190,7 @@ impl BrainVisionFileReader {
         // Rewrite DataFile= to the absolute path of the original .eeg binary.
         // This avoids copying potentially large binary data files into the temp directory.
         if let Some(eeg_name) = data_file_name {
+            validate_header_path(&eeg_name)?;
             let eeg_abs_path = parent_dir.join(&eeg_name);
             if eeg_abs_path.exists() {
                 let abs_path_str = eeg_abs_path.to_string_lossy();
@@ -272,6 +285,10 @@ impl BrainVisionFileReader {
         let parent_dir = path.parent().ok_or_else(|| {
             FileReaderError::ParseError(format!("No parent directory for: {}", path.display()))
         })?;
+
+        // Validate that data_file path doesn't escape the parent directory (path traversal prevention)
+        validate_header_path(&header.data_file)?;
+
         let data_file_path = parent_dir.join(&header.data_file);
 
         if !data_file_path.exists() {

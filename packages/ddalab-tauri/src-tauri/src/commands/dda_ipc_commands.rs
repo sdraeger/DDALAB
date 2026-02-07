@@ -335,6 +335,17 @@ fn map_variant_id_to_frontend(variant_id: &str) -> String {
     }
 }
 
+fn get_variant_display_name(variant_id: &str) -> String {
+    match variant_id {
+        "single_timeseries" => "Single Timeseries (ST)".to_string(),
+        "cross_timeseries" => "Cross Timeseries (CT)".to_string(),
+        "cross_dynamical" => "Cross Dynamical (CD)".to_string(),
+        "dynamical_ergodicity" => "Dynamical Ergodicity (DE)".to_string(),
+        "synchronization" => "Synchronization (SY)".to_string(),
+        _ => variant_id.to_string(),
+    }
+}
+
 fn parse_variant_configs(
     variant_configs_json: &serde_json::Value,
 ) -> Result<HashMap<String, VariantConfig>, String> {
@@ -394,7 +405,11 @@ fn calculate_mean(values: &[f64]) -> f64 {
     if values.is_empty() {
         return 0.0;
     }
-    values.iter().sum::<f64>() / values.len() as f64
+    let sum: f64 = values.iter().sum();
+    if !sum.is_finite() {
+        return 0.0;
+    }
+    sum / values.len() as f64
 }
 
 fn calculate_std(values: &[f64]) -> f64 {
@@ -402,7 +417,13 @@ fn calculate_std(values: &[f64]) -> f64 {
         return 0.0;
     }
     let mean = calculate_mean(values);
+    if !mean.is_finite() {
+        return 0.0;
+    }
     let variance = values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / values.len() as f64;
+    if !variance.is_finite() {
+        return 0.0;
+    }
     variance.sqrt()
 }
 
@@ -770,7 +791,11 @@ pub async fn submit_dda_analysis(
             request.variant_configs.as_ref().and_then(|vc| {
                 vc.get("cross_dynamical")
                     .and_then(|v| v.get("cdChannelPairs"))
-                    .and_then(|p| serde_json::from_value(p.clone()).ok())
+                    .and_then(|p| {
+                        serde_json::from_value(p.clone())
+                            .map_err(|e| log::warn!("Failed to parse cdChannelPairs: {}", e))
+                            .ok()
+                    })
             })
         });
 
@@ -811,10 +836,17 @@ pub async fn submit_dda_analysis(
                             &delay_values,
                             Some(0.25),
                         ) {
-                            Ok(motifs) => Some(
-                                serde_json::to_value(motifs).unwrap_or(serde_json::Value::Null),
-                            ),
-                            Err(_) => None,
+                            Ok(motifs) => match serde_json::to_value(motifs) {
+                                Ok(value) => Some(value),
+                                Err(e) => {
+                                    log::error!("Failed to serialize network motifs: {}", e);
+                                    None
+                                }
+                            },
+                            Err(e) => {
+                                log::warn!("Failed to compute network motifs: {}", e);
+                                None
+                            }
                         }
                     } else {
                         None
@@ -1549,20 +1581,27 @@ pub async fn get_dda_metadata_from_history(
                 // Extract channels from parameters
                 let channels = parameters.selected_channels.clone();
 
-                // Create minimal variant metadata from display name
-                // Full variant details come when channel data is loaded
-                // IMPORTANT: Use map_variant_id_to_frontend to match worker cache IDs
-                let variants = vec![VariantMetadata {
-                    variant_id: map_variant_id_to_frontend(&analysis.variant_name),
-                    variant_name: analysis.variant_display_name.clone(),
-                    exponents: serde_json::json!({}),
-                    quality_metrics: serde_json::json!({}),
-                    has_network_motifs: false,
-                }];
+                // Create variant metadata for ALL enabled variants from parameters
+                // The database stores only ONE row per analysis run, but the analysis
+                // may have multiple enabled variants (ST, CT, CD, DE, SY).
+                // Extract the full list from parameters.variants.
+                let variants: Vec<VariantMetadata> = parameters
+                    .variants
+                    .iter()
+                    .map(|variant_id| VariantMetadata {
+                        variant_id: variant_id.clone(),
+                        variant_name: get_variant_display_name(variant_id),
+                        exponents: serde_json::json!({}),
+                        quality_metrics: serde_json::json!({}),
+                        has_network_motifs: false,
+                    })
+                    .collect();
 
                 log::info!(
-                    "[DDA_IPC] DB metadata (fast) in {:.1}ms",
-                    t0.elapsed().as_secs_f64() * 1000.0
+                    "[DDA_IPC] DB metadata (fast) in {:.1}ms, {} variants: {:?}",
+                    t0.elapsed().as_secs_f64() * 1000.0,
+                    variants.len(),
+                    parameters.variants
                 );
 
                 return Ok(Some(DDAMetadataResponse {

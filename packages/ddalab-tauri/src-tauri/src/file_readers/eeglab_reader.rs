@@ -138,21 +138,27 @@ impl EEGLABFileReader {
         // Look for number of channels (nbchan)
         if let Some(nbchan_arr) = mat_file.find_by_name("nbchan") {
             if let Some(val) = Self::extract_scalar(nbchan_arr.data()) {
-                meta.nbchan = val as usize;
+                if val >= 0.0 {
+                    meta.nbchan = val as usize;
+                }
             }
         }
 
         // Look for number of points (pnts)
         if let Some(pnts_arr) = mat_file.find_by_name("pnts") {
             if let Some(val) = Self::extract_scalar(pnts_arr.data()) {
-                meta.pnts = val as usize;
+                if val >= 0.0 {
+                    meta.pnts = val as usize;
+                }
             }
         }
 
         // Look for trials
         if let Some(trials_arr) = mat_file.find_by_name("trials") {
             if let Some(val) = Self::extract_scalar(trials_arr.data()) {
-                meta.trials = val as usize;
+                if val >= 0.0 {
+                    meta.trials = val as usize;
+                }
             }
         }
         if meta.trials == 0 {

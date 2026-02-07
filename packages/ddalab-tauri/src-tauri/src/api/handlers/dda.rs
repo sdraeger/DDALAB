@@ -363,8 +363,8 @@ pub async fn run_dda_analysis(
         let sample_rate = metadata.sample_rate;
         let total_samples = metadata.num_samples as u64;
 
-        let start_sample = (request_start * sample_rate) as u64;
-        let end_sample = (request_end * sample_rate) as u64;
+        let start_sample = (request_start * sample_rate).max(0.0) as u64;
+        let end_sample = (request_end * sample_rate).max(0.0) as u64;
 
         let safety_margin = std::cmp::min(256, total_samples / 10);
         let safe_end = if total_samples > safety_margin {
@@ -541,7 +541,11 @@ pub async fn run_dda_analysis(
     let analysis_id = dda_result.id.clone();
 
     let num_channels = q_matrix.len();
-    let num_timepoints = q_matrix[0].len();
+    let num_timepoints = if num_channels > 0 {
+        q_matrix[0].len()
+    } else {
+        0
+    };
 
     log::info!(
         "Q matrix dimensions: {} channels × {} timepoints",
@@ -622,7 +626,9 @@ pub async fn run_dda_analysis(
 
     let mut dda_matrix = serde_json::Map::new();
     for (i, channel_name) in channel_names.iter().enumerate() {
-        dda_matrix.insert(channel_name.clone(), serde_json::json!(q_matrix[i]));
+        if let Some(row) = q_matrix.get(i) {
+            dda_matrix.insert(channel_name.clone(), serde_json::json!(row));
+        }
     }
 
     let scales: Vec<f64> = (0..num_timepoints).map(|i| i as f64 * 0.1).collect();
