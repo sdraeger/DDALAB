@@ -109,3 +109,5 @@ CLAUDE.md
 data/
 paper/
 nsg_wrapper/
+website/
+packages/dda-cli/target/
