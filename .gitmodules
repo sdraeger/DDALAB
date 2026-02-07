@@ -1,3 +1,6 @@
 [submodule "packages/dda-py"]
 	path = packages/dda-py
 	url = git@github.com:sdraeger/dda-py.git
+[submodule "packages/DelayDifferentialAnalysis.jl"]
+	path = packages/DelayDifferentialAnalysis.jl
+	url = git@github.com:sdraeger/DelayDifferentialAnalysis.jl.git
