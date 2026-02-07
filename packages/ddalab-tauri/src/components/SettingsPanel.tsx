@@ -10,6 +10,7 @@ import { SyncSettings } from "./settings/SyncSettings";
 import { OpenNeuroSettings } from "./settings/OpenNeuroSettings";
 import { DebugSettings } from "./settings/DebugSettings";
 import { UpdatesSettings } from "./settings/UpdatesSettings";
+import { CLISettings } from "./settings/CLISettings";
 import { TauriService } from "@/services/tauriService";
 import {
   Activity,
@@ -21,6 +22,7 @@ import {
   Settings2,
   Sliders,
   Share2,
+  Terminal,
 } from "lucide-react";
 import { useSearchableItems, createSettingsItem } from "@/hooks/useSearchable";
 
@@ -73,6 +75,28 @@ export function SettingsPanel() {
                   "confirmation",
                   "dialog",
                   "analysis",
+                ],
+              },
+            ),
+            createSettingsItem(
+              "settings-cli",
+              "CLI Settings",
+              () => {
+                document
+                  .querySelector('[data-settings-section="cli"]')
+                  ?.scrollIntoView();
+              },
+              {
+                description: "Install ddalab command line interface to PATH",
+                keywords: [
+                  "cli",
+                  "terminal",
+                  "command",
+                  "line",
+                  "path",
+                  "install",
+                  "ddalab",
+                  "shell",
                 ],
               },
             ),
@@ -196,6 +220,26 @@ export function SettingsPanel() {
       component: <BehaviorSettings />,
       keywords: ["close", "warning", "confirm", "dialog", "prompt", "exit"],
       description: "Configure application behavior and confirmations",
+    });
+  }
+
+  // Only add CLI section in Tauri
+  if (TauriService.isTauri()) {
+    sections.push({
+      id: "cli",
+      label: "CLI",
+      icon: <Terminal className="h-4 w-4" />,
+      component: <CLISettings />,
+      keywords: [
+        "cli",
+        "terminal",
+        "command",
+        "line",
+        "path",
+        "install",
+        "shell",
+      ],
+      description: "Install ddalab command line interface to PATH",
     });
   }
 

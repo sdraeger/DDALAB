@@ -1,6 +1,7 @@
 pub mod annotation_commands;
 pub mod api_commands; // Unified API commands (local and remote)
 pub mod bids_export_commands;
+pub mod cli_commands; // CLI install/uninstall commands
 pub mod data_directory_commands;
 pub mod dda_export_commands;
 pub mod dda_ipc_commands; // DDA analysis via pure IPC (no HTTP)
@@ -16,6 +17,7 @@ pub mod notification_commands;
 pub mod nsg_commands;
 pub mod openneuro_commands;
 pub mod preference_commands;
+pub mod scan_commands; // BIDS directory scanner for DDA-compatible files
 pub mod state_commands;
 pub mod streaming_commands; // Real-time data streaming and DDA
 pub mod update_commands;
@@ -25,6 +27,7 @@ pub mod window_commands;
 pub use annotation_commands::*;
 pub use api_commands::*;
 pub use bids_export_commands::*;
+pub use cli_commands::*;
 pub use data_directory_commands::*;
 pub use dda_export_commands::*;
 pub use dda_ipc_commands::*;
@@ -40,6 +43,7 @@ pub use notification_commands::*;
 pub use nsg_commands::*;
 pub use openneuro_commands::*;
 pub use preference_commands::*;
+pub use scan_commands::*;
 pub use state_commands::*;
 pub use streaming_commands::*;
 pub use update_commands::*;
