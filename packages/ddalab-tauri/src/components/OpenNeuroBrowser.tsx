@@ -52,11 +52,13 @@ function DatasetCard({
   isSelected,
   onSelect,
   onOpenInBrowser,
+  tagsReady,
 }: {
   dataset: OpenNeuroDataset;
   isSelected: boolean;
   onSelect: (dataset: OpenNeuroDataset) => void;
   onOpenInBrowser: (id: string) => void;
+  tagsReady: boolean;
 }) {
   const modalities = dataset.summary?.modalities;
   const hasModalities = modalities && modalities.length > 0;
@@ -79,15 +81,13 @@ function DatasetCard({
             </div>
           )}
           <div className="flex items-center gap-2 mt-3 flex-wrap">
-            {/* Spinner while summary is not yet loaded */}
-            {!dataset.summary && (
+            {!tagsReady && (
               <div className="flex items-center gap-1.5 text-muted-foreground">
                 <Loader2 className="h-3 w-3 animate-spin" />
                 <span className="text-xs">Loading tags...</span>
               </div>
             )}
-            {/* Badges render immediately when data is available */}
-            {hasModalities && (
+            {tagsReady && hasModalities && (
               <div className="flex items-center gap-2 flex-wrap animate-fade-in">
                 {modalities.some((m) =>
                   ["eeg", "meg", "ieeg"].includes(m.toLowerCase()),
@@ -117,8 +117,8 @@ function DatasetCard({
                 </div>
               </div>
             )}
-            {dataset.summary && !hasModalities && (
-              <span className="text-xs text-muted-foreground">
+            {tagsReady && dataset.summary && !hasModalities && (
+              <span className="text-xs text-muted-foreground animate-fade-in">
                 No modalities
               </span>
             )}
@@ -166,6 +166,7 @@ export function OpenNeuroBrowser() {
     "all" | "nemar" | "downloaded"
   >("all");
   const [isAutoLoading, setIsAutoLoading] = useState(false);
+  const [tagsReady, setTagsReady] = useState(false);
 
   // Debounce search input (300ms)
   useEffect(() => {
@@ -284,19 +285,29 @@ export function OpenNeuroBrowser() {
         sorted.sort((a, b) => {
           const dateA = a.created ? new Date(a.created).getTime() : 0;
           const dateB = b.created ? new Date(b.created).getTime() : 0;
-          return dateB - dateA;
+          return dateB - dateA || a.id.localeCompare(b.id);
         });
         break;
       case "subjects":
         sorted.sort(
-          (a, b) => (b.summary?.subjects || 0) - (a.summary?.subjects || 0),
+          (a, b) =>
+            (b.summary?.subjects || 0) - (a.summary?.subjects || 0) ||
+            a.id.localeCompare(b.id),
         );
         break;
       case "alphabetical":
-        sorted.sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
+        sorted.sort(
+          (a, b) =>
+            (a.name || a.id).localeCompare(b.name || b.id) ||
+            a.id.localeCompare(b.id),
+        );
         break;
       case "largest":
-        sorted.sort((a, b) => (b.summary?.size || 0) - (a.summary?.size || 0));
+        sorted.sort(
+          (a, b) =>
+            (b.summary?.size || 0) - (a.summary?.size || 0) ||
+            a.id.localeCompare(b.id),
+        );
         break;
     }
 
@@ -370,46 +381,51 @@ export function OpenNeuroBrowser() {
     endCursor,
   ]);
 
-  // Background prefetch: when idle, load more datasets to enlarge search corpus
-  const prefetchRef = useRef(false);
+  // Background prefetch: after initial load, fetch remaining pages in a burst
+  // and merge them all at once to avoid incremental list mutations
+  const prefetchStarted = useRef(false);
   useEffect(() => {
     if (
-      !hasMorePages ||
+      prefetchStarted.current ||
       loading ||
-      searchQuery.trim() ||
-      isAutoLoading ||
-      allDatasets.length >= 500 ||
-      prefetchRef.current
+      !initialData ||
+      allDatasets.length === 0
     ) {
       return;
     }
+    prefetchStarted.current = true;
 
-    prefetchRef.current = true;
-    const timeout = setTimeout(async () => {
-      try {
-        const result = await openNeuroService.fetchDatasetsBatch(50, endCursor);
-        setAllDatasets((prev) => [...prev, ...result.datasets]);
-        setEndCursor(result.endCursor || undefined);
-        setHasMorePages(result.hasNextPage);
-      } catch {
-        // Silently fail background prefetch
-      } finally {
-        prefetchRef.current = false;
+    let cancelled = false;
+    (async () => {
+      const buffer: OpenNeuroDataset[] = [];
+      let cursor = endCursor;
+      let morePages = hasMorePages;
+
+      while (morePages && !cancelled && buffer.length < 450) {
+        try {
+          const result = await openNeuroService.fetchDatasetsBatch(50, cursor);
+          buffer.push(...result.datasets);
+          cursor = result.endCursor || undefined;
+          morePages = result.hasNextPage;
+        } catch {
+          break;
+        }
       }
-    }, 3000);
+
+      if (!cancelled) {
+        if (buffer.length > 0) {
+          setAllDatasets((prev) => [...prev, ...buffer]);
+          setEndCursor(cursor);
+          setHasMorePages(morePages);
+        }
+        setTagsReady(true);
+      }
+    })();
 
     return () => {
-      clearTimeout(timeout);
-      prefetchRef.current = false;
+      cancelled = true;
     };
-  }, [
-    hasMorePages,
-    loading,
-    searchQuery,
-    isAutoLoading,
-    allDatasets.length,
-    endCursor,
-  ]);
+  }, [loading, initialData]);
 
   const handleDatasetClick = useCallback((dataset: OpenNeuroDataset) => {
     setSelectedDataset(dataset);
@@ -777,6 +793,7 @@ export function OpenNeuroBrowser() {
                   isSelected={selectedDataset?.id === dataset.id}
                   onSelect={handleDatasetClick}
                   onOpenInBrowser={handleOpenInBrowser}
+                  tagsReady={tagsReady}
                 />
               ))}
             </div>
