@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "updatedAt": "2026-02-08T19:51:55.098Z",
+  "registryUrl": null,
+  "plugins": [
+    {
+      "id": "channel-stats",
+      "name": "Channel Statistics",
+      "version": "0.1.0",
+      "description": "Computes basic statistics (mean, std, min, max, kurtosis) for each channel",
+      "author": "DDALAB Team",
+      "category": "analysis",
+      "permissions": [
+        "ReadChannelData",
+        "WriteResults"
+      ],
+      "artifactUrl": "plugins/channel-stats/0.1.0/plugin.wasm",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "minDdalabVersion": null,
+      "publishedAt": "2026-02-08T19:51:55.098Z"
+    }
+  ]
+}

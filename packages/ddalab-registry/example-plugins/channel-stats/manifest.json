@@ -1,0 +1,12 @@
+{
+  "id": "channel-stats",
+  "name": "Channel Statistics",
+  "version": "0.1.0",
+  "description": "Computes basic statistics (mean, std, min, max, kurtosis) for each channel",
+  "author": "DDALAB Team",
+  "license": "MIT",
+  "permissions": ["ReadChannelData", "WriteResults"],
+  "category": "analysis",
+  "entryPoint": "plugin.wasm",
+  "minDdalabVersion": null
+}
