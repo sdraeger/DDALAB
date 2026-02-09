@@ -14,6 +14,7 @@ import {
   Database,
   Users,
   Puzzle,
+  GraduationCap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -28,6 +29,7 @@ const iconMap = {
   Database,
   Users,
   Puzzle,
+  GraduationCap,
 };
 
 export function PrimaryNavigation() {

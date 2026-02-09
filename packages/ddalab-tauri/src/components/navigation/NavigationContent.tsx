@@ -19,7 +19,16 @@ import { FileInfoCard } from "@/components/FileInfoCard";
 import { BIDSContextIndicator } from "@/components/BIDSContextIndicator";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Card, CardContent } from "@/components/ui/card";
-import { Brain, Activity, FileText, Sparkles, Loader2 } from "lucide-react";
+import {
+  Brain,
+  Activity,
+  FileText,
+  Sparkles,
+  Loader2,
+  GraduationCap,
+  Download,
+  FileSearch,
+} from "lucide-react";
 
 /**
  * MountedView - Keeps children mounted but hidden when inactive.
@@ -190,6 +199,21 @@ const CollaborationPanel = lazy(() =>
 const GalleryManagementPanel = lazy(() =>
   import("@/components/gallery").then((mod) => ({
     default: mod.GalleryManagementPanel,
+  })),
+);
+const TutorialList = lazy(() =>
+  import("@/components/learn").then((mod) => ({
+    default: mod.TutorialList,
+  })),
+);
+const SampleDataManager = lazy(() =>
+  import("@/components/learn").then((mod) => ({
+    default: mod.SampleDataManager,
+  })),
+);
+const PaperReproductionBrowser = lazy(() =>
+  import("@/components/learn").then((mod) => ({
+    default: mod.PaperReproductionBrowser,
   })),
 );
 
@@ -474,6 +498,42 @@ export function NavigationContent() {
         </div>
       </MountedView>
 
+      {/* Learn - Tutorials (default) */}
+      <MountedView
+        isActive={
+          primaryNav === "learn" &&
+          (secondaryNav === "tutorials" || !secondaryNav)
+        }
+      >
+        <div className="p-4 h-full">
+          <Suspense fallback={<DelayedLoadingFallback />}>
+            <TutorialList />
+          </Suspense>
+        </div>
+      </MountedView>
+
+      {/* Learn - Sample Data */}
+      <MountedView
+        isActive={primaryNav === "learn" && secondaryNav === "sample-data"}
+      >
+        <div className="p-4 h-full">
+          <Suspense fallback={<DelayedLoadingFallback />}>
+            <SampleDataManager />
+          </Suspense>
+        </div>
+      </MountedView>
+
+      {/* Learn - Papers */}
+      <MountedView
+        isActive={primaryNav === "learn" && secondaryNav === "papers"}
+      >
+        <div className="p-4 h-full">
+          <Suspense fallback={<DelayedLoadingFallback />}>
+            <PaperReproductionBrowser />
+          </Suspense>
+        </div>
+      </MountedView>
+
       {/* Settings */}
       <MountedView isActive={primaryNav === "settings"}>
         <div className="p-4 h-full">
@@ -591,6 +651,50 @@ function OverviewDashboard() {
           </CardContent>
         </Card>
       )}
+
+      <div>
+        <h3 className="text-lg font-semibold mb-3">Get Started</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Card
+            className="cursor-pointer hover:shadow-md transition-shadow"
+            onClick={() => handleQuickAction("learn", "tutorials")}
+          >
+            <CardContent className="p-6">
+              <GraduationCap className="h-8 w-8 mb-3 text-primary" />
+              <h3 className="font-semibold mb-1">Start Tutorial</h3>
+              <p className="text-sm text-muted-foreground">
+                Interactive guide to DDALAB
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card
+            className="cursor-pointer hover:shadow-md transition-shadow"
+            onClick={() => handleQuickAction("learn", "sample-data")}
+          >
+            <CardContent className="p-6">
+              <Download className="h-8 w-8 mb-3 text-primary" />
+              <h3 className="font-semibold mb-1">Sample Data</h3>
+              <p className="text-sm text-muted-foreground">
+                Download example EEG datasets
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card
+            className="cursor-pointer hover:shadow-md transition-shadow"
+            onClick={() => handleQuickAction("learn", "papers")}
+          >
+            <CardContent className="p-6">
+              <FileSearch className="h-8 w-8 mb-3 text-primary" />
+              <h3 className="font-semibold mb-1">Reproduce a Paper</h3>
+              <p className="text-sm text-muted-foreground">
+                Run analyses from published research
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }
