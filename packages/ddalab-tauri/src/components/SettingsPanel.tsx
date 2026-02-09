@@ -11,10 +11,12 @@ import { OpenNeuroSettings } from "./settings/OpenNeuroSettings";
 import { DebugSettings } from "./settings/DebugSettings";
 import { UpdatesSettings } from "./settings/UpdatesSettings";
 import { CLISettings } from "./settings/CLISettings";
+import { PythonSettings } from "./settings/PythonSettings";
 import { TauriService } from "@/services/tauriService";
 import {
   Activity,
   Cloud,
+  Code,
   FileText,
   Database,
   Shield,
@@ -97,6 +99,28 @@ export function SettingsPanel() {
                   "install",
                   "ddalab",
                   "shell",
+                ],
+              },
+            ),
+            createSettingsItem(
+              "settings-python",
+              "Python / MNE Settings",
+              () => {
+                document
+                  .querySelector('[data-settings-section="python"]')
+                  ?.scrollIntoView();
+              },
+              {
+                description:
+                  "Configure Python environment for MNE-Python file import",
+                keywords: [
+                  "python",
+                  "mne",
+                  "eeglab",
+                  "import",
+                  "bridge",
+                  "matlab",
+                  "hdf5",
                 ],
               },
             ),
@@ -240,6 +264,26 @@ export function SettingsPanel() {
         "shell",
       ],
       description: "Install ddalab command line interface to PATH",
+    });
+  }
+
+  // Only add Python/MNE section in Tauri
+  if (TauriService.isTauri()) {
+    sections.push({
+      id: "python",
+      label: "Python / MNE",
+      icon: <Code className="h-4 w-4" />,
+      component: <PythonSettings />,
+      keywords: [
+        "python",
+        "mne",
+        "eeglab",
+        "import",
+        "bridge",
+        "matlab",
+        "hdf5",
+      ],
+      description: "Configure Python environment for MNE-Python file import",
     });
   }
 

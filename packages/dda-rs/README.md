@@ -158,15 +158,6 @@ let path = require_binary(None)?;
 | `network_motifs` | Network motif analysis utilities |
 | `profiling` | Performance profiling helpers |
 
-## Code Generation
-
-The `variants` module is auto-generated from the canonical DDA specification. Do not edit it manually. To regenerate:
-
-```bash
-cd packages/dda-spec
-cargo run --bin dda-codegen -- --output ..
-```
-
 ## License
 
 MIT

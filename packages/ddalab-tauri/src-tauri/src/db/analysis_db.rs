@@ -388,6 +388,29 @@ impl AnalysisDatabase {
         Ok(())
     }
 
+    /// Execute a closure with access to the underlying connection.
+    /// Used by AnalysisGroupsDB and other modules that need to operate
+    /// on the same database.
+    pub fn with_connection<F, T>(&self, f: F) -> T
+    where
+        F: FnOnce(&Connection) -> T,
+    {
+        let conn = self.conn.lock();
+        f(&conn)
+    }
+
+    /// Set batch_id on an analysis row.
+    pub fn set_batch_id(&self, analysis_id: &str, batch_id: &str) -> Result<()> {
+        self.conn
+            .lock()
+            .execute(
+                "UPDATE analyses SET batch_id = ?1 WHERE id = ?2",
+                params![batch_id, analysis_id],
+            )
+            .context("Failed to set batch_id")?;
+        Ok(())
+    }
+
     pub fn get_file_paths(&self) -> Result<Vec<String>> {
         let conn = self.conn.lock();
         let mut stmt =

@@ -29,6 +29,10 @@ import type {
 } from "@/types/streaming";
 import type { PreprocessingSlice } from "./preprocessingSlice";
 import type { AnalysisSlice } from "./analysisSlice";
+import type { BatchSlice } from "./batchSlice";
+import type { ComparisonSlice } from "./comparisonSlice";
+import type { PluginSlice } from "./pluginSlice";
+import type { GallerySlice } from "./gallerySlice";
 
 // ============================================================================
 // State Interfaces
@@ -403,6 +407,10 @@ export type AppState = FileManagerSlice &
   PreprocessingSlice &
   PersistenceSlice &
   AnalysisSlice &
+  BatchSlice &
+  ComparisonSlice &
+  PluginSlice &
+  GallerySlice &
   InitSlice;
 
 // ============================================================================

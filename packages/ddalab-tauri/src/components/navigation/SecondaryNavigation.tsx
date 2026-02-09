@@ -23,6 +23,9 @@ import {
   Filter,
   Sparkles,
   Radio,
+  Layers,
+  GitCompareArrows,
+  Globe,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -49,6 +52,9 @@ const iconMap = {
   Filter,
   Sparkles,
   Radio,
+  Layers,
+  GitCompareArrows,
+  Globe,
 };
 
 export function SecondaryNavigation() {

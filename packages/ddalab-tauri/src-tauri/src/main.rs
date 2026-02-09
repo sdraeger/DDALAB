@@ -301,6 +301,16 @@ fn main() {
             get_dda_metadata_from_history,
             delete_dda_from_history,
             rename_dda_in_history,
+            // Batch DDA analysis commands (IPC)
+            submit_batch_analysis,
+            cancel_batch_analysis,
+            // Comparison / analysis group commands
+            create_analysis_group,
+            get_analysis_group,
+            list_analysis_groups,
+            update_analysis_group,
+            delete_analysis_group,
+            get_analyses_metadata_batch,
             // File operation commands (IPC)
             list_directory,
             list_data_files,
@@ -317,7 +327,25 @@ fn main() {
             uninstall_cli,
             cli_install_status,
             // BIDS directory scanner
-            scan_bids_directory
+            scan_bids_directory,
+            // Plugin system commands
+            list_installed_plugins,
+            install_plugin_from_registry,
+            install_plugin_from_file,
+            uninstall_plugin,
+            toggle_plugin,
+            run_plugin,
+            fetch_plugin_registry,
+            get_installed_plugin,
+            // Python/MNE environment commands
+            detect_python_environment,
+            test_python_path,
+            // Gallery commands
+            select_gallery_directory,
+            export_gallery,
+            list_gallery_items,
+            remove_gallery_item,
+            open_gallery_directory,
         ])
         .manage(AppSyncState::new())
         .manage(parking_lot::RwLock::new(
@@ -332,6 +360,7 @@ fn main() {
             commands::streaming_commands::StreamingState::new(get_dda_binary_path_for_streaming()),
         ))
         .manage(Arc::new(ApiState::new(get_default_data_directory())))
+        .manage(create_plugin_manager_state())
         .setup(|app| {
             setup_app(app).map_err(|e| e.to_string())?;
 
@@ -447,4 +476,30 @@ fn get_default_data_directory() -> PathBuf {
     dirs::data_dir()
         .map(|p| p.join("com.ddalab.desktop").join("data"))
         .unwrap_or_else(|| PathBuf::from(".").join("data"))
+}
+
+/// Create the plugin manager state for Tauri managed state
+fn create_plugin_manager_state() -> commands::plugin_commands::PluginManagerState {
+    let plugins_dir = dirs::data_dir()
+        .map(|p| p.join("com.ddalab.desktop").join("plugins"))
+        .unwrap_or_else(|| PathBuf::from(".").join("plugins"));
+
+    match ddalab_tauri::plugins::manager::PluginManager::new(plugins_dir) {
+        Ok(manager) => {
+            log::info!("Plugin manager initialized");
+            commands::plugin_commands::PluginManagerState(Arc::new(parking_lot::Mutex::new(
+                manager,
+            )))
+        }
+        Err(e) => {
+            log::error!("Failed to initialize plugin manager: {}", e);
+            // Create a fallback with temp dir
+            let fallback_dir = std::env::temp_dir().join("ddalab-plugins");
+            let manager = ddalab_tauri::plugins::manager::PluginManager::new(fallback_dir)
+                .expect("Failed to create fallback plugin manager");
+            commands::plugin_commands::PluginManagerState(Arc::new(parking_lot::Mutex::new(
+                manager,
+            )))
+        }
+    }
 }
