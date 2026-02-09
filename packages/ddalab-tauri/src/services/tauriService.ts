@@ -1159,6 +1159,29 @@ export class TauriService {
     return await api.invoke("cli_install_status");
   }
 
+  // Python/MNE Environment Commands
+  static async detectPythonEnvironment(): Promise<{
+    detected: boolean;
+    pythonPath: string | null;
+    hasMne: boolean;
+    mneVersion: string | null;
+  }> {
+    const api = await getTauriAPI();
+    if (!api) throw new Error("Not running in Tauri environment");
+    return await api.invoke("detect_python_environment");
+  }
+
+  static async testPythonPath(path: string): Promise<{
+    detected: boolean;
+    pythonPath: string | null;
+    hasMne: boolean;
+    mneVersion: string | null;
+  }> {
+    const api = await getTauriAPI();
+    if (!api) throw new Error("Not running in Tauri environment");
+    return await api.invoke("test_python_path", { path });
+  }
+
   // Git-annex support
   static async checkAnnexPlaceholder(filePath: string): Promise<boolean> {
     try {

@@ -1,4 +1,4 @@
-use super::{FileMetadata, FileReader, FileReaderError, FileResult};
+use super::{ChannelMetadata, FileMetadata, FileReader, FileReaderError, FileResult};
 use hdf5::File as H5File;
 use ndarray::s;
 use rayon::prelude::*;
@@ -395,6 +395,9 @@ impl FileReader for NWBFileReader {
     fn metadata(&self) -> FileResult<FileMetadata> {
         let nwb_metadata = self.get_metadata()?;
 
+        let channel_metadata =
+            super::channel_classifier::classify_channel_labels(&nwb_metadata.channel_names);
+
         Ok(FileMetadata {
             file_path: self.path.clone(),
             file_name: Path::new(&self.path)
@@ -407,6 +410,7 @@ impl FileReader for NWBFileReader {
             num_channels: nwb_metadata.num_channels,
             num_samples: nwb_metadata.num_samples,
             duration: nwb_metadata.duration,
+            channel_metadata,
             channels: nwb_metadata.channel_names.clone(),
             start_time: nwb_metadata.start_time.clone(),
             file_type: "NWB".to_string(),

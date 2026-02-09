@@ -1,4 +1,4 @@
-use super::{FileMetadata, FileReader, FileReaderError, FileResult};
+use super::{ChannelMetadata, FileMetadata, FileReader, FileReaderError, FileResult};
 use crate::text_reader::TextFileReader as CoreTextReader;
 /// ASCII/TSV File Reader
 ///
@@ -44,6 +44,9 @@ impl FileReader for ASCIIFileReader {
         let sample_rate = 1.0;
         let duration = info.num_samples as f64 / sample_rate;
 
+        let channel_metadata =
+            super::channel_classifier::classify_channel_labels(&info.channel_labels);
+
         Ok(FileMetadata {
             file_path: self.path.clone(),
             file_name: Path::new(&self.path)
@@ -56,6 +59,7 @@ impl FileReader for ASCIIFileReader {
             num_channels: info.num_channels,
             num_samples: info.num_samples,
             duration,
+            channel_metadata,
             channels: info.channel_labels.clone(),
             start_time: None,
             file_type: "ASCII".to_string(),

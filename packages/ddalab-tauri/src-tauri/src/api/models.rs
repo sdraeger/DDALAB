@@ -87,6 +87,10 @@ pub struct EDFFileInfo {
     pub last_modified: String,
     pub start_time: String,
     pub end_time: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channel_types: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channel_units: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
