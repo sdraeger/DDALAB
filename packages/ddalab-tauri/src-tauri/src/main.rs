@@ -346,6 +346,12 @@ fn main() {
             list_gallery_items,
             remove_gallery_item,
             open_gallery_directory,
+            // Learn/Tutorial commands
+            get_sample_data_dir,
+            list_downloaded_samples,
+            download_sample_data,
+            delete_sample_data,
+            fetch_remote_index,
         ])
         .manage(AppSyncState::new())
         .manage(parking_lot::RwLock::new(
