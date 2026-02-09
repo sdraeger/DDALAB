@@ -109,6 +109,7 @@ impl UserCommands {
                         display_name: name.clone(),
                         password_hash,
                         is_admin: admin,
+                        institution_id: None,
                     })
                     .await?;
 

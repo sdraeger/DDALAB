@@ -11,10 +11,11 @@ use ddalab_server::{
     cli::{Cli, Commands},
     config::ServerConfig,
     handlers::{
-        cancel_job, create_share, debug_auth_hash, download_job_results, get_job_status,
-        get_queue_stats, get_share, health_check, job_progress_stream, key_exchange, list_jobs,
-        list_server_files, list_user_shares, login, logout, revoke_share, server_info,
-        submit_server_file_job, upload_and_submit_job, validate_session,
+        add_team_member, cancel_job, create_share, create_team, debug_auth_hash, delete_team,
+        download_job_results, get_job_status, get_queue_stats, get_share, get_team, health_check,
+        job_progress_stream, key_exchange, list_institution_teams, list_jobs, list_my_teams,
+        list_server_files, list_user_shares, login, logout, remove_team_member, revoke_share,
+        server_info, submit_server_file_job, upload_and_submit_job, validate_session,
     },
     state::ServerState,
     storage::{AuditStore, PostgresAuditStore, PostgresShareStore, PostgresUserStore, UserStore},
@@ -207,17 +208,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let public_routes = Router::new()
         .route("/health", get(health_check))
         .route("/info", get(server_info))
-        .route("/debug/auth-hash", get(debug_auth_hash))
         .route("/auth/login", post(login))
         .route("/auth/key-exchange", post(key_exchange));
 
     let protected_routes = Router::new()
         .route("/auth/logout", post(logout))
         .route("/auth/session", get(validate_session))
+        .route("/debug/auth-hash", get(debug_auth_hash))
         .route("/api/shares", post(create_share))
         .route("/api/shares/{token}", get(get_share))
         .route("/api/shares/{token}", delete(revoke_share))
         .route("/api/shares/user/{user_id}", get(list_user_shares))
+        // Team management routes
+        .route("/api/teams", post(create_team))
+        .route("/api/teams/me", get(list_my_teams))
+        .route("/api/teams/{team_id}", get(get_team))
+        .route("/api/teams/{team_id}", delete(delete_team))
+        .route("/api/teams/{team_id}/members", post(add_team_member))
+        .route(
+            "/api/teams/{team_id}/members/{member_id}",
+            delete(remove_team_member),
+        )
+        .route(
+            "/api/teams/institution/{institution_id}",
+            get(list_institution_teams),
+        )
         // Job management routes
         .route("/api/jobs", get(list_jobs))
         .route("/api/jobs/submit", post(submit_server_file_job))
