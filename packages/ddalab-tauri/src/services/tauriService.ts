@@ -1204,4 +1204,45 @@ export class TauriService {
     if (!api) throw new Error("Not running in Tauri environment");
     return await api.invoke("run_git_annex_get", { filePath });
   }
+
+  // Learn / Tutorial Commands
+  static async getSampleDataDir(): Promise<string> {
+    const api = await getTauriAPI();
+    if (!api) throw new Error("Not running in Tauri environment");
+    return await api.invoke("get_sample_data_dir");
+  }
+
+  static async listDownloadedSamples(): Promise<
+    { id: string; path: string; sizeBytes: number }[]
+  > {
+    const api = await getTauriAPI();
+    if (!api) throw new Error("Not running in Tauri environment");
+    return await api.invoke("list_downloaded_samples");
+  }
+
+  static async downloadSampleData(
+    url: string,
+    datasetId: string,
+    fileExtension: string,
+  ): Promise<string> {
+    const api = await getTauriAPI();
+    if (!api) throw new Error("Not running in Tauri environment");
+    return await api.invoke("download_sample_data", {
+      url,
+      datasetId,
+      fileExtension,
+    });
+  }
+
+  static async deleteSampleData(datasetId: string): Promise<void> {
+    const api = await getTauriAPI();
+    if (!api) throw new Error("Not running in Tauri environment");
+    return await api.invoke("delete_sample_data", { datasetId });
+  }
+
+  static async fetchRemoteIndex(url: string): Promise<string> {
+    const api = await getTauriAPI();
+    if (!api) throw new Error("Not running in Tauri environment");
+    return await api.invoke("fetch_remote_index", { url });
+  }
 }
