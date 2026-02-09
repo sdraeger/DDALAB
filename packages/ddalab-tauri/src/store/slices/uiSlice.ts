@@ -16,6 +16,7 @@ export const defaultUIState: UIState = {
     explore: "timeseries",
     analyze: "dda",
     data: "openneuro",
+    learn: "tutorials",
     plugins: null,
     collaborate: "gallery",
     settings: null,

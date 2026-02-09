@@ -3,6 +3,7 @@ export type PrimaryNavTab =
   | "explore"
   | "analyze"
   | "data"
+  | "learn"
   | "plugins"
   | "collaborate"
   | "settings"
@@ -26,6 +27,10 @@ export type SecondaryNavTab =
   // Data tabs
   | "openneuro"
   | "nsg-jobs"
+  // Learn tabs
+  | "tutorials"
+  | "sample-data"
+  | "papers"
   // Collaborate tabs
   | "gallery";
 
@@ -73,6 +78,13 @@ export const navigationConfig: Record<PrimaryNavTab, NavigationCategory> = {
     icon: "Database",
     description: "Data repositories and cloud jobs",
     secondaryTabs: ["openneuro", "nsg-jobs"],
+  },
+  learn: {
+    id: "learn",
+    label: "Learn",
+    icon: "GraduationCap",
+    description: "Tutorials, sample data, and paper reproductions",
+    secondaryTabs: ["tutorials", "sample-data", "papers"],
   },
   plugins: {
     id: "plugins",
@@ -198,6 +210,26 @@ export const secondaryTabConfig: Record<SecondaryNavTab, SecondaryTabConfig> = {
     label: "NSG Jobs",
     icon: "Cloud",
     description: "Neuroscience Gateway cloud computing",
+  },
+
+  // Learn
+  tutorials: {
+    id: "tutorials",
+    label: "Tutorials",
+    icon: "BookOpen",
+    description: "Interactive step-by-step guides",
+  },
+  "sample-data": {
+    id: "sample-data",
+    label: "Sample Data",
+    icon: "Download",
+    description: "Download example datasets",
+  },
+  papers: {
+    id: "papers",
+    label: "Papers",
+    icon: "FileSearch",
+    description: "Reproduce results from published papers",
   },
 
   // Collaborate
