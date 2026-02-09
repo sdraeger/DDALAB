@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 use crate::storage::traits::{AuditLogStore, InstitutionStore, SessionStore, SharedResultStore, StorageError, StorageResult};
 use crate::storage::types::{AccessPolicy, AccessPolicyType, AuditAction, AuditLogEntry, InstitutionConfig, ShareMetadata, ShareToken, ShareableContentType, UserId, UserSession};
+use crate::storage::users::{PostgresUserStore, UserStore};
 
 /// PostgreSQL implementation of SharedResultStore
 pub struct PostgresShareStore {
@@ -58,8 +59,7 @@ impl SharedResultStore for PostgresShareStore {
         content_data: Option<serde_json::Value>,
     ) -> StorageResult<()> {
         let access_policy_json = serde_json::to_value(&metadata.access_policy)?;
-        let content_type_str = serde_json::to_string(&metadata.content_type)
-            .unwrap_or_default()
+        let content_type_str = serde_json::to_string(&metadata.content_type)?
             .trim_matches('"')
             .to_string();
 
@@ -130,19 +130,36 @@ impl SharedResultStore for PostgresShareStore {
         let has_access = match &metadata.access_policy.policy_type {
             AccessPolicyType::Public => true,
             AccessPolicyType::Institution => {
-                // SECURITY: Institution policy should verify requester belongs to the same institution
-                // TODO: Implement institution membership check once User model has institution_id
-                // For now, deny access by default for security - requires user-institution mapping
-                // to be implemented in the User model and database schema.
-                // The proper check would be:
-                //   1. Get requester's institution_id from users table
-                //   2. Compare with metadata.access_policy.institution_id
-                false
+                // Verify requester belongs to the same institution as the share
+                let user_store = PostgresUserStore::new(self.pool.clone());
+                match user_store.get_user_by_email(requester_id).await {
+                    Ok(user) => {
+                        if let Some(user_inst) = user.institution_id {
+                            // Compare user's institution with the share's institution
+                            user_inst.to_string() == metadata.access_policy.institution_id
+                        } else {
+                            false // User has no institution assigned
+                        }
+                    }
+                    Err(_) => false,
+                }
             }
-            AccessPolicyType::Team { team_id: _ } => {
-                // TODO: Implement team membership check
-                // For now, deny access - would need team registry
-                false
+            AccessPolicyType::Team { team_id } => {
+                // Check if requester is a member of the specified team
+                let row = sqlx::query(
+                    r#"
+                    SELECT EXISTS(
+                        SELECT 1 FROM team_members tm
+                        JOIN users u ON u.id = tm.user_id
+                        WHERE tm.team_id = $1::uuid AND u.email = $2
+                    ) as is_member
+                    "#,
+                )
+                .bind(team_id)
+                .bind(requester_id)
+                .fetch_one(&self.pool)
+                .await;
+                row.map(|r| r.get::<bool, _>("is_member")).unwrap_or(false)
             }
             AccessPolicyType::Users { user_ids } => user_ids.contains(requester_id),
         };

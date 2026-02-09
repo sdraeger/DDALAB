@@ -4,7 +4,7 @@ use crate::jobs::{
 use crate::state::ServerState;
 use axum::{
     extract::{Multipart, Path, Query, State},
-    http::StatusCode,
+    http::{header, StatusCode},
     response::sse::{Event, KeepAlive, Sse},
     Json,
 };
@@ -15,6 +15,31 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{error, info, warn};
 use uuid::Uuid;
+
+/// Extract authenticated user ID from request headers.
+/// Returns the user email from the session, or "anonymous" if auth is not required.
+fn extract_user_id(state: &ServerState, headers: &axum::http::HeaderMap) -> String {
+    let token = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|h| h.to_str().ok())
+        .map(|v| {
+            if v.starts_with("Bearer ") {
+                &v[7..]
+            } else {
+                v
+            }
+        });
+
+    match token {
+        Some(t) => state
+            .auth_state
+            .session_manager
+            .validate_token(t)
+            .map(|(_, user_id)| user_id)
+            .unwrap_or_else(|| "anonymous".to_string()),
+        None => "anonymous".to_string(),
+    }
+}
 
 /// Query params for listing jobs
 #[derive(Debug, Deserialize)]
@@ -45,8 +70,10 @@ pub struct UploadResponse {
 /// Submit a job for a server-side file
 pub async fn submit_server_file_job(
     State(state): State<Arc<ServerState>>,
+    headers: axum::http::HeaderMap,
     Json(request): Json<SubmitServerFileRequest>,
 ) -> Result<Json<SubmitJobResponse>, (StatusCode, String)> {
+    let user_id = extract_user_id(&state, &headers);
     // Validate server-side file access is enabled
     let server_files_dir = state.config.server_files_directory.as_ref().ok_or_else(|| {
         (
@@ -121,7 +148,7 @@ pub async fn submit_server_file_job(
 
     // Create job
     let job = DDAJob::new(
-        "anonymous".to_string(), // TODO: Get from auth
+        user_id,
         FileSource::ServerPath(canonical_path),
         filename,
         request.parameters,
@@ -151,8 +178,10 @@ pub async fn submit_server_file_job(
 /// Upload a file and submit a job
 pub async fn upload_and_submit_job(
     State(state): State<Arc<ServerState>>,
+    headers: axum::http::HeaderMap,
     mut multipart: Multipart,
 ) -> Result<Json<SubmitJobResponse>, (StatusCode, String)> {
+    let user_id = extract_user_id(&state, &headers);
     let mut uploaded_file: Option<(PathBuf, String)> = None;
     let mut parameters: Option<DDAParameters> = None;
     let mut delete_after = true;
@@ -267,7 +296,7 @@ pub async fn upload_and_submit_job(
 
     // Create job
     let job = DDAJob::new(
-        "anonymous".to_string(), // TODO: Get from auth
+        user_id,
         file_source,
         filename,
         params,
