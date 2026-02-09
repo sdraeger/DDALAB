@@ -33,6 +33,7 @@ import type { BatchSlice } from "./batchSlice";
 import type { ComparisonSlice } from "./comparisonSlice";
 import type { PluginSlice } from "./pluginSlice";
 import type { GallerySlice } from "./gallerySlice";
+import type { LearnSlice } from "./learnSlice";
 
 // ============================================================================
 // State Interfaces
@@ -411,6 +412,7 @@ export type AppState = FileManagerSlice &
   ComparisonSlice &
   PluginSlice &
   GallerySlice &
+  LearnSlice &
   InitSlice;
 
 // ============================================================================

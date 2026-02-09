@@ -26,6 +26,7 @@ import { createBatchSlice } from "./slices/batchSlice";
 import { createComparisonSlice } from "./slices/comparisonSlice";
 import { createPluginSlice } from "./slices/pluginSlice";
 import { createGallerySlice } from "./slices/gallerySlice";
+import { createLearnSlice } from "./slices/learnSlice";
 
 // Re-export types for backward compatibility
 export type {
@@ -69,6 +70,7 @@ export type {
   PluginState,
 } from "./slices/pluginSlice";
 export type { GalleryState } from "./slices/gallerySlice";
+export type { LearnState } from "./slices/learnSlice";
 
 /**
  * Main application store
@@ -96,5 +98,6 @@ export const useAppStore = create<AppState>()(
     ...createComparisonSlice(set, get, store),
     ...createPluginSlice(set, get, store),
     ...createGallerySlice(set, get, store),
+    ...createLearnSlice(set, get, store),
   })),
 );

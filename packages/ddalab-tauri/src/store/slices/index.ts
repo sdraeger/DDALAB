@@ -64,3 +64,5 @@ export type {
 } from "./pluginSlice";
 export { createGallerySlice, defaultGalleryState } from "./gallerySlice";
 export type { GalleryState, GallerySlice } from "./gallerySlice";
+export { createLearnSlice, defaultLearnState } from "./learnSlice";
+export type { LearnState, LearnSlice } from "./learnSlice";
