@@ -24,6 +24,10 @@ export interface EDFFileInfo {
   is_annex_placeholder?: boolean;
   /** BIDS metadata if file is in BIDS format */
   bidsMetadata?: BIDSMetadata;
+  /** Channel types (EEG, MEG, EOG, ECG, EMG, STIM, MISC, Unknown) */
+  channel_types?: string[];
+  /** Channel units (uV, fT, mV, etc.) */
+  channel_units?: string[];
 }
 
 export interface ChunkData {

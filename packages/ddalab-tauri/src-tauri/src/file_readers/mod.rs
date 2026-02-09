@@ -14,14 +14,17 @@ use std::path::Path;
 
 pub mod ascii_reader;
 pub mod brainvision_reader;
+pub mod channel_classifier;
 pub mod csv_reader;
 pub mod edf_reader;
 pub mod eeglab_reader; // EEGLAB .set files (supports .set+.fdt pairs and some single .set files)
 pub mod fif_reader; // FIF/FIFF reader (uses external fiff crate)
 pub mod lazy_reader; // Lazy/windowed file reading for large files (100GB+)
+pub mod mne_reader; // MNE-Python backed reader (Python subprocess fallback)
 pub mod nifti_reader; // NIfTI reader (uses external nifti crate)
 #[cfg(feature = "nwb-support")]
 pub mod nwb_reader; // NWB (Neurodata Without Borders) reader (HDF5-based)
+pub mod python_bridge; // Python subprocess bridge for MNE-Python
 pub mod xdf_reader; // XDF (Extensible Data Format) reader (LSL files)
 
 // Re-export readers
@@ -31,6 +34,7 @@ pub use csv_reader::CSVFileReader;
 pub use edf_reader::EDFFileReader;
 pub use eeglab_reader::EEGLABFileReader;
 pub use fif_reader::FIFFileReader;
+pub use mne_reader::MNEFileReader;
 pub use nifti_reader::NIfTIFileReader;
 #[cfg(feature = "nwb-support")]
 pub use nwb_reader::NWBFileReader;
@@ -78,6 +82,22 @@ pub fn parse_edf_datetime(date_str: &str, time_str: &str) -> Option<String> {
     Some(datetime.to_rfc3339())
 }
 
+/// Per-channel metadata: type classification and physical unit.
+#[derive(Debug, Clone)]
+pub struct ChannelMetadata {
+    pub channel_type: String,
+    pub unit: String,
+}
+
+impl Default for ChannelMetadata {
+    fn default() -> Self {
+        Self {
+            channel_type: "Unknown".to_string(),
+            unit: "uV".to_string(),
+        }
+    }
+}
+
 /// Common metadata for all file formats
 ///
 /// This struct is designed to be shared via `Arc` to avoid unnecessary cloning
@@ -92,6 +112,7 @@ pub struct FileMetadata {
     pub num_samples: usize,
     pub duration: f64,
     pub channels: Vec<String>,
+    pub channel_metadata: Vec<ChannelMetadata>,
     pub start_time: Option<String>,
     pub file_type: String,
 }
@@ -198,8 +219,28 @@ pub trait FileReader: Send + Sync {
 pub struct FileReaderFactory;
 
 impl FileReaderFactory {
-    /// Create a file reader for the given path
+    /// Create a file reader for the given path.
+    ///
+    /// Tries native Rust readers first, then falls back to MNE-Python
+    /// via subprocess bridge when a native reader fails or the format
+    /// is only supported through Python.
     pub fn create_reader(path: &Path) -> FileResult<Box<dyn FileReader>> {
+        match Self::try_native_reader(path) {
+            Ok(reader) => Ok(reader),
+            Err(native_err) => {
+                // Try Python fallback for known MNE-supported extensions or
+                // when the native reader fails (e.g. MATLAB v7.3 .set files)
+                if let Ok(reader) = Self::try_mne_reader(path) {
+                    log::info!("Using MNE-Python fallback for: {}", path.display());
+                    return Ok(reader);
+                }
+                Err(native_err)
+            }
+        }
+    }
+
+    /// Try creating a native Rust reader for the given path.
+    fn try_native_reader(path: &Path) -> FileResult<Box<dyn FileReader>> {
         // Handle .nii.gz files specially (double extension)
         let path_str = path.to_string_lossy();
         if path_str.ends_with(".nii.gz") {
@@ -230,6 +271,23 @@ impl FileReaderFactory {
         }
     }
 
+    /// Try creating an MNE-Python backed reader as a fallback.
+    fn try_mne_reader(path: &Path) -> FileResult<Box<dyn FileReader>> {
+        let env = python_bridge::detect_python().ok_or_else(|| {
+            FileReaderError::UnsupportedFormat("Python not available".to_string())
+        })?;
+
+        if !env.has_mne {
+            return Err(FileReaderError::UnsupportedFormat(
+                "MNE-Python not installed".to_string(),
+            ));
+        }
+
+        let script = python_bridge::locate_bridge_script()?;
+        let reader = MNEFileReader::new(path, env, &script)?;
+        Ok(Box::new(reader))
+    }
+
     /// Get list of supported extensions for reading/analysis
     pub fn supported_extensions() -> Vec<&'static str> {
         let mut exts = vec![
@@ -237,7 +295,14 @@ impl FileReaderFactory {
         ];
         #[cfg(feature = "nwb-support")]
         exts.push("nwb");
+        // MNE-Python can handle additional formats if available
+        exts.extend(Self::mne_only_extensions());
         exts
+    }
+
+    /// Extensions only supported through MNE-Python fallback
+    pub fn mne_only_extensions() -> Vec<&'static str> {
+        vec!["bdf", "cnt", "mff", "egi", "gdf"]
     }
 
     /// Get list of extensions that may require conversion (partially supported)
@@ -357,13 +422,27 @@ impl FileReaderFactory {
         let chunk_data =
             reader.read_chunk(0, file_metadata.num_samples, Some(&channels_to_read))?;
 
+        // Build label-to-index map for looking up channel metadata by name
+        let label_to_idx: std::collections::HashMap<&str, usize> = file_metadata
+            .channels
+            .iter()
+            .enumerate()
+            .map(|(i, name)| (name.as_str(), i))
+            .collect();
+
         // Convert to intermediate format channels
         for (idx, channel_label) in channels_to_read.iter().enumerate() {
             if let Some(samples) = chunk_data.get(idx) {
+                let (ch_type, ch_unit) = label_to_idx
+                    .get(channel_label.as_str())
+                    .and_then(|&meta_idx| file_metadata.channel_metadata.get(meta_idx))
+                    .map(|m| (m.channel_type.clone(), m.unit.clone()))
+                    .unwrap_or_else(|| ("Unknown".to_string(), "uV".to_string()));
+
                 let channel = ChannelData {
                     label: channel_label.clone(),
-                    channel_type: "Unknown".to_string(), // Could be inferred from label or format
-                    unit: "µV".to_string(), // Default unit, format-specific readers should override
+                    channel_type: ch_type,
+                    unit: ch_unit,
                     samples: samples.clone(),
                     sample_rate: None, // Use global sample rate unless channel-specific
                 };

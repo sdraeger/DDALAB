@@ -140,6 +140,17 @@ pub fn read_file_metadata_with_reader(path: &Path) -> Result<EDFFileInfo, String
         start_time.clone()
     };
 
+    let channel_types: Vec<String> = file_metadata
+        .channel_metadata
+        .iter()
+        .map(|m| m.channel_type.clone())
+        .collect();
+    let channel_units: Vec<String> = file_metadata
+        .channel_metadata
+        .iter()
+        .map(|m| m.unit.clone())
+        .collect();
+
     Ok(EDFFileInfo {
         file_path,
         file_name,
@@ -152,6 +163,8 @@ pub fn read_file_metadata_with_reader(path: &Path) -> Result<EDFFileInfo, String
         last_modified,
         start_time,
         end_time,
+        channel_types: Some(channel_types),
+        channel_units: Some(channel_units),
     })
 }
 
@@ -411,6 +424,8 @@ pub async fn create_file_info(path: PathBuf) -> Option<EDFFileInfo> {
                             last_modified,
                             start_time: created_at,
                             end_time,
+                            channel_types: None,
+                            channel_units: None,
                         })
                     }
                     Err(e) => {
@@ -451,6 +466,8 @@ pub async fn create_file_info(path: PathBuf) -> Option<EDFFileInfo> {
                             last_modified,
                             start_time: created_at,
                             end_time,
+                            channel_types: None,
+                            channel_units: None,
                         })
                     }
                     Err(e) => {
@@ -517,6 +534,8 @@ pub async fn create_file_info(path: PathBuf) -> Option<EDFFileInfo> {
                             last_modified,
                             start_time,
                             end_time,
+                            channel_types: None,
+                            channel_units: None,
                         };
 
                         log::info!("Returning file info with duration: {:?}", file_info.duration);

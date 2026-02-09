@@ -24,7 +24,7 @@
  * - 200 time points (samples per channel)
  */
 
-use super::{FileMetadata, FileReader, FileReaderError, FileResult};
+use super::{ChannelMetadata, FileMetadata, FileReader, FileReaderError, FileResult};
 use nifti::{IntoNdArray, NiftiObject, NiftiVolume, ReaderOptions};
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -133,6 +133,7 @@ impl NIfTIFileReader {
             num_channels: num_voxels,
             num_samples: num_timepoints,
             duration,
+            channel_metadata: vec![ChannelMetadata::default(); num_voxels],
             channels,
             start_time: None,
             file_type: "NIfTI".to_string(),

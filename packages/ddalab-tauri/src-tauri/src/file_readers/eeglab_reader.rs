@@ -12,7 +12,7 @@
 ///
 /// Data loading is lazy for .fdt files - the binary data is only read when requested
 /// via read_chunk(), not at construction time. This keeps memory usage low for large files.
-use super::{FileMetadata, FileReader, FileReaderError, FileResult};
+use super::{ChannelMetadata, FileMetadata, FileReader, FileReaderError, FileResult};
 use matfile::{MatFile, NumericData};
 use rayon::prelude::*;
 use std::fs::File;
@@ -85,6 +85,8 @@ impl EEGLABFileReader {
             (0..num_channels).map(|i| format!("Ch{}", i + 1)).collect()
         };
 
+        let channel_metadata = super::channel_classifier::classify_channel_labels(&channels);
+
         let metadata = FileMetadata {
             file_path: path.to_string_lossy().to_string(),
             file_name: path
@@ -97,6 +99,7 @@ impl EEGLABFileReader {
             num_channels,
             num_samples,
             duration,
+            channel_metadata,
             channels,
             start_time: None,
             file_type: "EEGLAB".to_string(),

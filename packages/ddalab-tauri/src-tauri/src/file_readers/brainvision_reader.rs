@@ -1,4 +1,4 @@
-use super::{FileMetadata, FileReader, FileReaderError, FileResult};
+use super::{ChannelMetadata, FileMetadata, FileReader, FileReaderError, FileResult};
 use bvreader::bv_reader::BVFile;
 use rayon::prelude::*;
 use std::fs;
@@ -551,6 +551,8 @@ impl FileReader for BrainVisionFileReader {
                 };
                 let sample_rate = 1_000_000.0 / header.sampling_interval as f64;
                 let duration = num_samples as f64 / sample_rate;
+                let channel_metadata =
+                    super::channel_classifier::classify_channel_labels(&channels);
 
                 Ok(FileMetadata {
                     file_path: self.path.clone(),
@@ -564,6 +566,7 @@ impl FileReader for BrainVisionFileReader {
                     num_channels,
                     num_samples,
                     duration,
+                    channel_metadata,
                     channels,
                     start_time: None,
                     file_type: "BrainVision".to_string(),
@@ -586,6 +589,8 @@ impl FileReader for BrainVisionFileReader {
                 let total_samples = file_size as usize / bytes_per_sample / num_channels;
 
                 let duration = total_samples as f64 / sample_rate;
+                let channel_metadata =
+                    super::channel_classifier::classify_channel_labels(&channels);
 
                 Ok(FileMetadata {
                     file_path: self.path.clone(),
@@ -599,6 +604,7 @@ impl FileReader for BrainVisionFileReader {
                     num_channels,
                     num_samples: total_samples,
                     duration,
+                    channel_metadata,
                     channels,
                     start_time: None,
                     file_type: "BrainVision (AnyWave)".to_string(),

@@ -383,13 +383,27 @@ fn segment_file_blocking(
         custom_metadata,
     };
 
+    // Build label-to-index map for looking up channel metadata
+    let label_to_idx: std::collections::HashMap<&str, usize> = file_metadata
+        .channels
+        .iter()
+        .enumerate()
+        .map(|(i, name)| (name.as_str(), i))
+        .collect();
+
     let mut segment = IntermediateData::new(metadata);
     for (idx, label) in selected_labels.iter().enumerate() {
         if let Some(samples) = chunk_data.get(idx) {
+            let (ch_type, ch_unit) = label_to_idx
+                .get(label.as_str())
+                .and_then(|&meta_idx| file_metadata.channel_metadata.get(meta_idx))
+                .map(|m| (m.channel_type.clone(), m.unit.clone()))
+                .unwrap_or_else(|| ("Unknown".to_string(), "uV".to_string()));
+
             segment.add_channel(ChannelData {
                 label: label.clone(),
-                channel_type: "Unknown".to_string(),
-                unit: "uV".to_string(),
+                channel_type: ch_type,
+                unit: ch_unit,
                 samples: samples.clone(),
                 sample_rate: Some(sample_rate),
             });

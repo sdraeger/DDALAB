@@ -1,4 +1,6 @@
-use super::{parse_edf_datetime, FileMetadata, FileReader, FileReaderError, FileResult};
+use super::{
+    parse_edf_datetime, ChannelMetadata, FileMetadata, FileReader, FileReaderError, FileResult,
+};
 use crate::edf::EDFReader as CoreEDFReader;
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -82,6 +84,19 @@ impl FileReader for EDFFileReader {
         let start_time = parse_edf_datetime(&header.start_date, &header.start_time);
         log::info!("Parsed start_time: {:?}", start_time);
 
+        // Build channel metadata using classifier + EDF physical dimension
+        let channel_metadata: Vec<ChannelMetadata> = signal_headers
+            .iter()
+            .map(|sh| {
+                let mut meta = super::channel_classifier::classify_channel_label(&sh.label);
+                let dim = sh.physical_dimension.trim();
+                if !dim.is_empty() {
+                    meta.unit = dim.to_string();
+                }
+                meta
+            })
+            .collect();
+
         // Clone values needed after releasing lock
         let num_channels = signal_headers.len();
         drop(edf); // Release lock before file I/O
@@ -98,6 +113,7 @@ impl FileReader for EDFFileReader {
             num_channels,
             num_samples,
             duration,
+            channel_metadata,
             channels,
             start_time,
             file_type: "EDF".to_string(),

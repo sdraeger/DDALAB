@@ -29,7 +29,7 @@
  * **Not suitable for:** Advanced MEG analysis (use MNE-Python)
  */
 
-use super::{FileMetadata, FileReader, FileReaderError, FileResult};
+use super::{ChannelMetadata, FileMetadata, FileReader, FileReaderError, FileResult};
 use parking_lot::Mutex;
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -153,6 +153,15 @@ impl FIFFileReader {
             .map(|(idx, name)| (name.clone(), idx))
             .collect();
 
+        let channel_metadata: Vec<ChannelMetadata> = meas_info
+            .channels
+            .iter()
+            .map(|ch| ChannelMetadata {
+                channel_type: channel_type_name(ch.kind).to_string(),
+                unit: fiff_unit_string(ch.unit, ch.unit_mul),
+            })
+            .collect();
+
         let metadata = FileMetadata {
             file_path: file_path.clone(),
             file_name: path
@@ -165,6 +174,7 @@ impl FIFFileReader {
             num_channels: meas_info.nchan,
             num_samples: total_samples as usize,
             duration,
+            channel_metadata,
             channels,
             start_time: None, // Would need to parse FIFF_MEAS_DATE
             file_type: "FIF".to_string(),
@@ -564,6 +574,35 @@ impl FileReader for FIFFileReader {
 
     fn supports_write(&self) -> bool {
         false
+    }
+}
+
+/// Map FIFF unit (i32) and unit_mul (SI exponent) to a human-readable string.
+///
+/// FIFF unit constants: 107 = V (Volt), 112 = T (Tesla), 201 = Am (Ampere-meter).
+/// unit_mul: 0 = base, -6 = micro, -9 = nano, -12 = pico, -15 = femto.
+fn fiff_unit_string(unit: i32, unit_mul: i32) -> String {
+    let prefix = match unit_mul {
+        0 => "",
+        -3 => "m",
+        -6 => "u",
+        -9 => "n",
+        -12 => "p",
+        -15 => "f",
+        3 => "k",
+        6 => "M",
+        _ => "",
+    };
+    let base = match unit {
+        107 => "V",
+        112 => "T",
+        201 => "Am",
+        _ => "",
+    };
+    if base.is_empty() {
+        "uV".to_string() // Fallback
+    } else {
+        format!("{}{}", prefix, base)
     }
 }
 

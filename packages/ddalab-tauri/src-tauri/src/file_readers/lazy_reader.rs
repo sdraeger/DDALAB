@@ -1,6 +1,6 @@
 //! Lazy File Reader - Window-based access for large files (100GB+)
 
-use super::{FileMetadata, FileReaderError, FileResult};
+use super::{ChannelMetadata, FileMetadata, FileReaderError, FileResult};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -517,6 +517,8 @@ impl LazyEDFReader {
         let start_time =
             super::parse_edf_datetime(&reader.header.start_date, &reader.header.start_time);
 
+        let num_ch = channels.len();
+        let ch_metadata = super::channel_classifier::classify_channel_labels(&channels);
         let metadata = FileMetadata {
             file_path: path.to_string_lossy().to_string(),
             file_name: path
@@ -526,9 +528,10 @@ impl LazyEDFReader {
                 .to_string(),
             file_size,
             sample_rate,
-            num_channels: channels.len(),
+            num_channels: num_ch,
             num_samples,
             duration,
+            channel_metadata: ch_metadata,
             channels,
             start_time,
             file_type: "EDF".to_string(),
@@ -720,6 +723,7 @@ impl LazyTextReader {
             "ASCII"
         };
 
+        let ch_metadata = super::channel_classifier::classify_channel_labels(&channel_labels);
         let metadata = FileMetadata {
             file_path: path.to_string_lossy().to_string(),
             file_name: path
@@ -732,6 +736,7 @@ impl LazyTextReader {
             num_channels,
             num_samples,
             duration,
+            channel_metadata: ch_metadata,
             channels: channel_labels,
             start_time: None,
             file_type: file_type.to_string(),

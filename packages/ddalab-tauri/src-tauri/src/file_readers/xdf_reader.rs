@@ -1,4 +1,4 @@
-use super::{FileMetadata, FileReader, FileReaderError, FileResult};
+use super::{ChannelMetadata, FileMetadata, FileReader, FileReaderError, FileResult};
 use quick_xml::events::Event;
 use quick_xml::Reader as XmlReader;
 use rayon::prelude::*;
@@ -415,6 +415,9 @@ impl FileReader for XDFFileReader {
             dt.to_rfc3339()
         });
 
+        let channel_metadata =
+            super::channel_classifier::classify_channel_labels(&stream.channel_labels);
+
         Ok(FileMetadata {
             file_path: self.path.clone(),
             file_name: Path::new(&self.path)
@@ -427,6 +430,7 @@ impl FileReader for XDFFileReader {
             num_channels: stream.channel_count,
             num_samples,
             duration,
+            channel_metadata,
             channels: stream.channel_labels.clone(),
             start_time,
             file_type: "XDF".to_string(),

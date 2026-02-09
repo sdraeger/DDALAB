@@ -6,6 +6,7 @@ import { useAppStore } from "@/store/appStore";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
+import { ChannelTypeBadge } from "./ChannelTypeBadge";
 import {
   FileText,
   Clock,
@@ -175,7 +176,11 @@ export function FileInfoCard({ fileInfo }: FileInfoCardProps) {
           <div className="max-h-40 overflow-y-auto border rounded-md p-3 bg-muted/30">
             <div className="flex flex-wrap gap-2">
               {fileInfo.channels.map((channel, idx) => (
-                <Badge key={idx} variant="outline" className="text-xs">
+                <Badge key={idx} variant="outline" className="text-xs gap-1">
+                  {fileInfo.channel_types?.[idx] &&
+                    fileInfo.channel_types[idx] !== "Unknown" && (
+                      <ChannelTypeBadge type={fileInfo.channel_types[idx]} />
+                    )}
                   {channel}
                 </Badge>
               ))}

@@ -15,6 +15,7 @@ import { Search, X, CheckSquare, Square, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useScrollTrap } from "@/hooks/useScrollTrap";
 import { VIRTUALIZATION } from "@/lib/constants";
+import { ChannelTypeBadge } from "./ChannelTypeBadge";
 
 // Configuration constants
 const ROW_HEIGHT = VIRTUALIZATION.DEFAULT_ROW_HEIGHT;
@@ -57,6 +58,7 @@ function calculateColumns(containerWidth: number): number {
 // Memoized channel item component
 interface ChannelItemProps {
   channel: string;
+  channelType?: string;
   isSelected: boolean;
   isFocused: boolean;
   disabled: boolean;
@@ -67,6 +69,7 @@ interface ChannelItemProps {
 
 const ChannelItem = memo(function ChannelItem({
   channel,
+  channelType,
   isSelected,
   isFocused,
   disabled,
@@ -95,7 +98,10 @@ const ChannelItem = memo(function ChannelItem({
           : "cursor-pointer hover:brightness-95",
       )}
     >
-      <span className="truncate flex-1 text-left">{channel}</span>
+      <span className="truncate flex-1 text-left flex items-center gap-1.5">
+        {channelType && !isSelected && <ChannelTypeBadge type={channelType} />}
+        {channel}
+      </span>
       {isSelected && <Check className="h-3.5 w-3.5 ml-2 flex-shrink-0" />}
     </button>
   );
@@ -104,6 +110,7 @@ const ChannelItem = memo(function ChannelItem({
 // Virtualized row renderer
 interface VirtualizedRowData {
   channels: string[];
+  channelTypes?: Record<string, string>;
   selectedChannels: Set<string>;
   focusedIndex: number;
   disabled: boolean;
@@ -119,6 +126,7 @@ const VirtualizedRow = memo(function VirtualizedRow({
 }: ListChildComponentProps<VirtualizedRowData>) {
   const {
     channels,
+    channelTypes,
     selectedChannels,
     focusedIndex,
     disabled,
@@ -147,6 +155,7 @@ const VirtualizedRow = memo(function VirtualizedRow({
           <ChannelItem
             key={channel}
             channel={channel}
+            channelType={channelTypes?.[channel]}
             isSelected={selectedChannels.has(channel)}
             isFocused={focusedIndex === globalIndex}
             disabled={disabled}
@@ -170,6 +179,7 @@ const VirtualizedRow = memo(function VirtualizedRow({
 // Non-virtualized grid component
 interface ChannelGridProps {
   channels: string[];
+  channelTypes?: Record<string, string>;
   selectedChannels: Set<string>;
   focusedIndex: number;
   disabled: boolean;
@@ -185,6 +195,7 @@ interface ChannelGridProps {
 
 const ChannelGrid = memo(function ChannelGrid({
   channels,
+  channelTypes,
   selectedChannels,
   focusedIndex,
   disabled,
@@ -240,6 +251,7 @@ const ChannelGrid = memo(function ChannelGrid({
         <ChannelItem
           key={channel}
           channel={channel}
+          channelType={channelTypes?.[channel]}
           isSelected={selectedChannels.has(channel)}
           isFocused={focusedIndex === index}
           disabled={disabled}
@@ -258,6 +270,7 @@ const ChannelGrid = memo(function ChannelGrid({
 // Virtualized list wrapper
 interface VirtualizedChannelListProps {
   channels: string[];
+  channelTypes?: Record<string, string>;
   selectedChannels: Set<string>;
   focusedIndex: number;
   disabled: boolean;
@@ -270,6 +283,7 @@ interface VirtualizedChannelListProps {
 
 const VirtualizedChannelList = memo(function VirtualizedChannelList({
   channels,
+  channelTypes,
   selectedChannels,
   focusedIndex,
   disabled,
@@ -284,6 +298,7 @@ const VirtualizedChannelList = memo(function VirtualizedChannelList({
   const itemData: VirtualizedRowData = useMemo(
     () => ({
       channels,
+      channelTypes,
       selectedChannels,
       focusedIndex,
       disabled,
@@ -293,6 +308,7 @@ const VirtualizedChannelList = memo(function VirtualizedChannelList({
     }),
     [
       channels,
+      channelTypes,
       selectedChannels,
       focusedIndex,
       disabled,
@@ -502,6 +518,8 @@ export interface ChannelSelectorProps {
   showSearch?: boolean;
   placeholder?: string;
   variant?: "default" | "compact";
+  /** Optional map of channel name to type (EEG, MEG, EOG, etc.) for badges. */
+  channelTypes?: Record<string, string>;
 }
 
 export const ChannelSelector = memo(function ChannelSelector({
@@ -516,6 +534,7 @@ export const ChannelSelector = memo(function ChannelSelector({
   showSearch = true,
   placeholder = "Search channels...",
   variant = "default",
+  channelTypes,
 }: ChannelSelectorProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [focusedIndex, setFocusedIndex] = useState(-1);
@@ -701,6 +720,7 @@ export const ChannelSelector = memo(function ChannelSelector({
         ) : useVirtualization ? (
           <VirtualizedChannelList
             channels={filteredChannels}
+            channelTypes={channelTypes}
             selectedChannels={selectedSet}
             focusedIndex={focusedIndex}
             disabled={disabled}
@@ -713,6 +733,7 @@ export const ChannelSelector = memo(function ChannelSelector({
         ) : (
           <ChannelGrid
             channels={filteredChannels}
+            channelTypes={channelTypes}
             selectedChannels={selectedSet}
             focusedIndex={focusedIndex}
             disabled={disabled}
@@ -784,6 +805,7 @@ export const ChannelSelector = memo(function ChannelSelector({
         ) : useVirtualization ? (
           <VirtualizedChannelList
             channels={filteredChannels}
+            channelTypes={channelTypes}
             selectedChannels={selectedSet}
             focusedIndex={focusedIndex}
             disabled={disabled}
@@ -795,6 +817,7 @@ export const ChannelSelector = memo(function ChannelSelector({
         ) : (
           <ChannelGrid
             channels={filteredChannels}
+            channelTypes={channelTypes}
             selectedChannels={selectedSet}
             focusedIndex={focusedIndex}
             disabled={disabled}
