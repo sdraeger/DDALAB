@@ -26,6 +26,9 @@ import {
   Layers,
   GitCompareArrows,
   Globe,
+  BookOpen,
+  Download,
+  FileSearch,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -55,6 +58,9 @@ const iconMap = {
   Layers,
   GitCompareArrows,
   Globe,
+  BookOpen,
+  Download,
+  FileSearch,
 };
 
 export function SecondaryNavigation() {
