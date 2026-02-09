@@ -252,6 +252,7 @@ export interface DDAResultSummary {
   createdAt: string;
   status: string;
   channelsCount: number;
+  channelNames: string[];
   variantsCount: number;
   variantNames: string[];
   windowLength: number;
@@ -354,6 +355,145 @@ export interface ReconstructedChannel {
 /** ICA reconstruct response */
 export interface ICAReconstructIPCResponse {
   channels: ReconstructedChannel[];
+}
+
+// ============================================================================
+// Analysis Group Types
+// ============================================================================
+
+export interface AnalysisGroupResponse {
+  id: string;
+  name: string;
+  description: string | null;
+  source: string;
+  memberCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AnalysisGroupWithMembersResponse {
+  group: AnalysisGroupResponse;
+  memberIds: string[];
+}
+
+export interface AnalysisMetadataBatchItem {
+  id: string;
+  filePath: string;
+  timestamp: string;
+  variantName: string;
+  variantDisplayName: string;
+  parameters: Record<string, unknown>;
+  chunkPosition: number | null;
+  name: string | null;
+  channels: string[];
+}
+
+// ============================================================================
+// Plugin System Types
+// ============================================================================
+
+/** Installed plugin record from the database (matches Rust InstalledPlugin) */
+export interface InstalledPluginResponse {
+  id: string;
+  name: string;
+  version: string;
+  description: string | null;
+  author: string | null;
+  license: string | null;
+  category: string;
+  permissions: string[];
+  wasmHash: string;
+  source: string;
+  sourceUrl: string | null;
+  installedAt: string;
+  enabled: boolean;
+}
+
+/** Plugin manifest for local file installation (matches Rust PluginManifest) */
+export interface PluginManifestRequest {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  author: string;
+  license: string | null;
+  permissions: string[];
+  category: string;
+  entryPoint: string;
+  minDdalabVersion: string | null;
+}
+
+/** Plugin execution output (matches Rust PluginOutput) */
+export interface PluginOutputResponse {
+  pluginId: string;
+  results: unknown;
+  logs: string[];
+}
+
+/** Registry entry for a plugin (matches Rust RegistryEntry) */
+export interface PluginRegistryEntryResponse {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  author: string;
+  category: string;
+  permissions: string[];
+  artifactUrl: string;
+  sha256: string;
+  minDdalabVersion: string | null;
+  publishedAt: string;
+}
+
+/** Registry index (matches Rust RegistryIndex) */
+export interface PluginRegistryIndexResponse {
+  version: number;
+  updatedAt: string;
+  registryUrl: string | null;
+  plugins: PluginRegistryEntryResponse[];
+}
+
+// ============================================================================
+// Gallery Types
+// ============================================================================
+
+/** Gallery config for export (matches Rust GalleryConfig) */
+export interface GalleryConfigRequest {
+  siteTitle: string;
+  siteDescription: string;
+  author: string;
+  baseUrl: string;
+  theme: string;
+}
+
+/** Gallery item metadata for export (matches Rust GalleryItemMeta) */
+export interface GalleryItemMetaRequest {
+  analysisId: string;
+  title: string;
+  description: string;
+  author: string;
+  tags: string[];
+}
+
+/** Gallery export result (matches Rust GalleryExportResult) */
+export interface GalleryExportResponse {
+  success: boolean;
+  outputPath: string;
+  pagesGenerated: number;
+  warnings: string[];
+}
+
+/** Published gallery item from DB (matches Rust GalleryItem) */
+export interface GalleryItemResponse {
+  id: string;
+  analysisId: string;
+  title: string;
+  description: string | null;
+  author: string | null;
+  tags: string[];
+  outputDirectory: string;
+  publishedAt: string;
+  updatedAt: string;
 }
 
 // ============================================================================
@@ -1192,6 +1332,154 @@ class TauriBackendServiceImpl {
       { request },
     );
     return { channels: response.channels };
+  }
+
+  // ==========================================================================
+  // Analysis Groups / Comparison
+  // ==========================================================================
+
+  async createAnalysisGroup(
+    name: string,
+    source: string,
+    memberIds: string[],
+    description?: string,
+  ): Promise<AnalysisGroupResponse> {
+    return invoke<AnalysisGroupResponse>("create_analysis_group", {
+      request: { name, description: description ?? null, source, memberIds },
+    });
+  }
+
+  async getAnalysisGroup(
+    groupId: string,
+  ): Promise<AnalysisGroupWithMembersResponse | null> {
+    return invoke<AnalysisGroupWithMembersResponse | null>(
+      "get_analysis_group",
+      { groupId },
+    );
+  }
+
+  async listAnalysisGroups(limit?: number): Promise<AnalysisGroupResponse[]> {
+    return invoke<AnalysisGroupResponse[]>("list_analysis_groups", {
+      limit: limit ?? null,
+    });
+  }
+
+  async updateAnalysisGroup(
+    id: string,
+    name?: string,
+    description?: string,
+  ): Promise<boolean> {
+    return invoke<boolean>("update_analysis_group", {
+      request: { id, name: name ?? null, description: description ?? null },
+    });
+  }
+
+  async deleteAnalysisGroup(groupId: string): Promise<void> {
+    return invoke<void>("delete_analysis_group", { groupId });
+  }
+
+  async getAnalysesMetadataBatch(
+    analysisIds: string[],
+  ): Promise<AnalysisMetadataBatchItem[]> {
+    return invoke<AnalysisMetadataBatchItem[]>("get_analyses_metadata_batch", {
+      analysisIds,
+    });
+  }
+
+  // ===========================================================================
+  // Plugin System
+  // ===========================================================================
+
+  async listInstalledPlugins(): Promise<InstalledPluginResponse[]> {
+    return invoke<InstalledPluginResponse[]>("list_installed_plugins", {});
+  }
+
+  async installPluginFromRegistry(
+    registryUrl: string,
+    pluginId: string,
+  ): Promise<InstalledPluginResponse> {
+    return invoke<InstalledPluginResponse>("install_plugin_from_registry", {
+      registryUrl,
+      pluginId,
+    });
+  }
+
+  async installPluginFromFile(
+    filePath: string,
+    manifest: PluginManifestRequest,
+  ): Promise<InstalledPluginResponse> {
+    return invoke<InstalledPluginResponse>("install_plugin_from_file", {
+      filePath,
+      manifest,
+    });
+  }
+
+  async uninstallPlugin(pluginId: string): Promise<void> {
+    return invoke<void>("uninstall_plugin", { pluginId });
+  }
+
+  async togglePlugin(pluginId: string, enabled: boolean): Promise<boolean> {
+    return invoke<boolean>("toggle_plugin", { pluginId, enabled });
+  }
+
+  async runPlugin(
+    pluginId: string,
+    analysisId: string,
+  ): Promise<PluginOutputResponse> {
+    return invoke<PluginOutputResponse>("run_plugin", {
+      pluginId,
+      analysisId,
+    });
+  }
+
+  async fetchPluginRegistry(
+    registryUrl: string,
+  ): Promise<PluginRegistryIndexResponse> {
+    return invoke<PluginRegistryIndexResponse>("fetch_plugin_registry", {
+      registryUrl,
+    });
+  }
+
+  async getInstalledPlugin(
+    pluginId: string,
+  ): Promise<InstalledPluginResponse | null> {
+    return invoke<InstalledPluginResponse | null>("get_installed_plugin", {
+      pluginId,
+    });
+  }
+
+  // ===========================================================================
+  // Gallery
+  // ===========================================================================
+
+  async selectGalleryDirectory(): Promise<string | null> {
+    return invoke<string | null>("select_gallery_directory", {});
+  }
+
+  async exportGallery(
+    analysisIds: string[],
+    config: GalleryConfigRequest,
+    itemMetadata: GalleryItemMetaRequest[],
+    outputDirectory: string,
+  ): Promise<GalleryExportResponse> {
+    return invoke<GalleryExportResponse>("export_gallery", {
+      analysisIds,
+      config,
+      itemMetadata,
+      outputDirectory,
+    });
+  }
+
+  async listGalleryItems(): Promise<GalleryItemResponse[]> {
+    return invoke<GalleryItemResponse[]>("list_gallery_items", {});
+  }
+
+  async removeGalleryItem(itemId: string): Promise<boolean> {
+    return invoke<boolean>("remove_gallery_item", { itemId });
+  }
+
+  async openGalleryDirectory(directory: string): Promise<void> {
+    return invoke<void>("open_gallery_directory", { directory });
   }
 }
 

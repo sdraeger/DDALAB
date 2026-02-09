@@ -24,6 +24,7 @@ import {
   Share2,
   ExternalLink,
   FolderDown,
+  Globe,
 } from "lucide-react";
 
 interface ExportMenuProps {
@@ -32,6 +33,7 @@ interface ExportMenuProps {
   onExportAllData?: (format: "csv" | "json") => void;
   onShare?: () => void;
   onPopOut?: () => void;
+  onPublishToGallery?: () => void;
   showShare?: boolean;
   showPopOut?: boolean;
   showExportAll?: boolean;
@@ -43,6 +45,7 @@ export const ExportMenu = memo(function ExportMenu({
   onExportAllData,
   onShare,
   onPopOut,
+  onPublishToGallery,
   showShare = false,
   showPopOut = true,
   showExportAll = false,
@@ -115,6 +118,20 @@ export const ExportMenu = memo(function ExportMenu({
             </TooltipTrigger>
             <TooltipContent>
               <p>Share this DDA result with colleagues on the sync server</p>
+            </TooltipContent>
+          </Tooltip>
+        )}
+
+        {onPublishToGallery && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="outline" size="sm" onClick={onPublishToGallery}>
+                <Globe className="h-4 w-4 mr-2" />
+                Gallery
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Publish this result to a static gallery website</p>
             </TooltipContent>
           </Tooltip>
         )}
