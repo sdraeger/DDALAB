@@ -2,6 +2,7 @@ use clap::Parser;
 
 mod cli;
 mod commands;
+mod dda_params;
 mod exit_codes;
 mod output;
 
@@ -27,6 +28,7 @@ async fn main() {
         cli::Command::Info(args) => commands::info::execute(args),
         cli::Command::Variants(args) => commands::variants::execute(args),
         cli::Command::Validate(args) => commands::validate::execute(args),
+        cli::Command::Batch(args) => commands::batch::execute(args).await,
     };
 
     std::process::exit(exit_code);

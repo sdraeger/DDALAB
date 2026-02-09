@@ -27,6 +27,8 @@ pub enum Command {
     Variants(VariantsArgs),
     /// Validate a data file
     Validate(ValidateArgs),
+    /// Run batch DDA analysis across multiple files
+    Batch(BatchArgs),
 }
 
 #[derive(Args)]
@@ -147,6 +149,97 @@ pub struct ValidateArgs {
     /// Output as JSON
     #[arg(long, default_value_t = false)]
     pub json: bool,
+}
+
+#[derive(Args)]
+pub struct BatchArgs {
+    /// Glob pattern to match input files (e.g., "data/*.edf")
+    #[arg(long, group = "input")]
+    pub glob: Option<String>,
+
+    /// Explicit list of input file paths
+    #[arg(long, num_args = 1.., group = "input")]
+    pub files: Option<Vec<String>>,
+
+    /// BIDS directory to auto-discover compatible data files
+    #[arg(long, group = "input")]
+    pub bids_dir: Option<String>,
+
+    /// 0-based channel indices
+    #[arg(long, num_args = 1..)]
+    pub channels: Vec<usize>,
+
+    /// Variant abbreviations to run (ST, CT, CD, DE, SY)
+    #[arg(long, default_values_t = vec!["ST".to_string()], num_args = 1..)]
+    pub variants: Vec<String>,
+
+    /// Window length in samples
+    #[arg(long, default_value_t = 200)]
+    pub wl: u32,
+
+    /// Window step in samples
+    #[arg(long, default_value_t = 100)]
+    pub ws: u32,
+
+    /// CT-specific window length
+    #[arg(long)]
+    pub ct_wl: Option<u32>,
+
+    /// CT-specific window step
+    #[arg(long)]
+    pub ct_ws: Option<u32>,
+
+    /// Delay values (tau)
+    #[arg(long, default_values_t = vec![7, 10], num_args = 1..)]
+    pub delays: Vec<i32>,
+
+    /// Model dimension
+    #[arg(long, default_value_t = 4)]
+    pub dm: u32,
+
+    /// Polynomial order
+    #[arg(long, default_value_t = 4)]
+    pub order: u32,
+
+    /// Number of tau values
+    #[arg(long, default_value_t = 2)]
+    pub nr_tau: u32,
+
+    /// CT channel pairs as "i,j" (e.g., "0,1" "0,2")
+    #[arg(long, num_args = 1..)]
+    pub ct_pairs: Option<Vec<String>>,
+
+    /// CD directed channel pairs as "i,j" (e.g., "0,1" "1,0")
+    #[arg(long, num_args = 1..)]
+    pub cd_pairs: Option<Vec<String>>,
+
+    /// Sampling rate in Hz
+    #[arg(long)]
+    pub sr: Option<f64>,
+
+    /// Path to DDA binary
+    #[arg(long, env = "DDA_BINARY_PATH")]
+    pub binary: Option<String>,
+
+    /// Output directory for per-file JSON results (default: JSONL to stdout)
+    #[arg(long)]
+    pub output_dir: Option<String>,
+
+    /// Continue processing remaining files after a failure
+    #[arg(long, default_value_t = false)]
+    pub continue_on_error: bool,
+
+    /// List matched files without running analysis
+    #[arg(long, default_value_t = false)]
+    pub dry_run: bool,
+
+    /// Compact JSON output (no indentation)
+    #[arg(long, default_value_t = false)]
+    pub compact: bool,
+
+    /// Suppress progress messages on stderr
+    #[arg(long, default_value_t = false)]
+    pub quiet: bool,
 }
 
 /// Parse a channel pair string "i,j" into [usize; 2].

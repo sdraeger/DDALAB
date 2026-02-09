@@ -1,3 +1,4 @@
+pub mod batch;
 pub mod info;
 pub mod run;
 pub mod validate;

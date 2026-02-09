@@ -133,6 +133,7 @@ pub struct DDAResultSummary {
     pub created_at: String,
     pub status: String,
     pub channels_count: usize,
+    pub channel_names: Vec<String>,
     pub variants_count: usize,
     pub variant_names: Vec<String>,
     pub window_length: u32,
@@ -294,28 +295,34 @@ fn validate_dda_request(request: &DDAAnalysisRequest) -> Result<(), String> {
 // ============================================================================
 
 fn generate_select_mask(enabled_variants: &[String]) -> String {
-    let st = if enabled_variants.iter().any(|v| v == "single_timeseries") {
+    let matches = |full_id: &str, abbrev: &str| {
+        enabled_variants
+            .iter()
+            .any(|v| v == full_id || v.eq_ignore_ascii_case(abbrev))
+    };
+
+    let st = if matches("single_timeseries", "ST") {
         "1"
     } else {
         "0"
     };
-    let ct = if enabled_variants.iter().any(|v| v == "cross_timeseries") {
+    let ct = if matches("cross_timeseries", "CT") {
         "1"
     } else {
         "0"
     };
-    let cd = if enabled_variants.iter().any(|v| v == "cross_dynamical") {
+    let cd = if matches("cross_dynamical", "CD") {
         "1"
     } else {
         "0"
     };
     let reserved = "0";
-    let de = if enabled_variants.iter().any(|v| v == "dynamical_ergodicity") {
+    let de = if matches("dynamical_ergodicity", "DE") || matches("dynamical_ergodicity", "LDE") {
         "1"
     } else {
         "0"
     };
-    let sy = if enabled_variants.iter().any(|v| v == "synchronization") {
+    let sy = if matches("synchronization", "SY") {
         "1"
     } else {
         "0"
@@ -485,34 +492,15 @@ fn get_dda_binary_path(api_state: &ApiState) -> Result<PathBuf, String> {
 // Tauri Commands
 // ============================================================================
 
-/// Submit a DDA analysis job. This is an async operation that emits progress events.
-/// The analysis runs in the background and sends events via Tauri's event system.
-#[tauri::command]
-pub async fn submit_dda_analysis(
-    app: AppHandle,
-    api_state: State<'_, Arc<ApiState>>,
-    request: DDAAnalysisRequest,
+/// Core analysis logic shared by both `submit_dda_analysis` and batch processing.
+/// Accepts `&Arc<ApiState>` directly so it can be called from non-command contexts.
+pub(crate) async fn run_single_analysis(
+    app: &AppHandle,
+    api_state: &Arc<ApiState>,
+    request: &DDAAnalysisRequest,
 ) -> Result<DDAResult, String> {
-    log::info!(
-        "[DDA_IPC] submit_dda_analysis called for file: {}",
-        request.file_path
-    );
-
-    // Rate limiting
-    if !api_state.dda_rate_limiter.check_and_increment() {
-        let reset_secs = api_state.dda_rate_limiter.seconds_until_reset();
-        log::warn!(
-            "[DDA_IPC] Rate limit exceeded. Reset in {} seconds",
-            reset_secs
-        );
-        return Err(format!(
-            "Rate limit exceeded. Please wait {} seconds.",
-            reset_secs
-        ));
-    }
-
     // Validate request
-    validate_dda_request(&request)?;
+    validate_dda_request(request)?;
 
     let file_path = PathBuf::from(&request.file_path);
 
@@ -559,7 +547,7 @@ pub async fn submit_dda_analysis(
         }),
     );
 
-    let dda_binary_path = get_dda_binary_path(&api_state)?;
+    let dda_binary_path = get_dda_binary_path(api_state)?;
 
     // Read file metadata
     let file_path_for_reader = canonical_file_path.clone();
@@ -644,7 +632,7 @@ pub async fn submit_dda_analysis(
         format!("Failed to create DDA runner: {}", e)
     })?;
 
-    let mut dda_request = convert_to_dda_request(&request, sample_rate);
+    let mut dda_request = convert_to_dda_request(request, sample_rate);
     let mut parsed_cd_channel_pairs: Option<Vec<[usize; 2]>> = None;
 
     // Process variant_configs if provided
@@ -961,6 +949,35 @@ pub async fn submit_dda_analysis(
     Ok(result)
 }
 
+/// Submit a DDA analysis job. This is an async operation that emits progress events.
+/// The analysis runs in the background and sends events via Tauri's event system.
+#[tauri::command]
+pub async fn submit_dda_analysis(
+    app: AppHandle,
+    api_state: State<'_, Arc<ApiState>>,
+    request: DDAAnalysisRequest,
+) -> Result<DDAResult, String> {
+    log::info!(
+        "[DDA_IPC] submit_dda_analysis called for file: {}",
+        request.file_path
+    );
+
+    // Rate limiting
+    if !api_state.dda_rate_limiter.check_and_increment() {
+        let reset_secs = api_state.dda_rate_limiter.seconds_until_reset();
+        log::warn!(
+            "[DDA_IPC] Rate limit exceeded. Reset in {} seconds",
+            reset_secs
+        );
+        return Err(format!(
+            "Rate limit exceeded. Please wait {} seconds.",
+            reset_secs
+        ));
+    }
+
+    run_single_analysis(&app, &api_state, &request).await
+}
+
 /// Get the status of a DDA analysis
 #[tauri::command]
 pub async fn get_dda_status(
@@ -1261,6 +1278,7 @@ pub async fn list_dda_summaries(
                             created_at: a.timestamp.clone(),
                             status: "completed".to_string(),
                             channels_count: parameters.selected_channels.len(),
+                            channel_names: parameters.selected_channels.clone(),
                             variants_count: parameters.variants.len(),
                             variant_names: parameters.variants.clone(),
                             window_length: parameters.window_length,
@@ -1289,6 +1307,7 @@ pub async fn list_dda_summaries(
                 created_at: result.created_at.clone(),
                 status: result.status.clone(),
                 channels_count: result.channels.len(),
+                channel_names: result.channels.clone(),
                 variants_count: result.parameters.variants.len(),
                 variant_names: result.parameters.variants.clone(),
                 window_length: result.parameters.window_length,
