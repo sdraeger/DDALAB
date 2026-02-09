@@ -13,6 +13,7 @@ pub mod file_commands;
 pub mod file_ipc_commands; // File operations via pure IPC (no HTTP)
 pub mod gallery_commands;
 pub mod ica_ipc_commands; // ICA analysis via pure IPC (no HTTP)
+pub mod learn_commands; // Tutorial & sample data management
 pub mod lsl_discovery; // LSL stream discovery
 pub mod migration_commands;
 pub mod native_updater_commands;
@@ -44,6 +45,7 @@ pub use file_commands::*;
 pub use file_ipc_commands::*;
 pub use gallery_commands::*;
 pub use ica_ipc_commands::*;
+pub use learn_commands::*;
 pub use lsl_discovery::*;
 pub use migration_commands::*;
 pub use native_updater_commands::*;
