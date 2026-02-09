@@ -6,7 +6,7 @@ gh release create v1.0.23 --title "v1.0.23" --notes "$(cat <<'EOF'
 
 - **Rename Julia package**: `dda-jl` → `DelayDifferentialAnalysis.jl` with proper Julia package structure
 - **Simplify codegen output**: Generated code now placed directly in target packages (removed `generated/` subdirectories)
-- **Remove unused package**: Deleted legacy `dda-codegen` (replaced by `dda-spec`)
+- **Remove unused package**: Deleted legacy `dda-codegen`
 - **Clean up npm scripts**: Removed 25 broken scripts referencing deleted files
 - **Add .prettierignore**: Exclude `docs-dist/` from formatting
 

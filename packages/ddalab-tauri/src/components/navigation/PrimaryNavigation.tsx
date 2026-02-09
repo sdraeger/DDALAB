@@ -13,6 +13,7 @@ import {
   Command,
   Database,
   Users,
+  Puzzle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -26,6 +27,7 @@ const iconMap = {
   Bell,
   Database,
   Users,
+  Puzzle,
 };
 
 export function PrimaryNavigation() {

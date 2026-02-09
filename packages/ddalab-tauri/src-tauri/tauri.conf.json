@@ -47,7 +47,8 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "popout.html": "popout.html"
+      "popout.html": "popout.html",
+      "resources/python/mne_bridge.py": "python/mne_bridge.py"
     },
     "copyright": "",
     "category": "Education",

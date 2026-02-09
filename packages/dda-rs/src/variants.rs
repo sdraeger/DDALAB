@@ -1,7 +1,4 @@
-//! AUTO-GENERATED from DDA Specification v1.0.0
-//! Generated: 2025-12-02
-//!
-//! DO NOT EDIT MANUALLY - Run `cargo run --package dda-spec` to regenerate.
+//! DDA Variant definitions — DDA Specification v1.0.0
 
 use serde::{Deserialize, Serialize};
 

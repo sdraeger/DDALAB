@@ -22,6 +22,10 @@ import { createStreamingSlice } from "./slices/streamingSlice";
 import { createPreprocessingSlice } from "./slices/preprocessingSlice";
 import { createPersistenceSlice } from "./slices/persistenceSlice";
 import { createAnalysisSlice } from "./slices/analysisSlice";
+import { createBatchSlice } from "./slices/batchSlice";
+import { createComparisonSlice } from "./slices/comparisonSlice";
+import { createPluginSlice } from "./slices/pluginSlice";
+import { createGallerySlice } from "./slices/gallerySlice";
 
 // Re-export types for backward compatibility
 export type {
@@ -46,6 +50,25 @@ export type {
   AnalysisQueuePreference,
   InterruptedAnalysis,
 } from "./slices/analysisSlice";
+export type {
+  BatchJob,
+  BatchJobStatus,
+  BatchFileEntry,
+  BatchFileStatus,
+  BatchSharedParameters,
+  BatchState,
+} from "./slices/batchSlice";
+export type {
+  ComparisonEntry,
+  ComparisonViewMode,
+  ComparisonState,
+} from "./slices/comparisonSlice";
+export type {
+  InstalledPlugin,
+  RegistryEntry,
+  PluginState,
+} from "./slices/pluginSlice";
+export type { GalleryState } from "./slices/gallerySlice";
 
 /**
  * Main application store
@@ -69,5 +92,9 @@ export const useAppStore = create<AppState>()(
     ...createPreprocessingSlice(set, get, store),
     ...createPersistenceSlice(set, get, store),
     ...createAnalysisSlice(set, get, store),
+    ...createBatchSlice(set, get, store),
+    ...createComparisonSlice(set, get, store),
+    ...createPluginSlice(set, get, store),
+    ...createGallerySlice(set, get, store),
   })),
 );

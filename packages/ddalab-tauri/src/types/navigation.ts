@@ -3,6 +3,7 @@ export type PrimaryNavTab =
   | "explore"
   | "analyze"
   | "data"
+  | "plugins"
   | "collaborate"
   | "settings"
   | "notifications";
@@ -17,12 +18,16 @@ export type SecondaryNavTab =
   // Analyze tabs
   | "dda"
   | "ica"
+  | "batch"
+  | "compare"
   | "meg-analysis"
   | "connectivity"
   | "statistics"
   // Data tabs
   | "openneuro"
-  | "nsg-jobs";
+  | "nsg-jobs"
+  // Collaborate tabs
+  | "gallery";
 
 export interface NavigationCategory {
   id: PrimaryNavTab;
@@ -60,7 +65,7 @@ export const navigationConfig: Record<PrimaryNavTab, NavigationCategory> = {
     label: "Analyze",
     icon: "Brain",
     description: "Signal analysis tools",
-    secondaryTabs: ["dda", "ica"],
+    secondaryTabs: ["dda", "ica", "batch", "compare"],
   },
   data: {
     id: "data",
@@ -69,12 +74,19 @@ export const navigationConfig: Record<PrimaryNavTab, NavigationCategory> = {
     description: "Data repositories and cloud jobs",
     secondaryTabs: ["openneuro", "nsg-jobs"],
   },
+  plugins: {
+    id: "plugins",
+    label: "Plugins",
+    icon: "Puzzle",
+    description: "Install and manage analysis plugins",
+    secondaryTabs: null,
+  },
   collaborate: {
     id: "collaborate",
     label: "Collaborate",
     icon: "Users",
     description: "Share results and work with teams",
-    secondaryTabs: null,
+    secondaryTabs: ["gallery"],
   },
   settings: {
     id: "settings",
@@ -140,6 +152,18 @@ export const secondaryTabConfig: Record<SecondaryNavTab, SecondaryTabConfig> = {
     icon: "Sparkles",
     description: "Independent Component Analysis",
   },
+  batch: {
+    id: "batch",
+    label: "Batch",
+    icon: "Layers",
+    description: "Batch processing across multiple files",
+  },
+  compare: {
+    id: "compare",
+    label: "Compare",
+    icon: "GitCompareArrows",
+    description: "Compare results across subjects or conditions",
+  },
   "meg-analysis": {
     id: "meg-analysis",
     label: "MEG Analysis",
@@ -174,5 +198,13 @@ export const secondaryTabConfig: Record<SecondaryNavTab, SecondaryTabConfig> = {
     label: "NSG Jobs",
     icon: "Cloud",
     description: "Neuroscience Gateway cloud computing",
+  },
+
+  // Collaborate
+  gallery: {
+    id: "gallery",
+    label: "Gallery",
+    icon: "Globe",
+    description: "Generate static sites from DDA results",
   },
 };

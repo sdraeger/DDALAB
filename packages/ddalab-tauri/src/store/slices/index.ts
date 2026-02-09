@@ -35,3 +35,32 @@ export type {
   AnalysisState,
   AnalysisSlice,
 } from "./analysisSlice";
+export { createBatchSlice, defaultBatchState } from "./batchSlice";
+export type {
+  BatchJob,
+  BatchJobStatus,
+  BatchFileEntry,
+  BatchFileStatus,
+  BatchSharedParameters,
+  BatchState,
+  BatchSlice,
+} from "./batchSlice";
+export {
+  createComparisonSlice,
+  defaultComparisonState,
+} from "./comparisonSlice";
+export type {
+  ComparisonEntry,
+  ComparisonViewMode,
+  ComparisonState,
+  ComparisonSlice,
+} from "./comparisonSlice";
+export { createPluginSlice, defaultPluginState } from "./pluginSlice";
+export type {
+  InstalledPlugin,
+  RegistryEntry,
+  PluginState,
+  PluginSlice,
+} from "./pluginSlice";
+export { createGallerySlice, defaultGalleryState } from "./gallerySlice";
+export type { GalleryState, GallerySlice } from "./gallerySlice";

@@ -125,6 +125,8 @@ tokio-util = "0.7.17" # CancellationToken for graceful task cancellation
 http-body-util = "0.1" # Body utilities for encryption middleware
 arboard = "3"          # Cross-platform clipboard support
 fs2 = "0.4"            # File system utilities (disk space checking)
+# Plugin system (WASM sandbox)
+wasmtime = "29"
 
 [dev-dependencies]
 hyper = "1.7.0"

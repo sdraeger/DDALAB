@@ -30,8 +30,13 @@ pub trait Migration: Send + Sync {
 }
 
 /// Registry of all migrations in order
-pub static ALL_MIGRATIONS: &[&dyn Migration] =
-    &[&MigrateLegacyDDAParameters, &AddMsgpackBlobColumn];
+pub static ALL_MIGRATIONS: &[&dyn Migration] = &[
+    &MigrateLegacyDDAParameters,
+    &AddMsgpackBlobColumn,
+    &AddAnalysisGroups,
+    &AddPluginTables,
+    &AddGalleryTable,
+];
 
 /// Migration runner that tracks and applies migrations
 pub struct MigrationRunner<'a> {
@@ -261,6 +266,132 @@ impl Migration for AddMsgpackBlobColumn {
             .context("Failed to add msgpack_lz4 column")?;
 
         log::info!("Added msgpack_lz4 column for fast DDA result loading");
+        Ok(())
+    }
+}
+
+/// Migration: Add analysis groups and batch tracking
+///
+/// Creates:
+/// - analysis_groups table for persisting comparison groups
+/// - analysis_group_members join table
+/// - batch_id column on analyses for linking to batch runs
+pub struct AddAnalysisGroups;
+
+impl Migration for AddAnalysisGroups {
+    fn version(&self) -> &'static str {
+        "20260207000001"
+    }
+
+    fn description(&self) -> &'static str {
+        "Add analysis groups tables and batch_id column"
+    }
+
+    fn up(&self, conn: &Connection) -> Result<()> {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS analysis_groups (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                source TEXT NOT NULL DEFAULT 'manual',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS analysis_group_members (
+                group_id TEXT NOT NULL REFERENCES analysis_groups(id) ON DELETE CASCADE,
+                analysis_id TEXT NOT NULL REFERENCES analyses(id) ON DELETE CASCADE,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (group_id, analysis_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_group_members_analysis
+                ON analysis_group_members(analysis_id);",
+        )
+        .context("Failed to create analysis groups tables")?;
+
+        // Add batch_id column to analyses (ignore error if already exists)
+        let _ = conn.execute("ALTER TABLE analyses ADD COLUMN batch_id TEXT", []);
+        let _ = conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_analyses_batch_id ON analyses(batch_id);",
+        );
+
+        log::info!("Added analysis groups tables and batch_id column");
+        Ok(())
+    }
+}
+
+/// Migration: Add installed_plugins table for WASM plugin system
+///
+/// Tracks installed plugins with their manifests, hashes, and enable state.
+pub struct AddPluginTables;
+
+impl Migration for AddPluginTables {
+    fn version(&self) -> &'static str {
+        "20260208000001"
+    }
+
+    fn description(&self) -> &'static str {
+        "Add installed_plugins table for WASM plugin system"
+    }
+
+    fn up(&self, conn: &Connection) -> Result<()> {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS installed_plugins (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                version TEXT NOT NULL,
+                description TEXT,
+                author TEXT,
+                license TEXT,
+                category TEXT NOT NULL DEFAULT 'analysis',
+                permissions TEXT NOT NULL DEFAULT '[]',
+                wasm_hash TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT 'local',
+                source_url TEXT,
+                installed_at TEXT NOT NULL DEFAULT (datetime('now')),
+                enabled INTEGER NOT NULL DEFAULT 1
+            );",
+        )
+        .context("Failed to create installed_plugins table")?;
+
+        log::info!("Added installed_plugins table for WASM plugin system");
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Migration: AddGalleryTable
+// ---------------------------------------------------------------------------
+
+pub struct AddGalleryTable;
+
+impl Migration for AddGalleryTable {
+    fn version(&self) -> &'static str {
+        "20260209000001"
+    }
+
+    fn description(&self) -> &'static str {
+        "Add gallery_items table for public results gallery"
+    }
+
+    fn up(&self, conn: &Connection) -> Result<()> {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS gallery_items (
+                id TEXT PRIMARY KEY,
+                analysis_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT,
+                author TEXT,
+                tags TEXT NOT NULL DEFAULT '[]',
+                output_directory TEXT NOT NULL,
+                published_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_gallery_analysis_id ON gallery_items(analysis_id);",
+        )
+        .context("Failed to create gallery_items table")?;
+
+        log::info!("Added gallery_items table for public results gallery");
         Ok(())
     }
 }

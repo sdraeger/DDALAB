@@ -147,6 +147,21 @@ const DDAWithHistory = lazy(() =>
 const ICAAnalysisPanel = lazy(() =>
   import("@/components/ica").then((mod) => ({ default: mod.ICAAnalysisPanel })),
 );
+const BatchProcessingDashboard = lazy(() =>
+  import("@/components/batch").then((mod) => ({
+    default: mod.BatchProcessingDashboard,
+  })),
+);
+const CompareView = lazy(() =>
+  import("@/components/compare").then((mod) => ({
+    default: mod.CompareView,
+  })),
+);
+const PluginManagementPanel = lazy(() =>
+  import("@/components/plugins").then((mod) => ({
+    default: mod.PluginManagementPanel,
+  })),
+);
 const SettingsPanel = lazy(() =>
   import("@/components/SettingsPanel").then((mod) => ({
     default: mod.SettingsPanel,
@@ -170,6 +185,11 @@ const NotificationHistory = lazy(() =>
 const CollaborationPanel = lazy(() =>
   import("@/components/collaboration").then((mod) => ({
     default: mod.CollaborationPanel,
+  })),
+);
+const GalleryManagementPanel = lazy(() =>
+  import("@/components/gallery").then((mod) => ({
+    default: mod.GalleryManagementPanel,
   })),
 );
 
@@ -264,6 +284,10 @@ export function NavigationContent() {
         case "view-ica":
           setPrimaryNav("analyze");
           setSecondaryNav("ica");
+          break;
+        case "view-batch":
+          setPrimaryNav("analyze");
+          setSecondaryNav("batch");
           break;
         default:
           console.warn("[NAV] Unknown notification action type:", actionType);
@@ -379,6 +403,37 @@ export function NavigationContent() {
         </FileGatedContent>
       </MountedView>
 
+      {/* Analyze - Batch */}
+      <MountedView
+        isActive={primaryNav === "analyze" && secondaryNav === "batch"}
+      >
+        <div className="h-full">
+          <Suspense fallback={<DelayedLoadingFallback />}>
+            <BatchProcessingDashboard />
+          </Suspense>
+        </div>
+      </MountedView>
+
+      {/* Analyze - Compare */}
+      <MountedView
+        isActive={primaryNav === "analyze" && secondaryNav === "compare"}
+      >
+        <div className="h-full">
+          <Suspense fallback={<DelayedLoadingFallback />}>
+            <CompareView />
+          </Suspense>
+        </div>
+      </MountedView>
+
+      {/* Plugins (top-level) */}
+      <MountedView isActive={primaryNav === "plugins"}>
+        <div className="h-full">
+          <Suspense fallback={<DelayedLoadingFallback />}>
+            <PluginManagementPanel />
+          </Suspense>
+        </div>
+      </MountedView>
+
       {/* Data - OpenNeuro */}
       <MountedView
         isActive={
@@ -406,12 +461,14 @@ export function NavigationContent() {
         </div>
       </MountedView>
 
-      {/* Collaborate */}
-      <MountedView isActive={primaryNav === "collaborate"}>
+      {/* Collaborate - Gallery */}
+      <MountedView
+        isActive={primaryNav === "collaborate" && secondaryNav === "gallery"}
+      >
         <div className="h-full">
           <ErrorBoundary>
             <Suspense fallback={<DelayedLoadingFallback />}>
-              <CollaborationPanel />
+              <GalleryManagementPanel />
             </Suspense>
           </ErrorBoundary>
         </div>
