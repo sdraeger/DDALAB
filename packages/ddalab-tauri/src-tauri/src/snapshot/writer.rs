@@ -264,4 +264,127 @@ mod tests {
         assert_eq!(parsed_manifest.analyses[0].id, "test-analysis-001");
         assert!(parsed_manifest.analyses[0].results_file.is_some());
     }
+
+    #[test]
+    fn test_import_roundtrip_serialization() {
+        use crate::snapshot::reader::SnapshotReader;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+
+        let analysis_db_path = temp_dir.path().join("analysis.db");
+        let annotation_db_path = temp_dir.path().join("annotations.db");
+        let source_file_path = temp_dir.path().join("test_data.edf");
+        let snapshot_path = temp_dir.path().join("test.ddalab");
+
+        std::fs::write(&source_file_path, b"fake EDF data for testing")
+            .expect("Failed to write test source file");
+
+        let analysis_db =
+            AnalysisDatabase::new(&analysis_db_path).expect("Failed to create analysis DB");
+        let annotation_db =
+            AnnotationDatabase::new(&annotation_db_path).expect("Failed to create annotation DB");
+
+        let test_analysis = AnalysisResult {
+            id: "roundtrip-001".to_string(),
+            file_path: source_file_path.to_string_lossy().to_string(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            variant_name: "single_timeseries".to_string(),
+            variant_display_name: "Single Timeseries (ST)".to_string(),
+            parameters: serde_json::json!({
+                "variants": ["single_timeseries"],
+                "window_length": 1000,
+                "window_step": 500,
+                "selected_channels": ["Fp1", "Fp2"],
+                "delay_list": [1, 2, 3]
+            }),
+            chunk_position: None,
+            plot_data: Some(serde_json::json!({
+                "results": {"summary": {"mean_complexity": 0.5}},
+                "channels": ["Fp1", "Fp2"],
+                "q_matrix": [[0.1, 0.2], [0.3, 0.4]],
+                "status": "completed"
+            })),
+            name: Some("Test Analysis".to_string()),
+        };
+        analysis_db
+            .save_analysis(&test_analysis)
+            .expect("Failed to save analysis");
+
+        let writer = SnapshotWriter::new(&analysis_db, &annotation_db, "1.2.8".to_string());
+
+        let source_info = SourceFileInfo {
+            original_path: source_file_path.to_string_lossy().to_string(),
+            file_name: "test_data.edf".to_string(),
+            file_hash: String::new(),
+            file_size: 25,
+            duration_seconds: Some(120.0),
+            sample_rate: Some(256.0),
+            channels: vec!["Fp1".to_string(), "Fp2".to_string()],
+            format: "edf".to_string(),
+        };
+
+        writer
+            .write_snapshot(
+                &source_file_path.to_string_lossy(),
+                &snapshot_path,
+                &["roundtrip-001".to_string()],
+                &SnapshotMode::Full,
+                "Roundtrip Test",
+                Some("Testing import serialization"),
+                &source_info,
+                None,
+            )
+            .expect("Failed to write snapshot");
+
+        // Read manifest back (like import_snapshot does)
+        let manifest = SnapshotReader::read_manifest(&snapshot_path)
+            .expect("Failed to read manifest from snapshot");
+
+        // Validate (like import_snapshot does)
+        let suggested_source = if std::path::Path::new(&manifest.source_file.original_path).exists()
+        {
+            Some(manifest.source_file.original_path.clone())
+        } else {
+            None
+        };
+        let validation = SnapshotReader::validate(&manifest, suggested_source.as_deref());
+
+        // Build SnapshotImportResult (like import_snapshot does)
+        let import_result = SnapshotImportResult {
+            manifest,
+            validation,
+            snapshot_path: snapshot_path.to_string_lossy().to_string(),
+            suggested_source_path: suggested_source,
+        };
+
+        // Serialize to JSON (mimics what Tauri IPC does when sending to frontend)
+        let json = serde_json::to_value(&import_result)
+            .expect("Failed to serialize SnapshotImportResult to JSON");
+        assert!(json.is_object(), "Result should serialize to a JSON object");
+        assert!(json.get("manifest").is_some(), "Should have manifest field");
+        assert!(
+            json.get("validation").is_some(),
+            "Should have validation field"
+        );
+        assert!(
+            json.get("snapshot_path").is_some(),
+            "Should have snapshot_path field"
+        );
+
+        // Also test that Some(import_result) serializes correctly
+        let option_result: Option<SnapshotImportResult> =
+            Some(serde_json::from_value(json.clone()).expect("Failed to deserialize back"));
+        let option_json = serde_json::to_value(&option_result)
+            .expect("Failed to serialize Option<SnapshotImportResult>");
+        assert!(
+            option_json.is_object(),
+            "Some(result) should serialize to object"
+        );
+
+        // Verify analyses can also be extracted
+        let analyses = SnapshotReader::extract_analyses(&snapshot_path, &import_result.manifest)
+            .expect("Failed to extract analyses");
+        assert_eq!(analyses.len(), 1);
+        assert_eq!(analyses[0].id, "roundtrip-001");
+    }
 }

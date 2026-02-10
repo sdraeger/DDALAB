@@ -101,25 +101,39 @@ pub async fn import_snapshot(
     if let Some(file_path) = open_path {
         let path = file_path
             .as_path()
-            .ok_or_else(|| "Invalid file path".to_string())?;
+            .ok_or_else(|| "Invalid file path: not a native path".to_string())?;
         let path_str = path.to_string_lossy().to_string();
+        log::info!("Snapshot file selected: {}", path_str);
 
         let manifest = SnapshotReader::read_manifest(path)
-            .map_err(|e| format!("Failed to read snapshot: {}", e))?;
+            .map_err(|e| format!("Failed to read snapshot manifest: {}", e))?;
+        log::info!(
+            "Manifest read: name={}, mode={:?}, {} analyses",
+            manifest.name,
+            manifest.mode,
+            manifest.analyses.len()
+        );
 
         let suggested_source = if Path::new(&manifest.source_file.original_path).exists() {
+            log::info!(
+                "Source file found at original path: {}",
+                manifest.source_file.original_path
+            );
             Some(manifest.source_file.original_path.clone())
         } else {
+            log::info!(
+                "Source file not found at original path: {}",
+                manifest.source_file.original_path
+            );
             None
         };
 
         let validation = SnapshotReader::validate(&manifest, suggested_source.as_deref());
-
         log::info!(
-            "Snapshot imported: {} ({} analyses, valid: {})",
-            manifest.name,
-            manifest.analyses.len(),
-            validation.valid
+            "Validation complete: valid={}, warnings={}, errors={}",
+            validation.valid,
+            validation.warnings.len(),
+            validation.errors.len()
         );
 
         Ok(Some(SnapshotImportResult {

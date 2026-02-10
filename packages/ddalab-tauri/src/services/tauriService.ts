@@ -1271,7 +1271,16 @@ export class TauriService {
         workflow: request.workflow ?? null,
       });
     } catch (error) {
-      loggers.export.error("Failed to export snapshot", { error });
+      const errorMsg =
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+            ? error
+            : JSON.stringify(error);
+      loggers.export.error("Failed to export snapshot", {
+        error: errorMsg,
+        rawError: error,
+      });
       throw error;
     }
   }
@@ -1282,7 +1291,16 @@ export class TauriService {
       if (!api) throw new Error("Not running in Tauri environment");
       return await api.invoke("import_snapshot");
     } catch (error) {
-      loggers.export.error("Failed to import snapshot", { error });
+      const errorMsg =
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+            ? error
+            : JSON.stringify(error);
+      loggers.export.error("Failed to import snapshot", {
+        error: errorMsg,
+        rawError: error,
+      });
       throw error;
     }
   }
@@ -1299,7 +1317,16 @@ export class TauriService {
         sourceFilePath,
       });
     } catch (error) {
-      loggers.export.error("Failed to apply snapshot", { error });
+      const errorMsg =
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+            ? error
+            : JSON.stringify(error);
+      loggers.export.error("Failed to apply snapshot", {
+        error: errorMsg,
+        rawError: error,
+      });
       throw error;
     }
   }
@@ -1310,7 +1337,16 @@ export class TauriService {
       if (!api) throw new Error("Not running in Tauri environment");
       return await api.invoke("inspect_snapshot", { path });
     } catch (error) {
-      loggers.export.error("Failed to inspect snapshot", { error });
+      const errorMsg =
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+            ? error
+            : JSON.stringify(error);
+      loggers.export.error("Failed to inspect snapshot", {
+        error: errorMsg,
+        rawError: error,
+      });
       throw error;
     }
   }
