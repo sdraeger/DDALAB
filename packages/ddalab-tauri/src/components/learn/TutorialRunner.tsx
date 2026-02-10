@@ -95,13 +95,19 @@ function useCompletionCheck(
   step: TutorialStep | undefined,
   onAdvance: () => void,
 ) {
+  const advancedRef = useRef(false);
+
   useEffect(() => {
+    advancedRef.current = false;
+
     if (step?.type !== "action" || !step.completionCheck) return;
 
     const { storeKey, expectedValue } = step.completionCheck;
     const keys = storeKey.split(".");
 
     const unsubscribe = useAppStore.subscribe((state) => {
+      if (advancedRef.current) return;
+
       // Walk the store key path (e.g. "fileManager.selectedFile")
       let value: unknown = state;
       for (const key of keys) {
@@ -117,7 +123,9 @@ function useCompletionCheck(
         expectedValue === "non-null" ? value != null : value === expectedValue;
 
       if (satisfied) {
-        onAdvance();
+        advancedRef.current = true;
+        // Defer to next tick to avoid store update inside subscriber
+        setTimeout(onAdvance, 0);
       }
     });
 
