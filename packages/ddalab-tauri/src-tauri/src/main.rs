@@ -16,6 +16,7 @@ mod intermediate_format;
 mod models;
 mod recording;
 mod signal_processing;
+mod snapshot;
 mod state_manager;
 mod streaming;
 mod sync;
@@ -94,6 +95,11 @@ fn main() {
             // DDA export commands
             save_dda_export_file,
             save_plot_export_file,
+            // Snapshot commands (.ddalab pipeline files)
+            export_snapshot,
+            import_snapshot,
+            apply_snapshot,
+            inspect_snapshot,
             // BIDS export commands
             validate_bids_export,
             export_to_bids,

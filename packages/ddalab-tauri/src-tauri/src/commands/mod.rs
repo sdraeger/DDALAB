@@ -24,6 +24,7 @@ pub mod plugin_commands;
 pub mod preference_commands;
 pub mod python_commands; // Python/MNE environment detection
 pub mod scan_commands; // BIDS directory scanner for DDA-compatible files
+pub mod snapshot_commands; // Snapshot (.ddalab) export/import commands
 pub mod state_commands;
 pub mod streaming_commands; // Real-time data streaming and DDA
 pub mod update_commands;
@@ -56,6 +57,7 @@ pub use plugin_commands::*;
 pub use preference_commands::*;
 pub use python_commands::*;
 pub use scan_commands::*;
+pub use snapshot_commands::*;
 pub use state_commands::*;
 pub use streaming_commands::*;
 pub use update_commands::*;
