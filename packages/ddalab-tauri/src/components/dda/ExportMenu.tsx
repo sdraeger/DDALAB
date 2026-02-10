@@ -16,6 +16,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  Archive,
   Database,
   FileText,
   FileCode,
@@ -33,6 +34,7 @@ interface ExportMenuProps {
   onExportAllData?: (format: "csv" | "json") => void;
   onShare?: () => void;
   onPopOut?: () => void;
+  onExportSnapshot?: (mode: "full" | "recipe_only") => void;
   onPublishToGallery?: () => void;
   showShare?: boolean;
   showPopOut?: boolean;
@@ -43,6 +45,7 @@ export const ExportMenu = memo(function ExportMenu({
   onExportData,
   onExportPlot,
   onExportAllData,
+  onExportSnapshot,
   onShare,
   onPopOut,
   onPublishToGallery,
@@ -106,6 +109,27 @@ export const ExportMenu = memo(function ExportMenu({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      {onExportSnapshot && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm">
+              <Archive className="h-4 w-4 mr-2" />
+              Snapshot
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => onExportSnapshot("full")}>
+              <Archive className="h-4 w-4 mr-2" />
+              Full Snapshot (with results)
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onExportSnapshot("recipe_only")}>
+              <FileText className="h-4 w-4 mr-2" />
+              Recipe Only (parameters)
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
 
       <TooltipProvider delayDuration={300}>
         {showShare && onShare && (
