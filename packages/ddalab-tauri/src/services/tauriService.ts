@@ -1,6 +1,12 @@
 // Tauri v2 API - properly integrated
 // Dynamic imports to avoid SSR issues
 import { loggers } from "@/lib/logger";
+import type {
+  ExportSnapshotRequest,
+  SnapshotImportResult,
+  SnapshotApplyResult,
+  SnapshotInspectResult,
+} from "@/types/snapshot";
 
 const getTauriAPI = async () => {
   if (typeof window === "undefined") return null;
@@ -1244,5 +1250,68 @@ export class TauriService {
     const api = await getTauriAPI();
     if (!api) throw new Error("Not running in Tauri environment");
     return await api.invoke("fetch_remote_index", { url });
+  }
+
+  // Snapshot (.ddalab) Commands
+
+  static async exportSnapshot(
+    request: ExportSnapshotRequest,
+  ): Promise<string | null> {
+    try {
+      const api = await getTauriAPI();
+      if (!api) throw new Error("Not running in Tauri environment");
+      return await api.invoke("export_snapshot", {
+        sourceFilePath: request.sourceFilePath,
+        analysisIds: request.analysisIds,
+        mode: request.mode,
+        name: request.name,
+        description: request.description ?? null,
+        parameters: request.parameters,
+        sourceFileInfo: request.sourceFileInfo,
+        workflow: request.workflow ?? null,
+      });
+    } catch (error) {
+      loggers.export.error("Failed to export snapshot", { error });
+      throw error;
+    }
+  }
+
+  static async importSnapshot(): Promise<SnapshotImportResult | null> {
+    try {
+      const api = await getTauriAPI();
+      if (!api) throw new Error("Not running in Tauri environment");
+      return await api.invoke("import_snapshot");
+    } catch (error) {
+      loggers.export.error("Failed to import snapshot", { error });
+      throw error;
+    }
+  }
+
+  static async applySnapshot(
+    snapshotPath: string,
+    sourceFilePath: string,
+  ): Promise<SnapshotApplyResult> {
+    try {
+      const api = await getTauriAPI();
+      if (!api) throw new Error("Not running in Tauri environment");
+      return await api.invoke("apply_snapshot", {
+        snapshotPath,
+        sourceFilePath,
+      });
+    } catch (error) {
+      loggers.export.error("Failed to apply snapshot", { error });
+      throw error;
+    }
+  }
+
+  static async inspectSnapshot(path: string): Promise<SnapshotInspectResult> {
+    try {
+      const api = await getTauriAPI();
+      if (!api) throw new Error("Not running in Tauri environment");
+      return await api.invoke("inspect_snapshot", { path });
+    } catch (error) {
+      loggers.export.error("Failed to inspect snapshot", { error });
+      throw error;
+    }
   }
 }
