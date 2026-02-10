@@ -41,11 +41,15 @@ impl<'a> SnapshotWriter<'a> {
         let file_hash =
             compute_file_hash(source_file_path).context("Failed to compute source file hash")?;
 
+        let file_size = std::fs::metadata(source_file_path)
+            .map(|m| m.len())
+            .unwrap_or(source_file_info.file_size);
+
         let source_info = SourceFileInfo {
             original_path: source_file_info.original_path.clone(),
             file_name: source_file_info.file_name.clone(),
             file_hash,
-            file_size: source_file_info.file_size,
+            file_size,
             duration_seconds: source_file_info.duration_seconds,
             sample_rate: source_file_info.sample_rate,
             channels: source_file_info.channels.clone(),

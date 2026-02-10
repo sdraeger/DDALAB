@@ -18,6 +18,7 @@ import { toast } from "@/components/ui/toaster";
 import { useSync } from "@/hooks/useSync";
 import { useSnapshot } from "@/hooks/useSnapshot";
 import { usePopoutWindows } from "@/hooks/usePopoutWindows";
+import { useAppStore } from "@/store/appStore";
 import type { DDAResult } from "@/types/api";
 import type { SourceFileInfo } from "@/types/snapshot";
 import type { AccessPolicy, AccessPolicyType } from "@/types/sync";
@@ -341,13 +342,14 @@ export function useDDAExport({
 
   const handleExportSnapshot = useCallback(
     async (mode: "full" | "recipe_only") => {
+      const selectedFile = useAppStore.getState().fileManager.selectedFile;
       const sourceFileInfo: SourceFileInfo = {
         original_path: result.file_path,
         file_name: result.file_path.split("/").pop() || result.file_path,
         file_hash: "",
-        file_size: 0,
-        duration_seconds: null,
-        sample_rate: null,
+        file_size: selectedFile?.file_size ?? 0,
+        duration_seconds: selectedFile?.duration ?? null,
+        sample_rate: selectedFile?.sample_rate ?? null,
         channels: result.channels,
         format: result.file_path.split(".").pop()?.toUpperCase() || "UNKNOWN",
       };
