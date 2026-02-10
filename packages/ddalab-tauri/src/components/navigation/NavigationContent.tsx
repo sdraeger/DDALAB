@@ -216,6 +216,11 @@ const PaperReproductionBrowser = lazy(() =>
     default: mod.PaperReproductionBrowser,
   })),
 );
+const TutorialRunner = lazy(() =>
+  import("@/components/learn").then((mod) => ({
+    default: mod.TutorialRunner,
+  })),
+);
 
 // Preload common tabs after initial render for faster tab switching
 // This runs once when NavigationContent mounts
@@ -551,8 +556,20 @@ export function NavigationContent() {
           </Suspense>
         </div>
       </MountedView>
+
+      {/* Tutorial Runner — rendered outside MountedViews so it persists across tab navigation */}
+      <Suspense fallback={null}>
+        <TutorialRunnerGate />
+      </Suspense>
     </div>
   );
+}
+
+/** Only mounts TutorialRunner when a tutorial is active, to avoid loading the chunk otherwise. */
+function TutorialRunnerGate() {
+  const activeTutorialId = useAppStore((state) => state.learn.activeTutorialId);
+  if (!activeTutorialId) return null;
+  return <TutorialRunner />;
 }
 
 function OverviewDashboard() {

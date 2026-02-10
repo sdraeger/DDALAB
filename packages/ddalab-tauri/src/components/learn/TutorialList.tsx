@@ -15,7 +15,6 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { TutorialRunner } from "./TutorialRunner";
 import type { TutorialProgress } from "@/types/learn";
 
 const iconMap: Record<string, LucideIcon> = {
@@ -106,8 +105,6 @@ export const TutorialList = memo(function TutorialList() {
           );
         })}
       </div>
-
-      {activeTutorialId && <TutorialRunner />}
     </div>
   );
 });
