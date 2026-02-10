@@ -79,11 +79,17 @@ export function useSnapshot() {
       setImportResult(result);
       return result;
     } catch (error) {
-      loggers.export.error("Failed to import snapshot", { error });
-      toast.error(
-        "Import failed",
-        error instanceof Error ? error.message : "Could not read snapshot file",
-      );
+      const errorMsg =
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+            ? error
+            : JSON.stringify(error);
+      loggers.export.error("Failed to import snapshot", {
+        error: errorMsg,
+        rawError: error,
+      });
+      toast.error("Import failed", errorMsg || "Could not read snapshot file");
       return null;
     } finally {
       setIsImporting(false);
