@@ -16,8 +16,10 @@ import {
 } from "@/utils/plotExport";
 import { toast } from "@/components/ui/toaster";
 import { useSync } from "@/hooks/useSync";
+import { useSnapshot } from "@/hooks/useSnapshot";
 import { usePopoutWindows } from "@/hooks/usePopoutWindows";
 import type { DDAResult } from "@/types/api";
+import type { SourceFileInfo } from "@/types/snapshot";
 import type { AccessPolicy, AccessPolicyType } from "@/types/sync";
 import { DEFAULT_EXPIRY_DAYS } from "@/types/sync";
 import type { ViewMode } from "@/components/dda/ViewModeSelector";
@@ -58,6 +60,7 @@ export function useDDAExport({
   linePlotAnnotations,
 }: UseDDAExportOptions) {
   const { shareResult, isConnected: isSyncConnected } = useSync();
+  const { exportSnapshot } = useSnapshot();
   const { createWindow } = usePopoutWindows();
   const sharedResultsRef = useRef<Map<string, string>>(new Map());
 
@@ -336,6 +339,31 @@ export function useDDAExport({
     return sharedResultsRef.current.get(result.id) || null;
   }, [result.id]);
 
+  const handleExportSnapshot = useCallback(
+    async (mode: "full" | "recipe_only") => {
+      const sourceFileInfo: SourceFileInfo = {
+        original_path: result.file_path,
+        file_name: result.file_path.split("/").pop() || result.file_path,
+        file_hash: "",
+        file_size: 0,
+        duration_seconds: null,
+        sample_rate: null,
+        channels: result.channels,
+        format: result.file_path.split(".").pop()?.toUpperCase() || "UNKNOWN",
+      };
+
+      await exportSnapshot({
+        sourceFilePath: result.file_path,
+        analysisIds: [result.id],
+        mode,
+        name: result.name || `DDA Analysis ${result.id.slice(0, 8)}`,
+        parameters: result.parameters as unknown as Record<string, unknown>,
+        sourceFileInfo,
+      });
+    },
+    [result, exportSnapshot],
+  );
+
   return {
     exportPlot,
     exportData,
@@ -344,5 +372,6 @@ export function useDDAExport({
     handleShare,
     getExistingShareLink,
     isSyncConnected,
+    handleExportSnapshot,
   };
 }
