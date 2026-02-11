@@ -17,6 +17,8 @@ import { CompareToolbar } from "./CompareToolbar";
 import { CompareSummaryTable } from "./CompareSummaryTable";
 import { CompareOverlayPlot } from "./CompareOverlayPlot";
 import { CompareSideBySideView } from "./CompareSideBySideView";
+import { CompareDifferenceView } from "./CompareDifferenceView";
+import { CompareGroupStatsView } from "./CompareGroupStatsView";
 import { CompareAnalysisPicker } from "./CompareAnalysisPicker";
 import { CompareGroupPicker } from "./CompareGroupPicker";
 import type { ComparisonEntry } from "@/store/slices/comparisonSlice";
@@ -64,11 +66,18 @@ export function CompareView() {
   );
   const { data: metadata } = useComparisonMetadata(analysisIds);
 
-  // Fetch channel data for overlay and side-by-side views
+  // Fetch channel data for visualization views
+  // Statistics view needs all common channels; other views use selectedChannels
+  const channelsToFetch =
+    viewMode === "summary"
+      ? []
+      : viewMode === "statistics"
+        ? commonChannels
+        : selectedChannels;
   const channelDataResults = useComparisonChannelData(
     entries,
     activeVariantId,
-    viewMode !== "summary" ? selectedChannels : [],
+    channelsToFetch,
   );
 
   const channelDataEntries = useMemo(() => {
@@ -258,6 +267,33 @@ export function CompareView() {
                   channelDataEntries={channelDataEntries}
                   selectedChannels={selectedChannels}
                   scales={scales}
+                />
+              </div>
+
+              {/* Difference view */}
+              <div
+                style={{
+                  display: viewMode === "difference" ? "block" : "none",
+                }}
+              >
+                <CompareDifferenceView
+                  entries={entries}
+                  channelDataEntries={channelDataEntries}
+                  selectedChannels={selectedChannels}
+                  scales={scales}
+                />
+              </div>
+
+              {/* Group statistics view */}
+              <div
+                style={{
+                  display: viewMode === "statistics" ? "block" : "none",
+                }}
+              >
+                <CompareGroupStatsView
+                  entries={entries}
+                  channelDataEntries={channelDataEntries}
+                  commonChannels={commonChannels}
                 />
               </div>
             </div>
