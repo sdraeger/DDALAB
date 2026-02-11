@@ -146,9 +146,16 @@ export interface UIState {
   isEncryptedMode: boolean;
 }
 
+export interface AnnotationPersistenceStatus {
+  pendingSaveCount: number;
+  lastSaveError: string | null;
+  lastSavedAt: string | null;
+}
+
 export interface AnnotationState {
   timeSeries: Record<string, TimeSeriesAnnotations>;
   ddaResults: Record<string, DDAResultAnnotations>;
+  persistenceStatus: AnnotationPersistenceStatus;
 }
 
 export interface WorkflowRecordingState {
@@ -267,7 +274,8 @@ export interface AnnotationActions {
     filePath: string,
     channel?: string,
   ) => PlotAnnotation[];
-  loadAllFileAnnotations: () => Promise<void>;
+  loadFileAnnotations: (filePath: string) => Promise<void>;
+  flushPendingSaves: () => Promise<void>;
   addDDAAnnotation: (
     resultId: string,
     variantId: string,

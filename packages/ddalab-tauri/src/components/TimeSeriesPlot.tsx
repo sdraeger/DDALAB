@@ -75,6 +75,7 @@ function TimeSeriesPlotComponent() {
     useShallow((state) => ({
       currentChunk: state.plot.currentChunk,
       preprocessing: state.plot.preprocessing,
+      showAnnotations: state.plot.showAnnotations,
     })),
   );
   const dda = useAppStore(
@@ -1586,7 +1587,8 @@ function TimeSeriesPlotComponent() {
               <div ref={plotRef} className="w-full h-full" />
 
               {/* Annotation overlay */}
-              {uplotRef.current &&
+              {plot.showAnnotations &&
+                uplotRef.current &&
                 plot.currentChunk &&
                 timeSeriesAnnotations.annotations.length > 0 && (
                   <svg

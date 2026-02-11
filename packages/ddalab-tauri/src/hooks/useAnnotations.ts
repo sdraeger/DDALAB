@@ -1,6 +1,10 @@
 import { useState, useCallback, useMemo } from "react";
 import { useAppStore } from "@/store/appStore";
-import { PlotAnnotation } from "@/types/annotations";
+import {
+  PlotAnnotation,
+  ANNOTATION_CATEGORIES,
+  type AnnotationCategoryId,
+} from "@/types/annotations";
 import { DDAResult } from "@/types/api";
 import { timeSeriesAnnotationToDDA } from "@/utils/annotationSync";
 import { useAvailablePlots } from "./useAvailablePlots";
@@ -63,14 +67,19 @@ export const useTimeSeriesAnnotations = ({
       allAnnotations = fileAnnotations.globalAnnotations || [];
     }
 
-    // Filter annotations based on plot visibility
-    const filtered = allAnnotations.filter((ann) => {
-      // If no visibility settings, show by default (backwards compatibility)
-      if (!ann.visible_in_plots || ann.visible_in_plots.length === 0)
-        return true;
-      // Check if timeseries plot is in the visibility list
-      return ann.visible_in_plots.includes("timeseries");
-    });
+    // Filter annotations based on plot visibility and apply category colors
+    const filtered = allAnnotations
+      .filter((ann) => {
+        if (!ann.visible_in_plots || ann.visible_in_plots.length === 0)
+          return true;
+        return ann.visible_in_plots.includes("timeseries");
+      })
+      .map((ann) => {
+        if (!ann.color && ann.category) {
+          return { ...ann, color: ANNOTATION_CATEGORIES[ann.category].color };
+        }
+        return ann;
+      });
 
     return filtered;
   }, [filePath, fileAnnotations, channel]);
@@ -88,13 +97,14 @@ export const useTimeSeriesAnnotations = ({
       label: string,
       description?: string,
       visibleInPlots?: string[],
+      category?: AnnotationCategoryId,
     ) => {
       const annotation: PlotAnnotation = {
         id: crypto.randomUUID(),
         position,
         label,
         description,
-        // Default to all plots if not specified
+        category,
         visible_in_plots: visibleInPlots || availablePlots.map((p) => p.id),
         createdAt: new Date().toISOString(),
       };
@@ -109,11 +119,12 @@ export const useTimeSeriesAnnotations = ({
       label: string,
       description?: string,
       visibleInPlots?: string[],
+      category?: AnnotationCategoryId,
     ) => {
       updateTimeSeriesAnnotation(
         filePath,
         id,
-        { label, description, visible_in_plots: visibleInPlots },
+        { label, description, visible_in_plots: visibleInPlots, category },
         channel,
       );
     },
@@ -264,9 +275,14 @@ export const useDDAAnnotations = ({
 
       filteredDDA.forEach((ann) => annotationMap.set(ann.id, ann));
 
-      const result = Array.from(annotationMap.values()).sort(
-        (a, b) => a.position - b.position,
-      );
+      const result = Array.from(annotationMap.values())
+        .map((ann) => {
+          if (!ann.color && ann.category) {
+            return { ...ann, color: ANNOTATION_CATEGORIES[ann.category].color };
+          }
+          return ann;
+        })
+        .sort((a, b) => a.position - b.position);
       profiler.end(`${profilerKey}-merge`);
 
       return result;
@@ -299,13 +315,12 @@ export const useDDAAnnotations = ({
       label: string,
       description?: string,
       visibleInPlots?: string[],
+      category?: AnnotationCategoryId,
     ) => {
       // Convert DDA position (window index) to timeseries position (seconds)
-      // Use window_indices (preferred) or legacy scales for backward compatibility
       const windowIndices =
         ddaResult.results.window_indices || ddaResult.results.scales || [];
 
-      // Find the index of the closest window position
       let windowIndex = 0;
       if (windowIndices.length > 0) {
         let minDistance = Math.abs(windowIndices[0] - position);
@@ -323,20 +338,16 @@ export const useDDAAnnotations = ({
       const sampleIndex = windowIndex * windowStep;
       const timeSeconds = sampleIndex / sampleRate;
 
-      const currentPlotId = `dda:${variantId}:${plotType === "heatmap" ? "heatmap" : "lineplot"}`;
-
       const annotation: PlotAnnotation = {
         id: crypto.randomUUID(),
-        position: timeSeconds, // Store in seconds, not scale value
+        position: timeSeconds,
         label,
         description,
-        // Default to all plots if not specified
+        category,
         visible_in_plots: visibleInPlots || availablePlots.map((p) => p.id),
         createdAt: new Date().toISOString(),
       };
 
-      // Save to timeseries annotations (not DDA-specific)
-      // This allows the annotation to show up in all views
       addTimeSeriesAnnotation(filePath, annotation);
     },
     [
@@ -356,6 +367,7 @@ export const useDDAAnnotations = ({
       label: string,
       description?: string,
       visibleInPlots?: string[],
+      category?: AnnotationCategoryId,
     ) => {
       // Check if this is a transformed timeseries annotation
       if (id.endsWith("_dda")) {
@@ -367,6 +379,7 @@ export const useDDAAnnotations = ({
           label,
           description,
           visible_in_plots: visibleInPlots,
+          category,
         });
       } else {
         // Update DDA-specific annotation
@@ -374,6 +387,7 @@ export const useDDAAnnotations = ({
           label,
           description,
           visible_in_plots: visibleInPlots,
+          category,
         });
       }
     },

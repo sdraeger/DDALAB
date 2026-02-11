@@ -2,10 +2,15 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useAppStore } from "@/store/appStore";
 import { useShallow } from "zustand/react/shallow";
 import { TauriService } from "@/services/tauriService";
+import {
+  getInitializedFileStateManager,
+  isFileStateSystemInitialized,
+} from "@/services/fileStateInitializer";
 import { TOAST_DURATIONS } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import {
   Accordion,
   AccordionContent,
@@ -19,14 +24,26 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Download,
   Upload,
   FileText,
   Trash2,
   Folder,
   ChevronDown,
+  Search,
 } from "lucide-react";
-import { PlotAnnotation } from "@/types/annotations";
+import {
+  PlotAnnotation,
+  ANNOTATION_CATEGORIES,
+  type AnnotationCategoryId,
+} from "@/types/annotations";
 import { ImportPreviewDialog } from "@/components/ImportPreviewDialog";
 
 interface AnnotationWithFile {
@@ -34,11 +51,6 @@ interface AnnotationWithFile {
   channel?: string;
   isGlobal: boolean;
   filePath: string;
-}
-
-interface FileAnnotationsResult {
-  global_annotations: any[];
-  channel_annotations: Record<string, any[]>;
 }
 
 export function AnnotationsTab() {
@@ -49,31 +61,43 @@ export function AnnotationsTab() {
   const ddaResultAnnotations = useAppStore(
     useShallow((state) => state.annotations.ddaResults),
   );
+  const persistenceStatus = useAppStore(
+    (state) => state.annotations.persistenceStatus,
+  );
   const setPrimaryNav = useAppStore((state) => state.setPrimaryNav);
   const setSecondaryNav = useAppStore((state) => state.setSecondaryNav);
   const setCurrentAnalysis = useAppStore((state) => state.setCurrentAnalysis);
-  const loadAllFileAnnotations = useAppStore(
-    (state) => state.loadAllFileAnnotations,
-  );
+  const loadFileAnnotations = useAppStore((state) => state.loadFileAnnotations);
 
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isLoadingAll, setIsLoadingAll] = useState(true);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [previewData, setPreviewData] = useState<any>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const currentFilePath = selectedFile?.file_path;
 
-  // Load annotations from ALL files on mount
+  // Load annotations per-file on mount
   useEffect(() => {
     const loadAll = async () => {
       setIsLoadingAll(true);
-      await loadAllFileAnnotations();
-      setIsLoadingAll(false);
+      try {
+        if (isFileStateSystemInitialized()) {
+          const fileStateManager = getInitializedFileStateManager();
+          const trackedFiles = fileStateManager.getTrackedFiles();
+          await Promise.allSettled(
+            trackedFiles.map((fp) => loadFileAnnotations(fp)),
+          );
+        }
+      } finally {
+        setIsLoadingAll(false);
+      }
     };
     loadAll();
-  }, [loadAllFileAnnotations]);
+  }, [loadFileAnnotations]);
 
-  // Derive annotations from store data (memoized instead of useState + useEffect)
+  // Derive annotations from store data (memoized)
   const annotationsByFile = useMemo(() => {
     const annotationsMap = new Map<string, AnnotationWithFile[]>();
 
@@ -113,6 +137,46 @@ export function AnnotationsTab() {
 
     return annotationsMap;
   }, [timeSeriesAnnotations]);
+
+  // Apply search and category filters
+  const filteredAnnotationsByFile = useMemo(() => {
+    const query = searchQuery.toLowerCase().trim();
+    const filtered = new Map<string, AnnotationWithFile[]>();
+
+    for (const [filePath, annotations] of annotationsByFile) {
+      const matching = annotations.filter((item) => {
+        // Category filter
+        if (categoryFilter !== "all") {
+          const annCategory = item.annotation.category || "general";
+          if (annCategory !== categoryFilter) return false;
+        }
+
+        // Text search
+        if (query) {
+          const label = item.annotation.label?.toLowerCase() || "";
+          const desc = item.annotation.description?.toLowerCase() || "";
+          const cat = item.annotation.category?.toLowerCase() || "";
+          const fileName = filePath.split("/").pop()?.toLowerCase() || "";
+          if (
+            !label.includes(query) &&
+            !desc.includes(query) &&
+            !cat.includes(query) &&
+            !fileName.includes(query)
+          ) {
+            return false;
+          }
+        }
+
+        return true;
+      });
+
+      if (matching.length > 0) {
+        filtered.set(filePath, matching);
+      }
+    }
+
+    return filtered;
+  }, [annotationsByFile, searchQuery, categoryFilter]);
 
   const ddaAnnotationCount = useMemo(() => {
     let count = 0;
@@ -209,7 +273,7 @@ export function AnnotationsTab() {
 
         setTimeout(() => setSuccessMessage(null), TOAST_DURATIONS.MEDIUM);
 
-        await loadAllFileAnnotations();
+        await loadFileAnnotations(targetFilePath);
         setIsPreviewOpen(false);
         setPreviewData(null);
       } catch (err) {
@@ -220,7 +284,7 @@ export function AnnotationsTab() {
         );
       }
     },
-    [loadAllFileAnnotations],
+    [loadFileAnnotations],
   );
 
   const handleCloseDialog = useCallback(() => {
@@ -240,61 +304,30 @@ export function AnnotationsTab() {
   const handleTimeSeriesAnnotationClick = useCallback(
     (filePath: string, position: number) => {
       try {
-        // Get store state
         const storeState = useAppStore.getState();
-
-        // Check if this file is already selected
         const file = storeState.fileManager.selectedFile;
 
         if (!file || file.file_path !== filePath) {
-          console.warn("[ANNOTATION] File not selected:", filePath);
           setError(
             `Please select the file first: ${filePath.split("/").pop()}`,
           );
           return;
         }
 
-        // Calculate time window from plot state
         const sampleRate = file.sample_rate || 256;
-        const chunkSize = storeState.plot.chunkSize || 5 * sampleRate; // Default to 5 seconds if not set
+        const chunkSize = storeState.plot.chunkSize || 5 * sampleRate;
         const timeWindow = chunkSize / sampleRate;
 
-        // Center the view around the annotation
-        // Start at annotation position minus half the time window
         let centeredStart = position - timeWindow / 2;
-
-        // Clamp to valid bounds
-        // Don't go before start of file
         centeredStart = Math.max(0, centeredStart);
-        // Don't go past end of file (ensure full window fits)
         const maxStart = Math.max(0, file.duration - timeWindow);
         centeredStart = Math.min(maxStart, centeredStart);
-
-        // CRITICAL FIX: Convert time (seconds) to samples
-        // The plot state expects chunkStart in samples, not seconds
         const centeredStartSamples = Math.floor(centeredStart * sampleRate);
 
-        console.log("[ANNOTATION] Centering on annotation:", {
-          filePath,
-          annotationPosition: position,
-          timeWindow,
-          centeredStart,
-          centeredStartSamples,
-          sampleRate,
-        });
-
-        // Update plot position - pass samples, not time
         storeState.updatePlotState({ chunkStart: centeredStartSamples });
-
-        // Navigate to timeseries tab
         setPrimaryNav("explore");
         setSecondaryNav("timeseries");
-
-        console.log(
-          "[ANNOTATION] Navigated to time series annotation (centered)",
-        );
       } catch (err) {
-        console.error("[ANNOTATION] Error navigating to annotation:", err);
         setError(
           err instanceof Error
             ? err.message
@@ -306,29 +339,20 @@ export function AnnotationsTab() {
   );
 
   const handleDDAAnnotationClick = useCallback(
-    (resultId: string, variantId: string, plotType: string) => {
+    (resultId: string, _variantId: string, _plotType: string) => {
       try {
-        // Find the DDA result (read from store at click time, not via subscription)
         const result = useAppStore
           .getState()
           .dda.analysisHistory.find((r) => r.id === resultId);
 
         if (!result) {
-          console.warn("[ANNOTATION] DDA result not found:", resultId);
           setError(`DDA result not found: ${resultId}`);
           return;
         }
 
-        // Set as current analysis
         setCurrentAnalysis(result);
-
-        // Navigate to DDA tab
         setPrimaryNav("analyze");
-
-        // Note: The DDA component should handle showing the correct variant/plot type
-        // based on what's in the URL or state
       } catch (err) {
-        console.error("[ANNOTATION] Error navigating to DDA result:", err);
         setError(
           err instanceof Error
             ? err.message
@@ -349,6 +373,26 @@ export function AnnotationsTab() {
     (sum, annotations) => sum + annotations.length,
     0,
   );
+
+  const filteredTotal = Array.from(filteredAnnotationsByFile.values()).reduce(
+    (sum, annotations) => sum + annotations.length,
+    0,
+  );
+
+  const getCategoryBadge = (category?: AnnotationCategoryId) => {
+    if (!category) return null;
+    const cat = ANNOTATION_CATEGORIES[category];
+    if (!cat) return null;
+    return (
+      <Badge
+        variant="outline"
+        className="text-xs"
+        style={{ borderColor: cat.color, color: cat.color }}
+      >
+        {cat.label}
+      </Badge>
+    );
+  };
 
   return (
     <div className="h-full flex flex-col p-6 space-y-4">
@@ -397,6 +441,13 @@ export function AnnotationsTab() {
         </div>
       </div>
 
+      {/* Persistence error banner */}
+      {persistenceStatus.lastSaveError && (
+        <div className="bg-destructive/10 text-destructive px-4 py-2 rounded-md text-sm">
+          Save error: {persistenceStatus.lastSaveError}
+        </div>
+      )}
+
       {error && (
         <div className="bg-destructive/10 text-destructive px-4 py-3 rounded-md">
           {error}
@@ -409,22 +460,69 @@ export function AnnotationsTab() {
         </div>
       )}
 
+      {/* Search & Filter bar */}
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search annotations..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+          <SelectTrigger className="w-[160px]">
+            <SelectValue placeholder="Category" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Categories</SelectItem>
+            {Object.entries(ANNOTATION_CATEGORIES).map(([id, cat]) => (
+              <SelectItem key={id} value={id}>
+                <div className="flex items-center gap-2">
+                  <div
+                    className="w-2.5 h-2.5 rounded-full"
+                    style={{ backgroundColor: cat.color }}
+                  />
+                  {cat.label}
+                </div>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Filtered count indicator */}
+      {(searchQuery || categoryFilter !== "all") && (
+        <p className="text-xs text-muted-foreground">
+          Showing {filteredTotal} of {totalAnnotations} annotations
+        </p>
+      )}
+
       <div className="flex-1 overflow-auto">
         {isLoadingAll ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center text-muted-foreground">
-              <div className="h-12 w-12 mx-auto mb-4 animate-spin">⏳</div>
+              <div className="h-12 w-12 mx-auto mb-4 animate-spin">
+                &#x23F3;
+              </div>
               <p className="text-lg">Loading annotations...</p>
               <p className="text-sm mt-2">Scanning all files for annotations</p>
             </div>
           </div>
-        ) : annotationsByFile.size === 0 && ddaAnnotationCount === 0 ? (
+        ) : filteredAnnotationsByFile.size === 0 && ddaAnnotationCount === 0 ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center text-muted-foreground">
               <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p className="text-lg">No annotations found</p>
+              <p className="text-lg">
+                {searchQuery || categoryFilter !== "all"
+                  ? "No matching annotations"
+                  : "No annotations found"}
+              </p>
               <p className="text-sm mt-2">
-                Add annotations in the Data Visualization or DDA Results tabs
+                {searchQuery || categoryFilter !== "all"
+                  ? "Try adjusting your search or filter"
+                  : "Add annotations in the Data Visualization or DDA Results tabs"}
               </p>
             </div>
           </div>
@@ -434,7 +532,7 @@ export function AnnotationsTab() {
             className="w-full"
             defaultValue={currentFilePath ? [currentFilePath] : []}
           >
-            {Array.from(annotationsByFile.entries()).map(
+            {Array.from(filteredAnnotationsByFile.entries()).map(
               ([filePath, annotations]) => (
                 <AccordionItem key={filePath} value={filePath}>
                   <AccordionTrigger className="hover:no-underline">
@@ -495,6 +593,7 @@ export function AnnotationsTab() {
                                 <h3 className="font-semibold">
                                   {item.annotation.label}
                                 </h3>
+                                {getCategoryBadge(item.annotation.category)}
                                 {item.isGlobal ? (
                                   <Badge variant="secondary">Global</Badge>
                                 ) : (
@@ -546,7 +645,7 @@ export function AnnotationsTab() {
                               variant="ghost"
                               size="sm"
                               onClick={(e) => {
-                                e.stopPropagation(); // Prevent card click
+                                e.stopPropagation();
                                 handleDelete(
                                   item.annotation.id,
                                   filePath,
@@ -617,9 +716,12 @@ export function AnnotationsTab() {
                             }
                           >
                             <div className="flex-1">
-                              <span className="font-medium text-sm">
-                                {ann.label}
-                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-medium text-sm">
+                                  {ann.label}
+                                </span>
+                                {getCategoryBadge(ann.category)}
+                              </div>
                               {ann.description && (
                                 <p className="text-xs text-muted-foreground mt-1">
                                   {ann.description}
@@ -658,7 +760,7 @@ export function AnnotationsTab() {
                             <div className="flex items-center gap-2">
                               {ann.color && (
                                 <div
-                                  className="w-3 h-3 rounded border"
+                                  className="w-3 h-3 rounded-full border"
                                   style={{ backgroundColor: ann.color }}
                                 />
                               )}
