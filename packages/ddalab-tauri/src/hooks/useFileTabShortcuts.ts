@@ -2,7 +2,6 @@
  * File Tab Keyboard Shortcuts
  *
  * Provides keyboard shortcuts for file tab management:
- * - Cmd/Ctrl+W: Close active tab
  * - Ctrl+Tab: Next tab
  * - Ctrl+Shift+Tab: Previous tab
  * - Cmd/Ctrl+1-9: Switch to tab by index
@@ -18,8 +17,6 @@ export function useFileTabShortcuts() {
   const files = useOpenFilesStore((state) => state.files);
   const activeFilePath = useOpenFilesStore((state) => state.activeFilePath);
   const setActiveFile = useOpenFilesStore((state) => state.setActiveFile);
-  const closeFile = useOpenFilesStore((state) => state.closeFile);
-
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
@@ -32,15 +29,6 @@ export function useFileTabShortcuts() {
         target.tagName === "TEXTAREA" ||
         target.isContentEditable
       ) {
-        return;
-      }
-
-      // Cmd/Ctrl+W: Close active tab
-      if (modKey && e.key === "w" && !e.shiftKey) {
-        e.preventDefault();
-        if (activeFilePath) {
-          closeFile(activeFilePath);
-        }
         return;
       }
 
@@ -80,7 +68,7 @@ export function useFileTabShortcuts() {
         return;
       }
     },
-    [files, activeFilePath, setActiveFile, closeFile],
+    [files, activeFilePath, setActiveFile],
   );
 
   useEffect(() => {
