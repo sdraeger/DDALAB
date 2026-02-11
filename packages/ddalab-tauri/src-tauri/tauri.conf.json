@@ -25,7 +25,6 @@
         "decorations": true,
         "alwaysOnTop": false,
         "skipTaskbar": false,
-        "theme": "Light",
         "focus": true,
         "visible": false
       }
@@ -48,7 +47,9 @@
     ],
     "resources": {
       "popout.html": "popout.html",
-      "resources/python/mne_bridge.py": "python/mne_bridge.py"
+      "resources/python/mne_bridge.py": "python/mne_bridge.py",
+      "resources/python/lsl_bridge.py": "python/lsl_bridge.py",
+      "resources/python/requirements.txt": "python/requirements.txt"
     },
     "copyright": "",
     "category": "Education",
