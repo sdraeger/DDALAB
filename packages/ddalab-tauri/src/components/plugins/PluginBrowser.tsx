@@ -87,7 +87,7 @@ export function PluginBrowser() {
   };
 
   return (
-    <div className="space-y-4 p-4">
+    <div className="flex-1 min-h-0 flex flex-col gap-4 p-4">
       {/* Search & filter bar */}
       <div className="flex items-center gap-3">
         <div className="relative flex-1">
@@ -135,7 +135,7 @@ export function PluginBrowser() {
             : "Unable to load plugin registry"}
         </div>
       ) : (
-        <ScrollArea className="h-[calc(100vh-20rem)]">
+        <ScrollArea className="flex-1 min-h-0">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {filteredPlugins.map((plugin) => (
               <PluginCard

@@ -329,7 +329,7 @@ export function NavigationContent() {
   // This keeps components mounted so they preserve their internal state
   // (chart instances, scroll positions, refs, etc.) across tab switches.
   return (
-    <div className="h-full w-full relative">
+    <div className="flex-1 min-h-0 w-full relative">
       {/* Overview */}
       <MountedView isActive={primaryNav === "overview"}>
         <div className="p-6 h-full">

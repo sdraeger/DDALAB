@@ -25,7 +25,7 @@ export function MainContentContainer({
   return (
     <div
       className={cn(
-        "flex-1 overflow-y-auto overflow-x-hidden styled-scrollbar",
+        "flex-1 flex flex-col overflow-y-auto overflow-x-hidden styled-scrollbar",
         className,
       )}
       style={{

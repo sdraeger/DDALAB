@@ -35,7 +35,7 @@ export function PluginManagementPanel() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="p-6 pb-2 space-y-4 max-w-7xl mx-auto w-full flex-shrink-0">
+      <div className="p-6 pb-2 space-y-4 w-full flex-shrink-0">
         {/* Header */}
         <div>
           <div className="flex items-center gap-3 mb-1">
@@ -50,11 +50,11 @@ export function PluginManagementPanel() {
         <Separator />
       </div>
 
-      <div className="flex-1 min-h-0 px-6 pb-6 max-w-7xl mx-auto w-full">
+      <div className="flex-1 min-h-0 flex flex-col px-6 pb-6 w-full">
         <Tabs
           value={activeTab}
           onValueChange={(v) => setActiveTab(v as "installed" | "browse")}
-          className="h-full flex flex-col"
+          className="flex-1 min-h-0 flex flex-col"
         >
           <TabsList className="flex-shrink-0">
             <TabsTrigger value="installed" className="gap-1.5">
@@ -67,8 +67,11 @@ export function PluginManagementPanel() {
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="installed" className="mt-4 flex-1 min-h-0">
-            <div className="flex gap-6 h-full">
+          <TabsContent
+            value="installed"
+            className="mt-4 flex-1 min-h-0 data-[state=active]:flex"
+          >
+            <div className="flex gap-6 flex-1 min-h-0">
               {/* Left sidebar: installed list */}
               <div className="w-56 shrink-0 border rounded-lg overflow-hidden">
                 <PluginInstalledList />
@@ -92,7 +95,7 @@ export function PluginManagementPanel() {
 
           <TabsContent
             value="browse"
-            className="mt-4 flex-1 min-h-0 overflow-y-auto"
+            className="mt-4 flex-1 min-h-0 data-[state=active]:flex"
           >
             <PluginBrowser />
           </TabsContent>
