@@ -3,10 +3,20 @@
 import { loggers } from "@/lib/logger";
 import type {
   ExportSnapshotRequest,
-  SnapshotImportResult,
   SnapshotApplyResult,
   SnapshotInspectResult,
 } from "@/types/snapshot";
+
+function extractErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object" && "message" in error) {
+    return String((error as { message: unknown }).message);
+  }
+  const str = String(error);
+  if (str && str !== "[object Object]") return str;
+  return "An unexpected error occurred";
+}
 
 const getTauriAPI = async () => {
   if (typeof window === "undefined") return null;
@@ -975,7 +985,7 @@ export class TauriService {
 
   static async saveDDAExportFile(
     content: string,
-    format: "csv" | "json",
+    format: "csv" | "json" | "py" | "m" | "jl" | "rs",
     defaultFilename: string,
   ): Promise<string | null> {
     try {
@@ -1270,38 +1280,13 @@ export class TauriService {
         sourceFileInfo: request.sourceFileInfo,
         workflow: request.workflow ?? null,
       });
-    } catch (error) {
-      const errorMsg =
-        error instanceof Error
-          ? error.message
-          : typeof error === "string"
-            ? error
-            : JSON.stringify(error);
+    } catch (error: unknown) {
+      const errorMsg = extractErrorMessage(error);
       loggers.export.error("Failed to export snapshot", {
         error: errorMsg,
-        rawError: error,
+        rawError: String(error),
       });
-      throw error;
-    }
-  }
-
-  static async importSnapshot(): Promise<SnapshotImportResult | null> {
-    try {
-      const api = await getTauriAPI();
-      if (!api) throw new Error("Not running in Tauri environment");
-      return await api.invoke("import_snapshot");
-    } catch (error) {
-      const errorMsg =
-        error instanceof Error
-          ? error.message
-          : typeof error === "string"
-            ? error
-            : JSON.stringify(error);
-      loggers.export.error("Failed to import snapshot", {
-        error: errorMsg,
-        rawError: error,
-      });
-      throw error;
+      throw new Error(errorMsg);
     }
   }
 
@@ -1316,18 +1301,13 @@ export class TauriService {
         snapshotPath,
         sourceFilePath,
       });
-    } catch (error) {
-      const errorMsg =
-        error instanceof Error
-          ? error.message
-          : typeof error === "string"
-            ? error
-            : JSON.stringify(error);
+    } catch (error: unknown) {
+      const errorMsg = extractErrorMessage(error);
       loggers.export.error("Failed to apply snapshot", {
         error: errorMsg,
-        rawError: error,
+        rawError: String(error),
       });
-      throw error;
+      throw new Error(errorMsg);
     }
   }
 
@@ -1336,18 +1316,18 @@ export class TauriService {
       const api = await getTauriAPI();
       if (!api) throw new Error("Not running in Tauri environment");
       return await api.invoke("inspect_snapshot", { path });
-    } catch (error) {
-      const errorMsg =
-        error instanceof Error
-          ? error.message
-          : typeof error === "string"
-            ? error
-            : JSON.stringify(error);
+    } catch (error: unknown) {
+      const errorMsg = extractErrorMessage(error);
       loggers.export.error("Failed to inspect snapshot", {
         error: errorMsg,
-        rawError: error,
+        errorType: typeof error,
+        errorKeys:
+          error && typeof error === "object"
+            ? Object.getOwnPropertyNames(error)
+            : [],
+        rawError: String(error),
       });
-      throw error;
+      throw new Error(errorMsg);
     }
   }
 }

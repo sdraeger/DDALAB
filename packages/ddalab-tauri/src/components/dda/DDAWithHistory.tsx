@@ -29,6 +29,9 @@ import { Loader2, Settings, BarChart3, Cloud, ArrowLeft } from "lucide-react";
 import { createLogger } from "@/lib/logger";
 import { normalizePath } from "@/utils/channelUtils";
 import { wasmHeatmapWorker } from "@/services/wasmHeatmapWorkerService";
+import { useSnapshot } from "@/hooks/useSnapshot";
+import { SnapshotImportDialog } from "@/components/snapshot/SnapshotImportDialog";
+import { DDAToolbar, type DDAExportActions } from "./DDAToolbar";
 
 // Pre-warm the heatmap worker when hovering over Results tab
 // This reduces cold-start latency when viewing results
@@ -69,6 +72,20 @@ export function DDAWithHistory() {
     togglePanelCollapsed,
     setDDAActiveTab: setActiveTab,
   } = useDDAWithHistoryState();
+
+  const {
+    importSnapshot,
+    applySnapshot: applySnapshotFn,
+    importResult,
+    clearImportResult,
+    browseSourceFile,
+    isImporting,
+    isApplying,
+  } = useSnapshot();
+
+  const [exportActions, setExportActions] = useState<DDAExportActions | null>(
+    null,
+  );
 
   const [selectedAnalysisId, setSelectedAnalysisId] = useState<string | null>(
     null,
@@ -413,21 +430,31 @@ export function DDAWithHistory() {
           onValueChange={(val) => setActiveTab(val as "configure" | "results")}
           className="flex-1 flex flex-col min-h-0"
         >
-          <TabsList className="flex-shrink-0 mx-4 mt-4">
-            <TabsTrigger value="configure" className="flex items-center gap-2">
-              <Settings className="h-4 w-4" />
-              Configure
-            </TabsTrigger>
-            <TabsTrigger
-              value="results"
-              className="flex items-center gap-2"
-              disabled={!displayAnalysis}
-              onMouseEnter={handleResultsTabHover}
-            >
-              <BarChart3 className="h-4 w-4" />
-              Results
-            </TabsTrigger>
-          </TabsList>
+          <div className="flex items-center justify-between mx-4 mt-4">
+            <TabsList>
+              <TabsTrigger
+                value="configure"
+                className="flex items-center gap-2"
+              >
+                <Settings className="h-4 w-4" />
+                Configure
+              </TabsTrigger>
+              <TabsTrigger
+                value="results"
+                className="flex items-center gap-2"
+                disabled={!displayAnalysis}
+                onMouseEnter={handleResultsTabHover}
+              >
+                <BarChart3 className="h-4 w-4" />
+                Results
+              </TabsTrigger>
+            </TabsList>
+            <DDAToolbar
+              onImportSnapshot={importSnapshot}
+              isImporting={isImporting}
+              exportActions={exportActions}
+            />
+          </div>
 
           <TabsContent
             value="configure"
@@ -542,7 +569,10 @@ export function DDAWithHistory() {
                           </div>
                         }
                       >
-                        <DDAResults result={displayAnalysis} />
+                        <DDAResults
+                          result={displayAnalysis}
+                          onRegisterExportActions={setExportActions}
+                        />
                       </Suspense>
                     </ErrorBoundary>
                   </>
@@ -579,6 +609,26 @@ export function DDAWithHistory() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {importResult && (
+        <SnapshotImportDialog
+          open={!!importResult}
+          onOpenChange={(open) => {
+            if (!open) clearImportResult();
+          }}
+          importResult={importResult}
+          onApply={async (snapshotPath, sourceFilePath) => {
+            await applySnapshotFn(
+              snapshotPath,
+              sourceFilePath,
+              importResult.manifest,
+            );
+            await refetchHistory();
+          }}
+          onBrowseSourceFile={browseSourceFile}
+          isApplying={isApplying}
+        />
+      )}
     </div>
   );
 }

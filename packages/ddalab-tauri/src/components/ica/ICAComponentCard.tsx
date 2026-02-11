@@ -25,10 +25,11 @@ interface ICAComponentCardProps {
   isMarked: boolean;
   onClick: () => void;
   onToggleMarked: () => void;
+  variant?: "card" | "row";
 }
 
 /** Thresholds for artifact classification heuristics */
-const CLASSIFICATION_THRESHOLDS = {
+export const CLASSIFICATION_THRESHOLDS = {
   kurtosis: {
     high: 5, // Likely artifact (eye blink, muscle)
     elevated: 3, // Possibly artifact
@@ -95,6 +96,7 @@ export function ICAComponentCard({
   isMarked,
   onClick,
   onToggleMarked,
+  variant = "card",
 }: ICAComponentCardProps) {
   const classification = useMemo(
     () => getClassificationHint(component),
@@ -119,6 +121,91 @@ export function ICAComponentCard({
           CLASSIFICATION_THRESHOLDS.kurtosis.elevated
         ? "text-yellow-500"
         : "text-green-500";
+
+  if (variant === "row") {
+    return (
+      <TooltipProvider delayDuration={300}>
+        <div
+          role="button"
+          tabIndex={0}
+          aria-pressed={isSelected}
+          aria-label={`Component ${component.component_id + 1}, ${classification.label}, ${isMarked ? "marked for removal" : "not marked"}`}
+          className={cn(
+            "flex items-center gap-3 px-3 py-2 rounded-md border cursor-pointer transition-all text-sm",
+            "hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            isSelected
+              ? "border-primary bg-primary/5 shadow-sm"
+              : "border-border hover:border-primary/50",
+            isMarked && "bg-red-500/10 border-red-300 dark:border-red-800",
+          )}
+          onClick={onClick}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onClick();
+            }
+          }}
+        >
+          <span className="font-semibold w-10 flex-shrink-0">
+            IC {component.component_id + 1}
+          </span>
+
+          <Badge
+            variant="outline"
+            className={cn(
+              "text-[10px] px-1.5 py-0 h-5 flex-shrink-0",
+              classification.color,
+            )}
+          >
+            {classification.icon}
+            <span className="ml-1">{classification.label}</span>
+          </Badge>
+
+          <span className={cn("text-xs flex-shrink-0", kurtosisColor)}>
+            Kurt: {component.kurtosis.toFixed(1)}
+          </span>
+
+          <span className="text-xs text-muted-foreground flex-shrink-0">
+            Var: {component.variance_explained.toFixed(1)}%
+          </span>
+
+          <span
+            className="text-xs text-muted-foreground truncate flex-1 min-w-0"
+            title={topChannels.map((c) => c.name).join(", ")}
+          >
+            Top: {topChannels.map((c) => c.name).join(", ")}
+          </span>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "h-6 w-6 rounded-full p-0 flex-shrink-0",
+                  isMarked && "text-red-500 hover:text-red-600",
+                )}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleMarked();
+                }}
+                aria-label={isMarked ? "Unmark component" : "Mark as artifact"}
+              >
+                {isMarked ? (
+                  <CircleCheck className="h-4 w-4" aria-hidden="true" />
+                ) : (
+                  <Circle className="h-4 w-4" aria-hidden="true" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">
+              {isMarked ? "Click to unmark" : "Mark as artifact for removal"}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      </TooltipProvider>
+    );
+  }
 
   return (
     <TooltipProvider delayDuration={300}>

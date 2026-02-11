@@ -14,6 +14,7 @@ export const defaultICAState: ICAState = {
   showChannelSelector: false,
   selectedResultId: null,
   isSubmitting: false,
+  isConfigCollapsed: false,
 };
 
 export const createICASlice: ImmerStateCreator<ICASlice> = (set) => ({

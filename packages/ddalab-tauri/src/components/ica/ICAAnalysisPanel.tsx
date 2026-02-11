@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useCallback } from "react";
 import { useICAWorkflow } from "@/hooks/useICAAnalysis";
 import { ICAAnalysisRequest, ICAParametersRequest } from "@/types/ica";
+import type { ReconstructResponse, ICAResult } from "@/types/ica";
 import { ICAResults } from "./ICAResults";
 import { ICAConfigPanel, ICAConfig } from "./ICAConfigPanel";
 import { useAppStore } from "@/store/appStore";
@@ -8,7 +9,21 @@ import { useShallow } from "zustand/react/shallow";
 import { TauriService, NotificationType } from "@/services/tauriService";
 import { useSearchableItems, createActionItem } from "@/hooks/useSearchable";
 import { handleError } from "@/utils/errorHandler";
-import { History, FolderOpen } from "lucide-react";
+import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
+import { Button } from "@/components/ui/button";
+import {
+  History,
+  FolderOpen,
+  Play,
+  Square,
+  Trash2,
+  Wand2,
+  ChevronDown,
+  X,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+
+const KURTOSIS_ARTIFACT_THRESHOLD = 5;
 
 export function ICAAnalysisPanel() {
   const selectedFile = useAppStore((state) => state.fileManager.selectedFile);
@@ -16,7 +31,6 @@ export function ICAAnalysisPanel() {
     useShallow((state) => state.fileManager.timeWindow),
   );
 
-  // Use global ICA state from store for persistence across tab switches
   const {
     selectedChannels: icaSelectedChannels,
     nComponents,
@@ -26,6 +40,7 @@ export function ICAAnalysisPanel() {
     whitening,
     selectedResultId,
     isSubmitting: globalIsSubmitting,
+    isConfigCollapsed,
   } = useAppStore(
     useShallow((state) => ({
       selectedChannels: state.ica.selectedChannels,
@@ -36,6 +51,7 @@ export function ICAAnalysisPanel() {
       whitening: state.ica.whitening,
       selectedResultId: state.ica.selectedResultId,
       isSubmitting: state.ica.isSubmitting,
+      isConfigCollapsed: state.ica.isConfigCollapsed,
     })),
   );
   const updateICAState = useAppStore((state) => state.updateICAState);
@@ -95,17 +111,24 @@ export function ICAAnalysisPanel() {
     [nComponents, maxIterations, tolerance, centering, whitening],
   );
 
-  // Note: ICA channel selection is persisted in the store and restored on app load.
-  // Users must explicitly select channels - no auto-population.
+  // Auto-select all channels when a file is loaded and no channels are selected
+  useEffect(() => {
+    if (
+      selectedFile &&
+      selectedFile.channels.length > 0 &&
+      icaSelectedChannels.length === 0
+    ) {
+      const allIndices = selectedFile.channels.map((_, idx) => idx);
+      updateICAState({ selectedChannels: allIndices });
+    }
+  }, [selectedFile?.file_path]);
 
   // Auto-select a result when results are loaded
   useEffect(() => {
     if (ica.results.length > 0) {
-      // If no result is selected, or the selected result no longer exists, select the first/most recent
       const currentSelectionValid =
         selectedResultId && ica.results.some((r) => r.id === selectedResultId);
       if (!currentSelectionValid) {
-        // Select the most recent result (results are ordered by created_at DESC)
         setSelectedResultId(ica.results[0].id);
       }
     }
@@ -215,7 +238,7 @@ export function ICAAnalysisPanel() {
       parameters,
     };
 
-    updateICAState({ isSubmitting: true });
+    updateICAState({ isSubmitting: true, isConfigCollapsed: true });
 
     if (TauriService.isTauri()) {
       TauriService.createNotification(
@@ -331,45 +354,152 @@ export function ICAAnalysisPanel() {
     });
   }, [selectedResultId, ica]);
 
+  // Auto-mark artifacts handler
+  const handleAutoMarkArtifacts = useCallback(() => {
+    if (!selectedResult) return;
+    const artifactIds = selectedResult.results.components
+      .filter((c) => Math.abs(c.kurtosis) > KURTOSIS_ARTIFACT_THRESHOLD)
+      .map((c) => c.component_id);
+    ica.markMultiple(artifactIds);
+  }, [selectedResult, ica]);
+
+  // Delete result handler
+  const handleDeleteResult = useCallback(
+    (resultId: string) => {
+      ica.deleteResult(resultId);
+      if (selectedResultId === resultId) {
+        const remaining = ica.results.filter((r) => r.id !== resultId);
+        setSelectedResultId(remaining.length > 0 ? remaining[0].id : null);
+      }
+    },
+    [ica, selectedResultId, setSelectedResultId],
+  );
+
+  const selectedCount = icaSelectedChannels.length;
+  const canRun = !!selectedFile && !globalIsSubmitting && selectedCount >= 2;
+  const canReconstruct =
+    ica.markedArray.length > 0 && !globalIsSubmitting && !ica.isReconstructing;
+
   return (
     <div className="flex flex-col h-full">
-      {/* Configuration Panel */}
-      <ICAConfigPanel
-        availableChannels={availableChannels}
-        selectedChannels={selectedChannelNames}
-        onChannelSelectionChange={handleChannelSelectionChange}
-        config={currentConfig}
-        onConfigChange={handleConfigChange}
-        isRunning={globalIsSubmitting}
-        onRunAnalysis={handleRunAnalysis}
-        onCancel={handleCancel}
-        markedCount={ica.markedArray.length}
-        onReconstruct={handleReconstruct}
-        isReconstructing={ica.isReconstructing}
-        disabled={!selectedFile}
-        error={ica.submitError?.message}
-        fileName={selectedFile?.file_name}
-      />
+      {/* Toolbar — always visible */}
+      <div className="flex items-center gap-2 p-3 border-b bg-muted/30 flex-shrink-0">
+        <Button
+          id="ica-run-button"
+          size="sm"
+          onClick={handleRunAnalysis}
+          disabled={!canRun}
+          isLoading={globalIsSubmitting}
+          loadingText="Running..."
+        >
+          <Play className="h-4 w-4" aria-hidden="true" />
+          Run ICA ({selectedCount} ch)
+        </Button>
+
+        {globalIsSubmitting && (
+          <Button size="sm" variant="destructive" onClick={handleCancel}>
+            <Square className="h-4 w-4" aria-hidden="true" />
+            Cancel
+          </Button>
+        )}
+
+        {selectedResult && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleAutoMarkArtifacts}
+            disabled={globalIsSubmitting}
+          >
+            <Wand2 className="h-4 w-4" aria-hidden="true" />
+            Auto-mark Artifacts
+          </Button>
+        )}
+
+        {canReconstruct && (
+          <Button
+            size="sm"
+            onClick={handleReconstruct}
+            isLoading={ica.isReconstructing}
+            loadingText="Reconstructing..."
+            className="bg-orange-500 hover:bg-orange-600 text-white"
+          >
+            <Trash2 className="h-4 w-4" aria-hidden="true" />
+            Remove {ica.markedArray.length} Component
+            {ica.markedArray.length !== 1 ? "s" : ""}
+          </Button>
+        )}
+
+        <div className="flex-1" />
+
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() =>
+            updateICAState({ isConfigCollapsed: !isConfigCollapsed })
+          }
+          aria-expanded={!isConfigCollapsed}
+        >
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 transition-transform",
+              !isConfigCollapsed && "rotate-180",
+            )}
+            aria-hidden="true"
+          />
+          {isConfigCollapsed ? "Show Config" : "Hide Config"}
+        </Button>
+      </div>
+
+      {/* Collapsible Configuration Panel */}
+      <Collapsible open={!isConfigCollapsed}>
+        <CollapsibleContent>
+          <ICAConfigPanel
+            availableChannels={availableChannels}
+            selectedChannels={selectedChannelNames}
+            onChannelSelectionChange={handleChannelSelectionChange}
+            config={currentConfig}
+            onConfigChange={handleConfigChange}
+            isRunning={globalIsSubmitting}
+            onRunAnalysis={handleRunAnalysis}
+            onCancel={handleCancel}
+            markedCount={ica.markedArray.length}
+            onReconstruct={handleReconstruct}
+            isReconstructing={ica.isReconstructing}
+            disabled={!selectedFile}
+            error={ica.submitError?.message}
+            fileName={selectedFile?.file_name}
+          />
+        </CollapsibleContent>
+      </Collapsible>
 
       {/* Results Panel */}
       <div className="flex-1 overflow-hidden">
         {ica.results.length > 0 && (
           <div className="flex h-full">
             {/* Results History Sidebar */}
-            <div className="w-48 border-r p-2 overflow-y-auto bg-muted/20">
+            <div className="w-48 border-r p-2 overflow-y-auto bg-muted/20 flex-shrink-0">
               <div className="flex items-center gap-2 text-sm font-medium mb-2 text-muted-foreground">
                 <History className="h-4 w-4" aria-hidden="true" />
                 History
               </div>
               {ica.results.map((result) => (
-                <button
+                <div
                   key={result.id}
-                  className={`w-full p-2 rounded cursor-pointer text-sm mb-1 transition-colors text-left ${
+                  className={cn(
+                    "group relative w-full p-2 rounded cursor-pointer text-sm mb-1 transition-colors text-left",
                     selectedResultId === result.id
                       ? "bg-primary/10 border border-primary"
-                      : "hover:bg-muted border border-transparent"
-                  }`}
+                      : "hover:bg-muted border border-transparent",
+                  )}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => setSelectedResultId(result.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSelectedResultId(result.id);
+                    }
+                  }}
                 >
                   <div className="font-medium">
                     {result.results.components.length} ICs
@@ -377,7 +507,17 @@ export function ICAAnalysisPanel() {
                   <div className="text-xs text-muted-foreground">
                     {new Date(result.created_at).toLocaleTimeString()}
                   </div>
-                </button>
+                  <button
+                    className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteResult(result.id);
+                    }}
+                    aria-label={`Delete result with ${result.results.components.length} components`}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               ))}
             </div>
 
@@ -388,6 +528,8 @@ export function ICAAnalysisPanel() {
                   result={selectedResult}
                   markedComponents={ica.markedComponents}
                   onToggleMarked={ica.toggleComponent}
+                  onAutoMarkArtifacts={handleAutoMarkArtifacts}
+                  reconstructedData={ica.reconstructedData ?? null}
                 />
               ) : (
                 <div className="h-full flex items-center justify-center text-muted-foreground">

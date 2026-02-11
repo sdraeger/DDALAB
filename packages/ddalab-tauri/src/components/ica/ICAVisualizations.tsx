@@ -238,7 +238,7 @@ export function ICATopography({ component, channelNames }: TopographyProps) {
 
     const opts: uPlot.Options = {
       ...getBaseChartOptions(size.width, size.height),
-      title: `IC ${component.component_id + 1} - Channel Contributions`,
+      title: `IC ${component.component_id + 1} - Channel Weights`,
       cursor: {
         show: true,
         points: { show: false },

@@ -25,11 +25,11 @@ import {
 } from "lucide-react";
 import { TauriService } from "@/services/tauriService";
 import { formatBytes, formatDate } from "@/lib/utils";
-import {
-  FileTreeInput,
-  type FileTreeNode,
-  type FileTreeSelection,
+import type {
+  FileTreeNode,
+  FileTreeSelection,
 } from "@/components/ui/file-tree-input";
+import { VirtualizedFileTree } from "./VirtualizedFileTree";
 import { tauriBackendService } from "@/services/tauriBackendService";
 import { bidsCache } from "@/services/bidsCacheService";
 import {
@@ -810,7 +810,7 @@ export const FileTreeRenderer = memo(function FileTreeRenderer({
           isLoading={isLoadingForSearch}
         />
       ) : (
-        <FileTreeInput
+        <VirtualizedFileTree
           data={treeData}
           onChange={handleSelection}
           size="md"

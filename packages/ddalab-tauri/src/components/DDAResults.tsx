@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ChannelSelector } from "@/components/ChannelSelector";
-import { Archive, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import "uplot/dist/uPlot.min.css";
 import { loggers } from "@/lib/logger";
 import { usePopoutWindows } from "@/hooks/usePopoutWindows";
@@ -46,11 +46,8 @@ import type { ViewMode } from "@/components/dda/ViewModeSelector";
 import type { ColorScheme } from "@/components/dda/ColorSchemePicker";
 import { ChartErrorBoundary } from "@/components/ChartErrorBoundary";
 import { ShareResultDialog } from "@/components/dda/ShareResultDialog";
-import { SnapshotImportDialog } from "@/components/snapshot/SnapshotImportDialog";
-import { ExportMenu } from "@/components/dda/ExportMenu";
-import { Button } from "@/components/ui/button";
-import { useSnapshot } from "@/hooks/useSnapshot";
 import { ColorRangeControl } from "@/components/dda/ColorRangeControl";
+import type { DDAExportActions } from "@/components/dda/DDAToolbar";
 import { PlotToolbar } from "@/components/dda/PlotToolbar";
 // Lazy-load heavy plot components to prevent bundle evaluation blocking UI
 // These components import uPlot which has significant module initialization cost
@@ -92,10 +89,14 @@ import type { DDALinePlotHandle } from "@/components/dda/DDALinePlot";
 
 interface DDAResultsProps {
   result: DDAResult;
+  onRegisterExportActions?: (actions: DDAExportActions | null) => void;
 }
 
 // Internal component (will be wrapped with memo at export)
-function DDAResultsComponent({ result }: DDAResultsProps) {
+function DDAResultsComponent({
+  result,
+  onRegisterExportActions,
+}: DDAResultsProps) {
   // Progressive rendering to prevent UI freeze
   // Render controls first, defer heavy plot containers to next frame
   const [showPlots, setShowPlots] = useState(false);
@@ -149,16 +150,6 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
 
   // Share dialog state
   const [showShareDialog, setShowShareDialog] = useState(false);
-
-  // Snapshot import
-  const {
-    importSnapshot,
-    applySnapshot: applySnapshotFn,
-    importResult,
-    clearImportResult,
-    isImporting,
-    isApplying,
-  } = useSnapshot();
 
   // Popout windows for broadcasting state changes
   const { broadcastToType } = usePopoutWindows();
@@ -580,6 +571,7 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
     exportPlot,
     exportData,
     exportAllData,
+    exportScript,
     handlePopOut,
     handleShare,
     getExistingShareLink,
@@ -609,6 +601,32 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
   const openShareDialog = useCallback(() => {
     setShowShareDialog(true);
   }, []);
+
+  // Register export actions for the top-level DDAToolbar
+  useEffect(() => {
+    onRegisterExportActions?.({
+      exportData,
+      exportPlot,
+      exportAllData,
+      exportScript,
+      exportSnapshot: handleExportSnapshot,
+      popOut: handlePopOut,
+      share: isSyncConnected ? openShareDialog : undefined,
+      showExportAll: availableVariants.length > 1,
+    });
+    return () => onRegisterExportActions?.(null);
+  }, [
+    onRegisterExportActions,
+    exportData,
+    exportPlot,
+    exportAllData,
+    exportScript,
+    handleExportSnapshot,
+    handlePopOut,
+    openShareDialog,
+    isSyncConnected,
+    availableVariants.length,
+  ]);
 
   // Broadcast state changes to popout windows
   useEffect(() => {
@@ -667,42 +685,12 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
       {/* Controls */}
       <Card className="flex-shrink-0">
         <CardHeader className="pb-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-lg">
-                DDA Results Visualization
-              </CardTitle>
-              <CardDescription>
-                Analysis from {new Date(result.created_at).toLocaleDateString()}{" "}
-                • {selectedChannels.length} channels
-              </CardDescription>
-            </div>
-            <div className="flex items-center gap-2">
-              <ExportMenu
-                onExportData={exportData}
-                onExportPlot={exportPlot}
-                onExportAllData={exportAllData}
-                onExportSnapshot={handleExportSnapshot}
-                onShare={openShareDialog}
-                onPopOut={handlePopOut}
-                showShare={isSyncConnected}
-                showPopOut={true}
-                showExportAll={availableVariants.length > 1}
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => importSnapshot()}
-                disabled={isImporting}
-              >
-                {isImporting ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Archive className="h-4 w-4 mr-2" />
-                )}
-                Import
-              </Button>
-            </div>
+          <div>
+            <CardTitle className="text-lg">DDA Results Visualization</CardTitle>
+            <CardDescription>
+              Analysis from {new Date(result.created_at).toLocaleDateString()} •{" "}
+              {selectedChannels.length} channels
+            </CardDescription>
           </div>
         </CardHeader>
 
@@ -1647,25 +1635,6 @@ function DDAResultsComponent({ result }: DDAResultsProps) {
         onShare={handleShare}
         existingShareLink={getExistingShareLink()}
       />
-
-      {/* Snapshot Import Dialog */}
-      {importResult && (
-        <SnapshotImportDialog
-          open={!!importResult}
-          onOpenChange={(open) => {
-            if (!open) clearImportResult();
-          }}
-          importResult={importResult}
-          onApply={async (snapshotPath, sourceFilePath) => {
-            await applySnapshotFn(
-              snapshotPath,
-              sourceFilePath,
-              importResult.manifest,
-            );
-          }}
-          isApplying={isApplying}
-        />
-      )}
     </div>
   );
 }

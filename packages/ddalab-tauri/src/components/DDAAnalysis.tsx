@@ -51,7 +51,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertCircle, Brain, CheckCircle, Cloud, Server } from "lucide-react";
+import { AlertCircle, Brain, Cloud, Server } from "lucide-react";
 import { TauriService, NotificationType } from "@/services/tauriService";
 import { loggers } from "@/lib/logger";
 import { WindowSizeSelector } from "@/components/dda/WindowSizeSelector";
@@ -59,13 +59,6 @@ import { DelayPresetManager } from "@/components/dda/DelayPresetManager";
 import { InfoTooltip } from "@/components/ui/info-tooltip";
 import { CompactChannelConfigGroup } from "@/components/dda/CompactChannelConfig";
 import { ModelBuilder } from "@/components/dda/ModelBuilder";
-import {
-  exportDDAConfig,
-  serializeDDAConfig,
-  importDDAConfig,
-  configToLocalParameters,
-  generateExportFilename,
-} from "@/utils/ddaConfigExport";
 import {
   channelNamesToIndices,
   channelPairsToIndices,
@@ -374,13 +367,6 @@ export const DDAAnalysis = memo(function DDAAnalysis(
   const [serverError, setServerError] = useState<string | null>(null);
   const [serverSubmissionPhase, setServerSubmissionPhase] =
     useState<string>("");
-
-  // Import/Export state
-  const [showImportDialog, setShowImportDialog] = useState(false);
-  const [importValidation, setImportValidation] = useState<{
-    warnings: string[];
-    errors: string[];
-  } | null>(null);
 
   // Sensitivity analysis state
   const [showSensitivityDialog, setShowSensitivityDialog] = useState(false);
@@ -1786,194 +1772,6 @@ export const DDAAnalysis = memo(function DDAAnalysis(
     }
   }, [coordinatorCancel]);
 
-  const handleExportConfig = async () => {
-    if (!selectedFile) return;
-
-    try {
-      // Compute file hash for verification
-      let fileHash = "";
-      if (TauriService.isTauri()) {
-        try {
-          const { invoke } = await import("@tauri-apps/api/core");
-          fileHash = await invoke<string>("compute_file_hash", {
-            filePath: selectedFile.file_path,
-          });
-        } catch (error) {
-          loggers.export.warn("Failed to compute file hash", { error });
-          // Continue with empty hash
-        }
-      }
-
-      const config = exportDDAConfig(
-        {
-          variants: parameters.variants,
-          windowLength: parameters.windowLength,
-          windowStep: parameters.windowStep,
-          delays: parameters.delays,
-          // Only export channels for selected variants
-          stChannels: parameters.variants.includes("single_timeseries")
-            ? parameters.selectedChannels
-            : undefined,
-          ctChannelPairs: parameters.variants.includes("cross_timeseries")
-            ? parameters.ctChannelPairs.map(([source, target]) => ({
-                source,
-                target,
-              }))
-            : undefined,
-          cdChannelPairs: parameters.variants.includes("cross_dynamical")
-            ? parameters.cdChannelPairs.map(([source, target]) => ({
-                source,
-                target,
-              }))
-            : undefined,
-          ctDelayMin: parameters.ctWindowLength,
-          ctDelayMax: parameters.ctWindowStep,
-        },
-        selectedFile,
-        {
-          analysisName: analysisName || "DDA Analysis",
-          description: `DDA configuration for ${selectedFile.file_name}`,
-          analysisId: results?.id,
-        },
-      );
-
-      // Set the computed hash
-      config.source_file.file_hash = fileHash;
-
-      const jsonContent = serializeDDAConfig(config);
-      const filename = generateExportFilename(
-        analysisName || "analysis",
-        selectedFile.file_name,
-      );
-
-      if (TauriService.isTauri()) {
-        // Use Tauri dialog plugin directly for .ddalab files
-        const { save } = await import("@tauri-apps/plugin-dialog");
-        const filePath = await save({
-          defaultPath: filename,
-          filters: [
-            {
-              name: "DDALAB Config",
-              extensions: ["ddalab"],
-            },
-            {
-              name: "JSON",
-              extensions: ["json"],
-            },
-          ],
-        });
-
-        if (filePath) {
-          // Write the file
-          const { writeTextFile } = await import("@tauri-apps/plugin-fs");
-          await writeTextFile(filePath, jsonContent);
-
-          await TauriService.createNotification(
-            "Configuration Exported",
-            `Saved to ${filePath}`,
-            NotificationType.Success,
-          );
-        }
-      } else {
-        // Browser fallback - download file
-        const blob = new Blob([jsonContent], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = filename;
-        a.click();
-        URL.revokeObjectURL(url);
-      }
-    } catch (error) {
-      loggers.export.error("Failed to export configuration", { error });
-      if (TauriService.isTauri()) {
-        await TauriService.createNotification(
-          "Export Failed",
-          error instanceof Error ? error.message : "Unknown error",
-          NotificationType.Error,
-        );
-      }
-    }
-  };
-
-  const handleImportConfig = async () => {
-    try {
-      let fileContent: string;
-
-      if (TauriService.isTauri()) {
-        // Use Tauri dialog plugin
-        const { open } = await import("@tauri-apps/plugin-dialog");
-        const selected = await open({
-          multiple: false,
-          title: "Import DDA Configuration",
-          filters: [
-            {
-              name: "DDALAB Config",
-              extensions: ["ddalab", "json"],
-            },
-          ],
-        });
-
-        if (!selected || typeof selected !== "string") {
-          return; // User cancelled
-        }
-
-        // Read file content
-        const { readTextFile } = await import("@tauri-apps/plugin-fs");
-        fileContent = await readTextFile(selected);
-      } else {
-        // Browser fallback - file input
-        const input = document.createElement("input");
-        input.type = "file";
-        input.accept = ".ddalab,.json";
-
-        const file = await new Promise<File | null>((resolve) => {
-          input.onchange = (e) => {
-            const files = (e.target as HTMLInputElement).files;
-            resolve(files?.[0] || null);
-          };
-          input.click();
-        });
-
-        if (!file) return;
-
-        fileContent = await file.text();
-      }
-
-      const { config, validation } = importDDAConfig(fileContent, selectedFile);
-
-      setImportValidation({
-        warnings: validation.warnings,
-        errors: validation.errors,
-      });
-
-      if (validation.valid) {
-        // Apply configuration
-        const importedParams = configToLocalParameters(config);
-        setLocalParameters((prev) => ({
-          ...prev,
-          ...importedParams,
-          timeEnd: selectedFile?.duration || prev.timeEnd,
-        }));
-
-        setAnalysisName(config.analysis_name);
-        setShowImportDialog(true);
-      } else {
-        // Show errors
-        setShowImportDialog(true);
-      }
-    } catch (error) {
-      loggers.dda.error("Failed to import configuration", { error });
-      setImportValidation({
-        warnings: [],
-        errors: [
-          error instanceof Error ? error.message : "Failed to parse file",
-        ],
-      });
-      setShowImportDialog(true);
-    }
-  };
-
   if (!selectedFile) {
     return (
       <Card className="h-full flex items-center justify-center">
@@ -2016,8 +1814,6 @@ export const DDAAnalysis = memo(function DDAAnalysis(
           onRun={runAnalysis}
           onSubmitToServer={submitToServer}
           onSubmitToNsg={submitToNSG}
-          onImport={handleImportConfig}
-          onExport={handleExportConfig}
           onSensitivity={() => setShowSensitivityDialog(true)}
           onReset={() => setShowResetConfirmDialog(true)}
         />
@@ -2240,74 +2036,6 @@ export const DDAAnalysis = memo(function DDAAnalysis(
           />
         </div>
       </div>
-
-      {/* Import Validation Dialog */}
-      <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {importValidation?.errors.length
-                ? "Import Failed"
-                : "Configuration Imported"}
-            </DialogTitle>
-            <DialogDescription>
-              {importValidation?.errors.length
-                ? "The configuration could not be applied due to validation errors"
-                : "Configuration has been successfully loaded"}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            {importValidation?.errors && importValidation.errors.length > 0 && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  <div className="font-semibold mb-2">Errors:</div>
-                  <ul className="list-disc pl-4 space-y-1">
-                    {importValidation.errors.map((error, idx) => (
-                      <li key={idx} className="text-sm">
-                        {error}
-                      </li>
-                    ))}
-                  </ul>
-                </AlertDescription>
-              </Alert>
-            )}
-
-            {importValidation?.warnings &&
-              importValidation.warnings.length > 0 && (
-                <Alert>
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>
-                    <div className="font-semibold mb-2">Warnings:</div>
-                    <ul className="list-disc pl-4 space-y-1">
-                      {importValidation.warnings.map((warning, idx) => (
-                        <li key={idx} className="text-sm">
-                          {warning}
-                        </li>
-                      ))}
-                    </ul>
-                  </AlertDescription>
-                </Alert>
-              )}
-
-            {importValidation &&
-              !importValidation.errors.length &&
-              !importValidation.warnings.length && (
-                <Alert>
-                  <CheckCircle className="h-4 w-4 text-green-600" />
-                  <AlertDescription>
-                    Configuration imported successfully with no issues.
-                  </AlertDescription>
-                </Alert>
-              )}
-          </div>
-
-          <DialogFooter>
-            <Button onClick={() => setShowImportDialog(false)}>Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Sensitivity Analysis Dialog */}
       {selectedFile && (
