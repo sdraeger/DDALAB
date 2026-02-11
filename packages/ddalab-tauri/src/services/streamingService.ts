@@ -18,6 +18,7 @@ import {
   StreamingDDAResult,
   StreamStats,
   StreamState,
+  BridgeState,
 } from "@/types/streaming";
 
 /**
@@ -33,6 +34,7 @@ function getStreamingState(): IStreamingStateManager | null {
 class StreamingService {
   private eventUnlistener: UnlistenFn | null = null;
   private pollingIntervals: Map<string, NodeJS.Timeout> = new Map();
+  private bridgeHealthInterval: NodeJS.Timeout | null = null;
   private isInitialized = false;
   private lastEventTime: Map<string, number> = new Map();
   private readonly EVENT_DEBOUNCE_MS = 50;
@@ -76,6 +78,7 @@ class StreamingService {
     }
     this.pollingIntervals.clear();
     this.lastEventTime.clear();
+    this.stopBridgeHealthPolling();
 
     // Unlisten from Tauri events
     if (this.eventUnlistener) {
@@ -288,6 +291,38 @@ class StreamingService {
       return streamIds;
     } catch {
       return [];
+    }
+  }
+
+  /**
+   * Start polling LSL bridge health when bridge is running.
+   * Polls every 5 seconds and updates store if state changes.
+   */
+  startBridgeHealthPolling(): void {
+    if (this.bridgeHealthInterval) return;
+
+    this.bridgeHealthInterval = setInterval(async () => {
+      const state = getStreamingState();
+      if (!state) return;
+
+      try {
+        const bridgeState = await invoke<BridgeState>("get_lsl_bridge_state");
+        state.updateBridgeState(bridgeState);
+
+        // Stop polling if bridge is no longer running
+        if (bridgeState.type !== "Running") {
+          this.stopBridgeHealthPolling();
+        }
+      } catch {
+        // Polling errors are non-critical
+      }
+    }, 5000);
+  }
+
+  stopBridgeHealthPolling(): void {
+    if (this.bridgeHealthInterval) {
+      clearInterval(this.bridgeHealthInterval);
+      this.bridgeHealthInterval = null;
     }
   }
 }

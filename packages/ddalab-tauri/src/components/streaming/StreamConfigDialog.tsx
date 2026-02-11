@@ -39,6 +39,7 @@ import {
   StreamSourceType,
   StreamSourceConfig,
   StreamingDDAConfig,
+  BridgeState,
 } from "@/types/streaming";
 import { LslStreamDiscovery, type LslStreamInfo } from "./LslStreamDiscovery";
 
@@ -46,6 +47,8 @@ export function StreamConfigDialog() {
   const isOpen = useAppStore((state) => state.streaming.ui.isConfigDialogOpen);
   const updateStreamUI = useAppStore((state) => state.updateStreamUI);
   const createStreamSession = useAppStore((state) => state.createStreamSession);
+  const bridgeState = useAppStore((state) => state.streaming.ui.bridgeState);
+  const startLslBridge = useAppStore((state) => state.startLslBridge);
 
   const [sourceType, setSourceType] = useState<StreamSourceType>("file");
   const [isCreating, setIsCreating] = useState(false);
@@ -224,20 +227,32 @@ export function StreamConfigDialog() {
             ...serialConfig,
           };
           break;
-        case "lsl":
+        case "lsl": {
+          // Ensure bridge is running before starting LSL stream
+          if (bridgeState.type !== "Running") {
+            await startLslBridge();
+            // Wait briefly for state update
+            await new Promise((r) => setTimeout(r, 200));
+          }
+
+          // Translate LSL config to WebSocket URL via the bridge
+          const name = lslConfig.stream_name || "";
+          const type =
+            lslConfig.stream_type === "any" ? "" : lslConfig.stream_type;
+          const sid = lslConfig.source_id || "";
+
+          const params = new URLSearchParams();
+          if (name) params.set("name", name);
+          if (type) params.set("type", type);
+          if (sid) params.set("source_id", sid);
+
           sourceConfig = {
-            type: "lsl",
-            stream_name: lslConfig.stream_name || undefined,
-            stream_type:
-              lslConfig.stream_type === "any"
-                ? undefined
-                : lslConfig.stream_type,
-            source_id: lslConfig.source_id || undefined,
-            resolve_timeout: lslConfig.resolve_timeout,
-            chunk_size: lslConfig.chunk_size,
-            use_lsl_timestamps: lslConfig.use_lsl_timestamps,
+            type: "websocket",
+            url: `ws://127.0.0.1:17424/stream?${params.toString()}`,
+            reconnect: true,
           };
           break;
+        }
         case "zmq":
           sourceConfig = {
             type: "zmq",

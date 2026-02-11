@@ -14,6 +14,7 @@
 import type { PrimaryNavTab, SecondaryNavTab } from "@/types/navigation";
 import type { EDFFileInfo, DDAResult } from "@/types/api";
 import type {
+  BridgeState,
   DataChunk,
   StreamingDDAResult,
   StreamEvent,
@@ -81,6 +82,7 @@ export interface IStreamingStateManager {
   addStreamResult(streamId: string, result: StreamingDDAResult): void;
   updateStreamSession(streamId: string, updates: Partial<StreamSession>): void;
   clearStreamPlotData(streamId: string): void;
+  updateBridgeState(state: BridgeState): void;
 }
 
 // ============================================================================

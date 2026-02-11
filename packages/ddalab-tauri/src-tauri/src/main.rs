@@ -284,6 +284,10 @@ fn main() {
             // LSL discovery commands
             discover_lsl_streams,
             discover_lsl_streams_by_type,
+            // LSL bridge lifecycle commands
+            start_lsl_bridge,
+            stop_lsl_bridge,
+            get_lsl_bridge_state,
             // EDF data access commands (IPC)
             get_edf_info,
             get_edf_chunk,

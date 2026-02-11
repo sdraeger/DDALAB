@@ -122,6 +122,7 @@ linfa = "0.8.0"       # Core ML framework
 linfa-ica = "0.8.0"   # FastICA implementation
 rustfft = "6.4.1"     # FFT for spectral analysis of components
 tokio-util = "0.7.17" # CancellationToken for graceful task cancellation
+libc = "0.2"           # POSIX signal support for LSL bridge process management
 http-body-util = "0.1" # Body utilities for encryption middleware
 arboard = "3"          # Cross-platform clipboard support
 fs2 = "0.4"            # File system utilities (disk space checking)

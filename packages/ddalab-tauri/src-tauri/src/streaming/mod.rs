@@ -13,6 +13,7 @@
 
 pub mod buffer;
 pub mod controller;
+pub mod lsl_bridge;
 pub mod processor;
 pub mod source;
 pub mod time_window_buffer;
@@ -20,6 +21,7 @@ pub mod types;
 
 pub use buffer::{CircularDataBuffer, OverflowStrategy};
 pub use controller::StreamController;
+pub use lsl_bridge::{BridgeState, LslBridgeManager, LslStreamInfo};
 pub use processor::StreamingDDAProcessor;
 pub use source::{DataChunk, SourceMetadata, StreamSource, StreamSourceConfig};
 pub use time_window_buffer::{TimeWindowBuffer, TimeWindowConfig, TimeWindowStats};
