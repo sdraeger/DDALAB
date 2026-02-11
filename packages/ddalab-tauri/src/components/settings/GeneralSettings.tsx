@@ -9,12 +9,32 @@ import {
 } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { FlaskConical } from "lucide-react";
+import { FlaskConical, Palette, Sun, Moon, Monitor } from "lucide-react";
 import { useAppStore } from "@/store/appStore";
+import { useTheme } from "next-themes";
+import { useEffect, useState } from "react";
+
+const THEME_OPTIONS = [
+  { value: "light", label: "Light", icon: Sun },
+  { value: "dark", label: "Dark", icon: Moon },
+  { value: "system", label: "System", icon: Monitor },
+] as const;
 
 export function GeneralSettings() {
   const expertMode = useAppStore((state) => state.ui.expertMode);
   const setExpertMode = useAppStore((state) => state.setExpertMode);
+  const storeSetTheme = useAppStore((state) => state.setTheme);
+  const { theme, resolvedTheme, setTheme: setNextTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const handleThemeChange = (value: string) => {
+    setNextTheme(value);
+    storeSetTheme(value === "system" ? "auto" : (value as "light" | "dark"));
+  };
 
   return (
     <div className="space-y-6">
@@ -24,6 +44,54 @@ export function GeneralSettings() {
           Configure general application preferences
         </p>
       </div>
+
+      {/* Appearance */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Palette className="h-5 w-5" />
+            Appearance
+          </CardTitle>
+          <CardDescription>
+            Choose how DDALAB looks on your device
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {mounted && (
+            <div className="grid grid-cols-3 gap-3">
+              {THEME_OPTIONS.map(({ value, label, icon: Icon }) => {
+                const isSelected = theme === value;
+                return (
+                  <button
+                    key={value}
+                    onClick={() => handleThemeChange(value)}
+                    className={`flex flex-col items-center gap-2 rounded-lg border-2 p-4 transition-colors ${
+                      isSelected
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:border-primary/50 hover:bg-accent"
+                    }`}
+                  >
+                    <Icon
+                      className={`h-6 w-6 ${isSelected ? "text-primary" : "text-muted-foreground"}`}
+                    />
+                    <span
+                      className={`text-sm font-medium ${isSelected ? "text-primary" : "text-muted-foreground"}`}
+                    >
+                      {label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {mounted && theme === "system" && resolvedTheme && (
+            <p className="text-xs text-muted-foreground">
+              Currently using {resolvedTheme} mode based on your system
+              preference
+            </p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Expert Mode */}
       <Card>
