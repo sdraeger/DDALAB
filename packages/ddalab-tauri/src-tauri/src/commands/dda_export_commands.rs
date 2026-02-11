@@ -16,6 +16,10 @@ pub async fn save_dda_export_file(
     let (filter_name, filter_ext) = match format.as_str() {
         "csv" => ("CSV Files", vec!["csv"]),
         "json" => ("JSON Files", vec!["json"]),
+        "py" => ("Python Scripts", vec!["py"]),
+        "m" => ("MATLAB Scripts", vec!["m"]),
+        "jl" => ("Julia Scripts", vec!["jl"]),
+        "rs" => ("Rust Files", vec!["rs"]),
         _ => return Err(format!("Unsupported format: {}", format)),
     };
 
