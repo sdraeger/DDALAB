@@ -83,6 +83,16 @@ export type StreamSourceConfig =
   | ZmqSourceConfig;
 
 // ====================================================================
+// LSL Bridge State
+// ====================================================================
+
+export type BridgeState =
+  | { type: "Stopped" }
+  | { type: "Starting" }
+  | { type: "Running"; port: number }
+  | { type: "Error"; message: string };
+
+// ====================================================================
 // Stream State
 // ====================================================================
 
@@ -324,4 +334,9 @@ export interface StreamUIState {
    * History of recent streaming sources (max 10)
    */
   recentSources: StreamSourceHistory[];
+
+  /**
+   * Current state of the LSL bridge sidecar
+   */
+  bridgeState: BridgeState;
 }

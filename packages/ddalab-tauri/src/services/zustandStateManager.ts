@@ -122,6 +122,10 @@ export function createZustandStateManager(): IStateManager {
       getStore().clearStreamPlotData(streamId);
     },
 
+    updateBridgeState(state) {
+      getStore().updateBridgeState(state);
+    },
+
     // Annotations
     getTimeSeriesAnnotations() {
       return getStore().annotations.timeSeries;

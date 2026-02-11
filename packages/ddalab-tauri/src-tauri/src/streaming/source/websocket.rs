@@ -13,10 +13,42 @@
 use super::{DataChunk, DataFormat, SourceMetadata, StreamSource};
 use crate::streaming::types::{StreamError, StreamResult};
 use async_trait::async_trait;
-use futures_util::{SinkExt, StreamExt};
+use futures_util::StreamExt;
+use rand::Rng;
 use std::collections::HashMap;
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
+
+struct ReconnectState {
+    attempt: u32,
+    base_ms: u64,
+    max_ms: u64,
+    multiplier: f64,
+}
+
+impl ReconnectState {
+    fn new() -> Self {
+        Self {
+            attempt: 0,
+            base_ms: 500,
+            max_ms: 30_000,
+            multiplier: 2.0,
+        }
+    }
+
+    fn next_delay(&mut self) -> Duration {
+        let delay = (self.base_ms as f64 * self.multiplier.powi(self.attempt as i32))
+            .min(self.max_ms as f64);
+        let jitter = rand::rng().random_range(0.0..0.3) * delay;
+        self.attempt += 1;
+        Duration::from_millis((delay + jitter) as u64)
+    }
+
+    fn reset(&mut self) {
+        self.attempt = 0;
+    }
+}
 
 pub struct WebSocketStreamSource {
     url: String,
@@ -66,6 +98,8 @@ impl StreamSource for WebSocketStreamSource {
     }
 
     async fn start(&mut self, sender: mpsc::Sender<DataChunk>) -> StreamResult<()> {
+        let mut reconnect_state = ReconnectState::new();
+
         loop {
             // Connect or reconnect
             if !self.is_connected {
@@ -79,6 +113,7 @@ impl StreamSource for WebSocketStreamSource {
             let (mut _write, mut read) = ws_stream.split();
 
             log::info!("WebSocket stream started");
+            reconnect_state.reset();
 
             // Read messages
             while let Some(message) = read.next().await {
@@ -139,8 +174,13 @@ impl StreamSource for WebSocketStreamSource {
                 return Ok(());
             }
 
-            log::info!("WebSocket disconnected, reconnecting in 2 seconds...");
-            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+            let delay = reconnect_state.next_delay();
+            log::info!(
+                "WebSocket disconnected, reconnecting in {}ms (attempt {})...",
+                delay.as_millis(),
+                reconnect_state.attempt
+            );
+            tokio::time::sleep(delay).await;
         }
     }
 

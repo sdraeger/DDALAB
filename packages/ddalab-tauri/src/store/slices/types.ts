@@ -26,6 +26,7 @@ import type {
   DataChunk,
   StreamingDDAResult,
   StreamEvent,
+  BridgeState,
 } from "@/types/streaming";
 import type { PreprocessingSlice } from "./preprocessingSlice";
 import type { AnalysisSlice } from "./analysisSlice";
@@ -119,6 +120,7 @@ export interface ICAState {
   showChannelSelector: boolean;
   selectedResultId: string | null;
   isSubmitting: boolean;
+  isConfigCollapsed: boolean;
 }
 
 export interface UIState {
@@ -323,6 +325,9 @@ export interface StreamingActions {
   ) => void;
   createStreamFromHistory: (historyId: string) => Promise<string>;
   removeFromStreamHistory: (historyId: string) => void;
+  startLslBridge: () => Promise<void>;
+  stopLslBridge: () => Promise<void>;
+  updateBridgeState: (state: BridgeState) => void;
 }
 
 export interface PersistenceActions {

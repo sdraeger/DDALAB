@@ -19,6 +19,7 @@ export const defaultStreamingState: StreamingState = {
     visibleChannels: null,
     displayWindowSeconds: 30,
     recentSources: [],
+    bridgeState: { type: "Stopped" },
   },
 };
 
@@ -286,6 +287,12 @@ export const createStreamingSlice: ImmerStateCreator<StreamingSlice> = (
         case "serial":
           displayName = `Serial: ${sourceConfig.port}`;
           break;
+        case "lsl":
+          displayName = `LSL: ${sourceConfig.stream_name || "any"}`;
+          break;
+        case "zmq":
+          displayName = `ZMQ: ${sourceConfig.endpoint}`;
+          break;
       }
 
       const historyEntry = {
@@ -327,6 +334,52 @@ export const createStreamingSlice: ImmerStateCreator<StreamingSlice> = (
         state.streaming.ui.recentSources.filter(
           (entry) => entry.id !== historyId,
         );
+    });
+  },
+
+  startLslBridge: async () => {
+    set((state) => {
+      state.streaming.ui.bridgeState = { type: "Starting" };
+    });
+
+    const { invoke } = await import("@tauri-apps/api/core");
+
+    try {
+      const result = await invoke<
+        | { type: "Stopped" }
+        | { type: "Starting" }
+        | { type: "Running"; port: number }
+        | { type: "Error"; message: string }
+      >("start_lsl_bridge");
+
+      set((state) => {
+        state.streaming.ui.bridgeState = result;
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      set((state) => {
+        state.streaming.ui.bridgeState = { type: "Error", message };
+      });
+    }
+  },
+
+  stopLslBridge: async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+
+    try {
+      await invoke("stop_lsl_bridge");
+    } catch {
+      // Best-effort stop
+    }
+
+    set((state) => {
+      state.streaming.ui.bridgeState = { type: "Stopped" };
+    });
+  },
+
+  updateBridgeState: (bridgeState) => {
+    set((state) => {
+      state.streaming.ui.bridgeState = bridgeState;
     });
   },
 });

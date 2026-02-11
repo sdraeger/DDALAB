@@ -8,9 +8,11 @@
 
 use ddalab_tauri::streaming::{
     controller::{StreamController, StreamControllerConfig, StreamEvent},
+    lsl_bridge::BridgeState,
     processor::{StreamingDDAConfig, StreamingDDAResult},
     source::{DataChunk, StreamSourceConfig},
     types::{StreamState, StreamStats},
+    LslBridgeManager,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -27,6 +29,7 @@ use tokio::sync::{Mutex, RwLock};
 pub struct StreamingState {
     controllers: RwLock<HashMap<String, Arc<Mutex<StreamController>>>>,
     dda_binary_path: PathBuf,
+    lsl_bridge: Mutex<LslBridgeManager>,
 }
 
 impl StreamingState {
@@ -34,7 +37,12 @@ impl StreamingState {
         Self {
             controllers: RwLock::new(HashMap::new()),
             dda_binary_path,
+            lsl_bridge: Mutex::new(LslBridgeManager::new()),
         }
+    }
+
+    pub async fn lsl_bridge(&self) -> tokio::sync::MutexGuard<'_, LslBridgeManager> {
+        self.lsl_bridge.lock().await
     }
 
     pub async fn add_controller(&self, id: String, controller: StreamController) {
@@ -333,4 +341,35 @@ pub async fn clear_stream_buffers(
     controller.lock().await.clear_buffers();
 
     Ok(())
+}
+
+/// Start the LSL bridge sidecar process
+#[tauri::command]
+pub async fn start_lsl_bridge(
+    app: AppHandle,
+    state: State<'_, Arc<StreamingState>>,
+) -> Result<BridgeState, String> {
+    let mut bridge = state.lsl_bridge().await;
+
+    // Resolve the script path from Tauri resource directory
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let script_path = resource_dir.join("python").join("lsl_bridge.py");
+        bridge.set_script_path(script_path);
+    }
+
+    bridge.start().await
+}
+
+/// Stop the LSL bridge sidecar process
+#[tauri::command]
+pub async fn stop_lsl_bridge(state: State<'_, Arc<StreamingState>>) -> Result<(), String> {
+    state.lsl_bridge().await.stop().await
+}
+
+/// Get the current LSL bridge state
+#[tauri::command]
+pub async fn get_lsl_bridge_state(
+    state: State<'_, Arc<StreamingState>>,
+) -> Result<BridgeState, String> {
+    Ok(state.lsl_bridge().await.state().clone())
 }
