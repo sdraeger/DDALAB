@@ -1,7 +1,18 @@
 import React, { useState, useEffect, useRef, useCallback, memo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { AnnotationContextMenuProps } from "@/types/annotations";
+import {
+  AnnotationContextMenuProps,
+  ANNOTATION_CATEGORIES,
+  type AnnotationCategoryId,
+} from "@/types/annotations";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 
@@ -20,6 +31,9 @@ const AnnotationContextMenuComponent: React.FC<AnnotationContextMenuProps> = ({
   const [label, setLabel] = useState(existingAnnotation?.label || "");
   const [description, setDescription] = useState(
     existingAnnotation?.description || "",
+  );
+  const [category, setCategory] = useState<AnnotationCategoryId>(
+    existingAnnotation?.category || "general",
   );
 
   // Initialize visible plots - default to all plots
@@ -40,6 +54,7 @@ const AnnotationContextMenuComponent: React.FC<AnnotationContextMenuProps> = ({
   useEffect(() => {
     setLabel(existingAnnotation?.label || "");
     setDescription(existingAnnotation?.description || "");
+    setCategory(existingAnnotation?.category || "general");
     if (
       existingAnnotation?.visible_in_plots &&
       existingAnnotation.visible_in_plots.length > 0
@@ -52,7 +67,13 @@ const AnnotationContextMenuComponent: React.FC<AnnotationContextMenuProps> = ({
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (menuRef.current && !menuRef.current.contains(target)) {
+        // Don't close if the click is inside a Radix Select portal
+        const radixContent = document.querySelector(
+          "[data-radix-popper-content-wrapper]",
+        );
+        if (radixContent?.contains(target)) return;
         onClose();
       }
     };
@@ -101,15 +122,28 @@ const AnnotationContextMenuComponent: React.FC<AnnotationContextMenuProps> = ({
       }
 
       if (existingAnnotation && onEditAnnotation) {
-        onEditAnnotation(existingAnnotation.id, label, description, plotsArray);
+        onEditAnnotation(
+          existingAnnotation.id,
+          label,
+          description,
+          plotsArray,
+          category,
+        );
       } else {
-        onCreateAnnotation(plotPosition, label, description, plotsArray);
+        onCreateAnnotation(
+          plotPosition,
+          label,
+          description,
+          plotsArray,
+          category,
+        );
       }
       onClose();
     },
     [
       label,
       description,
+      category,
       visibleInPlots,
       existingAnnotation,
       onDeleteAnnotation,
@@ -141,6 +175,35 @@ const AnnotationContextMenuComponent: React.FC<AnnotationContextMenuProps> = ({
           <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
             {existingAnnotation ? "Edit Annotation" : "Add Annotation"}
           </label>
+          <Select
+            value={category}
+            onValueChange={(v) => setCategory(v as AnnotationCategoryId)}
+          >
+            <SelectTrigger className="w-full mb-2">
+              <div className="flex items-center gap-2">
+                <div
+                  className="w-2.5 h-2.5 rounded-full"
+                  style={{
+                    backgroundColor: ANNOTATION_CATEGORIES[category].color,
+                  }}
+                />
+                <SelectValue />
+              </div>
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(ANNOTATION_CATEGORIES).map(([id, cat]) => (
+                <SelectItem key={id} value={id}>
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="w-2.5 h-2.5 rounded-full"
+                      style={{ backgroundColor: cat.color }}
+                    />
+                    {cat.label}
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Input
             type="text"
             placeholder="Label (required)"

@@ -95,6 +95,11 @@ export const createPersistenceSlice: ImmerStateCreator<
               persistedState.ui?.frontend_state?.annotations?.ddaResults ||
               persistedState.annotations?.ddaResults ||
               {},
+            persistenceStatus: {
+              pendingSaveCount: 0,
+              lastSaveError: null,
+              lastSavedAt: null,
+            },
           };
 
           state.isPersistenceRestored = true;

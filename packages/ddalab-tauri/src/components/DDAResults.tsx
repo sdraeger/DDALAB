@@ -164,6 +164,7 @@ function DDAResultsComponent({
   const fileChannels = useAppStore(
     (state) => state.fileManager.selectedFile?.channels || [],
   );
+  const showAnnotations = useAppStore((state) => state.plot.showAnnotations);
   const heatmapRef = useRef<HTMLDivElement | null>(null);
   const linePlotRef = useRef<HTMLDivElement | null>(null);
 
@@ -861,7 +862,8 @@ function DDAResultsComponent({
                               onContextMenu={heatmapAnnotations.openContextMenu}
                             >
                               {/* Annotation overlay - Tabs view */}
-                              {heatmapPlotRef.current?.getUplotInstance() &&
+                              {showAnnotations &&
+                                heatmapPlotRef.current?.getUplotInstance() &&
                                 heatmapAnnotations.annotations.length > 0 && (
                                   <svg
                                     className="absolute top-0 left-0"
@@ -1043,7 +1045,8 @@ function DDAResultsComponent({
                               }
                             >
                               {/* Annotation overlay - Tabs view */}
-                              {linePlotPlotRef.current?.getUplotInstance() &&
+                              {showAnnotations &&
+                                linePlotPlotRef.current?.getUplotInstance() &&
                                 linePlotAnnotations.annotations.length > 0 && (
                                   <svg
                                     className="absolute top-0 left-0"
@@ -1280,7 +1283,8 @@ function DDAResultsComponent({
                       onContextMenu={heatmapAnnotations.openContextMenu}
                     >
                       {/* Annotation overlay */}
-                      {heatmapPlotRef.current?.getUplotInstance() &&
+                      {showAnnotations &&
+                        heatmapPlotRef.current?.getUplotInstance() &&
                         heatmapAnnotations.annotations.length > 0 && (
                           <svg
                             className="absolute top-0 left-0"
@@ -1459,7 +1463,8 @@ function DDAResultsComponent({
                       onContextMenu={linePlotAnnotations.openContextMenu}
                     >
                       {/* Annotation overlay */}
-                      {linePlotPlotRef.current?.getUplotInstance() &&
+                      {showAnnotations &&
+                        linePlotPlotRef.current?.getUplotInstance() &&
                         linePlotAnnotations.annotations.length > 0 && (
                           <svg
                             className="absolute top-0 left-0"

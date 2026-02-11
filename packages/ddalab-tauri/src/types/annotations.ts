@@ -1,21 +1,28 @@
 // Types for plot annotations
 
+export const ANNOTATION_CATEGORIES = {
+  general: { label: "General", color: "#6b7280" },
+  artifact: { label: "Artifact", color: "#ef4444" },
+  event: { label: "Event", color: "#3b82f6" },
+  seizure_onset: { label: "Seizure Onset", color: "#f97316" },
+  seizure_offset: { label: "Seizure Offset", color: "#eab308" },
+  sleep_stage: { label: "Sleep Stage", color: "#8b5cf6" },
+  stimulus: { label: "Stimulus", color: "#10b981" },
+  movement: { label: "Movement", color: "#ec4899" },
+  custom: { label: "Custom", color: "#6366f1" },
+} as const;
+
+export type AnnotationCategoryId = keyof typeof ANNOTATION_CATEGORIES;
+
 export interface PlotAnnotation {
   id: string;
-  // Position on the plot (x-axis value - could be time, scale, etc.)
   position: number;
-  // Label shown on the annotation
   label: string;
-  // Optional detailed description
   description?: string;
-  // Color of the annotation line
   color?: string;
-  // Timestamp when annotation was created
+  category?: AnnotationCategoryId;
   createdAt: string;
-  // Last modified timestamp
   updatedAt?: string;
-  // Array of plot IDs where this annotation is visible
-  // Examples: ["timeseries", "dda:variant1:heatmap", "dda:variant2:network_graph"]
   visible_in_plots?: string[];
 }
 
@@ -78,6 +85,7 @@ export interface AnnotationContextMenuProps {
     label: string,
     description?: string,
     visibleInPlots?: string[],
+    category?: AnnotationCategoryId,
   ) => void;
   onClose: () => void;
   existingAnnotation?: PlotAnnotation;
@@ -86,6 +94,7 @@ export interface AnnotationContextMenuProps {
     label: string,
     description?: string,
     visibleInPlots?: string[],
+    category?: AnnotationCategoryId,
   ) => void;
   onDeleteAnnotation?: (id: string) => void;
   // Available plots to show checkboxes for
