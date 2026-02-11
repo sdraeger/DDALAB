@@ -10,7 +10,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ChannelSelector } from "@/components/ChannelSelector";
-import { LayoutGrid, LineChart, Table2 } from "lucide-react";
+import {
+  BarChart3,
+  GitCompareArrows,
+  LayoutGrid,
+  LineChart,
+  Table2,
+} from "lucide-react";
 import type { ComparisonViewMode } from "@/store/slices/comparisonSlice";
 
 interface CompareToolbarProps {
@@ -32,6 +38,8 @@ const VIEW_MODES: Array<{
   { id: "summary", label: "Summary", icon: Table2 },
   { id: "overlay", label: "Overlay", icon: LineChart },
   { id: "sideBySide", label: "Side by Side", icon: LayoutGrid },
+  { id: "difference", label: "Difference", icon: GitCompareArrows },
+  { id: "statistics", label: "Group Stats", icon: BarChart3 },
 ];
 
 export function CompareToolbar({

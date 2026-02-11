@@ -20,7 +20,12 @@ export interface ComparisonEntry {
   createdAt: string;
 }
 
-export type ComparisonViewMode = "summary" | "overlay" | "sideBySide";
+export type ComparisonViewMode =
+  | "summary"
+  | "overlay"
+  | "sideBySide"
+  | "difference"
+  | "statistics";
 
 export interface ComparisonState {
   groupId: string | null;
@@ -29,6 +34,8 @@ export interface ComparisonState {
   commonChannels: string[];
   selectedChannels: string[];
   viewMode: ComparisonViewMode;
+  groupAssignments: Record<string, "A" | "B">;
+  groupLabels: { A: string; B: string };
 }
 
 // ============================================================================
@@ -43,6 +50,10 @@ export interface ComparisonActions {
   setComparisonVariant: (variantId: string) => void;
   setComparisonChannels: (channels: string[]) => void;
   setComparisonViewMode: (mode: ComparisonViewMode) => void;
+  setGroupAssignment: (analysisId: string, group: "A" | "B") => void;
+  removeGroupAssignment: (analysisId: string) => void;
+  setGroupLabel: (group: "A" | "B", label: string) => void;
+  autoAssignGroups: () => void;
   clearComparison: () => void;
 }
 
@@ -61,6 +72,8 @@ export const defaultComparisonState: ComparisonState = {
   commonChannels: [],
   selectedChannels: [],
   viewMode: "summary",
+  groupAssignments: {},
+  groupLabels: { A: "Group A", B: "Group B" },
 };
 
 function computeCommonChannels(entries: ComparisonEntry[]): string[] {
@@ -128,6 +141,7 @@ export const createComparisonSlice: ImmerStateCreator<ComparisonSlice> = (
         state.comparison.selectedChannels.filter((ch) =>
           state.comparison.commonChannels.includes(ch),
         );
+      delete state.comparison.groupAssignments[analysisId];
     });
   },
 
@@ -146,6 +160,35 @@ export const createComparisonSlice: ImmerStateCreator<ComparisonSlice> = (
   setComparisonViewMode: (mode) => {
     set((state) => {
       state.comparison.viewMode = mode;
+    });
+  },
+
+  setGroupAssignment: (analysisId, group) => {
+    set((state) => {
+      state.comparison.groupAssignments[analysisId] = group;
+    });
+  },
+
+  removeGroupAssignment: (analysisId) => {
+    set((state) => {
+      delete state.comparison.groupAssignments[analysisId];
+    });
+  },
+
+  setGroupLabel: (group, label) => {
+    set((state) => {
+      state.comparison.groupLabels[group] = label;
+    });
+  },
+
+  autoAssignGroups: () => {
+    set((state) => {
+      const assignments: Record<string, "A" | "B"> = {};
+      const half = Math.ceil(state.comparison.entries.length / 2);
+      state.comparison.entries.forEach((e, i) => {
+        assignments[e.analysisId] = i < half ? "A" : "B";
+      });
+      state.comparison.groupAssignments = assignments;
     });
   },
 
