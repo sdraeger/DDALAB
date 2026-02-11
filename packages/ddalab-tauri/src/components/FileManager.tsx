@@ -1135,7 +1135,7 @@ export const FileManager = React.memo(function FileManager() {
         ref={scrollTrapProps.ref}
         onMouseEnter={scrollTrapProps.onMouseEnter}
         onMouseLeave={scrollTrapProps.onMouseLeave}
-        className={`flex-1 p-4 ${isScrollEnabled ? "overflow-auto" : "overflow-hidden"}`}
+        className={`flex-1 min-h-0 p-4 flex flex-col ${isScrollEnabled ? "overflow-auto" : "overflow-hidden"}`}
         style={scrollTrapProps.style}
       >
         {error && (

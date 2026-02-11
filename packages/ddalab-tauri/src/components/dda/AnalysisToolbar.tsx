@@ -8,15 +8,7 @@
 import { memo, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Play,
-  Cpu,
-  Cloud,
-  Server,
-  Upload,
-  Download,
-  TrendingUp,
-} from "lucide-react";
+import { Play, Cpu, Cloud, Server, TrendingUp } from "lucide-react";
 import { TauriService } from "@/services/tauriService";
 import { TooltipButton } from "@/components/ui/tooltip-button";
 
@@ -40,8 +32,6 @@ interface AnalysisToolbarProps {
   onRun: () => void;
   onSubmitToServer: () => void;
   onSubmitToNsg: () => void;
-  onImport: () => void;
-  onExport: () => void;
   onSensitivity: () => void;
   onReset: () => void;
 }
@@ -75,8 +65,6 @@ export const AnalysisToolbar = memo(function AnalysisToolbar({
   onRun,
   onSubmitToServer,
   onSubmitToNsg,
-  onImport,
-  onExport,
   onSensitivity,
   onReset,
 }: AnalysisToolbarProps) {
@@ -134,34 +122,6 @@ export const AnalysisToolbar = memo(function AnalysisToolbar({
             />
           </div>
         </div>
-        <TooltipButton
-          variant="outline"
-          size="sm"
-          onClick={onImport}
-          disabled={isRunning}
-          tooltip={
-            isRunning
-              ? "Analysis is currently running"
-              : "Import DDA configuration"
-          }
-        >
-          <Upload className="h-4 w-4 mr-1" />
-          Import
-        </TooltipButton>
-        <TooltipButton
-          variant="outline"
-          size="sm"
-          onClick={onExport}
-          disabled={isRunning}
-          tooltip={
-            isRunning
-              ? "Analysis is currently running"
-              : "Export DDA configuration"
-          }
-        >
-          <Download className="h-4 w-4 mr-1" />
-          Export
-        </TooltipButton>
         <TooltipButton
           variant="outline"
           size="sm"

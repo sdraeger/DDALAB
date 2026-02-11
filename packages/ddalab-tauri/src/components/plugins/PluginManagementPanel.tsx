@@ -34,8 +34,8 @@ export function PluginManagementPanel() {
   }, []);
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="p-6 space-y-4 max-w-7xl mx-auto">
+    <div className="h-full flex flex-col">
+      <div className="p-6 pb-2 space-y-4 max-w-7xl mx-auto w-full flex-shrink-0">
         {/* Header */}
         <div>
           <div className="flex items-center gap-3 mb-1">
@@ -48,12 +48,15 @@ export function PluginManagementPanel() {
         </div>
 
         <Separator />
+      </div>
 
+      <div className="flex-1 min-h-0 px-6 pb-6 max-w-7xl mx-auto w-full">
         <Tabs
           value={activeTab}
           onValueChange={(v) => setActiveTab(v as "installed" | "browse")}
+          className="h-full flex flex-col"
         >
-          <TabsList>
+          <TabsList className="flex-shrink-0">
             <TabsTrigger value="installed" className="gap-1.5">
               <Puzzle className="h-3.5 w-3.5" />
               Installed
@@ -64,10 +67,10 @@ export function PluginManagementPanel() {
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="installed" className="mt-4">
-            <div className="flex gap-6">
+          <TabsContent value="installed" className="mt-4 flex-1 min-h-0">
+            <div className="flex gap-6 h-full">
               {/* Left sidebar: installed list */}
-              <div className="w-56 shrink-0 border rounded-lg overflow-hidden h-[calc(100vh-16rem)]">
+              <div className="w-56 shrink-0 border rounded-lg overflow-hidden">
                 <PluginInstalledList />
               </div>
 
@@ -79,7 +82,7 @@ export function PluginManagementPanel() {
                     onRunPlugin={handleRunPlugin}
                   />
                 ) : (
-                  <div className="flex items-center justify-center h-64 text-sm text-muted-foreground">
+                  <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
                     Select a plugin to view details
                   </div>
                 )}
@@ -87,7 +90,10 @@ export function PluginManagementPanel() {
             </div>
           </TabsContent>
 
-          <TabsContent value="browse" className="mt-4">
+          <TabsContent
+            value="browse"
+            className="mt-4 flex-1 min-h-0 overflow-y-auto"
+          >
             <PluginBrowser />
           </TabsContent>
         </Tabs>

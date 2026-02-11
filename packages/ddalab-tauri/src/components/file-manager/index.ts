@@ -14,3 +14,4 @@ export {
   VirtualizedFileList,
   VIRTUALIZATION_THRESHOLD,
 } from "./VirtualizedFileList";
+export { VirtualizedFileTree } from "./VirtualizedFileTree";

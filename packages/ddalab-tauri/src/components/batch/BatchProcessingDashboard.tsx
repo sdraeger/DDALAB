@@ -125,8 +125,8 @@ export function BatchProcessingDashboard() {
   }, [currentBatch, setComparisonFromGroup, setPrimaryNav, setSecondaryNav]);
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="p-6 space-y-6 max-w-5xl mx-auto">
+    <div className="h-full flex flex-col">
+      <div className="p-6 pb-2 space-y-6 max-w-5xl mx-auto w-full flex-shrink-0">
         {/* Header */}
         <div>
           <div className="flex items-center gap-3 mb-1">
@@ -139,114 +139,122 @@ export function BatchProcessingDashboard() {
         </div>
 
         <Separator />
+      </div>
 
-        {/* Setup: File Selection phase */}
-        <div
-          style={{
-            display: showSetup && setupPhase === "select" ? "block" : "none",
-            visibility:
-              showSetup && setupPhase === "select" ? "visible" : "hidden",
-          }}
-          aria-hidden={!(showSetup && setupPhase === "select")}
-          inert={!(showSetup && setupPhase === "select") || undefined}
-        >
-          <div className="space-y-6">
-            <BatchFileSelector
-              files={selectedFiles}
-              onFilesChange={setSelectedFiles}
-            />
-            <div className="flex justify-end">
-              <Button
-                size="lg"
-                onClick={() => setSetupPhase("configure")}
-                disabled={selectedFiles.length === 0}
-              >
-                Configure Parameters
-                <ArrowRight className="h-4 w-4 ml-2" />
-              </Button>
+      <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-6">
+        <div className="max-w-5xl mx-auto space-y-6">
+          {/* Setup: File Selection phase */}
+          <div
+            style={{
+              display: showSetup && setupPhase === "select" ? "block" : "none",
+              visibility:
+                showSetup && setupPhase === "select" ? "visible" : "hidden",
+            }}
+            aria-hidden={!(showSetup && setupPhase === "select")}
+            inert={!(showSetup && setupPhase === "select") || undefined}
+          >
+            <div className="space-y-6">
+              <BatchFileSelector
+                files={selectedFiles}
+                onFilesChange={setSelectedFiles}
+              />
+              <div className="flex justify-end">
+                <Button
+                  size="lg"
+                  onClick={() => setSetupPhase("configure")}
+                  disabled={selectedFiles.length === 0}
+                >
+                  Configure Parameters
+                  <ArrowRight className="h-4 w-4 ml-2" />
+                </Button>
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Setup: Configure phase */}
-        <div
-          style={{
-            display: showSetup && setupPhase === "configure" ? "block" : "none",
-            visibility:
-              showSetup && setupPhase === "configure" ? "visible" : "hidden",
-          }}
-          aria-hidden={!(showSetup && setupPhase === "configure")}
-          inert={!(showSetup && setupPhase === "configure") || undefined}
-        >
-          <div className="space-y-6">
-            <BatchParameterPanel
-              params={sharedParams}
-              onParamsChange={setSharedParams}
-              continueOnError={continueOnError}
-              onContinueOnErrorChange={setContinueOnError}
-            />
-            <BatchChannelSelector
-              selection={channelSelection}
-              onSelectionChange={setChannelSelection}
-              selectedFiles={selectedFiles}
-            />
-            <div className="flex justify-between">
-              <Button
-                variant="outline"
-                size="lg"
-                onClick={() => setSetupPhase("select")}
-              >
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Files
-              </Button>
-              <Button
-                size="lg"
-                onClick={handleStartBatch}
-                disabled={
-                  selectedFiles.length === 0 ||
-                  sharedParams.variants.length === 0 ||
-                  sharedParams.delays.length === 0
-                }
-              >
-                <Play className="h-4 w-4 mr-2" />
-                Start Batch ({selectedFiles.length} file
-                {selectedFiles.length === 1 ? "" : "s"})
-              </Button>
+          {/* Setup: Configure phase */}
+          <div
+            style={{
+              display:
+                showSetup && setupPhase === "configure" ? "block" : "none",
+              visibility:
+                showSetup && setupPhase === "configure" ? "visible" : "hidden",
+            }}
+            aria-hidden={!(showSetup && setupPhase === "configure")}
+            inert={!(showSetup && setupPhase === "configure") || undefined}
+          >
+            <div className="space-y-6">
+              <BatchParameterPanel
+                params={sharedParams}
+                onParamsChange={setSharedParams}
+                continueOnError={continueOnError}
+                onContinueOnErrorChange={setContinueOnError}
+              />
+              <BatchChannelSelector
+                selection={channelSelection}
+                onSelectionChange={setChannelSelection}
+                selectedFiles={selectedFiles}
+              />
+              <div className="flex justify-between">
+                <Button
+                  variant="outline"
+                  size="lg"
+                  onClick={() => setSetupPhase("select")}
+                >
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Back to Files
+                </Button>
+                <Button
+                  size="lg"
+                  onClick={handleStartBatch}
+                  disabled={
+                    selectedFiles.length === 0 ||
+                    sharedParams.variants.length === 0 ||
+                    sharedParams.delays.length === 0
+                  }
+                >
+                  <Play className="h-4 w-4 mr-2" />
+                  Start Batch ({selectedFiles.length} file
+                  {selectedFiles.length === 1 ? "" : "s"})
+                </Button>
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Running phase */}
-        <div
-          style={{
-            display: showRunning ? "block" : "none",
-            visibility: showRunning ? "visible" : "hidden",
-          }}
-          aria-hidden={!showRunning}
-          inert={!showRunning || undefined}
-        >
-          {currentBatch && (
-            <BatchJobQueue batch={currentBatch} onCancel={cancelCurrentBatch} />
-          )}
-        </div>
+          {/* Running phase */}
+          <div
+            style={{
+              display: showRunning ? "block" : "none",
+              visibility: showRunning ? "visible" : "hidden",
+            }}
+            aria-hidden={!showRunning}
+            inert={!showRunning || undefined}
+          >
+            {currentBatch && (
+              <BatchJobQueue
+                batch={currentBatch}
+                onCancel={cancelCurrentBatch}
+              />
+            )}
+          </div>
 
-        {/* Results phase */}
-        <div
-          style={{
-            display: showResults ? "block" : "none",
-            visibility: showResults ? "visible" : "hidden",
-          }}
-          aria-hidden={!showResults}
-          inert={!showResults || undefined}
-        >
-          {currentBatch && (
-            <BatchResultsSummary
-              batch={currentBatch}
-              onClear={handleClearAndReset}
-              onViewResult={handleViewResult}
-              onCompareResults={handleCompareResults}
-            />
-          )}
+          {/* Results phase */}
+          <div
+            style={{
+              display: showResults ? "block" : "none",
+              visibility: showResults ? "visible" : "hidden",
+            }}
+            aria-hidden={!showResults}
+            inert={!showResults || undefined}
+          >
+            {currentBatch && (
+              <BatchResultsSummary
+                batch={currentBatch}
+                onClear={handleClearAndReset}
+                onViewResult={handleViewResult}
+                onCompareResults={handleCompareResults}
+              />
+            )}
+          </div>
         </div>
       </div>
     </div>
