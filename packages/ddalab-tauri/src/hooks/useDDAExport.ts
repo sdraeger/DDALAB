@@ -2,12 +2,26 @@
 
 import { useCallback, useRef } from "react";
 import { TauriService } from "@/services/tauriService";
+import { tauriBackendService } from "@/services/tauriBackendService";
 import { loggers } from "@/lib/logger";
 import {
   exportDDAToCSV,
   exportDDAToJSON,
   getDefaultExportFilename,
 } from "@/utils/ddaExport";
+import {
+  generatePythonScript,
+  getDefaultPythonFilename,
+} from "@/utils/pythonExport";
+import {
+  generateMatlabScript,
+  getDefaultMatlabFilename,
+} from "@/utils/matlabExport";
+import {
+  generateJuliaScript,
+  getDefaultJuliaFilename,
+} from "@/utils/juliaExport";
+import { generateRustScript, getDefaultRustFilename } from "@/utils/rustExport";
 import {
   canvasToPNG,
   canvasToSVG,
@@ -64,6 +78,22 @@ export function useDDAExport({
   const { exportSnapshot } = useSnapshot();
   const { createWindow } = usePopoutWindows();
   const sharedResultsRef = useRef<Map<string, string>>(new Map());
+
+  // Progressive loading may leave dda_matrix empty on history-loaded results.
+  // Export callbacks that need matrix data must resolve the full result first.
+  const resolveFullResult = useCallback(async (): Promise<DDAResult> => {
+    const hasData = result.results.variants.some(
+      (v) => Object.keys(v.dda_matrix).length > 0,
+    );
+    if (hasData) return result;
+
+    loggers.export.info("Fetching full result for export", { id: result.id });
+    const full = await tauriBackendService.getDDAFromHistoryFull(result.id);
+    if (!full) {
+      throw new Error("Could not load analysis data for export");
+    }
+    return full;
+  }, [result]);
 
   // Export plot as image
   const exportPlot = useCallback(
@@ -167,23 +197,28 @@ export function useDDAExport({
   const exportData = useCallback(
     async (format: "csv" | "json") => {
       try {
+        const fullResult = await resolveFullResult();
         let content: string;
         const variant = availableVariants[selectedVariant];
         const variantId = variant?.variant_id;
 
         if (format === "csv") {
-          content = exportDDAToCSV(result, {
+          content = exportDDAToCSV(fullResult, {
             variant: variantId,
             channels: selectedChannels,
           });
         } else {
-          content = exportDDAToJSON(result, {
+          content = exportDDAToJSON(fullResult, {
             variant: variantId,
             channels: selectedChannels,
           });
         }
 
-        const filename = getDefaultExportFilename(result, format, variantId);
+        const filename = getDefaultExportFilename(
+          fullResult,
+          format,
+          variantId,
+        );
         const savedPath = await TauriService.saveDDAExportFile(
           content,
           format,
@@ -208,22 +243,23 @@ export function useDDAExport({
         );
       }
     },
-    [result, selectedVariant, selectedChannels, availableVariants],
+    [resolveFullResult, selectedVariant, selectedChannels, availableVariants],
   );
 
   // Export all variants
   const exportAllData = useCallback(
     async (format: "csv" | "json") => {
       try {
+        const fullResult = await resolveFullResult();
         let content: string;
 
         if (format === "csv") {
-          content = exportDDAToCSV(result, {});
+          content = exportDDAToCSV(fullResult, {});
         } else {
-          content = exportDDAToJSON(result, {});
+          content = exportDDAToJSON(fullResult, {});
         }
 
-        const filename = getDefaultExportFilename(result, format);
+        const filename = getDefaultExportFilename(fullResult, format);
         const savedPath = await TauriService.saveDDAExportFile(
           content,
           format,
@@ -249,7 +285,71 @@ export function useDDAExport({
         );
       }
     },
-    [result, availableVariants.length],
+    [resolveFullResult, availableVariants.length],
+  );
+
+  // Export reproducible script (Python, MATLAB, Julia, or Rust)
+  // Reproduction scripts export ALL variants (not filtered to selected) since
+  // the purpose is to reproduce the full analysis, not a single view.
+  const exportScript = useCallback(
+    async (format: "python" | "matlab" | "julia" | "rust") => {
+      try {
+        const fullResult = await resolveFullResult();
+        const exportOptions = {};
+
+        const formatMap = {
+          python: {
+            generate: generatePythonScript,
+            filename: getDefaultPythonFilename,
+            ext: "py" as const,
+            label: "Python",
+          },
+          matlab: {
+            generate: generateMatlabScript,
+            filename: getDefaultMatlabFilename,
+            ext: "m" as const,
+            label: "MATLAB",
+          },
+          julia: {
+            generate: generateJuliaScript,
+            filename: getDefaultJuliaFilename,
+            ext: "jl" as const,
+            label: "Julia",
+          },
+          rust: {
+            generate: generateRustScript,
+            filename: getDefaultRustFilename,
+            ext: "rs" as const,
+            label: "Rust",
+          },
+        };
+
+        const fmt = formatMap[format];
+        const content = fmt.generate(fullResult, exportOptions);
+        const filename = fmt.filename(fullResult);
+
+        const savedPath = await TauriService.saveDDAExportFile(
+          content,
+          fmt.ext,
+          filename,
+        );
+
+        if (savedPath) {
+          loggers.export.info("Script exported successfully", {
+            savedPath,
+            format,
+          });
+          toast.success(
+            "Script exported",
+            `Saved ${fmt.label} script to ${savedPath.split("/").pop()}`,
+          );
+        }
+      } catch (error) {
+        loggers.export.error("Failed to export script", { format, error });
+        toast.error("Export failed", `Could not export ${format} script`);
+      }
+    },
+    [resolveFullResult],
   );
 
   // Pop out to separate window
@@ -370,6 +470,7 @@ export function useDDAExport({
     exportPlot,
     exportData,
     exportAllData,
+    exportScript,
     handlePopOut,
     handleShare,
     getExistingShareLink,
