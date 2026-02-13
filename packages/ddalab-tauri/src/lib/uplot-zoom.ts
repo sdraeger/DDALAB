@@ -106,6 +106,24 @@ const DRAG_THRESHOLD = 10;
 /** Minimum BCR position to compute a reliable scale ratio. */
 const MIN_POS_FOR_SCALE = 50;
 
+/**
+ * Module-level display scale factor, detected once and shared across all
+ * uPlot instances. On macOS with non-integer scaling this is ~11/10 (1.1).
+ * On normal displays it stays at 1.0.
+ */
+let _displayScale = 1;
+
+/**
+ * Convert a mouse clientX/clientY coordinate to a CSS pixel offset within
+ * an element, correcting for macOS display scaling where BCR positions
+ * don't match visual/mouse event coordinates.
+ *
+ * Use this anywhere you'd normally write `e.clientX - rect.left`.
+ */
+export function clientToCSS(clientPos: number, bcrPos: number): number {
+  return clientPos / _displayScale - bcrPos;
+}
+
 export function zoomCursorMove(): uPlot.Cursor.MousePosRefiner {
   let overlay: PlotOverlay | null = null;
   let attached = false;
@@ -152,7 +170,10 @@ export function zoomCursorMove(): uPlot.Cursor.MousePosRefiner {
           // If only one axis detected, use it for both (scaling is uniform)
           if (!canX && canY) scaleX = scaleY;
           if (canX && !canY) scaleY = scaleX;
-          if (canX || canY) scaleDetected = true;
+          if (canX || canY) {
+            scaleDetected = true;
+            _displayScale = scaleX;
+          }
         }
 
         // Compute visual bounds: position from mouse events, dimensions

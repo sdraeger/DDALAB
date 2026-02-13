@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, memo } from "react";
+import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -161,7 +162,7 @@ const AnnotationContextMenuComponent: React.FC<AnnotationContextMenuProps> = ({
     onClose();
   }, [existingAnnotation, onDeleteAnnotation, onClose]);
 
-  return (
+  return createPortal(
     <div
       ref={menuRef}
       className="fixed bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-lg p-4 z-50 min-w-[300px] max-w-[400px]"
@@ -275,7 +276,8 @@ const AnnotationContextMenuComponent: React.FC<AnnotationContextMenuProps> = ({
           </Button>
         </div>
       </form>
-    </div>
+    </div>,
+    document.body,
   );
 };
 

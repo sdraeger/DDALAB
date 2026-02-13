@@ -41,6 +41,7 @@ import {
 } from "lucide-react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
+import { clientToCSS, zoomCursorMove } from "@/lib/uplot-zoom";
 import { usePopoutWindows } from "@/hooks/usePopoutWindows";
 import { useTimeSeriesAnnotations } from "@/hooks/useAnnotations";
 import { AnnotationContextMenu } from "@/components/annotations/AnnotationContextMenu";
@@ -472,6 +473,7 @@ function TimeSeriesPlotComponent() {
           x: true,
           y: true,
           lock: false,
+          move: zoomCursorMove(),
           drag: {
             x: true,
             y: false,
@@ -1572,8 +1574,8 @@ function TimeSeriesPlotComponent() {
                 if (!uplotRef.current || !plot.currentChunk) return;
 
                 const rect = e.currentTarget.getBoundingClientRect();
-                const plotX = e.clientX - rect.left;
-                const plotWidth = rect.width;
+                const plotX = clientToCSS(e.clientX, rect.left);
+                const plotWidth = e.currentTarget.offsetWidth;
                 const timeValue =
                   currentTime + (plotX / plotWidth) * timeWindow;
 
