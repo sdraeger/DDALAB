@@ -1,6 +1,22 @@
 /* Import uPlot styles for chart rendering - must be first */
 @import "uplot/dist/uPlot.min.css";
 
+/*
+ * Hide uPlot's native crosshair + selection visuals. On macOS with non-integer
+ * display scaling ("More Space"), these elements (position:absolute +
+ * transform:translate inside .u-over) render at an offset from the actual mouse
+ * position. Custom overlays using position:fixed are drawn instead (see
+ * uplot-zoom.ts). The native elements remain functional for uPlot's internal
+ * data tracking and zoom calculations.
+ */
+.u-cursor-x,
+.u-cursor-y {
+  opacity: 0 !important;
+}
+.u-select {
+  opacity: 0 !important;
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
