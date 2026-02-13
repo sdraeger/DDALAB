@@ -13,6 +13,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
+import { clientToCSS, zoomCursorMove } from "@/lib/uplot-zoom";
 import { profiler } from "@/utils/performance";
 import { throttle } from "@/utils/debounce";
 import {
@@ -500,6 +501,7 @@ const DDAHeatmapPlotComponent = forwardRef<
           legend: { show: false },
           cursor: {
             lock: false,
+            move: zoomCursorMove(),
             drag: { x: true, y: false, uni: 50, dist: 10 },
           },
           hooks: {
@@ -509,7 +511,7 @@ const DDAHeatmapPlotComponent = forwardRef<
                   u.over.addEventListener("contextmenu", (e: MouseEvent) => {
                     e.preventDefault();
                     const rect = u.over.getBoundingClientRect();
-                    const x = e.clientX - rect.left;
+                    const x = clientToCSS(e.clientX, rect.left);
                     const scaleValue = u.posToVal(x, "x");
                     onContextMenu(e.clientX, e.clientY, scaleValue);
                   });
