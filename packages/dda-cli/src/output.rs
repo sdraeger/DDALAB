@@ -4,10 +4,8 @@ use std::path::Path;
 /// Write JSON string to stdout or a file.
 pub fn write_output(json: &str, output_path: Option<&str>) -> Result<(), String> {
     match output_path {
-        Some(path) => {
-            std::fs::write(Path::new(path), json)
-                .map_err(|e| format!("Failed to write output file '{}': {}", path, e))
-        }
+        Some(path) => std::fs::write(Path::new(path), json)
+            .map_err(|e| format!("Failed to write output file '{}': {}", path, e)),
         None => {
             let stdout = std::io::stdout();
             let mut handle = stdout.lock();
@@ -24,7 +22,6 @@ pub fn to_json<T: serde::Serialize>(value: &T, compact: bool) -> Result<String, 
     if compact {
         serde_json::to_string(value).map_err(|e| format!("JSON serialization failed: {}", e))
     } else {
-        serde_json::to_string_pretty(value)
-            .map_err(|e| format!("JSON serialization failed: {}", e))
+        serde_json::to_string_pretty(value).map_err(|e| format!("JSON serialization failed: {}", e))
     }
 }

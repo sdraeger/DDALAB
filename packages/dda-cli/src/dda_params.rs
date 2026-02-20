@@ -1,9 +1,11 @@
 use crate::cli;
 use dda_rs::{
     format_select_mask, generate_select_mask, AlgorithmSelection, DDARequest, DDARunner,
-    DelayParameters, FileType, ModelParameters, PreprocessingOptions, TimeRange, VariantMetadata,
-    WindowParameters,
+    DelayParameters, FileType, ModelParameters, PreprocessingOptions, TimeRange,
+    VariantChannelConfig, WindowParameters,
 };
+use serde::Deserialize;
+use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 
 pub fn resolve_runner(binary_path: &Option<String>) -> Result<DDARunner, String> {
@@ -33,6 +35,153 @@ pub fn validate_file(file_path: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Normalize variant IDs to canonical abbreviations used by dda-rs.
+/// Accepts both app IDs and CLI abbreviations.
+pub fn normalize_variant_id(input: &str) -> Option<&'static str> {
+    match input.trim().to_lowercase().as_str() {
+        "st" | "single_timeseries" | "single-timeseries" | "single timeseries" => Some("ST"),
+        "ct" | "cross_timeseries" | "cross-timeseries" | "cross timeseries" => Some("CT"),
+        "cd" | "cross_dynamical" | "cross-dynamical" | "cross dynamical" => Some("CD"),
+        "de" | "dynamical_ergodicity" | "dynamical-ergodicity" | "dynamical ergodicity" => {
+            Some("DE")
+        }
+        "sy" | "synchronization" | "synchronisation" => Some("SY"),
+        _ => None,
+    }
+}
+
+fn to_variant_config_key(abbrev: &str) -> &'static str {
+    match abbrev {
+        "ST" => "single_timeseries",
+        "CT" => "cross_timeseries",
+        "CD" => "cross_dynamical",
+        "DE" => "dynamical_ergodicity",
+        "SY" => "synchronization",
+        _ => "single_timeseries",
+    }
+}
+
+/// Normalize and deduplicate variants while preserving input order.
+pub fn normalize_variants(variants: &[String]) -> Result<Vec<String>, String> {
+    let mut normalized = Vec::with_capacity(variants.len());
+    for v in variants {
+        let abbrev = normalize_variant_id(v).ok_or_else(|| {
+            format!(
+                "Unknown variant '{}'. Valid variants: ST, CT, CD, DE, SY (or app IDs like single_timeseries)",
+                v
+            )
+        })?;
+
+        if !normalized.iter().any(|existing| existing == abbrev) {
+            normalized.push(abbrev.to_string());
+        }
+    }
+    Ok(normalized)
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VariantConfigInput {
+    selected_channels: Option<Vec<usize>>,
+    ct_channel_pairs: Option<Vec<[usize; 2]>>,
+    cd_channel_pairs: Option<Vec<[usize; 2]>>,
+}
+
+/// Load app-compatible variant config JSON from disk.
+///
+/// Supported shapes:
+/// 1) Direct map: {"single_timeseries": {...}, "cross_timeseries": {...}}
+/// 2) Wrapped map: {"variant_configs": {...}}
+pub fn load_variant_configs(path: &str) -> Result<HashMap<String, VariantChannelConfig>, String> {
+    let raw = std::fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read variant config file '{}': {}", path, e))?;
+
+    let mut value: serde_json::Value = serde_json::from_str(&raw)
+        .map_err(|e| format!("Failed to parse variant config JSON '{}': {}", path, e))?;
+
+    if let Some(nested) = value.get("variant_configs").cloned() {
+        value = nested;
+    }
+
+    let parsed: HashMap<String, VariantConfigInput> = serde_json::from_value(value)
+        .map_err(|e| format!("Invalid variant config shape in '{}': {}", path, e))?;
+
+    let mut configs: HashMap<String, VariantChannelConfig> = HashMap::new();
+    for (key, cfg) in parsed {
+        let Some(abbrev) = normalize_variant_id(&key) else {
+            return Err(format!(
+                "Unknown variant config key '{}'. Expected ST/CT/CD/DE/SY or app IDs",
+                key
+            ));
+        };
+        let canonical_key = to_variant_config_key(abbrev).to_string();
+        configs.insert(
+            canonical_key,
+            VariantChannelConfig {
+                selected_channels: cfg.selected_channels,
+                ct_channel_pairs: cfg.ct_channel_pairs,
+                cd_channel_pairs: cfg.cd_channel_pairs,
+            },
+        );
+    }
+
+    Ok(configs)
+}
+
+/// Merge legacy CLI channel/pair args with optional app-style variant configs.
+/// Variant config values take precedence when present and non-empty.
+pub fn derive_effective_channels_and_pairs(
+    channels: Option<Vec<usize>>,
+    ct_pairs: Option<Vec<[usize; 2]>>,
+    cd_pairs: Option<Vec<[usize; 2]>>,
+    variant_configs: Option<&HashMap<String, VariantChannelConfig>>,
+) -> (Vec<usize>, Option<Vec<[usize; 2]>>, Option<Vec<[usize; 2]>>) {
+    let mut channel_set: BTreeSet<usize> = channels.unwrap_or_default().into_iter().collect();
+    let mut effective_ct = ct_pairs;
+    let mut effective_cd = cd_pairs;
+
+    if let Some(configs) = variant_configs {
+        if let Some(ct_cfg) = configs.get("cross_timeseries") {
+            if let Some(pairs) = &ct_cfg.ct_channel_pairs {
+                if !pairs.is_empty() {
+                    effective_ct = Some(pairs.clone());
+                }
+            }
+        }
+        if let Some(cd_cfg) = configs.get("cross_dynamical") {
+            if let Some(pairs) = &cd_cfg.cd_channel_pairs {
+                if !pairs.is_empty() {
+                    effective_cd = Some(pairs.clone());
+                }
+            }
+        }
+
+        let mut single_variant_channels: BTreeSet<usize> = BTreeSet::new();
+        for key in [
+            "single_timeseries",
+            "dynamical_ergodicity",
+            "synchronization",
+        ] {
+            if let Some(cfg) = configs.get(key) {
+                if let Some(chans) = &cfg.selected_channels {
+                    for ch in chans {
+                        single_variant_channels.insert(*ch);
+                    }
+                }
+            }
+        }
+        if !single_variant_channels.is_empty() {
+            channel_set = single_variant_channels;
+        }
+    }
+
+    (
+        channel_set.into_iter().collect(),
+        effective_ct,
+        effective_cd,
+    )
+}
+
 /// Validate shared DDA parameters (not file-specific).
 pub fn validate_common_params(
     channels: &[usize],
@@ -40,33 +189,35 @@ pub fn validate_common_params(
     delays: &[i32],
     wl: u32,
     ws: u32,
-    ct_pairs: &Option<Vec<String>>,
-    cd_pairs: &Option<Vec<String>>,
+    ct_pairs: &Option<Vec<[usize; 2]>>,
+    cd_pairs: &Option<Vec<[usize; 2]>>,
 ) -> Result<(), String> {
-    // Channels
-    if channels.is_empty() {
-        return Err("At least one channel must be specified".to_string());
-    }
+    let normalized_variants = normalize_variants(variants)?;
 
-    // Variant names
-    for v in variants {
-        if VariantMetadata::from_abbrev(v).is_none() {
-            return Err(format!(
-                "Unknown variant '{}'. Valid variants: ST, CT, CD, DE, SY",
-                v
-            ));
-        }
+    let requires_single_channels = normalized_variants
+        .iter()
+        .any(|v| v == "ST" || v == "DE" || v == "SY");
+
+    if requires_single_channels && channels.is_empty() {
+        return Err(
+            "At least one channel must be specified for ST/DE/SY variants (use --channels or --variant-configs)"
+                .to_string(),
+        );
     }
 
     // CT requires pairs
-    if variants.iter().any(|v| v == "CT") && ct_pairs.is_none() {
+    if normalized_variants.iter().any(|v| v == "CT")
+        && ct_pairs.as_ref().map_or(true, |pairs| pairs.is_empty())
+    {
         return Err(
             "CT variant requires --ct-pairs (e.g., --ct-pairs \"0,1\" \"0,2\")".to_string(),
         );
     }
 
     // CD requires pairs
-    if variants.iter().any(|v| v == "CD") && cd_pairs.is_none() {
+    if normalized_variants.iter().any(|v| v == "CD")
+        && cd_pairs.as_ref().map_or(true, |pairs| pairs.is_empty())
+    {
         return Err(
             "CD variant requires --cd-pairs (e.g., --cd-pairs \"0,1\" \"1,0\")".to_string(),
         );
@@ -93,15 +244,19 @@ pub fn validate_common_params(
         ));
     }
 
-    // Validate pair formats
-    if let Some(ref pairs) = ct_pairs {
-        for p in pairs {
-            cli::parse_pair(p)?;
+    // Validate pair semantics
+    if let Some(pairs) = ct_pairs {
+        for pair in pairs {
+            if pair[0] == pair[1] {
+                return Err("CT channel pairs cannot contain identical channels".to_string());
+            }
         }
     }
-    if let Some(ref pairs) = cd_pairs {
-        for p in pairs {
-            cli::parse_pair(p)?;
+    if let Some(pairs) = cd_pairs {
+        for pair in pairs {
+            if pair[0] == pair[1] {
+                return Err("CD channel pairs cannot contain identical channels".to_string());
+            }
         }
     }
 
@@ -117,6 +272,7 @@ pub fn build_dda_request(
     wl: u32,
     ws: u32,
     delays: &[i32],
+    model_terms: Option<Vec<i32>>,
     dm: u32,
     order: u32,
     nr_tau: u32,
@@ -128,38 +284,93 @@ pub fn build_dda_request(
     start: Option<f64>,
     end: Option<f64>,
 ) -> Result<DDARequest, String> {
-    let variant_refs: Vec<&str> = variants.iter().map(|s| s.as_str()).collect();
+    let parsed_ct_pairs = ct_pairs
+        .as_ref()
+        .map(|pairs| cli::parse_pairs(pairs))
+        .transpose()?;
+
+    let parsed_cd_pairs = cd_pairs
+        .as_ref()
+        .map(|pairs| cli::parse_pairs(pairs))
+        .transpose()?;
+
+    build_dda_request_with_options(
+        file_path,
+        channels,
+        variants,
+        wl,
+        ws,
+        delays,
+        model_terms,
+        dm,
+        order,
+        nr_tau,
+        ct_wl,
+        ct_ws,
+        parsed_ct_pairs,
+        parsed_cd_pairs,
+        sr,
+        start,
+        end,
+        None,
+        None,
+        None,
+    )
+}
+
+/// Build a DDARequest with full CLI options (preprocessing + parsed pairs + variant configs).
+#[allow(clippy::too_many_arguments)]
+pub fn build_dda_request_with_options(
+    file_path: &str,
+    channels: &[usize],
+    variants: &[String],
+    wl: u32,
+    ws: u32,
+    delays: &[i32],
+    model_terms: Option<Vec<i32>>,
+    dm: u32,
+    order: u32,
+    nr_tau: u32,
+    ct_wl: Option<u32>,
+    ct_ws: Option<u32>,
+    ct_channel_pairs: Option<Vec<[usize; 2]>>,
+    cd_channel_pairs: Option<Vec<[usize; 2]>>,
+    sr: Option<f64>,
+    start: Option<f64>,
+    end: Option<f64>,
+    highpass: Option<f64>,
+    lowpass: Option<f64>,
+    variant_configs: Option<HashMap<String, VariantChannelConfig>>,
+) -> Result<DDARequest, String> {
+    let normalized_variants = normalize_variants(variants)?;
+    let variant_refs: Vec<&str> = normalized_variants.iter().map(|s| s.as_str()).collect();
     let mask = generate_select_mask(&variant_refs);
     let mask_str = format_select_mask(&mask);
 
-    let ct_channel_pairs = ct_pairs
-        .as_ref()
-        .map(|pairs| cli::parse_pairs(pairs))
-        .transpose()?;
+    // Determine CT window params: use explicit values, or fall back to WL/WS
+    // whenever CT/CD/DE-specific windowing is required.
+    let needs_ct_params = normalized_variants
+        .iter()
+        .any(|v| v == "CT" || v == "CD" || v == "DE");
+    let ct_wl = ct_wl.or(if needs_ct_params { Some(wl) } else { None });
+    let ct_ws = ct_ws.or(if needs_ct_params { Some(ws) } else { None });
 
-    let cd_channel_pairs = cd_pairs
-        .as_ref()
-        .map(|pairs| cli::parse_pairs(pairs))
-        .transpose()?;
-
-    // Determine CT window params: use explicit values, or default to 2 when CT/CD is enabled
-    let needs_ct_params = variants.iter().any(|v| v == "CT" || v == "CD" || v == "DE");
-    let ct_wl = ct_wl.or(if needs_ct_params { Some(2) } else { None });
-    let ct_ws = ct_ws.or(if needs_ct_params { Some(2) } else { None });
+    let channels = if channels.is_empty() {
+        None
+    } else {
+        Some(channels.to_vec())
+    };
 
     Ok(DDARequest {
         file_path: file_path.to_string(),
-        channels: Some(channels.to_vec()),
+        channels,
         time_range: TimeRange {
             start: start.unwrap_or(0.0),
             end: end.unwrap_or(f64::MAX),
         },
-        preprocessing_options: PreprocessingOptions {
-            highpass: None,
-            lowpass: None,
-        },
+        preprocessing_options: PreprocessingOptions { highpass, lowpass },
         algorithm_selection: AlgorithmSelection {
-            enabled_variants: variants.to_vec(),
+            enabled_variants: normalized_variants,
             select_mask: Some(mask_str),
         },
         window_parameters: WindowParameters {
@@ -173,12 +384,9 @@ pub fn build_dda_request(
         },
         ct_channel_pairs,
         cd_channel_pairs,
-        model_parameters: Some(ModelParameters {
-            dm,
-            order,
-            nr_tau,
-        }),
-        variant_configs: None,
+        model_parameters: Some(ModelParameters { dm, order, nr_tau }),
+        model_terms: model_terms.filter(|terms| !terms.is_empty()),
+        variant_configs: variant_configs.filter(|cfg| !cfg.is_empty()),
         sampling_rate: sr,
     })
 }
@@ -234,62 +442,62 @@ mod tests {
 
     #[test]
     fn test_validate_common_params_empty_channels() {
-        let result = validate_common_params(
-            &[],
-            &["ST".to_string()],
-            &[7, 10],
-            200,
-            100,
-            &None,
-            &None,
-        );
+        let result =
+            validate_common_params(&[], &["ST".to_string()], &[7, 10], 200, 100, &None, &None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("channel"));
     }
 
     #[test]
     fn test_validate_common_params_invalid_variant() {
-        let result = validate_common_params(
-            &[0],
-            &["INVALID".to_string()],
-            &[7],
-            200,
-            100,
-            &None,
-            &None,
-        );
+        let result =
+            validate_common_params(&[0], &["INVALID".to_string()], &[7], 200, 100, &None, &None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Unknown variant"));
     }
 
     #[test]
     fn test_validate_common_params_delay_out_of_range() {
-        let result = validate_common_params(
-            &[0],
-            &["ST".to_string()],
-            &[200],
-            200,
-            100,
-            &None,
-            &None,
-        );
+        let result =
+            validate_common_params(&[0], &["ST".to_string()], &[200], 200, 100, &None, &None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("out of range"));
     }
 
     #[test]
     fn test_validate_common_params_ws_exceeds_wl() {
-        let result = validate_common_params(
-            &[0],
-            &["ST".to_string()],
-            &[7],
-            100,
-            200,
-            &None,
-            &None,
-        );
+        let result =
+            validate_common_params(&[0], &["ST".to_string()], &[7], 100, 200, &None, &None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("must not exceed"));
+    }
+
+    #[test]
+    fn test_normalize_variants_accepts_app_ids() {
+        let normalized = normalize_variants(&[
+            "single_timeseries".to_string(),
+            "cross_dynamical".to_string(),
+            "SY".to_string(),
+        ])
+        .unwrap();
+        assert_eq!(normalized, vec!["ST", "CD", "SY"]);
+    }
+
+    #[test]
+    fn test_load_variant_configs_accepts_wrapped_shape() {
+        let tmp = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+
+        let json = r#"{
+          "variant_configs": {
+            "single_timeseries": { "selectedChannels": [0, 2] },
+            "CT": { "ctChannelPairs": [[0, 1]] }
+          }
+        }"#;
+        std::fs::write(tmp.path(), json).unwrap();
+
+        let cfgs = load_variant_configs(tmp.path().to_str().unwrap()).unwrap();
+        assert!(cfgs.contains_key("single_timeseries"));
+        assert!(cfgs.contains_key("cross_timeseries"));
     }
 
     #[test]
@@ -301,6 +509,7 @@ mod tests {
             200,
             100,
             &[7, 10],
+            None,
             4,
             4,
             2,
@@ -328,6 +537,7 @@ mod tests {
             200,
             100,
             &[7],
+            None,
             4,
             4,
             2,
@@ -340,8 +550,8 @@ mod tests {
             None,
         )
         .unwrap();
-        assert_eq!(request.window_parameters.ct_window_length, Some(2));
-        assert_eq!(request.window_parameters.ct_window_step, Some(2));
+        assert_eq!(request.window_parameters.ct_window_length, Some(200));
+        assert_eq!(request.window_parameters.ct_window_step, Some(100));
         assert_eq!(request.ct_channel_pairs.unwrap(), vec![[0, 1]]);
     }
 

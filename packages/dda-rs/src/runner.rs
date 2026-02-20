@@ -1,6 +1,9 @@
 use crate::error::{DDAError, Result};
-use crate::types::{DDARequest, DDAResult};
-use std::collections::{HashMap, HashSet};
+use crate::types::{
+    DDARequest, DDAResult, DEFAULT_MODEL_DIMENSION, DEFAULT_MODEL_TERMS, DEFAULT_NUM_TAU,
+    DEFAULT_POLYNOMIAL_ORDER,
+};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -57,6 +60,130 @@ fn get_variant_stride(variant_id: &str) -> Option<usize> {
         "DE" | "SY" => Some(1),
         _ => None,
     }
+}
+
+fn normalize_variant_token(token: &str) -> Option<&'static str> {
+    match token.trim().to_ascii_uppercase().as_str() {
+        "ST" | "SINGLE_TIMESERIES" | "SINGLE-TIMESERIES" | "SINGLE TIMESERIES" => Some("ST"),
+        "CT" | "CROSS_TIMESERIES" | "CROSS-TIMESERIES" | "CROSS TIMESERIES" => Some("CT"),
+        "CD" | "CROSS_DYNAMICAL" | "CROSS-DYNAMICAL" | "CROSS DYNAMICAL" => Some("CD"),
+        "DE" | "DYNAMICAL_ERGODICITY" | "DELAY_EMBEDDING" | "DYNAMICAL ERGODICITY" => Some("DE"),
+        "SY" | "SYNCHRONIZATION" | "SYNCHRONY" => Some("SY"),
+        _ => None,
+    }
+}
+
+fn normalize_select_mask(mask: &str) -> Option<String> {
+    let bits: Vec<&str> = mask.split_whitespace().collect();
+    if bits.len() != 6 || bits.iter().any(|bit| *bit != "0" && *bit != "1") {
+        return None;
+    }
+    Some(bits.join(" "))
+}
+
+fn resolve_select_mask(request: &DDARequest) -> String {
+    if let Some(mask) = request.algorithm_selection.select_mask.as_deref() {
+        if let Some(normalized_mask) = normalize_select_mask(mask) {
+            return normalized_mask;
+        }
+        log::warn!(
+            "Ignoring invalid select_mask='{}'; expected 6 whitespace-separated 0/1 bits",
+            mask
+        );
+    }
+
+    if !request.algorithm_selection.enabled_variants.is_empty() {
+        let normalized_variants: Vec<&str> = request
+            .algorithm_selection
+            .enabled_variants
+            .iter()
+            .filter_map(|token| {
+                let normalized = normalize_variant_token(token);
+                if normalized.is_none() {
+                    log::warn!("Ignoring unknown enabled variant token '{}'", token);
+                }
+                normalized
+            })
+            .collect();
+        if !normalized_variants.is_empty() {
+            let mask = crate::variants::generate_select_mask(&normalized_variants);
+            return crate::variants::format_select_mask(&mask);
+        }
+    }
+
+    "1 0 0 0 0 0".to_string()
+}
+
+fn resolve_ct_pairs(request: &DDARequest) -> Vec<[usize; 2]> {
+    if let Some(pairs) = &request.ct_channel_pairs {
+        if !pairs.is_empty() {
+            return pairs.clone();
+        }
+    }
+
+    if let Some(configs) = &request.variant_configs {
+        if let Some(config) = configs.get("CT").or_else(|| configs.get("ct")) {
+            if let Some(pairs) = &config.ct_channel_pairs {
+                if !pairs.is_empty() {
+                    return pairs.clone();
+                }
+            }
+        }
+    }
+
+    let Some(channels) = &request.channels else {
+        return Vec::new();
+    };
+    if channels.len() < 2 {
+        return Vec::new();
+    }
+
+    let mut pairs = Vec::new();
+    for i in 0..channels.len() {
+        for j in (i + 1)..channels.len() {
+            pairs.push([channels[i], channels[j]]);
+        }
+    }
+    pairs
+}
+
+fn resolve_cd_pairs(request: &DDARequest) -> Vec<[usize; 2]> {
+    if let Some(pairs) = &request.cd_channel_pairs {
+        if !pairs.is_empty() {
+            return pairs.clone();
+        }
+    }
+
+    if let Some(configs) = &request.variant_configs {
+        if let Some(config) = configs.get("CD").or_else(|| configs.get("cd")) {
+            if let Some(pairs) = &config.cd_channel_pairs {
+                if !pairs.is_empty() {
+                    return pairs.clone();
+                }
+            }
+        }
+    }
+
+    let Some(channels) = &request.channels else {
+        return Vec::new();
+    };
+    if channels.len() < 2 {
+        return Vec::new();
+    }
+
+    let mut pairs = Vec::new();
+    for i in 0..channels.len() {
+        for j in 0..channels.len() {
+            if i != j {
+                pairs.push([channels[i], channels[j]]);
+            }
+        }
+    }
+    pairs
+}
+
+fn non_negative_floor_to_u64(value: f64) -> u64 {
+    value.max(0.0).floor() as u64
 }
 
 /// Output from executing the DDA binary.
@@ -210,6 +337,7 @@ impl DDARunner {
         select_mask: &str,
         start_bound: Option<u64>,
         end_bound: Option<u64>,
+        ensure_ct_window_params: bool,
     ) -> Result<Vec<String>> {
         let input_path_str = input_file.to_str().ok_or_else(|| {
             DDAError::InvalidParameter(format!("Input path not valid UTF-8: {:?}", input_file))
@@ -233,11 +361,20 @@ impl DDARunner {
         let model = request.model_parameters.as_ref();
         args.extend([
             "-dm".to_string(),
-            model.map(|m| m.dm).unwrap_or(4).to_string(),
+            model
+                .map(|m| m.dm)
+                .unwrap_or(DEFAULT_MODEL_DIMENSION)
+                .to_string(),
             "-order".to_string(),
-            model.map(|m| m.order).unwrap_or(4).to_string(),
+            model
+                .map(|m| m.order)
+                .unwrap_or(DEFAULT_POLYNOMIAL_ORDER)
+                .to_string(),
             "-nr_tau".to_string(),
-            model.map(|m| m.nr_tau).unwrap_or(2).to_string(),
+            model
+                .map(|m| m.nr_tau)
+                .unwrap_or(DEFAULT_NUM_TAU)
+                .to_string(),
             "-WL".to_string(),
             request.window_parameters.window_length.to_string(),
             "-WS".to_string(),
@@ -247,17 +384,26 @@ impl DDARunner {
         args.push("-SELECT".to_string());
         args.extend(select_mask.split_whitespace().map(String::from));
 
-        args.extend([
-            "-MODEL".to_string(),
-            "1".to_string(),
-            "2".to_string(),
-            "10".to_string(),
-        ]);
+        args.push("-MODEL".to_string());
+        let model_terms = request
+            .model_terms
+            .as_deref()
+            .filter(|terms| !terms.is_empty())
+            .unwrap_or(&DEFAULT_MODEL_TERMS);
+        args.extend(model_terms.iter().map(|m| m.to_string()));
 
-        if let Some(ct_wl) = request.window_parameters.ct_window_length {
+        let ct_wl = request
+            .window_parameters
+            .ct_window_length
+            .unwrap_or(request.window_parameters.window_length);
+        let ct_ws = request
+            .window_parameters
+            .ct_window_step
+            .unwrap_or(request.window_parameters.window_step);
+        if ensure_ct_window_params || request.window_parameters.ct_window_length.is_some() {
             args.extend(["-WL_CT".to_string(), ct_wl.to_string()]);
         }
-        if let Some(ct_ws) = request.window_parameters.ct_window_step {
+        if ensure_ct_window_params || request.window_parameters.ct_window_step.is_some() {
             args.extend(["-WS_CT".to_string(), ct_ws.to_string()]);
         }
 
@@ -271,6 +417,11 @@ impl DDARunner {
         );
 
         if let (Some(start), Some(end)) = (start_bound, end_bound) {
+            args.extend(["-StartEnd".to_string(), start.to_string(), end.to_string()]);
+        } else if request.time_range.start > 0.0 || request.time_range.end < f64::MAX {
+            let start = non_negative_floor_to_u64(request.time_range.start);
+            let end = non_negative_floor_to_u64(request.time_range.end);
+            let end = end.max(start);
             args.extend(["-StartEnd".to_string(), start.to_string(), end.to_string()]);
         }
 
@@ -384,13 +535,8 @@ impl DDARunner {
             vec!["1".to_string()]
         };
 
-        // Determine SELECT mask from request or default
-        let select_mask = request
-            .algorithm_selection
-            .select_mask
-            .as_ref()
-            .map(|s| s.as_str())
-            .unwrap_or("1 0 0 0 0 0");
+        // Determine SELECT mask from request, enabled variants, or default.
+        let select_mask = resolve_select_mask(request);
 
         // Parse SELECT mask to check which variants are enabled
         let select_bits: Vec<&str> = select_mask.split_whitespace().collect();
@@ -483,6 +629,7 @@ impl DDARunner {
                 &group1_mask,
                 start_bound,
                 end_bound,
+                de_enabled,
             )?;
 
             log::info!("Executing DDA (ST/DE/SY) with directory scanning");
@@ -515,137 +662,109 @@ impl DDARunner {
 
         // --- Execution Group 2: CT (Cross-Timeseries) ---
         if ct_enabled {
-            if let Some(pairs) = &request.ct_channel_pairs {
-                if !pairs.is_empty() {
-                    log::info!("Processing {} CT pairs sequentially", pairs.len());
+            let ct_pairs = resolve_ct_pairs(request);
+            if !ct_pairs.is_empty() {
+                log::info!("Processing {} CT pairs sequentially", ct_pairs.len());
 
-                    let mut combined_ct_matrix = Vec::new();
-                    let mut ct_error_values = Vec::new();
+                let mut combined_ct_matrix = Vec::new();
+                let mut ct_error_values = Vec::new();
 
-                    for (pair_idx, pair) in pairs.iter().enumerate() {
-                        let pair_output_file = temp_dir.path().join(format!(
-                            "dda_output_{}_ct_pair{}.txt",
-                            analysis_id, pair_idx
-                        ));
+                for (pair_idx, pair) in ct_pairs.iter().enumerate() {
+                    let pair_output_file = temp_dir.path().join(format!(
+                        "dda_output_{}_ct_pair{}.txt",
+                        analysis_id, pair_idx
+                    ));
 
-                        let pair_channels =
-                            vec![(pair[0] + 1).to_string(), (pair[1] + 1).to_string()];
+                    let pair_channels = vec![(pair[0] + 1).to_string(), (pair[1] + 1).to_string()];
 
-                        let mut args = self.build_common_args(
-                            &actual_input_file,
-                            &pair_output_file,
-                            file_type_flag,
-                            &pair_channels,
-                            request,
-                            "0 1 0 0 0 0",
-                            start_bound,
-                            end_bound,
-                        )?;
+                    let args = self.build_common_args(
+                        &actual_input_file,
+                        &pair_output_file,
+                        file_type_flag,
+                        &pair_channels,
+                        request,
+                        "0 1 0 0 0 0",
+                        start_bound,
+                        end_bound,
+                        true,
+                    )?;
 
-                        // Add CT-specific window params
-                        let ct_wl = request.window_parameters.ct_window_length.unwrap_or(2);
-                        let ct_ws = request.window_parameters.ct_window_step.unwrap_or(2);
-                        if request.window_parameters.ct_window_length.is_none() {
-                            args.extend(["-WL_CT".to_string(), ct_wl.to_string()]);
-                        }
-                        if request.window_parameters.ct_window_step.is_none() {
-                            args.extend(["-WS_CT".to_string(), ct_ws.to_string()]);
-                        }
+                    let output = self.execute_binary(args, temp_dir.path(), 3600).await?;
 
-                        let output = self.execute_binary(args, temp_dir.path(), 3600).await?;
+                    for line in &output.stdout_lines {
+                        log::info!("DDA CT pair {} output: {}", pair_idx, line);
+                    }
 
-                        for line in &output.stdout_lines {
-                            log::info!("DDA CT pair {} output: {}", pair_idx, line);
-                        }
-
-                        if output.success {
-                            let results =
-                                self.process_output_files(&output.new_files, &["CT"]).await;
-                            for (_, matrix, errors) in results {
-                                combined_ct_matrix.extend(matrix);
-                                if ct_error_values.is_empty() {
-                                    ct_error_values = errors;
-                                }
+                    if output.success {
+                        let results = self.process_output_files(&output.new_files, &["CT"]).await;
+                        for (_, matrix, errors) in results {
+                            combined_ct_matrix.extend(matrix);
+                            if ct_error_values.is_empty() {
+                                ct_error_values = errors;
                             }
                         }
                     }
-
-                    if !combined_ct_matrix.is_empty() {
-                        variant_matrices.push((
-                            "CT".to_string(),
-                            combined_ct_matrix,
-                            ct_error_values,
-                        ));
-                    }
                 }
+
+                if !combined_ct_matrix.is_empty() {
+                    variant_matrices.push(("CT".to_string(), combined_ct_matrix, ct_error_values));
+                }
+            } else {
+                log::warn!("CT selected but no channel pairs resolved; skipping CT execution");
             }
         }
 
         // --- Execution Group 3: CD (Cross-Dynamical) ---
         if cd_enabled {
-            if let Some(pairs) = &request.cd_channel_pairs {
-                if !pairs.is_empty() {
-                    log::info!("Processing {} CD pairs sequentially", pairs.len());
+            let cd_pairs = resolve_cd_pairs(request);
+            if !cd_pairs.is_empty() {
+                log::info!("Processing {} CD pairs sequentially", cd_pairs.len());
 
-                    let mut combined_cd_matrix = Vec::new();
-                    let mut cd_error_values = Vec::new();
+                let mut combined_cd_matrix = Vec::new();
+                let mut cd_error_values = Vec::new();
 
-                    for (pair_idx, pair) in pairs.iter().enumerate() {
-                        let pair_output_file = temp_dir.path().join(format!(
-                            "dda_output_{}_cd_pair{}.txt",
-                            analysis_id, pair_idx
-                        ));
+                for (pair_idx, pair) in cd_pairs.iter().enumerate() {
+                    let pair_output_file = temp_dir.path().join(format!(
+                        "dda_output_{}_cd_pair{}.txt",
+                        analysis_id, pair_idx
+                    ));
 
-                        let pair_channels =
-                            vec![(pair[0] + 1).to_string(), (pair[1] + 1).to_string()];
+                    let pair_channels = vec![(pair[0] + 1).to_string(), (pair[1] + 1).to_string()];
 
-                        let mut args = self.build_common_args(
-                            &actual_input_file,
-                            &pair_output_file,
-                            file_type_flag,
-                            &pair_channels,
-                            request,
-                            "0 0 1 0 0 0",
-                            start_bound,
-                            end_bound,
-                        )?;
+                    let args = self.build_common_args(
+                        &actual_input_file,
+                        &pair_output_file,
+                        file_type_flag,
+                        &pair_channels,
+                        request,
+                        "0 0 1 0 0 0",
+                        start_bound,
+                        end_bound,
+                        true,
+                    )?;
 
-                        // Add CT window params (CD uses them)
-                        let ct_wl = request.window_parameters.ct_window_length.unwrap_or(2);
-                        let ct_ws = request.window_parameters.ct_window_step.unwrap_or(2);
-                        if request.window_parameters.ct_window_length.is_none() {
-                            args.extend(["-WL_CT".to_string(), ct_wl.to_string()]);
-                        }
-                        if request.window_parameters.ct_window_step.is_none() {
-                            args.extend(["-WS_CT".to_string(), ct_ws.to_string()]);
-                        }
+                    let output = self.execute_binary(args, temp_dir.path(), 3600).await?;
 
-                        let output = self.execute_binary(args, temp_dir.path(), 3600).await?;
+                    for line in &output.stdout_lines {
+                        log::info!("DDA CD pair {} output: {}", pair_idx, line);
+                    }
 
-                        for line in &output.stdout_lines {
-                            log::info!("DDA CD pair {} output: {}", pair_idx, line);
-                        }
-
-                        if output.success {
-                            let results =
-                                self.process_output_files(&output.new_files, &["CD"]).await;
-                            for (_, matrix, errors) in results {
-                                combined_cd_matrix.extend(matrix);
-                                if cd_error_values.is_empty() {
-                                    cd_error_values = errors;
-                                }
+                    if output.success {
+                        let results = self.process_output_files(&output.new_files, &["CD"]).await;
+                        for (_, matrix, errors) in results {
+                            combined_cd_matrix.extend(matrix);
+                            if cd_error_values.is_empty() {
+                                cd_error_values = errors;
                             }
                         }
                     }
-
-                    if !combined_cd_matrix.is_empty() {
-                        variant_matrices.push((
-                            "CD".to_string(),
-                            combined_cd_matrix,
-                            cd_error_values,
-                        ));
-                    }
                 }
+
+                if !combined_cd_matrix.is_empty() {
+                    variant_matrices.push(("CD".to_string(), combined_cd_matrix, cd_error_values));
+                }
+            } else {
+                log::warn!("CD selected but no directed pairs resolved; skipping CD execution");
             }
         }
 
@@ -682,39 +801,43 @@ impl DDARunner {
             .iter()
             .map(|(id, q, err)| {
                 let channel_labels = if id == "CD" {
-                    request.cd_channel_pairs.as_ref().map(|pairs| {
-                        pairs
-                            .iter()
-                            .map(|p| {
-                                if let Some(names) = edf_channel_names {
-                                    format!(
-                                        "{} -> {}",
-                                        names.get(p[0]).unwrap_or(&"?".into()),
-                                        names.get(p[1]).unwrap_or(&"?".into())
-                                    )
-                                } else {
-                                    format!("Ch{} -> Ch{}", p[0] + 1, p[1] + 1)
-                                }
-                            })
-                            .collect()
-                    })
+                    Some(resolve_cd_pairs(request))
+                        .filter(|pairs| !pairs.is_empty())
+                        .map(|pairs| {
+                            pairs
+                                .iter()
+                                .map(|p| {
+                                    if let Some(names) = edf_channel_names {
+                                        format!(
+                                            "{} -> {}",
+                                            names.get(p[0]).unwrap_or(&"?".into()),
+                                            names.get(p[1]).unwrap_or(&"?".into())
+                                        )
+                                    } else {
+                                        format!("Ch{} -> Ch{}", p[0] + 1, p[1] + 1)
+                                    }
+                                })
+                                .collect()
+                        })
                 } else if id == "CT" {
-                    request.ct_channel_pairs.as_ref().map(|pairs| {
-                        pairs
-                            .iter()
-                            .map(|p| {
-                                if let Some(names) = edf_channel_names {
-                                    format!(
-                                        "{} <-> {}",
-                                        names.get(p[0]).unwrap_or(&"?".into()),
-                                        names.get(p[1]).unwrap_or(&"?".into())
-                                    )
-                                } else {
-                                    format!("Ch{} <-> Ch{}", p[0] + 1, p[1] + 1)
-                                }
-                            })
-                            .collect()
-                    })
+                    Some(resolve_ct_pairs(request))
+                        .filter(|pairs| !pairs.is_empty())
+                        .map(|pairs| {
+                            pairs
+                                .iter()
+                                .map(|p| {
+                                    if let Some(names) = edf_channel_names {
+                                        format!(
+                                            "{} <-> {}",
+                                            names.get(p[0]).unwrap_or(&"?".into()),
+                                            names.get(p[1]).unwrap_or(&"?".into())
+                                        )
+                                    } else {
+                                        format!("Ch{} <-> Ch{}", p[0] + 1, p[1] + 1)
+                                    }
+                                })
+                                .collect()
+                        })
                 } else if let Some(names) = edf_channel_names {
                     let indices = request.channels.as_ref();
                     if let Some(idxs) = indices {
@@ -769,6 +892,48 @@ impl DDARunner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::{
+        AlgorithmSelection, DelayParameters, ModelParameters, PreprocessingOptions, TimeRange,
+        WindowParameters,
+    };
+
+    fn minimal_request() -> DDARequest {
+        DDARequest {
+            file_path: "/tmp/input.edf".to_string(),
+            channels: Some(vec![0, 1, 2]),
+            time_range: TimeRange {
+                start: 0.0,
+                end: f64::MAX,
+            },
+            preprocessing_options: PreprocessingOptions {
+                highpass: None,
+                lowpass: None,
+            },
+            algorithm_selection: AlgorithmSelection {
+                enabled_variants: vec!["ST".to_string()],
+                select_mask: None,
+            },
+            window_parameters: WindowParameters {
+                window_length: 200,
+                window_step: 100,
+                ct_window_length: None,
+                ct_window_step: None,
+            },
+            delay_parameters: DelayParameters {
+                delays: vec![7, 10],
+            },
+            ct_channel_pairs: None,
+            cd_channel_pairs: None,
+            model_parameters: Some(ModelParameters {
+                dm: 4,
+                order: 4,
+                nr_tau: 2,
+            }),
+            model_terms: None,
+            variant_configs: None,
+            sampling_rate: None,
+        }
+    }
 
     #[test]
     fn test_runner_creation_invalid_path() {
@@ -817,5 +982,53 @@ mod tests {
         let new_files = find_new_files(&before, &after);
         assert_eq!(new_files.len(), 1);
         assert!(new_files.contains(&PathBuf::from("/c")));
+    }
+
+    #[test]
+    fn test_resolve_select_mask_from_enabled_variants() {
+        let mut request = minimal_request();
+        request.algorithm_selection.enabled_variants = vec![
+            "cross_timeseries".to_string(),
+            "synchronization".to_string(),
+        ];
+        request.algorithm_selection.select_mask = None;
+        assert_eq!(resolve_select_mask(&request), "0 1 0 0 0 1");
+    }
+
+    #[test]
+    fn test_resolve_ct_pairs_defaults_from_channels() {
+        let request = minimal_request();
+        let pairs = resolve_ct_pairs(&request);
+        assert_eq!(pairs, vec![[0, 1], [0, 2], [1, 2]]);
+    }
+
+    #[test]
+    fn test_build_common_args_uses_custom_model_terms() {
+        let mut request = minimal_request();
+        request.model_terms = Some(vec![3, 6, 9]);
+
+        let runner = DDARunner {
+            binary_path: PathBuf::from("/tmp/nonexistent"),
+        };
+
+        let args = runner
+            .build_common_args(
+                Path::new("/tmp/input.edf"),
+                Path::new("/tmp/output"),
+                "-EDF",
+                &["1".to_string()],
+                &request,
+                "1 0 0 0 0 0",
+                None,
+                None,
+                false,
+            )
+            .expect("build_common_args should succeed");
+
+        let model_idx = args
+            .iter()
+            .position(|a| a == "-MODEL")
+            .expect("MODEL flag should be present");
+        assert_eq!(&args[model_idx + 1..model_idx + 4], ["3", "6", "9"]);
     }
 }

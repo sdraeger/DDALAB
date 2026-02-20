@@ -7,6 +7,7 @@ use serde::Serialize;
 #[derive(Serialize)]
 struct VariantInfo {
     abbreviation: &'static str,
+    app_id: &'static str,
     name: &'static str,
     position: u8,
     stride: u8,
@@ -18,6 +19,14 @@ pub fn execute(args: VariantsArgs) -> i32 {
     let variants: Vec<VariantInfo> = VariantMetadata::active_variants()
         .map(|v| VariantInfo {
             abbreviation: v.abbreviation,
+            app_id: match v.abbreviation {
+                "ST" => "single_timeseries",
+                "CT" => "cross_timeseries",
+                "CD" => "cross_dynamical",
+                "DE" => "dynamical_ergodicity",
+                "SY" => "synchronization",
+                _ => "unknown",
+            },
             name: v.name,
             position: v.position,
             stride: v.stride,
@@ -42,14 +51,14 @@ pub fn execute(args: VariantsArgs) -> i32 {
     } else {
         println!("Available DDA Variants:\n");
         println!(
-            "  {:<8} {:<24} {:<4} {:<8} {:<16}",
-            "Abbrev", "Name", "Pos", "Stride", "Channels"
+            "  {:<8} {:<24} {:<24} {:<4} {:<8} {:<16}",
+            "Abbrev", "App ID", "Name", "Pos", "Stride", "Channels"
         );
-        println!("  {}", "-".repeat(64));
+        println!("  {}", "-".repeat(92));
         for v in &variants {
             println!(
-                "  {:<8} {:<24} {:<4} {:<8} {:<16}",
-                v.abbreviation, v.name, v.position, v.stride, v.channel_format
+                "  {:<8} {:<24} {:<24} {:<4} {:<8} {:<16}",
+                v.abbreviation, v.app_id, v.name, v.position, v.stride, v.channel_format
             );
         }
         println!();

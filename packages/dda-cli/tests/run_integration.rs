@@ -18,9 +18,7 @@ fn get_test_paths() -> Option<(PathBuf, PathBuf)> {
     // Try multiple binary locations
     let binary_candidates = [
         project_root.join("bin/run_DDA_AsciiEdf"),
-        PathBuf::from(
-            std::env::var("DDA_BINARY_PATH").unwrap_or_default(),
-        ),
+        PathBuf::from(std::env::var("DDA_BINARY_PATH").unwrap_or_default()),
     ];
 
     let binary = binary_candidates.iter().find(|p| p.exists())?.clone();
@@ -86,7 +84,11 @@ fn test_st_analysis() {
     let variant_results = parsed.get("variant_results").unwrap().as_array().unwrap();
     assert!(!variant_results.is_empty());
     assert_eq!(
-        variant_results[0].get("variant_id").unwrap().as_str().unwrap(),
+        variant_results[0]
+            .get("variant_id")
+            .unwrap()
+            .as_str()
+            .unwrap(),
         "ST"
     );
 }
@@ -124,7 +126,10 @@ fn test_compact_output() {
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
     // Compact JSON should be a single line (no newlines in the JSON itself)
     let json_part = stdout.trim();
-    assert!(!json_part.contains('\n'), "Compact JSON should be a single line");
+    assert!(
+        !json_part.contains('\n'),
+        "Compact JSON should be a single line"
+    );
     // Verify it's valid JSON
     let _: serde_json::Value = serde_json::from_str(json_part).unwrap();
 }
@@ -136,10 +141,7 @@ fn test_output_to_file() {
         return;
     };
 
-    let output_file = tempfile::Builder::new()
-        .suffix(".json")
-        .tempfile()
-        .unwrap();
+    let output_file = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
     let output_path = output_file.path().to_str().unwrap().to_string();
 
     ddalab()

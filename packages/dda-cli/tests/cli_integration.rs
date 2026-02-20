@@ -56,11 +56,7 @@ fn test_variants_subcommand() {
 fn test_variants_table_excludes_reserved_row() {
     // The table rows should not contain RESERVED as a variant,
     // though the footer may mention it in the SELECT mask format.
-    let output = ddalab()
-        .arg("variants")
-        .arg("--json")
-        .assert()
-        .success();
+    let output = ddalab().arg("variants").arg("--json").assert().success();
 
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
@@ -74,11 +70,7 @@ fn test_variants_table_excludes_reserved_row() {
 
 #[test]
 fn test_variants_json() {
-    let output = ddalab()
-        .arg("variants")
-        .arg("--json")
-        .assert()
-        .success();
+    let output = ddalab().arg("variants").arg("--json").assert().success();
 
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
@@ -103,11 +95,7 @@ fn test_info_subcommand() {
 
 #[test]
 fn test_info_json() {
-    let output = ddalab()
-        .arg("info")
-        .arg("--json")
-        .assert()
-        .success();
+    let output = ddalab().arg("info").arg("--json").assert().success();
 
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
@@ -136,10 +124,7 @@ fn test_validate_nonexistent_file() {
 
 #[test]
 fn test_validate_unsupported_extension() {
-    let tmp = tempfile::Builder::new()
-        .suffix(".xyz")
-        .tempfile()
-        .unwrap();
+    let tmp = tempfile::Builder::new().suffix(".xyz").tempfile().unwrap();
 
     ddalab()
         .arg("validate")
@@ -153,10 +138,7 @@ fn test_validate_unsupported_extension() {
 
 #[test]
 fn test_validate_valid_edf_file() {
-    let tmp = tempfile::Builder::new()
-        .suffix(".edf")
-        .tempfile()
-        .unwrap();
+    let tmp = tempfile::Builder::new().suffix(".edf").tempfile().unwrap();
 
     ddalab()
         .arg("validate")
@@ -169,10 +151,7 @@ fn test_validate_valid_edf_file() {
 
 #[test]
 fn test_validate_valid_ascii_file() {
-    let tmp = tempfile::Builder::new()
-        .suffix(".txt")
-        .tempfile()
-        .unwrap();
+    let tmp = tempfile::Builder::new().suffix(".txt").tempfile().unwrap();
 
     ddalab()
         .arg("validate")
@@ -184,10 +163,7 @@ fn test_validate_valid_ascii_file() {
 
 #[test]
 fn test_validate_json_output() {
-    let tmp = tempfile::Builder::new()
-        .suffix(".edf")
-        .tempfile()
-        .unwrap();
+    let tmp = tempfile::Builder::new().suffix(".edf").tempfile().unwrap();
 
     let output = ddalab()
         .arg("validate")
@@ -220,10 +196,7 @@ fn test_run_missing_file_arg() {
 
 #[test]
 fn test_run_missing_channels_arg() {
-    let tmp = tempfile::Builder::new()
-        .suffix(".edf")
-        .tempfile()
-        .unwrap();
+    let tmp = tempfile::Builder::new().suffix(".edf").tempfile().unwrap();
 
     ddalab()
         .arg("run")
@@ -250,10 +223,7 @@ fn test_run_nonexistent_file() {
 
 #[test]
 fn test_run_invalid_variant() {
-    let tmp = tempfile::Builder::new()
-        .suffix(".edf")
-        .tempfile()
-        .unwrap();
+    let tmp = tempfile::Builder::new().suffix(".edf").tempfile().unwrap();
 
     ddalab()
         .arg("run")
@@ -271,10 +241,7 @@ fn test_run_invalid_variant() {
 
 #[test]
 fn test_run_ct_without_pairs() {
-    let tmp = tempfile::Builder::new()
-        .suffix(".edf")
-        .tempfile()
-        .unwrap();
+    let tmp = tempfile::Builder::new().suffix(".edf").tempfile().unwrap();
 
     ddalab()
         .arg("run")
@@ -293,10 +260,7 @@ fn test_run_ct_without_pairs() {
 
 #[test]
 fn test_run_cd_without_pairs() {
-    let tmp = tempfile::Builder::new()
-        .suffix(".edf")
-        .tempfile()
-        .unwrap();
+    let tmp = tempfile::Builder::new().suffix(".edf").tempfile().unwrap();
 
     ddalab()
         .arg("run")
@@ -315,10 +279,7 @@ fn test_run_cd_without_pairs() {
 
 #[test]
 fn test_run_unsupported_file_extension() {
-    let tmp = tempfile::Builder::new()
-        .suffix(".xyz")
-        .tempfile()
-        .unwrap();
+    let tmp = tempfile::Builder::new().suffix(".xyz").tempfile().unwrap();
 
     ddalab()
         .arg("run")

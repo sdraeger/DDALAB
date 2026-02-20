@@ -14,6 +14,7 @@
     "test:dda-py": "cd packages/dda-py && python3 -m pytest tests/test_variants.py tests/test_model_encoding.py -v",
     "test:dda-ts": "cd packages/ddalab-tauri && bunx vitest run src/types/variants.test.ts",
     "test:dda-jl": "cd packages/DelayDifferentialAnalysis.jl && julia --project=. -e 'using Pkg; Pkg.instantiate(); include(\"test/runtests.jl\")'",
+    "test:conformance": "./scripts/run-conformance-suite.sh",
     "test:dda": "bun run test:dda-rs && bun run test:dda-py && bun run test:dda-ts && bun run test:dda-jl",
     "test:dda:parallel": "concurrently -n rs,py,ts,jl -c green,yellow,magenta,cyan \"bun run test:dda-rs\" \"bun run test:dda-py\" \"bun run test:dda-ts\" \"bun run test:dda-jl\"",
     "docs:dev": "cd packages/ddalab-tauri/docs && bun run start",

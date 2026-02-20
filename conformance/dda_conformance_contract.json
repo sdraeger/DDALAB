@@ -1,0 +1,48 @@
+{
+  "contract_version": "1.0.0",
+  "dda_spec_version": "1.0.0",
+  "defaults": {
+    "window_length": 200,
+    "window_step": 100,
+    "model_dimension": 4,
+    "polynomial_order": 4,
+    "num_tau": 2,
+    "model_terms": [1, 2, 10],
+    "delays": [7, 10]
+  },
+  "variant_order": ["ST", "CT", "CD", "RESERVED", "DE", "SY"],
+  "active_variants": ["ST", "CT", "CD", "DE", "SY"],
+  "ct_window_required_for": ["CT", "CD", "DE"],
+  "select_mask_cases": [
+    {
+      "name": "st_only",
+      "variants": ["ST"],
+      "mask": [1, 0, 0, 0, 0, 0]
+    },
+    {
+      "name": "ct_only",
+      "variants": ["CT"],
+      "mask": [0, 1, 0, 0, 0, 0]
+    },
+    {
+      "name": "cd_only",
+      "variants": ["CD"],
+      "mask": [0, 0, 1, 0, 0, 0]
+    },
+    {
+      "name": "de_only",
+      "variants": ["DE"],
+      "mask": [0, 0, 0, 0, 1, 0]
+    },
+    {
+      "name": "sy_only",
+      "variants": ["SY"],
+      "mask": [0, 0, 0, 0, 0, 1]
+    },
+    {
+      "name": "st_ct_de",
+      "variants": ["ST", "CT", "DE"],
+      "mask": [1, 1, 0, 0, 1, 0]
+    }
+  ]
+}

@@ -9,6 +9,59 @@ const BIDS_EXTENSIONS: &[&str] = &["edf", "set", "vhdr", "fif", "csv", "txt"];
 const BIDS_MAX_DEPTH: usize = 6;
 
 pub async fn execute(args: BatchArgs) -> i32 {
+    let normalized_variants = match dda_params::normalize_variants(&args.variants) {
+        Ok(v) => v,
+        Err(msg) => {
+            eprintln!("Error: {}", msg);
+            return exit_codes::INPUT_ERROR;
+        }
+    };
+
+    let parsed_ct_pairs = match args
+        .ct_pairs
+        .as_ref()
+        .map(|pairs| crate::cli::parse_pairs(pairs))
+        .transpose()
+    {
+        Ok(pairs) => pairs,
+        Err(msg) => {
+            eprintln!("Error: {}", msg);
+            return exit_codes::INPUT_ERROR;
+        }
+    };
+
+    let parsed_cd_pairs = match args
+        .cd_pairs
+        .as_ref()
+        .map(|pairs| crate::cli::parse_pairs(pairs))
+        .transpose()
+    {
+        Ok(pairs) => pairs,
+        Err(msg) => {
+            eprintln!("Error: {}", msg);
+            return exit_codes::INPUT_ERROR;
+        }
+    };
+
+    let variant_configs = match args.variant_configs.as_deref() {
+        Some(path) => match dda_params::load_variant_configs(path) {
+            Ok(cfg) => Some(cfg),
+            Err(msg) => {
+                eprintln!("Error: {}", msg);
+                return exit_codes::INPUT_ERROR;
+            }
+        },
+        None => None,
+    };
+
+    let (effective_channels, effective_ct_pairs, effective_cd_pairs) =
+        dda_params::derive_effective_channels_and_pairs(
+            args.channels.clone(),
+            parsed_ct_pairs,
+            parsed_cd_pairs,
+            variant_configs.as_ref(),
+        );
+
     // Resolve file list
     let files = match resolve_files(&args) {
         Ok(f) => f,
@@ -36,13 +89,13 @@ pub async fn execute(args: BatchArgs) -> i32 {
 
     // Validate shared params
     if let Err(msg) = dda_params::validate_common_params(
-        &args.channels,
-        &args.variants,
+        &effective_channels,
+        &normalized_variants,
         &args.delays,
         args.wl,
         args.ws,
-        &args.ct_pairs,
-        &args.cd_pairs,
+        &effective_ct_pairs,
+        &effective_cd_pairs,
     ) {
         eprintln!("Error: {}", msg);
         return exit_codes::INPUT_ERROR;
@@ -86,23 +139,27 @@ pub async fn execute(args: BatchArgs) -> i32 {
         }
 
         // Build request
-        let request = match dda_params::build_dda_request(
+        let request = match dda_params::build_dda_request_with_options(
             file_path,
-            &args.channels,
-            &args.variants,
+            &effective_channels,
+            &normalized_variants,
             args.wl,
             args.ws,
             &args.delays,
+            args.model.clone(),
             args.dm,
             args.order,
             args.nr_tau,
             args.ct_wl,
             args.ct_ws,
-            &args.ct_pairs,
-            &args.cd_pairs,
+            effective_ct_pairs.clone(),
+            effective_cd_pairs.clone(),
             args.sr,
             None,
             None,
+            args.highpass,
+            args.lowpass,
+            variant_configs.clone(),
         ) {
             Ok(r) => r,
             Err(msg) => {
@@ -125,9 +182,7 @@ pub async fn execute(args: BatchArgs) -> i32 {
                             .and_then(|s| s.to_str())
                             .unwrap_or("output");
                         let out_path = Path::new(dir).join(format!("{}_dda.json", stem));
-                        if let Err(e) =
-                            output::write_output(&json, out_path.to_str())
-                        {
+                        if let Err(e) = output::write_output(&json, out_path.to_str()) {
                             eprintln!("  Error writing output: {}", e);
                             failed += 1;
                             if !args.continue_on_error {
@@ -212,8 +267,8 @@ fn resolve_files(args: &BatchArgs) -> Result<Vec<String>, String> {
 }
 
 fn resolve_glob(pattern: &str) -> Result<Vec<String>, String> {
-    let paths = glob::glob(pattern)
-        .map_err(|e| format!("Invalid glob pattern '{}': {}", pattern, e))?;
+    let paths =
+        glob::glob(pattern).map_err(|e| format!("Invalid glob pattern '{}': {}", pattern, e))?;
 
     let mut files: Vec<String> = Vec::new();
     for entry in paths {
@@ -290,18 +345,22 @@ mod tests {
             glob: None,
             files: None,
             bids_dir: None,
-            channels: vec![0, 1, 2],
+            channels: Some(vec![0, 1, 2]),
             variants: vec!["ST".to_string()],
             wl: 200,
             ws: 100,
             ct_wl: None,
             ct_ws: None,
             delays: vec![7, 10],
+            model: None,
             dm: 4,
             order: 4,
             nr_tau: 2,
             ct_pairs: None,
             cd_pairs: None,
+            variant_configs: None,
+            highpass: None,
+            lowpass: None,
             sr: None,
             binary: None,
             output_dir: None,

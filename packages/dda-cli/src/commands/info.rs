@@ -13,6 +13,10 @@ struct InfoOutput {
     platform: String,
     arch: String,
     search_paths: Vec<&'static str>,
+    supported_variants: Vec<&'static str>,
+    accepted_variant_ids: Vec<&'static str>,
+    supports_variant_configs: bool,
+    supports_preprocessing_flags: bool,
 }
 
 pub fn execute(args: InfoArgs) -> i32 {
@@ -29,6 +33,16 @@ pub fn execute(args: InfoArgs) -> i32 {
         platform: std::env::consts::OS.to_string(),
         arch: std::env::consts::ARCH.to_string(),
         search_paths: DEFAULT_BINARY_PATHS.to_vec(),
+        supported_variants: vec!["ST", "CT", "CD", "DE", "SY"],
+        accepted_variant_ids: vec![
+            "single_timeseries",
+            "cross_timeseries",
+            "cross_dynamical",
+            "dynamical_ergodicity",
+            "synchronization",
+        ],
+        supports_variant_configs: true,
+        supports_preprocessing_flags: true,
     };
 
     if args.json {
@@ -57,6 +71,27 @@ pub fn execute(args: InfoArgs) -> i32 {
         println!(
             "Search paths: $DDA_BINARY_PATH, $DDA_HOME/bin, {}",
             info.search_paths.join(", ")
+        );
+        println!("Supported variants: {}", info.supported_variants.join(", "));
+        println!(
+            "Accepted app variant IDs: {}",
+            info.accepted_variant_ids.join(", ")
+        );
+        println!(
+            "Variant config JSON support: {}",
+            if info.supports_variant_configs {
+                "yes"
+            } else {
+                "no"
+            }
+        );
+        println!(
+            "Preprocessing flags (--highpass/--lowpass): {}",
+            if info.supports_preprocessing_flags {
+                "yes"
+            } else {
+                "no"
+            }
         );
     }
 

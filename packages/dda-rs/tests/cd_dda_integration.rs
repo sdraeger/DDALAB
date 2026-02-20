@@ -161,6 +161,7 @@ async fn test_cd_dda_matches_binary_output() {
         ct_channel_pairs: None,
         cd_channel_pairs: Some(cd_pairs.clone()),
         model_parameters: None,
+        model_terms: None,
         variant_configs: None,
         sampling_rate: None,
     };
