@@ -11,11 +11,11 @@ use ddalab_server::{
     cli::{Cli, Commands},
     config::ServerConfig,
     handlers::{
-        add_team_member, cancel_job, create_share, create_team, debug_auth_hash, delete_team,
-        download_job_results, get_job_status, get_queue_stats, get_share, get_team, health_check,
-        job_progress_stream, key_exchange, list_institution_teams, list_jobs, list_my_teams,
-        list_server_files, list_user_shares, login, logout, remove_team_member, revoke_share,
-        server_info, submit_server_file_job, upload_and_submit_job, validate_session,
+        add_team_member, cancel_job, create_share, create_team, delete_team, download_job_results,
+        get_job_status, get_queue_stats, get_share, get_team, health_check, job_progress_stream,
+        key_exchange, list_institution_teams, list_jobs, list_my_teams, list_server_files,
+        list_user_shares, login, logout, remove_team_member, revoke_share, server_info,
+        submit_server_file_job, upload_and_submit_job, validate_session,
     },
     state::ServerState,
     storage::{AuditStore, PostgresAuditStore, PostgresShareStore, PostgresUserStore, UserStore},
@@ -214,7 +214,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let protected_routes = Router::new()
         .route("/auth/logout", post(logout))
         .route("/auth/session", get(validate_session))
-        .route("/debug/auth-hash", get(debug_auth_hash))
         .route("/api/shares", post(create_share))
         .route("/api/shares/{token}", get(get_share))
         .route("/api/shares/{token}", delete(revoke_share))

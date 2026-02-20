@@ -65,21 +65,3 @@ pub async fn server_info(
         },
     })
 }
-
-/// Debug response for auth hash verification
-#[derive(Debug, Serialize)]
-pub struct DebugAuthResponse {
-    pub auth_hash: String,
-    pub auth_required: bool,
-}
-
-/// Debug endpoint to verify auth hash (for troubleshooting only)
-pub async fn debug_auth_hash(
-    State(state): State<Arc<ServerState>>,
-) -> Json<DebugAuthResponse> {
-    use crate::sync::hash_psk;
-    Json(DebugAuthResponse {
-        auth_hash: hash_psk(&state.config.broker_password),
-        auth_required: state.config.require_auth,
-    })
-}
