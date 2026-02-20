@@ -4,6 +4,59 @@ use crate::exit_codes;
 use crate::output;
 
 pub async fn execute(args: RunArgs) -> i32 {
+    let normalized_variants = match dda_params::normalize_variants(&args.variants) {
+        Ok(v) => v,
+        Err(msg) => {
+            eprintln!("Error: {}", msg);
+            return exit_codes::INPUT_ERROR;
+        }
+    };
+
+    let parsed_ct_pairs = match args
+        .ct_pairs
+        .as_ref()
+        .map(|pairs| crate::cli::parse_pairs(pairs))
+        .transpose()
+    {
+        Ok(pairs) => pairs,
+        Err(msg) => {
+            eprintln!("Error: {}", msg);
+            return exit_codes::INPUT_ERROR;
+        }
+    };
+
+    let parsed_cd_pairs = match args
+        .cd_pairs
+        .as_ref()
+        .map(|pairs| crate::cli::parse_pairs(pairs))
+        .transpose()
+    {
+        Ok(pairs) => pairs,
+        Err(msg) => {
+            eprintln!("Error: {}", msg);
+            return exit_codes::INPUT_ERROR;
+        }
+    };
+
+    let variant_configs = match args.variant_configs.as_deref() {
+        Some(path) => match dda_params::load_variant_configs(path) {
+            Ok(cfg) => Some(cfg),
+            Err(msg) => {
+                eprintln!("Error: {}", msg);
+                return exit_codes::INPUT_ERROR;
+            }
+        },
+        None => None,
+    };
+
+    let (effective_channels, effective_ct_pairs, effective_cd_pairs) =
+        dda_params::derive_effective_channels_and_pairs(
+            args.channels.clone(),
+            parsed_ct_pairs,
+            parsed_cd_pairs,
+            variant_configs.as_ref(),
+        );
+
     // Validate file
     if let Err(msg) = dda_params::validate_file(&args.file) {
         eprintln!("Error: {}", msg);
@@ -12,13 +65,13 @@ pub async fn execute(args: RunArgs) -> i32 {
 
     // Validate shared params
     if let Err(msg) = dda_params::validate_common_params(
-        &args.channels,
-        &args.variants,
+        &effective_channels,
+        &normalized_variants,
         &args.delays,
         args.wl,
         args.ws,
-        &args.ct_pairs,
-        &args.cd_pairs,
+        &effective_ct_pairs,
+        &effective_cd_pairs,
     ) {
         eprintln!("Error: {}", msg);
         return exit_codes::INPUT_ERROR;
@@ -34,23 +87,27 @@ pub async fn execute(args: RunArgs) -> i32 {
     };
 
     // Build DDARequest
-    let request = match dda_params::build_dda_request(
+    let request = match dda_params::build_dda_request_with_options(
         &args.file,
-        &args.channels,
-        &args.variants,
+        &effective_channels,
+        &normalized_variants,
         args.wl,
         args.ws,
         &args.delays,
+        args.model.clone(),
         args.dm,
         args.order,
         args.nr_tau,
         args.ct_wl,
         args.ct_ws,
-        &args.ct_pairs,
-        &args.cd_pairs,
+        effective_ct_pairs,
+        effective_cd_pairs,
         args.sr,
         args.start,
         args.end,
+        args.highpass,
+        args.lowpass,
+        variant_configs,
     ) {
         Ok(r) => r,
         Err(msg) => {
@@ -60,14 +117,25 @@ pub async fn execute(args: RunArgs) -> i32 {
     };
 
     // Compute sample bounds
-    let (start_bound, end_bound) =
-        dda_params::compute_bounds(args.start, args.end, args.start_sample, args.end_sample, args.sr);
+    let (start_bound, end_bound) = dda_params::compute_bounds(
+        args.start,
+        args.end,
+        args.start_sample,
+        args.end_sample,
+        args.sr,
+    );
 
     if !args.quiet {
         eprintln!("Running DDA analysis on {}...", args.file);
-        eprintln!("  Variants: {}", args.variants.join(", "));
-        eprintln!("  Channels: {:?}", args.channels);
+        eprintln!("  Variants: {}", normalized_variants.join(", "));
+        eprintln!("  Channels: {:?}", effective_channels);
         eprintln!("  Window: length={}, step={}", args.wl, args.ws);
+        if args.highpass.is_some() || args.lowpass.is_some() {
+            eprintln!(
+                "  Preprocessing: highpass={:?}, lowpass={:?}",
+                args.highpass, args.lowpass
+            );
+        }
     }
 
     // Execute analysis
@@ -106,18 +174,22 @@ mod tests {
     fn make_test_args() -> RunArgs {
         RunArgs {
             file: "/tmp/test.edf".to_string(),
-            channels: vec![0, 1, 2],
+            channels: Some(vec![0, 1, 2]),
             variants: vec!["ST".to_string()],
             wl: 200,
             ws: 100,
             ct_wl: None,
             ct_ws: None,
             delays: vec![7, 10],
+            model: None,
             dm: 4,
             order: 4,
             nr_tau: 2,
             ct_pairs: None,
             cd_pairs: None,
+            variant_configs: None,
+            highpass: None,
+            lowpass: None,
             start: None,
             end: None,
             start_sample: None,
@@ -132,19 +204,17 @@ mod tests {
 
     #[test]
     fn test_build_request_defaults() {
-        let tmp = tempfile::Builder::new()
-            .suffix(".edf")
-            .tempfile()
-            .unwrap();
+        let tmp = tempfile::Builder::new().suffix(".edf").tempfile().unwrap();
         let args = make_test_args();
 
         let request = dda_params::build_dda_request(
             tmp.path().to_str().unwrap(),
-            &args.channels,
+            args.channels.as_deref().unwrap(),
             &args.variants,
             args.wl,
             args.ws,
             &args.delays,
+            args.model.clone(),
             args.dm,
             args.order,
             args.nr_tau,
@@ -169,21 +239,19 @@ mod tests {
 
     #[test]
     fn test_build_request_with_ct_pairs() {
-        let tmp = tempfile::Builder::new()
-            .suffix(".edf")
-            .tempfile()
-            .unwrap();
+        let tmp = tempfile::Builder::new().suffix(".edf").tempfile().unwrap();
         let mut args = make_test_args();
         args.variants = vec!["CT".to_string()];
         args.ct_pairs = Some(vec!["0,1".to_string(), "0,2".to_string()]);
 
         let request = dda_params::build_dda_request(
             tmp.path().to_str().unwrap(),
-            &args.channels,
+            args.channels.as_deref().unwrap(),
             &args.variants,
             args.wl,
             args.ws,
             &args.delays,
+            args.model.clone(),
             args.dm,
             args.order,
             args.nr_tau,
@@ -198,20 +266,17 @@ mod tests {
         .unwrap();
         let pairs = request.ct_channel_pairs.unwrap();
         assert_eq!(pairs, vec![[0, 1], [0, 2]]);
-        assert_eq!(request.window_parameters.ct_window_length, Some(2));
-        assert_eq!(request.window_parameters.ct_window_step, Some(2));
+        assert_eq!(request.window_parameters.ct_window_length, Some(200));
+        assert_eq!(request.window_parameters.ct_window_step, Some(100));
     }
 
     #[test]
     fn test_validate_invalid_variant() {
-        let tmp = tempfile::Builder::new()
-            .suffix(".edf")
-            .tempfile()
-            .unwrap();
+        let tmp = tempfile::Builder::new().suffix(".edf").tempfile().unwrap();
         let args = make_test_args();
 
         let result = dda_params::validate_common_params(
-            &args.channels,
+            args.channels.as_deref().unwrap(),
             &["INVALID".to_string()],
             &args.delays,
             args.wl,

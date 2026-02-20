@@ -22,10 +22,7 @@ pub fn execute(args: ValidateArgs) -> i32 {
     let exists = path.exists();
     let readable = path.is_file() && std::fs::File::open(path).is_ok();
 
-    let extension = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("");
+    let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
     let file_type = FileType::from_extension(extension);
     let supported = file_type.is_some();

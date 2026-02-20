@@ -61,6 +61,7 @@ async fn test_st_variant() {
         ct_channel_pairs: None,
         cd_channel_pairs: None,
         model_parameters: None,
+        model_terms: None,
         variant_configs: None,
         sampling_rate: None,
     };
@@ -119,6 +120,7 @@ async fn test_ct_variant() {
         ct_channel_pairs: Some(ct_pairs.clone()),
         cd_channel_pairs: None,
         model_parameters: None,
+        model_terms: None,
         variant_configs: None,
         sampling_rate: None,
     };
@@ -175,6 +177,7 @@ async fn test_de_variant() {
         ct_channel_pairs: None,
         cd_channel_pairs: None,
         model_parameters: None,
+        model_terms: None,
         variant_configs: None,
         sampling_rate: None,
     };
@@ -231,6 +234,7 @@ async fn test_sy_variant() {
         ct_channel_pairs: None,
         cd_channel_pairs: None,
         model_parameters: None,
+        model_terms: None,
         variant_configs: None,
         sampling_rate: None,
     };
@@ -292,6 +296,7 @@ async fn test_multiple_variants() {
         ct_channel_pairs: Some(ct_pairs),
         cd_channel_pairs: None,
         model_parameters: None,
+        model_terms: None,
         variant_configs: None,
         sampling_rate: None,
     };

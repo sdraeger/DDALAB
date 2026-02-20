@@ -20,6 +20,7 @@ It combines a modern, responsive user interface with a high-performance **Rust**
   - [Prerequisites](#prerequisites)
   - [Getting Started](#getting-started)
   - [Production Build](#production-build)
+- [Conformance & Parity](#conformance--parity)
 - [Configuration & Data Storage](#configuration--data-storage)
 - [Citation](#citation)
 - [Acknowledgments](#acknowledgments)
@@ -74,7 +75,7 @@ These events often cover advanced DDA workflows, data interpretation strategies,
 - **HPC Integration:** Run large-scale computations on the **Neuroscience Gateway (NSG)** for free using your institutional credentials.
 - **Complete Data Privacy:** Zero cloud dependency—all computation is local.
 - **Interactive Visualization:** Real-time heatmaps and time-series plots powered by ECharts.
-- **Multi-Variant DDA:** Support for both classic DDA and cross-time-series (CT) variants.
+- **Multi-Variant DDA:** Support for ST, CT, CD, DE, and SY variants with per-variant channel configuration.
 - **Persistent History:** Analyses and metadata are stored locally using SQLite.
 
 ## Architecture Overview
@@ -130,6 +131,12 @@ To start the broker:
 
 `bun run tauri build`
 Artifacts are generated in `src-tauri/target/release/bundle/`.
+
+## Conformance & Parity
+
+- Shared cross-language contract: `conformance/dda_conformance_contract.json`
+- Unified conformance runner: `bun run test:conformance`
+- Formal parity matrix: `docs/feature-parity.md`
 
 ## Configuration & Data Storage
 

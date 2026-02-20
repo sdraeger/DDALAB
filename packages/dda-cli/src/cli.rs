@@ -38,19 +38,23 @@ pub struct RunArgs {
     pub file: String,
 
     /// 0-based channel indices
+    /// Optional when --variant-configs provides per-variant channels/pairs.
     #[arg(long, num_args = 1..)]
-    pub channels: Vec<usize>,
+    pub channels: Option<Vec<usize>>,
 
-    /// Variant abbreviations to run (ST, CT, CD, DE, SY)
+    /// Variants to run.
+    /// Accepts abbreviations (ST, CT, CD, DE, SY) and app IDs
+    /// (single_timeseries, cross_timeseries, cross_dynamical,
+    ///  dynamical_ergodicity, synchronization).
     #[arg(long, default_values_t = vec!["ST".to_string()], num_args = 1..)]
     pub variants: Vec<String>,
 
     /// Window length in samples
-    #[arg(long, default_value_t = 200)]
+    #[arg(long, default_value_t = dda_rs::DEFAULT_WINDOW_LENGTH)]
     pub wl: u32,
 
     /// Window step in samples
-    #[arg(long, default_value_t = 100)]
+    #[arg(long, default_value_t = dda_rs::DEFAULT_WINDOW_STEP)]
     pub ws: u32,
 
     /// CT-specific window length
@@ -62,19 +66,28 @@ pub struct RunArgs {
     pub ct_ws: Option<u32>,
 
     /// Delay values (tau)
-    #[arg(long, default_values_t = vec![7, 10], num_args = 1..)]
+    #[arg(
+        long,
+        default_values_t = vec![dda_rs::DEFAULT_DELAYS[0], dda_rs::DEFAULT_DELAYS[1]],
+        num_args = 1..
+    )]
     pub delays: Vec<i32>,
 
+    /// Model term indices (for -MODEL), e.g. 1 2 10
+    /// Defaults to backend defaults when omitted.
+    #[arg(long, num_args = 1..)]
+    pub model: Option<Vec<i32>>,
+
     /// Model dimension
-    #[arg(long, default_value_t = 4)]
+    #[arg(long, default_value_t = dda_rs::DEFAULT_MODEL_DIMENSION)]
     pub dm: u32,
 
     /// Polynomial order
-    #[arg(long, default_value_t = 4)]
+    #[arg(long, default_value_t = dda_rs::DEFAULT_POLYNOMIAL_ORDER)]
     pub order: u32,
 
     /// Number of tau values
-    #[arg(long, default_value_t = 2)]
+    #[arg(long, default_value_t = dda_rs::DEFAULT_NUM_TAU)]
     pub nr_tau: u32,
 
     /// CT channel pairs as "i,j" (e.g., "0,1" "0,2")
@@ -84,6 +97,22 @@ pub struct RunArgs {
     /// CD directed channel pairs as "i,j" (e.g., "0,1" "1,0")
     #[arg(long, num_args = 1..)]
     pub cd_pairs: Option<Vec<String>>,
+
+    /// Path to variant config JSON (app-compatible shape)
+    /// Example:
+    /// {"single_timeseries":{"selectedChannels":[0,1]},
+    ///  "cross_timeseries":{"ctChannelPairs":[[0,1]]},
+    ///  "cross_dynamical":{"cdChannelPairs":[[1,0]]}}
+    #[arg(long)]
+    pub variant_configs: Option<String>,
+
+    /// Optional high-pass preprocessing cutoff (Hz)
+    #[arg(long)]
+    pub highpass: Option<f64>,
+
+    /// Optional low-pass preprocessing cutoff (Hz)
+    #[arg(long)]
+    pub lowpass: Option<f64>,
 
     /// Start time in seconds
     #[arg(long)]
@@ -166,19 +195,23 @@ pub struct BatchArgs {
     pub bids_dir: Option<String>,
 
     /// 0-based channel indices
+    /// Optional when --variant-configs provides per-variant channels/pairs.
     #[arg(long, num_args = 1..)]
-    pub channels: Vec<usize>,
+    pub channels: Option<Vec<usize>>,
 
-    /// Variant abbreviations to run (ST, CT, CD, DE, SY)
+    /// Variants to run.
+    /// Accepts abbreviations (ST, CT, CD, DE, SY) and app IDs
+    /// (single_timeseries, cross_timeseries, cross_dynamical,
+    ///  dynamical_ergodicity, synchronization).
     #[arg(long, default_values_t = vec!["ST".to_string()], num_args = 1..)]
     pub variants: Vec<String>,
 
     /// Window length in samples
-    #[arg(long, default_value_t = 200)]
+    #[arg(long, default_value_t = dda_rs::DEFAULT_WINDOW_LENGTH)]
     pub wl: u32,
 
     /// Window step in samples
-    #[arg(long, default_value_t = 100)]
+    #[arg(long, default_value_t = dda_rs::DEFAULT_WINDOW_STEP)]
     pub ws: u32,
 
     /// CT-specific window length
@@ -190,19 +223,28 @@ pub struct BatchArgs {
     pub ct_ws: Option<u32>,
 
     /// Delay values (tau)
-    #[arg(long, default_values_t = vec![7, 10], num_args = 1..)]
+    #[arg(
+        long,
+        default_values_t = vec![dda_rs::DEFAULT_DELAYS[0], dda_rs::DEFAULT_DELAYS[1]],
+        num_args = 1..
+    )]
     pub delays: Vec<i32>,
 
+    /// Model term indices (for -MODEL), e.g. 1 2 10
+    /// Defaults to backend defaults when omitted.
+    #[arg(long, num_args = 1..)]
+    pub model: Option<Vec<i32>>,
+
     /// Model dimension
-    #[arg(long, default_value_t = 4)]
+    #[arg(long, default_value_t = dda_rs::DEFAULT_MODEL_DIMENSION)]
     pub dm: u32,
 
     /// Polynomial order
-    #[arg(long, default_value_t = 4)]
+    #[arg(long, default_value_t = dda_rs::DEFAULT_POLYNOMIAL_ORDER)]
     pub order: u32,
 
     /// Number of tau values
-    #[arg(long, default_value_t = 2)]
+    #[arg(long, default_value_t = dda_rs::DEFAULT_NUM_TAU)]
     pub nr_tau: u32,
 
     /// CT channel pairs as "i,j" (e.g., "0,1" "0,2")
@@ -212,6 +254,18 @@ pub struct BatchArgs {
     /// CD directed channel pairs as "i,j" (e.g., "0,1" "1,0")
     #[arg(long, num_args = 1..)]
     pub cd_pairs: Option<Vec<String>>,
+
+    /// Path to variant config JSON (app-compatible shape)
+    #[arg(long)]
+    pub variant_configs: Option<String>,
+
+    /// Optional high-pass preprocessing cutoff (Hz)
+    #[arg(long)]
+    pub highpass: Option<f64>,
+
+    /// Optional low-pass preprocessing cutoff (Hz)
+    #[arg(long)]
+    pub lowpass: Option<f64>,
 
     /// Sampling rate in Hz
     #[arg(long)]
@@ -251,14 +305,18 @@ pub fn parse_pair(s: &str) -> Result<[usize; 2], String> {
             s
         ));
     }
-    let a = parts[0]
-        .trim()
-        .parse::<usize>()
-        .map_err(|_| format!("Invalid pair '{}': '{}' is not a valid integer", s, parts[0]))?;
-    let b = parts[1]
-        .trim()
-        .parse::<usize>()
-        .map_err(|_| format!("Invalid pair '{}': '{}' is not a valid integer", s, parts[1]))?;
+    let a = parts[0].trim().parse::<usize>().map_err(|_| {
+        format!(
+            "Invalid pair '{}': '{}' is not a valid integer",
+            s, parts[0]
+        )
+    })?;
+    let b = parts[1].trim().parse::<usize>().map_err(|_| {
+        format!(
+            "Invalid pair '{}': '{}' is not a valid integer",
+            s, parts[1]
+        )
+    })?;
     Ok([a, b])
 }
 

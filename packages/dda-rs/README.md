@@ -67,6 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ct_channel_pairs: None,   // For CT variant
         cd_channel_pairs: None,   // For CD variant
         model_parameters: None,   // Expert mode: dm, order, nr_tau
+        model_terms: None,        // Defaults to [1, 2, 10] when omitted
         variant_configs: None,
         sampling_rate: None,      // Set if > 1000 Hz
     };

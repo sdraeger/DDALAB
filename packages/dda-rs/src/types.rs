@@ -1,5 +1,14 @@
 use serde::{Deserialize, Serialize};
 
+/// Default DDA parameter values shared across wrappers.
+pub const DEFAULT_MODEL_TERMS: [i32; 3] = [1, 2, 10];
+pub const DEFAULT_MODEL_DIMENSION: u32 = 4;
+pub const DEFAULT_POLYNOMIAL_ORDER: u32 = 4;
+pub const DEFAULT_NUM_TAU: u32 = 2;
+pub const DEFAULT_WINDOW_LENGTH: u32 = 200;
+pub const DEFAULT_WINDOW_STEP: u32 = 100;
+pub const DEFAULT_DELAYS: [i32; 2] = [7, 10];
+
 /// Time range for analysis
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimeRange {
@@ -99,6 +108,16 @@ pub struct DDARequest {
     /// If not provided, defaults to dm=4, order=4, nr_tau=2
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_parameters: Option<ModelParameters>,
+    /// Model term indices passed to `-MODEL`.
+    /// If not provided, defaults to [1, 2, 10] for compatibility with dda-py/jl.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "model_params",
+        alias = "model_encoding",
+        alias = "model"
+    )]
+    pub model_terms: Option<Vec<i32>>,
     /// Per-variant channel configurations (new format)
     /// Maps variant IDs to their specific channel configurations
     #[serde(skip_serializing_if = "Option::is_none")]
