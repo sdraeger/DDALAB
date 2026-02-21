@@ -154,13 +154,8 @@ fn main() {
             docker_stack::get_docker_stack_status,
             docker_stack::check_docker_requirements,
             docker_stack::update_docker_config,
-            // API commands (unified local/remote)
-            connect_to_remote_api,
-            check_api_connection,
-            get_api_status,
-            save_api_config,
-            load_api_config,
-            get_api_config,
+            // Legacy API-server commands intentionally not exposed in IPC handler.
+            // Desktop runtime uses direct Tauri IPC for core analysis/data flows.
             // Data directory commands
             select_data_directory,
             get_data_directory,
@@ -185,10 +180,15 @@ fn main() {
             sync::commands::sync_is_connected,
             sync::commands::sync_share_result,
             sync::commands::sync_share_content,
+            sync::commands::sync_list_shared_with_me,
+            sync::commands::sync_list_my_shares,
             sync::commands::sync_access_share,
+            sync::commands::sync_access_shared_content,
             sync::commands::sync_revoke_share,
             sync::commands::sync_discover_brokers,
             sync::commands::sync_verify_password,
+            sync::commands::get_institution_config,
+            sync::commands::update_institution_config,
             // Job commands
             sync::commands::job_submit_server_file,
             sync::commands::job_get_status,
@@ -292,6 +292,7 @@ fn main() {
             get_edf_info,
             get_edf_chunk,
             get_edf_chunks_batch,
+            execute_preprocessing_pipeline,
             get_edf_overview,
             get_edf_overview_progress,
             get_edf_window,
@@ -395,22 +396,6 @@ fn main() {
 
                     log::info!("🚀 Started NSG background job polling");
                 }
-            }
-
-            // Fix for macOS window focus issue in dev mode
-            // Use event listener to ensure window gets focus after creation
-            #[cfg(target_os = "macos")]
-            {
-                use tauri::Manager;
-                let app_handle = app.handle().clone();
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_millis(500));
-                    if let Some(window) = app_handle.get_webview_window("main") {
-                        let _ = window.set_focus();
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                    }
-                });
             }
 
             Ok(())

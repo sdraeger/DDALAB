@@ -166,6 +166,34 @@ pub struct OverviewProgressResponse {
     pub is_complete: bool,
 }
 
+/// Execute rich preprocessing pipeline on chunk data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecutePreprocessingPipelineRequest {
+    pub chunk: ChunkData,
+    /// Frontend preprocessing pipeline object from `types/preprocessing.ts`
+    pub pipeline: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PipelineStepReport {
+    pub step_type: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecutePreprocessingPipelineResponse {
+    pub chunk: ChunkData,
+    pub bad_channels: Vec<String>,
+    pub artifact_count: usize,
+    pub step_reports: Vec<PipelineStepReport>,
+    pub diagnostic_log: Vec<String>,
+}
+
 /// Get EDF/neurophysiology file information (channels, duration, sample rate)
 #[tauri::command]
 pub async fn get_edf_info(
@@ -315,7 +343,8 @@ pub async fn get_edf_chunk(
     .map_err(|e| format!("File reading error: {}", e))?;
 
     let processed_chunk = if preprocessing.is_enabled() {
-        apply_preprocessing_to_chunk(chunk, &preprocessing)?
+        let (processed, _) = apply_preprocessing_to_chunk(chunk, &preprocessing)?;
+        processed
     } else {
         chunk
     };
@@ -327,6 +356,234 @@ pub async fn get_edf_chunk(
     }
 
     Ok((*chunk_arc).clone())
+}
+
+/// Execute rich preprocessing pipeline against an already-loaded chunk.
+/// This bridges the frontend pipeline model to backend execution.
+#[tauri::command]
+pub async fn execute_preprocessing_pipeline(
+    request: ExecutePreprocessingPipelineRequest,
+) -> Result<ExecutePreprocessingPipelineResponse, String> {
+    let mut chunk = request.chunk;
+    let mut step_reports = Vec::new();
+    let mut bad_channels = Vec::new();
+    let mut artifact_count = 0usize;
+    let run_id = chrono::Utc::now().to_rfc3339();
+    let mut diagnostic_log = vec![
+        format!("run_id={}", run_id),
+        format!("start: {}", format_chunk_summary(&chunk)),
+    ];
+
+    let steps = request
+        .pipeline
+        .get("steps")
+        .and_then(|v| v.as_object())
+        .ok_or("Invalid preprocessing pipeline: missing steps")?;
+
+    if let Some(step) = steps.get("badChannelDetection") {
+        let enabled = step
+            .get("enabled")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if enabled {
+            bad_channels = detect_bad_channels(&chunk, step.get("config"));
+            step_reports.push(PipelineStepReport {
+                step_type: "bad_channel_detection".to_string(),
+                status: "completed".to_string(),
+                details: Some(format!("Detected {} bad channels", bad_channels.len())),
+            });
+            diagnostic_log.push(format!(
+                "bad_channel_detection: detected={} [{}]",
+                bad_channels.len(),
+                bad_channels.join(", ")
+            ));
+        } else {
+            step_reports.push(PipelineStepReport {
+                step_type: "bad_channel_detection".to_string(),
+                status: "skipped".to_string(),
+                details: Some("Step disabled".to_string()),
+            });
+            diagnostic_log.push("bad_channel_detection: skipped".to_string());
+        }
+    }
+
+    if let Some(step) = steps.get("filtering") {
+        let enabled = step
+            .get("enabled")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if enabled {
+            let filter_params = extract_filter_params(step.get("config"));
+            if filter_params.is_enabled() {
+                diagnostic_log.push(format!(
+                    "filtering: hp={:?}, lp={:?}, notch={:?}",
+                    filter_params.highpass, filter_params.lowpass, filter_params.notch
+                ));
+                let (filtered_chunk, filter_details) =
+                    apply_preprocessing_to_chunk(chunk, &filter_params)?;
+                chunk = filtered_chunk;
+                step_reports.push(PipelineStepReport {
+                    step_type: "filtering".to_string(),
+                    status: "completed".to_string(),
+                    details: Some("Applied backend filtering".to_string()),
+                });
+                for detail in filter_details {
+                    diagnostic_log.push(format!("filtering_detail: {}", detail));
+                }
+                diagnostic_log.push(format!("after_filtering: {}", format_chunk_summary(&chunk)));
+            } else {
+                step_reports.push(PipelineStepReport {
+                    step_type: "filtering".to_string(),
+                    status: "skipped".to_string(),
+                    details: Some("No active filters in config".to_string()),
+                });
+                diagnostic_log.push("filtering: skipped (no active filters)".to_string());
+            }
+        } else {
+            step_reports.push(PipelineStepReport {
+                step_type: "filtering".to_string(),
+                status: "skipped".to_string(),
+                details: Some("Step disabled".to_string()),
+            });
+            diagnostic_log.push("filtering: skipped".to_string());
+        }
+    }
+
+    if let Some(step) = steps.get("rereference") {
+        let enabled = step
+            .get("enabled")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if enabled {
+            let ref_type = step
+                .get("config")
+                .and_then(|cfg| cfg.get("type"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("none");
+            diagnostic_log.push(format!(
+                "rereference: type={}, channels={}",
+                ref_type,
+                chunk.data.len()
+            ));
+
+            if matches!(ref_type, "average" | "laplacian") && chunk.data.len() < 2 {
+                step_reports.push(PipelineStepReport {
+                    step_type: "rereference".to_string(),
+                    status: "skipped".to_string(),
+                    details: Some(
+                        "Average/Laplacian rereference requires at least 2 channels".to_string(),
+                    ),
+                });
+                diagnostic_log.push(
+                    "rereference: skipped (average/laplacian requires >=2 channels)".to_string(),
+                );
+            } else {
+                apply_rereference_step(&mut chunk, step.get("config"))?;
+                step_reports.push(PipelineStepReport {
+                    step_type: "rereference".to_string(),
+                    status: "completed".to_string(),
+                    details: Some("Applied rereferencing transform".to_string()),
+                });
+                diagnostic_log.push(format!(
+                    "after_rereference: {}",
+                    format_chunk_summary(&chunk)
+                ));
+            }
+        } else {
+            step_reports.push(PipelineStepReport {
+                step_type: "rereference".to_string(),
+                status: "skipped".to_string(),
+                details: Some("Step disabled".to_string()),
+            });
+            diagnostic_log.push("rereference: skipped".to_string());
+        }
+    }
+
+    if let Some(step) = steps.get("ica") {
+        let enabled = step
+            .get("enabled")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if enabled {
+            step_reports.push(PipelineStepReport {
+                step_type: "ica".to_string(),
+                status: "skipped".to_string(),
+                details: Some(
+                    "ICA requires full-dataset execution; use submit_ica_analysis for this step"
+                        .to_string(),
+                ),
+            });
+            diagnostic_log.push("ica: requested but skipped (chunk mode)".to_string());
+        } else {
+            step_reports.push(PipelineStepReport {
+                step_type: "ica".to_string(),
+                status: "skipped".to_string(),
+                details: Some("Step disabled".to_string()),
+            });
+            diagnostic_log.push("ica: skipped".to_string());
+        }
+    }
+
+    if let Some(step) = steps.get("artifactRemoval") {
+        let enabled = step
+            .get("enabled")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if enabled {
+            artifact_count = apply_artifact_removal_step(&mut chunk, step.get("config"));
+            let total_points = chunk
+                .data
+                .first()
+                .map(|ch| ch.len())
+                .unwrap_or(0)
+                .saturating_mul(chunk.data.len());
+            let masked_pct = if total_points > 0 {
+                (artifact_count as f64 / total_points as f64) * 100.0
+            } else {
+                0.0
+            };
+            step_reports.push(PipelineStepReport {
+                step_type: "artifact_removal".to_string(),
+                status: "completed".to_string(),
+                details: Some(format!("Processed {} artifact samples", artifact_count)),
+            });
+            diagnostic_log.push(format!(
+                "artifact_removal: action={} detectors={} masked={}/{} ({:.2}%)",
+                step.get("config")
+                    .and_then(|cfg| cfg.get("action"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("mark"),
+                describe_artifact_detectors(step.get("config")),
+                artifact_count,
+                total_points,
+                masked_pct
+            ));
+            diagnostic_log.push(format!(
+                "after_artifact_removal: {}",
+                format_chunk_summary(&chunk)
+            ));
+        } else {
+            step_reports.push(PipelineStepReport {
+                step_type: "artifact_removal".to_string(),
+                status: "skipped".to_string(),
+                details: Some("Step disabled".to_string()),
+            });
+            diagnostic_log.push("artifact_removal: skipped".to_string());
+        }
+    }
+
+    diagnostic_log.push(format!("end: {}", format_chunk_summary(&chunk)));
+    for line in &diagnostic_log {
+        log::info!("pipeline_diagnostic {}", line);
+    }
+
+    Ok(ExecutePreprocessingPipelineResponse {
+        chunk,
+        bad_channels,
+        artifact_count,
+        step_reports,
+        diagnostic_log,
+    })
 }
 
 /// Get multiple chunks in a single IPC call (batched for efficiency)
@@ -494,7 +751,7 @@ pub async fn get_edf_chunks_batch(
                             // Apply preprocessing if needed
                             let processed_chunk = if preprocessing.is_enabled() {
                                 match apply_preprocessing_to_chunk(chunk, &preprocessing) {
-                                    Ok(c) => c,
+                                    Ok((c, _)) => c,
                                     Err(e) => return (index, Err(e)),
                                 }
                             } else {
@@ -1229,7 +1486,7 @@ fn generate_text_file_overview(
 fn apply_preprocessing_to_chunk(
     mut chunk: ChunkData,
     preprocessing: &PreprocessingParams,
-) -> Result<ChunkData, String> {
+) -> Result<(ChunkData, Vec<String>), String> {
     log::info!(
         "[PREPROCESSING] Input: {} channels, {} samples/channel, sample_rate={}",
         chunk.channel_labels.len(),
@@ -1245,10 +1502,11 @@ fn apply_preprocessing_to_chunk(
 
     if chunk.data.is_empty() || chunk.sampling_frequency <= 0.0 {
         log::warn!("[PREPROCESSING] Skipping: empty data or invalid sample rate");
-        return Ok(chunk);
+        return Ok((chunk, Vec::new()));
     }
 
     let sample_rate = chunk.sampling_frequency;
+    let mut details = Vec::new();
 
     let mut config = PreprocessingConfig {
         sample_rate,
@@ -1310,7 +1568,19 @@ fn apply_preprocessing_to_chunk(
             );
         }
 
-        // Use std::mem::take to avoid unnecessary data copy - we're replacing chunk.data anyway
+        // Keep original data as a safety fallback if filtering produces unstable values.
+        let original_channels = chunk.data.clone();
+        let input_channel_max_abs: Vec<f64> = original_channels
+            .iter()
+            .map(|channel| {
+                channel
+                    .iter()
+                    .filter(|v| v.is_finite())
+                    .fold(0.0_f64, |acc, v| acc.max(v.abs()))
+            })
+            .collect();
+
+        // Use std::mem::take to avoid additional copy for filtered output path.
         let channels = std::mem::take(&mut chunk.data);
         let channel_labels = std::mem::take(&mut chunk.channel_labels);
         let result = preprocess_batch_owned(channels, channel_labels, &config).map_err(|e| {
@@ -1336,7 +1606,68 @@ fn apply_preprocessing_to_chunk(
             );
         }
 
-        chunk.data = result.channels;
+        if !result.warnings.is_empty() {
+            log::warn!(
+                "[PREPROCESSING] Pipeline warnings: {}",
+                result.warnings.join(" | ")
+            );
+            details.push(format!("pipeline_warnings={}", result.warnings.join(" | ")));
+        }
+
+        let mut filtered_channels = result.channels;
+        let mut replaced_labels = Vec::new();
+        let mut replaced_non_finite = 0usize;
+        let mut replaced_extreme = 0usize;
+
+        for (idx, filtered_channel) in filtered_channels.iter_mut().enumerate() {
+            let input_max_abs = input_channel_max_abs.get(idx).copied().unwrap_or(0.0);
+            let extreme_threshold = (input_max_abs * 1_000.0).max(1_000_000.0);
+
+            let mut non_finite_count = 0usize;
+            let mut extreme_count = 0usize;
+            for &value in filtered_channel.iter() {
+                if !value.is_finite() {
+                    non_finite_count += 1;
+                } else if value.abs() > extreme_threshold {
+                    extreme_count += 1;
+                }
+            }
+
+            if non_finite_count > 0 || extreme_count > 0 {
+                replaced_non_finite += non_finite_count;
+                replaced_extreme += extreme_count;
+                replaced_labels.push(
+                    result
+                        .channel_names
+                        .get(idx)
+                        .cloned()
+                        .unwrap_or_else(|| format!("ch{}", idx)),
+                );
+
+                if let Some(original) = original_channels.get(idx) {
+                    *filtered_channel = original.clone();
+                }
+            }
+        }
+
+        if !replaced_labels.is_empty() {
+            log::warn!(
+                "[PREPROCESSING] Replaced {} unstable filtered channels with original data (non_finite_samples={}, extreme_samples={}): {}",
+                replaced_labels.len(),
+                replaced_non_finite,
+                replaced_extreme,
+                replaced_labels.join(", ")
+            );
+            details.push(format!(
+                "filter_safety_fallback replaced_channels={} non_finite_samples={} extreme_samples={} labels={}",
+                replaced_labels.len(),
+                replaced_non_finite,
+                replaced_extreme,
+                replaced_labels.join(",")
+            ));
+        }
+
+        chunk.data = filtered_channels;
         chunk.channel_labels = result.channel_names;
 
         log::info!(
@@ -1346,5 +1677,608 @@ fn apply_preprocessing_to_chunk(
         );
     }
 
-    Ok(chunk)
+    Ok((chunk, details))
+}
+
+fn detect_bad_channels(chunk: &ChunkData, config: Option<&serde_json::Value>) -> Vec<String> {
+    if chunk.data.is_empty() || chunk.channel_labels.is_empty() {
+        return Vec::new();
+    }
+
+    let Some(cfg) = config.and_then(|v| v.as_object()) else {
+        return Vec::new();
+    };
+
+    let auto_detect = cfg
+        .get("autoDetect")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let variance_threshold = cfg
+        .get("varianceThreshold")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(3.5);
+    let flat_threshold = cfg
+        .get("flatThreshold")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(1e-6);
+
+    let mut detected = Vec::new();
+
+    if auto_detect {
+        let variances: Vec<f64> = chunk
+            .data
+            .iter()
+            .map(|channel| {
+                if channel.is_empty() {
+                    return 0.0;
+                }
+                let mean = channel.iter().sum::<f64>() / channel.len() as f64;
+                channel.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / channel.len() as f64
+            })
+            .collect();
+
+        let var_mean = variances.iter().sum::<f64>() / variances.len() as f64;
+        let var_std = (variances
+            .iter()
+            .map(|v| (v - var_mean).powi(2))
+            .sum::<f64>()
+            / variances.len() as f64)
+            .sqrt();
+
+        for (idx, variance) in variances.iter().enumerate() {
+            let is_flat = *variance < flat_threshold;
+            let is_high_var = if var_std > 0.0 {
+                ((*variance - var_mean) / var_std) > variance_threshold
+            } else {
+                false
+            };
+
+            if is_flat || is_high_var {
+                if let Some(label) = chunk.channel_labels.get(idx) {
+                    detected.push(label.clone());
+                }
+            }
+        }
+    }
+
+    if let Some(manual_bad_channels) = cfg.get("manualBadChannels").and_then(|v| v.as_array()) {
+        for label in manual_bad_channels.iter().filter_map(|v| v.as_str()) {
+            if !detected.iter().any(|existing| existing == label) {
+                detected.push(label.to_string());
+            }
+        }
+    }
+
+    detected
+}
+
+fn format_chunk_summary(chunk: &ChunkData) -> String {
+    let channel_count = chunk.data.len();
+    let sample_count = chunk.data.first().map(|ch| ch.len()).unwrap_or(0);
+    if channel_count == 0 || sample_count == 0 {
+        return format!(
+            "channels={}, samples/ch={}, summary=empty",
+            channel_count, sample_count
+        );
+    }
+
+    let mut min_value = f64::INFINITY;
+    let mut max_value = f64::NEG_INFINITY;
+    let mut abs_sum = 0.0;
+    let mut sq_sum = 0.0;
+    let mut near_zero = 0usize;
+    let mut finite_count = 0usize;
+    let mut total_count = 0usize;
+    let mut non_finite_count = 0usize;
+    let mut flat_channels = 0usize;
+
+    for channel in &chunk.data {
+        if channel.is_empty() {
+            continue;
+        }
+        let mut channel_min = f64::INFINITY;
+        let mut channel_max = f64::NEG_INFINITY;
+        let mut channel_finite_count = 0usize;
+        for &value in channel {
+            total_count += 1;
+            if !value.is_finite() {
+                non_finite_count += 1;
+                continue;
+            }
+            min_value = min_value.min(value);
+            max_value = max_value.max(value);
+            channel_min = channel_min.min(value);
+            channel_max = channel_max.max(value);
+            abs_sum += value.abs();
+            sq_sum += value * value;
+            if value.abs() < 1e-6 {
+                near_zero += 1;
+            }
+            finite_count += 1;
+            channel_finite_count += 1;
+        }
+        if channel_finite_count > 0 && (channel_max - channel_min).abs() < 1e-9 {
+            flat_channels += 1;
+        }
+    }
+
+    if total_count == 0 {
+        return format!(
+            "channels={}, samples/ch={}, summary=empty",
+            channel_count, sample_count
+        );
+    }
+
+    let mean_abs = if finite_count > 0 {
+        abs_sum / finite_count as f64
+    } else {
+        f64::NAN
+    };
+    let rms = if finite_count > 0 {
+        (sq_sum / finite_count as f64).sqrt()
+    } else {
+        f64::NAN
+    };
+    let near_zero_pct = if finite_count > 0 {
+        (near_zero as f64 / finite_count as f64) * 100.0
+    } else {
+        0.0
+    };
+    let min_display = if finite_count > 0 {
+        min_value
+    } else {
+        f64::NAN
+    };
+    let max_display = if finite_count > 0 {
+        max_value
+    } else {
+        f64::NAN
+    };
+
+    format!(
+        "channels={}, samples/ch={}, min={:.6}, max={:.6}, mean_abs={:.6}, rms={:.6}, near_zero={:.2}%, non_finite={}/{}, flat_channels={}/{}",
+        channel_count,
+        sample_count,
+        min_display,
+        max_display,
+        mean_abs,
+        rms,
+        near_zero_pct,
+        non_finite_count,
+        total_count,
+        flat_channels,
+        channel_count
+    )
+}
+
+fn describe_artifact_detectors(config: Option<&serde_json::Value>) -> String {
+    let Some(detectors) = config
+        .and_then(|cfg| cfg.get("detectors"))
+        .and_then(|v| v.as_array())
+    else {
+        return "none".to_string();
+    };
+
+    let mut parts = Vec::new();
+    for detector in detectors {
+        let detector_type = detector
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        let enabled = detector
+            .get("enabled")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        let threshold = detector
+            .get("threshold")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        let min_duration = detector
+            .get("minDuration")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let window_size = detector
+            .get("windowSize")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        parts.push(format!(
+            "{}(enabled={},thr={:.6},minDur={},win={})",
+            detector_type, enabled, threshold, min_duration, window_size
+        ));
+    }
+
+    if parts.is_empty() {
+        "none".to_string()
+    } else {
+        parts.join(";")
+    }
+}
+
+fn extract_filter_params(config: Option<&serde_json::Value>) -> PreprocessingParams {
+    let mut result = PreprocessingParams::default();
+    let mut notch_freqs: Vec<f64> = Vec::new();
+
+    let Some(filters) = config
+        .and_then(|v| v.get("filters"))
+        .and_then(|v| v.as_array())
+    else {
+        return result;
+    };
+
+    for filter in filters {
+        let filter_type = filter
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        match filter_type {
+            "highpass" => {
+                if let Some(v) = filter.get("highpassFreq").and_then(|v| v.as_f64()) {
+                    result.highpass = Some(result.highpass.map_or(v, |prev| prev.max(v)));
+                }
+            }
+            "lowpass" => {
+                if let Some(v) = filter.get("lowpassFreq").and_then(|v| v.as_f64()) {
+                    result.lowpass = Some(result.lowpass.map_or(v, |prev| prev.min(v)));
+                }
+            }
+            "bandpass" => {
+                if let Some(v) = filter.get("highpassFreq").and_then(|v| v.as_f64()) {
+                    result.highpass = Some(result.highpass.map_or(v, |prev| prev.max(v)));
+                }
+                if let Some(v) = filter.get("lowpassFreq").and_then(|v| v.as_f64()) {
+                    result.lowpass = Some(result.lowpass.map_or(v, |prev| prev.min(v)));
+                }
+            }
+            "notch" => {
+                if let Some(values) = filter.get("notchFreqs").and_then(|v| v.as_array()) {
+                    notch_freqs.extend(values.iter().filter_map(|v| v.as_f64()));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if !notch_freqs.is_empty() {
+        notch_freqs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        notch_freqs.dedup_by(|a, b| (*a - *b).abs() < f64::EPSILON);
+        result.notch = Some(notch_freqs);
+    }
+
+    result
+}
+
+fn apply_rereference_step(
+    chunk: &mut ChunkData,
+    config: Option<&serde_json::Value>,
+) -> Result<(), String> {
+    if chunk.data.is_empty() || chunk.channel_labels.is_empty() {
+        return Ok(());
+    }
+
+    let Some(cfg) = config.and_then(|v| v.as_object()) else {
+        return Ok(());
+    };
+    let ref_type = cfg.get("type").and_then(|v| v.as_str()).unwrap_or("none");
+    let sample_count = chunk.data[0].len();
+    if sample_count == 0 {
+        return Ok(());
+    }
+
+    match ref_type {
+        "none" => Ok(()),
+        "bipolar" => {
+            let Some(pairs) = cfg.get("bipolarPairs").and_then(|v| v.as_array()) else {
+                return Ok(());
+            };
+            let mut new_data = Vec::new();
+            let mut new_labels = Vec::new();
+            for pair in pairs {
+                let Some(pair_arr) = pair.as_array() else {
+                    continue;
+                };
+                if pair_arr.len() != 2 {
+                    continue;
+                }
+                let from = pair_arr[0].as_str().unwrap_or_default();
+                let to = pair_arr[1].as_str().unwrap_or_default();
+                let from_idx = chunk.channel_labels.iter().position(|label| label == from);
+                let to_idx = chunk.channel_labels.iter().position(|label| label == to);
+                let (Some(from_idx), Some(to_idx)) = (from_idx, to_idx) else {
+                    continue;
+                };
+                let diff: Vec<f64> = chunk.data[from_idx]
+                    .iter()
+                    .zip(chunk.data[to_idx].iter())
+                    .map(|(a, b)| a - b)
+                    .collect();
+                new_data.push(diff);
+                new_labels.push(format!("{}-{}", from, to));
+            }
+
+            if new_data.is_empty() {
+                return Err("No valid bipolar pairs found in rereference config".to_string());
+            }
+
+            chunk.data = new_data;
+            chunk.channel_labels = new_labels;
+            chunk.chunk_size = chunk.data[0].len();
+            Ok(())
+        }
+        "average" | "laplacian" | "single" | "linked_mastoid" | "custom" => {
+            let reference_channels: Vec<String> = cfg
+                .get("referenceChannels")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str())
+                        .map(ToString::to_string)
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            let exclude_channels: Vec<String> = cfg
+                .get("excludeChannels")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str())
+                        .map(ToString::to_string)
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            let reference_indices: Vec<usize> = match ref_type {
+                "single" | "linked_mastoid" | "custom" => {
+                    if reference_channels.is_empty() {
+                        return Err(
+                            "Rereference config requires referenceChannels for this mode"
+                                .to_string(),
+                        );
+                    }
+                    chunk
+                        .channel_labels
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(idx, label)| {
+                            if reference_channels.iter().any(|c| c == label) {
+                                Some(idx)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect()
+                }
+                _ => chunk
+                    .channel_labels
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(idx, label)| {
+                        if exclude_channels.iter().any(|c| c == label) {
+                            None
+                        } else {
+                            Some(idx)
+                        }
+                    })
+                    .collect(),
+            };
+
+            if matches!(ref_type, "average" | "laplacian") && reference_indices.len() < 2 {
+                return Ok(());
+            }
+
+            if reference_indices.is_empty() {
+                return Err("No channels available for rereferencing".to_string());
+            }
+
+            let mut reference_signal = vec![0.0; sample_count];
+            for sample_idx in 0..sample_count {
+                let mut sum = 0.0;
+                for ch_idx in &reference_indices {
+                    sum += chunk.data[*ch_idx][sample_idx];
+                }
+                reference_signal[sample_idx] = sum / reference_indices.len() as f64;
+            }
+
+            for channel in &mut chunk.data {
+                for sample_idx in 0..sample_count {
+                    channel[sample_idx] -= reference_signal[sample_idx];
+                }
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+fn apply_artifact_removal_step(chunk: &mut ChunkData, config: Option<&serde_json::Value>) -> usize {
+    if chunk.data.is_empty() {
+        return 0;
+    }
+
+    let sample_count = chunk.data[0].len();
+    if sample_count == 0 {
+        return 0;
+    }
+
+    let action = config
+        .and_then(|v| v.get("action"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("mark");
+
+    let mut mask = vec![vec![false; sample_count]; chunk.data.len()];
+    let detectors = config
+        .and_then(|v| v.get("detectors"))
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    for detector in detectors {
+        let enabled = detector
+            .get("enabled")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        if !enabled {
+            continue;
+        }
+
+        let detector_type = detector
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("threshold");
+        let threshold = detector
+            .get("threshold")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(100.0);
+
+        if detector_type == "flat" {
+            let min_duration = detector
+                .get("minDuration")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as usize)
+                .unwrap_or(100)
+                .max(2);
+
+            let flat_threshold = threshold.abs();
+            if flat_threshold <= 0.0 {
+                continue;
+            }
+
+            for (ch_idx, channel) in chunk.data.iter().enumerate() {
+                mark_flat_segments(channel, &mut mask[ch_idx], flat_threshold, min_duration);
+            }
+            continue;
+        }
+
+        for (ch_idx, channel) in chunk.data.iter().enumerate() {
+            for sample_idx in 0..sample_count {
+                let value = channel[sample_idx];
+                let is_artifact = match detector_type {
+                    "threshold" | "muscle" | "eye_blink" => value.abs() > threshold,
+                    "gradient" | "jump" => {
+                        sample_idx > 0 && (value - channel[sample_idx - 1]).abs() > threshold
+                    }
+                    _ => false,
+                };
+                if is_artifact {
+                    mask[ch_idx][sample_idx] = true;
+                }
+            }
+        }
+    }
+
+    let artifact_count = mask
+        .iter()
+        .map(|channel_mask| channel_mask.iter().filter(|is_bad| **is_bad).count())
+        .sum();
+
+    match action {
+        "zero" | "reject_epoch" => {
+            for (ch_idx, channel) in chunk.data.iter_mut().enumerate() {
+                for (sample_idx, value) in channel.iter_mut().enumerate() {
+                    if mask[ch_idx][sample_idx] {
+                        *value = 0.0;
+                    }
+                }
+            }
+        }
+        "interpolate" => {
+            for (ch_idx, channel) in chunk.data.iter_mut().enumerate() {
+                interpolate_masked_samples(channel, &mask[ch_idx]);
+            }
+        }
+        _ => {}
+    }
+
+    artifact_count
+}
+
+fn mark_flat_segments(channel: &[f64], mask: &mut [bool], threshold: f64, min_duration: usize) {
+    if channel.is_empty() || mask.len() != channel.len() {
+        return;
+    }
+
+    let mut run_start = 0usize;
+    let mut run_min = channel[0];
+    let mut run_max = channel[0];
+
+    for idx in 1..channel.len() {
+        let value = channel[idx];
+        run_min = run_min.min(value);
+        run_max = run_max.max(value);
+
+        if (run_max - run_min) <= threshold {
+            continue;
+        }
+
+        let run_len = idx - run_start;
+        if run_len >= min_duration {
+            for slot in mask.iter_mut().take(idx).skip(run_start) {
+                *slot = true;
+            }
+        }
+
+        run_start = idx;
+        run_min = value;
+        run_max = value;
+    }
+
+    let tail_len = channel.len() - run_start;
+    if tail_len >= min_duration && (run_max - run_min) <= threshold {
+        for slot in mask.iter_mut().skip(run_start) {
+            *slot = true;
+        }
+    }
+}
+
+fn interpolate_masked_samples(channel: &mut [f64], mask: &[bool]) {
+    if channel.is_empty() || mask.is_empty() {
+        return;
+    }
+
+    let n = channel.len();
+    let mut idx = 0usize;
+    while idx < n {
+        if !mask[idx] {
+            idx += 1;
+            continue;
+        }
+
+        let start = idx;
+        while idx < n && mask[idx] {
+            idx += 1;
+        }
+        let end = idx - 1;
+
+        let left = if start > 0 {
+            Some(channel[start - 1])
+        } else {
+            None
+        };
+        let right = if idx < n { Some(channel[idx]) } else { None };
+
+        match (left, right) {
+            (Some(l), Some(r)) => {
+                let span = (end - start + 2) as f64;
+                for i in start..=end {
+                    let alpha = (i - start + 1) as f64 / span;
+                    channel[i] = l + alpha * (r - l);
+                }
+            }
+            (Some(l), None) => {
+                for value in channel.iter_mut().take(end + 1).skip(start) {
+                    *value = l;
+                }
+            }
+            (None, Some(r)) => {
+                for value in channel.iter_mut().take(end + 1).skip(start) {
+                    *value = r;
+                }
+            }
+            (None, None) => {
+                for value in channel.iter_mut().take(end + 1).skip(start) {
+                    *value = 0.0;
+                }
+            }
+        }
+    }
 }

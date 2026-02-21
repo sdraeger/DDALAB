@@ -4,9 +4,9 @@
   "version": "1.2.8",
   "identifier": "com.ddalab.desktop",
   "build": {
-    "beforeDevCommand": "bun run dev",
+    "beforeDevCommand": "pkill -f \"next dev --webpack --hostname 127.0.0.1\" 2>/dev/null || true; npm run dev:desktop",
     "beforeBuildCommand": "bun run build",
-    "devUrl": "http://localhost:3003",
+    "devUrl": "http://127.0.0.1:3003",
     "frontendDist": "../out"
   },
   "app": {

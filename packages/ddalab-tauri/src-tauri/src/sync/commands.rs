@@ -6,6 +6,7 @@ use super::types::{
 };
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::RwLock;
@@ -72,6 +73,7 @@ impl ServerConnection {
 pub struct AppSyncState {
     pub sync_client: Arc<RwLock<Option<SyncClient>>>,
     pub server_connection: Arc<RwLock<Option<ServerConnection>>>,
+    pub local_shares: Arc<RwLock<HashMap<String, LocalSharedContentRecord>>>,
 }
 
 impl AppSyncState {
@@ -79,8 +81,132 @@ impl AppSyncState {
         Self {
             sync_client: Arc::new(RwLock::new(None)),
             server_connection: Arc::new(RwLock::new(None)),
+            local_shares: Arc::new(RwLock::new(HashMap::new())),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RichAccessPolicy {
+    #[serde(rename = "type")]
+    pub policy_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub team_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_ids: Option<Vec<String>>,
+    pub institution_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub federated_institution_ids: Option<Vec<String>>,
+    #[serde(default)]
+    pub permissions: Vec<String>,
+    pub expires_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_downloads: Option<u32>,
+}
+
+impl RichAccessPolicy {
+    fn from_legacy(policy: &AccessPolicy) -> Self {
+        let policy_type = match policy {
+            AccessPolicy::Public => "public".to_string(),
+            AccessPolicy::Team { .. } => "team".to_string(),
+            AccessPolicy::Users { .. } => "users".to_string(),
+        };
+        let team_id = match policy {
+            AccessPolicy::Team { team_id } => Some(team_id.clone()),
+            _ => None,
+        };
+        let user_ids = match policy {
+            AccessPolicy::Users { user_ids } => Some(user_ids.clone()),
+            _ => None,
+        };
+
+        let expires_at = (chrono::Utc::now() + chrono::Duration::days(30)).to_rfc3339();
+
+        Self {
+            policy_type,
+            team_id,
+            user_ids,
+            institution_id: "default".to_string(),
+            federated_institution_ids: None,
+            permissions: vec!["view".to_string(), "download".to_string()],
+            expires_at,
+            max_downloads: None,
+        }
+    }
+
+    fn to_legacy(&self) -> AccessPolicy {
+        match self.policy_type.as_str() {
+            "team" => AccessPolicy::Team {
+                team_id: self.team_id.clone().unwrap_or_default(),
+            },
+            "users" => AccessPolicy::Users {
+                user_ids: self.user_ids.clone().unwrap_or_default(),
+            },
+            _ => AccessPolicy::Public,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiShareMetadata {
+    pub share_token: String,
+    pub owner_user_id: String,
+    pub content_type: ShareableContentType,
+    pub content_id: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub created_at: String,
+    pub access_policy: RichAccessPolicy,
+    pub classification: DataClassification,
+    pub download_count: u32,
+    pub last_accessed_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiSharedItem {
+    #[serde(flatten)]
+    pub metadata: ApiShareMetadata,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SharedContentInfo {
+    pub metadata: ApiShareMetadata,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_data: Option<serde_json::Value>,
+    pub download_url: String,
+    pub owner_online: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_name: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LocalSharedContentRecord {
+    pub metadata: ApiShareMetadata,
+    pub content_data: Option<serde_json::Value>,
+    pub owner_name: Option<String>,
+}
+
+fn generate_local_share_token() -> String {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    use rand::Rng;
+
+    let mut rng = rand::rng();
+    let bytes: [u8; 16] = rng.random();
+    URL_SAFE_NO_PAD.encode(bytes)
+}
+
+fn parse_share_token(share_link: &str) -> Option<String> {
+    share_link
+        .strip_prefix("ddalab://share/")
+        .map(ToString::to_string)
+}
+
+fn parse_rfc3339_or_now(value: &str) -> chrono::DateTime<chrono::Utc> {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .map(|dt| dt.with_timezone(&chrono::Utc))
+        .unwrap_or_else(|_| chrono::Utc::now())
 }
 
 /// Connect to the sync broker
@@ -205,10 +331,42 @@ pub async fn sync_share_result(
     let guard = state.sync_client.read().await;
     let client = guard.as_ref().ok_or("Sync is not connected")?;
 
+    let description_for_store = description.clone();
+    let access_policy_for_store = access_policy.clone();
     let share_link = client
         .share_result(&result_id, &title, description, access_policy)
         .await
         .map_err(|e| format!("Failed to share: {}", e))?;
+
+    let share_token = parse_share_token(&share_link).unwrap_or_else(generate_local_share_token);
+    let owner_user_id = client.user_id().to_string();
+    let owner_name = owner_user_id
+        .split('@')
+        .next()
+        .map(ToString::to_string)
+        .filter(|v| !v.is_empty());
+    let metadata = ApiShareMetadata {
+        share_token: share_token.clone(),
+        owner_user_id,
+        content_type: ShareableContentType::DdaResult,
+        content_id: result_id,
+        title,
+        description: description_for_store,
+        created_at: chrono::Utc::now().to_rfc3339(),
+        access_policy: RichAccessPolicy::from_legacy(&access_policy_for_store),
+        classification: DataClassification::Unclassified,
+        download_count: 0,
+        last_accessed_at: None,
+    };
+
+    state.local_shares.write().await.insert(
+        share_token,
+        LocalSharedContentRecord {
+            metadata,
+            content_data: None,
+            owner_name,
+        },
+    );
 
     Ok(share_link)
 }
@@ -220,7 +378,7 @@ pub struct ShareContentRequest {
     pub content_id: String,
     pub title: String,
     pub description: Option<String>,
-    pub access_policy: AccessPolicy,
+    pub access_policy: RichAccessPolicy,
     pub classification: DataClassification,
     pub content_data: Option<serde_json::Value>,
 }
@@ -231,22 +389,185 @@ pub async fn sync_share_content(
     request: ShareContentRequest,
     state: State<'_, AppSyncState>,
 ) -> Result<String, String> {
+    let ShareContentRequest {
+        content_type,
+        content_id,
+        title,
+        description,
+        access_policy,
+        classification,
+        content_data,
+    } = request;
+
     let guard = state.sync_client.read().await;
     let client = guard.as_ref().ok_or("Sync is not connected")?;
+    let owner_user_id = client.user_id().to_string();
+    let created_at = chrono::Utc::now();
 
-    // For now, delegate to share_result with the content_id
-    // In the future, this will use the extended API with content_data
+    let broker_metadata = super::types::ShareMetadata {
+        owner_user_id: owner_user_id.clone(),
+        content_type,
+        content_id: content_id.clone(),
+        title: title.clone(),
+        description: description.clone(),
+        created_at,
+        access_policy: access_policy.to_legacy(),
+        classification,
+        download_count: 0,
+        last_accessed_at: None,
+    };
+
     let share_link = client
-        .share_result(
-            &request.content_id,
-            &request.title,
-            request.description,
-            request.access_policy,
-        )
+        .publish_share_metadata(broker_metadata)
         .await
         .map_err(|e| format!("Failed to share: {}", e))?;
+    let share_token = parse_share_token(&share_link).unwrap_or_else(generate_local_share_token);
+    let owner_name = owner_user_id
+        .split('@')
+        .next()
+        .map(ToString::to_string)
+        .filter(|v| !v.is_empty());
+
+    let metadata = ApiShareMetadata {
+        share_token: share_token.clone(),
+        owner_user_id,
+        content_type,
+        content_id,
+        title,
+        description,
+        created_at: created_at.to_rfc3339(),
+        access_policy,
+        classification,
+        download_count: 0,
+        last_accessed_at: None,
+    };
+
+    state.local_shares.write().await.insert(
+        share_token,
+        LocalSharedContentRecord {
+            metadata,
+            content_data,
+            owner_name,
+        },
+    );
 
     Ok(share_link)
+}
+
+/// List content shared by current user
+#[tauri::command]
+pub async fn sync_list_my_shares(
+    state: State<'_, AppSyncState>,
+) -> Result<Vec<ApiShareMetadata>, String> {
+    let current_user_id = state
+        .sync_client
+        .read()
+        .await
+        .as_ref()
+        .map(|c| c.user_id().to_string());
+
+    let mut shares: Vec<ApiShareMetadata> = state
+        .local_shares
+        .read()
+        .await
+        .values()
+        .filter(|record| {
+            current_user_id
+                .as_ref()
+                .map(|uid| record.metadata.owner_user_id == *uid)
+                .unwrap_or(true)
+        })
+        .map(|record| record.metadata.clone())
+        .collect();
+
+    shares.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    Ok(shares)
+}
+
+/// List content shared with current user
+#[tauri::command]
+pub async fn sync_list_shared_with_me(
+    state: State<'_, AppSyncState>,
+) -> Result<Vec<ApiSharedItem>, String> {
+    let current_user_id = state
+        .sync_client
+        .read()
+        .await
+        .as_ref()
+        .map(|c| c.user_id().to_string());
+
+    let mut shares: Vec<ApiSharedItem> = state
+        .local_shares
+        .read()
+        .await
+        .values()
+        .filter(|record| {
+            current_user_id
+                .as_ref()
+                .map(|uid| record.metadata.owner_user_id != *uid)
+                .unwrap_or(true)
+        })
+        .map(|record| ApiSharedItem {
+            metadata: record.metadata.clone(),
+            owner_name: record.owner_name.clone(),
+        })
+        .collect();
+
+    shares.sort_by(|a, b| b.metadata.created_at.cmp(&a.metadata.created_at));
+    Ok(shares)
+}
+
+/// Access shared content with typed payload (annotations/workflows/parameters/data-segments)
+#[tauri::command]
+pub async fn sync_access_shared_content(
+    token: String,
+    state: State<'_, AppSyncState>,
+) -> Result<SharedContentInfo, String> {
+    let mut local_shares = state.local_shares.write().await;
+    if let Some(record) = local_shares.get_mut(&token) {
+        record.metadata.download_count += 1;
+        record.metadata.last_accessed_at = Some(chrono::Utc::now().to_rfc3339());
+        return Ok(SharedContentInfo {
+            metadata: record.metadata.clone(),
+            content_data: record.content_data.clone(),
+            download_url: format!("ddalab://share/{}", token),
+            owner_online: true,
+            owner_name: record.owner_name.clone(),
+        });
+    }
+    drop(local_shares);
+
+    let client = state.sync_client.read().await;
+    let client = client.as_ref().ok_or("Sync is not connected")?;
+    let share_info = client
+        .access_share(&token)
+        .await
+        .map_err(|e| format!("Failed to access shared content: {}", e))?;
+
+    let metadata = ApiShareMetadata {
+        share_token: token,
+        owner_user_id: share_info.metadata.owner_user_id,
+        content_type: share_info.metadata.content_type,
+        content_id: share_info.metadata.content_id,
+        title: share_info.metadata.title,
+        description: share_info.metadata.description,
+        created_at: share_info.metadata.created_at.to_rfc3339(),
+        access_policy: RichAccessPolicy::from_legacy(&share_info.metadata.access_policy),
+        classification: share_info.metadata.classification,
+        download_count: share_info.metadata.download_count,
+        last_accessed_at: share_info
+            .metadata
+            .last_accessed_at
+            .map(|dt| dt.to_rfc3339()),
+    };
+
+    Ok(SharedContentInfo {
+        metadata,
+        content_data: None,
+        download_url: share_info.download_url,
+        owner_online: share_info.owner_online,
+        owner_name: None,
+    })
 }
 
 /// Access a shared result
@@ -255,6 +576,34 @@ pub async fn sync_access_share(
     token: String,
     state: State<'_, AppSyncState>,
 ) -> Result<super::types::SharedResultInfo, String> {
+    let mut local_shares = state.local_shares.write().await;
+    if let Some(record) = local_shares.get_mut(&token) {
+        record.metadata.download_count += 1;
+        record.metadata.last_accessed_at = Some(chrono::Utc::now().to_rfc3339());
+        let metadata = super::types::ShareMetadata {
+            owner_user_id: record.metadata.owner_user_id.clone(),
+            content_type: record.metadata.content_type,
+            content_id: record.metadata.content_id.clone(),
+            title: record.metadata.title.clone(),
+            description: record.metadata.description.clone(),
+            created_at: parse_rfc3339_or_now(&record.metadata.created_at),
+            access_policy: record.metadata.access_policy.to_legacy(),
+            classification: record.metadata.classification,
+            download_count: record.metadata.download_count,
+            last_accessed_at: record
+                .metadata
+                .last_accessed_at
+                .as_deref()
+                .map(parse_rfc3339_or_now),
+        };
+        return Ok(super::types::SharedResultInfo {
+            metadata,
+            download_url: format!("ddalab://share/{}", token),
+            owner_online: true,
+        });
+    }
+    drop(local_shares);
+
     let client = state.sync_client.read().await;
     let client = client.as_ref().ok_or("Sync is not connected")?;
 
@@ -272,13 +621,21 @@ pub async fn sync_revoke_share(
     token: String,
     state: State<'_, AppSyncState>,
 ) -> Result<(), String> {
-    let client = state.sync_client.read().await;
-    let client = client.as_ref().ok_or("Sync is not connected")?;
+    let removed_local = state.local_shares.write().await.remove(&token).is_some();
 
-    client
-        .revoke_share(&token)
-        .await
-        .map_err(|e| format!("Failed to revoke share: {}", e))?;
+    let client = state.sync_client.read().await;
+    if let Some(client) = client.as_ref() {
+        if let Err(e) = client.revoke_share(&token).await {
+            if !removed_local {
+                return Err(format!("Failed to revoke share: {}", e));
+            }
+            warn!("Failed to revoke broker share {}: {}", token, e);
+        }
+    }
+
+    if !removed_local && client.is_none() {
+        return Err("Share not found".to_string());
+    }
 
     Ok(())
 }

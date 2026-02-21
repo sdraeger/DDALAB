@@ -203,6 +203,9 @@ pub struct StreamingDDAConfig {
     /// Model parameters (expert mode)
     pub model_parameters: Option<ModelParameters>,
 
+    /// Model term indices passed to -MODEL (expert mode)
+    pub model_terms: Option<Vec<i32>>,
+
     /// Whether to include full Q matrices in results (can be large)
     pub include_q_matrices: bool,
 
@@ -233,6 +236,7 @@ impl Default for StreamingDDAConfig {
                 select_mask: Some("1 0 0 0".to_string()),
             },
             model_parameters: None,
+            model_terms: None,
             include_q_matrices: false,
             selected_channels: None,
             resource_limits: StreamingResourceLimits::default(),
@@ -563,6 +567,12 @@ impl StreamingDDAProcessor {
             ct_channel_pairs: None,
             cd_channel_pairs: None,
             model_parameters: self.config.model_parameters.clone(),
+            model_terms: self
+                .config
+                .model_terms
+                .as_ref()
+                .filter(|terms| !terms.is_empty())
+                .cloned(),
             variant_configs: None,
             sampling_rate: Some(self.sample_rate as f64),
         };

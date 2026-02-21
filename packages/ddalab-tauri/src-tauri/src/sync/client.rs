@@ -136,7 +136,20 @@ impl SyncClient {
         });
     }
 
-    /// Share a result with others
+    /// Publish share metadata to the broker and return a share link.
+    pub async fn publish_share_metadata(&self, metadata: ShareMetadata) -> Result<String> {
+        let token = generate_share_token();
+        let publish_msg = SyncMessage::PublishShare {
+            token: token.clone(),
+            metadata,
+        };
+
+        self.ws_tx.send(publish_msg)?;
+        info!("Published share: {}", token);
+        Ok(format!("ddalab://share/{}", token))
+    }
+
+    /// Share a DDA result with others
     pub async fn share_result(
         &self,
         result_id: &str,
@@ -144,9 +157,6 @@ impl SyncClient {
         description: Option<String>,
         access_policy: AccessPolicy,
     ) -> Result<String> {
-        // Generate share token
-        let token = generate_share_token();
-
         let metadata = ShareMetadata {
             owner_user_id: self.user_id.clone(),
             content_type: Default::default(), // DdaResult by default
@@ -160,17 +170,7 @@ impl SyncClient {
             last_accessed_at: None,
         };
 
-        let publish_msg = SyncMessage::PublishShare {
-            token: token.clone(),
-            metadata,
-        };
-
-        self.ws_tx.send(publish_msg)?;
-
-        info!("Published share: {}", token);
-
-        // Return shareable link
-        Ok(format!("ddalab://share/{}", token))
+        self.publish_share_metadata(metadata).await
     }
 
     /// Access a shared result
@@ -315,10 +315,33 @@ fn handle_broker_message(
 ) -> bool {
     match msg {
         SyncMessage::ShareInfo { info } => {
-            // Find pending request for this share
-            let token = info.metadata.content_id.clone();
-            if let Some(tx) = pending_requests.write().remove(&token) {
-                let _ = tx.send(info);
+            // Find pending request for this share.
+            // Prefer an explicit token from the download URL, then fallback to content_id,
+            // then fallback to the only pending request when exactly one exists.
+            let mut pending = pending_requests.write();
+            let token_from_url = extract_token_from_download_url(&info.download_url);
+            let matched_token = token_from_url.or_else(|| {
+                if pending.contains_key(&info.metadata.content_id) {
+                    Some(info.metadata.content_id.clone())
+                } else {
+                    None
+                }
+            });
+
+            let fallback_token = if matched_token.is_none() && pending.len() == 1 {
+                pending.keys().next().cloned()
+            } else {
+                None
+            };
+
+            let token = matched_token.or(fallback_token);
+            if let Some(token) = token {
+                let tx = pending.remove(&token);
+                if let Some(tx) = tx {
+                    let _ = tx.send(info);
+                } else {
+                    warn!("Received share info for unknown request");
+                }
             } else {
                 warn!("Received share info for unknown request");
             }
@@ -348,6 +371,13 @@ fn handle_broker_message(
             false
         }
     }
+}
+
+fn extract_token_from_download_url(url: &str) -> Option<String> {
+    url.rsplit('/')
+        .next()
+        .map(ToString::to_string)
+        .filter(|token| !token.is_empty())
 }
 
 /// Generate a random share token

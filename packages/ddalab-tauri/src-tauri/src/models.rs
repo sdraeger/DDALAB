@@ -218,12 +218,14 @@ impl Default for AppPreferences {
     fn default() -> Self {
         Self {
             api_config: ApiConfig {
-                url: "https://localhost:8765".to_string(), // HTTPS by default for security
+                // Legacy API server config retained for compatibility.
+                // Core desktop operations use Tauri IPC.
+                url: "ipc://tauri".to_string(),
                 timeout: 30,
             },
             window_state: HashMap::new(),
             theme: "auto".to_string(),
-            use_https: true, // HTTPS by default for security (users can disable if they encounter certificate issues)
+            use_https: false,
             warn_on_close_during_analysis: true, // Warn by default
             updates_last_checked: None,
         }
