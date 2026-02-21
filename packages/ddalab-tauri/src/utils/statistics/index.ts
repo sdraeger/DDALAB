@@ -5,3 +5,8 @@ export { welchTTest, permutationTest, cohensD } from "./inferential";
 export type { TTestResult, PermutationResult } from "./inferential";
 
 export { fdrCorrection, bonferroniCorrection } from "./multipleComparisons";
+export { clusterPermutationTest } from "./clusterPermutation";
+export type {
+  ClusterInfo,
+  ClusterPermutationResult,
+} from "./clusterPermutation";

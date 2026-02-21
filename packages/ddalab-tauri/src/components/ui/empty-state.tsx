@@ -141,7 +141,7 @@ export function EmptyState({
       {tips && tips.length > 0 && (
         <ul className="mt-4 space-y-1 text-xs text-muted-foreground">
           {tips.map((tip, index) => (
-            <li key={index} className="flex items-center gap-1.5">
+            <li key={`${tip}-${index}`} className="flex items-center gap-1.5">
               <span className="h-1 w-1 rounded-full bg-muted-foreground/40" />
               {tip}
             </li>

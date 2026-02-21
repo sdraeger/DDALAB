@@ -1,6 +1,7 @@
 import { useRef, useEffect, useMemo, useState } from "react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
+import { zoomCursorMove } from "@/lib/uplot-zoom";
 import type { ICAComponent } from "@/types/ica";
 
 /** Minimum dimensions to avoid uPlot errors */
@@ -27,6 +28,7 @@ function getBaseChartOptions(
     height: Math.max(height, MIN_HEIGHT),
     cursor: {
       show: true,
+      move: zoomCursorMove(),
       drag: { x: true, y: false },
     },
     scales: {
@@ -241,6 +243,7 @@ export function ICATopography({ component, channelNames }: TopographyProps) {
       title: `IC ${component.component_id + 1} - Channel Weights`,
       cursor: {
         show: true,
+        move: zoomCursorMove(),
         points: { show: false },
       },
       axes: [

@@ -1,4 +1,10 @@
-import { test, expect, waitForAppReady } from "../fixtures/base.fixture";
+import {
+  test,
+  expect,
+  waitForAppReady,
+  navigateTo,
+  type PrimaryNav,
+} from "../fixtures/base.fixture";
 
 test.describe("App Startup", () => {
   test("loads without critical errors", async ({ page }) => {
@@ -59,11 +65,11 @@ test.describe("App Startup", () => {
     await waitForAppReady(page);
 
     // Check each nav button exists and is clickable
-    const navButtons = ["data", "analyze", "settings"];
+    const navButtons: PrimaryNav[] = ["data", "analyze", "settings"];
     for (const nav of navButtons) {
       const button = page.locator(`[data-nav="${nav}"]`).first();
       if (await button.isVisible()) {
-        await button.click();
+        await navigateTo(page, nav);
         // Should not cause error
         await page.waitForTimeout(100);
       }

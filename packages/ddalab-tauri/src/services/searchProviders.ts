@@ -170,10 +170,28 @@ export class SettingsSearchProvider implements SearchProvider {
 
   private settingsSections: IndexedSettingsSection[] = [
     {
-      id: "engine",
-      label: "Analysis Engine",
-      description: "Configure analysis engine settings and performance",
-      keywords: ["analysis", "engine", "performance", "computation"],
+      id: "general",
+      label: "General",
+      description: "General preferences and expert mode",
+      keywords: ["general", "preferences", "expert", "mode"],
+    },
+    {
+      id: "behavior",
+      label: "Behavior",
+      description: "Application behavior and confirmation dialogs",
+      keywords: ["behavior", "confirm", "warning", "close", "dialog"],
+    },
+    {
+      id: "cli",
+      label: "CLI",
+      description: "Command-line integration and shell setup",
+      keywords: ["cli", "terminal", "shell", "command", "path", "ddalab"],
+    },
+    {
+      id: "python",
+      label: "Python / MNE",
+      description: "Python environment for MNE and file import bridges",
+      keywords: ["python", "mne", "bridge", "import", "eeglab"],
     },
     {
       id: "security",
@@ -186,6 +204,12 @@ export class SettingsSearchProvider implements SearchProvider {
       label: "NSG Integration",
       description: "Neuroscience Gateway integration settings",
       keywords: ["nsg", "gateway", "cloud", "computing", "hpc"],
+    },
+    {
+      id: "sync",
+      label: "Sync & Sharing",
+      description: "Sync broker and collaboration settings",
+      keywords: ["sync", "sharing", "broker", "collaboration", "peer"],
     },
     {
       id: "openneuro",

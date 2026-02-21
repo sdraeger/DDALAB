@@ -122,10 +122,12 @@ export function OpenNeuroSettings() {
         </p>
       </div>
 
-      <Card>
+      <Card className="transition-shadow duration-150 hover:shadow-md">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Database className="h-5 w-5" />
+            <div className="rounded-md p-1.5 bg-cyan-100 dark:bg-cyan-900/30">
+              <Database className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
+            </div>
             API Key Configuration
           </CardTitle>
           <CardDescription>

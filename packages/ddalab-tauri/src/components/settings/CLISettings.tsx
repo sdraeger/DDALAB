@@ -44,10 +44,12 @@ export function CLISettings() {
         </p>
       </div>
 
-      <Card>
+      <Card className="transition-shadow duration-150 hover:shadow-md">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Terminal className="h-5 w-5" />
+            <div className="rounded-md p-1.5 bg-slate-100 dark:bg-slate-900/30">
+              <Terminal className="h-5 w-5 text-slate-600 dark:text-slate-400" />
+            </div>
             CLI Status
           </CardTitle>
           <CardDescription>
@@ -123,7 +125,7 @@ export function CLISettings() {
         </Alert>
       )}
 
-      <Card>
+      <Card className="transition-shadow duration-150 hover:shadow-md">
         <CardHeader>
           <CardTitle>Usage</CardTitle>
           <CardDescription>
@@ -134,9 +136,26 @@ export function CLISettings() {
           <div className="space-y-3">
             <div className="rounded-lg bg-muted p-3 font-mono text-xs space-y-1.5">
               <p className="text-muted-foreground">
-                # Run a single-timeseries analysis
+                # Run with app-style variant IDs
               </p>
-              <p>ddalab run --file data.edf --channels 0 1 2 --variants ST</p>
+              <p>
+                ddalab run --file data.edf --channels 0 1 2 --variants
+                single_timeseries
+              </p>
+              <p className="text-muted-foreground mt-3">
+                # Run with per-variant config JSON from DDALAB workflows
+              </p>
+              <p>
+                ddalab run --file data.edf --variants ST CT --variant-configs
+                variant-configs.json
+              </p>
+              <p className="text-muted-foreground mt-3">
+                # Include preprocessing cutoffs
+              </p>
+              <p>
+                ddalab run --file data.edf --channels 0 1 --highpass 0.5
+                --lowpass 70
+              </p>
               <p className="text-muted-foreground mt-3">
                 # List available DDA variants
               </p>

@@ -10,7 +10,9 @@ import { toast } from "@/components/ui/toaster";
  */
 export function useWorkflowRecording() {
   // Get active file from store for proper context tracking
-  const selectedFile = useAppStore((state) => state.fileManager.selectedFile);
+  const selectedFilePath = useAppStore(
+    (state) => state.fileManager.selectedFile?.file_path ?? null,
+  );
   const isRecording = useAppStore(
     (state) => state.workflowRecording.isRecording,
   );
@@ -29,7 +31,7 @@ export function useWorkflowRecording() {
       try {
         await invoke("workflow_auto_record", {
           action,
-          activeFileId: selectedFile?.file_path || null,
+          activeFileId: selectedFilePath,
         });
 
         // Reset failure count on success
@@ -57,7 +59,7 @@ export function useWorkflowRecording() {
         });
       }
     },
-    [selectedFile?.file_path, isRecording],
+    [selectedFilePath, isRecording],
   );
 
   return {

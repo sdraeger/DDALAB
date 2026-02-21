@@ -523,7 +523,7 @@ export function NetworkMotifPlot({ data, className }: NetworkMotifPlotProps) {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {data.adjacency_matrices.map((matrix, index) => (
           <NetworkGraph
-            key={index}
+            key={`network-${index}-${data.num_nodes}`}
             matrix={matrix}
             nodePositions={nodePositions}
             nodeLabels={data.node_labels}

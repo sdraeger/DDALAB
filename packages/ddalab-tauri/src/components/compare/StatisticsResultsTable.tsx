@@ -85,6 +85,7 @@ export function StatisticsResultsTable({
             <TableHead className="text-xs text-right">df</TableHead>
             <TableHead className="text-xs text-right">p (raw)</TableHead>
             <TableHead className="text-xs text-right">p (adj)</TableHead>
+            <TableHead className="text-xs text-right">Sig windows</TableHead>
             <TableHead className="text-xs text-center">Sig</TableHead>
           </TableRow>
         </TableHeader>
@@ -122,6 +123,10 @@ export function StatisticsResultsTable({
                 )}
               >
                 {formatPValue(r.correctedPValue)}
+              </TableCell>
+              <TableCell className="text-xs text-right font-mono text-muted-foreground">
+                {r.timeResolved.significantWindowCount}/
+                {r.timeResolved.windowCount}
               </TableCell>
               <TableCell className="text-xs text-center font-semibold">
                 {significanceMarker(r.correctedPValue, alpha)}

@@ -8,11 +8,13 @@ import type {
   SampleDataset,
 } from "@/types/learn";
 import { useAppStore } from "@/store/appStore";
+import { createLogger } from "@/lib/logger";
 
 const SAMPLE_DATA_INDEX_URL =
   "https://raw.githubusercontent.com/sdraeger/ddalab-data/main/sample-data-index.json";
 const RECIPES_INDEX_URL =
   "https://raw.githubusercontent.com/sdraeger/ddalab-data/main/recipes-index.json";
+const logger = createLogger("useLearn");
 
 export const learnKeys = {
   all: ["learn"] as const,
@@ -28,9 +30,15 @@ export function useSampleDataIndex() {
     queryKey: learnKeys.sampleIndex(),
     queryFn: async () => {
       const raw = await TauriService.fetchRemoteIndex(SAMPLE_DATA_INDEX_URL);
-      const index: SampleDataIndex = JSON.parse(raw);
-      setSampleDataIndex(index.datasets);
-      return index.datasets;
+      try {
+        const index: SampleDataIndex = JSON.parse(raw);
+        setSampleDataIndex(index.datasets);
+        return index.datasets;
+      } catch (error) {
+        logger.warn("Failed to parse sample data index", { error });
+        setSampleDataIndex([]);
+        return [];
+      }
     },
     staleTime: 5 * 60_000,
   });
@@ -43,9 +51,15 @@ export function usePaperRecipesIndex() {
     queryKey: learnKeys.recipesIndex(),
     queryFn: async () => {
       const raw = await TauriService.fetchRemoteIndex(RECIPES_INDEX_URL);
-      const index: PaperRecipeIndex = JSON.parse(raw);
-      setRecipesIndex(index.recipes);
-      return index.recipes;
+      try {
+        const index: PaperRecipeIndex = JSON.parse(raw);
+        setRecipesIndex(index.recipes);
+        return index.recipes;
+      } catch (error) {
+        logger.warn("Failed to parse paper recipes index", { error });
+        setRecipesIndex([]);
+        return [];
+      }
     },
     staleTime: 5 * 60_000,
   });

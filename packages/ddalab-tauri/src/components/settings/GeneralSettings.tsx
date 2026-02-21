@@ -46,10 +46,12 @@ export function GeneralSettings() {
       </div>
 
       {/* Appearance */}
-      <Card>
+      <Card className="transition-shadow duration-150 hover:shadow-md">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Palette className="h-5 w-5" />
+            <div className="h-8 w-8 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+              <Palette className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+            </div>
             Appearance
           </CardTitle>
           <CardDescription>
@@ -94,10 +96,12 @@ export function GeneralSettings() {
       </Card>
 
       {/* Expert Mode */}
-      <Card>
+      <Card className="transition-shadow duration-150 hover:shadow-md">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <FlaskConical className="h-5 w-5" />
+            <div className="h-8 w-8 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
+              <FlaskConical className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+            </div>
             Expert Mode
           </CardTitle>
           <CardDescription>

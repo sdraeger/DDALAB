@@ -17,9 +17,98 @@ import { BatchJobQueue } from "./BatchJobQueue";
 import { BatchResultsSummary } from "./BatchResultsSummary";
 import { tauriBackendService } from "@/services/tauriBackendService";
 import type { ComparisonEntry } from "@/store/slices/comparisonSlice";
-import { Layers, ArrowLeft, ArrowRight, Play } from "lucide-react";
+import {
+  Layers,
+  ArrowLeft,
+  ArrowRight,
+  Play,
+  CheckCircle2,
+  FileText as FileIcon,
+  Settings,
+  Loader2 as ProcessingIcon,
+  BarChart3,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
 
 type SetupPhase = "select" | "configure";
+
+type BatchPhase = "select" | "configure" | "running" | "results";
+
+const STEPS: Array<{ id: BatchPhase; label: string; icon: React.ElementType }> =
+  [
+    { id: "select", label: "Select Files", icon: FileIcon },
+    { id: "configure", label: "Configure", icon: Settings },
+    { id: "running", label: "Processing", icon: ProcessingIcon },
+    { id: "results", label: "Results", icon: BarChart3 },
+  ];
+
+function getStepState(
+  stepId: BatchPhase,
+  currentPhase: BatchPhase,
+): "completed" | "active" | "pending" {
+  const order: BatchPhase[] = ["select", "configure", "running", "results"];
+  const stepIndex = order.indexOf(stepId);
+  const currentIndex = order.indexOf(currentPhase);
+  if (stepIndex < currentIndex) return "completed";
+  if (stepIndex === currentIndex) return "active";
+  return "pending";
+}
+
+function BatchStepIndicator({ currentPhase }: { currentPhase: BatchPhase }) {
+  return (
+    <div className="flex items-center justify-between px-2">
+      {STEPS.map((step, index) => {
+        const state = getStepState(step.id, currentPhase);
+        const Icon = step.icon;
+        return (
+          <div
+            key={step.id}
+            className="flex items-center flex-1 last:flex-none"
+          >
+            <div className="flex flex-col items-center gap-1.5">
+              <div
+                className={cn(
+                  "h-9 w-9 rounded-full flex items-center justify-center text-sm font-medium transition-colors",
+                  state === "completed" && "bg-primary text-primary-foreground",
+                  state === "active" &&
+                    "bg-primary text-primary-foreground ring-4 ring-primary/20",
+                  state === "pending" &&
+                    "bg-muted text-muted-foreground border-2 border-muted-foreground/30",
+                )}
+              >
+                {state === "completed" ? (
+                  <CheckCircle2 className="h-4 w-4" />
+                ) : (
+                  <Icon className="h-4 w-4" />
+                )}
+              </div>
+              <span
+                className={cn(
+                  "text-xs whitespace-nowrap",
+                  state === "active" && "font-semibold text-foreground",
+                  state === "completed" && "text-primary",
+                  state === "pending" && "text-muted-foreground",
+                )}
+              >
+                {step.label}
+              </span>
+            </div>
+            {index < STEPS.length - 1 && (
+              <div
+                className={cn(
+                  "flex-1 h-0.5 mx-3 mt-[-1.25rem]",
+                  getStepState(STEPS[index + 1].id, currentPhase) !== "pending"
+                    ? "bg-primary"
+                    : "bg-muted",
+                )}
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 export function BatchProcessingDashboard() {
   const {
@@ -57,6 +146,12 @@ export function BatchProcessingDashboard() {
     batchStatus === "error" ||
     batchStatus === "cancelled";
   const showSetup = !showRunning && !showResults;
+
+  const currentPhase: BatchPhase = showResults
+    ? "results"
+    : showRunning
+      ? "running"
+      : setupPhase;
 
   const handleStartBatch = useCallback(async () => {
     if (selectedFiles.length === 0 || sharedParams.variants.length === 0)
@@ -139,6 +234,7 @@ export function BatchProcessingDashboard() {
         </div>
 
         <Separator />
+        <BatchStepIndicator currentPhase={currentPhase} />
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-6">

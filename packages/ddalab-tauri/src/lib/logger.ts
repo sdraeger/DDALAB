@@ -32,6 +32,11 @@ const MIN_LOG_LEVEL: LogLevel =
 // In-memory log storage for copy/export functionality
 const MAX_LOG_ENTRIES = 500;
 const logHistory: LogEntry[] = [];
+const SENSITIVE_KEY_PATTERN =
+  /(token|secret|password|api[_-]?key|auth|cookie|session|email)/i;
+const PATH_KEY_PATTERN = /(path|file|directory)/i;
+const MAX_SANITIZE_DEPTH = 4;
+const MAX_ARRAY_PREVIEW = 25;
 
 function addToHistory(entry: LogEntry): void {
   logHistory.push(entry);
@@ -72,18 +77,98 @@ function formatMessage(entry: LogEntry): string {
   return `${prefix} ${entry.message}`;
 }
 
+function getBaseName(pathValue: string): string {
+  const normalized = pathValue.replace(/\\/g, "/");
+  const segments = normalized.split("/").filter(Boolean);
+  return segments[segments.length - 1] || "(root)";
+}
+
+function sanitizeValue(
+  value: unknown,
+  keyHint?: string,
+  depth: number = 0,
+  seen: WeakSet<object> = new WeakSet(),
+): unknown {
+  if (depth > MAX_SANITIZE_DEPTH) {
+    return "[MaxDepth]";
+  }
+
+  if (value instanceof Error) {
+    return {
+      name: value.name,
+      message: value.message,
+    };
+  }
+
+  if (value === null || value === undefined) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    if (keyHint && SENSITIVE_KEY_PATTERN.test(keyHint)) {
+      return "[REDACTED]";
+    }
+    if (keyHint && PATH_KEY_PATTERN.test(keyHint) && value.length > 0) {
+      return getBaseName(value);
+    }
+    return value;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    const preview = value
+      .slice(0, MAX_ARRAY_PREVIEW)
+      .map((entry) => sanitizeValue(entry, keyHint, depth + 1, seen));
+    if (value.length > MAX_ARRAY_PREVIEW) {
+      preview.push(`[...${value.length - MAX_ARRAY_PREVIEW} more]`);
+    }
+    return preview;
+  }
+
+  if (typeof value === "object") {
+    if (seen.has(value as object)) {
+      return "[Circular]";
+    }
+    seen.add(value as object);
+    const result: Record<string, unknown> = {};
+    for (const [key, nestedValue] of Object.entries(
+      value as Record<string, unknown>,
+    )) {
+      if (SENSITIVE_KEY_PATTERN.test(key)) {
+        result[key] = "[REDACTED]";
+        continue;
+      }
+      result[key] = sanitizeValue(nestedValue, key, depth + 1, seen);
+    }
+    return result;
+  }
+
+  return String(value);
+}
+
+function sanitizeContext(context?: LogContext): LogContext | undefined {
+  if (!context) {
+    return undefined;
+  }
+  return sanitizeValue(context) as LogContext;
+}
+
 function createLogEntry(
   level: LogLevel,
   namespace: string,
   message: string,
   context?: LogContext,
 ): LogEntry {
+  const sanitizedContext = sanitizeContext(context);
   return {
     timestamp: new Date().toISOString(),
     level,
     namespace,
     message,
-    context,
+    context: sanitizedContext,
   };
 }
 
@@ -124,33 +209,34 @@ export function createLogger(namespace: string): Logger {
     if (!shouldLog(level)) return;
 
     const formattedMessage = formatMessage(entry);
+    const sanitizedContext = entry.context;
 
     switch (level) {
       case "debug":
         // eslint-disable-next-line no-console
-        if (context) {
-          console.info(formattedMessage, context);
+        if (sanitizedContext) {
+          console.info(formattedMessage, sanitizedContext);
         } else {
           console.info(formattedMessage);
         }
         break;
       case "info":
-        if (context) {
-          console.info(formattedMessage, context);
+        if (sanitizedContext) {
+          console.info(formattedMessage, sanitizedContext);
         } else {
           console.info(formattedMessage);
         }
         break;
       case "warn":
-        if (context) {
-          console.warn(formattedMessage, context);
+        if (sanitizedContext) {
+          console.warn(formattedMessage, sanitizedContext);
         } else {
           console.warn(formattedMessage);
         }
         break;
       case "error":
-        if (context) {
-          console.error(formattedMessage, context);
+        if (sanitizedContext) {
+          console.error(formattedMessage, sanitizedContext);
         } else {
           console.error(formattedMessage);
         }

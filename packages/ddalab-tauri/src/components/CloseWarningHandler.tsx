@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useAppStore } from "@/store/appStore";
 import { TauriService, AppPreferences } from "@/services/tauriService";
+import { useIsTauriRuntime } from "@/hooks/useIsTauriRuntime";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { AlertTriangle } from "lucide-react";
 
 export function CloseWarningHandler() {
+  const isTauriRuntime = useIsTauriRuntime();
   const [showDialog, setShowDialog] = useState(false);
   const [dontAskAgain, setDontAskAgain] = useState(false);
 
@@ -84,7 +86,7 @@ export function CloseWarningHandler() {
   handleCloseRequestRef.current = handleCloseRequest;
 
   useEffect(() => {
-    if (!TauriService.isTauri()) return;
+    if (!isTauriRuntime) return;
 
     let unlisten: (() => void) | null = null;
     let mounted = true;
@@ -108,9 +110,9 @@ export function CloseWarningHandler() {
       mounted = false;
       unlisten?.();
     };
-  }, []);
+  }, [isTauriRuntime]);
 
-  if (!TauriService.isTauri()) {
+  if (!isTauriRuntime) {
     return null;
   }
 

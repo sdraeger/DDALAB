@@ -191,7 +191,6 @@ export function useDDAWithHistoryState() {
       pendingAnalysisId: state.dda.pendingAnalysisId,
 
       // UI state (primitives only)
-      isServerReady: state.ui.isServerReady,
       isHistoryCollapsed: state.ui.collapsedPanels["dda-history"] ?? false,
       ddaActiveTab: state.ui.ddaActiveTab,
 
@@ -238,7 +237,6 @@ export function useUIStore() {
       panelSizes: state.ui.panelSizes,
       layout: state.ui.layout,
       theme: state.ui.theme,
-      isServerReady: state.ui.isServerReady,
       zoom: state.ui.zoom,
       expertMode: state.ui.expertMode,
 
@@ -255,7 +253,6 @@ export function useUIStore() {
       setPanelSizes: state.setPanelSizes,
       setLayout: state.setLayout,
       setTheme: state.setTheme,
-      setServerReady: state.setServerReady,
       setExpertMode: state.setExpertMode,
     })),
   );

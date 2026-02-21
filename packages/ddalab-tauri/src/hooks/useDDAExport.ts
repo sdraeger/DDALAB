@@ -28,6 +28,10 @@ import {
   canvasToPDF,
   getDefaultPlotFilename,
 } from "@/utils/plotExport";
+import {
+  createPaperReproBundle,
+  getDefaultPaperBundleFilename,
+} from "@/lib/reproducibility/paperBundle";
 import { toast } from "@/components/ui/toaster";
 import { useSync } from "@/hooks/useSync";
 import { useSnapshot } from "@/hooks/useSnapshot";
@@ -352,6 +356,62 @@ export function useDDAExport({
     [resolveFullResult],
   );
 
+  const exportPaperBundle = useCallback(async () => {
+    try {
+      const fullResult = await resolveFullResult();
+      const variant = availableVariants[selectedVariant];
+
+      let appVersion = "unknown";
+      try {
+        appVersion = await TauriService.getAppVersion();
+      } catch {
+        // Keep fallback for non-Tauri test environments
+      }
+
+      const bundle = createPaperReproBundle(fullResult, {
+        appVersion,
+        selectedVariantId: variant?.variant_id || null,
+        selectedVariantName: variant?.variant_name || null,
+        selectedChannels,
+        viewMode,
+        colorScheme,
+      });
+
+      const filename = getDefaultPaperBundleFilename(fullResult);
+      const savedPath = await TauriService.saveDDAExportFile(
+        JSON.stringify(bundle, null, 2),
+        "json",
+        filename,
+      );
+
+      if (savedPath) {
+        loggers.export.info("Paper reproducibility bundle exported", {
+          savedPath,
+          resultId: fullResult.id,
+        });
+        toast.success(
+          "Paper bundle exported",
+          `Saved reproducibility bundle to ${savedPath.split("/").pop()}`,
+        );
+      }
+    } catch (error) {
+      loggers.export.error("Failed to export paper reproducibility bundle", {
+        error,
+      });
+      toast.error(
+        "Export failed",
+        "Could not export paper reproducibility bundle",
+      );
+    }
+  }, [
+    resolveFullResult,
+    availableVariants,
+    selectedVariant,
+    selectedChannels,
+    viewMode,
+    colorScheme,
+  ]);
+
   // Pop out to separate window
   const handlePopOut = useCallback(async () => {
     const ddaResultsData = {
@@ -471,6 +531,7 @@ export function useDDAExport({
     exportData,
     exportAllData,
     exportScript,
+    exportPaperBundle,
     handlePopOut,
     handleShare,
     getExistingShareLink,

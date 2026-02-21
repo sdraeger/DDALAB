@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { TauriService } from "@/services/tauriService";
+import { useIsTauriRuntime } from "@/hooks/useIsTauriRuntime";
 
 export interface PythonEnvironmentInfo {
   detected: boolean;
@@ -14,10 +15,11 @@ export const pythonKeys = {
 };
 
 export function usePythonEnvironment() {
+  const isTauriRuntime = useIsTauriRuntime();
   return useQuery<PythonEnvironmentInfo>({
     queryKey: pythonKeys.environment(),
     queryFn: async () => {
-      if (!TauriService.isTauri()) {
+      if (!isTauriRuntime) {
         return {
           detected: false,
           pythonPath: null,
@@ -28,7 +30,7 @@ export function usePythonEnvironment() {
       return await TauriService.detectPythonEnvironment();
     },
     staleTime: 60 * 1000,
-    enabled: TauriService.isTauri(),
+    enabled: isTauriRuntime,
   });
 }
 

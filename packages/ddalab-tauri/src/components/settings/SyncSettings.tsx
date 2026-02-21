@@ -15,6 +15,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { ErrorState } from "@/components/ui/error-state";
 import { TauriService } from "@/services/tauriService";
+import { useIsTauriRuntime } from "@/hooks/useIsTauriRuntime";
 import { useSync } from "@/hooks/useSync";
 import {
   Share2,
@@ -34,6 +35,7 @@ import {
 import type { DiscoveredBroker, SyncConnectionConfig } from "@/types/sync";
 
 export function SyncSettings() {
+  const isTauriRuntime = useIsTauriRuntime();
   const {
     isConnected,
     isLoading,
@@ -125,7 +127,7 @@ export function SyncSettings() {
     }
   };
 
-  if (!TauriService.isTauri()) {
+  if (!isTauriRuntime) {
     return (
       <div className="space-y-6">
         <div>
@@ -148,14 +150,16 @@ export function SyncSettings() {
       </div>
 
       {/* Connection Status */}
-      <Card>
+      <Card className="transition-shadow duration-150 hover:shadow-md">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            {isConnected ? (
-              <Wifi className="h-5 w-5 text-green-500" />
-            ) : (
-              <WifiOff className="h-5 w-5 text-muted-foreground" />
-            )}
+            <div className="rounded-md p-1.5 bg-indigo-100 dark:bg-indigo-900/30">
+              {isConnected ? (
+                <Wifi className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+              ) : (
+                <WifiOff className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+              )}
+            </div>
             Connection Status
           </CardTitle>
           <CardDescription>
@@ -201,10 +205,12 @@ export function SyncSettings() {
 
       {/* Broker Discovery */}
       {!isConnected && (
-        <Card>
+        <Card className="transition-shadow duration-150 hover:shadow-md">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Search className="h-5 w-5" />
+              <div className="rounded-md p-1.5 bg-indigo-100 dark:bg-indigo-900/30">
+                <Search className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+              </div>
               Discover Brokers
             </CardTitle>
             <CardDescription>
@@ -229,7 +235,7 @@ export function SyncSettings() {
                 <div className="space-y-2">
                   {discoveredBrokers.map((broker, index) => (
                     <button
-                      key={index}
+                      key={broker.url || `${broker.name}-${index}`}
                       className={`w-full p-3 rounded-lg border text-left transition-colors ${
                         selectedBroker?.url === broker.url
                           ? "border-primary bg-primary/5"
@@ -269,10 +275,12 @@ export function SyncSettings() {
 
       {/* Connection Configuration */}
       {!isConnected && (
-        <Card>
+        <Card className="transition-shadow duration-150 hover:shadow-md">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Link2 className="h-5 w-5" />
+              <div className="rounded-md p-1.5 bg-indigo-100 dark:bg-indigo-900/30">
+                <Link2 className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+              </div>
               Connection Settings
             </CardTitle>
             <CardDescription>
@@ -393,10 +401,12 @@ export function SyncSettings() {
       )}
 
       {/* Sharing Info */}
-      <Card>
+      <Card className="transition-shadow duration-150 hover:shadow-md">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Share2 className="h-5 w-5" />
+            <div className="rounded-md p-1.5 bg-indigo-100 dark:bg-indigo-900/30">
+              <Share2 className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+            </div>
             About Sync & Sharing
           </CardTitle>
         </CardHeader>

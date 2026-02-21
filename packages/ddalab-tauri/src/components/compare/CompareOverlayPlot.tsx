@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
+import { zoomCursorMove } from "@/lib/uplot-zoom";
 import { COMPARE_COLORS } from "./CompareEntryList";
 import type { ComparisonEntry } from "@/store/slices/comparisonSlice";
 
@@ -109,6 +110,7 @@ export function CompareOverlayPlot({
       ],
       cursor: {
         show: true,
+        move: zoomCursorMove(),
         drag: { x: true, y: false },
       },
       legend: {

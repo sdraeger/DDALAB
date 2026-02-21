@@ -1,7 +1,6 @@
 "use client";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { useState, useEffect } from "react";
 import { preloadWasm } from "@/hooks/useWasm";
 
@@ -29,6 +28,16 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
         },
       }),
   );
+  const [DevtoolsComponent, setDevtoolsComponent] =
+    useState<React.ComponentType<{
+      initialIsOpen?: boolean;
+    }> | null>(null);
+
+  // Keep devtools opt-in to avoid loading heavy date-fns/devtools code
+  // in the critical startup path (improves first-load stability in Tauri dev).
+  const enableDevtools =
+    process.env.NODE_ENV === "development" &&
+    process.env.NEXT_PUBLIC_ENABLE_RQ_DEVTOOLS === "true";
 
   // Store reference to queryClient for use outside React
   useEffect(() => {
@@ -43,10 +52,30 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
     preloadWasm();
   }, []);
 
+  // Lazy-load React Query Devtools only when explicitly enabled.
+  useEffect(() => {
+    if (!enableDevtools) return;
+
+    let cancelled = false;
+    void import("@tanstack/react-query-devtools")
+      .then((mod) => {
+        if (!cancelled) {
+          setDevtoolsComponent(() => mod.ReactQueryDevtools);
+        }
+      })
+      .catch(() => {
+        // Non-fatal: devtools are optional.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [enableDevtools]);
+
   return (
     <QueryClientProvider client={queryClient}>
-      {children as any}
-      <ReactQueryDevtools initialIsOpen={false} />
+      {children}
+      {DevtoolsComponent ? <DevtoolsComponent initialIsOpen={false} /> : null}
     </QueryClientProvider>
   );
 }

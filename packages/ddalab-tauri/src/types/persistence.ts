@@ -64,7 +64,7 @@ export interface PersistedPopoutWindowState {
   id: string;
   type: "timeseries" | "dda-results" | "eeg-visualization";
   isLocked: boolean;
-  data: any;
+  data: unknown;
   position: PersistedWindowPosition;
 }
 
@@ -193,12 +193,23 @@ export interface AnnotationState {
   ddaResults: Record<string, DDAResultAnnotations>;
 }
 
+export interface ICAStateSettings {
+  selectedChannels: number[];
+  nComponents?: number;
+  maxIterations?: number;
+  tolerance?: number;
+  centering?: boolean;
+  whitening?: boolean;
+  selectedResultId?: string | null;
+}
+
 export interface AppState {
   version: string;
   file_manager: FileManagerState;
   plot: PlotState;
   dda: DDAState;
   annotations?: AnnotationState;
+  ica?: ICAStateSettings;
   ui: UIStateSettings;
   windows: Record<string, WindowState>;
   active_tab: string;

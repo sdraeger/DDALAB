@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { persist } from "zustand/middleware";
+import { createSafePersistStorage } from "@/store/utils/safePersistStorage";
 
 export type NotificationType = "info" | "success" | "warning" | "error";
 export type NotificationCategory =
@@ -227,6 +228,7 @@ export const useNotificationStore = create<NotificationState>()(
         notifications: state.notifications,
         filters: state.filters,
       }),
+      storage: createSafePersistStorage("NotificationStore"),
     },
   ),
 );

@@ -178,7 +178,6 @@ export interface UISelectors {
   panelSizes: number[];
   layout: UIState["layout"];
   theme: UIState["theme"];
-  isServerReady: boolean;
   zoom: number;
   expertMode: boolean;
 
@@ -195,7 +194,6 @@ export interface UISelectors {
   setPanelSizes: (sizes: number[]) => void;
   setLayout: (layout: UIState["layout"]) => void;
   setTheme: (theme: UIState["theme"]) => void;
-  setServerReady: (ready: boolean) => void;
   setExpertMode: (enabled: boolean) => void;
 }
 
@@ -211,7 +209,6 @@ export function useUISelectors(): UISelectors {
       panelSizes: s.ui.panelSizes,
       layout: s.ui.layout,
       theme: s.ui.theme,
-      isServerReady: s.ui.isServerReady,
       zoom: s.ui.zoom,
       expertMode: s.ui.expertMode,
     })),
@@ -231,7 +228,6 @@ export function useUISelectors(): UISelectors {
       setPanelSizes: s.setPanelSizes,
       setLayout: s.setLayout,
       setTheme: s.setTheme,
-      setServerReady: s.setServerReady,
       setExpertMode: s.setExpertMode,
     })),
   );

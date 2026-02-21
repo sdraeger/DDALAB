@@ -13,14 +13,12 @@ import { tauriBackendService } from "@/services/tauriBackendService";
 import { EDFFileInfo } from "@/types/api";
 import { handleError, isGitAnnexError } from "@/utils/errorHandler";
 import { createLogger } from "@/lib/logger";
-
-const logger = createLogger("FileManager");
+import { resolveDataDirectoryOnce } from "@/services/startupOrchestrator";
 import { useScrollTrap } from "@/hooks/useScrollTrap";
+import { useIsTauriRuntime } from "@/hooks/useIsTauriRuntime";
 import {
   useFileManagerSelectors,
-  useUISelectors,
   useWorkflowSelectors,
-  usePersistenceSelectors,
 } from "@/hooks/useStoreSelectors";
 import {
   Card,
@@ -83,8 +81,20 @@ import { bidsCache } from "@/services/bidsCacheService";
 import { toast } from "@/components/ui/toaster";
 
 // FileTreeRenderer is now imported from @/components/file-manager
+const logger = createLogger("FileManager");
+const DIRECTORY_BOOTSTRAP_GRACE_MS = 1200;
+const DIRECTORY_LOADING_TIMEOUT_MS = 6_000;
+const DATA_DIRECTORY_RESOLVE_MAX_ATTEMPTS = 12;
+const DATA_DIRECTORY_RESOLVE_RETRY_MS = 350;
+const PENDING_FILE_RESTORE_ATTEMPT_TIMEOUT_MS = 2_500;
+const PENDING_FILE_RESTORE_MAX_ATTEMPTS = 4;
+const PENDING_FILE_RESTORE_RETRY_BASE_DELAY_MS = 350;
 
 export const FileManager = React.memo(function FileManager() {
+  const isTauriRuntime = useIsTauriRuntime();
+  const verboseFileManagerLogs =
+    process.env.NEXT_PUBLIC_VERBOSE_FILEMANAGER_LOGS === "true";
+
   // Use consolidated selector hooks instead of 20+ individual selectors
   const {
     dataDirectoryPath,
@@ -106,9 +116,7 @@ export const FileManager = React.memo(function FileManager() {
     clearPendingFileSelection,
   } = useFileManagerSelectors();
 
-  const { isServerReady } = useUISelectors();
   const { isRecording, incrementActionCount } = useWorkflowSelectors();
-  const { isPersistenceRestored } = usePersistenceSelectors();
 
   // Open files store for file tab management
   const openFileInTabs = useOpenFilesStore((state) => state.openFile);
@@ -122,20 +130,26 @@ export const FileManager = React.memo(function FileManager() {
     : dataDirectoryPath;
 
   // Compute query enabled condition
-  const queryEnabled = !!absolutePath && !!dataDirectoryPath && isServerReady;
+  const queryEnabled = !!absolutePath && !!dataDirectoryPath;
 
   // Log query conditions for debugging
   useEffect(() => {
+    if (!verboseFileManagerLogs) return;
     logger.debug("Directory query conditions", {
       absolutePath: absolutePath || "(empty)",
       dataDirectoryPath: dataDirectoryPath || "(empty)",
-      isServerReady,
+      isTauriRuntime,
       queryEnabled,
     });
-  }, [absolutePath, dataDirectoryPath, isServerReady, queryEnabled]);
+  }, [
+    absolutePath,
+    dataDirectoryPath,
+    isTauriRuntime,
+    queryEnabled,
+    verboseFileManagerLogs,
+  ]);
 
-  // Use TanStack Query for directory listing
-  // Only wait for server to be ready - no need to block on persistence
+  // Use TanStack Query for directory listing without app-wide readiness coupling.
   const {
     data: directoryData,
     isLoading: directoryLoading,
@@ -145,6 +159,7 @@ export const FileManager = React.memo(function FileManager() {
 
   // Log query state changes for debugging
   useEffect(() => {
+    if (!verboseFileManagerLogs) return;
     logger.debug("Directory query state", {
       absolutePath,
       isLoading: directoryLoading,
@@ -157,7 +172,13 @@ export const FileManager = React.memo(function FileManager() {
         : null,
       fileCount: directoryData?.files?.length || 0,
     });
-  }, [absolutePath, directoryLoading, directoryData, directoryError]);
+  }, [
+    absolutePath,
+    directoryLoading,
+    directoryData,
+    directoryError,
+    verboseFileManagerLogs,
+  ]);
 
   // Use mutation for loading file info
   const loadFileInfoMutation = useLoadFileInfo();
@@ -166,7 +187,11 @@ export const FileManager = React.memo(function FileManager() {
   const [uploadDatasetPath, setUploadDatasetPath] = useState<string | null>(
     null,
   );
-  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [showStartupLoading, setShowStartupLoading] = useState(true);
+  const [isResolvingDataDirectory, setIsResolvingDataDirectory] =
+    useState(false);
+  const [directoryLoadingTimedOut, setDirectoryLoadingTimedOut] =
+    useState(false);
   const [isOpenNeuroAuthenticated, setIsOpenNeuroAuthenticated] =
     useState(false);
   const [contextMenu, setContextMenu] = useState<{
@@ -183,6 +208,48 @@ export const FileManager = React.memo(function FileManager() {
   const [bidsExportInitialFiles, setBidsExportInitialFiles] = useState<
     string[]
   >([]);
+  const pendingRestoreStateRef = useRef<{
+    path: string | null;
+    inFlight: boolean;
+  }>({ path: null, inFlight: false });
+  const isRecordingRef = useRef(isRecording);
+  const autoRecordActionMutationRef = useRef(autoRecordActionMutation);
+
+  useEffect(() => {
+    isRecordingRef.current = isRecording;
+    autoRecordActionMutationRef.current = autoRecordActionMutation;
+  }, [isRecording, autoRecordActionMutation]);
+
+  // One-shot startup grace period for smoother first paint.
+  // This cannot deadlock because it's mount-timer based only.
+  useEffect(() => {
+    const timerId = window.setTimeout(() => {
+      setShowStartupLoading(false);
+    }, DIRECTORY_BOOTSTRAP_GRACE_MS);
+    return () => {
+      window.clearTimeout(timerId);
+    };
+  }, []);
+
+  // Prevent an indefinite loading spinner when directory listing hangs.
+  useEffect(() => {
+    if (!queryEnabled || !directoryLoading) {
+      setDirectoryLoadingTimedOut(false);
+      return;
+    }
+
+    const timerId = window.setTimeout(() => {
+      logger.warn("Directory loading timed out", {
+        absolutePath,
+        timeoutMs: DIRECTORY_LOADING_TIMEOUT_MS,
+      });
+      setDirectoryLoadingTimedOut(true);
+    }, DIRECTORY_LOADING_TIMEOUT_MS);
+
+    return () => {
+      window.clearTimeout(timerId);
+    };
+  }, [absolutePath, queryEnabled, directoryLoading]);
 
   // Scroll trap for file list to prevent accidental scroll capture
   const { containerProps: scrollTrapProps, isScrollEnabled } = useScrollTrap({
@@ -391,31 +458,73 @@ export const FileManager = React.memo(function FileManager() {
     });
   }, [directoriesWithBIDS, bidsContext]);
 
-  // Load the data directory path on mount if not already set
+  // Best-effort data directory restoration (never blocks UI).
   useEffect(() => {
-    const loadDataDirectoryPath = async () => {
-      if (TauriService.isTauri() && !dataDirectoryPath) {
-        try {
-          const path = await TauriService.getDataDirectory();
-          console.log("[FILEMANAGER] Loaded data directory path:", path);
+    let cancelled = false;
+    let retryTimer: number | null = null;
+
+    const loadDataDirectoryPath = async (attempt: number) => {
+      if (dataDirectoryPath) {
+        setIsResolvingDataDirectory(false);
+        return;
+      }
+
+      setIsResolvingDataDirectory(true);
+      try {
+        const path = await resolveDataDirectoryOnce();
+        logger.debug("Resolved data directory", { path, attempt });
+        if (!cancelled && path) {
           setDataDirectoryPath(path);
-        } catch (error) {
-          console.error(
-            "[FILEMANAGER] Failed to load data directory path:",
-            error,
-          );
+          return;
+        }
+
+        if (
+          !cancelled &&
+          attempt < DATA_DIRECTORY_RESOLVE_MAX_ATTEMPTS &&
+          !dataDirectoryPath
+        ) {
+          retryTimer = window.setTimeout(() => {
+            void loadDataDirectoryPath(attempt + 1);
+          }, DATA_DIRECTORY_RESOLVE_RETRY_MS);
+          return;
+        }
+      } catch (error) {
+        logger.warn("Failed to load data directory path", { error, attempt });
+
+        if (
+          !cancelled &&
+          attempt < DATA_DIRECTORY_RESOLVE_MAX_ATTEMPTS &&
+          !dataDirectoryPath
+        ) {
+          retryTimer = window.setTimeout(() => {
+            void loadDataDirectoryPath(attempt + 1);
+          }, DATA_DIRECTORY_RESOLVE_RETRY_MS);
+          return;
+        }
+      } finally {
+        if (!cancelled) {
+          setIsResolvingDataDirectory(false);
         }
       }
     };
-    loadDataDirectoryPath();
-  }, []);
+
+    void loadDataDirectoryPath(1);
+    return () => {
+      cancelled = true;
+      if (retryTimer !== null) {
+        window.clearTimeout(retryTimer);
+      }
+    };
+  }, [dataDirectoryPath, setDataDirectoryPath]);
 
   // Check OpenNeuro authentication status on mount and when auth changes
   // This ensures upload buttons appear after saving API key
   useEffect(() => {
     const checkAuth = async () => {
       const isAuth = await openNeuroService.isAuthenticated();
-      console.log("[FILEMANAGER] OpenNeuro authentication status:", isAuth);
+      logger.debug("OpenNeuro authentication status", {
+        isAuthenticated: isAuth,
+      });
       setIsOpenNeuroAuthenticated(isAuth);
     };
 
@@ -425,16 +534,15 @@ export const FileManager = React.memo(function FileManager() {
     // Listen for auth changes (fired when key is saved/deleted)
     const handleAuthChanged = (event: Event) => {
       const customEvent = event as CustomEvent<{ authenticated: boolean }>;
-      console.log(
-        "[FILEMANAGER] OpenNeuro auth changed:",
-        customEvent.detail.authenticated,
-      );
+      logger.debug("OpenNeuro authentication changed", {
+        isAuthenticated: customEvent.detail.authenticated,
+      });
       setIsOpenNeuroAuthenticated(customEvent.detail.authenticated);
     };
 
     // Re-check when window gains focus (user might have added key externally)
     const handleFocus = () => {
-      console.log("[FILEMANAGER] Window focused, re-checking OpenNeuro auth");
+      logger.debug("Window focused; re-checking OpenNeuro authentication");
       checkAuth();
     };
 
@@ -447,85 +555,201 @@ export const FileManager = React.memo(function FileManager() {
     };
   }, []);
 
-  // Handle initial load state
-  useEffect(() => {
-    if (isInitialLoad && isServerReady && isPersistenceRestored) {
-      console.log("[FILEMANAGER] Server ready and persistence restored");
-      setIsInitialLoad(false);
-    }
-  }, [isServerReady, isPersistenceRestored, isInitialLoad]);
-
   // Handle pending file selection restoration
-  // Start immediately when server is ready - no need to wait for isInitialLoad flag
+  // Decoupled from global startup and persistence flags to avoid deadlocks.
   useEffect(() => {
-    console.log(
-      "[FILEMANAGER] 🔍 Pending file status:",
-      "Pending:",
-      pendingFileSelectionPath || "NONE",
-      "| Server ready:",
-      isServerReady,
-      "| Persistence restored:",
-      isPersistenceRestored,
-    );
+    if (!pendingFileSelectionPath) {
+      pendingRestoreStateRef.current = { path: null, inFlight: false };
+      return;
+    }
 
-    if (pendingFileSelectionPath && isServerReady && isPersistenceRestored) {
-      // Try to restore immediately without waiting for directory listing
-      const filePath = pendingFileSelectionPath;
-      console.log("[FILEMANAGER] ⚡ Fast-restoring file from path:", filePath);
+    const pendingState = pendingRestoreStateRef.current;
+    if (
+      pendingState.inFlight &&
+      pendingState.path === pendingFileSelectionPath
+    ) {
+      return;
+    }
 
-      // Load file directly by path - don't wait for directory listing
-      loadFileInfoMutation.mutate(filePath, {
-        onSuccess: (fileInfo) => {
-          console.log(
-            "[FILEMANAGER] ✓ File restored successfully:",
-            fileInfo.file_name,
+    const filePath = pendingFileSelectionPath;
+    pendingRestoreStateRef.current = { path: filePath, inFlight: true };
+    logger.debug("Fast-restoring pending file", { filePath });
+
+    let isEffectActive = true;
+    const withTimeout = <T,>(
+      promise: Promise<T>,
+      timeoutMs: number,
+      timeoutMessage: string,
+    ): Promise<T> =>
+      new Promise<T>((resolve, reject) => {
+        const timeoutId = window.setTimeout(() => {
+          reject(new Error(timeoutMessage));
+        }, timeoutMs);
+
+        promise
+          .then((value) => {
+            window.clearTimeout(timeoutId);
+            resolve(value);
+          })
+          .catch((error) => {
+            window.clearTimeout(timeoutId);
+            reject(error);
+          });
+      });
+
+    const isRetryableRestoreError = (error: unknown): boolean => {
+      const message =
+        error instanceof Error ? error.message : String(error ?? "");
+      const lowered = message.toLowerCase();
+      return (
+        lowered.includes("unexpected eof") ||
+        lowered.includes("unexpected end") ||
+        lowered.includes("timed out") ||
+        lowered.includes("timeout") ||
+        lowered.includes("ipc") ||
+        lowered.includes("channel") ||
+        lowered.includes("transport") ||
+        lowered.includes("tauri api not available")
+      );
+    };
+
+    const sleep = (ms: number) =>
+      new Promise<void>((resolve) => {
+        const timerId = window.setTimeout(() => resolve(), ms);
+        if (!isEffectActive) {
+          window.clearTimeout(timerId);
+          resolve();
+        }
+      });
+
+    const restorePendingFile = async () => {
+      let lastError: unknown = null;
+
+      for (
+        let attempt = 1;
+        attempt <= PENDING_FILE_RESTORE_MAX_ATTEMPTS;
+        attempt++
+      ) {
+        try {
+          logger.debug("Pending file restore attempt", {
+            filePath,
+            attempt,
+            maxAttempts: PENDING_FILE_RESTORE_MAX_ATTEMPTS,
+          });
+
+          const fileInfo = await withTimeout(
+            tauriBackendService.getEdfInfo(filePath),
+            PENDING_FILE_RESTORE_ATTEMPT_TIMEOUT_MS,
+            `Timed out restoring pending file after ${PENDING_FILE_RESTORE_ATTEMPT_TIMEOUT_MS}ms`,
           );
+
+          if (!isEffectActive) return;
+
+          logger.debug("Restored pending file successfully", {
+            fileName: fileInfo.file_name,
+            filePath: fileInfo.file_path,
+            attempt,
+          });
           setSelectedFile(fileInfo);
           clearPendingFileSelection();
+          pendingRestoreStateRef.current = { path: null, inFlight: false };
 
           // Record file load action if recording is active
-          if (isRecording) {
+          if (isRecordingRef.current) {
             const action = createLoadFileAction(
               fileInfo.file_path,
               fileInfo.file_path.endsWith(".edf") ? "EDF" : "ASCII",
             );
-            autoRecordActionMutation.mutate(
+            autoRecordActionMutationRef.current.mutate(
               { action, activeFileId: fileInfo.file_path },
               {
                 onSuccess: () => {
-                  console.log(
-                    "[WORKFLOW] Recorded restored file load:",
-                    fileInfo.file_path,
-                  );
+                  logger.debug("Recorded restored file load action", {
+                    filePath: fileInfo.file_path,
+                  });
                 },
                 onError: (err) => {
-                  console.error("[WORKFLOW] Failed to record action:", err);
+                  logger.warn("Failed to record restored file load action", {
+                    error: err,
+                  });
                 },
               },
             );
           }
-        },
-        onError: (error) => {
-          handleError(error, {
-            source: "FileManager",
-            severity: "warning",
-          });
-          clearPendingFileSelection();
-        },
-      });
-    }
-  }, [pendingFileSelectionPath, isServerReady, isPersistenceRestored]);
 
-  // Show loading if directory is loading OR if we're waiting for initial data
+          return;
+        } catch (error) {
+          if (!isEffectActive) return;
+
+          lastError = error;
+          const retryable = isRetryableRestoreError(error);
+          const hasMoreAttempts = attempt < PENDING_FILE_RESTORE_MAX_ATTEMPTS;
+
+          logger.warn("Pending file restore attempt failed", {
+            filePath,
+            attempt,
+            retryable,
+            hasMoreAttempts,
+            error,
+          });
+
+          if (!retryable || !hasMoreAttempts) {
+            break;
+          }
+
+          await sleep(PENDING_FILE_RESTORE_RETRY_BASE_DELAY_MS * attempt);
+        }
+      }
+
+      if (!isEffectActive) return;
+      pendingRestoreStateRef.current = { path: null, inFlight: false };
+      logger.warn("Failed to restore pending file selection after retries", {
+        filePath,
+        attempts: PENDING_FILE_RESTORE_MAX_ATTEMPTS,
+        error: lastError,
+      });
+      handleError(lastError, {
+        source: "FileManager",
+        severity: "warning",
+      });
+      clearPendingFileSelection();
+    };
+
+    void restorePendingFile();
+
+    return () => {
+      isEffectActive = false;
+      if (pendingRestoreStateRef.current.path === filePath) {
+        pendingRestoreStateRef.current = {
+          path: filePath,
+          inFlight: false,
+        };
+      }
+    };
+  }, [pendingFileSelectionPath, setSelectedFile, clearPendingFileSelection]);
+
+  const startupLoading =
+    (showStartupLoading || (isTauriRuntime && isResolvingDataDirectory)) &&
+    !dataDirectoryPath &&
+    !queryEnabled &&
+    !directoryData &&
+    !directoryError &&
+    !pendingFileSelectionPath &&
+    !loadFileInfoMutation.isPending;
+
+  // Show loading for active backend work and initial startup grace.
+  const isDirectoryLoading =
+    queryEnabled && directoryLoading && !directoryLoadingTimedOut;
   const loading =
-    directoryLoading ||
-    (isInitialLoad && !directoryData) ||
-    loadFileInfoMutation.isPending;
-  const error = directoryError
-    ? directoryError instanceof Error
-      ? directoryError.message
-      : "Failed to load directory"
-    : null;
+    startupLoading || loadFileInfoMutation.isPending || isDirectoryLoading;
+  const error =
+    directoryLoadingTimedOut && !directoryError
+      ? `Directory listing timed out after ${DIRECTORY_LOADING_TIMEOUT_MS / 1000}s.`
+      : directoryError
+        ? directoryError instanceof Error
+          ? directoryError.message
+          : "Failed to load directory"
+        : null;
 
   // Filter directories based on search query
   const filteredDirectories = useMemo(() => {
@@ -620,21 +844,17 @@ export const FileManager = React.memo(function FileManager() {
                 {
                   onSuccess: () => {
                     incrementActionCount();
-                    console.log(
-                      "[WORKFLOW] Recorded file load:",
-                      file.file_path,
-                    );
+                    logger.debug("Recorded file load action", {
+                      filePath: file.file_path,
+                    });
                   },
                   onError: (error) => {
-                    console.error(
-                      "[WORKFLOW] Failed to record file load:",
-                      error,
-                    );
+                    logger.warn("Failed to record file load action", { error });
                   },
                 },
               );
             } catch (error) {
-              console.error("[WORKFLOW] Failed to record file load:", error);
+              logger.warn("Failed to record file load action", { error });
             }
           }
 
@@ -651,16 +871,14 @@ export const FileManager = React.memo(function FileManager() {
               0,
               Math.min(10, fileInfo.channels.length),
             );
-            console.log(
-              "[FILEMANAGER] Auto-selecting default channels:",
-              defaultChannels,
-            );
+            logger.debug("Auto-selecting default channels", {
+              count: defaultChannels.length,
+            });
             setSelectedChannels(defaultChannels);
           } else if (validSelectedChannels.length !== selectedChannels.length) {
-            console.log(
-              "[FILEMANAGER] Updating to valid channels only:",
-              validSelectedChannels,
-            );
+            logger.debug("Updating selected channels to valid subset", {
+              count: validSelectedChannels.length,
+            });
             setSelectedChannels(validSelectedChannels);
           }
         },
@@ -699,19 +917,17 @@ export const FileManager = React.memo(function FileManager() {
       // Prevent file selection while persisted file is being restored
       // This avoids race conditions and unintentional clicks during startup
       if (pendingFileSelectionPath) {
-        console.log(
-          "[FILEMANAGER] Ignoring file click - pending restoration:",
+        logger.debug("Ignoring file click during pending restoration", {
           pendingFileSelectionPath,
-        );
+        });
         return;
       }
 
       // Check if this is a git-annex placeholder file
       if (file.is_annex_placeholder) {
-        console.log(
-          "[FILEMANAGER] Git-annex placeholder file clicked:",
-          file.file_path,
-        );
+        logger.debug("Git-annex placeholder clicked", {
+          filePath: file.file_path,
+        });
         setAnnexFileToDownload(file);
         setShowAnnexDownloadDialog(true);
         return;
@@ -739,9 +955,14 @@ export const FileManager = React.memo(function FileManager() {
 
   const handleSegment = async (params: SegmentationParams) => {
     try {
-      console.log("[FILEMANAGER] Cutting file with params:", params);
+      logger.info("Segmenting file", {
+        filePath: params.filePath,
+        outputDirectory: params.outputDirectory,
+      });
       const result = await TauriService.segmentFile(params);
-      console.log("[FILEMANAGER] Cut result:", result);
+      logger.info("File segmentation completed", {
+        outputPath: result.outputPath,
+      });
 
       toast.success(
         "File Cut Successfully",
@@ -753,7 +974,7 @@ export const FileManager = React.memo(function FileManager() {
         refetchDirectory();
       }
     } catch (error) {
-      console.error("[FILEMANAGER] File cut failed:", error);
+      logger.error("File segmentation failed", { error });
       throw error;
     }
   };
@@ -780,7 +1001,7 @@ export const FileManager = React.memo(function FileManager() {
       // Split and filter empty segments
       const newPath = relativePath.split("/").filter((p) => p.length > 0);
 
-      console.log("[FILEMANAGER] Directory selected:", {
+      logger.debug("Directory selected", {
         dirPath: dir.path,
         dataDirectoryPath: dataDirectoryPath,
         relativePath,
@@ -836,52 +1057,38 @@ export const FileManager = React.memo(function FileManager() {
       });
 
       if (!selected || typeof selected !== "string") {
-        console.log("[FILEMANAGER] Directory selection cancelled");
+        logger.debug("Data directory selection cancelled");
         return;
       }
-
-      console.log("[FILEMANAGER] ===== DIRECTORY CHANGE START =====");
-      console.log("[FILEMANAGER] Selected directory:", selected);
-      console.log("[FILEMANAGER] Type of selected:", typeof selected);
-      console.log(
-        "[FILEMANAGER] Current dataDirectoryPath:",
-        dataDirectoryPath,
-      );
-      console.log("[FILEMANAGER] Current path array:", currentPath);
+      logger.info("Changing data directory", {
+        selectedDirectory: selected,
+        previousDirectory: dataDirectoryPath || null,
+      });
 
       // Reset currentPath to [] and persist synchronously before changing directory
-      console.log("[FILEMANAGER] Calling resetCurrentPathSync...");
       await resetCurrentPathSync();
-      console.log("[FILEMANAGER] resetCurrentPathSync complete");
 
       // Save to backend (persists to OS config directory)
-      console.log(
-        "[FILEMANAGER] Saving to backend with TauriService.setDataDirectory...",
-      );
       await TauriService.setDataDirectory(selected);
-      console.log("[FILEMANAGER] Backend save complete");
 
       // Update the backend data directory via Tauri IPC
-      console.log("[FILEMANAGER] Updating backend data directory...");
       try {
         await tauriBackendService.updateDataDirectory(selected);
-        console.log("[FILEMANAGER] Backend data directory updated");
+        logger.debug("Backend data directory updated");
       } catch (backendError) {
-        console.warn(
-          "[FILEMANAGER] Failed to update backend data directory:",
-          backendError,
-        );
+        logger.warn("Failed to update backend data directory", {
+          error: backendError,
+        });
         // Continue anyway - this is not critical for the UI to function
       }
 
       // Update the store (which also persists via state manager)
-      console.log("[FILEMANAGER] Calling setDataDirectoryPath with:", selected);
       setDataDirectoryPath(selected);
-      console.log("[FILEMANAGER] ===== DIRECTORY CHANGE END =====");
+      logger.info("Data directory changed", { selectedDirectory: selected });
 
       // React Query will automatically refetch when path changes
     } catch (error) {
-      console.error("Failed to select data directory:", error);
+      logger.debug("Data directory selection did not complete", { error });
       // User probably cancelled - silently ignore
     }
   };
@@ -954,7 +1161,7 @@ export const FileManager = React.memo(function FileManager() {
   // BIDS datasets now expand inline - no full-page view needed
 
   return (
-    <Card className="h-full flex flex-col">
+    <Card className="h-full flex flex-col" data-tour="file-manager">
       <CardHeader className="flex-shrink-0">
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -994,7 +1201,7 @@ export const FileManager = React.memo(function FileManager() {
               </div>
             </div>
             <div className="flex items-center gap-1 flex-shrink-0">
-              {TauriService.isTauri() && (
+              {isTauriRuntime && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -1058,7 +1265,10 @@ export const FileManager = React.memo(function FileManager() {
           </Button>
 
           {currentPath.map((segment, index) => (
-            <div key={index} className="flex items-center gap-1 flex-shrink-0">
+            <div
+              key={currentPath.slice(0, index + 1).join("/")}
+              className="flex items-center gap-1 flex-shrink-0"
+            >
               <ChevronRight className="h-3 w-3 text-muted-foreground/50" />
               <Button
                 variant={
@@ -1188,22 +1398,26 @@ export const FileManager = React.memo(function FileManager() {
             </div>
             <div className="text-center space-y-2">
               <p className="font-medium text-lg">
-                {loadFileInfoMutation.isPending
-                  ? "Loading file metadata..."
-                  : !isPersistenceRestored
-                    ? "Restoring previous session..."
-                    : "Loading directory..."}
+                {startupLoading
+                  ? "Preparing workspace..."
+                  : loadFileInfoMutation.isPending
+                    ? "Loading file metadata..."
+                    : pendingFileSelectionPath
+                      ? "Restoring previous session..."
+                      : "Loading directory..."}
               </p>
               <p className="text-sm text-muted-foreground">
-                {loadFileInfoMutation.isPending
-                  ? "Reading file information from backend"
-                  : !isPersistenceRestored
-                    ? "Loading saved state, plots, and analysis results"
-                    : `Scanning ${
-                        currentPath.length > 0
-                          ? currentPath.join("/")
-                          : "root directory"
-                      }`}
+                {startupLoading
+                  ? "Initializing file browser"
+                  : loadFileInfoMutation.isPending
+                    ? "Reading file information from backend"
+                    : pendingFileSelectionPath
+                      ? "Loading saved state, plots, and analysis results"
+                      : `Scanning ${
+                          currentPath.length > 0
+                            ? currentPath.join("/")
+                            : "root directory"
+                        }`}
               </p>
               {checkingBIDS && (
                 <div className="flex items-center justify-center gap-2 mt-2 text-purple-600">
@@ -1256,7 +1470,7 @@ export const FileManager = React.memo(function FileManager() {
           }}
           datasetPath={uploadDatasetPath}
           onUploadComplete={(datasetId) => {
-            console.log(`Dataset uploaded successfully: ${datasetId}`);
+            logger.info("Dataset uploaded successfully", { datasetId });
             setShowUploadDialog(false);
             setUploadDatasetPath(null);
           }}

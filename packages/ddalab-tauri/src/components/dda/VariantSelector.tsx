@@ -33,6 +33,7 @@ import {
   type VariantMetadata,
 } from "@/types/variantConfig";
 import { DDA_PARAMETER_HELP } from "./parameter-help";
+import { getVariantGuidance } from "@/lib/clinical/variantGuidance";
 
 // Re-export types and utilities for backward compatibility
 export type DDAVariant = VariantMetadata;
@@ -98,6 +99,7 @@ export const VariantSelector = memo(function VariantSelector({
           {DDA_VARIANTS.map((variant) => {
             const isSelected = selectedVariants.includes(variant.id);
             const help = getVariantHelp(variant.id);
+            const guidance = getVariantGuidance(variant.id);
 
             return (
               <Tooltip key={variant.id}>
@@ -143,6 +145,12 @@ export const VariantSelector = memo(function VariantSelector({
                       <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-1">
                         {variant.description}
                       </p>
+                      {guidance && (
+                        <p className="text-[11px] mt-1 text-foreground/80">
+                          <span className="font-medium">Use when:</span>{" "}
+                          {guidance.useWhen}
+                        </p>
+                      )}
                     </div>
                   </div>
                 </TooltipTrigger>
@@ -163,6 +171,12 @@ export const VariantSelector = memo(function VariantSelector({
             );
           })}
         </TooltipProvider>
+        <div className="text-xs text-muted-foreground rounded-md border bg-muted/30 p-2">
+          Choose variants by clinical question first, then tune parameters.
+          Start with <span className="font-medium">ST</span> for a first-pass
+          scan; add <span className="font-medium">CT/CD</span> for channel
+          interactions.
+        </div>
       </CardContent>
     </Card>
   );

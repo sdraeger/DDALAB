@@ -54,14 +54,14 @@ echo ""
 
 # Start Next.js dev server in background on port 3003
 echo -e "${YELLOW}📱 Starting Next.js development server on port 3003...${NC}"
-PORT=3003 npm run dev &
+PORT=3003 npm run dev:desktop &
 NEXTJS_PID=$!
 
 # Wait for Next.js to be ready
 echo -e "${YELLOW}⏳ Waiting for Next.js server to start...${NC}"
 for i in {1..30}; do
-    if curl -s http://localhost:3003 > /dev/null 2>&1; then
-        echo -e "${GREEN}✅ Next.js server is ready at http://localhost:3003${NC}"
+    if curl -s http://127.0.0.1:3003 > /dev/null 2>&1; then
+        echo -e "${GREEN}✅ Next.js server is ready at http://127.0.0.1:3003${NC}"
         break
     fi
     if [ $i -eq 30 ]; then
@@ -78,7 +78,7 @@ echo -e "${GREEN}🎉 All services are ready!${NC}"
 echo ""
 echo -e "${YELLOW}Service Status:${NC}"
 echo -e "  🌐 API Server: ${BLUE}http://localhost:8000${NC} ${GREEN}✓${NC}"
-echo -e "  📱 Next.js: ${BLUE}http://localhost:3003${NC} ${GREEN}✓${NC}"
+echo -e "  📱 Next.js: ${BLUE}http://127.0.0.1:3003${NC} ${GREEN}✓${NC}"
 echo ""
 echo -e "${YELLOW}Starting Tauri Desktop Application...${NC}"
 echo ""

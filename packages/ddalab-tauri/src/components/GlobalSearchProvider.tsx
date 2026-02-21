@@ -1,6 +1,12 @@
 "use client";
 
-import { useState, useEffect, createContext, useContext } from "react";
+import {
+  useState,
+  createContext,
+  useContext,
+  useCallback,
+  useMemo,
+} from "react";
 import { GlobalSearch } from "./GlobalSearch";
 
 interface SearchContextType {
@@ -26,24 +32,18 @@ export function GlobalSearchProvider({
 }) {
   const [open, setOpen] = useState(false);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Support Cmd+K (Mac), Win+K (Windows), Super+K (Linux), or Ctrl+K (all platforms)
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setOpen((prev) => !prev);
-      }
-    };
+  const openSearch = useCallback(() => setOpen(true), []);
+  const closeSearch = useCallback(() => setOpen(false), []);
+  const toggleSearch = useCallback(() => setOpen((prev) => !prev), []);
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
-
-  const value: SearchContextType = {
-    openSearch: () => setOpen(true),
-    closeSearch: () => setOpen(false),
-    toggleSearch: () => setOpen((prev) => !prev),
-  };
+  const value = useMemo<SearchContextType>(
+    () => ({
+      openSearch,
+      closeSearch,
+      toggleSearch,
+    }),
+    [openSearch, closeSearch, toggleSearch],
+  );
 
   return (
     <SearchContext.Provider value={value}>

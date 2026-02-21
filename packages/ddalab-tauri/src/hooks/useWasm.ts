@@ -110,20 +110,18 @@ interface UseWasmResult {
  * ```
  */
 export function useWasm(): UseWasmResult {
-  const [isReady, setIsReady] = useState(isWasmReady());
-  const [isLoading, setIsLoading] = useState(!isWasmReady());
+  const initialReady = isWasmReady();
+  const [isReady, setIsReady] = useState(initialReady);
+  const [isLoading, setIsLoading] = useState(!initialReady);
   const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
     if (isWasmReady()) {
-      setIsReady(true);
-      setIsLoading(false);
       return;
     }
 
     let cancelled = false;
 
-    setIsLoading(true);
     initWasm()
       .then(() => {
         if (!cancelled) {

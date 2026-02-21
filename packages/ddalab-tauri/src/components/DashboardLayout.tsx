@@ -3,11 +3,7 @@
 import { useEffect, useCallback } from "react";
 import { ActiveFileProvider } from "@/contexts/ActiveFileContext";
 import { useAppStore } from "@/store/appStore";
-import {
-  useUISelectors,
-  useDDASelectors,
-  usePersistenceSelectors,
-} from "@/hooks/useStoreSelectors";
+import { useUISelectors, useDDASelectors } from "@/hooks/useStoreSelectors";
 import { useDDAHistory, useAnalysisFromHistory } from "@/hooks/useDDAAnalysis";
 import { useUnreadNotificationCount } from "@/hooks/useNotifications";
 import { useAnalysisEventListener } from "@/hooks/useAnalysisCoordinator";
@@ -36,10 +32,15 @@ import { TauriService } from "@/services/tauriService";
 import { WorkflowRecorder } from "@/components/workflow/WorkflowRecorder";
 import { createLogger } from "@/lib/logger";
 import { useOpenFilesStore } from "@/store/openFilesStore";
+import { useBackendReady } from "@/contexts/BackendContext";
+import { useIsTauriRuntime } from "@/hooks/useIsTauriRuntime";
 
 const logger = createLogger("Dashboard");
 
 export function DashboardLayout() {
+  const isBackendReady = useBackendReady();
+  const showWindowControls = useIsTauriRuntime();
+
   // Initialize the global analysis event listener (single source of truth)
   useAnalysisEventListener();
 
@@ -48,7 +49,6 @@ export function DashboardLayout() {
 
   // Consolidated selector hooks for cleaner state access
   const {
-    isServerReady,
     sidebarOpen,
     sidebarWidth,
     primaryNav,
@@ -67,8 +67,6 @@ export function DashboardLayout() {
     setDDARunning,
   } = useDDASelectors();
 
-  const { isPersistenceRestored } = usePersistenceSelectors();
-
   // Derived values from selectors (computed inline for render optimization)
   const currentFilePath = useAppStore(
     (state) => state.fileManager.selectedFile?.file_path,
@@ -80,12 +78,11 @@ export function DashboardLayout() {
   const currentAnalysisId = currentAnalysis?.id;
 
   // Use Tanstack Query hook for async, non-blocking history loading
-  // Only enable when server is ready to avoid connection errors
   const {
     data: historyData,
     isLoading: isLoadingHistory,
     error: historyError,
-  } = useDDAHistory(isServerReady);
+  } = useDDAHistory(isBackendReady);
 
   // Sync history data to Zustand store when it changes
   useEffect(() => {
@@ -240,7 +237,7 @@ export function DashboardLayout() {
               {selectedFileName || "No file selected"}
             </div>
 
-            {TauriService.isTauri() && (
+            {showWindowControls && (
               <div
                 className="flex items-center space-x-1"
                 role="group"
@@ -320,7 +317,7 @@ export function DashboardLayout() {
           {sidebarOpen && (
             <ResizeHandle
               onResize={setSidebarWidth}
-              initialWidth={sidebarWidth}
+              currentWidth={sidebarWidth}
               minWidth={200}
               maxWidth={600}
             />

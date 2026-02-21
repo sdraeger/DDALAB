@@ -25,6 +25,7 @@ export class FileStateManager {
   };
 
   private modules: Map<string, FileStateModule> = new Map();
+  private modulePriorities: Map<string, number> = new Map();
   private moduleLoadOrder: string[] = [];
   private saveTimer: NodeJS.Timeout | null = null;
   private pendingSaves: Set<string> = new Set();
@@ -111,11 +112,12 @@ export class FileStateManager {
     if (this.modules.has(module.moduleId)) return;
 
     this.modules.set(module.moduleId, module);
+    this.modulePriorities.set(module.moduleId, priority);
 
     // Insert in priority order
     const index = this.moduleLoadOrder.findIndex((id) => {
-      const existing = this.modules.get(id);
-      return priority < (existing as any).priority || 100;
+      const existingPriority = this.modulePriorities.get(id) ?? 100;
+      return priority < existingPriority;
     });
 
     if (index === -1) {
@@ -127,6 +129,7 @@ export class FileStateManager {
 
   unregisterModule(moduleId: string): void {
     this.modules.delete(moduleId);
+    this.modulePriorities.delete(moduleId);
     this.moduleLoadOrder = this.moduleLoadOrder.filter((id) => id !== moduleId);
   }
 
@@ -145,22 +148,22 @@ export class FileStateManager {
     fileState.metadata.accessCount++;
 
     for (const moduleId of this.moduleLoadOrder) {
-      const module = this.modules.get(moduleId);
-      if (!module) continue;
+      const stateModule = this.modules.get(moduleId);
+      if (!stateModule) continue;
 
       try {
-        const moduleState = await module.loadState(filePath);
+        const moduleState = await stateModule.loadState(filePath);
 
         if (this.registry.activeFilePath !== filePath) continue;
 
         if (moduleState) {
           fileState[moduleId] = moduleState;
         } else {
-          fileState[moduleId] = module.getDefaultState();
+          fileState[moduleId] = stateModule.getDefaultState();
         }
       } catch {
         if (this.registry.activeFilePath === filePath) {
-          fileState[moduleId] = module.getDefaultState();
+          fileState[moduleId] = stateModule.getDefaultState();
         }
       }
     }
@@ -174,14 +177,14 @@ export class FileStateManager {
     if (!fileState) return;
 
     const savePromises = this.moduleLoadOrder.map(async (moduleId) => {
-      const module = this.modules.get(moduleId);
-      if (!module) return;
+      const stateModule = this.modules.get(moduleId);
+      if (!stateModule) return;
 
       const moduleState = fileState[moduleId];
       if (!moduleState) return;
 
       try {
-        await module.saveState(filePath, moduleState);
+        await stateModule.saveState(filePath, moduleState);
       } catch {
         // Module save failed
       }
@@ -208,7 +211,7 @@ export class FileStateManager {
   async updateModuleState(
     filePath: string,
     moduleId: string,
-    state: any,
+    state: unknown,
   ): Promise<void> {
     const fileState = this.registry.files[filePath];
     if (!fileState) return;
@@ -252,11 +255,11 @@ export class FileStateManager {
 
   async clearFileState(filePath: string): Promise<void> {
     const clearPromises = this.moduleLoadOrder.map(async (moduleId) => {
-      const module = this.modules.get(moduleId);
-      if (!module) return;
+      const stateModule = this.modules.get(moduleId);
+      if (!stateModule) return;
 
       try {
-        await module.clearState(filePath);
+        await stateModule.clearState(filePath);
       } catch {
         // Clear failed
       }

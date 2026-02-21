@@ -1,115 +1,31 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { TauriService } from "@/services/tauriService";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { StatePersistenceProvider } from "@/components/StatePersistenceProvider";
-import { useAppStore } from "@/store/appStore";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { BackendProvider } from "@/contexts/BackendContext";
 import { CloseWarningHandler } from "@/components/CloseWarningHandler";
 import { OnboardingTour } from "@/components/onboarding/OnboardingTour";
 import { useOnboarding } from "@/hooks/useOnboarding";
 import { useTimeSeriesCacheMonitor } from "@/hooks/useTimeSeriesData";
-import { Loader2 } from "lucide-react";
-import { createLogger } from "@/lib/logger";
 
 // Import panels to trigger registration
 import "@/panels";
 
-const logger = createLogger("Startup");
-
 // Conditionally import PerformanceMonitor only in development
 const PerformanceMonitor =
-  process.env.NODE_ENV === "development"
+  process.env.NODE_ENV === "development" &&
+  process.env.NEXT_PUBLIC_ENABLE_PROFILER === "true"
     ? require("@/components/PerformanceMonitor").PerformanceMonitor
     : null;
 
 export default function Home() {
-  // Detect Tauri immediately without explicit state
-  const isTauri = TauriService.isTauri();
-
-  const [isReady, setIsReady] = useState(false);
-  const [hasLoadedPreferences, setHasLoadedPreferences] = useState(false);
-
-  // Use ref to prevent double initialization in React StrictMode
-  // This is checked synchronously before async operations, providing immediate protection
-  const initializingRef = useRef(false);
-
   // Onboarding tour
   const onboarding = useOnboarding();
 
   // Monitor and enforce time series cache memory limits
   // Prevents unbounded memory growth from EEG chunk caching
   useTimeSeriesCacheMonitor();
-
-  // Use selectors to prevent unnecessary re-renders
-  const isInitialized = useAppStore((state) => state.isInitialized);
-  const setServerReady = useAppStore((state) => state.setServerReady);
-
-  useEffect(() => {
-    const pathname =
-      typeof window !== "undefined" ? window.location.pathname : "/";
-
-    // Only run on the main window, not popouts
-    if (pathname !== "/") {
-      return;
-    }
-
-    loadPreferences();
-  }, [isInitialized]);
-
-  const loadPreferences = async () => {
-    // Only load preferences on the main window, not pop-outs
-    if (typeof window !== "undefined" && window.location.pathname !== "/") {
-      return;
-    }
-
-    // Don't reload preferences if already loaded in this session
-    if (hasLoadedPreferences) {
-      return;
-    }
-
-    // Synchronous check to prevent double initialization in React StrictMode
-    if (initializingRef.current) {
-      return;
-    }
-    initializingRef.current = true;
-
-    if (TauriService.isTauri()) {
-      try {
-        // Load preferences (for any app-specific settings)
-        await TauriService.getAppPreferences();
-        setHasLoadedPreferences(true);
-
-        // In Tauri mode with pure IPC, we're immediately ready
-        logger.info("Tauri mode: Backend ready via IPC");
-        setServerReady(true);
-        setIsReady(true);
-      } catch (error) {
-        console.error("Failed to load preferences:", error);
-        // Still mark as ready - the app can function without preferences
-        setServerReady(true);
-        setIsReady(true);
-      }
-    } else {
-      // Non-Tauri mode - still mark as ready for development
-      logger.warn("Not running in Tauri environment");
-      setIsReady(true);
-    }
-  };
-
-  // Show loading screen while initializing
-  if (!isReady) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-background">
-        <div className="text-center">
-          <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
-          <p className="text-muted-foreground">Starting DDALAB...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <ErrorBoundary>
@@ -152,7 +68,7 @@ export default function Home() {
               {
                 title: "Application Settings",
                 description:
-                  "Customize DDALAB to your needs. Adjust analysis engine preferences, configure sync settings, manage file paths, and more.",
+                  "Customize DDALAB to your needs. Configure behavior, sync settings, file paths, updates, and more.",
                 target: "[data-tour='settings-tab']",
               },
               {

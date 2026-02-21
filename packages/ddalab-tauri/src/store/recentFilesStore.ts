@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { persist } from "zustand/middleware";
+import { createSafePersistStorage } from "@/store/utils/safePersistStorage";
 
 export interface RecentFile {
   path: string;
@@ -230,6 +231,7 @@ export const useRecentFilesStore = create<RecentFilesState>()(
     })),
     {
       name: "ddalab-recent-files",
+      storage: createSafePersistStorage("RecentFilesStore"),
     },
   ),
 );

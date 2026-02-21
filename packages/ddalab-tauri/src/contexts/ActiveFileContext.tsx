@@ -14,7 +14,10 @@ import {
   useActiveFilePath,
   OpenFile,
 } from "@/store/openFilesStore";
-import { getFileStateManager } from "@/services/fileStateManager";
+import {
+  ensureFileStateManagerReady,
+  getInitializedFileStateManager,
+} from "@/services/fileStateInitializer";
 import {
   FileSpecificState,
   FilePlotState,
@@ -92,7 +95,7 @@ export function ActiveFileProvider({ children }: ActiveFileProviderProps) {
     const loadState = async () => {
       setIsLoading(true);
       try {
-        const manager = getFileStateManager();
+        const manager = await ensureFileStateManagerReady();
         const state = await manager.loadFileState(activeFilePath);
         if (!cancelled) {
           setFileState(state);
@@ -120,21 +123,40 @@ export function ActiveFileProvider({ children }: ActiveFileProviderProps) {
   useEffect(() => {
     if (!activeFilePath) return;
 
-    const manager = getFileStateManager();
-    const unsubscribe = manager.onStateChange((event) => {
-      if (event.filePath === activeFilePath) {
-        // Update the specific module state
-        setFileState((prev) => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            [event.moduleId]: event.newState,
-          };
+    let cancelled = false;
+    let unsubscribe: (() => void) | null = null;
+
+    const setupSubscription = async () => {
+      try {
+        const manager = await ensureFileStateManagerReady();
+        if (cancelled) return;
+
+        unsubscribe = manager.onStateChange((event) => {
+          if (event.filePath === activeFilePath) {
+            // Update the specific module state
+            setFileState((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                [event.moduleId]: event.newState,
+              };
+            });
+          }
+        });
+      } catch (error) {
+        logger.warn("Failed to setup file state subscription", {
+          activeFilePath,
+          error,
         });
       }
-    });
+    };
 
-    return unsubscribe;
+    void setupSubscription();
+
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
   }, [activeFilePath]);
 
   // Update functions
@@ -142,7 +164,7 @@ export function ActiveFileProvider({ children }: ActiveFileProviderProps) {
     (updates: Partial<FilePlotState>) => {
       if (!activeFilePath || !fileState) return;
 
-      const manager = getFileStateManager();
+      const manager = getInitializedFileStateManager();
       const currentPlotState = fileState.plot || {
         chunkStart: 0,
         chunkSize: 8192,
@@ -167,7 +189,7 @@ export function ActiveFileProvider({ children }: ActiveFileProviderProps) {
     (updates: Partial<FileDDAState>) => {
       if (!activeFilePath || !fileState) return;
 
-      const manager = getFileStateManager();
+      const manager = getInitializedFileStateManager();
       const currentDdaState = fileState.dda || {
         currentAnalysisId: null,
         analysisHistory: [],
@@ -196,7 +218,7 @@ export function ActiveFileProvider({ children }: ActiveFileProviderProps) {
     (updates: Partial<FileAnnotationState>) => {
       if (!activeFilePath || !fileState) return;
 
-      const manager = getFileStateManager();
+      const manager = getInitializedFileStateManager();
       const currentAnnotationState = fileState.annotations || {
         timeSeries: { global: [], channels: {} },
         ddaResults: {},
@@ -218,7 +240,7 @@ export function ActiveFileProvider({ children }: ActiveFileProviderProps) {
     (updates: Partial<FileNavigationState>) => {
       if (!activeFilePath || !fileState) return;
 
-      const manager = getFileStateManager();
+      const manager = getInitializedFileStateManager();
       const currentNavigationState = fileState.navigation || {
         primaryNav: "explore",
         secondaryNav: "timeseries",

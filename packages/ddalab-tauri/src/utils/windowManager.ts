@@ -40,7 +40,7 @@ export interface PopoutWindowState {
   id: string;
   type: WindowType;
   isLocked: boolean;
-  data: any;
+  data: unknown;
   lastUpdate: number;
   position?: WindowPosition;
   tauriLabel?: string;
@@ -51,8 +51,21 @@ export interface PersistedPopoutWindow {
   id: string;
   type: WindowType;
   isLocked: boolean;
-  data: any;
+  data: unknown;
   position: WindowPosition;
+}
+
+interface PopoutClosingEventPayload {
+  windowId?: string;
+}
+
+function hasFilePath(data: unknown): data is { filePath: string } {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    "filePath" in data &&
+    typeof (data as { filePath?: unknown }).filePath === "string"
+  );
 }
 
 class WindowManager {
@@ -70,15 +83,13 @@ class WindowManager {
   async initializeListeners(): Promise<void> {
     if (this.popoutClosingListener) return;
 
-    this.popoutClosingListener = await listen(
-      "popout-closing",
-      (event: any) => {
-        const { windowId } = event.payload;
-        if (windowId) {
-          this.forceCleanup(windowId);
-        }
-      },
-    );
+    this.popoutClosingListener = await listen("popout-closing", (event) => {
+      const payload = event.payload as PopoutClosingEventPayload;
+      const { windowId } = payload;
+      if (windowId) {
+        this.forceCleanup(windowId);
+      }
+    });
   }
 
   /** Force cleanup of a window and trigger state save */
@@ -151,7 +162,7 @@ class WindowManager {
   private getWindowConfig(
     panelId: string,
     instanceId: string,
-    data?: any,
+    data?: unknown,
   ): WindowConfig {
     const panel = getPanel(panelId);
     if (!panel) {
@@ -160,7 +171,7 @@ class WindowManager {
 
     // Build URL with additional params for file-viewer panels
     let url = `${panel.popoutUrl}?id=${instanceId}`;
-    if (panelId === "file-viewer" && data?.filePath) {
+    if (panelId === "file-viewer" && hasFilePath(data)) {
       url += `&file=${encodeURIComponent(data.filePath)}`;
     }
 
@@ -181,7 +192,7 @@ class WindowManager {
   async createPopoutWindow(
     type: WindowType,
     id: string,
-    data: any,
+    data: unknown,
     savedPosition?: WindowPosition,
   ): Promise<string> {
     if (this.isAppClosing) {
@@ -408,7 +419,7 @@ class WindowManager {
     }
   }
 
-  async sendDataToWindow(windowId: string, data: any): Promise<void> {
+  async sendDataToWindow(windowId: string, data: unknown): Promise<void> {
     const state = this.windowStates.get(windowId);
     if (!state || state.isLocked) return;
 
@@ -456,7 +467,7 @@ class WindowManager {
       .map(([windowId]) => windowId);
   }
 
-  async broadcastToAllWindows(eventName: string, data: any): Promise<void> {
+  async broadcastToAllWindows(eventName: string, data: unknown): Promise<void> {
     for (const windowId of this.windows.keys()) {
       try {
         await emit(`${eventName}-${windowId}`, data);
@@ -464,7 +475,7 @@ class WindowManager {
     }
   }
 
-  async broadcastToType(type: WindowType, data: any): Promise<void> {
+  async broadcastToType(type: WindowType, data: unknown): Promise<void> {
     const promises = this.getWindowsByType(type).map(async (windowId) => {
       const state = this.windowStates.get(windowId);
       if (state && !state.isLocked) {

@@ -8,6 +8,7 @@
  * - Performance marks and measures
  * - Bottleneck detection
  */
+import { useEffect, useRef } from "react";
 
 export interface PerformanceMetric {
   name: string;
@@ -28,13 +29,33 @@ export interface PerformanceReport {
 class PerformanceProfiler {
   private metrics: Map<string, PerformanceMetric> = new Map();
   private completedMetrics: PerformanceMetric[] = [];
-  private enabled: boolean = process.env.NODE_ENV === "development";
+  private readonly maxCompletedMetrics = 2000;
+  private enabled: boolean =
+    process.env.NODE_ENV === "development" &&
+    process.env.NEXT_PUBLIC_ENABLE_PROFILER === "true";
 
   /**
    * Enable or disable profiling
    */
   setEnabled(enabled: boolean) {
     this.enabled = enabled;
+  }
+
+  isEnabled(): boolean {
+    return this.enabled;
+  }
+
+  private pushCompletedMetric(metric: PerformanceMetric): void {
+    this.completedMetrics.push(metric);
+    const overflow = this.completedMetrics.length - this.maxCompletedMetrics;
+    if (overflow > 0) {
+      this.completedMetrics.splice(0, overflow);
+    }
+  }
+
+  recordMetric(metric: PerformanceMetric): void {
+    if (!this.enabled) return;
+    this.pushCompletedMetric(metric);
   }
 
   /**
@@ -75,7 +96,7 @@ class PerformanceProfiler {
     metric.endTime = endTime;
     metric.duration = duration;
 
-    this.completedMetrics.push(metric);
+    this.pushCompletedMetric(metric);
     this.metrics.delete(name);
 
     // Use Performance API measures
@@ -83,6 +104,14 @@ class PerformanceProfiler {
       try {
         performance.mark(`${name}-end`);
         performance.measure(name, `${name}-start`, `${name}-end`);
+        // Keep browser performance entries bounded in long-running sessions.
+        if ("clearMarks" in performance) {
+          performance.clearMarks(`${name}-start`);
+          performance.clearMarks(`${name}-end`);
+        }
+        if ("clearMeasures" in performance) {
+          performance.clearMeasures(name);
+        }
       } catch (e) {
         // Ignore errors from missing marks
       }
@@ -342,26 +371,32 @@ export const profiler = new PerformanceProfiler();
  * React hook for profiling component renders
  */
 export function useRenderProfiler(componentName: string) {
+  const profilingEnabled = profiler.isEnabled();
   const renderCount = useRef(0);
   const renderStartTime = useRef(0);
 
-  // Increment render count and start timing at the BEGINNING of render (synchronous)
-  renderCount.current++;
-  const currentRenderCount = renderCount.current;
+  if (profilingEnabled) {
+    // Increment render count and start timing at the BEGINNING of render (synchronous)
+    renderCount.current++;
 
-  // Start timing at the beginning of this render
-  if (renderStartTime.current === 0) {
-    renderStartTime.current = performance.now();
-  }
+    // Start timing at the beginning of this render
+    if (renderStartTime.current === 0) {
+      renderStartTime.current = performance.now();
+    }
 
-  // Log excessive re-renders (synchronously during render)
-  if (renderCount.current > 10 && renderCount.current % 10 === 0) {
-    console.warn(
-      `[Profiler] ${componentName} has rendered ${renderCount.current} times. Consider memoization.`,
-    );
+    // Log excessive re-renders (synchronously during render)
+    if (renderCount.current > 10 && renderCount.current % 10 === 0) {
+      console.warn(
+        `[Profiler] ${componentName} has rendered ${renderCount.current} times. Consider memoization.`,
+      );
+    }
   }
 
   useEffect(() => {
+    if (!profilingEnabled) return;
+
+    const currentRenderCount = renderCount.current;
+
     // Measure time from render start to effect execution
     const renderEndTime = performance.now();
     const renderDuration = renderEndTime - renderStartTime.current;
@@ -379,8 +414,7 @@ export function useRenderProfiler(componentName: string) {
         },
       };
 
-      // Add to profiler manually
-      (profiler as any).completedMetrics.push(metric);
+      profiler.recordMetric(metric);
 
       // Log slow renders
       if (renderDuration > 100) {
@@ -392,7 +426,7 @@ export function useRenderProfiler(componentName: string) {
 
     // Reset start time for next render
     renderStartTime.current = performance.now();
-  });
+  }, [componentName, profilingEnabled]);
 }
 
 /**
@@ -423,11 +457,8 @@ export function profileSync<T extends (...args: any[]) => any>(
   }) as T;
 }
 
-// Import useRef and useEffect for the hook
-import { useRef, useEffect } from "react";
-
-// Enable profiler in development
-if (process.env.NODE_ENV === "development" && typeof window !== "undefined") {
+// Enable profiler only when explicitly requested in development.
+if (profiler.isEnabled() && typeof window !== "undefined") {
   // Make profiler available globally for debugging
   (window as any).profiler = profiler;
 

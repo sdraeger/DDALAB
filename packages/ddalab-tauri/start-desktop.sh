@@ -20,14 +20,14 @@ trap cleanup INT TERM EXIT
 
 # Start Next.js dev server in background
 echo "📱 Starting Next.js development server..."
-npm run dev &
+npm run dev:desktop &
 NEXTJS_PID=$!
 
 # Wait for Next.js to be ready
 echo "⏳ Waiting for Next.js server to start..."
 for i in {1..30}; do
-    if curl -s http://localhost:3003 > /dev/null 2>&1; then
-        echo "✅ Next.js server is ready at http://localhost:3003"
+    if curl -s http://127.0.0.1:3003 > /dev/null 2>&1; then
+        echo "✅ Next.js server is ready at http://127.0.0.1:3003"
         break
     fi
     if [ $i -eq 30 ]; then

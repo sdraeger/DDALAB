@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { persist } from "zustand/middleware";
+import { createSafePersistStorage } from "@/store/utils/safePersistStorage";
 
 // Panel visibility states
 export interface PanelState {
@@ -246,6 +247,7 @@ export const useViewPersistenceStore = create<ViewPersistenceState>()(
         navigation: state.navigation,
         window: state.window,
       }),
+      storage: createSafePersistStorage("ViewPersistenceStore"),
     },
   ),
 );

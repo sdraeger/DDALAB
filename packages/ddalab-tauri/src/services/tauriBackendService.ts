@@ -23,6 +23,7 @@ import type {
   DDAVariantConfig,
   HealthResponse,
 } from "@/types/api";
+import type { PreprocessingPipeline } from "@/types/preprocessing";
 import type {
   ICAAnalysisRequest,
   ICAResult,
@@ -30,6 +31,33 @@ import type {
   ReconstructRequest,
   ReconstructResponse,
 } from "@/types/ica";
+import { createLogger } from "@/lib/logger";
+
+const DIRECTORY_COMMAND_TIMEOUT_MS = 5_000;
+const EDF_INFO_TIMEOUT_MS = 10_000;
+const ddaLogger = createLogger("DDABackendService");
+
+function invokeWithTimeout<T>(
+  command: string,
+  args: Record<string, unknown> = {},
+  timeoutMs: number = DIRECTORY_COMMAND_TIMEOUT_MS,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = globalThis.setTimeout(() => {
+      reject(new Error(`${command} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    invoke<T>(command, args)
+      .then((result) => {
+        globalThis.clearTimeout(timeoutId);
+        resolve(result);
+      })
+      .catch((error) => {
+        globalThis.clearTimeout(timeoutId);
+        reject(error);
+      });
+  });
+}
 
 // ============================================================================
 // EDF Command Types
@@ -104,6 +132,20 @@ export interface ChunkDataResponse {
   chunkSize: number;
   chunkStart: number;
   totalSamples?: number;
+}
+
+export interface PipelineStepReport {
+  stepType: string;
+  status: "completed" | "skipped" | "error";
+  details?: string;
+}
+
+export interface ExecutePreprocessingPipelineResponse {
+  chunk: ChunkDataResponse;
+  badChannels: string[];
+  artifactCount: number;
+  stepReports: PipelineStepReport[];
+  diagnosticLog: string[];
 }
 
 /** Single chunk request within a batch */
@@ -532,7 +574,11 @@ class TauriBackendServiceImpl {
    * Get EDF/neurophysiology file information (channels, duration, sample rate)
    */
   async getEdfInfo(filePath: string): Promise<EDFFileInfo> {
-    return invoke<EDFFileInfo>("get_edf_info", { filePath });
+    return invokeWithTimeout<EDFFileInfo>(
+      "get_edf_info",
+      { filePath },
+      EDF_INFO_TIMEOUT_MS,
+    );
   }
 
   /**
@@ -566,6 +612,54 @@ class TauriBackendServiceImpl {
       chunk_start: response.chunkStart,
       chunk_size: response.chunkSize,
       file_path: filePath,
+    };
+  }
+
+  /**
+   * Execute rich preprocessing pipeline on already-loaded chunk data.
+   * Bridges frontend pipeline model to backend execution.
+   */
+  async executePreprocessingPipeline(
+    chunk: ChunkData,
+    pipeline: PreprocessingPipeline,
+  ): Promise<{
+    chunk: ChunkData;
+    badChannels: string[];
+    artifactCount: number;
+    stepReports: PipelineStepReport[];
+    diagnosticLog: string[];
+  }> {
+    const request = {
+      chunk: {
+        data: chunk.data,
+        channelLabels: chunk.channels,
+        samplingFrequency: chunk.sample_rate,
+        chunkSize: chunk.chunk_size,
+        chunkStart: chunk.chunk_start,
+        totalSamples: undefined as number | undefined,
+      },
+      pipeline,
+    };
+
+    const response = await invoke<ExecutePreprocessingPipelineResponse>(
+      "execute_preprocessing_pipeline",
+      { request },
+    );
+
+    return {
+      chunk: {
+        data: response.chunk.data,
+        channels: response.chunk.channelLabels,
+        timestamps: [],
+        sample_rate: response.chunk.samplingFrequency,
+        chunk_start: response.chunk.chunkStart,
+        chunk_size: response.chunk.chunkSize,
+        file_path: chunk.file_path,
+      },
+      badChannels: response.badChannels,
+      artifactCount: response.artifactCount,
+      stepReports: response.stepReports,
+      diagnosticLog: response.diagnosticLog ?? [],
     };
   }
 
@@ -706,14 +800,14 @@ class TauriBackendServiceImpl {
    * List contents of a directory
    */
   async listDirectory(path?: string): Promise<DirectoryListing> {
-    return invoke<DirectoryListing>("list_directory", { path });
+    return invokeWithTimeout<DirectoryListing>("list_directory", { path });
   }
 
   /**
    * List supported data files (EDF, BrainVision, etc.) in a directory
    */
   async listDataFiles(path?: string): Promise<DirectoryListing> {
-    return invoke<DirectoryListing>("list_data_files", { path });
+    return invokeWithTimeout<DirectoryListing>("list_data_files", { path });
   }
 
   /**
@@ -875,10 +969,9 @@ class TauriBackendServiceImpl {
         const pending = this.pendingRequests.get(response.id);
 
         if (!pending) {
-          console.warn(
-            "[DDA] Received response for unknown request:",
-            response.id,
-          );
+          ddaLogger.warn("Received response for unknown request", {
+            requestId: response.id,
+          });
           return;
         }
 
@@ -889,12 +982,13 @@ class TauriBackendServiceImpl {
         } else if (response.type === "metadata") {
           // Log worker timing
           if (response.timing) {
-            console.log(
-              `[DDA PERF] Worker: decompress=${response.timing.decompressMs.toFixed(1)}ms, decode=${response.timing.decodeMs.toFixed(1)}ms, total=${response.timing.totalMs.toFixed(1)}ms`,
-            );
-            console.log(
-              `[DDA PERF] Worker data: compressed=${(response.timing.compressedSize / 1024 / 1024).toFixed(1)}MB → uncompressed=${(response.timing.uncompressedSize / 1024 / 1024).toFixed(1)}MB`,
-            );
+            ddaLogger.debug("Worker decode timing", {
+              decompressMs: response.timing.decompressMs,
+              decodeMs: response.timing.decodeMs,
+              totalMs: response.timing.totalMs,
+              compressedSizeBytes: response.timing.compressedSize,
+              uncompressedSizeBytes: response.timing.uncompressedSize,
+            });
           }
           pending.resolve(response.metadata);
         } else if (response.type === "data") {
@@ -905,16 +999,15 @@ class TauriBackendServiceImpl {
         } else if (response.type === "cacheCleared") {
           pending.resolve(response.clearedIds);
         } else {
-          console.warn(
-            "[DDA] Unexpected response type:",
-            (response as { type: string }).type,
-          );
+          ddaLogger.warn("Unexpected worker response type", {
+            responseType: (response as { type: string }).type,
+          });
           pending.resolve(null);
         }
       };
 
       this.decodeWorker.onerror = (error) => {
-        console.error("[DDA] Decode worker error:", error);
+        ddaLogger.error("Decode worker error", { error });
         // Reject all pending requests
         for (const [id, pending] of this.pendingRequests) {
           pending.reject(new Error(`Worker error: ${error.message}`));
@@ -974,21 +1067,21 @@ class TauriBackendServiceImpl {
         { analysisId },
       );
       const t1 = performance.now();
-      console.log(`[DDA PERF] Metadata IPC: ${(t1 - t0).toFixed(1)}ms`);
+      ddaLogger.debug("Metadata IPC timing", { durationMs: t1 - t0 });
 
       if (!backendMetadata) {
-        console.warn("[DDA] No metadata found for:", analysisId);
+        ddaLogger.warn("No metadata found for analysis", { analysisId });
         return null;
       }
 
       const metadata = this.convertBackendMetadata(backendMetadata);
-      console.log(
-        `[DDA PERF] Total getDDAFromHistory: ${(performance.now() - t0).toFixed(1)}ms`,
-      );
+      ddaLogger.debug("Total getDDAFromHistory timing", {
+        durationMs: performance.now() - t0,
+      });
 
       return metadata;
     } catch (error) {
-      console.error("[DDA] getDDAFromHistory error:", error);
+      ddaLogger.error("getDDAFromHistory error", { error, analysisId });
       throw error;
     }
   }
@@ -1005,7 +1098,7 @@ class TauriBackendServiceImpl {
       analysisId,
     });
     const t1 = performance.now();
-    console.log(`[DDA PERF] Data blob IPC: ${(t1 - t0).toFixed(1)}ms`);
+    ddaLogger.debug("Data blob IPC timing", { durationMs: t1 - t0 });
 
     if (!tempFilePath) {
       throw new Error("Failed to get data file path");
@@ -1015,9 +1108,10 @@ class TauriBackendServiceImpl {
     const { readFile } = await import("@tauri-apps/plugin-fs");
     const compressedData = await readFile(tempFilePath);
     const t2 = performance.now();
-    console.log(
-      `[DDA PERF] Data file read (${(compressedData.byteLength / 1024 / 1024).toFixed(1)}MB): ${(t2 - t1).toFixed(1)}ms`,
-    );
+    ddaLogger.debug("Data file read timing", {
+      durationMs: t2 - t1,
+      sizeBytes: compressedData.byteLength,
+    });
 
     if (compressedData.byteLength === 0) {
       throw new Error("Empty data file");
@@ -1026,7 +1120,7 @@ class TauriBackendServiceImpl {
     // Decode in worker and cache (we don't need the metadata response here)
     await this.decodeAndCacheInWorker(compressedData.buffer, analysisId);
     const t3 = performance.now();
-    console.log(`[DDA PERF] Worker decode + cache: ${(t3 - t2).toFixed(1)}ms`);
+    ddaLogger.debug("Worker decode + cache timing", { durationMs: t3 - t2 });
   }
 
   /**
@@ -1056,21 +1150,24 @@ class TauriBackendServiceImpl {
         (sum, arr) => sum + arr.length * 8,
         0,
       );
-      console.log(
-        `[DDA PERF] Channel data (cache hit): ${(t1 - t0).toFixed(1)}ms (${channelCount} channels, ${(dataSize / 1024).toFixed(1)}KB)`,
-      );
+      ddaLogger.debug("Channel data timing (cache hit)", {
+        durationMs: t1 - t0,
+        channelCount,
+        dataSizeBytes: dataSize,
+      });
 
       return result;
     } catch (error) {
       // Cache miss - load the data blob on-demand
-      console.log(`[DDA PERF] Cache miss for ${analysisId}, loading data...`);
+      ddaLogger.debug("Cache miss; loading data blob", { analysisId });
       const t1 = performance.now();
 
       await this.ensureDataInWorkerCache(analysisId);
       const t2 = performance.now();
-      console.log(
-        `[DDA PERF] Data loaded in ${(t2 - t1).toFixed(1)}ms, retrying...`,
-      );
+      ddaLogger.debug("Data blob loaded after cache miss", {
+        analysisId,
+        durationMs: t2 - t1,
+      });
 
       // Retry from cache
       const result = await this.getDataFromWorkerCache(
@@ -1085,9 +1182,12 @@ class TauriBackendServiceImpl {
         (sum, arr) => sum + arr.length * 8,
         0,
       );
-      console.log(
-        `[DDA PERF] Channel data (after load): ${(t3 - t0).toFixed(1)}ms total (${channelCount} channels, ${(dataSize / 1024).toFixed(1)}KB)`,
-      );
+      ddaLogger.debug("Channel data timing (after cache load)", {
+        analysisId,
+        durationMs: t3 - t0,
+        channelCount,
+        dataSizeBytes: dataSize,
+      });
 
       return result;
     }

@@ -23,6 +23,7 @@ import {
 import { TrendingUp, Maximize2, Minimize2 } from "lucide-react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
+import { zoomCursorMove } from "@/lib/uplot-zoom";
 
 interface StreamingDDALinePlotProps {
   streamId: string;
@@ -218,6 +219,9 @@ export function StreamingDDALinePlot({
         legend: {
           show: true,
           live: false,
+        },
+        cursor: {
+          move: zoomCursorMove(),
         },
       };
 

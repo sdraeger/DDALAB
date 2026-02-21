@@ -27,6 +27,10 @@ interface PopoutLayoutProps {
   onTabReceived?: (tabData: { filePath: string; fileName: string }) => void;
 }
 
+interface PopoutLayoutData {
+  isEmpty?: boolean;
+}
+
 export function PopoutLayout({
   title,
   children,
@@ -39,7 +43,7 @@ export function PopoutLayout({
     data,
     isLocked,
     windowId: detectedWindowId,
-  } = usePopoutListener(windowId);
+  } = usePopoutListener<PopoutLayoutData>(windowId);
   const [isMaximized, setIsMaximized] = useState(false);
   const [isClient, setIsClient] = useState(false);
   const [lastUpdateTime, setLastUpdateTime] = useState<string>("");

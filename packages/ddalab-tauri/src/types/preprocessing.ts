@@ -364,6 +364,55 @@ export const DEFAULT_ARTIFACT_REMOVAL_CONFIG: ArtifactRemovalConfig = {
   interpolationMethod: "spline",
 };
 
+function cloneBadChannelConfig(
+  config: BadChannelConfig = DEFAULT_BAD_CHANNEL_CONFIG,
+): BadChannelConfig {
+  return {
+    ...config,
+    manualBadChannels: [...config.manualBadChannels],
+  };
+}
+
+function cloneFilteringConfig(
+  config: FilteringConfig = DEFAULT_FILTERING_CONFIG,
+): FilteringConfig {
+  return {
+    ...config,
+    filters: config.filters.map((filter) => ({
+      ...filter,
+      notchFreqs: filter.notchFreqs ? [...filter.notchFreqs] : undefined,
+    })),
+  };
+}
+
+function cloneReferenceConfig(
+  config: ReferenceConfig = DEFAULT_REFERENCE_CONFIG,
+): ReferenceConfig {
+  return {
+    ...config,
+    referenceChannels: config.referenceChannels
+      ? [...config.referenceChannels]
+      : undefined,
+    excludeChannels: config.excludeChannels ? [...config.excludeChannels] : [],
+    bipolarPairs: config.bipolarPairs
+      ? config.bipolarPairs.map(([from, to]) => [from, to] as [string, string])
+      : undefined,
+  };
+}
+
+function cloneICAConfig(config: ICAConfig = DEFAULT_ICA_CONFIG): ICAConfig {
+  return { ...config };
+}
+
+function cloneArtifactRemovalConfig(
+  config: ArtifactRemovalConfig = DEFAULT_ARTIFACT_REMOVAL_CONFIG,
+): ArtifactRemovalConfig {
+  return {
+    ...config,
+    detectors: config.detectors.map((detector) => ({ ...detector })),
+  };
+}
+
 // ============================================================================
 // Factory Functions
 // ============================================================================
@@ -373,7 +422,7 @@ export function createDefaultBadChannelStep(): BadChannelDetectionStep {
     type: "bad_channel_detection",
     enabled: true,
     status: "idle",
-    config: { ...DEFAULT_BAD_CHANNEL_CONFIG },
+    config: cloneBadChannelConfig(),
   };
 }
 
@@ -382,7 +431,7 @@ export function createDefaultFilteringStep(): FilteringStep {
     type: "filtering",
     enabled: true,
     status: "idle",
-    config: { ...DEFAULT_FILTERING_CONFIG },
+    config: cloneFilteringConfig(),
   };
 }
 
@@ -391,7 +440,7 @@ export function createDefaultRereferenceStep(): RereferenceStep {
     type: "rereference",
     enabled: true,
     status: "idle",
-    config: { ...DEFAULT_REFERENCE_CONFIG },
+    config: cloneReferenceConfig(),
   };
 }
 
@@ -400,7 +449,7 @@ export function createDefaultICAStep(): ICAStep {
     type: "ica",
     enabled: true,
     status: "idle",
-    config: { ...DEFAULT_ICA_CONFIG },
+    config: cloneICAConfig(),
     rejectedComponents: [],
   };
 }
@@ -410,7 +459,7 @@ export function createDefaultArtifactRemovalStep(): ArtifactRemovalStep {
     type: "artifact_removal",
     enabled: true,
     status: "idle",
-    config: { ...DEFAULT_ARTIFACT_REMOVAL_CONFIG },
+    config: cloneArtifactRemovalConfig(),
   };
 }
 
@@ -473,12 +522,12 @@ export const BUILT_IN_PRESETS: PipelinePreset[] = [
       badChannelDetection: {
         type: "bad_channel_detection",
         enabled: true,
-        config: DEFAULT_BAD_CHANNEL_CONFIG,
+        config: cloneBadChannelConfig(),
       },
       filtering: {
         type: "filtering",
         enabled: true,
-        config: DEFAULT_FILTERING_CONFIG,
+        config: cloneFilteringConfig(),
       },
       rereference: {
         type: "rereference",
@@ -488,13 +537,13 @@ export const BUILT_IN_PRESETS: PipelinePreset[] = [
       ica: {
         type: "ica",
         enabled: true,
-        config: DEFAULT_ICA_CONFIG,
+        config: cloneICAConfig(),
         rejectedComponents: [],
       },
       artifactRemoval: {
         type: "artifact_removal",
         enabled: true,
-        config: DEFAULT_ARTIFACT_REMOVAL_CONFIG,
+        config: cloneArtifactRemovalConfig(),
       },
     },
   },
@@ -509,7 +558,7 @@ export const BUILT_IN_PRESETS: PipelinePreset[] = [
       badChannelDetection: {
         type: "bad_channel_detection",
         enabled: true,
-        config: DEFAULT_BAD_CHANNEL_CONFIG,
+        config: cloneBadChannelConfig(),
       },
       filtering: {
         type: "filtering",
@@ -550,14 +599,14 @@ export const BUILT_IN_PRESETS: PipelinePreset[] = [
       ica: {
         type: "ica",
         enabled: true,
-        config: DEFAULT_ICA_CONFIG,
+        config: cloneICAConfig(),
         rejectedComponents: [],
       },
       artifactRemoval: {
         type: "artifact_removal",
         enabled: true,
         config: {
-          ...DEFAULT_ARTIFACT_REMOVAL_CONFIG,
+          ...cloneArtifactRemovalConfig(),
           action: "reject_epoch",
         },
       },
@@ -574,7 +623,7 @@ export const BUILT_IN_PRESETS: PipelinePreset[] = [
       badChannelDetection: {
         type: "bad_channel_detection",
         enabled: false,
-        config: DEFAULT_BAD_CHANNEL_CONFIG,
+        config: cloneBadChannelConfig(),
       },
       filtering: {
         type: "filtering",
@@ -607,13 +656,13 @@ export const BUILT_IN_PRESETS: PipelinePreset[] = [
       ica: {
         type: "ica",
         enabled: false,
-        config: DEFAULT_ICA_CONFIG,
+        config: cloneICAConfig(),
         rejectedComponents: [],
       },
       artifactRemoval: {
         type: "artifact_removal",
         enabled: false,
-        config: DEFAULT_ARTIFACT_REMOVAL_CONFIG,
+        config: cloneArtifactRemovalConfig(),
       },
     },
   },
@@ -628,7 +677,7 @@ export const BUILT_IN_PRESETS: PipelinePreset[] = [
         type: "bad_channel_detection",
         enabled: true,
         config: {
-          ...DEFAULT_BAD_CHANNEL_CONFIG,
+          ...cloneBadChannelConfig(),
           varianceThreshold: 4.0, // More conservative for DDA
         },
       },
@@ -664,7 +713,7 @@ export const BUILT_IN_PRESETS: PipelinePreset[] = [
         type: "ica",
         enabled: true,
         config: {
-          ...DEFAULT_ICA_CONFIG,
+          ...cloneICAConfig(),
           autoClassify: true,
         },
         rejectedComponents: [],
@@ -673,7 +722,7 @@ export const BUILT_IN_PRESETS: PipelinePreset[] = [
         type: "artifact_removal",
         enabled: true,
         config: {
-          ...DEFAULT_ARTIFACT_REMOVAL_CONFIG,
+          ...cloneArtifactRemovalConfig(),
           action: "interpolate", // Maintain continuous data for DDA
         },
       },

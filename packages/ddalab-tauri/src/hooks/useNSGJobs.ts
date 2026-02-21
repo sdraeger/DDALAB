@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { TauriService, type NSGJob } from "@/services/tauriService";
+import { useIsTauriRuntime } from "@/hooks/useIsTauriRuntime";
 
 // Query keys factory for NSG operations
 export const nsgKeys = {
@@ -17,10 +18,12 @@ export function isExternalJob(job: NSGJob): boolean {
 
 // Check if NSG credentials are configured
 export function useNSGCredentials() {
+  const isTauri = useIsTauriRuntime();
+
   return useQuery({
     queryKey: nsgKeys.credentials(),
     queryFn: async () => {
-      if (!TauriService.isTauri()) {
+      if (!isTauri) {
         return false;
       }
       return await TauriService.hasNSGCredentials();
@@ -28,7 +31,7 @@ export function useNSGCredentials() {
     staleTime: 5 * 1000, // 5 seconds
     gcTime: 30 * 1000, // 30 seconds
     refetchInterval: 5 * 1000, // Poll every 5 seconds to detect credential changes
-    enabled: TauriService.isTauri(),
+    enabled: isTauri,
   });
 }
 
@@ -37,10 +40,12 @@ export function useNSGJobs(options?: {
   enabled?: boolean;
   refetchInterval?: number;
 }) {
+  const isTauri = useIsTauriRuntime();
+
   return useQuery({
     queryKey: nsgKeys.jobs(),
     queryFn: async () => {
-      if (!TauriService.isTauri()) {
+      if (!isTauri) {
         return [];
       }
       const jobs = await TauriService.listNSGJobs();
@@ -53,24 +58,26 @@ export function useNSGJobs(options?: {
     staleTime: 10 * 1000, // 10 seconds
     gcTime: 60 * 1000, // 1 minute
     refetchInterval: options?.refetchInterval ?? 30 * 1000, // Poll every 30 seconds
-    enabled: options?.enabled ?? TauriService.isTauri(),
+    enabled: options?.enabled ?? isTauri,
     refetchOnWindowFocus: true,
   });
 }
 
 // Get specific job status
 export function useNSGJobStatus(jobId: string | null) {
+  const isTauri = useIsTauriRuntime();
+
   return useQuery({
     queryKey: jobId ? nsgKeys.jobStatus(jobId) : ["nsg", "jobStatus", "null"],
     queryFn: async () => {
-      if (!jobId || !TauriService.isTauri()) {
+      if (!jobId || !isTauri) {
         return null;
       }
       return await TauriService.getNSGJobStatus(jobId);
     },
     staleTime: 5 * 1000, // 5 seconds
     gcTime: 30 * 1000, // 30 seconds
-    enabled: !!jobId && TauriService.isTauri(),
+    enabled: !!jobId && isTauri,
     // Note: Cache updates are handled by useUpdateNSGJobStatus mutation
   });
 }
@@ -78,10 +85,11 @@ export function useNSGJobStatus(jobId: string | null) {
 // Mutation to update job status
 export function useUpdateNSGJobStatus() {
   const queryClient = useQueryClient();
+  const isTauri = useIsTauriRuntime();
 
   return useMutation({
     mutationFn: async (jobId: string) => {
-      if (!TauriService.isTauri()) {
+      if (!isTauri) {
         throw new Error("NSG operations only available in Tauri");
       }
       return await TauriService.getNSGJobStatus(jobId);
@@ -103,10 +111,11 @@ export function useUpdateNSGJobStatus() {
 // Mutation to download NSG results
 export function useDownloadNSGResults() {
   const queryClient = useQueryClient();
+  const isTauri = useIsTauriRuntime();
 
   return useMutation({
     mutationFn: async (jobId: string) => {
-      if (!TauriService.isTauri()) {
+      if (!isTauri) {
         throw new Error("NSG operations only available in Tauri");
       }
       return await TauriService.downloadNSGResults(jobId);
@@ -122,10 +131,11 @@ export function useDownloadNSGResults() {
 // Mutation to cancel NSG job
 export function useCancelNSGJob() {
   const queryClient = useQueryClient();
+  const isTauri = useIsTauriRuntime();
 
   return useMutation({
     mutationFn: async (jobId: string) => {
-      if (!TauriService.isTauri()) {
+      if (!isTauri) {
         throw new Error("NSG operations only available in Tauri");
       }
       await TauriService.cancelNSGJob(jobId);
@@ -141,10 +151,11 @@ export function useCancelNSGJob() {
 // Mutation to delete NSG job
 export function useDeleteNSGJob() {
   const queryClient = useQueryClient();
+  const isTauri = useIsTauriRuntime();
 
   return useMutation({
     mutationFn: async (jobId: string) => {
-      if (!TauriService.isTauri()) {
+      if (!isTauri) {
         throw new Error("NSG operations only available in Tauri");
       }
       await TauriService.deleteNSGJob(jobId);
@@ -181,10 +192,11 @@ export function useDeleteNSGJob() {
 // Mutation to cleanup pending NSG jobs
 export function useCleanupPendingNSGJobs() {
   const queryClient = useQueryClient();
+  const isTauri = useIsTauriRuntime();
 
   return useMutation({
     mutationFn: async () => {
-      if (!TauriService.isTauri()) {
+      if (!isTauri) {
         throw new Error("NSG operations only available in Tauri");
       }
       return await TauriService.cleanupPendingNSGJobs();
@@ -198,6 +210,8 @@ export function useCleanupPendingNSGJobs() {
 
 // Mutation to extract NSG tarball
 export function useExtractNSGTarball() {
+  const isTauri = useIsTauriRuntime();
+
   return useMutation({
     mutationFn: async ({
       jobId,
@@ -206,7 +220,7 @@ export function useExtractNSGTarball() {
       jobId: string;
       tarFilePath: string;
     }) => {
-      if (!TauriService.isTauri()) {
+      if (!isTauri) {
         throw new Error("NSG operations only available in Tauri");
       }
       return await TauriService.extractNSGTarball(jobId, tarFilePath);

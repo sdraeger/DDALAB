@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { persist } from "zustand/middleware";
+import { createSafePersistStorage } from "@/store/utils/safePersistStorage";
 
 export interface DownloadedDataset {
   id: string;
@@ -73,6 +74,7 @@ export const useDownloadedDatasetsStore = create<DownloadedDatasetsState>()(
     {
       name: "ddalab-downloaded-datasets",
       partialize: (state) => ({ datasets: state.datasets }),
+      storage: createSafePersistStorage("DownloadedDatasetsStore"),
     },
   ),
 );

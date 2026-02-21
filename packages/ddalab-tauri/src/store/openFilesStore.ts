@@ -8,8 +8,9 @@
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { persist } from "zustand/middleware";
-import { getFileStateManager } from "@/services/fileStateManager";
+import { ensureFileStateManagerReady } from "@/services/fileStateInitializer";
 import { createLogger } from "@/lib/logger";
+import { createSafePersistStorage } from "@/store/utils/safePersistStorage";
 
 const logger = createLogger("OpenFilesStore");
 
@@ -109,7 +110,7 @@ export const useOpenFilesStore = create<OpenFilesStore>()(
 
         try {
           // Load file state via FileStateManager
-          const fileStateManager = getFileStateManager();
+          const fileStateManager = await ensureFileStateManagerReady();
           await fileStateManager.loadFileState(filePath);
 
           set((state) => {
@@ -197,7 +198,7 @@ export const useOpenFilesStore = create<OpenFilesStore>()(
 
         // Save state before closing
         try {
-          const fileStateManager = getFileStateManager();
+          const fileStateManager = await ensureFileStateManagerReady();
           await fileStateManager.saveFileState(filePath);
         } catch (error) {
           logger.error("Failed to save state before closing", {
@@ -382,6 +383,7 @@ export const useOpenFilesStore = create<OpenFilesStore>()(
         files: state.files,
         activeFilePath: state.activeFilePath,
       }),
+      storage: createSafePersistStorage("OpenFilesStore"),
       onRehydrateStorage: () => (state) => {
         // Deduplicate files on rehydration (fixes corrupted localStorage state)
         if (state?.files) {

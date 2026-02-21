@@ -14,7 +14,7 @@ import { PrimaryNavTab, SecondaryNavTab } from "./navigation";
  * State module interface - implement this to create a new state module
  * Each module is responsible for one aspect of file-specific state
  */
-export interface FileStateModule<T = any> {
+export interface FileStateModule<T = unknown> {
   /** Unique identifier for this module (e.g., 'plot', 'dda', 'annotations') */
   readonly moduleId: string;
 
@@ -31,7 +31,7 @@ export interface FileStateModule<T = any> {
   getDefaultState(): T;
 
   /** Optional: Validate loaded state */
-  validateState?(state: any): state is T;
+  validateState?(state: unknown): state is T;
 }
 
 /**
@@ -212,7 +212,7 @@ export interface FileStateManagerOptions {
 /**
  * Module registration descriptor
  */
-export interface ModuleDescriptor<T = any> {
+export interface ModuleDescriptor<T = unknown> {
   module: FileStateModule<T>;
   priority?: number; // Load order priority (lower = first)
 }
@@ -223,8 +223,8 @@ export interface ModuleDescriptor<T = any> {
 export interface FileStateChangeEvent {
   filePath: string;
   moduleId: string;
-  oldState: any;
-  newState: any;
+  oldState: unknown;
+  newState: unknown;
   timestamp: string;
 }
 
@@ -234,5 +234,5 @@ export interface FileStateChangeEvent {
 export interface FileStateMigration {
   fromVersion: string;
   toVersion: string;
-  migrate: (oldState: any) => FileSpecificState;
+  migrate: (oldState: unknown) => FileSpecificState;
 }

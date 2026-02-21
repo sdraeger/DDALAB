@@ -1,0 +1,65 @@
+name: DDALAB Test Suite
+
+on:
+  pull_request:
+    branches: ["main"]
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  ddalab-tauri-tests:
+    name: DDALAB Tauri Quality and Tests
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux desktop dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            patchelf \
+            cmake \
+            build-essential
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install workspace dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Lint
+        working-directory: packages/ddalab-tauri
+        run: bun run lint
+
+      - name: Typecheck
+        working-directory: packages/ddalab-tauri
+        run: bun run typecheck
+
+      - name: Unit tests (Vitest)
+        working-directory: packages/ddalab-tauri
+        run: bun run test:unit
+
+      - name: Rust tests
+        working-directory: packages/ddalab-tauri
+        run: bun run test
