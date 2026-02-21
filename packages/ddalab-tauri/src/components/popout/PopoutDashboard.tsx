@@ -32,7 +32,6 @@ import {
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ActiveFileProvider } from "@/contexts/ActiveFileContext";
 import { useBackend } from "@/contexts/BackendContext";
-import { useAppStore } from "@/store/appStore";
 import { useOpenFilesStore } from "@/store/openFilesStore";
 import { useUISelectors, useDDASelectors } from "@/hooks/useStoreSelectors";
 import { useDDAHistory } from "@/hooks/useDDAAnalysis";
@@ -396,8 +395,6 @@ export function PopoutDashboard({
 
   // Global store for setting active file
   const { openFile, setActiveFile } = useOpenFilesStore();
-  const isServerReady = useAppStore((state) => state.ui.isServerReady);
-  const setServerReady = useAppStore((state) => state.setServerReady);
 
   // Handle cross-window tab transfers
   const handleCrossWindowTabReceived = useCallback(
@@ -424,20 +421,12 @@ export function PopoutDashboard({
   // Listen for cross-window tab transfers (from dnd-kit drag between windows)
   useCrossWindowDragListener(handleCrossWindowTabReceived);
 
-  // Ensure isServerReady is set in popout windows
-  // This is normally set by the main window, but popouts need it too
-  useEffect(() => {
-    if (isBackendReady && !isServerReady) {
-      setServerReady(true);
-    }
-  }, [isBackendReady, isServerReady, setServerReady]);
-
   // Load DDA history for the current file
   const {
     data: historyData,
     isLoading: isLoadingHistory,
     error: historyError,
-  } = useDDAHistory(isServerReady && isBackendReady);
+  } = useDDAHistory(isBackendReady);
 
   // Sync history to store
   useEffect(() => {

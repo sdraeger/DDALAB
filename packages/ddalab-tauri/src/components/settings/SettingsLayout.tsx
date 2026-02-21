@@ -154,18 +154,35 @@ export function SettingsLayout({
           <nav className="space-y-1 px-3 pb-4">
             {filteredSections.length > 0 ? (
               filteredSections.map((section) => (
-                <Button
+                <button
                   key={section.id}
-                  variant={activeSection === section.id ? "secondary" : "ghost"}
                   className={cn(
-                    "w-full justify-start gap-3",
-                    activeSection === section.id && "bg-secondary",
+                    "w-full flex items-start gap-3 px-3 py-2.5 rounded-md text-left transition-colors",
+                    activeSection === section.id
+                      ? "bg-secondary/50 border-l-2 border-l-primary pl-[10px]"
+                      : "hover:bg-accent border-l-2 border-l-transparent pl-[10px]",
                   )}
                   onClick={() => setActiveSection(section.id)}
                 >
-                  {section.icon}
-                  {section.label}
-                </Button>
+                  <div className="mt-0.5 shrink-0">{section.icon}</div>
+                  <div className="min-w-0">
+                    <span
+                      className={cn(
+                        "text-sm font-medium block",
+                        activeSection === section.id
+                          ? "text-foreground"
+                          : "text-muted-foreground",
+                      )}
+                    >
+                      {section.label}
+                    </span>
+                    {section.description && (
+                      <span className="text-[11px] text-muted-foreground line-clamp-1 mt-0.5 block">
+                        {section.description}
+                      </span>
+                    )}
+                  </div>
+                </button>
               ))
             ) : (
               <div className="py-4 text-center text-sm text-muted-foreground">
@@ -199,7 +216,11 @@ export function SettingsLayout({
         style={contentScrollProps.style}
       >
         {currentSection ? (
-          <div id={`settings-section-${currentSection.id}`} className="p-6">
+          <div
+            id={`settings-section-${currentSection.id}`}
+            data-settings-section={currentSection.id}
+            className="p-6"
+          >
             {currentSection.component}
           </div>
         ) : (

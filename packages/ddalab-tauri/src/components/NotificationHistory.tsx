@@ -26,13 +26,15 @@ import {
   NotificationType,
 } from "@/services/tauriService";
 import { useNotifications } from "@/hooks/useNotifications";
+import { useIsTauriRuntime } from "@/hooks/useIsTauriRuntime";
 import { formatDistanceToNow } from "date-fns";
 
 interface NotificationHistoryProps {
-  onNavigate?: (actionType: string, actionData: any) => void;
+  onNavigate?: (actionType: string, actionData: unknown) => void;
 }
 
 export function NotificationHistory({ onNavigate }: NotificationHistoryProps) {
+  const isTauriRuntime = useIsTauriRuntime();
   // Use event-based notification hook (no polling)
   const {
     notifications,
@@ -106,7 +108,7 @@ export function NotificationHistory({ onNavigate }: NotificationHistoryProps) {
     }
   };
 
-  if (!TauriService.isTauri()) {
+  if (!isTauriRuntime) {
     return (
       <Card>
         <CardHeader>

@@ -48,6 +48,11 @@ export type PrimaryNav =
   | "overview"
   | "explore"
   | "analyze"
+  | "data"
+  | "learn"
+  | "plugins"
+  | "collaborate"
+  | "settings"
   | "manage"
   | "notifications";
 
@@ -56,21 +61,45 @@ export type PrimaryNav =
  */
 export type SecondaryNav =
   | "timeseries"
-  | "preprocessing"
   | "annotations"
   | "streaming"
   | "dda"
   | "ica"
+  | "batch"
+  | "compare"
+  | "openneuro"
+  | "nsg-jobs"
+  | "tutorials"
+  | "sample-data"
+  | "papers"
+  | "gallery"
+  | "preprocessing"
   | "settings"
   | "data-sources"
   | "jobs";
+
+const primaryNavAlias: Record<string, string> = {
+  manage: "settings",
+};
+
+const secondaryNavAlias: Record<string, string> = {
+  "data-sources": "openneuro",
+  jobs: "nsg-jobs",
+};
 
 /**
  * Navigate to a primary section of the app
  */
 export async function navigateTo(page: Page, section: PrimaryNav) {
-  const navButton = page.locator(`[data-nav="${section}"]`).first();
-  await navButton.click();
+  const resolvedSection = primaryNavAlias[section] ?? section;
+  const navButton = page.locator(`[data-nav="${resolvedSection}"]`).first();
+  try {
+    await navButton.click();
+  } catch {
+    // Close any modal/popover overlay that may block top navigation.
+    await page.keyboard.press("Escape").catch(() => undefined);
+    await navButton.click({ force: true });
+  }
   await page.waitForTimeout(300);
 }
 
@@ -78,7 +107,8 @@ export async function navigateTo(page: Page, section: PrimaryNav) {
  * Navigate to a secondary tab within the current primary section
  */
 export async function navigateToSecondary(page: Page, tab: SecondaryNav) {
-  const tabButton = page.locator(`[data-nav="${tab}"]`).first();
+  const resolvedTab = secondaryNavAlias[tab] ?? tab;
+  const tabButton = page.locator(`[data-nav="${resolvedTab}"]`).first();
   if (await tabButton.isVisible()) {
     await tabButton.click();
     await page.waitForTimeout(200);

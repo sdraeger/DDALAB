@@ -6,12 +6,58 @@ import { TauriService } from "@/services/tauriService";
 import { getStatePersistenceService } from "@/services/statePersistenceService";
 import { initializeFileStateSystem } from "@/services/fileStateInitializer";
 import { windowManager } from "@/utils/windowManager";
-import type { PersistenceSlice, InitSlice, ImmerStateCreator } from "./types";
+import { createLogger } from "@/lib/logger";
+import type {
+  PersistenceSlice,
+  InitSlice,
+  ImmerStateCreator,
+  ICAState,
+} from "./types";
 import type { PersistedPopoutWindowState } from "@/types/persistence";
 
 // Module-level flags to prevent re-initialization during Hot Module Reload
 let isInitializingPersistence = false;
 let hasInitializedPersistence = false;
+const PERSISTENCE_INIT_TIMEOUT_MS = 2_000;
+const logger = createLogger("PersistenceSlice");
+
+interface LegacyPersistedStateCompat {
+  last_selected_file?: string | null;
+  ica?: Partial<
+    Pick<
+      ICAState,
+      | "selectedChannels"
+      | "nComponents"
+      | "maxIterations"
+      | "tolerance"
+      | "centering"
+      | "whitening"
+      | "selectedResultId"
+    >
+  >;
+}
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  timeoutMessage: string,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      reject(new Error(timeoutMessage));
+    }, timeoutMs);
+
+    promise
+      .then((value) => {
+        window.clearTimeout(timeoutId);
+        resolve(value);
+      })
+      .catch((error) => {
+        window.clearTimeout(timeoutId);
+        reject(error);
+      });
+  });
+}
 
 export const createPersistenceSlice: ImmerStateCreator<
   PersistenceSlice & InitSlice
@@ -23,14 +69,25 @@ export const createPersistenceSlice: ImmerStateCreator<
 
   initializePersistence: async () => {
     if (TauriService.isTauri()) {
-      if (hasInitializedPersistence || isInitializingPersistence) {
+      if (hasInitializedPersistence) {
+        // If module-level init already succeeded (e.g., HMR), ensure store flags
+        // are also consistent for the current store instance.
+        set({ isPersistenceRestored: true });
+        return;
+      }
+
+      if (isInitializingPersistence) {
         return;
       }
 
       isInitializingPersistence = true;
 
       try {
-        await initializeFileStateSystem();
+        await withTimeout(
+          initializeFileStateSystem(),
+          PERSISTENCE_INIT_TIMEOUT_MS,
+          "Timed out initializing file state system",
+        );
 
         const service = getStatePersistenceService({
           autoSave: true,
@@ -40,7 +97,13 @@ export const createPersistenceSlice: ImmerStateCreator<
           maxHistoryItems: 50,
         });
 
-        const persistedState = await service.initialize();
+        const persistedState = await withTimeout(
+          service.initialize(),
+          PERSISTENCE_INIT_TIMEOUT_MS,
+          "Timed out loading persisted application state",
+        );
+        const persistedStateCompat = persistedState as typeof persistedState &
+          LegacyPersistedStateCompat;
 
         let dataDirectoryPath = "";
         try {
@@ -125,7 +188,8 @@ export const createPersistenceSlice: ImmerStateCreator<
             persistedState.file_manager?.show_hidden || false;
           state.fileManager.pendingFileSelection =
             persistedState.file_manager?.selected_file ||
-            (persistedState as any).last_selected_file;
+            persistedStateCompat.last_selected_file ||
+            null;
 
           state.plot.chunkSize =
             persistedState.plot?.filters?.chunkSize || state.plot.chunkSize;
@@ -179,7 +243,7 @@ export const createPersistenceSlice: ImmerStateCreator<
           ];
 
           // Restore ICA state (using type assertion for backwards compatibility)
-          const icaState = (persistedState as any).ica;
+          const icaState = persistedStateCompat.ica;
           if (icaState) {
             state.ica.selectedChannels = icaState.selectedChannels || [];
             state.ica.nComponents = icaState.nComponents;
@@ -199,15 +263,17 @@ export const createPersistenceSlice: ImmerStateCreator<
         if (savedPopoutWindows && savedPopoutWindows.length > 0) {
           setTimeout(() => {
             windowManager.restoreWindows(savedPopoutWindows).catch((err) => {
-              console.error("Failed to restore popout windows:", err);
+              logger.error("Failed to restore popout windows", { error: err });
             });
           }, 1000);
         }
       } catch (error) {
-        console.error(
-          "Failed to initialize persistence:",
-          (error as Error)?.message,
-        );
+        logger.warn("Persistence init timed out or failed; using defaults", {
+          error: (error as Error)?.message,
+        });
+        // Fail open so the app can continue with defaults instead of hanging
+        // in "Restoring previous session..." forever.
+        set({ isInitialized: true, isPersistenceRestored: true });
       } finally {
         isInitializingPersistence = false;
       }
@@ -217,7 +283,12 @@ export const createPersistenceSlice: ImmerStateCreator<
   initializeFromTauri: async () => {
     if (TauriService.isTauri()) {
       await get().initializePersistence();
-      set({ isInitialized: true });
+      // Always fail-open flags here to prevent UI deadlocks when module-level
+      // init guards (HMR/StrictMode) short-circuit this store instance.
+      set({
+        isInitialized: true,
+        isPersistenceRestored: true,
+      });
     } else {
       // In browser mode (no Tauri), mark persistence as already "restored"
       // since there's nothing to restore from the file system
@@ -290,6 +361,7 @@ export const createPersistenceSlice: ImmerStateCreator<
           collapsedPanels: currentState.ui.collapsedPanels,
           popoutWindows,
         },
+        windows: {},
         active_tab: currentState.ui.activeTab,
         sidebar_collapsed: !currentState.ui.sidebarOpen,
         panel_sizes: {

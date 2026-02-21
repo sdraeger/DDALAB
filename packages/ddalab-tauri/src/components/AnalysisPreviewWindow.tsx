@@ -21,6 +21,10 @@ import {
 import { Label } from "@/components/ui/label";
 import { BarChart3, Download, X, Maximize2 } from "lucide-react";
 import uPlot from "uplot";
+import { zoomCursorMove } from "@/lib/uplot-zoom";
+import { createLogger } from "@/lib/logger";
+
+const logger = createLogger("AnalysisPreviewWindow");
 
 interface AnalysisPreviewWindowProps {
   analysis: DDAResult;
@@ -40,26 +44,11 @@ export const AnalysisPreviewWindow = memo(function AnalysisPreviewWindow({
 
   // Helper functions to handle both new and legacy data formats
   const getAvailableVariants = () => {
-    console.log("[PREVIEW] analysis.results:", analysis.results);
-    console.log(
-      "[PREVIEW] analysis.results?.variants:",
-      analysis.results?.variants,
-    );
-    console.log(
-      "[PREVIEW] analysis.results?.dda_matrix:",
-      analysis.results?.dda_matrix,
-    );
-
     if (analysis.results?.variants && analysis.results.variants.length > 0) {
-      console.log(
-        "[PREVIEW] Using variants format, count:",
-        analysis.results.variants.length,
-      );
       return analysis.results.variants;
     }
     // Fallback to legacy format
     if (analysis.results?.dda_matrix) {
-      console.log("[PREVIEW] Using legacy dda_matrix format");
       return [
         {
           variant_id: "legacy",
@@ -70,22 +59,15 @@ export const AnalysisPreviewWindow = memo(function AnalysisPreviewWindow({
         },
       ];
     }
-    console.log("[PREVIEW] No variants or dda_matrix found!");
+    logger.warn("No variant data available for analysis preview", {
+      analysisId: analysis.id,
+    });
     return [];
   };
 
   const getCurrentVariantData = () => {
     const variants = getAvailableVariants();
-    console.log("[PREVIEW] getCurrentVariantData variants:", variants);
-    console.log("[PREVIEW] selectedVariant:", selectedVariant);
     const current = variants[selectedVariant] || variants[0];
-    console.log("[PREVIEW] current variant:", current);
-    if (current) {
-      console.log(
-        "[PREVIEW] current.dda_matrix keys:",
-        Object.keys(current.dda_matrix || {}),
-      );
-    }
     return current;
   };
 
@@ -125,13 +107,6 @@ export const AnalysisPreviewWindow = memo(function AnalysisPreviewWindow({
       canvas.width = numTimepoints;
       canvas.height = channels.length;
       const ctx = canvas.getContext("2d")!;
-
-      console.log(
-        "[PREVIEW HEATMAP] Canvas size:",
-        canvas.width,
-        "x",
-        canvas.height,
-      );
 
       // Find min/max values for normalization (use log transform for better visualization)
       let minVal = Infinity;
@@ -259,7 +234,7 @@ export const AnalysisPreviewWindow = memo(function AnalysisPreviewWindow({
         const plot = new uPlot(opts, plotData, heatmapRef.current!);
         setHeatmapPlot(plot);
       } catch (error) {
-        console.error("Failed to create heatmap:", error);
+        logger.error("Failed to create preview heatmap", { error });
       }
     };
 
@@ -271,9 +246,6 @@ export const AnalysisPreviewWindow = memo(function AnalysisPreviewWindow({
 
       // X-axis is timepoints (0, 1, 2, ..., numTimepoints-1)
       const timepoints = Array.from({ length: numTimepoints }, (_, i) => i);
-
-      console.log("[PREVIEW LINE PLOT] Number of timepoints:", numTimepoints);
-      console.log("[PREVIEW LINE PLOT] Number of channels:", channels.length);
 
       // Prepare data for uPlot - [x-values, ...y-values for each channel]
       const plotData: uPlot.AlignedData = [
@@ -321,6 +293,7 @@ export const AnalysisPreviewWindow = memo(function AnalysisPreviewWindow({
           live: true,
         },
         cursor: {
+          move: zoomCursorMove(),
           sync: {
             key: "dda-preview",
           },
@@ -331,7 +304,7 @@ export const AnalysisPreviewWindow = memo(function AnalysisPreviewWindow({
         const plot = new uPlot(opts, plotData, linePlotRef.current!);
         setLinePlot(plot);
       } catch (error) {
-        console.error("Failed to create line plot:", error);
+        logger.error("Failed to create preview line plot", { error });
       }
     };
 

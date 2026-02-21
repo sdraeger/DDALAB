@@ -4,6 +4,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import { useState } from "react";
 import {
   AppState,
   StatePersistenceOptions,
@@ -13,9 +14,12 @@ import {
   DDAState,
   FileManagerState,
   WindowState,
+  UIStateSettings,
 } from "@/types/persistence";
 import { loggers } from "@/lib/logger";
 import { useNotificationStore } from "@/store/notificationStore";
+
+type PersistedStatePayload = object;
 
 // Helper function to notify about persistence errors
 function notifyPersistenceError(operation: string, error: unknown) {
@@ -26,14 +30,17 @@ function notifyPersistenceError(operation: string, error: unknown) {
     `Failed to ${operation}. Your changes may not be saved.`,
     "system",
   );
-  console.error(`Persistence error (${operation}):`, errorMessage);
+  loggers.persistence.error(`Persistence error during ${operation}`, {
+    errorMessage,
+  });
 }
 
 export class StatePersistenceService {
   private saveTimer: NodeJS.Timeout | null = null;
   private throttleTimer: NodeJS.Timeout | null = null;
-  private pendingSave: any = null;
+  private pendingSave: PersistedStatePayload | null = null;
   private lastSaveTime: number = 0;
+  private currentStateGetter: (() => void | Promise<void>) | null = null;
   private readonly THROTTLE_MS = 500; // Throttle saves to max once per 500ms
   private options: StatePersistenceOptions = {
     autoSave: true,
@@ -70,7 +77,7 @@ export class StatePersistenceService {
   /**
    * Save the complete application state with throttling to prevent excessive saves
    */
-  async saveCompleteState(state: any): Promise<void> {
+  async saveCompleteState(state: PersistedStatePayload): Promise<void> {
     // Store the pending save
     this.pendingSave = state;
 
@@ -89,7 +96,7 @@ export class StatePersistenceService {
               await this.executeSave(this.pendingSave);
             } catch (error) {
               // Log but don't throw from setTimeout callback
-              console.error("Throttled save failed:", error);
+              loggers.persistence.error("Throttled save failed", { error });
             }
           }
         }, delay);
@@ -104,7 +111,7 @@ export class StatePersistenceService {
   /**
    * Internal method to execute the actual save
    */
-  private async executeSave(state: any): Promise<void> {
+  private async executeSave(state: PersistedStatePayload): Promise<void> {
     try {
       this.lastSaveTime = Date.now();
       this.pendingSave = null;
@@ -164,7 +171,7 @@ export class StatePersistenceService {
   /**
    * Save plot data separately (for performance)
    */
-  async savePlotData(plotData: any, analysisId?: string): Promise<void> {
+  async savePlotData(plotData: unknown, analysisId?: string): Promise<void> {
     try {
       if (this.options.includePlotData) {
         await invoke("save_plot_data", { plotData, analysisId });
@@ -191,7 +198,7 @@ export class StatePersistenceService {
   /**
    * Save UI state updates
    */
-  async saveUIState(updates: Record<string, any>): Promise<void> {
+  async saveUIState(updates: Partial<UIStateSettings>): Promise<void> {
     try {
       await invoke("update_ui_state", { uiUpdates: updates });
     } catch (error) {
@@ -350,19 +357,19 @@ export class StatePersistenceService {
    * Get current app state from store
    * This should be implemented to integrate with your specific state management
    */
-  private getCurrentAppState(): any {
+  private getCurrentAppState(): void | Promise<void> {
     try {
-      return (this as any).__getCurrentState?.();
+      return this.currentStateGetter?.();
     } catch {
-      return null;
+      return undefined;
     }
   }
 
   /**
    * Set the current state getter (called by the store)
    */
-  setCurrentStateGetter(getter: () => any): void {
-    (this as any).__getCurrentState = getter;
+  setCurrentStateGetter(getter: () => void | Promise<void>): void {
+    this.currentStateGetter = getter;
   }
 
   /**
@@ -392,20 +399,9 @@ export function destroyStatePersistenceService(): void {
   }
 }
 
-// React hook for using persistence service
-import { useEffect, useRef } from "react";
-
 export function useStatePersistence(
   options?: Partial<StatePersistenceOptions>,
 ) {
-  const serviceRef = useRef<StatePersistenceService | null>(null);
-
-  useEffect(() => {
-    serviceRef.current = getStatePersistenceService(options);
-    return () => {
-      // Don't destroy on unmount as it's a singleton, only on app exit
-    };
-  }, []);
-
-  return serviceRef.current;
+  const [service] = useState(() => getStatePersistenceService(options));
+  return service;
 }

@@ -1,6 +1,7 @@
 import { useRef, useEffect, useMemo, useState } from "react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
+import { zoomCursorMove } from "@/lib/uplot-zoom";
 import {
   Select,
   SelectContent,
@@ -31,6 +32,7 @@ function getBaseChartOptions(
     height: Math.max(height, MIN_HEIGHT),
     cursor: {
       show: true,
+      move: zoomCursorMove(),
       drag: { x: true, y: false },
     },
     scales: {

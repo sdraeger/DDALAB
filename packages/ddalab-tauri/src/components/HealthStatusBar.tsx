@@ -340,8 +340,14 @@ export function HealthStatusBar() {
       configFiles = `Error reading config files: ${error}`;
     }
 
-    // Run network diagnostics (use port 8765 as default API port)
+    // Run network diagnostics for the active local UI/backend port in this runtime.
     try {
+      const fallbackPort = NETWORK.DEFAULT_DEV_PORT;
+      const parsedPort = Number.parseInt(window.location.port || "", 10);
+      const diagnosticPort = Number.isFinite(parsedPort)
+        ? parsedPort
+        : fallbackPort;
+
       const diag = await invoke<{
         localhost_reachable: boolean;
         ip_127_reachable: boolean;
@@ -349,11 +355,11 @@ export function HealthStatusBar() {
         proxy_env_vars: [string, string][];
         platform: string;
         diagnostics: string[];
-      }>("run_network_diagnostics", { port: 8765 });
+      }>("run_network_diagnostics", { port: diagnosticPort });
 
       networkDiagnostics = `Platform: ${diag.platform}
-localhost:8765 reachable: ${diag.localhost_reachable}
-127.0.0.1:8765 reachable: ${diag.ip_127_reachable}
+localhost:${diagnosticPort} reachable: ${diag.localhost_reachable}
+127.0.0.1:${diagnosticPort} reachable: ${diag.ip_127_reachable}
 Result: ${diag.port_check_result}
 Proxy env vars: ${diag.proxy_env_vars.length > 0 ? diag.proxy_env_vars.map(([k, v]) => `${k}=${v}`).join(", ") : "none"}
 Details:

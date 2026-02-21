@@ -12,17 +12,23 @@ import { Label } from "@/components/ui/label";
 import { TauriService } from "@/services/tauriService";
 import { FileText, FolderOpen, Bug } from "lucide-react";
 import { useLogsPath } from "@/hooks/useAppInfo";
+import { createLogger } from "@/lib/logger";
+import { useIsTauriRuntime } from "@/hooks/useIsTauriRuntime";
+
+const logger = createLogger("DebugSettings");
 
 export function DebugSettings() {
+  const isTauriRuntime = useIsTauriRuntime();
+
   // TanStack Query hook
   const { data: logsPath = "" } = useLogsPath();
 
   const handleOpenLogs = async () => {
-    if (!TauriService.isTauri()) return;
+    if (!isTauriRuntime) return;
     try {
       await TauriService.openLogsFolder();
     } catch (error) {
-      console.error("Failed to open logs folder:", error);
+      logger.warn("Failed to open logs folder", { error });
     }
   };
 
@@ -32,11 +38,11 @@ export function DebugSettings() {
         "https://github.com/sdraeger/DDALAB/issues/new",
       );
     } catch (error) {
-      console.error("Failed to open issue tracker:", error);
+      logger.warn("Failed to open issue tracker", { error });
     }
   };
 
-  if (!TauriService.isTauri()) {
+  if (!isTauriRuntime) {
     return (
       <div className="space-y-6">
         <div>
@@ -58,10 +64,12 @@ export function DebugSettings() {
         </p>
       </div>
 
-      <Card>
+      <Card className="transition-shadow duration-150 hover:shadow-md">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <FileText className="w-5 h-5" />
+            <div className="h-8 w-8 rounded-lg bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
+              <FileText className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+            </div>
             Application Logs
           </CardTitle>
           <CardDescription>

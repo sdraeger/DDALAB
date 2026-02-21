@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "@/store/appStore";
+import { createLogger } from "@/lib/logger";
 import type {
   WorkflowNode,
   WorkflowEdge,
@@ -9,6 +10,8 @@ import type {
   NodeInfo,
   BufferedAction,
 } from "@/types/workflow";
+
+const logger = createLogger("WorkflowQuery");
 
 // ============================================================================
 // Types
@@ -196,20 +199,17 @@ export function useEnableAutoRecord() {
 
   return useMutation({
     mutationFn: async () => {
-      console.log("[WORKFLOW-QUERY] Calling workflow_enable_auto_record...");
+      logger.debug("Calling workflow_enable_auto_record");
       await invoke("workflow_enable_auto_record");
-      console.log("[WORKFLOW-QUERY] workflow_enable_auto_record completed");
+      logger.debug("workflow_enable_auto_record completed");
     },
     onSuccess: async () => {
       // Sync with Zustand store so components checking workflowRecording.isRecording work
-      console.log(
-        "[WORKFLOW-QUERY] Syncing Zustand store - starting recording",
-      );
+      logger.debug("Syncing Zustand store - starting recording");
       useAppStore.getState().startWorkflowRecording("auto_record_session");
-      console.log(
-        "[WORKFLOW-QUERY] Zustand store updated, isRecording:",
-        useAppStore.getState().workflowRecording.isRecording,
-      );
+      logger.debug("Zustand store updated", {
+        isRecording: useAppStore.getState().workflowRecording.isRecording,
+      });
 
       // Capture current state as starting point for the recording
       const { fileManager, dda } = useAppStore.getState();
@@ -222,7 +222,7 @@ export function useEnableAutoRecord() {
         if (ext === "edf") fileType = "EDF";
         else if (ext === "csv") fileType = "CSV";
 
-        console.log("[WORKFLOW-QUERY] Recording initial file state:", filePath);
+        logger.debug("Recording initial file state", { filePath });
         try {
           await invoke("workflow_auto_record", {
             action: {
@@ -231,12 +231,9 @@ export function useEnableAutoRecord() {
             },
             activeFileId: filePath,
           });
-          console.log("[WORKFLOW-QUERY] Initial file state recorded");
+          logger.debug("Initial file state recorded");
         } catch (error) {
-          console.error(
-            "[WORKFLOW-QUERY] Failed to record initial file:",
-            error,
-          );
+          logger.error("Failed to record initial file", { error });
         }
 
         // If channels are selected, record them too
@@ -246,10 +243,7 @@ export function useEnableAutoRecord() {
             return match ? parseInt(match[0], 10) : 0;
           });
 
-          console.log(
-            "[WORKFLOW-QUERY] Recording initial channel state:",
-            channelIndices,
-          );
+          logger.debug("Recording initial channel state", { channelIndices });
           try {
             await invoke("workflow_auto_record", {
               action: {
@@ -258,18 +252,15 @@ export function useEnableAutoRecord() {
               },
               activeFileId: filePath,
             });
-            console.log("[WORKFLOW-QUERY] Initial channel state recorded");
+            logger.debug("Initial channel state recorded");
           } catch (error) {
-            console.error(
-              "[WORKFLOW-QUERY] Failed to record initial channels:",
-              error,
-            );
+            logger.error("Failed to record initial channels", { error });
           }
         }
 
         // Record DDA parameters if variants are selected
         if (dda.analysisParameters.variants.length > 0) {
-          console.log("[WORKFLOW-QUERY] Recording initial DDA parameters");
+          logger.debug("Recording initial DDA parameters");
           try {
             await invoke("workflow_auto_record", {
               action: {
@@ -288,12 +279,9 @@ export function useEnableAutoRecord() {
               },
               activeFileId: filePath,
             });
-            console.log("[WORKFLOW-QUERY] Initial DDA parameters recorded");
+            logger.debug("Initial DDA parameters recorded");
           } catch (error) {
-            console.error(
-              "[WORKFLOW-QUERY] Failed to record initial DDA params:",
-              error,
-            );
+            logger.error("Failed to record initial DDA params", { error });
           }
         }
       }
@@ -313,15 +301,13 @@ export function useDisableAutoRecord() {
 
   return useMutation({
     mutationFn: async () => {
-      console.log("[WORKFLOW-QUERY] Calling workflow_disable_auto_record...");
+      logger.debug("Calling workflow_disable_auto_record");
       await invoke("workflow_disable_auto_record");
-      console.log("[WORKFLOW-QUERY] workflow_disable_auto_record completed");
+      logger.debug("workflow_disable_auto_record completed");
     },
     onSuccess: () => {
       // Sync with Zustand store
-      console.log(
-        "[WORKFLOW-QUERY] Syncing Zustand store - stopping recording",
-      );
+      logger.debug("Syncing Zustand store - stopping recording");
       useAppStore.getState().stopWorkflowRecording();
 
       queryClient.invalidateQueries({ queryKey: workflowKeys.autoRecording() });
@@ -470,24 +456,23 @@ export function useAutoRecordAction() {
       action: WorkflowAction;
       activeFileId?: string;
     }) => {
-      console.log("[WORKFLOW-QUERY] Auto-recording action:", action.type, {
+      logger.debug("Auto-recording action", {
+        actionType: action.type,
         activeFileId,
       });
       await invoke("workflow_auto_record", {
         action,
         activeFileId: activeFileId || null,
       });
-      console.log("[WORKFLOW-QUERY] Auto-record action completed");
+      logger.debug("Auto-record action completed");
     },
     onSuccess: () => {
-      console.log(
-        "[WORKFLOW-QUERY] Auto-record success, invalidating buffer info",
-      );
+      logger.debug("Auto-record success, invalidating buffer info");
       // Only invalidate buffer info, not the whole workflow
       queryClient.invalidateQueries({ queryKey: workflowKeys.bufferInfo() });
     },
     onError: (error) => {
-      console.error("[WORKFLOW-QUERY] Auto-record action failed:", error);
+      logger.error("Auto-record action failed", { error });
     },
   });
 }

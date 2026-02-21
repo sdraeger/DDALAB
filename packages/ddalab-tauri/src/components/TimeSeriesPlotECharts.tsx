@@ -1,19 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback, useMemo, memo } from "react";
+import dynamic from "next/dynamic";
 import { useAppStore } from "@/store/appStore";
 import { useShallow } from "zustand/react/shallow";
 import {
   useFileManagerSelectors,
   usePlotSelectors,
-  usePersistenceSelectors,
 } from "@/hooks/useStoreSelectors";
 import { ChunkData } from "@/types/api";
-import {
-  useChunkData,
-  useOverviewData,
-  useOverviewProgress,
-} from "@/hooks/useTimeSeriesData";
+import { useChunkData } from "@/hooks/useTimeSeriesData";
+import { useOverviewController } from "@/hooks/useOverviewController";
 import {
   Card,
   CardContent,
@@ -24,6 +21,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { ChannelSelector } from "@/components/ChannelSelector";
 import {
   Activity,
@@ -31,6 +35,7 @@ import {
   ExternalLink,
   GripHorizontal,
   Loader2,
+  SlidersHorizontal,
 } from "lucide-react";
 import * as echarts from "echarts";
 import { usePopoutWindows } from "@/hooks/usePopoutWindows";
@@ -38,6 +43,10 @@ import { useTimeSeriesAnnotations } from "@/hooks/useAnnotations";
 import { AnnotationContextMenu } from "@/components/annotations/AnnotationContextMenu";
 import { PlotInfo } from "@/types/annotations";
 import { PreprocessingOptions } from "@/types/persistence";
+import {
+  createDefaultPipeline,
+  type FilterConfig,
+} from "@/types/preprocessing";
 import {
   applyPreprocessing,
   getDefaultPreprocessing,
@@ -47,6 +56,22 @@ import { ChunkNavigator } from "@/components/visualization/ChunkNavigator";
 import { QuickFilters } from "@/components/visualization/QuickFilters";
 import { useWasm } from "@/hooks/useWasm";
 import { ChartErrorBoundary } from "@/components/ChartErrorBoundary";
+import { usePreprocessingPipelineExecution } from "@/hooks/usePreprocessingPipelineExecution";
+
+const PreprocessingPipelinePanel = dynamic(
+  () =>
+    import("@/components/visualization/PreprocessingPipelinePanel").then(
+      (module) => module.PreprocessingPipelinePanel,
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="rounded-md border p-3 text-sm text-muted-foreground">
+        Loading preprocessing controls...
+      </div>
+    ),
+  },
+);
 
 // ECharts type extensions for internal API access
 interface EChartsInstanceWithCustomProps extends echarts.ECharts {
@@ -63,8 +88,77 @@ interface EChartsOptionWithSeries {
   [key: string]: unknown;
 }
 
+interface TimeSeriesPlotEChartsProps {
+  isVisible?: boolean;
+}
+
+function buildBackendFilterConfigs(
+  preprocessing: PreprocessingOptions,
+): FilterConfig[] {
+  const filters: FilterConfig[] = [];
+  const highpass = preprocessing.highpass;
+  const lowpass = preprocessing.lowpass;
+
+  const hasHighpass = typeof highpass === "number" && Number.isFinite(highpass);
+  const hasLowpass = typeof lowpass === "number" && Number.isFinite(lowpass);
+
+  if (hasHighpass && hasLowpass && highpass! < lowpass!) {
+    filters.push({
+      type: "bandpass",
+      design: "butterworth",
+      order: 4,
+      highpassFreq: highpass,
+      lowpassFreq: lowpass,
+      zeroPhase: true,
+    });
+  } else {
+    if (hasHighpass) {
+      filters.push({
+        type: "highpass",
+        design: "butterworth",
+        order: 4,
+        highpassFreq: highpass,
+        zeroPhase: true,
+      });
+    }
+
+    if (hasLowpass) {
+      filters.push({
+        type: "lowpass",
+        design: "butterworth",
+        order: 4,
+        lowpassFreq: lowpass,
+        zeroPhase: true,
+      });
+    }
+  }
+
+  const notchFreqs = Array.from(
+    new Set(
+      (preprocessing.notch || [])
+        .filter((freq) => Number.isFinite(freq) && freq > 0)
+        .map((freq) => Number(freq)),
+    ),
+  ).sort((a, b) => a - b);
+
+  if (notchFreqs.length > 0) {
+    filters.push({
+      type: "notch",
+      design: "butterworth",
+      order: 4,
+      notchFreqs,
+      notchWidth: 2,
+      zeroPhase: true,
+    });
+  }
+
+  return filters;
+}
+
 // Internal component - wrapped with memo at export
-function TimeSeriesPlotEChartsComponent() {
+function TimeSeriesPlotEChartsComponent({
+  isVisible = true,
+}: TimeSeriesPlotEChartsProps) {
   const { decimate: wasmDecimate, decimateMulti: wasmDecimateChannels } =
     useWasm();
 
@@ -84,8 +178,6 @@ function TimeSeriesPlotEChartsComponent() {
     updatePlotState,
     setCurrentChunk,
   } = usePlotSelectors();
-
-  const { isPersistenceRestored } = usePersistenceSelectors();
 
   const { createWindow, broadcastToType } = usePopoutWindows();
 
@@ -146,7 +238,9 @@ function TimeSeriesPlotEChartsComponent() {
 
   // Use store as single source of truth for selected channels
   // This avoids race conditions between local state and store state
-  const selectedChannels = selectedChannelsFromStore;
+  const selectedChannels = Array.isArray(selectedChannelsFromStore)
+    ? selectedChannelsFromStore
+    : [];
 
   // Time window control (in seconds) - start with smaller window for better performance
   // IMPORTANT: Convert chunkSize from samples to seconds
@@ -158,6 +252,22 @@ function TimeSeriesPlotEChartsComponent() {
   const [preprocessing, setPreprocessing] = useState<PreprocessingOptions>(
     plotPreprocessing || getDefaultPreprocessing(),
   );
+  const [isPipelineDialogOpen, setIsPipelineDialogOpen] = useState(false);
+  const [pipelinePreview, setPipelinePreview] = useState<{
+    chunk: ChunkData;
+    chunkKey: string;
+    pipelineId: string;
+  } | null>(null);
+  const lastFilterSignatureRef = useRef<string>("");
+  const [backendFilteredChunk, setBackendFilteredChunk] =
+    useState<ChunkData | null>(null);
+  const [backendFilteredChunkKey, setBackendFilteredChunkKey] = useState<
+    string | null
+  >(null);
+  const backendFilterRequestSeqRef = useRef(0);
+  const inFlightBackendFilterKeyRef = useRef<string | null>(null);
+  const { mutateAsync: executePreprocessingPipeline } =
+    usePreprocessingPipelineExecution();
 
   // Refs for vertical resize handling (chartHeight comes from store)
   const isResizingRef = useRef(false);
@@ -218,68 +328,95 @@ function TimeSeriesPlotEChartsComponent() {
     chunkStart,
     chunkSize,
     selectedChannels,
-    preprocessing.highpass ||
-      preprocessing.lowpass ||
-      (preprocessing.notch && preprocessing.notch.length > 0)
-      ? {
-          highpass: preprocessing.highpass,
-          lowpass: preprocessing.lowpass,
-          notch: preprocessing.notch,
-        }
-      : undefined,
+    undefined,
     !!(selectedFile && selectedChannels.length > 0 && isChartReady),
   );
 
+  const currentChunkKey = useMemo(() => {
+    if (!chunkData) return null;
+    return [
+      chunkData.file_path,
+      chunkData.chunk_start,
+      chunkData.chunk_size,
+      chunkData.channels.join(","),
+    ].join("|");
+  }, [chunkData]);
+
+  const hasPipelinePreviewForCurrentChunk = Boolean(
+    pipelinePreview &&
+      currentChunkKey &&
+      pipelinePreview.chunkKey === currentChunkKey,
+  );
+
+  const resetChartScaling = useCallback(() => {
+    stableOffsetRef.current = null;
+    baseOffsetRef.current = null;
+    currentLabelsRef.current = null;
+  }, []);
+
+  const handlePipelineChunkReady = useCallback(
+    (result: { chunk: ChunkData; chunkKey: string; pipelineId: string }) => {
+      resetChartScaling();
+      setPipelinePreview(result);
+    },
+    [resetChartScaling],
+  );
+
+  const handleClearPipelinePreview = useCallback(() => {
+    resetChartScaling();
+    setPipelinePreview(null);
+  }, [resetChartScaling]);
+
+  useEffect(() => {
+    if (!pipelinePreview) return;
+    if (!currentChunkKey || pipelinePreview.chunkKey !== currentChunkKey) {
+      resetChartScaling();
+      setPipelinePreview(null);
+    }
+  }, [pipelinePreview, currentChunkKey, resetChartScaling]);
+
+  useEffect(() => {
+    const filterSignature = [
+      preprocessing.highpass ?? "",
+      preprocessing.lowpass ?? "",
+      (preprocessing.notch || []).join(","),
+    ].join("|");
+
+    if (lastFilterSignatureRef.current === "") {
+      lastFilterSignatureRef.current = filterSignature;
+      return;
+    }
+
+    if (pipelinePreview && lastFilterSignatureRef.current !== filterSignature) {
+      resetChartScaling();
+      setPipelinePreview(null);
+    }
+
+    lastFilterSignatureRef.current = filterSignature;
+  }, [
+    preprocessing.highpass,
+    preprocessing.lowpass,
+    preprocessing.notch,
+    pipelinePreview,
+    resetChartScaling,
+  ]);
+
   const overviewEnabled = !!(selectedFile && selectedChannels.length > 0);
   const {
-    data: rawOverviewData,
-    isLoading: overviewLoading,
-    refetch: refetchOverview,
-    error: overviewError,
-  } = useOverviewData(
-    selectedFile?.file_path || "",
-    selectedChannels,
-    overviewMaxPoints,
-    overviewEnabled, // Load in background regardless of active tab
-  );
-
-  // Guard: Only use overview data if it matches the current file
-  // This prevents stale data from previous files being displayed during file switches
-  const overviewData = useMemo(() => {
-    if (!rawOverviewData || !selectedFile?.file_path) return null;
-    // Verify the data is for the current file
-    if (rawOverviewData.file_path !== selectedFile.file_path) {
-      return null;
-    }
-    return rawOverviewData;
-  }, [rawOverviewData, selectedFile?.file_path]);
-
-  // Poll for overview progress while loading
-  const { data: overviewProgress } = useOverviewProgress(
-    selectedFile?.file_path || "",
-    selectedChannels,
-    overviewMaxPoints,
-    overviewLoading && !!selectedFile && selectedChannels.length > 0,
-  );
-
-  // Track previous completion state to detect transitions
-  const prevOverviewCompleteRef = useRef<boolean | undefined>(undefined);
-
-  // Refetch overview data when generation completes
-  // This handles the race condition where initial fetch might return partial/stale data
-  useEffect(() => {
-    const isComplete = overviewProgress?.isComplete;
-    const wasComplete = prevOverviewCompleteRef.current;
-
-    if (isComplete && wasComplete === false) {
-      refetchOverview();
-    }
-
-    prevOverviewCompleteRef.current = isComplete;
-  }, [overviewProgress?.isComplete, refetchOverview]);
+    overviewData: safeOverviewData,
+    overviewLoading,
+    overviewError,
+    overviewProgress,
+    refetchOverview,
+  } = useOverviewController({
+    filePath: selectedFile?.file_path || "",
+    channels: selectedChannels,
+    maxPoints: overviewMaxPoints,
+    enabled: overviewEnabled,
+  });
 
   // Derived loading/error states for UI
-  const loading = chunkLoading;
+  const baseChunkLoading = chunkLoading;
   const error = chunkError ? (chunkError as Error).message : null;
 
   // Sync preprocessing with plot state
@@ -297,7 +434,7 @@ function TimeSeriesPlotEChartsComponent() {
   ) => {
     setPreprocessing(newPreprocessing);
     updatePlotState({ preprocessing: newPreprocessing });
-    // Query will automatically refetch with new preprocessing due to query key change
+    // Chunk source stays cached/raw; backend filter pipeline will run for updated settings.
   };
 
   // Channel offset for stacking
@@ -402,44 +539,135 @@ function TimeSeriesPlotEChartsComponent() {
     };
   }, []);
 
-  // Check if server-side preprocessing was applied (via API call)
-  // When the API receives preprocessing params, it applies Butterworth filters in Rust
-  const serverSidePreprocessingApplied =
-    preprocessing.highpass ||
-    preprocessing.lowpass ||
-    (preprocessing.notch && preprocessing.notch.length > 0);
+  // Execute high/low/notch filtering via backend pipeline bridge.
+  const backendFilteringEnabled = Boolean(
+    !hasPipelinePreviewForCurrentChunk &&
+      (preprocessing.highpass ||
+        preprocessing.lowpass ||
+        (preprocessing.notch && preprocessing.notch.length > 0)),
+  );
 
-  // Memoize preprocessing to avoid redundant computation on re-renders
-  // IMPORTANT: Skip client-side preprocessing if server-side filtering was applied
-  // to avoid double-filtering which causes severe signal attenuation
-  const preprocessedChunkData = useMemo(() => {
+  const backendFilterRequestKey = useMemo(() => {
     if (
+      !backendFilteringEnabled ||
       !chunkData ||
       !selectedFile ||
-      !chunkData.data ||
-      chunkData.data.length === 0
+      chunkData.file_path !== selectedFile.file_path
+    ) {
+      return null;
+    }
+
+    const notchKey = (preprocessing.notch || []).join(",");
+    return [
+      chunkData.file_path,
+      chunkData.chunk_start,
+      chunkData.chunk_size,
+      chunkData.channels.join(","),
+      preprocessing.highpass ?? "",
+      preprocessing.lowpass ?? "",
+      notchKey,
+    ].join("|");
+  }, [backendFilteringEnabled, chunkData, selectedFile, preprocessing]);
+
+  useEffect(() => {
+    if (!backendFilteringEnabled || !chunkData || !backendFilterRequestKey) {
+      setBackendFilteredChunk(null);
+      setBackendFilteredChunkKey(null);
+      inFlightBackendFilterKeyRef.current = null;
+      return;
+    }
+
+    if (backendFilteredChunkKey === backendFilterRequestKey) {
+      return;
+    }
+
+    if (inFlightBackendFilterKeyRef.current === backendFilterRequestKey) {
+      return;
+    }
+
+    const filters = buildBackendFilterConfigs(preprocessing);
+    const pipeline = createDefaultPipeline(
+      chunkData.file_path,
+      "Time Series Quick Filters",
+    );
+
+    pipeline.steps.badChannelDetection.enabled = false;
+    pipeline.steps.filtering.enabled = filters.length > 0;
+    pipeline.steps.filtering.config = {
+      filters,
+      applyOrder: "sequential",
+    };
+    pipeline.steps.rereference.enabled = false;
+    pipeline.steps.ica.enabled = false;
+    pipeline.steps.artifactRemoval.enabled = false;
+
+    const requestSeq = ++backendFilterRequestSeqRef.current;
+    inFlightBackendFilterKeyRef.current = backendFilterRequestKey;
+    executePreprocessingPipeline({
+      pipelineId: `timeseries:${chunkData.file_path}`,
+      pipeline,
+      chunk: chunkData,
+    })
+      .then((result) => {
+        if (requestSeq !== backendFilterRequestSeqRef.current) return;
+        inFlightBackendFilterKeyRef.current = null;
+        setBackendFilteredChunk(result.chunk);
+        setBackendFilteredChunkKey(backendFilterRequestKey);
+      })
+      .catch(() => {
+        if (requestSeq !== backendFilterRequestSeqRef.current) return;
+        inFlightBackendFilterKeyRef.current = null;
+        setBackendFilteredChunk(chunkData);
+        setBackendFilteredChunkKey(backendFilterRequestKey);
+      });
+  }, [
+    backendFilteringEnabled,
+    backendFilterRequestKey,
+    backendFilteredChunkKey,
+    chunkData,
+    preprocessing,
+    executePreprocessingPipeline,
+  ]);
+
+  // Memoize preprocessing to avoid redundant computation on re-renders.
+  // Skip client-side filtering when backend filtering is active to avoid double-filtering.
+  const preprocessedChunkData = useMemo(() => {
+    const pipelineSourceChunk = hasPipelinePreviewForCurrentChunk
+      ? pipelinePreview?.chunk || null
+      : null;
+    const quickFilterSourceChunk =
+      backendFilteringEnabled && backendFilterRequestKey
+        ? backendFilteredChunkKey === backendFilterRequestKey
+          ? backendFilteredChunk
+          : null
+        : chunkData;
+    const sourceChunkData = pipelineSourceChunk ?? quickFilterSourceChunk;
+
+    if (
+      !sourceChunkData ||
+      !selectedFile ||
+      !sourceChunkData.data ||
+      sourceChunkData.data.length === 0
     ) {
       return null;
     }
 
     // Guard: Verify chunk data matches current file to prevent stale data
     // from previous files being rendered during file switches
-    if (chunkData.file_path !== selectedFile.file_path) {
+    if (sourceChunkData.file_path !== selectedFile.file_path) {
       return null;
     }
 
-    // If server-side preprocessing was applied, use the data as-is
-    // Only apply client-side preprocessing for non-filter options (smoothing, normalization, etc.)
-    if (serverSidePreprocessingApplied) {
-      // Apply only non-filter preprocessing (smoothing, baseline, outlier removal, etc.)
+    // Apply only non-filter preprocessing client-side when filters are already applied
+    // either by quick-filter backend path or by explicit pipeline preview execution.
+    if (backendFilteringEnabled || !!pipelineSourceChunk) {
       const clientOnlyOptions = {
         ...preprocessing,
-        highpass: undefined, // Already applied server-side
-        lowpass: undefined, // Already applied server-side
-        notch: undefined, // Already applied server-side
+        highpass: undefined,
+        lowpass: undefined,
+        notch: undefined,
       };
 
-      // Check if any client-side processing is needed
       const needsClientProcessing =
         clientOnlyOptions.baselineCorrection !== "none" ||
         clientOnlyOptions.smoothing?.enabled ||
@@ -449,30 +677,46 @@ function TimeSeriesPlotEChartsComponent() {
           clientOnlyOptions.normalization !== "none");
 
       if (needsClientProcessing) {
-        const preprocessedData = chunkData.data.map((channelData: number[]) =>
-          applyPreprocessing(
-            channelData,
-            selectedFile!.sample_rate,
-            clientOnlyOptions,
-          ),
+        const preprocessedData = sourceChunkData.data.map(
+          (channelData: number[]) =>
+            applyPreprocessing(
+              channelData,
+              selectedFile!.sample_rate,
+              clientOnlyOptions,
+            ),
         );
-        return { ...chunkData, data: preprocessedData };
+        return { ...sourceChunkData, data: preprocessedData };
       }
 
-      // No additional processing needed, use server-filtered data directly
-      return chunkData;
+      return sourceChunkData;
     }
 
-    // No server-side preprocessing, apply all client-side preprocessing
-    const preprocessedData = chunkData.data.map((channelData: number[]) =>
+    // No backend filtering, apply full client-side preprocessing.
+    const preprocessedData = sourceChunkData.data.map((channelData: number[]) =>
       applyPreprocessing(channelData, selectedFile!.sample_rate, preprocessing),
     );
 
     return {
-      ...chunkData,
+      ...sourceChunkData,
       data: preprocessedData,
     };
-  }, [chunkData, selectedFile, preprocessing, serverSidePreprocessingApplied]);
+  }, [
+    backendFilteringEnabled,
+    backendFilterRequestKey,
+    backendFilteredChunk,
+    backendFilteredChunkKey,
+    chunkData,
+    hasPipelinePreviewForCurrentChunk,
+    pipelinePreview,
+    selectedFile,
+    preprocessing,
+  ]);
+
+  const backendFilteringPending =
+    backendFilteringEnabled &&
+    !!backendFilterRequestKey &&
+    backendFilteredChunkKey !== backendFilterRequestKey;
+  const loading = baseChunkLoading || backendFilteringPending;
 
   useEffect(() => {
     if (!preprocessedChunkData) return;
@@ -913,8 +1157,6 @@ function TimeSeriesPlotEChartsComponent() {
     const hasChannelsSelected = selectedChannels.length > 0;
     const isNewFile = currentFilePath !== loadedFileRef.current;
 
-    if (!isPersistenceRestored) return;
-
     if (
       selectedFile &&
       selectedFile.channels?.length > 0 &&
@@ -948,18 +1190,12 @@ function TimeSeriesPlotEChartsComponent() {
     } else if (isNewFile && !hasChannelsSelected && selectedFile) {
       loadedFileRef.current = currentFilePath!;
     }
-  }, [
-    selectedFile?.file_path,
-    selectedChannels,
-    loadChunk,
-    isPersistenceRestored,
-  ]);
+  }, [selectedFile?.file_path, selectedChannels, loadChunk]);
 
   const hasRespondedToPersistedChunkRef = useRef(false);
   useEffect(() => {
     if (
       selectedFile &&
-      isPersistenceRestored &&
       !hasRespondedToPersistedChunkRef.current &&
       plotChunkStart > 0
     ) {
@@ -968,7 +1204,7 @@ function TimeSeriesPlotEChartsComponent() {
       setCurrentTime(startTime);
       hasRespondedToPersistedChunkRef.current = true;
     }
-  }, [plotChunkStart, selectedFile, isPersistenceRestored, loadChunk]);
+  }, [plotChunkStart, selectedFile, loadChunk]);
 
   useEffect(() => {
     hasRespondedToPersistedChunkRef.current = false;
@@ -980,12 +1216,18 @@ function TimeSeriesPlotEChartsComponent() {
   useEffect(() => {
     const prevPP = prevPreprocessingRef.current;
     const currPP = preprocessing;
+    const notchSignature = (values?: number[]) =>
+      (values || [])
+        .filter((value) => Number.isFinite(value))
+        .map((value) => Number(value))
+        .sort((a, b) => a - b)
+        .join(",");
 
     // Check if filter settings changed (not just reference)
     const filtersChanged =
       prevPP.highpass !== currPP.highpass ||
       prevPP.lowpass !== currPP.lowpass ||
-      JSON.stringify(prevPP.notch) !== JSON.stringify(currPP.notch);
+      notchSignature(prevPP.notch) !== notchSignature(currPP.notch);
 
     if (filtersChanged) {
       // Reset scaling so it will be recalculated for the new filtered data
@@ -1214,6 +1456,19 @@ function TimeSeriesPlotEChartsComponent() {
           </div>
           <div className="flex gap-2">
             <Button
+              variant={isPipelineDialogOpen ? "default" : "outline"}
+              size="sm"
+              onClick={() => setIsPipelineDialogOpen(true)}
+            >
+              <SlidersHorizontal className="h-4 w-4 mr-1" />
+              Pipeline
+              {hasPipelinePreviewForCurrentChunk && (
+                <Badge variant="success" className="ml-2 h-5 px-1.5 py-0">
+                  Applied
+                </Badge>
+              )}
+            </Button>
+            <Button
               variant="outline"
               size="sm"
               onClick={handlePopout}
@@ -1253,13 +1508,16 @@ function TimeSeriesPlotEChartsComponent() {
         {/* Overview/Minimap - Global navigation for entire file */}
         <div className="mb-3">
           <OverviewPlot
-            overviewData={overviewData || null}
+            overviewData={safeOverviewData || null}
             currentTime={currentTime}
             timeWindow={timeWindow}
             duration={duration}
             onSeek={handleSeek}
+            isVisible={isVisible}
             loading={overviewLoading}
             progress={overviewProgress}
+            error={overviewError}
+            onRetry={refetchOverview}
             annotations={annotationsFromStore}
           />
         </div>
@@ -1340,6 +1598,34 @@ function TimeSeriesPlotEChartsComponent() {
           />
         )}
       </CardContent>
+
+      <Dialog
+        open={isPipelineDialogOpen}
+        onOpenChange={setIsPipelineDialogOpen}
+      >
+        <DialogContent className="max-w-5xl w-[95vw] max-h-[88vh] p-0 overflow-hidden">
+          <DialogHeader className="px-6 pt-6 pb-2">
+            <DialogTitle>Preprocessing Pipeline</DialogTitle>
+            <DialogDescription>
+              Configure and run chunk-level preprocessing without affecting plot
+              layout.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="px-6 pb-6 overflow-y-auto">
+            <PreprocessingPipelinePanel
+              filePath={selectedFile?.file_path || null}
+              sampleRate={selectedFile?.sample_rate}
+              chunk={chunkData || null}
+              chunkKey={currentChunkKey}
+              availableChannels={selectedFile?.channels || []}
+              hasActivePreview={hasPipelinePreviewForCurrentChunk}
+              onPipelineChunkReady={handlePipelineChunkReady}
+              onClearPipelinePreview={handleClearPipelinePreview}
+              className="border-0 p-0 bg-transparent"
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
@@ -1348,10 +1634,12 @@ function TimeSeriesPlotEChartsComponent() {
 const TimeSeriesPlotEChartsMemo = memo(TimeSeriesPlotEChartsComponent);
 
 // Export wrapped with error boundary for graceful error handling
-export function TimeSeriesPlotECharts() {
+export function TimeSeriesPlotECharts({
+  isVisible = true,
+}: TimeSeriesPlotEChartsProps) {
   return (
     <ChartErrorBoundary chartName="Time Series Plot" minHeight={400}>
-      <TimeSeriesPlotEChartsMemo />
+      <TimeSeriesPlotEChartsMemo isVisible={isVisible} />
     </ChartErrorBoundary>
   );
 }

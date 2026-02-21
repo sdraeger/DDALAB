@@ -4,7 +4,12 @@ import { useEffect, useRef, memo, useState } from "react";
 import { ChunkData } from "@/types/api";
 import { PlotAnnotation } from "@/types/annotations";
 import uPlot from "uplot";
+import { Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { createLogger } from "@/lib/logger";
 import "uplot/dist/uPlot.min.css";
+
+const logger = createLogger("OverviewPlot");
 
 interface OverviewPlotProps {
   overviewData: ChunkData | null;
@@ -12,12 +17,15 @@ interface OverviewPlotProps {
   timeWindow: number;
   duration: number;
   onSeek: (time: number) => void;
+  isVisible?: boolean;
   loading?: boolean;
   progress?: {
     hasCache: boolean;
     completionPercentage: number;
     isComplete: boolean;
   };
+  error?: string | null;
+  onRetry?: () => void;
   annotations?: PlotAnnotation[];
 }
 
@@ -30,8 +38,11 @@ function OverviewPlotComponent({
   timeWindow,
   duration,
   onSeek,
+  isVisible = true,
   loading = false,
   progress,
+  error = null,
+  onRetry,
   annotations = [],
 }: OverviewPlotProps) {
   // Track component instance for debugging
@@ -51,8 +62,6 @@ function OverviewPlotComponent({
   const annotationsRef = useRef<PlotAnnotation[]>(annotations);
   const lastDurationRef = useRef<number | null>(null);
   const lastFilePathRef = useRef<string | null>(null);
-  const retryCountRef = useRef(0);
-  const forceRedrawTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   // Store processed max data in ref so draw hooks always access current data (not stale closures)
   const processedMaxDataRef = useRef<number[][]>([]);
   // Track cursor position for the vertical dashed line
@@ -67,9 +76,11 @@ function OverviewPlotComponent({
   const cursorFractionRef = useRef<number | null>(null);
   // Store reference to outer container for cursor positioning
   const containerRef = useRef<HTMLDivElement>(null);
-  const [retryTrigger, setRetryTrigger] = useState(0);
+  const [containerWidth, setContainerWidth] = useState(0);
+  const [containerHeight, setContainerHeight] = useState(0);
   const [containerReady, setContainerReady] = useState(false);
   const [plotCreated, setPlotCreated] = useState(false);
+  const [renderError, setRenderError] = useState<string | null>(null);
 
   // Keep refs up to date
   useEffect(() => {
@@ -82,8 +93,8 @@ function OverviewPlotComponent({
 
   // Reset state when data changes (new file loaded)
   useEffect(() => {
-    retryCountRef.current = 0;
     setPlotCreated(false);
+    setRenderError(null);
 
     // Destroy the old plot instance when data changes to prevent stale state
     if (uplotRef.current) {
@@ -102,54 +113,40 @@ function OverviewPlotComponent({
     if (!plotRef.current) return;
 
     const container = plotRef.current;
-    const width = container.clientWidth;
-    const height = container.clientHeight;
+    const updateContainerState = (width: number, height: number) => {
+      setContainerWidth(width);
+      setContainerHeight(height);
+      setContainerReady(isVisible && width > 0 && height > 0);
+    };
 
-    // Check if already ready
-    if (width > 0 && height > 0) {
-      setContainerReady(true);
-      return;
-    }
+    updateContainerState(container.clientWidth, container.clientHeight);
 
-    // Set up observer to detect when container gets valid dimensions
     initObserverRef.current = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const { width, height } = entry.contentRect;
-        if (width > 0 && height > 0) {
-          setContainerReady(true);
-          initObserverRef.current?.disconnect();
-        }
-      }
+      const entry = entries[0];
+      if (!entry) return;
+      updateContainerState(entry.contentRect.width, entry.contentRect.height);
     });
 
     initObserverRef.current.observe(container);
 
-    // Also check periodically in case resize observer doesn't fire (e.g., in popout windows)
-    const checkInterval = setInterval(() => {
-      if (container.clientWidth > 0 && container.clientHeight > 0) {
-        setContainerReady(true);
-        clearInterval(checkInterval);
-        initObserverRef.current?.disconnect();
-      }
-    }, 100);
-
-    // Fallback: Force containerReady after 1 second even if dimensions seem 0
-    // This handles edge cases in popout windows where layout calculations fail
-    const fallbackTimeout = setTimeout(() => {
-      setContainerReady(true);
-    }, 1000);
-
     return () => {
-      clearInterval(checkInterval);
-      clearTimeout(fallbackTimeout);
       initObserverRef.current?.disconnect();
       initObserverRef.current = null;
     };
-  }, []);
+  }, [isVisible]);
+
+  useEffect(() => {
+    if (isVisible) return;
+    setContainerReady(false);
+    cursorFractionRef.current = null;
+    setCursorScreenX(null);
+    setCursorBounds(null);
+  }, [isVisible]);
 
   // Render overview plot
   useEffect(() => {
     if (
+      !isVisible ||
       !plotRef.current ||
       !overviewData ||
       !overviewData.data ||
@@ -170,21 +167,15 @@ function OverviewPlotComponent({
     const container = plotRef.current;
 
     // Ensure container has been laid out with valid dimensions
-    if (container.clientWidth <= 0 || container.clientHeight <= 0) {
-      // Retry with exponential backoff (up to 10 times)
-      if (retryCountRef.current < 10) {
-        const delay = Math.min(50 * Math.pow(1.5, retryCountRef.current), 500);
-        retryCountRef.current++;
-        const timeoutId = setTimeout(() => {
-          setRetryTrigger((prev) => prev + 1);
-        }, delay);
-        return () => clearTimeout(timeoutId);
-      }
+    if (
+      !containerReady ||
+      containerWidth <= 0 ||
+      containerHeight <= 0 ||
+      container.clientWidth <= 0 ||
+      container.clientHeight <= 0
+    ) {
       return;
     }
-
-    // Reset retry count on successful render
-    retryCountRef.current = 0;
 
     // Check if file changed - always destroy and recreate for new file
     const currentFilePath = overviewData.file_path;
@@ -376,11 +367,8 @@ function OverviewPlotComponent({
               overlay.style.cursor = "pointer";
               overlay.style.pointerEvents = "auto";
 
-              // Click handler - uses fraction-based calculation with DPR correction
+              // Click handler - uses fraction-based calculation
               overlay.addEventListener("click", (e: MouseEvent) => {
-                const overlayRect = overlay.getBoundingClientRect();
-                const dpr = window.devicePixelRatio || 1;
-
                 // Get the actual time range from uPlot's data
                 const timeData = u.data?.[0];
                 if (!timeData || timeData.length < 2) return;
@@ -389,14 +377,12 @@ function OverviewPlotComponent({
                 const dataMaxTime = timeData[timeData.length - 1];
                 const dataRange = dataMaxTime - dataMinTime;
 
-                // Calculate fraction using offsetX (position relative to overlay element)
-                // On Retina displays (DPR > 1), visual content is scaled to ~90% of overlay width
-                // The offset increases linearly from left (0) to right (max), so we need to MULTIPLY
-                // Scale factor: clicking at 695px to hit 50% (773px) means scale = 773/695 = 1.112
-                const rawFraction = e.offsetX / overlayRect.width;
-                const scaleFactor = dpr > 1 ? 1.112 : 1;
-                const fraction = rawFraction * scaleFactor;
-                const clampedFraction = Math.max(0, Math.min(1, fraction));
+                // e.offsetX is in CSS layout space; use clientWidth (also layout space)
+                // to get the correct fraction regardless of CSS zoom or display scaling.
+                const layoutWidth = overlay.clientWidth;
+                if (layoutWidth <= 0) return;
+                const rawFraction = e.offsetX / layoutWidth;
+                const clampedFraction = Math.max(0, Math.min(1, rawFraction));
 
                 // Convert to time using actual data range
                 const timeValue = dataMinTime + clampedFraction * dataRange;
@@ -421,33 +407,32 @@ function OverviewPlotComponent({
               // Track mouse position for vertical cursor line
               overlay.addEventListener("mousemove", (e: MouseEvent) => {
                 const overlayRect = overlay.getBoundingClientRect();
-                const container = containerRef.current;
-                if (!container) return;
+                const ctnr = containerRef.current;
+                if (!ctnr) return;
 
-                const containerRect = container.getBoundingClientRect();
-                const dpr = window.devicePixelRatio || 1;
+                const containerRect = ctnr.getBoundingClientRect();
 
-                // Same multiplicative scale factor as click handler for consistent data fraction
-                // On Retina displays (DPR > 1), visual content is scaled to ~90% of overlay width
-                const rawFraction = e.offsetX / overlayRect.width;
-                const scaleFactor = dpr > 1 ? 1.112 : 1;
-                const fraction = rawFraction * scaleFactor;
-                const clampedFraction = Math.max(0, Math.min(1, fraction));
+                // e.offsetX and clientWidth are both in CSS layout space
+                const layoutWidth = overlay.clientWidth;
+                if (layoutWidth <= 0) return;
+                const rawFraction = e.offsetX / layoutWidth;
+                const clampedFraction = Math.max(0, Math.min(1, rawFraction));
                 cursorFractionRef.current = clampedFraction;
 
-                // Position cursor based on the corrected fraction to align with waveforms
-                // The waveforms are drawn at positions that need the scale factor correction,
-                // so the cursor line should also use the corrected position
+                // Convert viewport-space BCR offset to layout-space for absolute positioning
+                const viewportToLayout =
+                  containerRect.width > 0
+                    ? ctnr.clientWidth / containerRect.width
+                    : 1;
                 const overlayLeftInContainer =
-                  overlayRect.left - containerRect.left;
-                // Use corrected fraction to calculate cursor position within overlay
-                const correctedOffsetX = clampedFraction * overlayRect.width;
+                  (overlayRect.left - containerRect.left) * viewportToLayout;
+                const cursorOffsetInOverlay = clampedFraction * layoutWidth;
                 const cursorLeftInContainer =
-                  overlayLeftInContainer + correctedOffsetX;
+                  overlayLeftInContainer + cursorOffsetInOverlay;
 
-                // Content area dimensions
-                const contentWidth = containerRect.width - 4; // 2px border on each side
-                const plotAreaHeightCSS = overlayRect.height;
+                // Content area dimensions (in layout space)
+                const contentWidth = ctnr.clientWidth - 4; // 2px border on each side
+                const plotAreaHeightCSS = overlay.clientHeight;
                 const clampedCursorLeft = Math.max(
                   0,
                   Math.min(contentWidth, cursorLeftInContainer),
@@ -759,19 +744,6 @@ function OverviewPlotComponent({
         if (canvasOk && seriesMatch) {
           uplotRef.current!.setData(data);
           uplotRef.current!.redraw();
-
-          // Force delayed redraw for existing plots (helps in popout windows)
-          setTimeout(() => {
-            if (uplotRef.current && container) {
-              const w =
-                container.getBoundingClientRect().width ||
-                container.clientWidth;
-              if (w > 0) {
-                uplotRef.current.setSize({ width: w, height: 130 });
-                uplotRef.current.redraw();
-              }
-            }
-          }, 100);
         } else if (!seriesMatch) {
           // Series count mismatch - need to recreate plot
           uplotRef.current!.destroy();
@@ -804,20 +776,11 @@ function OverviewPlotComponent({
 
         // If width is still 0, defer creation
         if (width <= 0) {
-          requestAnimationFrame(() => setRetryTrigger((p) => p + 1));
           return;
         }
 
         // Update opts with accurate width
         opts.width = width;
-
-        // Clear any existing timeout
-        if (forceRedrawTimeoutRef.current) {
-          clearTimeout(forceRedrawTimeoutRef.current);
-        }
-
-        // Check if we're in a popout window
-        const isPopout = window.location.pathname.includes("/popout/");
 
         // Function to create the plot
         const createPlot = () => {
@@ -857,116 +820,14 @@ function OverviewPlotComponent({
           uplotRef.current.setSize({ width: opts.width, height: 130 });
           uplotRef.current.setData(data);
           uplotRef.current.redraw();
-
-          // In popout, schedule a redraw after paint cycle
-          if (isPopout) {
-            requestAnimationFrame(() => {
-              if (uplotRef.current && plotRef.current) {
-                const w =
-                  plotRef.current.getBoundingClientRect().width || freshWidth;
-                uplotRef.current.setSize({ width: w, height: 130 });
-                uplotRef.current.redraw();
-              }
-            });
-          }
         };
 
-        if (isPopout) {
-          // POPOUT WINDOW STRATEGY:
-          // Wait for the browser to be truly ready before creating the plot.
-          // In popout webviews, the canvas context isn't ready until after:
-          // 1. Document is fully loaded (readyState === 'complete')
-          // 2. A paint cycle has occurred (double RAF)
-
-          const waitForBrowserReady = (callback: () => void) => {
-            // First, ensure document is fully loaded
-            if (document.readyState !== "complete") {
-              window.addEventListener(
-                "load",
-                () => waitForBrowserReady(callback),
-                {
-                  once: true,
-                },
-              );
-              return;
-            }
-
-            // Then wait for two animation frames (ensures a full paint cycle)
-            requestAnimationFrame(() => {
-              requestAnimationFrame(() => {
-                // Finally, use requestIdleCallback if available, otherwise small timeout
-                if ("requestIdleCallback" in window) {
-                  (
-                    window as typeof window & {
-                      requestIdleCallback: (cb: () => void) => void;
-                    }
-                  ).requestIdleCallback(callback);
-                } else {
-                  setTimeout(callback, 0);
-                }
-              });
-            });
-          };
-
-          waitForBrowserReady(() => {
-            createPlot();
-
-            // Verify content rendered, retry if needed
-            requestAnimationFrame(() => {
-              if (!uplotRef.current || !plotRef.current) return;
-
-              const canvas = uplotRef.current.root?.querySelector(
-                "canvas",
-              ) as HTMLCanvasElement | null;
-              if (canvas) {
-                const ctx = canvas.getContext("2d");
-                if (ctx) {
-                  try {
-                    const centerX = Math.floor(canvas.width / 2);
-                    const centerY = Math.floor(canvas.height / 2);
-                    const imgData = ctx.getImageData(
-                      centerX - 25,
-                      centerY - 10,
-                      50,
-                      20,
-                    );
-                    let hasContent = false;
-                    for (let i = 0; i < imgData.data.length; i += 4) {
-                      if (imgData.data[i + 3] > 50) {
-                        hasContent = true;
-                        break;
-                      }
-                    }
-
-                    // If still blank, retry once after another paint cycle
-                    if (!hasContent) {
-                      requestAnimationFrame(() => {
-                        requestAnimationFrame(() => {
-                          createPlot();
-                        });
-                      });
-                    }
-                  } catch {
-                    // Ignore getImageData errors
-                  }
-                }
-              }
-            });
-          });
-        } else {
-          // MAIN WINDOW STRATEGY:
-          // Create plot and force redraw after paint cycle
-          createPlot();
-
-          // Force redraw after paint cycle
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              if (uplotRef.current && plotRef.current) {
-                uplotRef.current.redraw();
-              }
-            });
-          });
-        }
+        createPlot();
+        requestAnimationFrame(() => {
+          if (uplotRef.current) {
+            uplotRef.current.redraw();
+          }
+        });
 
         setPlotCreated(true);
 
@@ -988,25 +849,32 @@ function OverviewPlotComponent({
         resizeObserverRef.current.observe(container);
       }
     } catch (error) {
-      console.error("[OverviewPlot] Error:", error);
+      logger.error("Failed to initialize overview plot", { error });
       uplotRef.current = null;
       setPlotCreated(false);
+      setRenderError(
+        error instanceof Error ? error.message : "Failed to initialize plot",
+      );
     }
+  }, [
+    overviewData,
+    duration,
+    containerReady,
+    containerWidth,
+    containerHeight,
+    isVisible,
+  ]);
 
+  // Cleanup on unmount
+  useEffect(() => {
     return () => {
       if (resizeObserverRef.current) {
         resizeObserverRef.current.disconnect();
         resizeObserverRef.current = null;
       }
-    };
-  }, [overviewData, duration, retryTrigger, containerReady]); // Include retryTrigger and containerReady to handle container layout delays
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (forceRedrawTimeoutRef.current) {
-        clearTimeout(forceRedrawTimeoutRef.current);
-        forceRedrawTimeoutRef.current = null;
+      if (initObserverRef.current) {
+        initObserverRef.current.disconnect();
+        initObserverRef.current = null;
       }
       if (uplotRef.current) {
         uplotRef.current.destroy();
@@ -1033,6 +901,7 @@ function OverviewPlotComponent({
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (
+        isVisible &&
         document.visibilityState === "visible" &&
         uplotRef.current &&
         plotRef.current
@@ -1057,7 +926,25 @@ function OverviewPlotComponent({
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, []);
+  }, [isVisible]);
+
+  // Repaint/recreate immediately when tab becomes visible.
+  useEffect(() => {
+    if (!isVisible || !plotRef.current) return;
+
+    requestAnimationFrame(() => {
+      if (!plotRef.current) return;
+      const width = plotRef.current.clientWidth;
+      if (width <= 0) return;
+
+      if (uplotRef.current) {
+        uplotRef.current.setSize({ width, height: 130 });
+        uplotRef.current.redraw();
+      } else {
+        setContainerReady(true);
+      }
+    });
+  }, [isVisible, overviewData?.file_path, duration]);
 
   // Handle in-app tab visibility (when switching between subtabs within the app)
   // Uses IntersectionObserver to detect when the component becomes visible
@@ -1119,16 +1006,15 @@ function OverviewPlotComponent({
       (channelData) => channelData && channelData.length > 0,
     );
 
-  // Show initializing state when we have data but plot hasn't rendered yet
-  // Also require valid duration and valid channel data - during file transitions,
-  // duration may briefly be 0 or data may be stale/incomplete
-  const isInitializing =
-    overviewData &&
-    !plotCreated &&
-    !loading &&
-    containerReady &&
-    duration > 0 &&
-    hasValidChannelData;
+  // Keep an explicit non-white waiting state whenever plot can't render yet.
+  const isInitializing = !!overviewData && !plotCreated && !loading && !error;
+  const initializingMessage = !containerReady
+    ? "Preparing summary canvas..."
+    : duration <= 0
+      ? "Waiting for file metadata..."
+      : "Initializing plot...";
+  const waitingForSummaryData =
+    !overviewData && !loading && !error && duration > 0;
 
   return (
     <div
@@ -1138,6 +1024,7 @@ function OverviewPlotComponent({
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10 animate-in fade-in-0 duration-200">
           <div className="flex flex-col items-center gap-3 w-full px-8">
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
             <>
               <div className="w-full">
                 <div className="flex justify-between items-center mb-1">
@@ -1163,7 +1050,43 @@ function OverviewPlotComponent({
           </div>
         </div>
       )}
-      {!overviewData && !loading && (
+      {error && !loading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-background z-20 animate-in fade-in-0 duration-200">
+          <div className="flex flex-col items-center gap-2 text-center px-4">
+            <div className="text-xs text-destructive max-w-md">
+              Failed to load summary overview: {error}
+            </div>
+            {onRetry && (
+              <Button size="sm" variant="outline" onClick={onRetry}>
+                Retry
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+      {renderError && !loading && !error && (
+        <div className="absolute inset-0 flex items-center justify-center bg-background z-20 animate-in fade-in-0 duration-200">
+          <div className="flex flex-col items-center gap-2 text-center px-4">
+            <div className="text-xs text-destructive max-w-md">
+              Could not render summary plot: {renderError}
+            </div>
+            {onRetry && (
+              <Button size="sm" variant="outline" onClick={onRetry}>
+                Retry
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+      {waitingForSummaryData && (
+        <div className="absolute inset-0 flex items-center justify-center bg-background z-10 animate-in fade-in-0 duration-200">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            Waiting for summary data...
+          </div>
+        </div>
+      )}
+      {!overviewData && !loading && !waitingForSummaryData && (
         <div className="absolute inset-0 flex items-center justify-center bg-background animate-in fade-in-0 duration-200">
           <div className="text-xs text-muted-foreground">
             Overview will load when file is selected...
@@ -1179,8 +1102,9 @@ function OverviewPlotComponent({
       )}
       {isInitializing && (
         <div className="absolute inset-0 flex items-center justify-center bg-background z-10 animate-in fade-in-0 duration-200">
-          <div className="text-xs text-muted-foreground animate-pulse">
-            Initializing plot...
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            {initializingMessage}
           </div>
         </div>
       )}
@@ -1223,6 +1147,7 @@ export const OverviewPlot = memo(
       prevProps.overviewData === nextProps.overviewData &&
       prevProps.duration === nextProps.duration &&
       prevProps.loading === nextProps.loading &&
+      prevProps.isVisible === nextProps.isVisible &&
       prevProps.currentTime === nextProps.currentTime &&
       prevProps.timeWindow === nextProps.timeWindow &&
       prevProps.progress?.completionPercentage ===

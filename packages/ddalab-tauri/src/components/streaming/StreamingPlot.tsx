@@ -18,6 +18,7 @@ import { Slider } from "@/components/ui/slider";
 import { Activity, Maximize2, Minimize2 } from "lucide-react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
+import { zoomCursorMove } from "@/lib/uplot-zoom";
 import { ChartErrorBoundary } from "@/components/ChartErrorBoundary";
 
 interface StreamingPlotProps {
@@ -262,6 +263,9 @@ function StreamingPlotContent({ streamId, height = 400 }: StreamingPlotProps) {
         legend: {
           show: true,
           live: false,
+        },
+        cursor: {
+          move: zoomCursorMove(),
         },
       };
 

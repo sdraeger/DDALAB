@@ -32,6 +32,7 @@ import { NetworkMotifPlot } from "@/components/dda/NetworkMotifPlot";
 import { COLOR_SCHEME_FUNCTIONS } from "@/utils/colorSchemes";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
+import { zoomCursorMove } from "@/lib/uplot-zoom";
 
 interface DDAResultsData {
   result: DDAResult;
@@ -333,6 +334,22 @@ function DDAResultsPopoutContent({
     isLocked,
   ]);
 
+  function getChannelColor(index: number): string {
+    const colors = [
+      "#3b82f6",
+      "#ef4444",
+      "#10b981",
+      "#f59e0b",
+      "#8b5cf6",
+      "#06b6d4",
+      "#f97316",
+      "#84cc16",
+      "#ec4899",
+      "#6366f1",
+    ];
+    return colors[index % colors.length];
+  }
+
   const renderLinePlot = useCallback(() => {
     const currentVariant = getCurrentVariant();
     if (!linePlotRef.current || !currentVariant?.dda_matrix || isLocked) return;
@@ -422,27 +439,12 @@ function DDAResultsPopoutContent({
         x: true,
         y: true,
         lock: true,
+        move: zoomCursorMove(),
       },
     };
 
     uplotLinePlotRef.current = new uPlot(opts, data, linePlotRef.current);
   }, [result, selectedChannels, isLocked, selectedVariant]);
-
-  const getChannelColor = (index: number): string => {
-    const colors = [
-      "#3b82f6",
-      "#ef4444",
-      "#10b981",
-      "#f59e0b",
-      "#8b5cf6",
-      "#06b6d4",
-      "#f97316",
-      "#84cc16",
-      "#ec4899",
-      "#6366f1",
-    ];
-    return colors[index % colors.length];
-  };
 
   const handleChannelToggle = (channel: string) => {
     setSelectedChannels((prev) =>
@@ -686,12 +688,12 @@ function DDAResultsPopoutContent({
 }
 
 export default function DDAResultsPopout() {
-  const { data, isLocked, windowId } = usePopoutListener();
+  const { data, isLocked, windowId } = usePopoutListener<DDAResultsData>();
 
   return (
     <PopoutLayout title="DDA Analysis Results" showRefresh={true}>
       <DDAResultsPopoutContent
-        data={data}
+        data={data || undefined}
         isLocked={isLocked}
         windowId={windowId || undefined}
       />

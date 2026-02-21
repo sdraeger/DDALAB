@@ -9,7 +9,7 @@ import { memo, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Play, Cpu, Cloud, Server, TrendingUp } from "lucide-react";
-import { TauriService } from "@/services/tauriService";
+import { useIsTauriRuntime } from "@/hooks/useIsTauriRuntime";
 import { TooltipButton } from "@/components/ui/tooltip-button";
 
 interface VariantChannelConfig {
@@ -69,7 +69,7 @@ export const AnalysisToolbar = memo(function AnalysisToolbar({
   onReset,
 }: AnalysisToolbarProps) {
   const hasValidConfig = hasValidChannelConfig(variants, variantChannelConfigs);
-  const isTauri = TauriService.isTauri();
+  const isTauri = useIsTauriRuntime();
 
   // Compute tooltip reasons for disabled buttons
   const runTooltip = useMemo(() => {
@@ -146,6 +146,7 @@ export const AnalysisToolbar = memo(function AnalysisToolbar({
           Reset
         </TooltipButton>
         <TooltipButton
+          id="dda-run-button"
           onClick={onRun}
           disabled={isRunning || !hasValidConfig}
           className="min-w-[120px]"

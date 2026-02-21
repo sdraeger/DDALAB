@@ -24,6 +24,8 @@ import {
 } from "lucide-react";
 import { toast } from "@/components/ui/toaster";
 import { TauriService } from "@/services/tauriService";
+import { useIsTauriRuntime } from "@/hooks/useIsTauriRuntime";
+import { createLogger } from "@/lib/logger";
 
 interface GitAnnexDownloadDialogProps {
   open: boolean;
@@ -46,6 +48,8 @@ interface DownloadProgress {
   message: string;
 }
 
+const logger = createLogger("GitAnnexDownloadDialog");
+
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
   const k = 1024;
@@ -61,6 +65,7 @@ export function GitAnnexDownloadDialog({
   fileName,
   onDownloadComplete,
 }: GitAnnexDownloadDialogProps) {
+  const isTauriRuntime = useIsTauriRuntime();
   const [status, setStatus] = useState<DownloadStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [progress, setProgress] = useState<DownloadProgress | null>(null);
@@ -73,7 +78,7 @@ export function GitAnnexDownloadDialog({
 
   // Set up event listener for progress updates
   useEffect(() => {
-    if (!TauriService.isTauri() || !open) return;
+    if (!isTauriRuntime || !open) return;
 
     let unlisten: (() => void) | undefined;
 
@@ -86,7 +91,7 @@ export function GitAnnexDownloadDialog({
             const payload = event.payload;
             // Only handle progress for our file
             if (payload.filePath === filePath) {
-              console.log("[GitAnnex] Progress update:", payload);
+              logger.debug("Progress update", { payload });
               setProgress(payload);
 
               // Update status based on phase
@@ -100,7 +105,7 @@ export function GitAnnexDownloadDialog({
           },
         );
       } catch (error) {
-        console.error("[GitAnnex] Failed to setup progress listener:", error);
+        logger.error("Failed to setup progress listener", { error });
       }
     };
 
@@ -111,7 +116,7 @@ export function GitAnnexDownloadDialog({
         unlisten();
       }
     };
-  }, [open, filePath]);
+  }, [isTauriRuntime, open, filePath]);
 
   // Reset state when dialog opens
   useEffect(() => {
@@ -133,7 +138,7 @@ export function GitAnnexDownloadDialog({
     setProgress(null);
 
     try {
-      if (TauriService.isTauri()) {
+      if (isTauriRuntime) {
         // Use Tauri shell command
         const { invoke } = await import("@tauri-apps/api/core");
 
@@ -309,7 +314,7 @@ export function GitAnnexDownloadDialog({
           <AlertDialogCancel disabled={status === "downloading"}>
             {status === "success" ? "Close" : "Cancel"}
           </AlertDialogCancel>
-          {TauriService.isTauri() && status !== "success" && (
+          {isTauriRuntime && status !== "success" && (
             <Button
               onClick={handleDownload}
               disabled={status === "downloading"}

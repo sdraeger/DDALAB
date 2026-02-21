@@ -409,7 +409,7 @@ export function FileDropZone({
               const FileIcon = getFileIcon(preview.name);
               return (
                 <div
-                  key={index}
+                  key={`${preview.name}-${preview.size}-${preview.file.lastModified}`}
                   className="flex items-center gap-3 p-2 rounded-md bg-muted/50"
                 >
                   <FileIcon className="h-8 w-8 text-muted-foreground" />

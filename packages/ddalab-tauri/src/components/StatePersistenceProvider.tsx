@@ -6,10 +6,17 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { TauriService } from "@/services/tauriService";
 import { windowManager } from "@/utils/windowManager";
+import {
+  initializePersistenceForStore,
+  loadAppPreferencesOnce,
+} from "@/services/startupOrchestrator";
+import { createLogger } from "@/lib/logger";
 
 interface StatePersistenceProviderProps {
   children: React.ReactNode;
 }
+
+const logger = createLogger("StatePersistenceProvider");
 
 /**
  * Provides state persistence functionality throughout the app lifecycle
@@ -22,25 +29,44 @@ export function StatePersistenceProvider({
   const saveCurrentState = useAppStore((state) => state.saveCurrentState);
   const isInitialized = useAppStore((state) => state.isInitialized);
   const saveIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const isInitializedRef = useRef(false);
+  const hasStartedInitializationRef = useRef(false);
 
   useEffect(() => {
-    // Initialize state persistence when component mounts
+    if (!TauriService.isTauri() || hasStartedInitializationRef.current) {
+      return;
+    }
+
+    hasStartedInitializationRef.current = true;
+    let cancelled = false;
+
+    // Initialize state persistence exactly once per app load.
     const initialize = async () => {
-      if (!isInitializedRef.current && !isInitialized) {
-        try {
-          console.log("Initializing state persistence...");
-          await initializeFromTauri();
-          isInitializedRef.current = true;
-          console.log("State persistence initialized successfully");
-        } catch (error) {
-          console.error("Failed to initialize state persistence:", error);
+      try {
+        logger.info("Initializing startup state");
+        await initializePersistenceForStore(initializeFromTauri);
+        await loadAppPreferencesOnce();
+        if (!cancelled) {
+          logger.info("Startup state initialized");
+        }
+      } catch (error) {
+        logger.error("Startup initialization failed; continuing fail-open", {
+          error,
+        });
+        if (!cancelled) {
+          // Fail-open: keep UI operational even if persistence bootstrap fails.
+          useAppStore.setState({
+            isInitialized: true,
+            isPersistenceRestored: true,
+          });
         }
       }
     };
 
-    initialize();
-  }, [initializeFromTauri, isInitialized]);
+    void initialize();
+    return () => {
+      cancelled = true;
+    };
+  }, [initializeFromTauri]);
 
   useEffect(() => {
     if (!TauriService.isTauri() || !isInitialized) return;
@@ -59,10 +85,9 @@ export function StatePersistenceProvider({
         const isMainWindow = currentWindow.label === "main";
 
         if (!isMainWindow) {
-          console.log(
-            "[StatePersistenceProvider] Skipping close handler for non-main window:",
-            currentWindow.label,
-          );
+          logger.debug("Skipping close handler for non-main window", {
+            windowLabel: currentWindow.label,
+          });
           return () => {};
         }
 
@@ -70,32 +95,20 @@ export function StatePersistenceProvider({
         const unlistenClose = await listen(
           "tauri://close-requested",
           async (event) => {
-            console.log(
-              "[StatePersistenceProvider] Main window close requested, saving state...",
-            );
-            console.log("[StatePersistenceProvider] Event details:", event);
+            logger.info("Main window close requested; saving state", {
+              event,
+            });
 
             // Mark app as closing BEFORE saving - this prevents popout windows
             // from cleaning up their state before we can persist it
             windowManager.setAppClosing(true);
 
             try {
-              console.log(
-                "[StatePersistenceProvider] Calling saveCurrentState...",
-              );
               await saveCurrentState();
-              console.log(
-                "[StatePersistenceProvider] saveCurrentState complete, calling forceSave...",
-              );
               await forceSave();
-              console.log(
-                "[StatePersistenceProvider] State saved successfully before close",
-              );
+              logger.info("State saved successfully before close");
             } catch (error) {
-              console.error(
-                "[StatePersistenceProvider] Failed to save state before close:",
-                error,
-              );
+              logger.error("Failed to save state before close", { error });
             }
 
             // Safety: If close was cancelled and we're still here after a delay,
@@ -109,15 +122,15 @@ export function StatePersistenceProvider({
 
         // Listen for app focus/blur events to trigger saves
         const unlistenFocus = await listen("tauri://focus", () => {
-          console.debug("App gained focus");
+          logger.debug("App gained focus");
         });
 
         const unlistenBlur = await listen("tauri://blur", async () => {
-          console.debug("App lost focus, saving state...");
+          logger.debug("App lost focus; saving state");
           try {
             await saveCurrentState();
           } catch (error) {
-            console.error("Failed to save state on blur:", error);
+            logger.error("Failed to save state on blur", { error });
           }
         });
 
@@ -129,7 +142,7 @@ export function StatePersistenceProvider({
           }
         };
       } catch (error) {
-        console.error("Failed to set up window event listeners:", error);
+        logger.error("Failed to set up window event listeners", { error });
         return () => {};
       }
     };
@@ -143,9 +156,9 @@ export function StatePersistenceProvider({
       saveIntervalRef.current = setInterval(async () => {
         try {
           await saveCurrentState();
-          console.debug("Periodic state save completed");
+          logger.debug("Periodic state save completed");
         } catch (error) {
-          console.error("Periodic state save failed:", error);
+          logger.error("Periodic state save failed", { error });
         }
       }, 60000); // Save every minute as backup
 
@@ -168,14 +181,13 @@ export function StatePersistenceProvider({
           if (visibilityTimeout) clearTimeout(visibilityTimeout);
 
           visibilityTimeout = setTimeout(async () => {
-            console.debug("App became hidden, saving state...");
+            logger.debug("App became hidden; saving state");
             try {
               await saveCurrentState();
             } catch (error) {
-              console.error(
-                "Failed to save state on visibility change:",
+              logger.error("Failed to save state on visibility change", {
                 error,
-              );
+              });
             }
           }, 500);
         } else {
@@ -201,9 +213,7 @@ export function StatePersistenceProvider({
     // Set up beforeunload handler (for web version compatibility)
     const setupBeforeUnloadHandler = () => {
       const handleBeforeUnload = async () => {
-        console.log(
-          "[StatePersistenceProvider] Before unload, saving state...",
-        );
+        logger.debug("Before unload; saving state");
 
         // NOTE: We intentionally do NOT call setAppClosing(true) here.
         // The beforeunload event can fire for navigation, refresh, etc.
@@ -217,10 +227,7 @@ export function StatePersistenceProvider({
           await saveCurrentState();
           await forceSave();
         } catch (error) {
-          console.error(
-            "[StatePersistenceProvider] Failed to save state before unload:",
-            error,
-          );
+          logger.error("Failed to save state before unload", { error });
         }
       };
 
@@ -249,7 +256,7 @@ export function StatePersistenceProvider({
         try {
           cleanup();
         } catch (error) {
-          console.error("Error during cleanup:", error);
+          logger.error("Error during cleanup", { error });
         }
       });
     };
@@ -264,25 +271,28 @@ export function StatePersistenceProvider({
         return;
       }
 
-      console.error("Unhandled error occurred, saving state:", event.error);
+      logger.error("Unhandled error occurred; saving state", {
+        error: event.error,
+      });
       try {
         await saveCurrentState();
         await forceSave();
       } catch (saveError) {
-        console.error("Failed to save state after error:", saveError);
+        logger.error("Failed to save state after error", { error: saveError });
       }
     };
 
     const handlePromiseRejection = async (event: PromiseRejectionEvent) => {
-      console.error("Unhandled promise rejection, saving state:", event.reason);
+      logger.error("Unhandled promise rejection; saving state", {
+        error: event.reason,
+      });
       try {
         await saveCurrentState();
         await forceSave();
       } catch (saveError) {
-        console.error(
-          "Failed to save state after promise rejection:",
-          saveError,
-        );
+        logger.error("Failed to save state after promise rejection", {
+          error: saveError,
+        });
       }
     };
 

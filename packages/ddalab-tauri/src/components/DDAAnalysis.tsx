@@ -93,6 +93,7 @@ import { useAnalysisValidation } from "@/hooks/useAnalysisValidation";
 import { useAnalysisUndo } from "@/hooks/useAnalysisUndo";
 import { useUndoRedoStore } from "@/store/undoRedoStore";
 import { DDA_ANALYSIS } from "@/lib/constants";
+import { useBackendReady } from "@/contexts/BackendContext";
 
 interface DDAAnalysisProps {
   // No longer requires apiService - uses tauriBackendService directly
@@ -147,6 +148,8 @@ interface DDAParameters {
 export const DDAAnalysis = memo(function DDAAnalysis(
   _props: DDAAnalysisProps = {},
 ) {
+  const isBackendReady = useBackendReady();
+
   // File manager state (keep separate for derived value optimization)
   const selectedFile = useAppStore(
     useShallow((state) => state.fileManager.selectedFile),
@@ -162,7 +165,7 @@ export const DDAAnalysis = memo(function DDAAnalysis(
   } = useDDASelectors();
 
   // Consolidated UI selectors
-  const { isServerReady, expertMode: appExpertMode } = useUISelectors();
+  const { expertMode: appExpertMode } = useUISelectors();
 
   // Consolidated workflow selectors
   const { isRecording: isWorkflowRecording, incrementActionCount } =
@@ -174,13 +177,13 @@ export const DDAAnalysis = memo(function DDAAnalysis(
   const submitAnalysisMutation = useSubmitDDAAnalysis();
   const saveToHistoryMutation = useSaveDDAToHistory();
 
-  // TanStack Query: Fetch analysis history (only when server is ready)
+  // TanStack Query: Fetch analysis history once backend runtime is ready.
   const {
     data: historyData,
     isLoading: historyLoading,
     error: historyErrorObj,
     refetch: refetchHistory,
-  } = useDDAHistory(isServerReady);
+  } = useDDAHistory(isBackendReady);
 
   // TanStack Query: Delete and rename mutations with optimistic updates
   const deleteAnalysisMutation = useDeleteAnalysis();
@@ -1864,7 +1867,7 @@ export const DDAAnalysis = memo(function DDAAnalysis(
             />
           )}
 
-          <div className="space-y-3">
+          <div className="space-y-3" data-tour="analysis-config">
             {/* Algorithm Selection */}
             <VariantSelector
               selectedVariants={parameters.variants}

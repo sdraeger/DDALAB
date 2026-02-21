@@ -4,7 +4,6 @@ import React, {
   createContext,
   useContext,
   useEffect,
-  useState,
   useMemo,
   useCallback,
   ReactNode,
@@ -17,7 +16,6 @@ import {
   type CancelDDAResponse,
   type ICAHistoryEntry,
 } from "@/services/tauriBackendService";
-import { TauriService } from "@/services/tauriService";
 import type {
   EDFFileInfo,
   ChunkData,
@@ -26,6 +24,7 @@ import type {
 } from "@/types/api";
 import type { ICAAnalysisRequest, ICAResult } from "@/types/ica";
 import { createLogger } from "@/lib/logger";
+import { useIsTauriRuntime } from "@/hooks/useIsTauriRuntime";
 
 const logger = createLogger("BackendContext");
 
@@ -88,17 +87,14 @@ interface BackendProviderProps {
  * where enterprise security tools may intercept localhost traffic.
  */
 export function BackendProvider({ children }: BackendProviderProps) {
-  const [isReady, setIsReady] = useState(false);
-  const isTauri = TauriService.isTauri();
+  const isTauri = useIsTauriRuntime();
+  const isReady = isTauri;
 
   useEffect(() => {
     if (isTauri) {
       logger.info("Tauri environment detected, backend is ready");
-      setIsReady(true);
     } else {
-      logger.warn(
-        "Not running in Tauri environment, backend features may be limited",
-      );
+      logger.debug("Backend runtime not ready yet");
     }
   }, [isTauri]);
 

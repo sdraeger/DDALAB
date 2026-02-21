@@ -19,6 +19,7 @@ import { FileInfoCard } from "@/components/FileInfoCard";
 import { BIDSContextIndicator } from "@/components/BIDSContextIndicator";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import {
   Brain,
   Activity,
@@ -29,6 +30,9 @@ import {
   Download,
   FileSearch,
 } from "lucide-react";
+import { createLogger } from "@/lib/logger";
+
+const logger = createLogger("NavigationContent");
 
 /**
  * MountedView - Keeps children mounted but hidden when inactive.
@@ -319,7 +323,7 @@ export function NavigationContent() {
           setSecondaryNav("batch");
           break;
         default:
-          console.warn("[NAV] Unknown notification action type:", actionType);
+          logger.warn("Unknown notification action type", { actionType });
       }
     },
     [setPrimaryNav, setSecondaryNav],
@@ -353,7 +357,12 @@ export function NavigationContent() {
               <div className="flex-1 min-h-0 overflow-y-auto">
                 <ErrorBoundary>
                   <Suspense fallback={<DelayedLoadingFallback />}>
-                    <TimeSeriesPlotECharts />
+                    <TimeSeriesPlotECharts
+                      isVisible={
+                        primaryNav === "explore" &&
+                        secondaryNav === "timeseries"
+                      }
+                    />
                   </Suspense>
                 </ErrorBoundary>
               </div>
@@ -596,11 +605,18 @@ function OverviewDashboard() {
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold mb-2">Overview</h2>
-        <p className="text-muted-foreground">
-          {selectedFileName
-            ? `Working on: ${selectedFileName}`
-            : "No file selected"}
-        </p>
+        <div className="flex items-center gap-2">
+          <p className="text-muted-foreground">
+            {selectedFileName
+              ? `Working on: ${selectedFileName}`
+              : "No file selected"}
+          </p>
+          {selectedFileName && (
+            <Badge variant="outline" className="text-xs">
+              {selectedFileName.split(".").pop()?.toUpperCase() ?? ""}
+            </Badge>
+          )}
+        </div>
       </div>
 
       {selectedFile && (
@@ -613,11 +629,13 @@ function OverviewDashboard() {
             <h3 className="text-lg font-semibold mb-3">Quick Actions</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Card
-                className="cursor-pointer hover:shadow-md transition-shadow"
+                className="cursor-pointer border-l-4 border-l-blue-500 dark:border-l-blue-400 hover:shadow-md transition-all"
                 onClick={() => handleQuickAction("explore", "timeseries")}
               >
                 <CardContent className="p-6">
-                  <Activity className="h-8 w-8 mb-3 text-primary" />
+                  <div className="h-10 w-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center mb-3">
+                    <Activity className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                  </div>
                   <h3 className="font-semibold mb-1">View Data</h3>
                   <p className="text-sm text-muted-foreground">
                     Explore time series visualization
@@ -626,11 +644,13 @@ function OverviewDashboard() {
               </Card>
 
               <Card
-                className="cursor-pointer hover:shadow-md transition-shadow"
+                className="cursor-pointer border-l-4 border-l-orange-500 dark:border-l-orange-400 hover:shadow-md transition-all"
                 onClick={() => handleQuickAction("analyze", "dda")}
               >
                 <CardContent className="p-6">
-                  <Brain className="h-8 w-8 mb-3 text-primary" />
+                  <div className="h-10 w-10 rounded-lg bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center mb-3">
+                    <Brain className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+                  </div>
                   <h3 className="font-semibold mb-1">Run Analysis</h3>
                   <p className="text-sm text-muted-foreground">
                     Perform DDA analysis
@@ -639,11 +659,13 @@ function OverviewDashboard() {
               </Card>
 
               <Card
-                className="cursor-pointer hover:shadow-md transition-shadow"
+                className="cursor-pointer border-l-4 border-l-green-500 dark:border-l-green-400 hover:shadow-md transition-all"
                 onClick={() => handleQuickAction("explore", "annotations")}
               >
                 <CardContent className="p-6">
-                  <FileText className="h-8 w-8 mb-3 text-primary" />
+                  <div className="h-10 w-10 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center mb-3">
+                    <FileText className="h-5 w-5 text-green-600 dark:text-green-400" />
+                  </div>
                   <h3 className="font-semibold mb-1">Annotations</h3>
                   <p className="text-sm text-muted-foreground">
                     {hasCurrentAnalysis
@@ -658,26 +680,41 @@ function OverviewDashboard() {
       )}
 
       {!selectedFile && (
-        <Card>
-          <CardContent className="p-12 text-center">
-            <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
-            <h3 className="text-lg font-medium mb-2">No File Selected</h3>
-            <p className="text-muted-foreground">
-              Select a file from the sidebar to get started
+        <div className="rounded-lg bg-gradient-to-br from-primary/5 via-transparent to-transparent p-8">
+          <div className="text-center">
+            <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-4">
+              <Brain className="h-8 w-8 text-primary" />
+            </div>
+            <h3 className="text-lg font-semibold mb-2">Welcome to DDALAB</h3>
+            <p className="text-muted-foreground mb-6 max-w-sm mx-auto">
+              Open a file from the sidebar or drop one here to begin analysis
             </p>
-          </CardContent>
-        </Card>
+            <div className="flex flex-wrap gap-2 justify-center text-xs text-muted-foreground">
+              <span className="bg-muted/50 px-2.5 py-1 rounded-full">
+                Supports EDF, BrainVision, EEGLAB, FIF, XDF
+              </span>
+              <span className="bg-muted/50 px-2.5 py-1 rounded-full">
+                Drag & drop files
+              </span>
+              <span className="bg-muted/50 px-2.5 py-1 rounded-full">
+                Try the tutorials
+              </span>
+            </div>
+          </div>
+        </div>
       )}
 
       <div>
         <h3 className="text-lg font-semibold mb-3">Get Started</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Card
-            className="cursor-pointer hover:shadow-md transition-shadow"
+            className="cursor-pointer border-l-4 border-l-indigo-500 dark:border-l-indigo-400 hover:shadow-md transition-all"
             onClick={() => handleQuickAction("learn", "tutorials")}
           >
             <CardContent className="p-6">
-              <GraduationCap className="h-8 w-8 mb-3 text-primary" />
+              <div className="h-10 w-10 rounded-lg bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center mb-3">
+                <GraduationCap className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+              </div>
               <h3 className="font-semibold mb-1">Start Tutorial</h3>
               <p className="text-sm text-muted-foreground">
                 Interactive guide to DDALAB
@@ -686,11 +723,13 @@ function OverviewDashboard() {
           </Card>
 
           <Card
-            className="cursor-pointer hover:shadow-md transition-shadow"
+            className="cursor-pointer border-l-4 border-l-cyan-500 dark:border-l-cyan-400 hover:shadow-md transition-all"
             onClick={() => handleQuickAction("learn", "sample-data")}
           >
             <CardContent className="p-6">
-              <Download className="h-8 w-8 mb-3 text-primary" />
+              <div className="h-10 w-10 rounded-lg bg-cyan-100 dark:bg-cyan-900/30 flex items-center justify-center mb-3">
+                <Download className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
+              </div>
               <h3 className="font-semibold mb-1">Sample Data</h3>
               <p className="text-sm text-muted-foreground">
                 Download example EEG datasets
@@ -699,11 +738,13 @@ function OverviewDashboard() {
           </Card>
 
           <Card
-            className="cursor-pointer hover:shadow-md transition-shadow"
+            className="cursor-pointer border-l-4 border-l-violet-500 dark:border-l-violet-400 hover:shadow-md transition-all"
             onClick={() => handleQuickAction("learn", "papers")}
           >
             <CardContent className="p-6">
-              <FileSearch className="h-8 w-8 mb-3 text-primary" />
+              <div className="h-10 w-10 rounded-lg bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center mb-3">
+                <FileSearch className="h-5 w-5 text-violet-600 dark:text-violet-400" />
+              </div>
               <h3 className="font-semibold mb-1">Reproduce a Paper</h3>
               <p className="text-sm text-muted-foreground">
                 Run analyses from published research

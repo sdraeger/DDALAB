@@ -3,6 +3,25 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
+const LINE_WIDTH_PATTERNS = {
+  table: [52, 68, 74, 61, 83],
+  card: [84, 77, 91, 72, 88],
+  listPrimary: [62, 74, 58, 81],
+  listSecondary: [36, 44, 32, 41],
+  file: [66, 79, 71, 84, 76],
+  settingsTitle: [122, 138, 114, 146],
+  settingsDetail: [178, 224, 196, 242],
+} as const;
+
+function widthFromPattern(
+  pattern: readonly number[],
+  index: number,
+  fallback: number,
+): number {
+  if (pattern.length === 0) return fallback;
+  return pattern[index % pattern.length] ?? fallback;
+}
+
 /**
  * Hook to delay showing loading state to prevent flash on fast networks.
  * Only shows loading after the specified delay has passed.
@@ -149,7 +168,9 @@ export function SkeletonTableRow({
       {Array.from({ length: columns }).map((_, i) => (
         <SkeletonLine
           key={i}
-          width={i === 0 ? 30 : Math.random() * 40 + 40}
+          width={
+            i === 0 ? 30 : widthFromPattern(LINE_WIDTH_PATTERNS.table, i, 65)
+          }
           className="h-4"
         />
       ))}
@@ -175,7 +196,7 @@ export function SkeletonCard({
         {Array.from({ length: lines }).map((_, i) => (
           <SkeletonLine
             key={i}
-            width={Math.random() * 30 + 70}
+            width={widthFromPattern(LINE_WIDTH_PATTERNS.card, i, 80)}
             className="h-3"
           />
         ))}
@@ -198,8 +219,14 @@ export function SkeletonListItem({
     <div className={cn("flex items-center gap-3 py-2 px-3", className)}>
       {hasAvatar && <SkeletonCircle size={32} />}
       <div className="flex-1 space-y-1.5">
-        <SkeletonLine width={Math.random() * 30 + 50} className="h-4" />
-        <SkeletonLine width={Math.random() * 20 + 30} className="h-3" />
+        <SkeletonLine
+          width={widthFromPattern(LINE_WIDTH_PATTERNS.listPrimary, 0, 68)}
+          className="h-4"
+        />
+        <SkeletonLine
+          width={widthFromPattern(LINE_WIDTH_PATTERNS.listSecondary, 0, 40)}
+          className="h-3"
+        />
       </div>
       {hasAction && <Skeleton className="h-8 w-8 rounded" />}
     </div>
@@ -220,7 +247,10 @@ export function SkeletonFileItem({
       style={{ paddingLeft: depth * 16 + 8 }}
     >
       <Skeleton className="h-4 w-4 rounded" />
-      <SkeletonLine width={Math.random() * 40 + 60} className="h-4" />
+      <SkeletonLine
+        width={widthFromPattern(LINE_WIDTH_PATTERNS.file, depth, 72)}
+        className="h-4"
+      />
     </div>
   );
 }
@@ -236,7 +266,7 @@ export function SkeletonFileList({
   return (
     <div className={cn("space-y-1", className)}>
       {Array.from({ length: count }).map((_, i) => (
-        <SkeletonFileItem key={i} depth={Math.floor(Math.random() * 2)} />
+        <SkeletonFileItem key={i} depth={i % 2} />
       ))}
     </div>
   );
@@ -308,11 +338,19 @@ export function SkeletonSettings({ className }: { className?: string }) {
               >
                 <div className="space-y-1">
                   <SkeletonLine
-                    width={Math.random() * 50 + 100}
+                    width={widthFromPattern(
+                      LINE_WIDTH_PATTERNS.settingsTitle,
+                      i + j,
+                      128,
+                    )}
                     className="h-4"
                   />
                   <SkeletonLine
-                    width={Math.random() * 100 + 150}
+                    width={widthFromPattern(
+                      LINE_WIDTH_PATTERNS.settingsDetail,
+                      i + j,
+                      210,
+                    )}
                     className="h-3"
                   />
                 </div>

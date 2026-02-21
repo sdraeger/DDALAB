@@ -100,7 +100,7 @@ export const AnalysisWizard: React.FC<AnalysisWizardProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
           {stepTitles.map((title, index) => (
             <WizardStep
-              key={index}
+              key={`${title}-${index}`}
               number={index + 1}
               title={title}
               description={stepDescriptions[index]}

@@ -127,21 +127,16 @@ export class TimerManager {
  * ```
  */
 export function useSafeTimers(): TimerManager {
-  const managerRef = useRef<TimerManager | null>(null);
-
-  // Lazy initialization
-  if (!managerRef.current) {
-    managerRef.current = new TimerManager();
-  }
+  const manager = useRef(new TimerManager()).current;
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      managerRef.current?.clearAll();
+      manager.clearAll();
     };
-  }, []);
+  }, [manager]);
 
-  return managerRef.current;
+  return manager;
 }
 
 /**
@@ -167,9 +162,10 @@ export function useSafeTimeout(): (
   const timeoutsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
 
   useEffect(() => {
+    const timeouts = timeoutsRef.current;
     return () => {
-      timeoutsRef.current.forEach((id) => clearTimeout(id));
-      timeoutsRef.current.clear();
+      timeouts.forEach((id) => clearTimeout(id));
+      timeouts.clear();
     };
   }, []);
 
@@ -210,9 +206,10 @@ export function useSafeInterval(): {
   const intervalsRef = useRef<Set<ReturnType<typeof setInterval>>>(new Set());
 
   useEffect(() => {
+    const intervals = intervalsRef.current;
     return () => {
-      intervalsRef.current.forEach((id) => clearInterval(id));
-      intervalsRef.current.clear();
+      intervals.forEach((id) => clearInterval(id));
+      intervals.clear();
     };
   }, []);
 
@@ -258,9 +255,10 @@ export function useSafeRAF(): {
   const rafsRef = useRef<Set<number>>(new Set());
 
   useEffect(() => {
+    const rafs = rafsRef.current;
     return () => {
-      rafsRef.current.forEach((id) => cancelAnimationFrame(id));
-      rafsRef.current.clear();
+      rafs.forEach((id) => cancelAnimationFrame(id));
+      rafs.clear();
     };
   }, []);
 
@@ -319,15 +317,17 @@ export function useDebouncedCallback<T extends (...args: unknown[]) => void>(
     };
   }, []);
 
-  return useCallback(
-    ((...args: unknown[]) => {
+  const debounced = useCallback(
+    (...args: Parameters<T>) => {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
       timeoutRef.current = setTimeout(() => {
-        callbackRef.current(...args);
+        callbackRef.current(...(args as unknown[]));
       }, delay);
-    }) as T,
+    },
     [delay],
   );
+
+  return debounced as T;
 }

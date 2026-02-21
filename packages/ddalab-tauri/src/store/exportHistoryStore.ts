@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { persist } from "zustand/middleware";
+import { createSafePersistStorage } from "@/store/utils/safePersistStorage";
 
 export interface ExportRecord {
   id: string;
@@ -74,6 +75,7 @@ export const useExportHistoryStore = create<ExportHistoryState>()(
     {
       name: "ddalab-export-history",
       partialize: (state) => ({ exports: state.exports }),
+      storage: createSafePersistStorage("ExportHistoryStore"),
     },
   ),
 );

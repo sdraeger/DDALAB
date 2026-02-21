@@ -107,6 +107,7 @@ export function SharedWithMe({
   // Memoize the render function to prevent recreation
   const renderShareItem = useCallback(
     (share: SharedItem) => {
+      const shareToken = share.share_token ?? share.content_id;
       const Icon = CONTENT_TYPE_ICONS[share.content_type];
       const today = new Date();
 
@@ -121,7 +122,7 @@ export function SharedWithMe({
         permissions.includes("download") && share.classification !== "phi";
 
       return (
-        <Card key={share.content_id} className="mb-2">
+        <Card key={shareToken} className="mb-2">
           <CardHeader className="py-3">
             <div className="flex items-start justify-between">
               <div className="flex items-start gap-3">

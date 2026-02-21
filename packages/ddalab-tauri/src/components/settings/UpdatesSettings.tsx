@@ -72,7 +72,7 @@ export function UpdatesSettings() {
         </p>
       </div>
 
-      <Card>
+      <Card className="transition-shadow duration-150 hover:shadow-md">
         <CardHeader>
           <CardTitle>Current Version</CardTitle>
           <CardDescription>
@@ -129,10 +129,12 @@ export function UpdatesSettings() {
       )}
 
       {updateStatus?.available && (
-        <Card className="border-amber-500">
+        <Card className="border-amber-500 transition-shadow duration-150 hover:shadow-md">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Download className="h-5 w-5" />
+              <div className="rounded-md p-1.5 bg-green-100 dark:bg-green-900/30">
+                <Download className="h-5 w-5 text-green-600 dark:text-green-400" />
+              </div>
               Update Available
             </CardTitle>
             <CardDescription>
@@ -180,7 +182,7 @@ export function UpdatesSettings() {
         </Card>
       )}
 
-      <Card>
+      <Card className="transition-shadow duration-150 hover:shadow-md">
         <CardHeader>
           <CardTitle>Automatic Updates</CardTitle>
           <CardDescription>How updates are handled in DDALAB</CardDescription>

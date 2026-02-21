@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable react-hooks/refs */
 
 import {
   useState,
@@ -49,36 +50,41 @@ import { ShareResultDialog } from "@/components/dda/ShareResultDialog";
 import { ColorRangeControl } from "@/components/dda/ColorRangeControl";
 import type { DDAExportActions } from "@/components/dda/DDAToolbar";
 import { PlotToolbar } from "@/components/dda/PlotToolbar";
+import { InterpretationAssistantCard } from "@/components/dda/InterpretationAssistantCard";
+import { assessInterpretation } from "@/lib/clinical/interpretationAdvisor";
+
+const logger = loggers.dda.child("Results");
+
 // Lazy-load heavy plot components to prevent bundle evaluation blocking UI
 // These components import uPlot which has significant module initialization cost
 // By lazy-loading, the uPlot bundle only loads when plots are actually rendered
 const DDAHeatmapPlot = lazy(() => {
   const t0 = performance.now();
-  console.log("[DDA LAZY] Starting DDAHeatmapPlot import...");
+  logger.debug("Starting DDAHeatmapPlot import");
   return import("@/components/dda/DDAHeatmapPlot").then((mod) => {
-    console.log(
-      `[DDA LAZY] DDAHeatmapPlot loaded in ${(performance.now() - t0).toFixed(1)}ms`,
-    );
+    logger.debug("DDAHeatmapPlot loaded", {
+      durationMs: Number((performance.now() - t0).toFixed(1)),
+    });
     return { default: mod.DDAHeatmapPlot };
   });
 });
 const DDALinePlot = lazy(() => {
   const t0 = performance.now();
-  console.log("[DDA LAZY] Starting DDALinePlot import...");
+  logger.debug("Starting DDALinePlot import");
   return import("@/components/dda/DDALinePlot").then((mod) => {
-    console.log(
-      `[DDA LAZY] DDALinePlot loaded in ${(performance.now() - t0).toFixed(1)}ms`,
-    );
+    logger.debug("DDALinePlot loaded", {
+      durationMs: Number((performance.now() - t0).toFixed(1)),
+    });
     return { default: mod.DDALinePlot };
   });
 });
 const PhaseSpacePlot = lazy(() => {
   const t0 = performance.now();
-  console.log("[DDA LAZY] Starting PhaseSpacePlot import...");
+  logger.debug("Starting PhaseSpacePlot import");
   return import("@/components/dda/PhaseSpacePlot").then((mod) => {
-    console.log(
-      `[DDA LAZY] PhaseSpacePlot loaded in ${(performance.now() - t0).toFixed(1)}ms`,
-    );
+    logger.debug("PhaseSpacePlot loaded", {
+      durationMs: Number((performance.now() - t0).toFixed(1)),
+    });
     return { default: mod.PhaseSpacePlot };
   });
 });
@@ -109,44 +115,6 @@ function DDAResultsComponent({
   // useTransition for non-blocking heavy state updates
   // This allows the UI to remain responsive while processing channel/variant changes
   const [isPending, startTransition] = useTransition();
-
-  // Transition-wrapped handlers for heavy state updates
-  // These mark updates as non-urgent so React can interrupt them for user interactions
-  const handleChannelSelectionChange = useCallback(
-    (channels: string[]) => {
-      startTransition(() => {
-        setSelectedChannels(channels);
-      });
-    },
-    [startTransition],
-  );
-
-  const handleVariantChange = useCallback(
-    (variantIndex: number) => {
-      startTransition(() => {
-        setSelectedVariant(variantIndex);
-      });
-    },
-    [startTransition],
-  );
-
-  const handleViewModeChange = useCallback(
-    (mode: ViewMode) => {
-      startTransition(() => {
-        setViewMode(mode);
-      });
-    },
-    [startTransition],
-  );
-
-  const handleColorSchemeChange = useCallback(
-    (scheme: ColorScheme) => {
-      startTransition(() => {
-        setColorScheme(scheme);
-      });
-    },
-    [startTransition],
-  );
 
   // Share dialog state
   const [showShareDialog, setShowShareDialog] = useState(false);
@@ -284,6 +252,44 @@ function DDAResultsComponent({
   const [colorRange, setColorRange] = useState<[number, number]>([0, 1]);
   const [autoScale, setAutoScale] = useState(true);
 
+  // Transition-wrapped handlers for heavy state updates
+  // These mark updates as non-urgent so React can interrupt them for user interactions
+  const handleChannelSelectionChange = useCallback(
+    (channels: string[]) => {
+      startTransition(() => {
+        setSelectedChannels(channels);
+      });
+    },
+    [startTransition],
+  );
+
+  const handleVariantChange = useCallback(
+    (variantIndex: number) => {
+      startTransition(() => {
+        setSelectedVariant(variantIndex);
+      });
+    },
+    [startTransition],
+  );
+
+  const handleViewModeChange = useCallback(
+    (mode: ViewMode) => {
+      startTransition(() => {
+        setViewMode(mode);
+      });
+    },
+    [startTransition],
+  );
+
+  const handleColorSchemeChange = useCallback(
+    (scheme: ColorScheme) => {
+      startTransition(() => {
+        setColorScheme(scheme);
+      });
+    },
+    [startTransition],
+  );
+
   // PERFORMANCE: Use state + deferred effect instead of useMemo for heavy computations
   // This allows the skeleton to render immediately, then compute variants in next frame
   const [availableVariants, setAvailableVariants] = useState<
@@ -293,7 +299,7 @@ function DDAResultsComponent({
   // Defer variant computation to avoid blocking initial render
   // Use setTimeout (not RAF) to create a new task that doesn't block current frame
   useEffect(() => {
-    console.log("[DDAResults] Variant effect triggered", {
+    logger.debug("Variant effect triggered", {
       resultId: result.id,
       variantsLength: result.results.variants?.length,
       variants: result.results.variants?.map((v) => v.variant_id),
@@ -321,7 +327,7 @@ function DDAResultsComponent({
         ];
       }
 
-      console.log("[DDAResults] Setting availableVariants", {
+      logger.debug("Setting available variants", {
         count: variants.length,
         ids: variants.map((v) => v.variant_id),
       });
@@ -436,6 +442,24 @@ function DDAResultsComponent({
     // No match - use the matrix keys directly (variant has different channel naming)
     return matrixKeys;
   }, [effectiveDDAMatrix, selectedChannels]);
+
+  const interpretationAssessment = useMemo(
+    () =>
+      assessInterpretation({
+        variantId: currentVariantData?.variant_id ?? "unknown",
+        ddaMatrix: effectiveDDAMatrix,
+        selectedChannels,
+        errorValues:
+          currentVariantData?.error_values ?? result.results?.error_values,
+      }),
+    [
+      currentVariantData?.variant_id,
+      currentVariantData?.error_values,
+      effectiveDDAMatrix,
+      selectedChannels,
+      result.results?.error_values,
+    ],
+  );
 
   // VARIANT CHANNEL SYNC: When channelData returns different channels than selectedChannels
   // (e.g., ST uses "Ch1" but CT uses "Ch1-Ch2"), update selections to match variant
@@ -573,6 +597,7 @@ function DDAResultsComponent({
     exportData,
     exportAllData,
     exportScript,
+    exportPaperBundle,
     handlePopOut,
     handleShare,
     getExistingShareLink,
@@ -610,6 +635,7 @@ function DDAResultsComponent({
       exportPlot,
       exportAllData,
       exportScript,
+      exportPaperBundle,
       exportSnapshot: handleExportSnapshot,
       popOut: handlePopOut,
       share: isSyncConnected ? openShareDialog : undefined,
@@ -622,6 +648,7 @@ function DDAResultsComponent({
     exportPlot,
     exportAllData,
     exportScript,
+    exportPaperBundle,
     handleExportSnapshot,
     handlePopOut,
     openShareDialog,
@@ -738,6 +765,11 @@ function DDAResultsComponent({
           )}
         </CardContent>
       </Card>
+
+      <InterpretationAssistantCard
+        assessment={interpretationAssessment}
+        variantLabel={currentVariantData?.variant_name ?? "Variant"}
+      />
 
       {/* Visualization Area - Deferred rendering to prevent UI freeze */}
       {/* Show loading state when data is being fetched OR when progressive rendering hasn't started */}

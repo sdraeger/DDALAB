@@ -67,8 +67,8 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({
   }, [step]);
 
   return (
-    <Dialog open={isOpen} onOpenChange={() => onSkip()}>
-      <DialogContent className="sm:max-w-md">
+    <Dialog open={isOpen} onOpenChange={() => onSkip()} modal={false}>
+      <DialogContent hideOverlay className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{step.title}</DialogTitle>
           <DialogDescription asChild>
@@ -80,9 +80,9 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({
         </DialogHeader>
 
         <div className="flex items-center justify-center gap-2 py-4">
-          {steps.map((_, index) => (
+          {steps.map((tourStep, index) => (
             <div
-              key={index}
+              key={`step-indicator-${tourStep.title}-${index}`}
               className={`h-2 w-2 rounded-full transition-all ${
                 index === currentStep
                   ? "bg-primary w-6"

@@ -72,15 +72,6 @@ export const queryKeys = {
       [...queryKeys.nsg.all, "jobStatus", jobId] as const,
   },
 
-  // API Status
-  apiStatus: {
-    all: ["apiStatus"] as const,
-    status: () => [...queryKeys.apiStatus.all, "status"] as const,
-    health: (url: string) =>
-      [...queryKeys.apiStatus.all, "health", url] as const,
-    config: () => [...queryKeys.apiStatus.all, "config"] as const,
-  },
-
   // Health Checks
   health: {
     all: ["health"] as const,
@@ -203,8 +194,6 @@ export const STALE_TIMES = {
   FILE_LIST: 5 * 60 * 1000,
   /** Analysis results are immutable - 1 hour */
   ANALYSIS_RESULTS: 60 * 60 * 1000,
-  /** API status should be checked frequently - 30 seconds */
-  API_STATUS: 30 * 1000,
   /** Health checks - 1 minute */
   HEALTH: 60 * 1000,
   /** App preferences rarely change - 5 minutes */

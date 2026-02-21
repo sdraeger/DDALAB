@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ErrorState } from "@/components/ui/error-state";
 import { TauriService } from "@/services/tauriService";
+import { useIsTauriRuntime } from "@/hooks/useIsTauriRuntime";
 import {
   Cloud,
   Lock,
@@ -29,6 +30,7 @@ import {
 const CREDENTIAL_MASK = "••••••••••••";
 
 export function NSGSettings() {
+  const isTauriRuntime = useIsTauriRuntime();
   const [nsgCredentials, setNsgCredentials] = useState({
     username: "",
     password: "",
@@ -46,7 +48,7 @@ export function NSGSettings() {
   // Load NSG credentials status on mount (never actual credentials)
   useEffect(() => {
     const loadNsgCredentialsStatus = async () => {
-      if (!TauriService.isTauri()) return;
+      if (!isTauriRuntime) return;
       try {
         const hasCredentials = await TauriService.hasNSGCredentials();
         setHasNsgCredentials(hasCredentials);
@@ -68,10 +70,10 @@ export function NSGSettings() {
     };
 
     loadNsgCredentialsStatus();
-  }, []);
+  }, [isTauriRuntime]);
 
   const handleSaveNsgCredentials = async () => {
-    if (!TauriService.isTauri()) return;
+    if (!isTauriRuntime) return;
 
     if (
       !nsgCredentials.username ||
@@ -115,7 +117,7 @@ export function NSGSettings() {
   };
 
   const handleTestNsgConnection = async () => {
-    if (!TauriService.isTauri()) return;
+    if (!isTauriRuntime) return;
 
     try {
       setNsgConnectionStatus("testing");
@@ -141,7 +143,7 @@ export function NSGSettings() {
   };
 
   const handleDeleteNsgCredentials = async () => {
-    if (!TauriService.isTauri()) return;
+    if (!isTauriRuntime) return;
 
     try {
       await TauriService.deleteNSGCredentials();
@@ -182,7 +184,7 @@ export function NSGSettings() {
     }));
   };
 
-  if (!TauriService.isTauri()) {
+  if (!isTauriRuntime) {
     return (
       <div className="space-y-6">
         <div>
@@ -209,12 +211,14 @@ export function NSGSettings() {
       </div>
 
       {/* Credentials Card */}
-      <Card>
+      <Card className="transition-shadow duration-150 hover:shadow-md">
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="flex items-center gap-2">
-                <Cloud className="h-5 w-5" />
+                <div className="rounded-md p-1.5 bg-blue-100 dark:bg-blue-900/30">
+                  <Cloud className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                </div>
                 NSG Credentials
               </CardTitle>
               <CardDescription>

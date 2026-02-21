@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { useMemo } from "react";
 import { useAppStore } from "@/store/appStore";
 import { PlotInfo } from "@/types/annotations";
 import { DDAResult } from "@/types/api";
@@ -17,9 +17,6 @@ export const useAvailablePlots = (): PlotInfo[] => {
   const analysisHistory = useAppStore(
     (state): DDAResult[] => state.dda.analysisHistory,
   );
-
-  // Keep a stable reference to previous plots to avoid recreating array if content is identical
-  const previousPlotsRef = useRef<PlotInfo[]>([]);
 
   return useMemo(() => {
     const plots: PlotInfo[] = [];
@@ -54,19 +51,6 @@ export const useAvailablePlots = (): PlotInfo[] => {
       }
     }
 
-    // Compare with previous plots to avoid returning new array reference if content is identical
-    const previousPlots = previousPlotsRef.current;
-    const plotIdsChanged =
-      plots.length !== previousPlots.length ||
-      plots.some((plot, idx) => plot.id !== previousPlots[idx]?.id);
-
-    if (plotIdsChanged) {
-      // Content changed, update ref and return new array
-      previousPlotsRef.current = plots;
-      return plots;
-    }
-
-    // Content identical, return stable reference
-    return previousPlots;
+    return plots;
   }, [currentFilePath, analysisHistory]);
 };

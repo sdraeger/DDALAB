@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { persist } from "zustand/middleware";
+import { createSafePersistStorage } from "@/store/utils/safePersistStorage";
 
 export interface RecentServer {
   url: string;
@@ -117,6 +118,7 @@ export const useRecentServersStore = create<RecentServersState>()(
     })),
     {
       name: "ddalab-recent-servers",
+      storage: createSafePersistStorage("RecentServersStore"),
     },
   ),
 );

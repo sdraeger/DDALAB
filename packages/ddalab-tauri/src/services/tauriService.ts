@@ -270,17 +270,6 @@ export class TauriService {
     }
   }
 
-  static async checkApiConnection(url: string): Promise<boolean> {
-    try {
-      const api = await getTauriAPI();
-      if (!api) return false;
-      return await api.invoke("check_api_connection", { url });
-    } catch (error) {
-      loggers.api.error("Failed to check API connection", { error, url });
-      return false;
-    }
-  }
-
   static async getAppPreferences(): Promise<AppPreferences> {
     try {
       const api = await getTauriAPI();
@@ -291,12 +280,14 @@ export class TauriService {
       // Return consistent defaults where use_https matches the URL protocol
       return {
         api_config: {
-          url: "https://localhost:8765", // Default to HTTPS
+          // Legacy API server config retained for backward compatibility only.
+          // Desktop runtime uses Tauri IPC for core operations.
+          url: "ipc://tauri",
           timeout: 30,
         },
         window_state: {},
         theme: "auto",
-        use_https: true, // Matches the HTTPS URL above
+        use_https: false,
         warn_on_close_during_analysis: true, // Warn by default
       };
     }
@@ -380,87 +371,6 @@ export class TauriService {
       await api.appWindow.setTitle(title);
     } catch (error) {
       loggers.tauri.error("Failed to set window title", { error, title });
-    }
-  }
-
-  // API Server Management (Unified Local/Remote)
-  static async startLocalApiServer(
-    port?: number,
-    host?: string,
-    dataDirectory?: string,
-  ): Promise<any> {
-    try {
-      const api = await getTauriAPI();
-      if (!api) throw new Error("Tauri API not available");
-
-      const result = await api.invoke("start_local_api_server", {
-        port,
-        host,
-        dataDirectory,
-      });
-      return result;
-    } catch (error) {
-      loggers.api.error("Failed to start local API server", {
-        error,
-        port,
-        host,
-      });
-      throw error;
-    }
-  }
-
-  static async stopLocalApiServer(): Promise<void> {
-    try {
-      const api = await getTauriAPI();
-      if (!api) throw new Error("Tauri API not available");
-      await api.invoke("stop_local_api_server");
-    } catch (error) {
-      loggers.api.error("Failed to stop local API server", { error });
-      throw error;
-    }
-  }
-
-  static async getApiStatus(): Promise<any> {
-    try {
-      const api = await getTauriAPI();
-      if (!api) throw new Error("Tauri API not available");
-      return await api.invoke("get_api_status");
-    } catch (error) {
-      loggers.api.error("Failed to get API status", { error });
-      return null;
-    }
-  }
-
-  static async getApiConfig(): Promise<any> {
-    try {
-      const api = await getTauriAPI();
-      if (!api) throw new Error("Tauri API not available");
-      return await api.invoke("get_api_config");
-    } catch (error) {
-      loggers.api.error("Failed to get API config", { error });
-      return null;
-    }
-  }
-
-  static async loadApiConfig(): Promise<any> {
-    try {
-      const api = await getTauriAPI();
-      if (!api) throw new Error("Tauri API not available");
-      return await api.invoke("load_api_config");
-    } catch (error) {
-      loggers.api.error("Failed to load API config", { error });
-      return null;
-    }
-  }
-
-  static async saveApiConfig(config: any): Promise<void> {
-    try {
-      const api = await getTauriAPI();
-      if (!api) throw new Error("Tauri API not available");
-      await api.invoke("save_api_config", { config });
-    } catch (error) {
-      loggers.api.error("Failed to save API config", { error });
-      throw error;
     }
   }
 

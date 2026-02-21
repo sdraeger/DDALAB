@@ -24,7 +24,7 @@ export default defineConfig({
   use: {
     baseURL: "http://localhost:3003",
     trace: "on-first-retry",
-    screenshot: "on", // Capture screenshot at end of every test
+    screenshot: "only-on-failure", // Reduce memory/storage pressure in long runs
     video: "retain-on-failure",
     actionTimeout: 5000,
     navigationTimeout: 10000,
@@ -37,7 +37,7 @@ export default defineConfig({
   ],
   // Start the Next.js dev server automatically
   webServer: {
-    command: "npm run dev",
+    command: "BASELINE_BROWSER_MAPPING_IGNORE_OLD_DATA=true npm run dev",
     url: "http://localhost:3003",
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,

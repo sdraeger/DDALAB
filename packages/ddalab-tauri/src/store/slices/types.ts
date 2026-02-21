@@ -133,7 +133,6 @@ export interface UIState {
   panelSizes: number[];
   layout: "default" | "analysis" | "plots";
   theme: "light" | "dark" | "auto";
-  isServerReady: boolean;
   zoom: number;
   expertMode: boolean;
   /** Tracks which panels are collapsed by their ID */
@@ -243,7 +242,6 @@ export interface UIActions {
   setPanelSizes: (sizes: number[]) => void;
   setLayout: (layout: UIState["layout"]) => void;
   setTheme: (theme: UIState["theme"]) => void;
-  setServerReady: (ready: boolean) => void;
   setExpertMode: (enabled: boolean) => void;
   setPanelCollapsed: (panelId: string, collapsed: boolean) => void;
   togglePanelCollapsed: (panelId: string) => void;

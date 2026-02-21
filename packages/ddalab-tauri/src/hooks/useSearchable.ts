@@ -63,7 +63,7 @@
  * ```
  */
 
-import { useEffect, useCallback, useRef, useMemo } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import { getSearchRegistry, SearchableItem } from "@/services/searchRegistry";
 
 /**
@@ -75,17 +75,7 @@ export function useSearchable(item: SearchableItem): void {
   useEffect(() => {
     const unregister = registry.register(item);
     return unregister;
-  }, [
-    registry,
-    item.id,
-    item.type,
-    item.title,
-    item.subtitle,
-    item.description,
-    item.category,
-    // Note: action and keywords are intentionally excluded from deps
-    // to avoid re-registration on every render when using inline functions/arrays
-  ]);
+  }, [registry, item]);
 }
 
 /**
@@ -94,19 +84,17 @@ export function useSearchable(item: SearchableItem): void {
  */
 export function useSearchableItems(
   items: SearchableItem[],
-  deps: React.DependencyList = [],
+  _deps: React.DependencyList = [],
 ): void {
+  void _deps;
   const registry = getSearchRegistry();
 
-  // Memoize items based on provided dependencies
-  const memoizedItems = useMemo(() => items, deps);
-
   useEffect(() => {
-    if (memoizedItems.length === 0) return;
+    if (items.length === 0) return;
 
-    const unregister = registry.registerMany(memoizedItems);
+    const unregister = registry.registerMany(items);
     return unregister;
-  }, [registry, memoizedItems]);
+  }, [registry, items]);
 }
 
 /**
@@ -131,7 +119,7 @@ export function useSearchableWithControl(item: SearchableItem): {
       registry.unregister(itemIdRef.current);
       registeredRef.current = false;
     };
-  }, []); // Only register once on mount
+  }, [registry, item]);
 
   const update = useCallback(
     (updates: Partial<SearchableItem>) => {

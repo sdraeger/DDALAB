@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { StatCard } from "@/components/ui/stat-card";
 import {
   Table,
   TableBody,
@@ -24,6 +25,7 @@ import {
   ExternalLink,
   RotateCcw,
   GitCompareArrows,
+  Layers,
 } from "lucide-react";
 import type { BatchJob, BatchFileStatus } from "@/store/slices/batchSlice";
 
@@ -113,23 +115,26 @@ export function BatchResultsSummary({
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid grid-cols-3 gap-3 text-center">
-          <div className="bg-green-50 dark:bg-green-950/20 rounded-lg p-3">
-            <div className="text-2xl font-bold text-green-600">
-              {batch.completedFiles}
-            </div>
-            <div className="text-xs text-muted-foreground">Succeeded</div>
-          </div>
-          <div className="bg-red-50 dark:bg-red-950/20 rounded-lg p-3">
-            <div className="text-2xl font-bold text-destructive">
-              {batch.failedFiles}
-            </div>
-            <div className="text-xs text-muted-foreground">Failed</div>
-          </div>
-          <div className="bg-muted/50 rounded-lg p-3">
-            <div className="text-2xl font-bold">{batch.totalFiles}</div>
-            <div className="text-xs text-muted-foreground">Total</div>
-          </div>
+        <div className="grid grid-cols-3 gap-3">
+          <StatCard
+            label="Succeeded"
+            value={batch.completedFiles}
+            icon={CheckCircle2}
+            accentColor="green"
+          />
+          <StatCard
+            label="Failed"
+            value={batch.failedFiles}
+            icon={XCircle}
+            accentColor="red"
+          />
+          <StatCard
+            label="Total"
+            value={batch.totalFiles}
+            icon={Layers}
+            accentColor="default"
+            description={`${elapsedSeconds}s elapsed`}
+          />
         </div>
 
         <div className="max-h-64 overflow-y-auto rounded-md border">

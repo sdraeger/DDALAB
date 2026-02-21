@@ -7,6 +7,7 @@ import { Page, expect } from "@playwright/test";
 
 // Default API URL - can be overridden by environment
 export const API_URL = process.env.API_URL || "http://127.0.0.1:8765";
+const LEGACY_API_SERVER_ENABLED = process.env.START_API_SERVER === "true";
 
 /**
  * File info returned by the API
@@ -191,6 +192,10 @@ export async function runDDAAnalysis(page: Page): Promise<void> {
  * Check if the API server is running
  */
 export async function isApiServerRunning(): Promise<boolean> {
+  if (!LEGACY_API_SERVER_ENABLED) {
+    return false;
+  }
+
   try {
     const response = await fetch(`${API_URL}/api/health`, {
       signal: AbortSignal.timeout(2000),
@@ -208,6 +213,10 @@ export async function waitForApiServer(
   maxAttempts = 30,
   delayMs = 1000,
 ): Promise<boolean> {
+  if (!LEGACY_API_SERVER_ENABLED) {
+    return false;
+  }
+
   for (let i = 0; i < maxAttempts; i++) {
     if (await isApiServerRunning()) {
       return true;

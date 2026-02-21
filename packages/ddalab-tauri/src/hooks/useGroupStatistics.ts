@@ -6,11 +6,13 @@ import {
   cohensD,
   fdrCorrection,
   bonferroniCorrection,
+  clusterPermutationTest,
 } from "@/utils/statistics";
 import type {
   GroupDescriptiveStats,
   TTestResult,
   PermutationResult,
+  ClusterPermutationResult,
 } from "@/utils/statistics";
 
 interface ChannelDataEntry {
@@ -26,6 +28,13 @@ export interface ChannelTestResult {
   tTest: TTestResult;
   permutation: PermutationResult;
   cohensD: number;
+  cluster: ClusterPermutationResult;
+  timeResolved: {
+    windowCount: number;
+    significantWindowCount: number;
+    clusterCount: number;
+    minClusterP: number;
+  };
   rawPValue: number;
   correctedPValue: number;
   significant: boolean;
@@ -51,6 +60,16 @@ function meanOfArray(values: number[]): number {
   let sum = 0;
   for (let i = 0; i < values.length; i++) sum += values[i];
   return sum / values.length;
+}
+
+function truncateToCommonLength(series: number[][]): number[][] {
+  if (series.length === 0) return [];
+  const minLen = series.reduce(
+    (min, s) => Math.min(min, s.length),
+    Number.POSITIVE_INFINITY,
+  );
+  if (!Number.isFinite(minLen) || minLen < 2) return [];
+  return series.map((s) => s.slice(0, minLen));
 }
 
 export function useGroupStatistics({
@@ -89,25 +108,34 @@ export function useGroupStatistics({
     >[] = [];
 
     for (const ch of channels) {
-      // For each subject, reduce the time-series to a single mean value
-      const valuesA: number[] = [];
+      const seriesA: number[][] = [];
       for (const entry of assignedA) {
         const series = entry.ddaMatrix[ch];
         if (series && series.length > 0) {
-          const m = meanOfArray(series);
-          if (isFinite(m)) valuesA.push(m);
+          seriesA.push(series);
         }
       }
 
-      const valuesB: number[] = [];
+      const seriesB: number[][] = [];
       for (const entry of assignedB) {
         const series = entry.ddaMatrix[ch];
         if (series && series.length > 0) {
-          const m = meanOfArray(series);
-          if (isFinite(m)) valuesB.push(m);
+          seriesB.push(series);
         }
       }
 
+      if (seriesA.length < 2 || seriesB.length < 2) continue;
+
+      const alignedA = truncateToCommonLength(seriesA);
+      const alignedB = truncateToCommonLength(seriesB);
+      if (alignedA.length < 2 || alignedB.length < 2) continue;
+
+      const valuesA = alignedA
+        .map((s) => meanOfArray(s))
+        .filter((v) => Number.isFinite(v));
+      const valuesB = alignedB
+        .map((s) => meanOfArray(s))
+        .filter((v) => Number.isFinite(v));
       if (valuesA.length < 2 || valuesB.length < 2) continue;
 
       const groupAStats = computeGroupStats(valuesA);
@@ -119,6 +147,14 @@ export function useGroupStatistics({
         permutationIterations,
       );
       const d = cohensD(valuesA, valuesB);
+      const clusterIterations = Math.min(permutationIterations, 5000);
+      const clusterResult = clusterPermutationTest(alignedA, alignedB, {
+        iterations: clusterIterations,
+        alpha,
+      });
+      const significantWindowCount = clusterResult.significantMask.filter(
+        (isSig) => isSig,
+      ).length;
 
       rawResults.push({
         channel: ch,
@@ -127,7 +163,14 @@ export function useGroupStatistics({
         tTest: tTestResult,
         permutation: permResult,
         cohensD: d,
-        rawPValue: tTestResult.pValue,
+        cluster: clusterResult,
+        timeResolved: {
+          windowCount: clusterResult.significantMask.length,
+          significantWindowCount,
+          clusterCount: clusterResult.clusters.length,
+          minClusterP: clusterResult.minClusterP,
+        },
+        rawPValue: clusterResult.minClusterP,
       });
     }
 

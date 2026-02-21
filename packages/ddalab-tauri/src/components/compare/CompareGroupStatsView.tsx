@@ -109,7 +109,8 @@ export function CompareGroupStatsView({
             <h4 className="text-sm font-medium">
               Statistical Test Results
               <span className="ml-2 text-xs font-normal text-muted-foreground">
-                Welch&apos;s t-test, FDR corrected, &alpha; = {ALPHA}
+                Cluster-permutation across windows (channel-wise), FDR
+                corrected, &alpha; = {ALPHA}
               </span>
             </h4>
             <StatisticsResultsTable

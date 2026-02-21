@@ -4,7 +4,9 @@ import { useEffect, useState, Suspense, useRef, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
+import { zoomCursorMove } from "@/lib/uplot-zoom";
 import { Loader2 } from "lucide-react";
+import * as echarts from "echarts";
 
 function PopoutContent() {
   const searchParams = useSearchParams();
@@ -31,7 +33,8 @@ function PopoutContent() {
   const timeSeriesPlotRef = useRef<HTMLDivElement>(null);
   const ddaHeatmapRef = useRef<HTMLDivElement>(null);
   const ddaLinePlotRef = useRef<HTMLDivElement>(null);
-  const uplotTimeSeriesRef = useRef<uPlot | null>(null);
+  const timeSeriesChartRef = useRef<echarts.ECharts | null>(null);
+  const timeSeriesResizeObserverRef = useRef<ResizeObserver | null>(null);
   const uplotHeatmapRef = useRef<uPlot | null>(null);
   const uplotLinePlotRef = useRef<uPlot | null>(null);
 
@@ -141,94 +144,124 @@ function PopoutContent() {
   const renderTimeSeriesPlot = useCallback(() => {
     if (!timeSeriesPlotRef.current || !currentData || !currentData.data) return;
 
-    // Clean up existing plot
-    if (uplotTimeSeriesRef.current) {
-      uplotTimeSeriesRef.current.destroy();
-      uplotTimeSeriesRef.current = null;
-    }
-
     try {
-      const { data, timestamps, channels } = currentData;
-
-      // Prepare data for uPlot: [timestamps, ...channel_data]
-      const plotData: uPlot.AlignedData = [timestamps || []];
-
-      // Add channel data
-      if (Array.isArray(data) && data.length > 0) {
-        // If data is array of arrays (multiple channels)
-        if (Array.isArray(data[0])) {
-          data.forEach((channelData: number[]) => {
-            plotData.push(new Float64Array(channelData));
-          });
-        } else {
-          // Single channel data
-          plotData.push(new Float64Array(data));
-        }
-      }
-
-      // Create series configuration
-      const series: uPlot.Series[] = [
-        {}, // x-axis (time)
-        ...channels.map((channel: string, idx: number) => ({
-          label: channel,
-          stroke: getChannelColor(idx),
-          width: 1,
-          points: { show: false },
-        })),
-      ];
-
-      const opts: uPlot.Options = {
-        width: timeSeriesPlotRef.current.clientWidth,
-        height: 400,
-        series,
-        axes: [
-          {
-            label: "Time (s)",
-            labelSize: 30,
-            size: 50,
-          },
-          {
-            label: "Amplitude (μV)",
-            labelSize: 80,
-            size: 80,
-          },
-        ],
-        legend: {
-          show: true,
-          live: false,
-        },
-        cursor: {
-          show: true,
-          x: true,
-          y: true,
-        },
+      const { data, channels } = currentData as {
+        data: number[] | number[][];
+        channels?: string[];
       };
 
-      uplotTimeSeriesRef.current = new uPlot(
-        opts,
-        plotData,
-        timeSeriesPlotRef.current,
-      );
+      const channelData: number[][] =
+        Array.isArray(data) && Array.isArray(data[0])
+          ? (data as number[][])
+          : [data as number[]];
 
-      // Handle resize
-      const resizeObserver = new ResizeObserver(() => {
-        if (uplotTimeSeriesRef.current && timeSeriesPlotRef.current) {
-          uplotTimeSeriesRef.current.setSize({
-            width: timeSeriesPlotRef.current.clientWidth,
-            height: 400,
-          });
+      if (channelData.length === 0 || channelData[0].length === 0) return;
+
+      const channelNames =
+        channels && channels.length === channelData.length
+          ? channels
+          : channelData.map((_, index) => `Ch ${index + 1}`);
+
+      const sampleRate =
+        Number(currentData.sampleRate ?? currentData.sample_rate) || 256;
+      const startTime =
+        typeof currentData.startTime === "number" ? currentData.startTime : 0;
+      const timestamps: number[] =
+        Array.isArray(currentData.timestamps) &&
+        currentData.timestamps.length === channelData[0].length
+          ? currentData.timestamps
+          : Array.from(
+              { length: channelData[0].length },
+              (_, idx) => startTime + idx / sampleRate,
+            );
+
+      const channelRanges = channelData.map((values) => {
+        let min = Infinity;
+        let max = -Infinity;
+        for (const value of values) {
+          if (!Number.isFinite(value)) continue;
+          if (value < min) min = value;
+          if (value > max) max = value;
         }
+        if (!Number.isFinite(min) || !Number.isFinite(max)) return 1;
+        return Math.max(max - min, 1);
       });
 
-      resizeObserver.observe(timeSeriesPlotRef.current);
+      const avgRange =
+        channelRanges.reduce((sum, value) => sum + value, 0) /
+          channelRanges.length || 1;
+      const maxRange = Math.max(...channelRanges, 1);
+      const channelOffset = Math.max(avgRange * 2.5, maxRange * 1.8);
+      const amplitudeScale = (0.75 * channelOffset) / avgRange;
 
-      return () => {
-        resizeObserver.disconnect();
-        if (uplotTimeSeriesRef.current) {
-          uplotTimeSeriesRef.current.destroy();
-          uplotTimeSeriesRef.current = null;
-        }
+      const series: echarts.SeriesOption[] = channelNames.map(
+        (channelName, channelIndex) => ({
+          name: channelName,
+          type: "line",
+          symbol: "none",
+          sampling: "lttb",
+          animation: false,
+          lineStyle: { width: 1 },
+          data: channelData[channelIndex].map((value, idx) => [
+            timestamps[idx],
+            value * amplitudeScale + channelIndex * channelOffset,
+          ]),
+        }),
+      );
+
+      if (!timeSeriesChartRef.current) {
+        timeSeriesChartRef.current = echarts.init(timeSeriesPlotRef.current);
+      }
+
+      const option: echarts.EChartsOption = {
+        title: {
+          text: "Time Series Plot",
+          left: "center",
+          textStyle: { fontSize: 14 },
+        },
+        legend: {
+          data: channelNames,
+          top: 30,
+        },
+        tooltip: { show: false },
+        grid: {
+          left: 120,
+          right: "4%",
+          top: 70,
+          bottom: 60,
+          containLabel: false,
+        },
+        xAxis: {
+          type: "value",
+          name: "Time (s)",
+          nameLocation: "middle",
+          nameGap: 30,
+          min: timestamps[0] ?? startTime,
+          max: timestamps[timestamps.length - 1] ?? startTime,
+        },
+        yAxis: {
+          type: "value",
+          axisLabel: { show: false },
+          axisTick: { show: false },
+        },
+        dataZoom: [
+          { type: "inside", xAxisIndex: 0, filterMode: "none", throttle: 100 },
+          { type: "slider", xAxisIndex: 0, filterMode: "none", throttle: 100 },
+        ],
+        series,
       };
+
+      timeSeriesChartRef.current.setOption(option, {
+        replaceMerge: ["legend", "series"],
+        notMerge: false,
+      });
+
+      if (!timeSeriesResizeObserverRef.current && timeSeriesPlotRef.current) {
+        timeSeriesResizeObserverRef.current = new ResizeObserver(() => {
+          timeSeriesChartRef.current?.resize();
+        });
+        timeSeriesResizeObserverRef.current.observe(timeSeriesPlotRef.current);
+      }
     } catch (error) {
       console.error("Error rendering time series plot:", error);
       setError(`Failed to render time series plot: ${error}`);
@@ -409,6 +442,7 @@ function PopoutContent() {
         ],
         cursor: {
           lock: false,
+          move: zoomCursorMove(),
           focus: {
             prox: 1e6,
           },
@@ -641,6 +675,7 @@ function PopoutContent() {
           x: true,
           y: true,
           lock: true,
+          move: zoomCursorMove(),
         },
       };
 
@@ -737,10 +772,29 @@ function PopoutContent() {
     renderDDALinePlot,
   ]);
 
+  useEffect(() => {
+    return () => {
+      timeSeriesResizeObserverRef.current?.disconnect();
+      timeSeriesResizeObserverRef.current = null;
+      if (timeSeriesChartRef.current) {
+        timeSeriesChartRef.current.dispose();
+        timeSeriesChartRef.current = null;
+      }
+      if (uplotHeatmapRef.current) {
+        uplotHeatmapRef.current.destroy();
+        uplotHeatmapRef.current = null;
+      }
+      if (uplotLinePlotRef.current) {
+        uplotLinePlotRef.current.destroy();
+        uplotLinePlotRef.current = null;
+      }
+    };
+  }, []);
+
   const renderContent = () => {
     if (error) {
       return (
-        <div className="text-red-600 p-4 bg-red-50 border border-red-200 rounded">
+        <div className="text-destructive p-4 bg-destructive/10 border border-destructive/20 rounded">
           <h3 className="font-semibold">Error</h3>
           <p>{error}</p>
         </div>
@@ -749,9 +803,9 @@ function PopoutContent() {
 
     if (!currentData) {
       return (
-        <div className="flex items-center justify-center h-full text-gray-600">
+        <div className="flex items-center justify-center h-full text-muted-foreground">
           <div className="text-center">
-            <Loader2 className="h-8 w-8 animate-spin text-gray-500 mx-auto mb-4" />
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mx-auto mb-4" />
             <p>Waiting for data...</p>
           </div>
         </div>
@@ -780,19 +834,19 @@ function PopoutContent() {
         {/* Metadata */}
         <div className="grid grid-cols-4 gap-4 mb-4 text-sm">
           <div>
-            <label className="block text-gray-600">Channels</label>
+            <label className="block text-muted-foreground">Channels</label>
             <div className="font-semibold">{data.channels.length}</div>
           </div>
           <div>
-            <label className="block text-gray-600">Sample Rate</label>
+            <label className="block text-muted-foreground">Sample Rate</label>
             <div className="font-semibold">{data.sampleRate} Hz</div>
           </div>
           <div>
-            <label className="block text-gray-600">Time Window</label>
+            <label className="block text-muted-foreground">Time Window</label>
             <div className="font-semibold">{data.timeWindow}s</div>
           </div>
           <div>
-            <label className="block text-gray-600">Data Points</label>
+            <label className="block text-muted-foreground">Data Points</label>
             <div className="font-semibold">
               {data.data
                 ? Array.isArray(data.data[0])
@@ -807,14 +861,14 @@ function PopoutContent() {
         <div className="flex-1 min-h-0">
           <div
             ref={timeSeriesPlotRef}
-            className="w-full h-full border border-gray-200 rounded bg-white"
+            className="w-full h-full border border-border rounded bg-background"
           />
         </div>
 
         {/* Channel List */}
         {data.channels && data.channels.length > 0 && (
           <div className="mt-4">
-            <label className="block text-sm font-medium text-gray-600 mb-2">
+            <label className="block text-sm font-medium text-muted-foreground mb-2">
               Channels
             </label>
             <div className="flex flex-wrap gap-2">
@@ -859,11 +913,11 @@ function PopoutContent() {
 
         {/* Variant indicator */}
         {variants && variants.length > 1 && (
-          <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded">
-            <div className="text-xs text-gray-600">
+          <div className="mb-3 p-2 bg-primary/10 border border-primary/20 rounded">
+            <div className="text-xs text-muted-foreground">
               Active Variant (controlled by main window):
             </div>
-            <div className="font-semibold text-sm text-blue-700">
+            <div className="font-semibold text-sm text-primary">
               {currentVariant?.variant_name ||
                 currentVariant?.variant_id ||
                 "Unknown"}
@@ -874,11 +928,11 @@ function PopoutContent() {
         {/* Metadata */}
         <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
           <div>
-            <label className="block text-gray-600">Result ID</label>
+            <label className="block text-muted-foreground">Result ID</label>
             <div className="text-xs font-mono">{result.id}</div>
           </div>
           <div>
-            <label className="block text-gray-600">Channels</label>
+            <label className="block text-muted-foreground">Channels</label>
             <div className="font-semibold">
               {uiState?.selectedChannels?.length ||
                 result.channels?.length ||
@@ -893,7 +947,7 @@ function PopoutContent() {
           <div className="relative">
             <div
               ref={ddaHeatmapRef}
-              className="w-full border border-gray-200 rounded bg-white"
+              className="w-full border border-border rounded bg-background"
               style={{ minHeight: "300px" }}
             />
             {/* Annotation overlay */}
@@ -976,7 +1030,7 @@ function PopoutContent() {
           <div className="relative h-full">
             <div
               ref={ddaLinePlotRef}
-              className="w-full h-full border border-gray-200 rounded bg-white"
+              className="w-full h-full border border-border rounded bg-background"
             />
             {/* Annotation overlay */}
             {data.annotations?.lineplot &&
@@ -1059,7 +1113,7 @@ function PopoutContent() {
               <h3 className="text-sm font-medium mb-2">Channel Exponents</h3>
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <label className="block text-gray-600">Mean α</label>
+                  <label className="block text-muted-foreground">Mean α</label>
                   <div className="font-semibold">
                     {(() => {
                       const exps = Object.values(
@@ -1074,7 +1128,9 @@ function PopoutContent() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-gray-600">Processing Time</label>
+                  <label className="block text-muted-foreground">
+                    Processing Time
+                  </label>
                   <div className="font-semibold">
                     {result.results?.quality_metrics?.processing_time?.toFixed(
                       2,
@@ -1092,16 +1148,16 @@ function PopoutContent() {
   if (!isClient) {
     return (
       <div className="h-screen flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-gray-500" />
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
   }
 
   return (
-    <div className="h-screen flex flex-col bg-white text-black">
+    <div className="h-screen flex flex-col bg-background text-foreground">
       {/* Custom title bar - no data-tauri-drag-region since parent layout should handle it */}
-      <div className="h-10 bg-gray-100 border-b flex items-center justify-between px-3 select-none">
-        <div className="text-sm font-medium text-gray-700">
+      <div className="h-10 bg-muted/40 border-b border-border flex items-center justify-between px-3 select-none">
+        <div className="text-sm font-medium text-foreground">
           {titleMap[windowType || ""] || "DDALAB Popout"}
         </div>
 
@@ -1110,8 +1166,8 @@ function PopoutContent() {
             onClick={toggleLock}
             className={`w-7 h-7 rounded flex items-center justify-center text-xs transition-colors ${
               isLocked
-                ? "bg-red-100 hover:bg-red-200 text-red-700"
-                : "bg-green-100 hover:bg-green-200 text-green-700"
+                ? "bg-destructive/10 hover:bg-destructive/20 text-destructive"
+                : "bg-primary/10 hover:bg-primary/20 text-primary"
             }`}
             title={
               isLocked
@@ -1124,7 +1180,7 @@ function PopoutContent() {
 
           <button
             onClick={() => (window as any).refreshContent?.()}
-            className="w-7 h-7 rounded hover:bg-gray-200 flex items-center justify-center text-xs"
+            className="w-7 h-7 rounded hover:bg-muted flex items-center justify-center text-xs"
             title="Refresh"
           >
             ↻
@@ -1132,7 +1188,7 @@ function PopoutContent() {
 
           <button
             onClick={() => (window as any).minimizeWindow?.()}
-            className="w-7 h-7 rounded hover:bg-gray-200 flex items-center justify-center text-xs"
+            className="w-7 h-7 rounded hover:bg-muted flex items-center justify-center text-xs"
             title="Minimize"
           >
             −
@@ -1140,7 +1196,7 @@ function PopoutContent() {
 
           <button
             onClick={() => (window as any).closeWindow?.()}
-            className="w-7 h-7 rounded hover:bg-red-500 hover:text-white flex items-center justify-center text-xs"
+            className="w-7 h-7 rounded hover:bg-destructive hover:text-destructive-foreground flex items-center justify-center text-xs"
             title="Close"
           >
             ×
@@ -1161,7 +1217,7 @@ function PopoutContent() {
       <div className="flex-1 overflow-auto">{renderContent()}</div>
 
       {/* Status bar */}
-      <div className="h-6 bg-gray-50 border-t flex items-center justify-between px-3 text-xs text-gray-500">
+      <div className="h-6 bg-muted/20 border-t border-border flex items-center justify-between px-3 text-xs text-muted-foreground">
         <div>
           Window ID: {windowId || "Unknown"} | Status:{" "}
           {isLocked
@@ -1179,7 +1235,7 @@ export default function MinimalPopout() {
     <Suspense
       fallback={
         <div className="h-screen flex items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-gray-500" />
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
       }
     >

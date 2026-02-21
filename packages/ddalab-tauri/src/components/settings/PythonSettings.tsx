@@ -45,10 +45,12 @@ export function PythonSettings() {
         </p>
       </div>
 
-      <Card>
+      <Card className="transition-shadow duration-150 hover:shadow-md">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Code className="h-5 w-5" />
+            <div className="h-8 w-8 rounded-lg bg-yellow-100 dark:bg-yellow-900/30 flex items-center justify-center">
+              <Code className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
+            </div>
             Environment Status
           </CardTitle>
           <CardDescription>
@@ -111,7 +113,7 @@ export function PythonSettings() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="transition-shadow duration-150 hover:shadow-md">
         <CardHeader>
           <CardTitle>Custom Python Path</CardTitle>
           <CardDescription>
@@ -176,7 +178,7 @@ export function PythonSettings() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="transition-shadow duration-150 hover:shadow-md">
         <CardHeader>
           <CardTitle>Supported Formats via MNE-Python</CardTitle>
           <CardDescription>

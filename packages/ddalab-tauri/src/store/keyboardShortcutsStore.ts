@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { persist } from "zustand/middleware";
+import { createSafePersistStorage } from "@/store/utils/safePersistStorage";
 
 export type ShortcutContext =
   | "global"
@@ -222,18 +223,7 @@ export const useKeyboardShortcutsStore = create<KeyboardShortcutsState>()(
       partialize: (state) => ({
         customBindings: state.customBindings,
       }),
-      // Need to handle Map serialization
-      storage: {
-        getItem: (name) => {
-          const str = localStorage.getItem(name);
-          if (!str) return null;
-          return JSON.parse(str);
-        },
-        setItem: (name, value) => {
-          localStorage.setItem(name, JSON.stringify(value));
-        },
-        removeItem: (name) => localStorage.removeItem(name),
-      },
+      storage: createSafePersistStorage("KeyboardShortcutsStore"),
     },
   ),
 );

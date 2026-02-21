@@ -6,6 +6,7 @@ import { useAppStore } from "@/store/appStore";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
+import { StatCard } from "@/components/ui/stat-card";
 import { ChannelTypeBadge } from "./ChannelTypeBadge";
 import {
   FileText,
@@ -79,84 +80,65 @@ export function FileInfoCard({ fileInfo }: FileInfoCardProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <FileText className="h-5 w-5" />
-          File Information
-        </CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="h-5 w-5" />
+            File Information
+          </CardTitle>
+          <Badge variant="outline" className="text-xs font-mono">
+            {fileInfo.file_name.split(".").pop()?.toUpperCase() ?? ""}
+          </Badge>
+        </div>
+        <p
+          className="text-xs text-muted-foreground font-mono truncate"
+          title={fileInfo.file_path}
+        >
+          {fileInfo.file_path}
+        </p>
       </CardHeader>
       <CardContent className="space-y-6">
-        {/* File Basic Info */}
-        <div className="space-y-3">
-          <div className="flex items-start justify-between">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <FileText className="h-4 w-4" />
-              <span className="font-medium">File Name</span>
-            </div>
-            <span
-              className="text-sm font-mono text-right max-w-md truncate"
-              title={fileInfo.file_name}
-            >
-              {fileInfo.file_name}
-            </span>
-          </div>
-
-          <div className="flex items-start justify-between">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <HardDrive className="h-4 w-4" />
-              <span className="font-medium">File Size</span>
-            </div>
-            <span className="text-sm">
-              {formatFileSize(fileInfo.file_size)}
-            </span>
-          </div>
-
-          <div className="flex items-start justify-between">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <FileText className="h-4 w-4" />
-              <span className="font-medium">File Path</span>
-            </div>
-            <span
-              className="text-sm font-mono text-right max-w-md truncate"
-              title={fileInfo.file_path}
-            >
-              {fileInfo.file_path}
-            </span>
-          </div>
-        </div>
-
-        <Separator />
-
-        {/* Recording Info */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Clock className="h-4 w-4" />
-              <span className="font-medium">Duration</span>
-            </div>
-            <span className="text-sm font-medium">
-              {formatDuration(fileInfo.duration)}
-            </span>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Activity className="h-4 w-4" />
-              <span className="font-medium">Sample Rate</span>
-            </div>
-            <span className="text-sm">
-              {fileInfo.sample_rate.toFixed(2)} Hz
-            </span>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Hash className="h-4 w-4" />
-              <span className="font-medium">Total Samples</span>
-            </div>
-            <span className="text-sm font-mono">
-              {formatNumber(fileInfo.total_samples)}
-            </span>
-          </div>
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+          <StatCard
+            label="Channels"
+            value={fileInfo.channels.length}
+            icon={Layers}
+            accentColor="blue"
+          />
+          <StatCard
+            label="Sample Rate"
+            value={`${fileInfo.sample_rate.toFixed(0)} Hz`}
+            icon={Activity}
+            accentColor="green"
+          />
+          <StatCard
+            label="Duration"
+            value={formatDuration(fileInfo.duration)}
+            icon={Clock}
+            accentColor="orange"
+          />
+          <StatCard
+            label="File Size"
+            value={formatFileSize(fileInfo.file_size)}
+            icon={HardDrive}
+            accentColor="purple"
+          />
+          <StatCard
+            label="Samples"
+            value={formatNumber(fileInfo.total_samples)}
+            icon={Hash}
+            accentColor="default"
+          />
+          <StatCard
+            label="Annotations"
+            value={totalAnnotationCount}
+            icon={Zap}
+            accentColor={totalAnnotationCount > 0 ? "blue" : "default"}
+            description={
+              totalAnnotationCount > 0
+                ? `${annotations.globalCount} global, ${annotations.channelCount} channel`
+                : undefined
+            }
+          />
         </div>
 
         <Separator />
@@ -190,53 +172,15 @@ export function FileInfoCard({ fileInfo }: FileInfoCardProps) {
 
         <Separator />
 
-        {/* Time Range */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Calendar className="h-4 w-4" />
-              <span className="font-medium">Start Time</span>
-            </div>
-            <span className="text-sm">
-              {formatDateTime(fileInfo.start_time)}
-            </span>
+        <div className="flex items-center justify-between text-sm">
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Calendar className="h-4 w-4" />
+            <span className="font-medium">Recording</span>
           </div>
-
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Calendar className="h-4 w-4" />
-              <span className="font-medium">End Time</span>
-            </div>
-            <span className="text-sm">{formatDateTime(fileInfo.end_time)}</span>
-          </div>
-        </div>
-
-        {/* Annotations Count */}
-        <Separator />
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Zap className="h-4 w-4" />
-              <span className="font-medium">Annotations</span>
-            </div>
-            <Badge variant={totalAnnotationCount > 0 ? "default" : "secondary"}>
-              {totalAnnotationCount} annotation
-              {totalAnnotationCount !== 1 ? "s" : ""}
-            </Badge>
-          </div>
-          {totalAnnotationCount > 0 && (
-            <div className="text-xs text-muted-foreground pl-6">
-              {annotations.globalCount > 0 && (
-                <span>{annotations.globalCount} global</span>
-              )}
-              {annotations.globalCount > 0 && annotations.channelCount > 0 && (
-                <span>, </span>
-              )}
-              {annotations.channelCount > 0 && (
-                <span>{annotations.channelCount} channel-specific</span>
-              )}
-            </div>
-          )}
+          <span className="text-muted-foreground">
+            {formatDateTime(fileInfo.start_time)} —{" "}
+            {formatDateTime(fileInfo.end_time)}
+          </span>
         </div>
       </CardContent>
     </Card>

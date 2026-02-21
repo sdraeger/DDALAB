@@ -11,15 +11,21 @@ import { useUndoRedoStore } from "@/store/undoRedoStore";
 import { useAppStore } from "@/store/appStore";
 import { useGlobalSearch } from "@/components/GlobalSearchProvider";
 import { KeyboardShortcutsHelp } from "@/components/KeyboardShortcutsHelp";
+import { createLogger } from "@/lib/logger";
 
 interface KeyboardShortcutsProviderProps {
   children: React.ReactNode;
 }
 
+const logger = createLogger("KeyboardShortcuts");
+
 export function KeyboardShortcutsProvider({
   children,
 }: KeyboardShortcutsProviderProps) {
   const registerShortcut = useKeyboardShortcutsStore((s) => s.registerShortcut);
+  const unregisterShortcut = useKeyboardShortcutsStore(
+    (s) => s.unregisterShortcut,
+  );
   const executeShortcut = useKeyboardShortcutsStore((s) => s.executeShortcut);
   const toggleHelp = useKeyboardShortcutsStore((s) => s.toggleHelp);
   const setHelpOpen = useKeyboardShortcutsStore((s) => s.setHelpOpen);
@@ -27,7 +33,6 @@ export function KeyboardShortcutsProvider({
   // App store actions
   const setPrimaryNav = useAppStore((s) => s.setPrimaryNav);
   const setZoom = useAppStore((s) => s.setZoom);
-  const ui = useAppStore((s) => s.ui);
 
   // Undo/Redo
   const undo = useUndoRedoStore((s) => s.undo);
@@ -65,13 +70,19 @@ export function KeyboardShortcutsProvider({
           break;
         case "zoom-in":
           action = () => {
-            const newZoom = Math.min((ui.zoom || 1) + 0.1, 1.5);
+            const newZoom = Math.min(
+              (useAppStore.getState().ui.zoom || 1) + 0.1,
+              1.5,
+            );
             setZoom(newZoom);
           };
           break;
         case "zoom-out":
           action = () => {
-            const newZoom = Math.max((ui.zoom || 1) - 0.1, 0.75);
+            const newZoom = Math.max(
+              (useAppStore.getState().ui.zoom || 1) - 0.1,
+              0.75,
+            );
             setZoom(newZoom);
           };
           break;
@@ -90,9 +101,9 @@ export function KeyboardShortcutsProvider({
           break;
         default:
           action = () => {
-            console.log(
-              `Shortcut ${shortcut.id} triggered but no action defined`,
-            );
+            logger.debug("Shortcut triggered without bound action", {
+              shortcutId: shortcut.id,
+            });
           };
       }
 
@@ -103,14 +114,20 @@ export function KeyboardShortcutsProvider({
     shortcuts.forEach((shortcut) => {
       registerShortcut(shortcut);
     });
+
+    return () => {
+      shortcuts.forEach((shortcut) => {
+        unregisterShortcut(shortcut.id);
+      });
+    };
   }, [
     registerShortcut,
+    unregisterShortcut,
     openSearch,
     toggleHelp,
     setHelpOpen,
     setPrimaryNav,
     setZoom,
-    ui.zoom,
     undo,
     redo,
   ]);
@@ -149,7 +166,15 @@ export function KeyboardShortcutsProvider({
       else if (primaryNav === "overview") context = "file-manager";
 
       // Try to execute matching shortcut
-      const handled = executeShortcut(e.key, modifiers, context);
+      let handled = executeShortcut(e.key, modifiers, context);
+
+      // Windows/Linux fallback: allow Ctrl to trigger Cmd-based shortcuts.
+      if (!handled && e.ctrlKey && !e.metaKey) {
+        const normalizedModifiers = modifiers.map((modifier) =>
+          modifier === "ctrl" ? "cmd" : modifier,
+        ) as ModifierKey[];
+        handled = executeShortcut(e.key, normalizedModifiers, context);
+      }
 
       if (handled) {
         e.preventDefault();

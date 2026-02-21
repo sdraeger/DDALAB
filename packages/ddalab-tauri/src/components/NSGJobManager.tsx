@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, memo } from "react";
+import { useEffect, useState, useCallback, memo, useRef } from "react";
 import {
   Card,
   CardContent,
@@ -69,6 +69,20 @@ import { useSearchableItems, createActionItem } from "@/hooks/useSearchable";
 import { toast } from "@/components/ui/toaster";
 import { formatBytes, formatDateTime } from "@/lib/utils";
 import { debouncedUpdate, cancelDebouncedUpdate } from "@/utils/debounce";
+import { useIsTauriRuntime } from "@/hooks/useIsTauriRuntime";
+import { createLogger } from "@/lib/logger";
+
+const logger = createLogger("NSGJobManager");
+
+interface NSGDownloadProgressEventPayload {
+  job_id: string;
+  current_file: number;
+  total_files: number;
+  filename: string;
+  bytes_downloaded: number;
+  total_bytes: number;
+  file_progress: number;
+}
 
 function formatDateOrDash(dateStr: string | null): string {
   if (!dateStr) return "-";
@@ -364,6 +378,7 @@ const NSGJobRow = memo(function NSGJobRow({
 });
 
 export const NSGJobManager = memo(function NSGJobManager() {
+  const isTauriRuntime = useIsTauriRuntime();
   // TanStack Query hooks
   const { data: hasCredentials = false } = useNSGCredentials();
   const {
@@ -389,9 +404,7 @@ export const NSGJobManager = memo(function NSGJobManager() {
     jobId: string;
     numChannels: number;
   } | null>(null);
-  const [previousJobStatuses, setPreviousJobStatuses] = useState<
-    Map<string, NSGJobStatus>
-  >(new Map());
+  const previousJobStatusesRef = useRef<Map<string, NSGJobStatus>>(new Map());
   const [downloadProgress, setDownloadProgress] = useState<{
     jobId: string;
     currentFile: number;
@@ -507,6 +520,7 @@ export const NSGJobManager = memo(function NSGJobManager() {
   useEffect(() => {
     if (!jobs.length) return;
 
+    const previousJobStatuses = previousJobStatusesRef.current;
     const newStatuses = new Map<string, NSGJobStatus>();
     for (const job of jobs) {
       newStatuses.set(job.id, job.status);
@@ -526,10 +540,7 @@ export const NSGJobManager = memo(function NSGJobManager() {
           "navigate_nsg_manager",
           { jobId: job.id },
         ).catch((error) => {
-          console.error(
-            "[NSG] Failed to create completion notification:",
-            error,
-          );
+          logger.error("Failed to create completion notification", { error });
         });
       }
 
@@ -546,36 +557,39 @@ export const NSGJobManager = memo(function NSGJobManager() {
           "navigate_nsg_manager",
           { jobId: job.id },
         ).catch((error) => {
-          console.error("[NSG] Failed to create failure notification:", error);
+          logger.error("Failed to create failure notification", { error });
         });
       }
     }
 
-    setPreviousJobStatuses(newStatuses);
+    previousJobStatusesRef.current = newStatuses;
   }, [jobs]);
 
   useEffect(() => {
-    if (!TauriService.isTauri()) return;
+    if (!isTauriRuntime) return;
 
     let unlisten: (() => void) | undefined;
 
     const setupListener = async () => {
       try {
         const { listen } = await import("@tauri-apps/api/event");
-        unlisten = await listen("nsg-download-progress", (event: any) => {
-          const payload = event.payload;
-          setDownloadProgress({
-            jobId: payload.job_id,
-            currentFile: payload.current_file,
-            totalFiles: payload.total_files,
-            filename: payload.filename,
-            bytesDownloaded: payload.bytes_downloaded,
-            totalBytes: payload.total_bytes,
-            fileProgress: payload.file_progress,
-          });
-        });
+        unlisten = await listen<NSGDownloadProgressEventPayload>(
+          "nsg-download-progress",
+          (event) => {
+            const payload = event.payload;
+            setDownloadProgress({
+              jobId: payload.job_id,
+              currentFile: payload.current_file,
+              totalFiles: payload.total_files,
+              filename: payload.filename,
+              bytesDownloaded: payload.bytes_downloaded,
+              totalBytes: payload.total_bytes,
+              fileProgress: payload.file_progress,
+            });
+          },
+        );
       } catch (error) {
-        console.error("[NSG] Failed to setup progress listener:", error);
+        logger.error("Failed to setup progress listener", { error });
       }
     };
 
@@ -586,7 +600,7 @@ export const NSGJobManager = memo(function NSGJobManager() {
         unlisten();
       }
     };
-  }, []);
+  }, [isTauriRuntime]);
 
   const handleRefresh = async () => {
     setError(null);
@@ -599,7 +613,7 @@ export const NSGJobManager = memo(function NSGJobManager() {
         setError(null);
         await updateJobStatus.mutateAsync(jobId);
       } catch (error) {
-        console.error("[NSG] Failed to update job status:", error);
+        logger.error("Failed to update job status", { error, jobId });
         const errorMsg = error instanceof Error ? error.message : String(error);
 
         // If job hasn't been submitted yet, show a clearer message
@@ -722,7 +736,11 @@ export const NSGJobManager = memo(function NSGJobManager() {
           setCopiedJobId(null);
         }, 2000);
       } catch (error) {
-        console.error("Failed to copy job ID:", error);
+        logger.error("Failed to copy job ID", {
+          error,
+          jobId,
+          nsgJobId,
+        });
         setError("Failed to copy job ID to clipboard");
       }
     },
@@ -896,7 +914,10 @@ export const NSGJobManager = memo(function NSGJobManager() {
             numChannels: resultsData.num_channels || 0,
           });
         } catch (parseError) {
-          console.error("[NSG] Failed to parse results file:", parseError);
+          logger.error("Failed to parse results file", {
+            error: parseError,
+            jobId,
+          });
           toast.error(
             "Failed to Load Results",
             "The results file may be corrupted. Check the console for details.",
@@ -904,7 +925,7 @@ export const NSGJobManager = memo(function NSGJobManager() {
           return;
         }
       } catch (error) {
-        console.error("[NSG] Failed to view results:", error);
+        logger.error("Failed to view results", { error, jobId });
         const errorMsg =
           error instanceof Error ? error.message : "Failed to view results";
 
@@ -996,7 +1017,7 @@ export const NSGJobManager = memo(function NSGJobManager() {
     setSuccessDialog(null);
   };
 
-  if (!TauriService.isTauri()) {
+  if (!isTauriRuntime) {
     return (
       <div className="p-6">
         <Alert>
@@ -1128,8 +1149,8 @@ export const NSGJobManager = memo(function NSGJobManager() {
                 No Results Found
               </p>
               <p className="text-sm">
-                No jobs match "<span className="font-medium">{searchTerm}</span>
-                "
+                No jobs match{" "}
+                <span className="font-medium">&quot;{searchTerm}&quot;</span>
               </p>
               <Button
                 variant="outline"

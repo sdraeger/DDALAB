@@ -192,21 +192,27 @@ function TimeSeriesPlotComponent() {
   const [channelOffset, setChannelOffset] = useState(70); // Default spacing between channels (higher = more space)
 
   // Use selectedChannels from store instead of local state
-  const selectedChannels = fileManager.selectedChannels;
+  const selectedChannels = Array.isArray(fileManager.selectedChannels)
+    ? fileManager.selectedChannels
+    : [];
 
-  // Overview plot state - using TanStack Query for better caching and loading states
-  // IMPORTANT: These hooks must come AFTER selectedChannels is declared
-  const { data: rawOverviewData, isLoading: overviewLoading } = useOverviewData(
+  // Overview plot state
+  const {
+    data: rawOverviewData,
+    isLoading: overviewLoading,
+    error: overviewLoadError,
+    refetch: refetchOverview,
+  } = useOverviewData(
     fileManager.selectedFile?.file_path || "",
     selectedChannels,
-    2000, // max points
+    2000,
     !!fileManager.selectedFile && selectedChannels.length > 0,
   );
 
   const { data: overviewProgress } = useOverviewProgress(
     fileManager.selectedFile?.file_path || "",
     selectedChannels,
-    2000, // max points
+    2000,
     overviewLoading &&
       !!fileManager.selectedFile &&
       selectedChannels.length > 0,
@@ -215,16 +221,17 @@ function TimeSeriesPlotComponent() {
   // Extract file path to use as stable dependency for effects
   const filePath = fileManager.selectedFile?.file_path;
 
-  // Guard: Only use overview data if it matches the current file
-  // This prevents stale data from previous files being displayed during file switches
-  const overviewData = useMemo(() => {
+  // Guard: ensure we only pass overview data that matches active file.
+  const safeOverviewData = useMemo(() => {
     if (!rawOverviewData || !filePath) return null;
-    // Verify the data is for the current file
-    if (rawOverviewData.file_path !== filePath) {
-      return null;
-    }
-    return rawOverviewData;
+    return rawOverviewData.file_path === filePath ? rawOverviewData : null;
   }, [rawOverviewData, filePath]);
+
+  const overviewError = overviewLoadError
+    ? overviewLoadError instanceof Error
+      ? overviewLoadError.message
+      : String(overviewLoadError)
+    : null;
 
   // Initialize refs with default values after state is declared
   const channelOffsetRef = useRef(channelOffset);
@@ -1524,13 +1531,15 @@ function TimeSeriesPlotComponent() {
       <div className="flex-shrink-0">
         <OverviewPlot
           key={fileManager.selectedFile?.file_path || "no-file"}
-          overviewData={overviewData || null}
+          overviewData={safeOverviewData || null}
           currentTime={currentTime}
           timeWindow={timeWindow}
           duration={fileManager.selectedFile?.duration || 0}
           onSeek={handleSeek}
           loading={overviewLoading}
           progress={overviewProgress}
+          error={overviewError}
+          onRetry={refetchOverview}
           annotations={timeSeriesAnnotations.annotations}
         />
       </div>

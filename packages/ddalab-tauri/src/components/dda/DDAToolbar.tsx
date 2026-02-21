@@ -21,7 +21,7 @@ import {
   FileText,
   FileCode,
   FileImage,
-  Image,
+  Image as ImageIcon,
   Share2,
   ExternalLink,
   FolderDown,
@@ -34,6 +34,7 @@ export interface DDAExportActions {
   exportPlot: (format: "png" | "svg" | "pdf") => void;
   exportAllData?: (format: "csv" | "json") => void;
   exportScript: (format: "python" | "matlab" | "julia" | "rust") => void;
+  exportPaperBundle: () => void;
   exportSnapshot: (mode: "full" | "recipe_only") => void;
   popOut: () => void;
   share?: () => void;
@@ -171,7 +172,7 @@ export const DDAToolbar = memo(function DDAToolbar({
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm" disabled={!hasExport}>
-                  <Image className="h-4 w-4 mr-1.5" />
+                  <ImageIcon className="h-4 w-4 mr-1.5" />
                   Plot
                 </Button>
               </DropdownMenuTrigger>
@@ -227,6 +228,13 @@ export const DDAToolbar = memo(function DDAToolbar({
             >
               <FileText className="h-4 w-4 mr-2" />
               Recipe Only (parameters)
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => exportActions?.exportPaperBundle()}
+            >
+              <FileCode className="h-4 w-4 mr-2" />
+              Paper Repro Bundle (JSON)
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

@@ -61,12 +61,17 @@ export function Breadcrumb({
     );
   };
 
+  const getItemKey = (item: BreadcrumbItem, index: number) => {
+    const hrefPart = item.href ? `href:${item.href}` : "";
+    return `${hrefPart}:${item.label}:${index}`;
+  };
+
   const renderItem = (item: BreadcrumbItem, index: number) => {
     const isLast = index === visible.length - 1;
     const isClickable = item.onClick || item.href;
 
     return (
-      <React.Fragment key={index}>
+      <React.Fragment key={getItemKey(item, index)}>
         {index > 0 && renderSeparator()}
         <li className="flex items-center">
           {isClickable && !isLast ? (
@@ -146,7 +151,7 @@ export function Breadcrumb({
                 <DropdownMenuContent align="start">
                   {collapsed.map((item, index) => (
                     <DropdownMenuItem
-                      key={index}
+                      key={getItemKey(item, index)}
                       onClick={item.onClick}
                       className="flex items-center gap-2"
                     >

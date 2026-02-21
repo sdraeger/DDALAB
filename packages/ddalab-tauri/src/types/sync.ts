@@ -45,6 +45,7 @@ export interface AccessPolicy {
 
 // Updated share metadata
 export interface ShareMetadata {
+  share_token?: string;
   owner_user_id: string;
   content_type: ShareableContentType;
   content_id: string;
@@ -149,6 +150,14 @@ export interface SharedResultInfo {
   metadata: ShareMetadata;
   download_url: string;
   owner_online: boolean;
+}
+
+export interface SharedContentInfo {
+  metadata: ShareMetadata;
+  content_data?: ShareableContent | Record<string, unknown> | null;
+  download_url: string;
+  owner_online: boolean;
+  owner_name?: string;
 }
 
 export interface SyncConnectionConfig {

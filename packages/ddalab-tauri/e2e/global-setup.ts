@@ -40,8 +40,9 @@ async function globalSetup() {
     initCoverageDir();
   }
 
-  // Check if we should start the API server
-  const startApiServer = process.env.START_API_SERVER !== "false";
+  // Desktop E2E runs against Tauri IPC by default; only start legacy API server
+  // when explicitly requested.
+  const startApiServer = process.env.START_API_SERVER === "true";
 
   if (startApiServer) {
     console.log("\n=== Starting DDALAB API Server for E2E Tests ===");

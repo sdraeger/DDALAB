@@ -10,6 +10,7 @@ import { memo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Cpu, RefreshCw, CheckCircle, AlertCircle, Clock } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 type AnalysisState = "running" | "loading" | "completed" | "error" | "idle";
 
@@ -58,7 +59,11 @@ export const AnalysisStatusCard = memo(function AnalysisStatusCard({
   if (state === "idle") return null;
 
   return (
-    <Card>
+    <Card
+      className={cn(
+        state === "running" && "ring-2 ring-primary/30 animate-pulse-subtle",
+      )}
+    >
       <CardContent className="pt-6">
         <div className="space-y-4">
           <div className="flex items-center justify-between">

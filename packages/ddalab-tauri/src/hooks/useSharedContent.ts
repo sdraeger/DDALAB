@@ -3,7 +3,11 @@
  */
 import { useQuery } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
-import type { ShareMetadata, SharedResultInfo } from "@/types/sync";
+import type {
+  ShareMetadata,
+  SharedResultInfo,
+  SharedContentInfo,
+} from "@/types/sync";
 
 interface SharedItem extends ShareMetadata {
   owner_name?: string;
@@ -53,6 +57,21 @@ export function useAccessShare(token: string) {
     queryKey: ["shares", "access", token],
     queryFn: async () => {
       return invoke<SharedResultInfo>("sync_access_share", { token });
+    },
+    enabled: !!token,
+    staleTime: SHARE_ACCESS_STALE_TIME,
+    retry: 1,
+  });
+}
+
+/**
+ * Access shared content with typed payload (annotations/workflows/parameters/data-segments)
+ */
+export function useAccessSharedContent(token: string) {
+  return useQuery({
+    queryKey: ["shares", "content", token],
+    queryFn: async () => {
+      return invoke<SharedContentInfo>("sync_access_shared_content", { token });
     },
     enabled: !!token,
     staleTime: SHARE_ACCESS_STALE_TIME,

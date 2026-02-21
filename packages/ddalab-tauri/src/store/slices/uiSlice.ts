@@ -28,7 +28,6 @@ export const defaultUIState: UIState = {
   panelSizes: [25, 50, 25],
   layout: "default",
   theme: "auto",
-  isServerReady: false,
   expertMode: false,
   collapsedPanels: {},
   ddaActiveTab: "configure",
@@ -207,12 +206,6 @@ export const createUISlice: ImmerStateCreator<UISlice> = (set, get) => ({
         }),
       );
     }
-  },
-
-  setServerReady: (ready) => {
-    set((state) => {
-      state.ui.isServerReady = ready;
-    });
   },
 
   setExpertMode: (enabled) => {

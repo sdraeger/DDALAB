@@ -112,15 +112,15 @@ export function MyShares() {
   // Memoized render function
   const renderShareItem = useCallback(
     (share: ShareMetadata) => {
+      const shareToken = share.share_token ?? share.content_id;
       const Icon = CONTENT_TYPE_ICONS[share.content_type];
       const expiresAt = share.access_policy?.expires_at
         ? new Date(share.access_policy.expires_at)
         : new Date();
-      const isCopied =
-        copied && copiedValue === `ddalab://share/${share.content_id}`;
+      const isCopied = copied && copiedValue === `ddalab://share/${shareToken}`;
 
       return (
-        <Card key={share.content_id} className="mb-2">
+        <Card key={shareToken} className="mb-2">
           <CardHeader className="py-3">
             <div className="flex items-start justify-between">
               <div className="flex items-start gap-3">
@@ -181,7 +181,7 @@ export function MyShares() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => handleCopyLink(share.content_id)}
+                  onClick={() => handleCopyLink(shareToken)}
                   aria-label={`Copy link for ${share.title}`}
                 >
                   {isCopied ? (
@@ -224,7 +224,7 @@ export function MyShares() {
                     <AlertDialogFooter>
                       <AlertDialogCancel>Cancel</AlertDialogCancel>
                       <AlertDialogAction
-                        onClick={() => handleRevoke(share.content_id)}
+                        onClick={() => handleRevoke(shareToken)}
                       >
                         Revoke
                       </AlertDialogAction>
