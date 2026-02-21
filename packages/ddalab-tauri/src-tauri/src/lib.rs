@@ -56,6 +56,7 @@ pub mod models;
 pub mod nsg;
 pub mod plugins; // WASM plugin system
 pub mod profiling;
+pub mod recording;
 pub mod signal_processing; // Digital signal processing (filters, preprocessing)
 pub mod streaming; // Real-time data streaming and DDA processing
 pub mod sync;

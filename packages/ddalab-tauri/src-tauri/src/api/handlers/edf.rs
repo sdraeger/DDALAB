@@ -374,7 +374,19 @@ fn apply_preprocessing_to_chunk(
             );
         }
 
-        // Use std::mem::take to avoid unnecessary data copy - we're replacing chunk.data anyway
+        // Keep original data as a safety fallback if filtering produces unstable values.
+        let original_channels = chunk.data.clone();
+        let input_channel_max_abs: Vec<f64> = original_channels
+            .iter()
+            .map(|channel| {
+                channel
+                    .iter()
+                    .filter(|v| v.is_finite())
+                    .fold(0.0_f64, |acc, v| acc.max(v.abs()))
+            })
+            .collect();
+
+        // Use std::mem::take to avoid unnecessary data copy - we're replacing chunk.data anyway.
         let channels = std::mem::take(&mut chunk.data);
         let channel_labels = std::mem::take(&mut chunk.channel_labels);
         let result = preprocess_batch_owned(channels, channel_labels, &config).map_err(|e| {
@@ -401,7 +413,60 @@ fn apply_preprocessing_to_chunk(
             );
         }
 
-        chunk.data = result.channels;
+        if !result.warnings.is_empty() {
+            log::warn!(
+                "[PREPROCESSING] Pipeline warnings: {}",
+                result.warnings.join(" | ")
+            );
+        }
+
+        let mut filtered_channels = result.channels;
+        let mut replaced_labels = Vec::new();
+        let mut replaced_non_finite = 0usize;
+        let mut replaced_extreme = 0usize;
+
+        for (idx, filtered_channel) in filtered_channels.iter_mut().enumerate() {
+            let input_max_abs = input_channel_max_abs.get(idx).copied().unwrap_or(0.0);
+            let extreme_threshold = (input_max_abs * 1_000.0).max(1_000_000.0);
+
+            let mut non_finite_count = 0usize;
+            let mut extreme_count = 0usize;
+            for &value in filtered_channel.iter() {
+                if !value.is_finite() {
+                    non_finite_count += 1;
+                } else if value.abs() > extreme_threshold {
+                    extreme_count += 1;
+                }
+            }
+
+            if non_finite_count > 0 || extreme_count > 0 {
+                replaced_non_finite += non_finite_count;
+                replaced_extreme += extreme_count;
+                replaced_labels.push(
+                    result
+                        .channel_names
+                        .get(idx)
+                        .cloned()
+                        .unwrap_or_else(|| format!("ch{}", idx)),
+                );
+
+                if let Some(original) = original_channels.get(idx) {
+                    *filtered_channel = original.clone();
+                }
+            }
+        }
+
+        if !replaced_labels.is_empty() {
+            log::warn!(
+                "[PREPROCESSING] Replaced {} unstable filtered channels with original data (non_finite_samples={}, extreme_samples={}): {}",
+                replaced_labels.len(),
+                replaced_non_finite,
+                replaced_extreme,
+                replaced_labels.join(", ")
+            );
+        }
+
+        chunk.data = filtered_channels;
         chunk.channel_labels = result.channel_names;
 
         log::info!(

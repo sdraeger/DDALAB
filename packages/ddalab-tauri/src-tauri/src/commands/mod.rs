@@ -1,5 +1,4 @@
 pub mod annotation_commands;
-pub mod api_commands; // Unified API commands (local and remote)
 pub mod batch_ipc_commands; // Batch DDA analysis via IPC
 pub mod bids_export_commands;
 pub mod cli_commands; // CLI install/uninstall commands
@@ -32,7 +31,6 @@ pub mod visualization_commands; // Phase space and other visualization computati
 pub mod window_commands;
 
 pub use annotation_commands::*;
-pub use api_commands::*;
 pub use batch_ipc_commands::*;
 pub use bids_export_commands::*;
 pub use cli_commands::*;

@@ -15,10 +15,13 @@ pub use commands::{
     job_submit_server_file,
     // Sync commands
     sync_access_share,
+    sync_access_shared_content,
     sync_connect,
     sync_disconnect,
     sync_discover_brokers,
     sync_is_connected,
+    sync_list_my_shares,
+    sync_list_shared_with_me,
     sync_revoke_share,
     sync_share_content,
     sync_share_result,

@@ -96,6 +96,8 @@ pub struct DDAAnalysisRequest {
     pub cd_channel_pairs: Option<Vec<[usize; 2]>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_parameters: Option<ModelParameters>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_terms: Option<Vec<i32>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub variant_configs: Option<serde_json::Value>,
 }
@@ -403,6 +405,11 @@ fn convert_to_dda_request(api_req: &DDAAnalysisRequest, sample_rate: f64) -> dda
                 order: mp.order,
                 nr_tau: mp.nr_tau,
             }),
+        model_terms: api_req
+            .model_terms
+            .as_ref()
+            .filter(|terms| !terms.is_empty())
+            .cloned(),
         variant_configs: None,
         sampling_rate: Some(sample_rate),
     }

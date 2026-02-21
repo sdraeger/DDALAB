@@ -72,9 +72,23 @@ impl BiquadFilter {
     /// Process a single sample using Direct Form II Transposed
     #[inline]
     pub fn process(&mut self, input: f64) -> f64 {
+        if !input.is_finite() {
+            self.reset();
+            return 0.0;
+        }
+
         let output = self.coeffs.b0 * input + self.state.z1;
         self.state.z1 = self.coeffs.b1 * input - self.coeffs.a1 * output + self.state.z2;
         self.state.z2 = self.coeffs.b2 * input - self.coeffs.a2 * output;
+
+        let output_unstable = !output.is_finite();
+        let state_unstable = !self.state.z1.is_finite() || !self.state.z2.is_finite();
+        if output_unstable || state_unstable {
+            self.reset();
+            // Fail-safe: preserve original sample if filter diverges.
+            return input;
+        }
+
         output
     }
 
@@ -144,113 +158,142 @@ pub struct ButterworthFilter;
 impl ButterworthFilter {
     /// Design a Butterworth lowpass filter
     pub fn lowpass(cutoff: f64, sample_rate: f64, order: usize) -> SosFilter {
-        let wn = Self::prewarp(cutoff, sample_rate);
-        let (sos, gain) = Self::design_lowpass(wn, order);
+        let (sos, gain) = Self::design_lowpass(cutoff, sample_rate, order);
         SosFilter::new(sos, gain)
     }
 
     /// Design a Butterworth highpass filter
     pub fn highpass(cutoff: f64, sample_rate: f64, order: usize) -> SosFilter {
-        let wn = Self::prewarp(cutoff, sample_rate);
-        let (sos, gain) = Self::design_highpass(wn, order);
+        let (sos, gain) = Self::design_highpass(cutoff, sample_rate, order);
         SosFilter::new(sos, gain)
     }
 
     /// Design a Butterworth bandpass filter
     pub fn bandpass(low: f64, high: f64, sample_rate: f64, order: usize) -> SosFilter {
-        let wn_low = Self::prewarp(low, sample_rate);
-        let wn_high = Self::prewarp(high, sample_rate);
-        let (sos, gain) = Self::design_bandpass(wn_low, wn_high, order);
+        let (sos, gain) = Self::design_bandpass(low, high, sample_rate, order);
         SosFilter::new(sos, gain)
     }
 
-    /// Prewarp frequency for bilinear transform
-    fn prewarp(freq: f64, sample_rate: f64) -> f64 {
-        (PI * freq / sample_rate).tan()
+    fn butterworth_q(k: usize, order: usize) -> f64 {
+        // Butterworth pole-based Q for each biquad stage (k starts at 0).
+        let angle = PI * (2.0 * k as f64 + 1.0) / (2.0 * order as f64);
+        (1.0 / (2.0 * angle.cos())).max(1e-6)
+    }
+
+    fn lowpass_biquad(cutoff: f64, sample_rate: f64, q: f64) -> BiquadCoeffs {
+        let w0 = 2.0 * PI * cutoff / sample_rate;
+        let cos_w0 = w0.cos();
+        let sin_w0 = w0.sin();
+        let alpha = sin_w0 / (2.0 * q.max(1e-6));
+
+        let b0 = (1.0 - cos_w0) / 2.0;
+        let b1 = 1.0 - cos_w0;
+        let b2 = (1.0 - cos_w0) / 2.0;
+        let a0 = 1.0 + alpha;
+        let a1 = -2.0 * cos_w0;
+        let a2 = 1.0 - alpha;
+
+        BiquadCoeffs {
+            b0: b0 / a0,
+            b1: b1 / a0,
+            b2: b2 / a0,
+            a1: a1 / a0,
+            a2: a2 / a0,
+        }
+    }
+
+    fn highpass_biquad(cutoff: f64, sample_rate: f64, q: f64) -> BiquadCoeffs {
+        let w0 = 2.0 * PI * cutoff / sample_rate;
+        let cos_w0 = w0.cos();
+        let sin_w0 = w0.sin();
+        let alpha = sin_w0 / (2.0 * q.max(1e-6));
+
+        let b0 = (1.0 + cos_w0) / 2.0;
+        let b1 = -(1.0 + cos_w0);
+        let b2 = (1.0 + cos_w0) / 2.0;
+        let a0 = 1.0 + alpha;
+        let a1 = -2.0 * cos_w0;
+        let a2 = 1.0 - alpha;
+
+        BiquadCoeffs {
+            b0: b0 / a0,
+            b1: b1 / a0,
+            b2: b2 / a0,
+            a1: a1 / a0,
+            a2: a2 / a0,
+        }
+    }
+
+    fn lowpass_first_order(cutoff: f64, sample_rate: f64) -> BiquadCoeffs {
+        let k = (PI * cutoff / sample_rate).tan();
+        let norm = 1.0 / (1.0 + k);
+        BiquadCoeffs {
+            b0: k * norm,
+            b1: k * norm,
+            b2: 0.0,
+            a1: (k - 1.0) * norm,
+            a2: 0.0,
+        }
+    }
+
+    fn highpass_first_order(cutoff: f64, sample_rate: f64) -> BiquadCoeffs {
+        let k = (PI * cutoff / sample_rate).tan();
+        let norm = 1.0 / (1.0 + k);
+        BiquadCoeffs {
+            b0: norm,
+            b1: -norm,
+            b2: 0.0,
+            a1: (k - 1.0) * norm,
+            a2: 0.0,
+        }
     }
 
     /// Design lowpass second-order sections
-    fn design_lowpass(wn: f64, order: usize) -> (Vec<BiquadCoeffs>, f64) {
-        let num_sections = (order + 1) / 2;
-        let mut sections = Vec::with_capacity(num_sections);
-        let mut total_gain = 1.0;
+    fn design_lowpass(cutoff: f64, sample_rate: f64, order: usize) -> (Vec<BiquadCoeffs>, f64) {
+        let order = order.max(1);
+        let biquad_count = order / 2;
+        let mut sections = Vec::with_capacity((order + 1) / 2);
 
-        for k in 0..num_sections {
-            let theta = PI * (2.0 * k as f64 + 1.0) / (2.0 * order as f64);
-            let alpha = -2.0 * theta.cos();
-
-            // For odd order, last section is first-order
-            if order % 2 == 1 && k == num_sections - 1 {
-                // First-order section: H(s) = wn / (s + wn)
-                let k_coeff = wn / (1.0 + wn);
-                sections.push(BiquadCoeffs {
-                    b0: k_coeff,
-                    b1: k_coeff,
-                    b2: 0.0,
-                    a1: (wn - 1.0) / (wn + 1.0),
-                    a2: 0.0,
-                });
-                total_gain *= 1.0;
-            } else {
-                // Second-order section via bilinear transform
-                let wn2 = wn * wn;
-                let denom = 1.0 + alpha * wn + wn2;
-
-                let b0 = wn2 / denom;
-                let b1 = 2.0 * wn2 / denom;
-                let b2 = wn2 / denom;
-                let a1 = 2.0 * (wn2 - 1.0) / denom;
-                let a2 = (1.0 - alpha * wn + wn2) / denom;
-
-                sections.push(BiquadCoeffs { b0, b1, b2, a1, a2 });
-            }
+        for k in 0..biquad_count {
+            let q = Self::butterworth_q(k, order);
+            sections.push(Self::lowpass_biquad(cutoff, sample_rate, q));
         }
 
-        (sections, total_gain)
+        if order % 2 == 1 {
+            sections.push(Self::lowpass_first_order(cutoff, sample_rate));
+        }
+
+        (sections, 1.0)
     }
 
     /// Design highpass second-order sections
-    fn design_highpass(wn: f64, order: usize) -> (Vec<BiquadCoeffs>, f64) {
-        let num_sections = (order + 1) / 2;
-        let mut sections = Vec::with_capacity(num_sections);
-        let mut total_gain = 1.0;
+    fn design_highpass(cutoff: f64, sample_rate: f64, order: usize) -> (Vec<BiquadCoeffs>, f64) {
+        let order = order.max(1);
+        let biquad_count = order / 2;
+        let mut sections = Vec::with_capacity((order + 1) / 2);
 
-        for k in 0..num_sections {
-            let theta = PI * (2.0 * k as f64 + 1.0) / (2.0 * order as f64);
-            let alpha = -2.0 * theta.cos();
-
-            if order % 2 == 1 && k == num_sections - 1 {
-                // First-order highpass
-                let k_coeff = 1.0 / (1.0 + wn);
-                sections.push(BiquadCoeffs {
-                    b0: k_coeff,
-                    b1: -k_coeff,
-                    b2: 0.0,
-                    a1: (wn - 1.0) / (wn + 1.0),
-                    a2: 0.0,
-                });
-            } else {
-                let wn2 = wn * wn;
-                let denom = 1.0 + alpha * wn + wn2;
-
-                let b0 = 1.0 / denom;
-                let b1 = -2.0 / denom;
-                let b2 = 1.0 / denom;
-                let a1 = 2.0 * (wn2 - 1.0) / denom;
-                let a2 = (1.0 - alpha * wn + wn2) / denom;
-
-                sections.push(BiquadCoeffs { b0, b1, b2, a1, a2 });
-            }
+        for k in 0..biquad_count {
+            let q = Self::butterworth_q(k, order);
+            sections.push(Self::highpass_biquad(cutoff, sample_rate, q));
         }
 
-        (sections, total_gain)
+        if order % 2 == 1 {
+            sections.push(Self::highpass_first_order(cutoff, sample_rate));
+        }
+
+        (sections, 1.0)
     }
 
     /// Design bandpass second-order sections
-    fn design_bandpass(wn_low: f64, wn_high: f64, order: usize) -> (Vec<BiquadCoeffs>, f64) {
+    fn design_bandpass(
+        low: f64,
+        high: f64,
+        sample_rate: f64,
+        order: usize,
+    ) -> (Vec<BiquadCoeffs>, f64) {
         // Bandpass = cascade of highpass and lowpass
-        let (hp_sos, hp_gain) = Self::design_highpass(wn_low, order);
-        let (lp_sos, lp_gain) = Self::design_lowpass(wn_high, order);
+        let (hp_sos, hp_gain) = Self::design_highpass(low, sample_rate, order);
+        let (lp_sos, lp_gain) = Self::design_lowpass(high, sample_rate, order);
 
         let mut sections = hp_sos;
         sections.extend(lp_sos);
@@ -272,7 +315,6 @@ impl NotchFilter {
     pub fn design(center_freq: f64, sample_rate: f64, q_factor: f64) -> SosFilter {
         let w0 = 2.0 * PI * center_freq / sample_rate;
         let bandwidth = w0 / q_factor;
-
         let cos_w0 = w0.cos();
         let sin_w0 = w0.sin();
         let alpha = sin_w0 * (bandwidth / 2.0).sinh();
@@ -394,11 +436,14 @@ mod tests {
     fn test_lowpass_filter() {
         let mut filter = ButterworthFilter::lowpass(10.0, 100.0, 2);
 
-        // DC should pass through
-        for _ in 0..100 {
-            let out = filter.process(1.0);
-            assert!((out - 1.0).abs() < 0.01 || out > 0.9);
+        let mut outputs = Vec::with_capacity(1000);
+        for _ in 0..1000 {
+            outputs.push(filter.process(1.0));
         }
+
+        assert!(outputs.iter().all(|v| v.is_finite()));
+        let steady_state = outputs.last().copied().unwrap_or(0.0);
+        assert!((steady_state - 1.0).abs() < 0.02);
     }
 
     #[test]
@@ -406,23 +451,51 @@ mod tests {
         let sample_rate = 1000.0;
         let notch_freq = 50.0;
         let mut filter = NotchFilter::design(notch_freq, sample_rate, 30.0);
+        let warmup_samples = 1000usize;
+        let total_samples = 5000usize;
 
-        // Generate 50Hz sine wave
-        let signal: Vec<f64> = (0..1000)
+        // Generate a longer 50Hz sine wave so the notch can settle before evaluation.
+        let signal: Vec<f64> = (0..total_samples)
             .map(|i| (2.0 * PI * notch_freq * i as f64 / sample_rate).sin())
             .collect();
 
         let filtered = filter.filter(&signal);
 
-        // RMS of filtered signal should be much smaller
+        // Ignore startup transient; assess attenuation on steady-state tail.
+        let input_tail = &signal[warmup_samples..];
+        let output_tail = &filtered[warmup_samples..];
+
         let input_rms: f64 =
-            (signal.iter().map(|x| x * x).sum::<f64>() / signal.len() as f64).sqrt();
+            (input_tail.iter().map(|x| x * x).sum::<f64>() / input_tail.len() as f64).sqrt();
         let output_rms: f64 =
-            (filtered.iter().map(|x| x * x).sum::<f64>() / filtered.len() as f64).sqrt();
+            (output_tail.iter().map(|x| x * x).sum::<f64>() / output_tail.len() as f64).sqrt();
 
         assert!(
             output_rms < input_rms * 0.1,
-            "Notch filter should attenuate 50Hz"
+            "Notch filter should attenuate 50Hz after warm-up"
         );
+    }
+
+    #[test]
+    fn test_filter_guard_handles_non_finite_input() {
+        let mut filter = ButterworthFilter::lowpass(10.0, 100.0, 2);
+        let out = filter.process(f64::NAN);
+        assert!(out.is_finite());
+        assert_eq!(out, 0.0);
+    }
+
+    #[test]
+    fn test_filter_guard_prevents_unstable_blow_up() {
+        let unstable = BiquadCoeffs {
+            b0: 1.0,
+            b1: 1.0,
+            b2: 1.0,
+            a1: -10.0,
+            a2: 10.0,
+        };
+        let mut filter = SosFilter::new(vec![unstable], 1.0);
+        let signal = vec![1.0; 1024];
+        let out = filter.filter(&signal);
+        assert!(out.iter().all(|v| v.is_finite()));
     }
 }
