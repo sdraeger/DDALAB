@@ -23,6 +23,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
  * Shows bottlenecks, render times, and provides optimization recommendations.
  */
 export function PerformanceMonitor() {
+  const isDevelopment = process.env.NODE_ENV === "development";
   const [isOpen, setIsOpen] = useState(false);
   const [report, setReport] = useState<ReturnType<
     typeof profiler.generateReport
@@ -30,11 +31,6 @@ export function PerformanceMonitor() {
   const [memoryUsage, setMemoryUsage] = useState<ReturnType<
     typeof profiler.getMemoryUsage
   > | null>(null);
-
-  // Only show in development
-  if (process.env.NODE_ENV !== "development") {
-    return null;
-  }
 
   const refreshReport = () => {
     setReport(profiler.generateReport(50));
@@ -67,12 +63,16 @@ export function PerformanceMonitor() {
 
   // Auto-refresh report when dialog opens
   useEffect(() => {
-    if (isOpen) {
-      refreshReport();
-      const interval = setInterval(refreshReport, 2000);
-      return () => clearInterval(interval);
-    }
-  }, [isOpen]);
+    if (!isDevelopment || !isOpen) return;
+    refreshReport();
+    const interval = setInterval(refreshReport, 2000);
+    return () => clearInterval(interval);
+  }, [isOpen, isDevelopment]);
+
+  // Only show in development
+  if (!isDevelopment) {
+    return null;
+  }
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>

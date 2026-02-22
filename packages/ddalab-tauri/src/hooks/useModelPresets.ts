@@ -2,7 +2,7 @@
  * Hook for managing model encoding presets with localStorage persistence
  */
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 export interface ModelPreset {
   id: string;
@@ -68,30 +68,27 @@ const BUILTIN_DATA_PRESETS: ModelPreset[] = [
 ];
 
 export const useModelPresets = () => {
-  const [customPresets, setCustomPresets] = useState<ModelPreset[]>([]);
-  const isInitialized = useRef(false);
+  const [customPresets, setCustomPresets] = useState<ModelPreset[]>(() => {
+    if (typeof window === "undefined") {
+      return [];
+    }
 
-  // Load custom presets from localStorage on mount
-  useEffect(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed)) {
-          setCustomPresets(parsed);
+          return parsed;
         }
       }
     } catch {
       // Ignore localStorage errors
     }
-    // Mark as initialized after first load to prevent save effect from
-    // overwriting localStorage with empty array before load completes
-    isInitialized.current = true;
-  }, []);
+    return [];
+  });
 
-  // Save custom presets to localStorage whenever they change (after initial load)
+  // Save custom presets to localStorage whenever they change
   useEffect(() => {
-    if (!isInitialized.current) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(customPresets));
     } catch {
