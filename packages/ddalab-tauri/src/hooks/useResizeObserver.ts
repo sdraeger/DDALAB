@@ -40,10 +40,9 @@ export function useResizeObserver<T extends HTMLElement = HTMLDivElement>(
     const element = ref.current;
     if (!element) return;
 
-    // Initialize with current size
+    // Initialize comparison baseline with current size
     const initialWidth = element.clientWidth || defaultWidth;
     const initialHeight = element.clientHeight || defaultHeight;
-    setSize({ width: initialWidth, height: initialHeight });
     lastSizeRef.current = { width: initialWidth, height: initialHeight };
 
     const resizeObserver = new ResizeObserver((entries) => {

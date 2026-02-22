@@ -373,39 +373,26 @@ export const profiler = new PerformanceProfiler();
 export function useRenderProfiler(componentName: string) {
   const profilingEnabled = profiler.isEnabled();
   const renderCount = useRef(0);
-  const renderStartTime = useRef(0);
-
-  if (profilingEnabled) {
-    // Increment render count and start timing at the BEGINNING of render (synchronous)
-    renderCount.current++;
-
-    // Start timing at the beginning of this render
-    if (renderStartTime.current === 0) {
-      renderStartTime.current = performance.now();
-    }
-
-    // Log excessive re-renders (synchronously during render)
-    if (renderCount.current > 10 && renderCount.current % 10 === 0) {
-      console.warn(
-        `[Profiler] ${componentName} has rendered ${renderCount.current} times. Consider memoization.`,
-      );
-    }
-  }
 
   useEffect(() => {
     if (!profilingEnabled) return;
 
-    const currentRenderCount = renderCount.current;
+    const currentRenderCount = ++renderCount.current;
 
-    // Measure time from render start to effect execution
-    const renderEndTime = performance.now();
-    const renderDuration = renderEndTime - renderStartTime.current;
+    if (currentRenderCount > 10 && currentRenderCount % 10 === 0) {
+      console.warn(
+        `[Profiler] ${componentName} has rendered ${currentRenderCount} times. Consider memoization.`,
+      );
+    }
 
-    if (renderDuration > 0) {
-      // Create a completed metric directly
+    const renderStartTime = performance.now();
+    const frameId = requestAnimationFrame(() => {
+      const renderEndTime = performance.now();
+      const renderDuration = renderEndTime - renderStartTime;
+
       const metric: PerformanceMetric = {
         name: `${componentName}-render`,
-        startTime: renderStartTime.current,
+        startTime: renderStartTime,
         endTime: renderEndTime,
         duration: renderDuration,
         metadata: {
@@ -422,10 +409,11 @@ export function useRenderProfiler(componentName: string) {
           `[Profiler] Slow render detected: ${componentName} (render #${currentRenderCount}) took ${renderDuration.toFixed(2)}ms`,
         );
       }
-    }
+    });
 
-    // Reset start time for next render
-    renderStartTime.current = performance.now();
+    return () => {
+      cancelAnimationFrame(frameId);
+    };
   }, [componentName, profilingEnabled]);
 }
 

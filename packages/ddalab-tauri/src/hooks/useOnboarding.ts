@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
 const ONBOARDING_STORAGE_KEY = "ddalab_onboarding_completed";
 
@@ -11,38 +11,31 @@ export interface OnboardingState {
 }
 
 export function useOnboarding(): OnboardingState {
-  const [showOnboarding, setShowOnboarding] = useState(false);
-  const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(true);
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const completed = localStorage.getItem(ONBOARDING_STORAGE_KEY);
-      const hasCompleted = completed === "true";
-      setHasCompletedOnboarding(hasCompleted);
-      setShowOnboarding(!hasCompleted);
+  const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(() => {
+    if (typeof window === "undefined") {
+      return true;
     }
-  }, []);
+    const completed = localStorage.getItem(ONBOARDING_STORAGE_KEY);
+    return completed === "true";
+  });
 
   const completeOnboarding = () => {
     localStorage.setItem(ONBOARDING_STORAGE_KEY, "true");
     setHasCompletedOnboarding(true);
-    setShowOnboarding(false);
   };
 
   const skipOnboarding = () => {
     localStorage.setItem(ONBOARDING_STORAGE_KEY, "true");
     setHasCompletedOnboarding(true);
-    setShowOnboarding(false);
   };
 
   const resetOnboarding = () => {
     localStorage.removeItem(ONBOARDING_STORAGE_KEY);
     setHasCompletedOnboarding(false);
-    setShowOnboarding(true);
   };
 
   return {
-    showOnboarding,
+    showOnboarding: !hasCompletedOnboarding,
     completeOnboarding,
     skipOnboarding,
     resetOnboarding,

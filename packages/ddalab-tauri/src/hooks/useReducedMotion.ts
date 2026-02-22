@@ -10,16 +10,16 @@ import { useState, useEffect } from "react";
  * This helps disable animations for users who have motion sensitivity.
  */
 export function useReducedMotion(): boolean {
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  });
 
   useEffect(() => {
     // Check if we're in a browser environment
     if (typeof window === "undefined") return;
 
     const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-
-    // Set initial value
-    setPrefersReducedMotion(mediaQuery.matches);
 
     // Listen for changes
     const handleChange = (event: MediaQueryListEvent) => {

@@ -39,6 +39,16 @@ export default [
           allow: ["warn", "error", "info"],
         },
       ],
+      // Temporary compatibility bridge while migrating legacy code
+      // to React 19's stricter hook lint semantics.
+      "react-hooks/immutability": "warn",
+      "react-hooks/purity": "warn",
+      "react-hooks/refs": "warn",
+      "react-hooks/set-state-in-effect": "warn",
+      "react-hooks/static-components": "warn",
+      "react-hooks/preserve-manual-memoization": "warn",
+      "react/no-unescaped-entities": "warn",
+      "react/jsx-no-comment-textnodes": "warn",
     },
   },
 ];

@@ -6,7 +6,7 @@
  * after component unmount.
  */
 
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect, useCallback, useMemo } from "react";
 
 /**
  * A collection of timer IDs for cleanup
@@ -127,7 +127,7 @@ export class TimerManager {
  * ```
  */
 export function useSafeTimers(): TimerManager {
-  const manager = useRef(new TimerManager()).current;
+  const manager = useMemo(() => new TimerManager(), []);
 
   // Cleanup on unmount
   useEffect(() => {
