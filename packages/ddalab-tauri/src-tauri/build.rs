@@ -46,6 +46,132 @@ fn fetch_latest_version() -> String {
     "v1.1".to_string()
 }
 
+fn set_executable_permissions(path: &PathBuf) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(path)
+            .expect("Failed to get file metadata")
+            .permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(path, perms).expect("Failed to set executable permissions");
+    }
+}
+
+fn copy_cli_binary(from: &PathBuf, to: &PathBuf) {
+    if let Some(parent) = to.parent() {
+        std::fs::create_dir_all(parent).expect("Failed to create dda-cli target directory");
+    }
+    std::fs::copy(from, to).unwrap_or_else(|err| {
+        panic!(
+            "Failed to copy ddalab CLI binary from {} to {}: {}",
+            from.display(),
+            to.display(),
+            err
+        )
+    });
+    set_executable_permissions(to);
+}
+
+fn ensure_ddalab_cli_resource() {
+    let cli_dir = PathBuf::from("../../../packages/dda-cli");
+    let cli_target_dir = cli_dir.join("target");
+    let binary_name = if cfg!(windows) {
+        "ddalab.exe"
+    } else {
+        "ddalab"
+    };
+    let expected_resource_path = cli_target_dir.join("release").join(binary_name);
+    let target_triple = std::env::var("TAURI_ENV_TARGET_TRIPLE")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+
+    println!(
+        "cargo:warning=Ensuring ddalab CLI resource exists at {}",
+        expected_resource_path.display()
+    );
+
+    if expected_resource_path.exists() {
+        println!(
+            "cargo:warning=ddalab CLI resource already exists: {}",
+            expected_resource_path.display()
+        );
+        return;
+    }
+
+    let mut candidates = Vec::new();
+    if let Some(triple) = target_triple.as_ref() {
+        candidates.push(
+            cli_target_dir
+                .join(triple)
+                .join("release")
+                .join(binary_name),
+        );
+    }
+    candidates.push(cli_target_dir.join("release").join(binary_name));
+
+    for candidate in &candidates {
+        if candidate.exists() {
+            println!(
+                "cargo:warning=Using existing ddalab CLI binary from {}",
+                candidate.display()
+            );
+            copy_cli_binary(candidate, &expected_resource_path);
+            return;
+        }
+    }
+
+    println!("cargo:warning=ddalab CLI binary missing, building dda-cli...");
+
+    let manifest_path = cli_dir.join("Cargo.toml");
+    let mut build_command = Command::new("cargo");
+    build_command
+        .arg("build")
+        .arg("--manifest-path")
+        .arg(manifest_path.to_string_lossy().to_string())
+        .arg("--bin")
+        .arg("ddalab")
+        .arg("--release");
+
+    if let Some(triple) = target_triple.as_ref() {
+        build_command.arg("--target").arg(triple);
+    }
+
+    let status = build_command
+        .status()
+        .expect("Failed to execute cargo build for dda-cli");
+    if !status.success() {
+        panic!("Failed to build dda-cli binary for Tauri bundle resources");
+    }
+
+    let built_binary = if let Some(triple) = target_triple {
+        cli_target_dir
+            .join(triple)
+            .join("release")
+            .join(binary_name)
+    } else {
+        cli_target_dir.join("release").join(binary_name)
+    };
+
+    if !built_binary.exists() {
+        panic!(
+            "dda-cli build completed but output binary was not found at {}",
+            built_binary.display()
+        );
+    }
+
+    if built_binary != expected_resource_path {
+        println!(
+            "cargo:warning=Copying built ddalab CLI binary from {} to {}",
+            built_binary.display(),
+            expected_resource_path.display()
+        );
+        copy_cli_binary(&built_binary, &expected_resource_path);
+    } else {
+        set_executable_permissions(&built_binary);
+    }
+}
+
 fn main() {
     // Download run_DDA_AsciiEdf binary if it doesn't exist
     // The binary is an APE (Actually Portable Executable) - same file for all platforms
@@ -102,16 +228,7 @@ fn main() {
         }
 
         // Make it executable on Unix
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut perms = std::fs::metadata(&dda_binary)
-                .expect("Failed to get file metadata")
-                .permissions();
-            perms.set_mode(0o755);
-            std::fs::set_permissions(&dda_binary, perms)
-                .expect("Failed to set executable permissions");
-        }
+        set_executable_permissions(&dda_binary);
 
         println!(
             "cargo:warning=Successfully downloaded APE binary as {}",
@@ -124,6 +241,8 @@ fn main() {
             binary_name
         );
     }
+
+    ensure_ddalab_cli_resource();
 
     tauri_build::build()
 }
