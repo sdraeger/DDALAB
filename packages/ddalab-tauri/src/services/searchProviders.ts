@@ -18,6 +18,10 @@ import { useExportHistoryStore } from "@/store/exportHistoryStore";
 import { useRecentFilesStore } from "@/store/recentFilesStore";
 import { useNotificationStore } from "@/store/notificationStore";
 import { useKeyboardShortcutsStore } from "@/store/keyboardShortcutsStore";
+import {
+  requestOnboardingReplay,
+  requestSettingsSection,
+} from "@/lib/appNavigationEvents";
 
 /**
  * Helper to safely get state manager.
@@ -253,15 +257,8 @@ export class SettingsSearchProvider implements SearchProvider {
           icon: "Settings",
           keywords: section.keywords,
           action: () => {
+            requestSettingsSection(section.id);
             getState()?.setPrimaryNav("settings");
-            setTimeout(() => {
-              const element = document.getElementById(
-                `settings-section-${section.id}`,
-              );
-              if (element) {
-                element.scrollIntoView({ behavior: "smooth", block: "start" });
-              }
-            }, 100);
           },
         });
       }
@@ -1516,6 +1513,50 @@ export class HelpSearchProvider implements SearchProvider {
       );
 
       if (matchesTitle || matchesDescription || matchesKeywords) {
+        let action: SearchResult["action"];
+
+        switch (topic.id) {
+          case "help-getting-started":
+            action = () => {
+              const state = getState();
+              state?.setPrimaryNav("overview");
+              requestOnboardingReplay();
+            };
+            break;
+          case "help-shortcuts":
+            action = () => {
+              useKeyboardShortcutsStore.getState().setHelpOpen(true);
+            };
+            break;
+          case "help-parameter-guide":
+            action = () => {
+              const state = getState();
+              if (!state) return;
+              state.setPrimaryNav("analyze");
+              state.setSecondaryNav("dda");
+            };
+            break;
+          case "help-interpretation":
+            action = () => {
+              const state = getState();
+              if (!state) return;
+              state.setPrimaryNav("analyze");
+              state.setSecondaryNav("dda");
+            };
+            break;
+          case "help-file-formats":
+            action = () => {
+              const state = getState();
+              if (!state) return;
+              state.setPrimaryNav("explore");
+              state.setSecondaryNav("timeseries");
+              state.setSidebarOpen(true);
+            };
+            break;
+          default:
+            action = () => {};
+        }
+
         results.push({
           id: topic.id,
           type: "action",
@@ -1524,9 +1565,7 @@ export class HelpSearchProvider implements SearchProvider {
           category: "Help & Documentation",
           icon: "Home",
           keywords: topic.keywords,
-          action: () => {
-            // TODO: Open help modal or navigate to docs
-          },
+          action,
         });
       }
     });

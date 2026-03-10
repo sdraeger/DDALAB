@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { REPLAY_ONBOARDING_EVENT } from "@/lib/appNavigationEvents";
 
 const ONBOARDING_STORAGE_KEY = "ddalab_onboarding_completed";
 
@@ -19,20 +20,34 @@ export function useOnboarding(): OnboardingState {
     return completed === "true";
   });
 
-  const completeOnboarding = () => {
+  const completeOnboarding = useCallback(() => {
     localStorage.setItem(ONBOARDING_STORAGE_KEY, "true");
     setHasCompletedOnboarding(true);
-  };
+  }, []);
 
-  const skipOnboarding = () => {
+  const skipOnboarding = useCallback(() => {
     localStorage.setItem(ONBOARDING_STORAGE_KEY, "true");
     setHasCompletedOnboarding(true);
-  };
+  }, []);
 
-  const resetOnboarding = () => {
+  const resetOnboarding = useCallback(() => {
     localStorage.removeItem(ONBOARDING_STORAGE_KEY);
     setHasCompletedOnboarding(false);
-  };
+  }, []);
+
+  useEffect(() => {
+    const handleReplayOnboarding = () => {
+      resetOnboarding();
+    };
+
+    window.addEventListener(REPLAY_ONBOARDING_EVENT, handleReplayOnboarding);
+    return () => {
+      window.removeEventListener(
+        REPLAY_ONBOARDING_EVENT,
+        handleReplayOnboarding,
+      );
+    };
+  }, [resetOnboarding]);
 
   return {
     showOnboarding: !hasCompletedOnboarding,

@@ -1,11 +1,16 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { useScrollTrap } from "@/hooks/useScrollTrap";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Settings as SettingsIcon, Search, X } from "lucide-react";
+import {
+  consumePendingSettingsSection,
+  OPEN_SETTINGS_SECTION_EVENT,
+  type OpenSettingsSectionDetail,
+} from "@/lib/appNavigationEvents";
 
 export interface SettingsSection {
   id: string;
@@ -85,6 +90,55 @@ export function SettingsLayout({
       }
     }
   }, [filteredSections, searchQuery, activeSection]);
+
+  const activateSection = useCallback(
+    (sectionId: string) => {
+      if (!sections.some((section) => section.id === sectionId)) {
+        return;
+      }
+
+      setSearchQuery("");
+      setActiveSection(sectionId);
+
+      window.requestAnimationFrame(() => {
+        document
+          .getElementById(`settings-section-${sectionId}`)
+          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    },
+    [sections],
+  );
+
+  useEffect(() => {
+    const pendingSection = consumePendingSettingsSection();
+    if (pendingSection) {
+      activateSection(pendingSection);
+    }
+  }, [activateSection]);
+
+  useEffect(() => {
+    const handleOpenSettingsSection = (event: Event) => {
+      const customEvent = event as CustomEvent<OpenSettingsSectionDetail>;
+      const requestedSectionId = customEvent.detail?.sectionId;
+      if (!requestedSectionId) {
+        return;
+      }
+
+      consumePendingSettingsSection();
+      activateSection(requestedSectionId);
+    };
+
+    window.addEventListener(
+      OPEN_SETTINGS_SECTION_EVENT,
+      handleOpenSettingsSection,
+    );
+    return () => {
+      window.removeEventListener(
+        OPEN_SETTINGS_SECTION_EVENT,
+        handleOpenSettingsSection,
+      );
+    };
+  }, [activateSection]);
 
   // Keyboard shortcut to focus search (Cmd+F when in settings)
   useEffect(() => {

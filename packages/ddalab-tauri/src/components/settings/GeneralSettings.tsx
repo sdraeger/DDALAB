@@ -7,12 +7,21 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { FlaskConical, Palette, Sun, Moon, Monitor } from "lucide-react";
+import {
+  Compass,
+  FlaskConical,
+  Monitor,
+  Moon,
+  Palette,
+  Sun,
+} from "lucide-react";
 import { useAppStore } from "@/store/appStore";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
+import { requestOnboardingReplay } from "@/lib/appNavigationEvents";
 
 const THEME_OPTIONS = [
   { value: "light", label: "Light", icon: Sun },
@@ -141,6 +150,29 @@ export function GeneralSettings() {
               status bar at the bottom of the application.
             </p>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="transition-shadow duration-150 hover:shadow-md">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <div className="h-8 w-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+              <Compass className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            </div>
+            Onboarding
+          </CardTitle>
+          <CardDescription>
+            Replay the guided tour when you want a quick refresher
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted-foreground">
+            Reopen the product tour to revisit file loading, analysis, sync,
+            settings, and notifications.
+          </p>
+          <Button variant="outline" onClick={() => requestOnboardingReplay()}>
+            Replay Tour
+          </Button>
         </CardContent>
       </Card>
     </div>
