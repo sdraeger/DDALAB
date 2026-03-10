@@ -2,13 +2,15 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { TauriService } from "@/services/tauriService";
-import type {
-  SampleDataIndex,
-  PaperRecipeIndex,
-  SampleDataset,
-} from "@/types/learn";
+import type { SampleDataset } from "@/types/learn";
 import { useAppStore } from "@/store/appStore";
 import { createLogger } from "@/lib/logger";
+import {
+  getCatalogErrorMessage,
+  getSampleDownloadErrorMessage,
+  parsePaperRecipesIndex,
+  parseSampleDataIndex,
+} from "@/lib/learnCatalog";
 
 const SAMPLE_DATA_INDEX_URL =
   "https://raw.githubusercontent.com/sdraeger/ddalab-data/main/sample-data-index.json";
@@ -29,18 +31,19 @@ export function useSampleDataIndex() {
   return useQuery({
     queryKey: learnKeys.sampleIndex(),
     queryFn: async () => {
-      const raw = await TauriService.fetchRemoteIndex(SAMPLE_DATA_INDEX_URL);
       try {
-        const index: SampleDataIndex = JSON.parse(raw);
-        setSampleDataIndex(index.datasets);
-        return index.datasets;
+        const raw = await TauriService.fetchRemoteIndex(SAMPLE_DATA_INDEX_URL);
+        const datasets = parseSampleDataIndex(raw);
+        setSampleDataIndex(datasets);
+        return datasets;
       } catch (error) {
-        logger.warn("Failed to parse sample data index", { error });
-        setSampleDataIndex([]);
-        return [];
+        logger.warn("Failed to load sample data index", { error });
+        throw new Error(getCatalogErrorMessage("sample data catalog", error));
       }
     },
     staleTime: 5 * 60_000,
+    retry: 1,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 3000),
   });
 }
 
@@ -50,18 +53,19 @@ export function usePaperRecipesIndex() {
   return useQuery({
     queryKey: learnKeys.recipesIndex(),
     queryFn: async () => {
-      const raw = await TauriService.fetchRemoteIndex(RECIPES_INDEX_URL);
       try {
-        const index: PaperRecipeIndex = JSON.parse(raw);
-        setRecipesIndex(index.recipes);
-        return index.recipes;
+        const raw = await TauriService.fetchRemoteIndex(RECIPES_INDEX_URL);
+        const recipes = parsePaperRecipesIndex(raw);
+        setRecipesIndex(recipes);
+        return recipes;
       } catch (error) {
-        logger.warn("Failed to parse paper recipes index", { error });
-        setRecipesIndex([]);
-        return [];
+        logger.warn("Failed to load paper recipes index", { error });
+        throw new Error(getCatalogErrorMessage("paper recipe catalog", error));
       }
     },
     staleTime: 5 * 60_000,
+    retry: 1,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 3000),
   });
 }
 
@@ -80,7 +84,11 @@ export function useDownloadSampleData() {
   return useMutation({
     mutationFn: async (dataset: SampleDataset) => {
       const ext = dataset.format.toLowerCase();
-      setSampleDataStatus(dataset.id, { downloading: true, progress: 0 });
+      setSampleDataStatus(dataset.id, {
+        downloading: true,
+        progress: 0,
+        errorMessage: null,
+      });
       const path = await TauriService.downloadSampleData(
         dataset.url,
         dataset.id,
@@ -94,13 +102,22 @@ export function useDownloadSampleData() {
         path,
         downloading: false,
         progress: 100,
+        errorMessage: null,
       });
       queryClient.invalidateQueries({
         queryKey: learnKeys.downloadedSamples(),
       });
     },
-    onError: (_err, dataset) => {
-      setSampleDataStatus(dataset.id, { downloading: false, progress: 0 });
+    onError: (error, dataset) => {
+      logger.warn("Failed to download sample dataset", {
+        datasetId: dataset.id,
+        error,
+      });
+      setSampleDataStatus(dataset.id, {
+        downloading: false,
+        progress: 0,
+        errorMessage: getSampleDownloadErrorMessage(dataset.name, error),
+      });
     },
   });
 }
@@ -117,6 +134,7 @@ export function useDeleteSampleData() {
         path: null,
         downloading: false,
         progress: 0,
+        errorMessage: null,
       });
       queryClient.invalidateQueries({
         queryKey: learnKeys.downloadedSamples(),

@@ -73,6 +73,7 @@ export const createLearnSlice: ImmerStateCreator<LearnSlice> = (set) => ({
         path: null,
         downloading: false,
         progress: 0,
+        errorMessage: null,
       };
       state.learn.sampleDatasets[datasetId] = { ...current, ...status };
     }),

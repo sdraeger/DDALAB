@@ -26,12 +26,7 @@ import {
 } from "lucide-react";
 import { useSearchableItems, createSettingsItem } from "@/hooks/useSearchable";
 import { useIsTauriRuntime } from "@/hooks/useIsTauriRuntime";
-
-function scrollToSettingsSection(sectionId: string): void {
-  document
-    .querySelector(`[data-settings-section="${sectionId}"]`)
-    ?.scrollIntoView();
-}
+import { requestSettingsSection } from "@/lib/appNavigationEvents";
 
 export function SettingsPanel() {
   const isTauriRuntime = useIsTauriRuntime();
@@ -41,7 +36,7 @@ export function SettingsPanel() {
       createSettingsItem(
         "settings-general",
         "General Settings",
-        () => scrollToSettingsSection("general"),
+        () => requestSettingsSection("general"),
         {
           description: "Configure general preferences and expert mode",
           keywords: ["general", "expert", "mode", "advanced", "preferences"],
@@ -52,7 +47,7 @@ export function SettingsPanel() {
             createSettingsItem(
               "settings-behavior",
               "Behavior Settings",
-              () => scrollToSettingsSection("behavior"),
+              () => requestSettingsSection("behavior"),
               {
                 description: "Configure application behavior and confirmations",
                 keywords: [
@@ -68,7 +63,7 @@ export function SettingsPanel() {
             createSettingsItem(
               "settings-cli",
               "CLI Settings",
-              () => scrollToSettingsSection("cli"),
+              () => requestSettingsSection("cli"),
               {
                 description: "Install ddalab command line interface to PATH",
                 keywords: [
@@ -86,7 +81,7 @@ export function SettingsPanel() {
             createSettingsItem(
               "settings-python",
               "Python / MNE Settings",
-              () => scrollToSettingsSection("python"),
+              () => requestSettingsSection("python"),
               {
                 description:
                   "Configure Python environment for MNE-Python file import",
@@ -104,7 +99,7 @@ export function SettingsPanel() {
             createSettingsItem(
               "settings-security",
               "Security Settings",
-              () => scrollToSettingsSection("security"),
+              () => requestSettingsSection("security"),
               {
                 description: "Desktop security and local processing safeguards",
                 keywords: ["security", "auth", "token", "session", "password"],
@@ -113,7 +108,7 @@ export function SettingsPanel() {
             createSettingsItem(
               "settings-nsg",
               "NSG Integration Settings",
-              () => scrollToSettingsSection("nsg"),
+              () => requestSettingsSection("nsg"),
               {
                 description: "Configure Neuroscience Gateway credentials",
                 keywords: ["nsg", "gateway", "credentials", "hpc", "username"],
@@ -122,7 +117,7 @@ export function SettingsPanel() {
             createSettingsItem(
               "settings-sync",
               "Sync & Sharing Settings",
-              () => scrollToSettingsSection("sync"),
+              () => requestSettingsSection("sync"),
               {
                 description: "Connect to sync broker and share results",
                 keywords: ["sync", "share", "broker", "peer", "collaboration"],
@@ -131,7 +126,7 @@ export function SettingsPanel() {
             createSettingsItem(
               "settings-debug",
               "Debug & Logs Settings",
-              () => scrollToSettingsSection("debug"),
+              () => requestSettingsSection("debug"),
               {
                 description: "View application logs and debug information",
                 keywords: ["debug", "logs", "diagnostics", "errors", "console"],
@@ -140,7 +135,7 @@ export function SettingsPanel() {
             createSettingsItem(
               "settings-updates",
               "Updates Settings",
-              () => scrollToSettingsSection("updates"),
+              () => requestSettingsSection("updates"),
               {
                 description: "Check for application updates",
                 keywords: ["update", "version", "upgrade", "new", "download"],
@@ -151,7 +146,7 @@ export function SettingsPanel() {
       createSettingsItem(
         "settings-openneuro",
         "OpenNeuro Settings",
-        () => scrollToSettingsSection("openneuro"),
+        () => requestSettingsSection("openneuro"),
         {
           description: "Configure OpenNeuro API key for dataset access",
           keywords: ["openneuro", "api", "key", "dataset", "download"],

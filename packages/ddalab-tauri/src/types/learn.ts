@@ -65,6 +65,7 @@ export interface SampleDataStatus {
   path: string | null;
   downloading: boolean;
   progress: number;
+  errorMessage?: string | null;
 }
 
 // ============================================================================
