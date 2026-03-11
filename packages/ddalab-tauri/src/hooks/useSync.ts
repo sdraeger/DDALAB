@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { useEffect, useCallback } from "react";
 import { useAppStore } from "@/store/appStore";
+import { TauriService } from "@/services/tauriService";
 import type {
   AccessPolicy,
   SharedResultInfo,
@@ -15,6 +16,11 @@ export function useSync() {
   const { isConnected, isLoading, error } = sync;
 
   const checkConnection = useCallback(async () => {
+    if (!TauriService.isTauri()) {
+      updateSyncStatus({ isConnected: false, isLoading: false, error: null });
+      return;
+    }
+
     try {
       const connected = await invoke<boolean>("sync_is_connected");
       updateSyncStatus({ isConnected: connected });
@@ -24,6 +30,11 @@ export function useSync() {
   }, [updateSyncStatus]);
 
   useEffect(() => {
+    if (!TauriService.isTauri()) {
+      updateSyncStatus({ isConnected: false, isLoading: false, error: null });
+      return;
+    }
+
     // Initial check
     checkConnection();
 

@@ -54,6 +54,22 @@ let wasmFunctions: any = null;
 let wasmInitialized = false;
 let initPromise: Promise<void> | null = null;
 
+function isUsableWasmModule(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  wasmModule: any,
+): boolean {
+  if (!wasmModule || wasmModule.__wasm_stub === true) {
+    return false;
+  }
+
+  return (
+    typeof wasmModule.default === "function" &&
+    typeof wasmModule.compute_channel_stats === "function" &&
+    typeof wasmModule.decimate_lttb === "function" &&
+    typeof wasmModule.decimate_channels_lttb === "function"
+  );
+}
+
 /**
  * Initialize the WASM module. Call this once at app startup.
  * Safe to call multiple times - will only initialize once.
@@ -68,10 +84,14 @@ export async function initWasm(): Promise<void> {
   initPromise = (async () => {
     try {
       // Dynamic import the WASM module
-      const wasm = await import("../../../ddalab-wasm/pkg/ddalab_wasm");
+      const wasm = await import("../../../ddalab-wasm/pkg/ddalab_wasm.js");
 
       // Initialize the WASM module
       await wasm.default();
+
+      if (!isUsableWasmModule(wasm)) {
+        throw new Error("WASM bundle is not available in this checkout");
+      }
 
       wasmFunctions = wasm;
       wasmInitialized = true;

@@ -12,6 +12,7 @@ import {
   BIDSExportOptions,
   BIDSWizardStep,
 } from "@/types/bidsExport";
+import { TauriService } from "@/services/tauriService";
 
 interface UseBIDSExportState {
   // Wizard state
@@ -57,6 +58,10 @@ export function useBIDSExport() {
 
   // Listen for progress events
   useEffect(() => {
+    if (!TauriService.isTauri()) {
+      return;
+    }
+
     let unlisten: UnlistenFn | null = null;
 
     const setupListener = async () => {
@@ -174,6 +179,12 @@ export function useBIDSExport() {
 
   // Validation
   const validate = useCallback(async (): Promise<string[]> => {
+    if (!TauriService.isTauri()) {
+      const errorMsg = "BIDS export is only available in the desktop app";
+      setState((prev) => ({ ...prev, validationErrors: [errorMsg] }));
+      return [errorMsg];
+    }
+
     const request: BIDSExportRequest = {
       files: state.files,
       dataset: state.metadata,
@@ -197,6 +208,18 @@ export function useBIDSExport() {
 
   // Export
   const startExport = useCallback(async (): Promise<BIDSExportResult> => {
+    if (!TauriService.isTauri()) {
+      const result: BIDSExportResult = {
+        success: false,
+        datasetPath: "",
+        filesExported: 0,
+        warnings: [],
+        error: "BIDS export is only available in the desktop app",
+      };
+      setState((prev) => ({ ...prev, isExporting: false, result }));
+      return result;
+    }
+
     setState((prev) => ({
       ...prev,
       isExporting: true,

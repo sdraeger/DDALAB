@@ -15,6 +15,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useShallow } from "zustand/shallow";
 import { useAppStore } from "@/store/appStore";
 import { tauriBackendService } from "@/services/tauriBackendService";
+import { TauriService } from "@/services/tauriService";
 import type {
   BatchJob,
   BatchSharedParameters,
@@ -164,6 +165,10 @@ export function useBatchAnalysis() {
 
   // Set up batch-progress event listener
   useEffect(() => {
+    if (!TauriService.isTauri()) {
+      return;
+    }
+
     if (batchListenerInitialized) return;
     batchListenerInitialized = true;
 

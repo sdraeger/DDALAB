@@ -42,13 +42,30 @@ export interface WorkerResponse {
 let wasmFunctions: any = null;
 let isInitialized = false;
 
+function isUsableWasmModule(wasmModule: any): boolean {
+  if (!wasmModule || wasmModule.__wasm_stub === true) {
+    return false;
+  }
+
+  return (
+    typeof wasmModule.default === "function" &&
+    typeof wasmModule.decimate_lttb === "function" &&
+    typeof wasmModule.decimate_channels_lttb === "function"
+  );
+}
+
 // Initialize WASM in the worker
 async function initWasm(): Promise<void> {
   if (isInitialized) return;
 
   try {
-    const wasm = await import("../../../ddalab-wasm/pkg/ddalab_wasm");
+    const wasm = await import("../../../ddalab-wasm/pkg/ddalab_wasm.js");
     await wasm.default();
+
+    if (!isUsableWasmModule(wasm)) {
+      throw new Error("WASM bundle is not available in this checkout");
+    }
+
     wasmFunctions = wasm;
     isInitialized = true;
     self.postMessage({ type: "ready" } as WorkerResponse);

@@ -7,6 +7,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen, UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { TauriService } from "@/services/tauriService";
 
 /** Tab data transferred during drag */
 export interface DraggedTabData {
@@ -82,6 +83,10 @@ export function useCrossWindowDrag() {
    * Call this when a tab drag begins
    */
   const startDrag = useCallback(async (tabData: DraggedTabData) => {
+    if (!TauriService.isTauri()) {
+      return;
+    }
+
     try {
       // Get current window label (synchronous in Tauri v2)
       const currentWindow = getCurrentWindow();
@@ -171,6 +176,15 @@ export function useCrossWindowDrag() {
    */
   const endDrag = useCallback(
     async (cancelled: boolean = false): Promise<string | null> => {
+      if (!TauriService.isTauri()) {
+        isDraggingRef.current = false;
+        setIsDragging(false);
+        setTargetWindowLabel(null);
+        targetWindowLabelRef.current = null;
+        draggedTabRef.current = null;
+        return null;
+      }
+
       // Use ref for immediate access (avoids stale state closure)
       const target = cancelled ? null : targetWindowLabelRef.current;
       const tabData = draggedTabRef.current;
@@ -242,6 +256,10 @@ export function useCrossWindowDragListener(
   const windowLabelRef = useRef<string>("");
 
   useEffect(() => {
+    if (!TauriService.isTauri()) {
+      return;
+    }
+
     // Get this window's label (synchronous in Tauri v2)
     try {
       const currentWindow = getCurrentWindow();
