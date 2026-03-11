@@ -230,7 +230,7 @@ test.describe("Analysis Execution", () => {
       await page.waitForTimeout(500);
 
       // Should show error message or validation warning
-      const hasMessage =
+      const hasFeedback =
         (await page
           .locator("text=file")
           .isVisible()

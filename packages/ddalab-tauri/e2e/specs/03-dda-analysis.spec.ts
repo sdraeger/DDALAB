@@ -3,7 +3,9 @@ import {
   expect,
   waitForAppReady,
   navigateTo,
+  TEST_FILES,
 } from "../fixtures/base.fixture";
+import path from "path";
 
 // Helper to load a file before DDA tests
 async function loadTestFile(page: import("@playwright/test").Page) {
@@ -24,9 +26,9 @@ async function loadTestFile(page: import("@playwright/test").Page) {
     .catch(() => {});
   await page.waitForTimeout(500);
 
-  // Find and click the patient1 EDF file
+  const edfFileName = path.basename(TEST_FILES.SMALL_EDF);
   const fileButton = page.locator(
-    '[role="button"][aria-label*="patient1_S05__01_03 (1).edf"]',
+    `[role="button"][aria-label*="${edfFileName}"]`,
   );
   if (await fileButton.isVisible({ timeout: 5000 }).catch(() => false)) {
     await fileButton.click();
@@ -59,22 +61,19 @@ test.describe("DDA Analysis UI", () => {
   });
 
   test("shows variant selection options", async ({ page }) => {
-    // Variant checkboxes should be visible
+    // Without a file loaded, the analyze view should keep the gated empty state visible.
     const variantSection = page
       .locator("text=Variants")
       .or(page.locator("text=Select Variants"))
       .first();
 
-    // Either the variants heading or individual variant options should be visible
-    const stVariant = page
-      .locator("text=Single Timeseries")
-      .or(page.locator("text=ST"))
+    const noFilePrompt = page
+      .locator("text=No File Selected")
+      .or(page.locator("text=Select a file from the sidebar"))
       .first();
-    const hasVariants =
-      (await variantSection.isVisible().catch(() => false)) ||
-      (await stVariant.isVisible().catch(() => false));
 
-    expect(hasVariants).toBe(true);
+    expect(await variantSection.isVisible().catch(() => false)).toBe(false);
+    await expect(noFilePrompt).toBeVisible({ timeout: 5000 });
   });
 
   test("shows 'no file selected' message without file", async ({ page }) => {

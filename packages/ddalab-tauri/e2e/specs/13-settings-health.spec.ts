@@ -4,7 +4,6 @@ import {
   expect,
   waitForAppReady,
   navigateTo,
-  navigateToSecondary,
 } from "../fixtures/base.fixture";
 
 /**
@@ -19,8 +18,7 @@ async function gotoApp(page: Page) {
 
 async function gotoSettings(page: Page) {
   await gotoApp(page);
-  await navigateTo(page, "manage");
-  await navigateToSecondary(page, "settings");
+  await navigateTo(page, "settings");
 }
 
 test.describe("Health Status Bar", () => {
@@ -102,83 +100,83 @@ test.describe("Health Status Bar", () => {
   });
 });
 
-test.describe("API Connection Settings", () => {
+test.describe("OpenNeuro Settings", () => {
   test.beforeEach(async ({ page }) => {
     await gotoSettings(page);
   });
 
-  test("shows API configuration options", async ({ page }) => {
-    const apiConfig = page
-      .locator('[data-testid="api-config"]')
-      .or(page.locator("text=API"))
-      .or(page.locator("text=Server"))
-      .or(page.locator("text=Connection"))
+  async function openOpenNeuroSettings(page: Page) {
+    const settingsView = page.locator(
+      '[data-view-id="settings"][data-active="true"]',
+    );
+    await expect(
+      settingsView.locator('input[placeholder="Search settings..."]'),
+    ).toBeVisible({ timeout: 10000 });
+    const openNeuroSection = settingsView
+      .locator("nav button")
+      .filter({ hasText: "OpenNeuro" })
+      .first();
+    await openNeuroSection.scrollIntoViewIfNeeded();
+    await expect(openNeuroSection).toBeVisible();
+    await openNeuroSection.click();
+
+    await expect(
+      page.locator(
+        '[data-view-id="settings"][data-active="true"] [data-settings-section="openneuro"]',
+      ),
+    ).toBeVisible({ timeout: 10000 });
+  }
+
+  test("shows OpenNeuro configuration options", async ({ page }) => {
+    await openOpenNeuroSettings(page);
+
+    const openNeuroSettings = page.locator(
+      '[data-view-id="settings"][data-active="true"] [data-settings-section="openneuro"]',
+    );
+    const openNeuroConfig = openNeuroSettings
+      .locator("text=OpenNeuro Integration")
+      .or(openNeuroSettings.locator("text=API Key Configuration"))
+      .or(openNeuroSettings.locator("#openneuro-api-key"))
       .first();
 
-    await expect(apiConfig).toBeVisible({ timeout: 5000 });
+    await expect(openNeuroConfig).toBeVisible({ timeout: 5000 });
   });
 
-  test("can switch between local and remote API", async ({ page }) => {
-    const modeSwitch = page
-      .locator('[data-testid="api-mode"]')
-      .or(page.locator('label:has-text("Local")'))
-      .or(page.locator('label:has-text("Remote")'))
-      .or(page.locator('[role="radiogroup"]'))
+  test("OpenNeuro API key field is editable", async ({ page }) => {
+    await openOpenNeuroSettings(page);
+
+    const openNeuroSettings = page.locator(
+      '[data-view-id="settings"][data-active="true"] [data-settings-section="openneuro"]',
+    );
+    const apiKeyInput = openNeuroSettings
+      .locator("#openneuro-api-key")
+      .or(openNeuroSettings.locator('input[placeholder*="API key"]'))
       .first();
 
-    const isVisible = await modeSwitch.isVisible().catch(() => false);
-    if (isVisible) {
-      await modeSwitch.click();
-      await page.waitForTimeout(200);
-      // After click, mode switch should still be visible
-      await expect(modeSwitch).toBeVisible();
-    } else {
-      // API mode switch not found in current settings view
-      expect(isVisible).toBe(false);
-    }
+    await expect(apiKeyInput).toBeVisible({ timeout: 5000 });
+
+    const currentValue = await apiKeyInput.inputValue();
+    await apiKeyInput.fill("demo-openneuro-key");
+    await expect(apiKeyInput).toHaveValue("demo-openneuro-key");
+    await apiKeyInput.fill(currentValue);
   });
 
-  test("remote API URL field is editable", async ({ page }) => {
-    const urlInput = page
-      .locator('[data-testid="api-url"]')
-      .or(page.locator('input[name*="url"]'))
-      .or(page.locator('input[placeholder*="URL"]'))
-      .or(page.locator('input[placeholder*="http"]'))
+  test("OpenNeuro help actions are available", async ({ page }) => {
+    await openOpenNeuroSettings(page);
+
+    const openNeuroSettings = page.locator(
+      '[data-view-id="settings"][data-active="true"] [data-settings-section="openneuro"]',
+    );
+    const helpAction = openNeuroSettings
+      .locator("text=How to get an API key")
+      .or(
+        openNeuroSettings.locator(
+          'button:has-text("Open OpenNeuro Key Generator")',
+        ),
+      )
       .first();
 
-    if (await urlInput.isVisible()) {
-      const currentValue = await urlInput.inputValue();
-      await urlInput.clear();
-      await urlInput.fill("http://localhost:8080");
-      expect(await urlInput.inputValue()).toBe("http://localhost:8080");
-      // Restore
-      await urlInput.clear();
-      await urlInput.fill(currentValue);
-    }
-  });
-
-  test("can test connection to API", async ({ page }) => {
-    const testButton = page
-      .locator('[data-testid="test-connection"]')
-      .or(page.locator('button:has-text("Test")'))
-      .or(page.locator('button:has-text("Check Connection")'))
-      .first();
-
-    if (await testButton.isVisible()) {
-      await testButton.click();
-      await page.waitForTimeout(500);
-
-      // Should show result (success or failure)
-      const result = page
-        .locator("text=Success")
-        .or(page.locator("text=Failed"))
-        .or(page.locator("text=Error"))
-        .or(page.locator("text=Connected"))
-        .first();
-
-      const hasResult = await result.isVisible().catch(() => false);
-      expect(typeof hasResult).toBe("boolean");
-    }
+    await expect(helpAction).toBeVisible({ timeout: 5000 });
   });
 });
 

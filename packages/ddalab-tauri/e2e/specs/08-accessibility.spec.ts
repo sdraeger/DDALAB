@@ -190,9 +190,16 @@ test.describe("Focus Management", () => {
       await page.keyboard.press("Tab");
       await page.waitForTimeout(30);
 
-      const current = await page.evaluate(
-        () => document.activeElement?.tagName,
-      );
+      const current = await page.evaluate(() => {
+        const el = document.activeElement;
+        if (!el) return null;
+
+        const ariaLabel = el.getAttribute("aria-label");
+        const dataNav = el.getAttribute("data-nav");
+        const text = el.textContent?.trim().slice(0, 20);
+
+        return `${el.tagName}:${ariaLabel || dataNav || text || "unknown"}`;
+      });
       if (current) focusHistory.push(current);
     }
 

@@ -199,6 +199,8 @@ export function SecondaryNavigation() {
       <nav
         className="border-b bg-muted/30"
         data-testid="secondary-navigation"
+        data-primary-nav={primaryNav}
+        data-secondary-nav={secondaryNav ?? ""}
         aria-label={`${currentCategory.label} navigation`}
       >
         <div className="flex items-center px-6 py-1.5 overflow-x-auto">

@@ -22,6 +22,11 @@ async function gotoExplore(page: Page) {
   await navigateTo(page, "explore");
 }
 
+async function gotoData(page: Page) {
+  await gotoApp(page);
+  await navigateTo(page, "data");
+}
+
 test.describe("Explore Section Navigation", () => {
   test("can navigate to explore section", async ({ page }) => {
     await gotoApp(page);
@@ -49,11 +54,13 @@ test.describe("Explore Section Navigation", () => {
     await expect(streamingTab).toBeVisible();
   });
 
-  test("explore section has preprocessing tab", async ({ page }) => {
+  test("explore section omits deprecated preprocessing tab", async ({
+    page,
+  }) => {
     await gotoExplore(page);
 
     const preprocessingTab = page.locator('[data-nav="preprocessing"]');
-    await expect(preprocessingTab).toBeVisible();
+    await expect(preprocessingTab).toHaveCount(0);
   });
 
   test("explore section has annotations tab", async ({ page }) => {
@@ -103,31 +110,36 @@ test.describe("Time Series View", () => {
   });
 });
 
-test.describe("Preprocessing View", () => {
+test.describe("OpenNeuro View", () => {
   test.beforeEach(async ({ page }) => {
-    await gotoExplore(page);
-    await navigateToSecondary(page, "preprocessing");
+    await gotoData(page);
+    await navigateToSecondary(page, "openneuro");
   });
 
-  test("preprocessing view is accessible", async ({ page }) => {
-    const content = await page.content();
-    expect(
-      content.includes("Preprocessing") ||
-        content.includes("Filter") ||
-        content.includes("Process"),
-    ).toBe(true);
-  });
-
-  test("shows preprocessing options", async ({ page }) => {
-    // Look for preprocessing-related UI elements
-    const preprocessingUI = page
-      .locator("text=Filter")
-      .or(page.locator("text=Resample"))
-      .or(page.locator("text=Notch"))
-      .or(page.locator("text=Bandpass"))
+  test("OpenNeuro view is accessible", async ({ page }) => {
+    const openNeuroView = page.locator(
+      '[data-view-id="data-openneuro"][data-active="true"]',
+    );
+    const openNeuroSurface = openNeuroView
+      .locator('input[placeholder*="Search datasets"]')
+      .or(openNeuroView.locator("text=Downloaded"))
+      .or(openNeuroView.locator("text=Failed to load datasets"))
       .first();
 
-    const hasOptions = await preprocessingUI.isVisible().catch(() => false);
+    await expect(openNeuroSurface).toBeVisible({ timeout: 10000 });
+  });
+
+  test("shows OpenNeuro browser controls", async ({ page }) => {
+    const openNeuroView = page.locator(
+      '[data-view-id="data-openneuro"][data-active="true"]',
+    );
+    const openNeuroUI = openNeuroView
+      .locator('input[placeholder*="Search datasets"]')
+      .or(openNeuroView.locator("text=Downloaded"))
+      .or(openNeuroView.locator('button:has-text("Load More")'))
+      .first();
+
+    const hasOptions = await openNeuroUI.isVisible().catch(() => false);
     expect(typeof hasOptions).toBe("boolean");
   });
 });
@@ -161,18 +173,20 @@ test.describe("Annotations View", () => {
 });
 
 test.describe("Data Source Selection", () => {
-  test("manage section has data sources tab", async ({ page }) => {
+  test("data section has OpenNeuro tab", async ({ page }) => {
     await gotoApp(page);
-    await navigateTo(page, "manage");
+    await navigateTo(page, "data");
 
-    const dataSourcesTab = page.locator('[data-nav="data-sources"]');
-    await expect(dataSourcesTab).toBeVisible();
+    const openNeuroTab = page.locator(
+      '[data-testid="secondary-navigation"][data-primary-nav="data"] [data-nav="openneuro"]',
+    );
+    await expect(openNeuroTab).toBeVisible();
   });
 
-  test("can navigate to data sources", async ({ page }) => {
+  test("can navigate to OpenNeuro data sources", async ({ page }) => {
     await gotoApp(page);
-    await navigateTo(page, "manage");
-    await navigateToSecondary(page, "data-sources");
+    await navigateTo(page, "data");
+    await navigateToSecondary(page, "openneuro");
 
     const content = await page.content();
     expect(

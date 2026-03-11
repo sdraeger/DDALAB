@@ -35,4 +35,4 @@ cargo watch \
   --watch src/ \
   --ignore '*.rs.bk' \
   --ignore '*~' \
-  --exec 'run --bin embedded_api_server'
+  --exec "run --bin api-server -- --data-dir $DDALAB_DATA_DIR --port $DDALAB_API_PORT"

@@ -1,13 +1,86 @@
 import { Page, expect } from "@playwright/test";
+import fs from "fs";
+import path from "path";
+import {
+  DATA_DIRECTORY,
+  GENERATED_FIXTURES,
+  getFixtureFileName,
+} from "./test-fixtures";
 
 /**
  * API helpers for E2E tests
  * These helpers interact with the DDALAB API server for file operations and DDA analysis
  */
 
-// Default API URL - can be overridden by environment
-export const API_URL = process.env.API_URL || "http://127.0.0.1:8765";
+const CONNECTION_INFO_FILE = "/tmp/ddalab-api-server.json";
 const LEGACY_API_SERVER_ENABLED = process.env.START_API_SERVER === "true";
+
+function readConnectionInfo():
+  | { url?: string; session_token?: string }
+  | undefined {
+  try {
+    if (!fs.existsSync(CONNECTION_INFO_FILE)) {
+      return undefined;
+    }
+
+    return JSON.parse(fs.readFileSync(CONNECTION_INFO_FILE, "utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
+export function getApiUrl(): string {
+  return (
+    process.env.API_URL || readConnectionInfo()?.url || "http://127.0.0.1:8765"
+  );
+}
+
+function getSessionToken(required = false): string | undefined {
+  const token =
+    process.env.API_SESSION_TOKEN || readConnectionInfo()?.session_token;
+
+  if (!token && required) {
+    throw new Error(
+      "API session token is unavailable. Start Playwright with START_API_SERVER=true.",
+    );
+  }
+
+  return token;
+}
+
+function withAuthHeaders(
+  headers: HeadersInit = {},
+  requireToken = true,
+): Headers {
+  const mergedHeaders = new Headers(headers);
+  const token = getSessionToken(requireToken);
+
+  if (token) {
+    mergedHeaders.set("Authorization", `Bearer ${token}`);
+  }
+
+  return mergedHeaders;
+}
+
+async function apiRequest<T>(
+  endpoint: string,
+  init?: RequestInit,
+  expectedStatus = 200,
+): Promise<T> {
+  const response = await fetch(`${getApiUrl()}${endpoint}`, init);
+
+  if (response.status !== expectedStatus) {
+    const errorBody = await response.text().catch(() => "");
+    throw new Error(
+      `Request to ${endpoint} failed with ${response.status}: ${errorBody || response.statusText}`,
+    );
+  }
+
+  return response.json() as Promise<T>;
+}
+
+// Default API URL - can be overridden by environment
+export const API_URL = getApiUrl();
 
 /**
  * File info returned by the API
@@ -26,10 +99,12 @@ export interface FileInfo {
  */
 export async function listFiles(directory?: string): Promise<FileInfo[]> {
   const url = directory
-    ? `${API_URL}/api/files/list?path=${encodeURIComponent(directory)}`
-    : `${API_URL}/api/files/list`;
+    ? `${getApiUrl()}/api/files/list?path=${encodeURIComponent(directory)}`
+    : `${getApiUrl()}/api/files/list`;
 
-  const response = await fetch(url);
+  const response = await fetch(url, {
+    headers: withAuthHeaders(),
+  });
   if (!response.ok) {
     throw new Error(`Failed to list files: ${response.statusText}`);
   }
@@ -42,26 +117,210 @@ export async function listFiles(directory?: string): Promise<FileInfo[]> {
  * Get file info via the API
  */
 export async function getFileInfo(filePath: string): Promise<any> {
-  const response = await fetch(
-    `${API_URL}/api/files/${encodeURIComponent(filePath)}`,
-  );
-  if (!response.ok) {
-    throw new Error(`Failed to get file info: ${response.statusText}`);
-  }
-  return response.json();
+  return apiRequest(`/api/files/${encodeURIComponent(filePath)}`, {
+    headers: withAuthHeaders(),
+  });
 }
 
 /**
  * Get EDF file info via the API
  */
 export async function getEdfInfo(filePath: string): Promise<any> {
-  const response = await fetch(
-    `${API_URL}/api/edf/info?path=${encodeURIComponent(filePath)}`,
-  );
-  if (!response.ok) {
-    throw new Error(`Failed to get EDF info: ${response.statusText}`);
+  return apiRequest(`/api/edf/info?path=${encodeURIComponent(filePath)}`, {
+    headers: withAuthHeaders(),
+  });
+}
+
+export interface ProtectedFileInfo {
+  file_path: string;
+  file_name: string;
+  file_size: number;
+  duration?: number;
+  sample_rate: number;
+  total_samples?: number;
+  channels: string[];
+  start_time: string;
+  end_time: string;
+}
+
+export interface DDAExecutionRequest {
+  file_path: string;
+  channels?: number[];
+  time_range: {
+    start: number;
+    end: number;
+  };
+  preprocessing_options: {
+    highpass: number | null;
+    lowpass: number | null;
+  };
+  algorithm_selection: {
+    enabled_variants: string[];
+    select_mask: string | null;
+  };
+  window_parameters: {
+    window_length: number;
+    window_step: number;
+    ct_window_length?: number | null;
+    ct_window_step?: number | null;
+  };
+  scale_parameters: {
+    delay_list: number[];
+  };
+}
+
+export interface DDAVariantResult {
+  variant_id: string;
+  variant_name: string;
+  dda_matrix: Record<string, number[]>;
+  error_values?: number[];
+}
+
+export interface DDAExecutionResult {
+  id: string;
+  file_path: string;
+  channels: string[];
+  status: string;
+  results: {
+    summary: {
+      total_windows: number;
+      processed_windows: number;
+      mean_complexity: number;
+      std_complexity: number;
+      num_channels: number;
+    };
+    scales?: number[];
+    error_values?: number[];
+    variants: DDAVariantResult[];
+  };
+}
+
+export interface FileChunkResponse {
+  data: number[][];
+  channelLabels: string[];
+  samplingFrequency: number;
+  chunkSize: number;
+  chunkStart: number;
+  totalSamples?: number;
+}
+
+export async function runDDAAnalysisViaApi(
+  request: DDAExecutionRequest,
+): Promise<DDAExecutionResult> {
+  return apiRequest("/api/dda/analyze", {
+    method: "POST",
+    headers: withAuthHeaders(
+      {
+        "Content-Type": "application/json",
+      },
+      true,
+    ),
+    body: JSON.stringify(request),
+  });
+}
+
+export async function getFileChunk(
+  filePath: string,
+  startTime: number,
+  duration: number,
+  channels?: string[],
+): Promise<FileChunkResponse> {
+  const query = new URLSearchParams({
+    start_time: String(startTime),
+    duration: String(duration),
+  });
+
+  if (channels && channels.length > 0) {
+    query.set("channels", JSON.stringify(channels));
   }
-  return response.json();
+
+  return apiRequest(
+    `/api/files/${encodeURIComponent(filePath)}/chunk?${query.toString()}`,
+    {
+      headers: withAuthHeaders(),
+    },
+  );
+}
+
+export function buildDDARequestFromFileInfo(
+  fileInfo: ProtectedFileInfo,
+  filePath: string,
+  overrides: Partial<DDAExecutionRequest> = {},
+): DDAExecutionRequest {
+  const channelCount = Math.min(3, fileInfo.channels.length);
+  if (channelCount < 2) {
+    throw new Error(
+      `Expected at least 2 channels in ${fileInfo.file_name}, got ${fileInfo.channels.length}`,
+    );
+  }
+
+  const totalSamples =
+    fileInfo.total_samples ??
+    Math.max(
+      1,
+      Math.round((fileInfo.duration ?? 0) * Math.max(fileInfo.sample_rate, 1)),
+    );
+  const safetyMargin = Math.min(256, Math.floor(totalSamples / 10));
+  const safeSamples = Math.max(8, totalSamples - safetyMargin);
+  const preferredWindowLength = fileInfo.sample_rate >= 32 ? 64 : 8;
+  const windowLength = Math.min(
+    preferredWindowLength,
+    Math.max(4, safeSamples - 1),
+  );
+  const windowStep = Math.max(1, Math.floor(windowLength / 2));
+  const safeDuration = Number(
+    (safeSamples / Math.max(fileInfo.sample_rate, 1)).toFixed(3),
+  );
+  const baseRequest: DDAExecutionRequest = {
+    file_path: filePath,
+    channels: Array.from({ length: channelCount }, (_, index) => index),
+    time_range: {
+      start: 0,
+      end: safeDuration,
+    },
+    preprocessing_options: {
+      highpass: null,
+      lowpass: null,
+    },
+    algorithm_selection: {
+      enabled_variants: ["single_timeseries"],
+      select_mask: null,
+    },
+    window_parameters: {
+      window_length: windowLength,
+      window_step: windowStep,
+      ct_window_length: null,
+      ct_window_step: null,
+    },
+    scale_parameters: {
+      delay_list: [1, 2, 3, 4],
+    },
+  };
+
+  return {
+    ...baseRequest,
+    ...overrides,
+    time_range: {
+      ...baseRequest.time_range,
+      ...overrides.time_range,
+    },
+    preprocessing_options: {
+      ...baseRequest.preprocessing_options,
+      ...overrides.preprocessing_options,
+    },
+    algorithm_selection: {
+      ...baseRequest.algorithm_selection,
+      ...overrides.algorithm_selection,
+    },
+    window_parameters: {
+      ...baseRequest.window_parameters,
+      ...overrides.window_parameters,
+    },
+    scale_parameters: {
+      ...baseRequest.scale_parameters,
+      ...overrides.scale_parameters,
+    },
+  };
 }
 
 /**
@@ -197,7 +456,7 @@ export async function isApiServerRunning(): Promise<boolean> {
   }
 
   try {
-    const response = await fetch(`${API_URL}/api/health`, {
+    const response = await fetch(`${getApiUrl()}/api/health`, {
       signal: AbortSignal.timeout(2000),
     });
     return response.ok;
@@ -230,22 +489,20 @@ export async function waitForApiServer(
  * Test data file paths (relative to data directory)
  */
 export const TEST_FILES = {
-  // Small EDF file for quick tests
-  SMALL_EDF: "test_generator.edf",
-  // Larger EDF file for comprehensive tests
-  LARGE_EDF: "patient1_S05__01_03 (1)_cut.edf",
-  // BrainVision format
-  BRAINVISION: "01_header.vhdr",
-  // CSV file
-  CSV: "no_header_data.csv",
-  // ASCII file
-  ASCII: "sensor_data.ascii",
+  SMALL_EDF: GENERATED_FIXTURES.SMALL_EDF,
+  CSV: GENERATED_FIXTURES.CSV,
+  ASCII: GENERATED_FIXTURES.ASCII,
 };
 
 /**
  * Get the full path to a test file
  */
 export function getTestFilePath(fileName: string): string {
-  // The data directory is configured in the API server
-  return fileName;
+  if (path.isAbsolute(fileName)) {
+    return fileName;
+  }
+
+  return path.join(DATA_DIRECTORY, fileName);
 }
+
+export { getFixtureFileName };

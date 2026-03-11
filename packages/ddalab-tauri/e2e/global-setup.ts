@@ -1,5 +1,9 @@
 import { spawn, ChildProcess } from "child_process";
 import { initCoverageDir } from "./utils/coverage";
+import {
+  ensureDeterministicFixtures,
+  DATA_DIRECTORY,
+} from "./utils/test-fixtures";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -8,16 +12,10 @@ let apiServerProcess: ChildProcess | null = null;
 // Connection info file path
 const CONNECTION_INFO_FILE = "/tmp/ddalab-api-server.json";
 
-// API server binary path (relative to this e2e folder)
-// e2e folder is at packages/ddalab-tauri/e2e, binary is at packages/ddalab-tauri/src-tauri/target/release/api-server
-const API_SERVER_BINARY = path.resolve(
-  __dirname,
-  "../src-tauri/target/release/api-server",
-);
-
-// Data directory path (relative to monorepo root)
-// e2e folder is at packages/ddalab-tauri/e2e, data is at data/
-const DATA_DIRECTORY = path.resolve(__dirname, "../../../data");
+const API_SERVER_BINARY_CANDIDATES = [
+  path.resolve(__dirname, "../src-tauri/target/release/api-server"),
+  path.resolve(__dirname, "../src-tauri/target/debug/api-server"),
+];
 
 async function waitForServer(url: string, maxAttempts = 30): Promise<boolean> {
   for (let i = 0; i < maxAttempts; i++) {
@@ -34,11 +32,35 @@ async function waitForServer(url: string, maxAttempts = 30): Promise<boolean> {
   return false;
 }
 
+async function waitForConnectionInfo(
+  maxAttempts = 30,
+): Promise<Record<string, string> | null> {
+  for (let i = 0; i < maxAttempts; i++) {
+    if (fs.existsSync(CONNECTION_INFO_FILE)) {
+      return JSON.parse(fs.readFileSync(CONNECTION_INFO_FILE, "utf-8"));
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  return null;
+}
+
+function resolveApiServerBinary(): string | null {
+  return (
+    API_SERVER_BINARY_CANDIDATES.find((candidate) =>
+      fs.existsSync(candidate),
+    ) ?? null
+  );
+}
+
 async function globalSetup() {
   if (process.env.COVERAGE === "true") {
     console.log("Initializing coverage collection...");
     initCoverageDir();
   }
+
+  ensureDeterministicFixtures();
 
   // Desktop E2E runs against Tauri IPC by default; only start legacy API server
   // when explicitly requested.
@@ -47,9 +69,13 @@ async function globalSetup() {
   if (startApiServer) {
     console.log("\n=== Starting DDALAB API Server for E2E Tests ===");
 
+    const apiServerBinary = resolveApiServerBinary();
+
     // Check if binary exists
-    if (!fs.existsSync(API_SERVER_BINARY)) {
-      console.log(`\n⚠️  API server binary not found at: ${API_SERVER_BINARY}`);
+    if (!apiServerBinary) {
+      console.log(
+        `\n⚠️  API server binary not found at: ${API_SERVER_BINARY_CANDIDATES.join(", ")}`,
+      );
       console.log("Building the API server binary...");
       console.log(
         "Run: cd src-tauri && cargo build --bin api-server --release",
@@ -70,7 +96,7 @@ async function globalSetup() {
     }
 
     console.log(`📁 Data directory: ${DATA_DIRECTORY}`);
-    console.log(`🔧 Binary: ${API_SERVER_BINARY}`);
+    console.log(`🔧 Binary: ${apiServerBinary}`);
 
     // Clean up any existing connection info file
     if (fs.existsSync(CONNECTION_INFO_FILE)) {
@@ -80,8 +106,16 @@ async function globalSetup() {
     // Start the API server
     const port = process.env.API_PORT || "8765";
     apiServerProcess = spawn(
-      API_SERVER_BINARY,
-      ["--data-dir", DATA_DIRECTORY, "--port", port],
+      apiServerBinary,
+      [
+        "--http",
+        "--data-dir",
+        DATA_DIRECTORY,
+        "--port",
+        port,
+        "--connection-info-file",
+        CONNECTION_INFO_FILE,
+      ],
       {
         stdio: ["ignore", "pipe", "pipe"],
         detached: true,
@@ -120,9 +154,8 @@ async function globalSetup() {
     if (isReady) {
       console.log(`✅ API server is ready at ${serverUrl}`);
 
-      // Read connection info if written by the server
-      if (fs.existsSync(CONNECTION_INFO_FILE)) {
-        const info = JSON.parse(fs.readFileSync(CONNECTION_INFO_FILE, "utf-8"));
+      const info = await waitForConnectionInfo();
+      if (info) {
         console.log(`📡 API URL: ${info.url}`);
         process.env.API_URL = info.url;
         process.env.API_SESSION_TOKEN = info.session_token;

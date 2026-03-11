@@ -44,12 +44,15 @@ interface MountedViewProps {
   children: ReactNode;
   /** Only render after first activation (lazy mount) */
   lazyMount?: boolean;
+  /** Stable view identifier for E2E selectors */
+  viewId?: string;
 }
 
 function MountedView({
   isActive,
   children,
   lazyMount = true,
+  viewId,
 }: MountedViewProps) {
   const hasBeenActiveRef = useRef(isActive);
 
@@ -75,6 +78,8 @@ function MountedView({
       aria-hidden={!isActive}
       // Prevent tab navigation into hidden views
       inert={!isActive || undefined}
+      data-view-id={viewId}
+      data-active={isActive}
     >
       {children}
     </div>
@@ -333,9 +338,14 @@ export function NavigationContent() {
   // This keeps components mounted so they preserve their internal state
   // (chart instances, scroll positions, refs, etc.) across tab switches.
   return (
-    <div className="flex-1 min-h-0 w-full relative">
+    <div
+      className="flex-1 min-h-0 w-full relative"
+      data-testid="navigation-content"
+      data-primary-nav={primaryNav}
+      data-secondary-nav={secondaryNav ?? ""}
+    >
       {/* Overview */}
-      <MountedView isActive={primaryNav === "overview"}>
+      <MountedView isActive={primaryNav === "overview"} viewId="overview">
         <div className="p-6 h-full">
           <OverviewDashboard />
         </div>
@@ -344,6 +354,7 @@ export function NavigationContent() {
       {/* Explore - Time Series */}
       <MountedView
         isActive={primaryNav === "explore" && secondaryNav === "timeseries"}
+        viewId="explore-timeseries"
       >
         <div className="p-4 h-full">
           <FileGatedContent
@@ -374,6 +385,7 @@ export function NavigationContent() {
       {/* Explore - Annotations */}
       <MountedView
         isActive={primaryNav === "explore" && secondaryNav === "annotations"}
+        viewId="explore-annotations"
       >
         <div className="p-4 h-full">
           <Suspense fallback={<DelayedLoadingFallback />}>
@@ -385,6 +397,7 @@ export function NavigationContent() {
       {/* Explore - Streaming */}
       <MountedView
         isActive={primaryNav === "explore" && secondaryNav === "streaming"}
+        viewId="explore-streaming"
       >
         <div className="p-4 h-full">
           <Suspense fallback={<DelayedLoadingFallback />}>
@@ -398,6 +411,7 @@ export function NavigationContent() {
         isActive={
           primaryNav === "analyze" && (secondaryNav === "dda" || !secondaryNav)
         }
+        viewId="analyze-dda"
       >
         <FileGatedContent
           hasFile={hasSelectedFile}
@@ -421,6 +435,7 @@ export function NavigationContent() {
       {/* Analyze - ICA */}
       <MountedView
         isActive={primaryNav === "analyze" && secondaryNav === "ica"}
+        viewId="analyze-ica"
       >
         <FileGatedContent
           hasFile={hasSelectedFile}
@@ -444,6 +459,7 @@ export function NavigationContent() {
       {/* Analyze - Batch */}
       <MountedView
         isActive={primaryNav === "analyze" && secondaryNav === "batch"}
+        viewId="analyze-batch"
       >
         <div className="h-full">
           <Suspense fallback={<DelayedLoadingFallback />}>
@@ -455,6 +471,7 @@ export function NavigationContent() {
       {/* Analyze - Compare */}
       <MountedView
         isActive={primaryNav === "analyze" && secondaryNav === "compare"}
+        viewId="analyze-compare"
       >
         <div className="h-full">
           <Suspense fallback={<DelayedLoadingFallback />}>
@@ -464,7 +481,7 @@ export function NavigationContent() {
       </MountedView>
 
       {/* Plugins (top-level) */}
-      <MountedView isActive={primaryNav === "plugins"}>
+      <MountedView isActive={primaryNav === "plugins"} viewId="plugins">
         <div className="h-full">
           <Suspense fallback={<DelayedLoadingFallback />}>
             <PluginManagementPanel />
@@ -478,6 +495,7 @@ export function NavigationContent() {
           primaryNav === "data" &&
           (secondaryNav === "openneuro" || !secondaryNav)
         }
+        viewId="data-openneuro"
       >
         <div className="p-4 h-full">
           <Suspense fallback={<DelayedLoadingFallback />}>
@@ -489,6 +507,7 @@ export function NavigationContent() {
       {/* Data - NSG Jobs */}
       <MountedView
         isActive={primaryNav === "data" && secondaryNav === "nsg-jobs"}
+        viewId="data-nsg-jobs"
       >
         <div className="p-4 h-full">
           <ErrorBoundary>
@@ -502,6 +521,7 @@ export function NavigationContent() {
       {/* Collaborate - Gallery */}
       <MountedView
         isActive={primaryNav === "collaborate" && secondaryNav === "gallery"}
+        viewId="collaborate-gallery"
       >
         <div className="h-full">
           <ErrorBoundary>
@@ -518,6 +538,7 @@ export function NavigationContent() {
           primaryNav === "learn" &&
           (secondaryNav === "tutorials" || !secondaryNav)
         }
+        viewId="learn-tutorials"
       >
         <div className="p-4 h-full">
           <Suspense fallback={<DelayedLoadingFallback />}>
@@ -529,6 +550,7 @@ export function NavigationContent() {
       {/* Learn - Sample Data */}
       <MountedView
         isActive={primaryNav === "learn" && secondaryNav === "sample-data"}
+        viewId="learn-sample-data"
       >
         <div className="p-4 h-full">
           <Suspense fallback={<DelayedLoadingFallback />}>
@@ -540,6 +562,7 @@ export function NavigationContent() {
       {/* Learn - Papers */}
       <MountedView
         isActive={primaryNav === "learn" && secondaryNav === "papers"}
+        viewId="learn-papers"
       >
         <div className="p-4 h-full">
           <Suspense fallback={<DelayedLoadingFallback />}>
@@ -549,7 +572,7 @@ export function NavigationContent() {
       </MountedView>
 
       {/* Settings */}
-      <MountedView isActive={primaryNav === "settings"}>
+      <MountedView isActive={primaryNav === "settings"} viewId="settings">
         <div className="p-4 h-full">
           <Suspense fallback={<DelayedLoadingFallback />}>
             <SettingsPanel />
@@ -558,7 +581,10 @@ export function NavigationContent() {
       </MountedView>
 
       {/* Notifications */}
-      <MountedView isActive={primaryNav === "notifications"}>
+      <MountedView
+        isActive={primaryNav === "notifications"}
+        viewId="notifications"
+      >
         <div className="p-4 h-full">
           <Suspense fallback={<DelayedLoadingFallback />}>
             <NotificationHistory onNavigate={handleNotificationNavigate} />

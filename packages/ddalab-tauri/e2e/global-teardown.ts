@@ -1,4 +1,5 @@
 import { generateReport } from "./utils/coverage";
+import { cleanupDeterministicFixtures } from "./utils/test-fixtures";
 import * as fs from "fs";
 
 const PID_FILE = "/tmp/ddalab-api-server.pid";
@@ -66,6 +67,8 @@ async function globalTeardown() {
       // File might not exist
     }
   }
+
+  cleanupDeterministicFixtures();
 
   console.log("==================================\n");
 }
