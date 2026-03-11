@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import { immer } from "zustand/middleware/immer";
 import { persist } from "zustand/middleware";
 import { createSafePersistStorage } from "@/store/utils/safePersistStorage";
 
@@ -102,23 +101,25 @@ const formatShortcutDisplay = (
 
 export const useKeyboardShortcutsStore = create<KeyboardShortcutsState>()(
   persist(
-    immer((set, get) => ({
+    (set, get) => ({
       shortcuts: new Map(),
       isHelpOpen: false,
       customBindings: {},
 
       registerShortcut: (shortcut) => {
-        set((state) => {
-          state.shortcuts.set(shortcut.id, {
+        set((state) => ({
+          shortcuts: new Map(state.shortcuts).set(shortcut.id, {
             ...shortcut,
             enabled: shortcut.enabled ?? true,
-          });
-        });
+          }),
+        }));
       },
 
       unregisterShortcut: (id) => {
         set((state) => {
-          state.shortcuts.delete(id);
+          const shortcuts = new Map(state.shortcuts);
+          shortcuts.delete(id);
+          return { shortcuts };
         });
       },
 
@@ -161,15 +162,11 @@ export const useKeyboardShortcutsStore = create<KeyboardShortcutsState>()(
       },
 
       setHelpOpen: (open) => {
-        set((state) => {
-          state.isHelpOpen = open;
-        });
+        set({ isHelpOpen: open });
       },
 
       toggleHelp: () => {
-        set((state) => {
-          state.isHelpOpen = !state.isHelpOpen;
-        });
+        set((state) => ({ isHelpOpen: !state.isHelpOpen }));
       },
 
       getShortcutsByContext: (context) => {
@@ -207,17 +204,21 @@ export const useKeyboardShortcutsStore = create<KeyboardShortcutsState>()(
       },
 
       updateCustomBinding: (id, binding) => {
-        set((state) => {
-          state.customBindings[id] = binding;
-        });
+        set((state) => ({
+          customBindings: {
+            ...state.customBindings,
+            [id]: binding,
+          },
+        }));
       },
 
       resetBinding: (id) => {
         set((state) => {
-          delete state.customBindings[id];
+          const { [id]: _removed, ...customBindings } = state.customBindings;
+          return { customBindings };
         });
       },
-    })),
+    }),
     {
       name: "ddalab-keyboard-shortcuts",
       partialize: (state) => ({
