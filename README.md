@@ -2,7 +2,7 @@
 
 **DDALAB** is a native desktop application designed for performing **Delay Differential Analysis (DDA)** on neurophysiological time series.
 
-It combines a modern, responsive user interface with a high-performance **Rust** analysis engine, delivering interactive, large-scale DDA workflows while ensuring that **all data processing remains local** to the user’s machine. Built with **Tauri** and **React**, DDALAB offers the ergonomics of a desktop app, the raw performance of compiled systems code, and the reproducibility required for scientific research.
+It combines a modern, responsive user interface with a high-performance **Rust** analysis engine, delivering interactive, large-scale DDA workflows while ensuring that **all data processing remains local** to the user’s machine. On this branch, the primary desktop target is now a **Kotlin Multiplatform + Compose Multiplatform** application, while the previous **Tauri + React** implementation remains available as a legacy fallback during migration.
 
 ## Table of Contents
 
@@ -67,7 +67,7 @@ These events often cover advanced DDA workflows, data interpretation strategies,
 
 ## Key Features
 
-- **Native Desktop Experience:** Fast, lightweight UI built with Tauri v2 and React.
+- **Native Desktop Experience:** Compose Multiplatform desktop UI on this branch, with the legacy Tauri shell still available during migration.
 - **High-Performance Backend:** Embedded Rust API with no external runtime dependencies.
 - **Broad Format Support:** Native support for EDF, FIFF (`.fif`), ASCII/TXT, CSV, BrainVision (`.vhdr`), and EEGLAB (`.set`).
 - **BIDS Compatibility:** Native handling of Brain Imaging Data Structure datasets.
@@ -84,12 +84,11 @@ DDALAB is designed as a modular, high-performance scientific application.
 
 ### Core Application Stack
 
-- **Tauri v2:** Native desktop framework.
-- **React + Next.js (TypeScript):** Modern frontend architecture.
-- **Embedded Rust API:** Axum-based local web server.
+- **Kotlin Multiplatform + Compose Multiplatform:** Primary desktop framework on this branch.
+- **Legacy Tauri + React/Next.js App:** Retained in `packages/ddalab-tauri` while migration continues.
+- **Rust Native Analysis Engine:** Shared binaries and CLI tooling used by both desktop shells.
 - **SQLite:** Persistent local storage for analysis history.
-- **ECharts:** Interactive, GPU-accelerated plotting.
-- **TanStack Query:** Efficient data fetching and caching.
+- **Compose Canvas/Skia Rendering:** Interactive scientific visualization path for large waveform datasets.
 
 ### Optional Network Deployment
 
@@ -124,13 +123,27 @@ To start the broker:
 `git clone https://github.com/sdraeger/DDALAB.git`
 `cd DDALAB`
 `bun install`
-`cd packages/ddalab-tauri`
-`bun run tauri:dev`
+`bun run dev:desktop`
+
+### Legacy Tauri Fallback
+
+The previous Tauri desktop app is still available in this branch for parity work that has not been ported yet.
+
+`bun run dev:desktop:legacy`
+
+Additional helper commands:
+
+- `bun run check:desktop`
+- `bun run build:desktop`
+- `bun run build:desktop:legacy`
 
 ### Production Build
 
-`bun run tauri build`
-Artifacts are generated in `src-tauri/target/release/bundle/`.
+`bun run build:desktop`
+
+Legacy Tauri build:
+
+`bun run build:desktop:legacy`
 
 ## Conformance & Parity
 
