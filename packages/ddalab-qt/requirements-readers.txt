@@ -1,0 +1,6 @@
+numpy==1.26.4
+scipy==1.13.1
+mne==1.8.0
+nibabel==5.3.3
+pyxdf==1.16.8
+pynwb==2.8.3
