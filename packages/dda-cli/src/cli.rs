@@ -5,8 +5,8 @@ use clap::{Args, Parser, Subcommand};
     name = "ddalab",
     version,
     about = "Delay Differential Analysis (DDA) command-line tool",
-    long_about = "Run DDA analysis on neurophysiology data files (EDF, ASCII/CSV).\n\
-                  Requires the run_DDA_AsciiEdf binary. Set $DDA_BINARY_PATH or use --binary."
+    long_about = "Run DDA analysis with the built-in Rust engine.\n\
+                  All execution is handled inside dda-rs."
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -21,7 +21,7 @@ pub struct Cli {
 pub enum Command {
     /// Run DDA analysis on a data file
     Run(RunArgs),
-    /// Show DDA binary path and version information
+    /// Show backend information
     Info(InfoArgs),
     /// List available DDA analysis variants
     Variants(VariantsArgs),
@@ -29,6 +29,8 @@ pub enum Command {
     Validate(ValidateArgs),
     /// Run batch DDA analysis across multiple files
     Batch(BatchArgs),
+    #[command(hide = true)]
+    Serve(ServeArgs),
 }
 
 #[derive(Args)]
@@ -134,7 +136,7 @@ pub struct RunArgs {
     #[arg(long)]
     pub sr: Option<f64>,
 
-    /// Path to DDA binary
+    /// Legacy native DDA binary path (ignored; native backend disabled)
     #[arg(long, env = "DDA_BINARY_PATH")]
     pub binary: Option<String>,
 
@@ -153,7 +155,7 @@ pub struct RunArgs {
 
 #[derive(Args)]
 pub struct InfoArgs {
-    /// Path to DDA binary
+    /// Legacy native DDA binary path (ignored; native backend disabled)
     #[arg(long, env = "DDA_BINARY_PATH")]
     pub binary: Option<String>,
 
@@ -271,7 +273,7 @@ pub struct BatchArgs {
     #[arg(long)]
     pub sr: Option<f64>,
 
-    /// Path to DDA binary
+    /// Legacy native DDA binary path (ignored; native backend disabled)
     #[arg(long, env = "DDA_BINARY_PATH")]
     pub binary: Option<String>,
 
@@ -294,6 +296,21 @@ pub struct BatchArgs {
     /// Suppress progress messages on stderr
     #[arg(long, default_value_t = false)]
     pub quiet: bool,
+}
+
+#[derive(Args)]
+pub struct ServeArgs {
+    /// Legacy native DDA binary path (ignored; native backend disabled)
+    #[arg(long, env = "DDA_BINARY_PATH")]
+    pub binary: Option<String>,
+
+    /// Legacy no-op flag retained for compatibility
+    #[arg(long, default_value_t = false)]
+    pub disable_native_fallback: bool,
+
+    /// Maximum number of columns to include in preview responses
+    #[arg(long, default_value_t = 2048)]
+    pub preview_columns: usize,
 }
 
 /// Parse a channel pair string "i,j" into [usize; 2].
