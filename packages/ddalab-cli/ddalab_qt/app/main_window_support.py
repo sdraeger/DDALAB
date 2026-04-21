@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 import json
 import math
+import os
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -51,6 +52,7 @@ from ..domain.models import (
 )
 from ..persistence.state_db import StateDatabase
 from ..ui.style import apply_theme, current_theme_colors, normalize_theme_mode
+from ..update_manager import AvailableUpdate, UpdateDownloadProgress
 
 
 class WorkerSignals(QObject):
@@ -159,6 +161,241 @@ class MainWindowSupportMixin:
                 self.settings_analysis_summary_caption.setText(
                     "Archived EEG defaults stay in control"
                 )
+
+        self._refresh_update_ui()
+
+    def _initialize_update_support(self) -> None:
+        self._refresh_update_ui()
+        if self._allow_update_checks and self._update_manager.supports_updates():
+            QTimer.singleShot(1800, self._run_startup_update_check)
+
+    def _run_startup_update_check(self) -> None:
+        self._check_for_updates(manual=False)
+
+    def _refresh_update_ui(self) -> None:
+        if not hasattr(self, "settings_update_status_label"):
+            return
+
+        supports_updates = self._update_manager.supports_updates()
+        latest_version = (
+            f"v{self._pending_update.latest_version}"
+            if self._pending_update is not None
+            else "Not checked yet"
+        )
+        if hasattr(self, "settings_update_current_version_value"):
+            self.settings_update_current_version_value.setText(f"v{self._app_version}")
+        if hasattr(self, "settings_update_release_value"):
+            self.settings_update_release_value.setText(latest_version)
+        if supports_updates:
+            self.settings_update_status_label.setText(self._update_status_text)
+            self.settings_update_hint_label.setText(
+                "Packaged desktop builds check GitHub Releases and install the matching asset for this platform."
+            )
+        else:
+            self.settings_update_status_label.setText(
+                "Automatic updates are available only in packaged desktop builds."
+            )
+            self.settings_update_hint_label.setText(
+                "Use a release installer or frozen app build to enable update checks and one-click installs."
+            )
+
+        busy = self._update_check_in_progress or self._update_install_in_progress
+        self.settings_update_check_button.setEnabled(supports_updates and not busy)
+        self.settings_update_install_button.setEnabled(
+            supports_updates and self._pending_update is not None and not busy
+        )
+        self.settings_update_check_button.setText(
+            "Checking…"
+            if self._update_check_in_progress
+            else "Check for Updates"
+        )
+        self.settings_update_install_button.setText(
+            "Downloading…"
+            if self._update_install_in_progress
+            else "Install Latest Update"
+        )
+
+        if self._update_install_in_progress:
+            self.settings_update_progress.setVisible(True)
+            if self._update_download_percent is None:
+                self.settings_update_progress.setRange(0, 0)
+            else:
+                self.settings_update_progress.setRange(0, 100)
+                self.settings_update_progress.setValue(self._update_download_percent)
+        else:
+            self.settings_update_progress.setVisible(False)
+            self.settings_update_progress.setRange(0, 100)
+            self.settings_update_progress.setValue(0)
+
+    def _on_check_for_updates_clicked(self) -> None:
+        self._check_for_updates(manual=True)
+
+    def _check_for_updates(self, *, manual: bool) -> None:
+        if self._update_check_in_progress or self._update_install_in_progress:
+            return
+        if not self._update_manager.supports_updates():
+            if manual:
+                QMessageBox.information(
+                    self,
+                    "DDALAB Updates",
+                    "Automatic updates are available only in packaged desktop builds.",
+                )
+            return
+
+        self._update_check_in_progress = True
+        self._update_status_text = "Checking GitHub releases…"
+        self._update_download_percent = None
+        self._refresh_update_ui()
+
+        def on_success(result: object) -> None:
+            self._update_check_in_progress = False
+            update = result if isinstance(result, AvailableUpdate) else None
+            self._pending_update = update
+            if update is None:
+                self._update_status_text = f"DDALAB v{self._app_version} is up to date."
+                self._refresh_update_ui()
+                if manual:
+                    QMessageBox.information(
+                        self,
+                        "DDALAB Updates",
+                        f"DDALAB v{self._app_version} is already the latest release.",
+                    )
+                return
+
+            self._update_status_text = (
+                f"DDALAB v{update.latest_version} is available for install."
+            )
+            self._refresh_update_ui()
+            if not manual:
+                self._notify(
+                    "system",
+                    "info",
+                    "Update Available",
+                    f"DDALAB v{update.latest_version} is ready to install.",
+                    show_status=False,
+                )
+            self._prompt_for_update_install(update)
+
+        def on_error(message: str) -> None:
+            self._update_check_in_progress = False
+            self._update_status_text = f"Update check failed: {message}"
+            self._refresh_update_ui()
+            if manual:
+                self._show_error(f"Update check failed: {message}")
+            else:
+                self._notify(
+                    "system",
+                    "warning",
+                    "Update Check Failed",
+                    message,
+                    show_status=False,
+                )
+
+        self._run_task(self._update_manager.check_for_updates, on_success, on_error)
+
+    def _prompt_for_update_install(self, update: AvailableUpdate) -> None:
+        release_line = (
+            f"Release tag: {update.tag_name}\n" if update.tag_name else ""
+        )
+        published_line = (
+            f"Published: {update.published_at_iso}\n"
+            if update.published_at_iso
+            else ""
+        )
+        should_install = (
+            QMessageBox.question(
+                self,
+                "DDALAB Update Available",
+                (
+                    f"DDALAB v{update.latest_version} is available.\n\n"
+                    f"Current version: v{update.current_version}\n"
+                    f"{release_line}"
+                    f"{published_line}\n"
+                    "Install it now? DDALAB will close to finish the update."
+                ),
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes,
+            )
+            == QMessageBox.Yes
+        )
+        if should_install:
+            self._install_available_update(update)
+
+    def _on_install_update_clicked(self) -> None:
+        if self._pending_update is None:
+            self._check_for_updates(manual=True)
+            return
+        self._install_available_update(self._pending_update)
+
+    def _install_available_update(self, update: AvailableUpdate) -> None:
+        if self._update_check_in_progress or self._update_install_in_progress:
+            return
+
+        self._update_install_in_progress = True
+        self._update_download_percent = None
+        self._update_status_text = f"Downloading DDALAB v{update.latest_version}…"
+        self._refresh_update_ui()
+
+        def task(progress_callback: Callable[[object], None]) -> object:
+            return self._update_manager.download_update(
+                update,
+                progress_callback=lambda progress: progress_callback(progress),
+            )
+
+        def on_progress(result: object) -> None:
+            if not isinstance(result, UpdateDownloadProgress):
+                return
+            self._update_download_percent = result.percent
+            if result.total_bytes > 0:
+                downloaded_mib = result.downloaded_bytes / (1024 * 1024)
+                total_mib = result.total_bytes / (1024 * 1024)
+                self._update_status_text = (
+                    f"Downloading DDALAB v{update.latest_version}… "
+                    f"{downloaded_mib:.1f} / {total_mib:.1f} MiB"
+                )
+            else:
+                self._update_status_text = (
+                    f"Downloading DDALAB v{update.latest_version}…"
+                )
+            self._refresh_update_ui()
+
+        def on_success(result: object) -> None:
+            downloaded_asset = Path(str(result))
+            self._update_status_text = f"Preparing DDALAB v{update.latest_version}…"
+            self._refresh_update_ui()
+            try:
+                launch_message = self._update_manager.start_install(
+                    downloaded_asset,
+                    current_pid=os.getpid(),
+                )
+            except Exception as exc:  # noqa: BLE001
+                self._update_install_in_progress = False
+                self._update_download_percent = None
+                self._update_status_text = f"Update install failed: {exc}"
+                self._refresh_update_ui()
+                self._show_error(f"Could not start the update installer: {exc}")
+                return
+
+            self._notify(
+                "system",
+                "info",
+                "Installing Update",
+                f"Updating to DDALAB v{update.latest_version}",
+                show_status=False,
+            )
+            QMessageBox.information(self, "DDALAB Updates", launch_message)
+            app = QApplication.instance()
+            if app is not None:
+                QTimer.singleShot(150, app.quit)
+
+        def on_error(message: str) -> None:
+            self._update_install_in_progress = False
+            self._update_download_percent = None
+            self._update_status_text = f"Update download failed: {message}"
+            self._refresh_update_ui()
+            self._show_error(f"Update download failed: {message}")
+
+        self._run_task_with_progress(task, on_success, on_error, on_progress)
 
     def _session_state_path(self) -> Path:
         return Path.home() / ".ddalab-qt" / "session.json"

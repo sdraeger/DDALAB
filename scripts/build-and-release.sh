@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Build helper for the active DDALAB Python package + Qt GUI workflows.
+# Build helper for the active DDALAB desktop release workflow.
 
 set -e
 
@@ -10,8 +10,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-CLI_WORKFLOW_FILE="build-python-package.yml"
-GUI_WORKFLOW_FILE="build-qt.yml"
+RELEASE_WORKFLOW_FILE="release-desktop.yml"
 
 print_status() {
     echo -e "${BLUE}[INFO]${NC} $1"
@@ -49,18 +48,16 @@ print(payload["project"]["version"])
 PY
 }
 
-trigger_workflow() {
-    local workflow=$1
-    print_status "Triggering ${workflow}..."
-    gh workflow run "$workflow"
+trigger_release_workflow() {
+    print_status "Triggering ${RELEASE_WORKFLOW_FILE}..."
+    gh workflow run "$RELEASE_WORKFLOW_FILE"
 }
 
 usage() {
     echo "Usage: $0"
     echo ""
-    echo "Triggers the active DDALAB build workflows:"
-    echo "  • ${CLI_WORKFLOW_FILE} (Python wheels)"
-    echo "  • ${GUI_WORKFLOW_FILE} (Qt desktop bundles)"
+    echo "Triggers the active DDALAB release workflow:"
+    echo "  • ${RELEASE_WORKFLOW_FILE} (desktop release builds + GitHub release publish)"
     echo ""
     echo "The version is read from packages/ddalab-cli/pyproject.toml"
 }
@@ -77,10 +74,9 @@ check_gh_auth
 VERSION=$(get_version)
 print_status "Current DDALAB version: ${VERSION}"
 
-trigger_workflow "$CLI_WORKFLOW_FILE"
-trigger_workflow "$GUI_WORKFLOW_FILE"
+trigger_release_workflow
 
 echo ""
-print_success "Build workflows triggered successfully."
+print_success "Release workflow triggered successfully."
 print_status "Monitor progress at:"
 echo "  https://github.com/$(gh repo view --json owner,name --jq '.owner.login + \"/\" + .name')/actions"

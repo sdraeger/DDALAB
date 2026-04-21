@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ddalab-gui"
-version = "0.1.0"
+version = "1.2.9"
 description = "Qt GUI launcher package for DDALAB"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 dependencies = [
-  "ddalab>=0.1.0,<0.2.0",
+  "ddalab==1.2.9",
 ]
 
 [project.scripts]

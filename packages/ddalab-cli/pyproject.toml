@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ddalab"
-version = "0.1.0"
+version = "1.2.9"
 description = "DDALAB command-line interface with bundled local backend"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
@@ -20,6 +20,7 @@ dependencies = [
   "nibabel==5.3.3",
   "pyxdf==1.16.8",
   "pynwb==2.8.3",
+  "packaging>=24,<25",
 ]
 
 [project.scripts]
