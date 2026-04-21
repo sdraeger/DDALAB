@@ -114,3 +114,5 @@ website/
 packages/dda-cli/target/
 
 DDA_Intro
+
+packages/archive/
