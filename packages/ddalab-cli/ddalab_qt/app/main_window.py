@@ -17,6 +17,8 @@ from ..domain.models import AppState, BrowserEntry, OpenNeuroDataset
 from ..persistence.state_db import StateDatabase
 from ..runtime_paths import RuntimePaths
 from ..ui.style import apply_theme, normalize_theme_mode
+from ..update_manager import AvailableUpdate, UpdateManager
+from ..version import get_app_version
 from .main_window_analysis import MainWindowAnalysisMixin
 from .main_window_integrations import MainWindowIntegrationsMixin
 from .main_window_support import MainWindowSupportMixin
@@ -60,6 +62,14 @@ class MainWindow(
         super().__init__()
         self.runtime_paths = runtime_paths
         self.repo_root = runtime_paths.browser_fallback_root()
+        self._app_version = get_app_version()
+        self._update_manager = UpdateManager(runtime_paths, self._app_version)
+        self._pending_update: Optional[AvailableUpdate] = None
+        self._update_check_in_progress = False
+        self._update_install_in_progress = False
+        self._update_status_text = "Check GitHub releases for packaged desktop updates."
+        self._update_download_percent: Optional[int] = None
+        self._allow_update_checks = bootstrap_backend
         self.backend: BackendClient = (
             RemoteBackendClient(server_url)
             if server_url
@@ -140,6 +150,7 @@ class MainWindow(
             apply_theme(app, self.runtime_paths, self.state.theme_mode)
         self._build_ui()
         self._bind_ui()
+        self._initialize_update_support()
         self._refresh_dda_model_term_list()
         self._apply_expert_mode(self.state.expert_mode, schedule_save=False)
         self._update_backend_mode_ui()

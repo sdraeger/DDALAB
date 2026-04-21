@@ -1830,6 +1830,67 @@ class MainWindowUiMixin:
         analysis_layout.addWidget(analysis_mode_panel)
         cards.addWidget(analysis_card, 1, 0)
 
+        updates_card, updates_layout = self._build_settings_card(
+            title="Updates",
+            description=(
+                "Installed desktop builds can check GitHub Releases, download the correct asset for this platform, and hand off installation automatically."
+            ),
+        )
+        updates_panel = QFrame()
+        updates_panel.setProperty("settingsSubcard", True)
+        updates_panel_layout = QGridLayout(updates_panel)
+        updates_panel_layout.setContentsMargins(14, 12, 14, 12)
+        updates_panel_layout.setHorizontalSpacing(12)
+        updates_panel_layout.setVerticalSpacing(8)
+
+        current_version_label = QLabel("Current version")
+        current_version_label.setProperty("settingsEyebrow", True)
+        updates_panel_layout.addWidget(current_version_label, 0, 0)
+        self.settings_update_current_version_value = QLabel("v0.0.0")
+        self.settings_update_current_version_value.setProperty("title", True)
+        updates_panel_layout.addWidget(self.settings_update_current_version_value, 1, 0)
+
+        latest_release_label = QLabel("Latest release")
+        latest_release_label.setProperty("settingsEyebrow", True)
+        updates_panel_layout.addWidget(latest_release_label, 0, 1)
+        self.settings_update_release_value = QLabel("Not checked yet")
+        self.settings_update_release_value.setProperty("title", True)
+        updates_panel_layout.addWidget(self.settings_update_release_value, 1, 1)
+
+        self.settings_update_status_label = QLabel(
+            "Check GitHub releases for packaged desktop updates."
+        )
+        self.settings_update_status_label.setWordWrap(True)
+        self.settings_update_status_label.setProperty("muted", True)
+        updates_panel_layout.addWidget(self.settings_update_status_label, 2, 0, 1, 2)
+
+        updates_layout.addWidget(updates_panel)
+
+        self.settings_update_hint_label = QLabel(
+            "Automatic checks run only for installed desktop builds."
+        )
+        self.settings_update_hint_label.setWordWrap(True)
+        self.settings_update_hint_label.setProperty("settingsCaption", True)
+        updates_layout.addWidget(self.settings_update_hint_label)
+
+        self.settings_update_progress = QProgressBar()
+        self.settings_update_progress.setRange(0, 100)
+        self.settings_update_progress.setValue(0)
+        self.settings_update_progress.setVisible(False)
+        updates_layout.addWidget(self.settings_update_progress)
+
+        updates_actions = QHBoxLayout()
+        updates_actions.setSpacing(10)
+        self.settings_update_check_button = QPushButton("Check for Updates")
+        self.settings_update_check_button.setProperty("secondary", True)
+        self.settings_update_install_button = QPushButton("Install Latest Update")
+        self.settings_update_install_button.setEnabled(False)
+        updates_actions.addWidget(self.settings_update_check_button)
+        updates_actions.addWidget(self.settings_update_install_button)
+        updates_actions.addStretch(1)
+        updates_layout.addLayout(updates_actions)
+        cards.addWidget(updates_card, 1, 1)
+
         scope_card, scope_layout = self._build_settings_card(
             title="Desktop Scope",
             description=(
@@ -1855,7 +1916,7 @@ class MainWindowUiMixin:
             item.setProperty("settingsListItem", True)
             included_layout.addWidget(item)
         scope_layout.addWidget(included_panel)
-        cards.addWidget(scope_card, 1, 1)
+        cards.addWidget(scope_card, 2, 0, 1, 2)
 
         layout.addLayout(cards)
         layout.addStretch(1)
@@ -2125,6 +2186,12 @@ class MainWindowUiMixin:
         self.clear_notifications_button.clicked.connect(self._clear_notifications)
         self.reconnect_button.clicked.connect(self._reconnect_backend)
         self.use_local_bridge_button.clicked.connect(self._use_local_backend)
+        self.settings_update_check_button.clicked.connect(
+            self._on_check_for_updates_clicked
+        )
+        self.settings_update_install_button.clicked.connect(
+            self._on_install_update_clicked
+        )
 
         self.waveform_reload_timer = QTimer(self)
         self.waveform_reload_timer.setSingleShot(True)

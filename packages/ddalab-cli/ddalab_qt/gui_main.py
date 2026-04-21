@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QApplication
 from .app.main_window import build_main_window
 from .runtime_paths import RuntimePaths
 from .ui.style import apply_theme
+from .version import get_app_version
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -28,6 +29,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     runtime_paths = RuntimePaths.detect()
     app = QApplication(sys.argv)
     app.setApplicationName("DDALAB")
+    app.setApplicationVersion(get_app_version())
     apply_theme(app, runtime_paths)
     window = build_main_window(
         runtime_paths=runtime_paths,

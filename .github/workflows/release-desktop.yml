@@ -1,0 +1,294 @@
+name: Release Desktop App
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: "Version to release, for example 1.2.9. Defaults to the ddalab package version."
+        required: false
+        type: string
+      publish_release:
+        description: "Create or update the GitHub release after building."
+        required: false
+        type: boolean
+        default: true
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      publish_release: ${{ steps.version.outputs.publish_release }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ github.event.inputs.release_version }}
+          INPUT_PUBLISH: ${{ github.event.inputs.publish_release }}
+        run: |
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            version="${REF_NAME#v}"
+            publish_release="true"
+          else
+            if [[ -n "$INPUT_VERSION" ]]; then
+              version="$INPUT_VERSION"
+            else
+              version="$(python - <<'PY'
+          import tomllib
+          from pathlib import Path
+
+          payload = tomllib.loads(Path("packages/ddalab-cli/pyproject.toml").read_text())
+          print(payload["project"]["version"])
+          PY
+          )"
+            fi
+            publish_release="${INPUT_PUBLISH:-true}"
+          fi
+
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9]+)?$ ]]; then
+            echo "Unsupported release version: $version" >&2
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "publish_release=$publish_release" >> "$GITHUB_OUTPUT"
+
+      - name: Verify Python package versions
+        shell: bash
+        env:
+          EXPECTED_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import tomllib
+          from pathlib import Path
+
+          expected = os.environ["EXPECTED_VERSION"]
+          checks = {
+              "package.json": json.loads(Path("package.json").read_text())["version"],
+              "packages/ddalab-cli/pyproject.toml": tomllib.loads(
+                  Path("packages/ddalab-cli/pyproject.toml").read_text()
+              )["project"]["version"],
+              "packages/ddalab-gui/pyproject.toml": tomllib.loads(
+                  Path("packages/ddalab-gui/pyproject.toml").read_text()
+              )["project"]["version"],
+          }
+          mismatches = [
+              f"{path}: expected {expected}, found {actual}"
+              for path, actual in checks.items()
+              if actual != expected
+          ]
+          if mismatches:
+              raise SystemExit("\n".join(mismatches))
+          PY
+
+  build:
+    needs: resolve
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            platform: linux
+            arch: x64
+            dist_mode: onefile
+          - runner: windows-latest
+            platform: windows
+            arch: x64
+            dist_mode: dir
+          - runner: macos-13
+            platform: macos
+            arch: x64
+            dist_mode: dir
+          - runner: macos-14
+            platform: macos
+            arch: arm64
+            dist_mode: dir
+
+    runs-on: ${{ matrix.runner }}
+    env:
+      DDALAB_VERSION: ${{ needs.resolve.outputs.version }}
+      DDALAB_TAG: ${{ needs.resolve.outputs.tag }}
+      DDALAB_DIST_MODE: ${{ matrix.dist_mode }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./packages/dda-cli -> target"
+
+      - name: Install Linux Qt runtime dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libegl1 \
+            libgl1 \
+            libxkbcommon-x11-0 \
+            libdbus-1-3 \
+            libxcb-cursor0 \
+            patchelf
+
+      - name: Stage bundled runtime backend
+        working-directory: packages/ddalab-cli
+        shell: bash
+        run: python scripts/prepare_runtime.py --clean --print-dir
+
+      - name: Install desktop build dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e packages/ddalab-cli -e packages/ddalab-gui pyinstaller
+
+      - name: Build frozen desktop bundle
+        working-directory: packages/ddalab-gui
+        shell: bash
+        run: pyinstaller DDALAB.spec --noconfirm --clean
+
+      - name: Smoke test frozen Linux binary
+        if: runner.os == 'Linux'
+        working-directory: packages/ddalab-gui
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: dist/DDALAB --smoke-test
+
+      - name: Smoke test frozen macOS app
+        if: runner.os == 'macOS'
+        working-directory: packages/ddalab-gui
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: dist/DDALAB.app/Contents/MacOS/DDALAB --smoke-test
+
+      - name: Smoke test frozen Windows bundle
+        if: runner.os == 'Windows'
+        working-directory: packages/ddalab-gui
+        shell: pwsh
+        run: dist/DDALAB/DDALAB.exe --smoke-test
+
+      - name: Package Linux release assets
+        if: runner.os == 'Linux'
+        working-directory: packages/ddalab-gui
+        shell: bash
+        run: |
+          mkdir -p ../../release-assets
+          install -m 755 dist/DDALAB "../../release-assets/DDALAB-${DDALAB_VERSION}-linux-x64"
+
+      - name: Package macOS release assets
+        if: runner.os == 'macOS'
+        working-directory: packages/ddalab-gui
+        shell: bash
+        env:
+          DDALAB_ARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p ../../release-assets
+          ditto -c -k --keepParent dist/DDALAB.app "../../release-assets/DDALAB-${DDALAB_VERSION}-macos-${DDALAB_ARCH}-app.zip"
+          hdiutil create \
+            -volname "DDALAB" \
+            -srcfolder dist/DDALAB.app \
+            -ov \
+            -format UDZO \
+            "../../release-assets/DDALAB-${DDALAB_VERSION}-macos-${DDALAB_ARCH}.dmg"
+
+      - name: Install Inno Setup
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Package Windows release assets
+        if: runner.os == 'Windows'
+        working-directory: packages/ddalab-gui
+        shell: pwsh
+        run: |
+          $sourceDir = Join-Path $PWD "dist\DDALAB"
+          $outputDir = [System.IO.Path]::GetFullPath((Join-Path $PWD "..\..\release-assets"))
+          New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+          Compress-Archive -Path "$sourceDir\*" -DestinationPath (Join-Path $outputDir "DDALAB-$env:DDALAB_VERSION-windows-x64-portable.zip") -Force
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+            "/DAppVersion=$env:DDALAB_VERSION" `
+            "/DSourceDir=$sourceDir" `
+            "/DOutputDir=$outputDir" `
+            "installer\DDALAB.iss"
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets-${{ matrix.platform }}-${{ matrix.arch }}
+          path: release-assets/*
+
+  publish:
+    if: needs.resolve.outputs.publish_release == 'true'
+    needs:
+      - resolve
+      - build
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      DDALAB_VERSION: ${{ needs.resolve.outputs.version }}
+      DDALAB_TAG: ${{ needs.resolve.outputs.tag }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download built release assets
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-assets-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Ensure release tag exists
+        shell: bash
+        run: |
+          if git rev-parse "$DDALAB_TAG" >/dev/null 2>&1; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "$DDALAB_TAG" "$GITHUB_SHA"
+          git push origin "$DDALAB_TAG"
+
+      - name: Create or update GitHub release
+        shell: bash
+        run: |
+          if gh release view "$DDALAB_TAG" >/dev/null 2>&1; then
+            gh release edit "$DDALAB_TAG" --title "DDALAB $DDALAB_VERSION"
+          else
+            gh release create "$DDALAB_TAG" \
+              --title "DDALAB $DDALAB_VERSION" \
+              --notes "Automated desktop release for DDALAB $DDALAB_VERSION."
+          fi
+
+      - name: Upload release assets
+        shell: bash
+        run: gh release upload "$DDALAB_TAG" release-assets/* --clobber

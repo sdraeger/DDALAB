@@ -1,18 +1,24 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
+from PyInstaller.compat import is_darwin
 from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import copy_metadata
 from ddalab_qt.runtime_binary_names import (
     DDA_BINARY_STEM,
     PACKAGED_CLI_BINARY_STEM,
     platform_binary_name,
 )
+from ddalab_qt.version import get_app_version
 
 
 PROJECT_ROOT = Path.cwd()
 CLI_PROJECT_ROOT = (PROJECT_ROOT.parent / "ddalab-cli").resolve()
 RUNTIME_BIN_DIR = CLI_PROJECT_ROOT / "ddalab_qt" / "runtime" / "bin"
+APP_VERSION = os.environ.get("DDALAB_VERSION", get_app_version())
+DIST_MODE = os.environ.get("DDALAB_DIST_MODE", "dir").lower()
 
 DDA_BINARY_NAME = platform_binary_name(DDA_BINARY_STEM)
 CLI_BINARY_NAME = platform_binary_name(PACKAGED_CLI_BINARY_STEM)
@@ -29,6 +35,8 @@ if missing:
 
 datas = collect_data_files("ddalab_qt", excludes=["runtime/bin/*"])
 datas += collect_data_files("matplotlib")
+datas += copy_metadata("ddalab")
+datas += copy_metadata("ddalab-gui")
 hiddenimports = [
     "matplotlib",
     "matplotlib.font_manager",
@@ -61,25 +69,54 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
-exe = EXE(
-    pyz,
-    a.scripts,
-    [],
-    exclude_binaries=True,
-    name="DDALAB",
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=False,
-    console=False,
-)
+if DIST_MODE == "onefile":
+    exe = EXE(
+        pyz,
+        a.scripts,
+        a.binaries,
+        a.zipfiles,
+        a.datas,
+        [],
+        name="DDALAB",
+        debug=False,
+        bootloader_ignore_signals=False,
+        strip=False,
+        upx=False,
+        console=False,
+    )
+else:
+    exe = EXE(
+        pyz,
+        a.scripts,
+        [],
+        exclude_binaries=True,
+        name="DDALAB",
+        debug=False,
+        bootloader_ignore_signals=False,
+        strip=False,
+        upx=False,
+        console=False,
+    )
 
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=False,
-    name="DDALAB",
-)
+    coll = COLLECT(
+        exe,
+        a.binaries,
+        a.zipfiles,
+        a.datas,
+        strip=False,
+        upx=False,
+        name="DDALAB",
+    )
+
+    if is_darwin:
+        app = BUNDLE(
+            coll,
+            name="DDALAB.app",
+            bundle_identifier="io.ddalab.desktop",
+            info_plist={
+                "CFBundleDisplayName": "DDALAB",
+                "CFBundleName": "DDALAB",
+                "CFBundleShortVersionString": APP_VERSION,
+                "CFBundleVersion": APP_VERSION,
+            },
+        )
