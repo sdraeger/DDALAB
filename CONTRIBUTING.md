@@ -28,7 +28,7 @@ We embrace the use of **Large Language Models (LLMs)** and AI coding assistants 
 2. **Setup the environment** as described in the `README.md`.
 3. **Follow the architecture:**
 
-- UI changes belong in `packages/ddalab-tauri`.
+- Desktop application, CLI, and Python runtime changes belong in `packages/ddalab`.
 - Computational changes belong in `packages/dda-rs`.
 
 4. **Update documentation:** If you add a feature, please update the relevant documentation in the `docs/` folder.
@@ -43,10 +43,10 @@ This custom command automatically handles all formattable code across the entire
 
 ## Development Workflow
 
-### Frontend (React/TypeScript)
+### Desktop GUI
 
-The UI is built with Next.js and Tailwind CSS. We use TanStack Query for state management between the UI and the Rust backend.
-`cd packages/ddalab-tauri && bun run tauri:dev`
+The active desktop application is the Qt shell inside the unified Python package.
+`cd packages/ddalab && ./start.sh`
 
 ### Backend (Rust)
 

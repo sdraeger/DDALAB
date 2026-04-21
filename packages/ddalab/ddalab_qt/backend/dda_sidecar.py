@@ -5,7 +5,6 @@ import os
 import subprocess
 import threading
 from collections import deque
-from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Sequence
 
 
@@ -14,23 +13,17 @@ class DdaSidecarClient:
         self,
         *,
         cli_command: Sequence[str],
-        binary_path: Optional[Path],
-        disable_native_fallback: bool,
-        cwd: Path,
+        cwd: str,
         preview_columns: int = 2048,
     ) -> None:
         self._command = [*[str(part) for part in cli_command], "serve"]
-        if binary_path is not None:
-            self._command.extend(["--binary", str(binary_path)])
-        if disable_native_fallback:
-            self._command.append("--disable-native-fallback")
         self._command.extend(
             [
                 "--preview-columns",
                 str(max(int(preview_columns), 16)),
             ]
         )
-        self._cwd = Path(cwd)
+        self._cwd = str(cwd)
         self._lock = threading.RLock()
         self._process: Optional[subprocess.Popen[str]] = None
         self._stderr_lines: deque[str] = deque(maxlen=160)
@@ -105,7 +98,7 @@ class DdaSidecarClient:
         env = dict(os.environ)
         process = subprocess.Popen(
             self._command,
-            cwd=str(self._cwd),
+            cwd=self._cwd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

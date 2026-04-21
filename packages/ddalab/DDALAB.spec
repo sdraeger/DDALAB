@@ -13,9 +13,9 @@ from ddalab_qt.runtime_binary_names import (
 from ddalab_qt.version import get_app_version
 
 
-PROJECT_ROOT = Path.cwd()
-CLI_PROJECT_ROOT = (PROJECT_ROOT.parent / "ddalab-cli").resolve()
-RUNTIME_BIN_DIR = CLI_PROJECT_ROOT / "ddalab_qt" / "runtime" / "bin"
+PROJECT_ROOT = Path(globals().get("SPECPATH", Path.cwd())).resolve()
+PACKAGE_ROOT = PROJECT_ROOT.resolve()
+RUNTIME_BIN_DIR = PACKAGE_ROOT / "ddalab_qt" / "runtime" / "bin"
 APP_VERSION = os.environ.get("DDALAB_VERSION", get_app_version())
 DIST_MODE = os.environ.get("DDALAB_DIST_MODE", "dir").lower()
 
@@ -33,7 +33,6 @@ if missing:
 datas = collect_data_files("ddalab_qt", excludes=["runtime/bin/*"])
 datas += collect_data_files("matplotlib")
 datas += copy_metadata("ddalab")
-datas += copy_metadata("ddalab-gui")
 hiddenimports = [
     "matplotlib",
     "matplotlib.font_manager",
@@ -51,7 +50,7 @@ hiddenimports = [
 
 a = Analysis(
     ["run_ddalab_gui.py"],
-    pathex=[str(PROJECT_ROOT), str(CLI_PROJECT_ROOT)],
+    pathex=[str(PROJECT_ROOT)],
     binaries=[
         (str(CLI_BINARY_PATH), "bin"),
     ],

@@ -1,6 +1,0 @@
-.venv/
-__pycache__/
-ddalab_gui/__pycache__/
-ddalab_gui.egg-info/
-build/
-dist/
