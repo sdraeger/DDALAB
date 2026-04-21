@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ddalab"
+version = "0.1.0"
+description = "DDALAB command-line interface with bundled local backend"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+  "PySide6==6.8.2.1",
+  "requests>=2.32.0,<3",
+  "urllib3<2",
+  "numpy==1.26.4",
+  "matplotlib==3.10.8",
+  "scipy==1.13.1",
+  "scikit-learn==1.5.2",
+  "mne==1.8.0",
+  "nibabel==5.3.3",
+  "pyxdf==1.16.8",
+  "pynwb==2.8.3",
+]
+
+[project.scripts]
+ddalab = "ddalab_qt.__main__:main"
+ddalab-cli = "ddalab_qt.__main__:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ddalab_qt*"]
+
+[tool.setuptools.package-data]
+ddalab_qt = [
+  "assets/*.svg",
+  "assets/fonts/*.ttf",
+  "runtime/bin/*",
+]

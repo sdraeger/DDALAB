@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ddalab-gui"
+version = "0.1.0"
+description = "Qt GUI launcher package for DDALAB"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+  "ddalab>=0.1.0,<0.2.0",
+]
+
+[project.scripts]
+ddalab-gui = "ddalab_gui.__main__:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ddalab_gui*"]

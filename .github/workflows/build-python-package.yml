@@ -1,0 +1,109 @@
+name: Build Python Packages
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  wheel:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_suffix: linux-x64
+          - os: macos-latest
+            artifact_suffix: macos
+          - os: windows-latest
+            artifact_suffix: windows-x64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./packages/dda-cli -> target"
+
+      - name: Install wheel build tools
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build
+
+      - name: Build CLI wheel
+        working-directory: packages/ddalab-cli
+        shell: bash
+        run: python -m build --wheel
+
+      - name: Install built CLI wheel
+        working-directory: packages/ddalab-cli
+        shell: bash
+        run: python -m pip install dist/ddalab-*.whl
+
+      - name: Verify bundled backend resolution
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from ddalab_qt.backend.api import _resolve_native_dda_support
+          from ddalab_qt.runtime_binary_names import (
+              DDA_BINARY_STEM,
+              PACKAGED_CLI_BINARY_STEM,
+              platform_binary_name,
+          )
+          from ddalab_qt.runtime_paths import RuntimePaths
+
+          runtime_paths = RuntimePaths.detect()
+          assert runtime_paths.source_repo_root is None, runtime_paths.source_repo_root
+          resolved = _resolve_native_dda_support(runtime_paths, Path.home())
+          assert resolved is not None, "Bundled native backend was not resolved."
+          cli_command, binary_path = resolved
+          assert Path(cli_command[0]).name == platform_binary_name(PACKAGED_CLI_BINARY_STEM)
+          assert binary_path.name == platform_binary_name(DDA_BINARY_STEM)
+          print(cli_command[0])
+          print(binary_path)
+          PY
+
+      - name: Build GUI wheel
+        working-directory: packages/ddalab-gui
+        shell: bash
+        run: python -m build --wheel
+
+      - name: Install built GUI wheel
+        working-directory: packages/ddalab-gui
+        shell: bash
+        run: python -m pip install dist/ddalab_gui-*.whl --no-deps
+
+      - name: Smoke test installed GUI package (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m ddalab_gui --smoke-test
+
+      - name: Smoke test installed GUI package (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: python -m ddalab_gui --smoke-test
+
+      - name: Upload wheel artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ddalab-wheels-${{ matrix.artifact_suffix }}
+          path: |
+            packages/ddalab-cli/dist/ddalab-*.whl
+            packages/ddalab-gui/dist/ddalab_gui-*.whl
