@@ -14,8 +14,7 @@ CLI_ROOT="$REPO_ROOT/packages/ddalab-cli"
 
 NATIVE_ARM64=0
 PYTHON_BIN=""
-DDA_BINARY_PATH_DEFAULT="$REPO_ROOT/bin/run_DDA_AsciiEdf"
-DDA_CLI_PATH_DEFAULT="$REPO_ROOT/packages/dda-cli/target/release/ddalab"
+DDA_CLI_PATH_DEFAULT="$REPO_ROOT/packages/dda-rs/target/release/ddalab"
 
 configure_platform_env() {
   if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
@@ -114,7 +113,6 @@ install_dependencies() {
 configure_platform_env
 select_python
 
-export DDA_BINARY_PATH="${DDA_BINARY_PATH:-$DDA_BINARY_PATH_DEFAULT}"
 if [[ -z "${DDALAB_CLI_PATH:-}" && -x "$DDA_CLI_PATH_DEFAULT" ]]; then
   export DDALAB_CLI_PATH="$DDA_CLI_PATH_DEFAULT"
 fi
