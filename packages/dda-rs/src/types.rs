@@ -30,9 +30,9 @@ pub struct AlgorithmSelection {
     pub enabled_variants: Vec<String>,
     /// SELECT mask as 6-bit string (e.g., "1 0 1 0 0 0" for ST and CD)
     /// Format: ST CT CD RESERVED DE SY
-    /// - ST: Single Timeseries (output: _DDA_ST)
-    /// - CT: Cross-Timeseries (output: _DDA_CT)
-    /// - CD: Cross-Dynamical (output: _CD_DDA_ST)
+    /// - ST: Single Timeseries (native output: _ST; compatibility: _DDA_ST)
+    /// - CT: Cross-Timeseries (native output: _CT; compatibility: _DDA_CT)
+    /// - CD: Cross-Dynamical (native outputs: _CD_DDA_ST and _CD_DDA_CT)
     /// - RESERVED: Internal development function (not for user use)
     /// - DE: Delay Embedding (output: _DE)
     /// - SY: Synchronization (output: _SY)
@@ -70,6 +70,20 @@ pub struct ModelParameters {
     pub nr_tau: u32, // Number of tau values (default: 2)
 }
 
+/// Strategy for choosing the CCD conditioning set.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CcdConditioningStrategy {
+    /// Use every selected conditioning channel except the current target/source pair.
+    AllSelected,
+    /// Choose confounds from channels that best explain the target alone.
+    AutoTargetSparse,
+    /// Choose confounds from channels that look like shared parents of target and source.
+    AutoSharedParents,
+    /// Choose confounds with a block-OMP style greedy selector on the conditioned baseline fit.
+    AutoGroupOmp,
+}
+
 /// Per-variant channel configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VariantChannelConfig {
@@ -82,6 +96,22 @@ pub struct VariantChannelConfig {
     /// Directed channel pairs for CD variant
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cd_channel_pairs: Option<Vec<[usize; 2]>>,
+    /// Optional conditioning set for CCD (Conditional Cross-Dynamical)
+    /// If omitted, the pure-Rust engine conditions on all other selected channels.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conditioning_channels: Option<Vec<usize>>,
+    /// Optional policy for choosing the CCD conditioning set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conditioning_strategy: Option<CcdConditioningStrategy>,
+    /// Optional circular-shift surrogate offsets used by CCD significance variants.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub surrogate_shifts: Option<Vec<usize>>,
+    /// Optional temporal smoothness strength for temporally regularized CCD variants.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temporal_lambda: Option<f64>,
+    /// Optional cap on the number of active sources for sparse multivariate CCD variants.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_active_sources: Option<usize>,
 }
 
 /// Complete DDA request configuration
