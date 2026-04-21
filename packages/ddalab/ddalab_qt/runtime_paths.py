@@ -9,10 +9,7 @@ from typing import Optional
 
 def _find_source_repo_root(start: Path) -> Optional[Path]:
     for candidate in (start, *start.parents):
-        if (
-            (candidate / "packages" / "ddalab-cli").exists()
-            and (candidate / "packages" / "ddalab-gui").exists()
-        ):
+        if (candidate / "packages" / "ddalab").exists():
             return candidate
     return None
 

@@ -1,8 +1,8 @@
 # DDALAB &mdash; Delay Differential Analysis Laboratory
 
-**DDALAB** is a native desktop application designed for performing **Delay Differential Analysis (DDA)** on neurophysiological time series.
+**DDALAB** is a local-first analysis environment for performing **Delay Differential Analysis (DDA)** on neurophysiological time series.
 
-It combines a modern, responsive user interface with a high-performance **Rust** analysis engine, delivering interactive, large-scale DDA workflows while ensuring that **all data processing remains local** to the user’s machine. On this branch, the primary desktop target is now a **Kotlin Multiplatform + Compose Multiplatform** application, while the previous **Tauri + React** implementation remains available as a legacy fallback during migration.
+It combines a Python command-line interface, a Qt desktop application, and a high-performance **Rust** analysis engine, delivering interactive, large-scale DDA workflows while ensuring that **all data processing remains local** to the user’s machine.
 
 ## Table of Contents
 
@@ -67,8 +67,9 @@ These events often cover advanced DDA workflows, data interpretation strategies,
 
 ## Key Features
 
-- **Native Desktop Experience:** Compose Multiplatform desktop UI on this branch, with the legacy Tauri shell still available during migration.
-- **High-Performance Backend:** Embedded Rust API with no external runtime dependencies.
+- **Native Desktop Experience:** Qt desktop application delivered through the unified `packages/ddalab` package.
+- **Scriptable CLI:** `ddalab` command for health checks, dataset inspection, waveform access, ICA, and bundled DDA commands.
+- **High-Performance Backend:** Bundled `dda-rs` binary with no separate native fallback layer or network backend required.
 - **Broad Format Support:** Native support for EDF, FIFF (`.fif`), ASCII/TXT, CSV, BrainVision (`.vhdr`), and EEGLAB (`.set`).
 - **BIDS Compatibility:** Native handling of Brain Imaging Data Structure datasets.
 - **OpenNeuro & NEMAR Integration:** Browse and download public datasets directly within the application.
@@ -84,11 +85,10 @@ DDALAB is designed as a modular, high-performance scientific application.
 
 ### Core Application Stack
 
-- **Kotlin Multiplatform + Compose Multiplatform:** Primary desktop framework on this branch.
-- **Legacy Tauri + React/Next.js App:** Retained in `packages/ddalab-tauri` while migration continues.
-- **Rust Native Analysis Engine:** Shared binaries and CLI tooling used by both desktop shells.
+- **Unified Python Desktop + CLI Package:** `packages/ddalab`
+- **Rust Native Analysis Engine:** `packages/dda-rs`
 - **SQLite:** Persistent local storage for analysis history.
-- **Compose Canvas/Skia Rendering:** Interactive scientific visualization path for large waveform datasets.
+- **Qt Custom Rendering:** Interactive waveform and result visualization for large datasets.
 
 ### Optional Network Deployment
 
@@ -115,8 +115,8 @@ To start the broker:
 ### Prerequisites
 
 - **Rust** ≥ 1.70 ([rustup.rs](https://rustup.rs))
-- **Node.js** ≥ 18
-- **System Dependencies:** Xcode Tools (macOS), MSVC (Windows), or `build-essential` & `libwebkit2gtk` (Linux).
+- **Python** 3.11 or 3.12
+- **Node.js** is only needed for legacy archived assets and historical docs.
 
 ### Getting Started
 
@@ -125,25 +125,21 @@ To start the broker:
 `bun install`
 `bun run dev:desktop`
 
-### Legacy Tauri Fallback
+### Active Packages
 
-The previous Tauri desktop app is still available in this branch for parity work that has not been ported yet.
+- `packages/ddalab`: unified Python package that installs `ddalab`, `ddalab-cli`, and `ddalab-gui`, bundles the local `dda-rs` backend for packaged releases, and provides the PySide6 desktop application
+- `packages/dda-rs`: Rust implementation and native CLI used by the packaged Python application
+- `packages/archive/*`: archived Tauri, KMP, and WASM implementations retained for historical reference only
 
-`bun run dev:desktop:legacy`
-
-Additional helper commands:
+Useful helper commands:
 
 - `bun run check:desktop`
 - `bun run build:desktop`
-- `bun run build:desktop:legacy`
+- `bun run build:cli`
 
 ### Production Build
 
 `bun run build:desktop`
-
-Legacy Tauri build:
-
-`bun run build:desktop:legacy`
 
 ## Conformance & Parity
 

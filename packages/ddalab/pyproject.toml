@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ddalab"
 version = "1.2.9"
-description = "DDALAB command-line interface with bundled local backend"
+description = "DDALAB desktop application and command-line interface"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 dependencies = [
@@ -26,13 +26,14 @@ dependencies = [
 [project.scripts]
 ddalab = "ddalab_qt.__main__:main"
 ddalab-cli = "ddalab_qt.__main__:main"
+ddalab-gui = "ddalab_gui.__main__:main"
 
 [tool.setuptools]
 include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["ddalab_qt*"]
+include = ["ddalab_qt*", "ddalab_gui*"]
 
 [tool.setuptools.package-data]
 ddalab_qt = [

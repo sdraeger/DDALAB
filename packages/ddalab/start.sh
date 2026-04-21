@@ -10,7 +10,7 @@ fi
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT_DIR"
 REPO_ROOT="$(cd "$ROOT_DIR/../.." && pwd)"
-CLI_ROOT="$REPO_ROOT/packages/ddalab-cli"
+PACKAGE_ROOT="$REPO_ROOT/packages/ddalab"
 
 NATIVE_ARM64=0
 PYTHON_BIN=""
@@ -105,9 +105,9 @@ PY
 }
 
 install_dependencies() {
-  venv_python -m pip install --no-cache-dir -r "$CLI_ROOT/requirements-readers.txt"
-  venv_python -m pip install -r "$CLI_ROOT/requirements.txt"
-  venv_python -m pip install -e "$CLI_ROOT" -e "$ROOT_DIR"
+  venv_python -m pip install --no-cache-dir -r "$PACKAGE_ROOT/requirements-readers.txt"
+  venv_python -m pip install -r "$PACKAGE_ROOT/requirements.txt"
+  venv_python -m pip install -e "$PACKAGE_ROOT"
 }
 
 configure_platform_env

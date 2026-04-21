@@ -459,7 +459,6 @@ def _handle_dda_info(args: argparse.Namespace) -> int:
     print("")
     print(f"DDA available: {'yes' if info['ddaAvailable'] else 'no'}")
     print(f"Backend CLI: {info['backendCliPath'] or 'not found'}")
-    print(f"Native DDA binary: {info['ddaBinaryPath'] or 'not required'}")
     print("Engine chain: Python CLI -> bundled dda-rs backend")
     print(f"Default window/step: {info['defaultWindowLengthSamples']}/{info['defaultWindowStepSamples']} samples")
     print(
@@ -927,7 +926,6 @@ def _dda_engine_info(runtime_paths: RuntimePaths) -> dict[str, Any]:
         "architecture": platform.machine().lower() or "unknown",
         "ddaAvailable": bool(backend_cli),
         "backendCliPath": backend_cli[0] if backend_cli else None,
-        "ddaBinaryPath": None,
         "defaultWindowLengthSamples": _DEFAULT_DDA_WINDOW_LENGTH,
         "defaultWindowStepSamples": _DEFAULT_DDA_WINDOW_STEP,
         "defaultDelays": list(_DEFAULT_DDA_DELAYS),

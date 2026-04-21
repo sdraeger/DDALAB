@@ -43,7 +43,7 @@ get_version() {
 import tomllib
 from pathlib import Path
 
-payload = tomllib.loads(Path("packages/ddalab-cli/pyproject.toml").read_text(encoding="utf-8"))
+payload = tomllib.loads(Path("packages/ddalab/pyproject.toml").read_text(encoding="utf-8"))
 print(payload["project"]["version"])
 PY
 }
@@ -59,7 +59,7 @@ usage() {
     echo "Triggers the active DDALAB release workflow:"
     echo "  • ${RELEASE_WORKFLOW_FILE} (desktop release builds + GitHub release publish)"
     echo ""
-    echo "The version is read from packages/ddalab-cli/pyproject.toml"
+    echo "The version is read from packages/ddalab/pyproject.toml"
 }
 
 if [ "${1:-}" == "--help" ] || [ "${1:-}" == "-h" ]; then

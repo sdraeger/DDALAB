@@ -43,7 +43,6 @@ from ..domain.models import (
 )
 from ..runtime_paths import RuntimePaths
 from ..runtime_binary_names import (
-    DDA_BINARY_STEM,
     DEV_CLI_BINARY_STEM,
     PACKAGED_CLI_BINARY_STEM,
     platform_binary_name,
@@ -51,8 +50,8 @@ from ..runtime_binary_names import (
 
 
 OPEN_NEURO_GRAPHQL_ENDPOINT = "https://openneuro.org/crn/graphql"
-_NATIVE_CROSS_WINDOW_LENGTH = 2
-_NATIVE_CROSS_WINDOW_STEP = 2
+_DDA_CROSS_WINDOW_LENGTH = 2
+_DDA_CROSS_WINDOW_STEP = 2
 OPEN_NEURO_BATCH_QUERY = """
 query PublicDatasets($after: String, $first: Int!) {
   datasets(first: $first, after: $after) {
@@ -94,14 +93,6 @@ class ApiHealth:
     diagnostics: List[str]
 
 
-@dataclass(frozen=True)
-class _EdfNativeInfo:
-    visible_to_raw_indices: List[int]
-    first_visible_sample_rate_hz: float
-    first_visible_total_samples: int
-    unique_visible_sample_rates_hz: List[float]
-
-
 class _DdaInputValidationError(RuntimeError):
     pass
 
@@ -117,7 +108,7 @@ def _validate_sy_selection(channel_indices: List[int]) -> None:
 
 
 @dataclass(frozen=True)
-class _NativeDdaGroupPreview:
+class _SidecarDdaGroupPreview:
     analysis_id: str
     backend_label: str
     diagnostics: List[str]
@@ -626,7 +617,7 @@ class LocalBackendClient(BackendClient):
         self.runtime_paths = runtime_paths
         self.repo_root = runtime_paths.source_repo_root or runtime_paths.browser_fallback_root()
         self._dda_sidecar: Optional[DdaSidecarClient] = None
-        self._dda_sidecar_key: Optional[tuple[tuple[str, ...], Optional[str], bool]] = None
+        self._dda_sidecar_key: Optional[tuple[str, ...]] = None
 
     @property
     def connection_label(self) -> str:
@@ -1043,9 +1034,8 @@ def _local_backend_health(runtime_paths: RuntimePaths, repo_root: Path) -> ApiHe
                 "Bundled DDALAB Rust backend was not found in this install; DDA is unavailable."
             )
     else:
-        cli_command, _binary_path = rust_support
         diagnostics.append(
-            f"Rust DDA available via {Path(cli_command[0]).name}."
+            f"Rust DDA available via {Path(rust_support[0]).name}."
         )
         diagnostics.append(
             "All DDA requests run through the bundled dda-rs backend."
@@ -1257,14 +1247,13 @@ def _run_local_dda(
     if not normalized_selected_channel_indices:
         raise RuntimeError("Select at least one channel before running DDA.")
 
-    rust_support = _resolve_rust_dda_support(client.runtime_paths, client.repo_root)
-    if rust_support is None:
+    cli_command = _resolve_rust_dda_support(client.runtime_paths, client.repo_root)
+    if cli_command is None:
         raise RuntimeError(
             "Local DDALAB Rust backend was not found in this desktop build. "
             "Build or bundle the local dda-rs backend before running DDA."
         )
 
-    cli_command, _binary_path = rust_support
     try:
         return _run_rust_default_dda(
             client,
@@ -1291,7 +1280,7 @@ def _run_local_dda(
         raise RuntimeError(
             "Pure Rust DDA backend failed.\n\n"
             f"Rust backend error: {rust_error}\n\n"
-            "No native fallback backend is bundled in this desktop build."
+            "DDALAB uses the bundled dda-rs backend for local analysis."
         ) from rust_error
 
 
@@ -1485,12 +1474,12 @@ def _run_rust_default_dda(
             _set_variant_channels("cross_dynamical", cd_indices)
 
     ct_window_length = (
-        _NATIVE_CROSS_WINDOW_LENGTH
+        _DDA_CROSS_WINDOW_LENGTH
         if any(variant in selected_variants for variant in ("DE", "CT", "CD"))
         else None
     )
     ct_window_step = (
-        _NATIVE_CROSS_WINDOW_STEP
+        _DDA_CROSS_WINDOW_STEP
         if ct_window_length is not None
         else None
     )
@@ -1499,8 +1488,6 @@ def _run_rust_default_dda(
         preview = _execute_sidecar_dda_group(
             client=client,
             cli_command=cli_command,
-            binary_path=None,
-            allow_native_fallback=False,
             repo_root=client.repo_root,
             dataset=dataset,
             selected_channel_indices=selected_channel_indices,
@@ -1549,433 +1536,11 @@ def _run_rust_default_dda(
         requested_start_seconds=requested_start_seconds,
     )
 
-def _should_retry_native_ascii(error: Exception) -> bool:
-    message = str(error).lower()
-    retry_markers = (
-        "no data extracted",
-        "no data after column extraction",
-        "transpose resulted in empty data",
-    )
-    return any(marker in message for marker in retry_markers)
-
-
-def _run_native_dda(
-    client: LocalBackendClient,
-    *,
-    dataset: LoadedDataset,
-    selected_channel_indices: List[int],
-    selected_variants: List[str],
-    window_length_samples: int,
-    window_step_samples: int,
-    delays: List[int],
-    start_time_seconds: float,
-    end_time_seconds: Optional[float],
-    cli_command: List[str],
-    binary_path: Path,
-    variant_channel_indices: Optional[Dict[str, List[int]]] = None,
-    variant_pair_indices: Optional[Dict[str, List[tuple[int, int]]]] = None,
-    model_terms: Optional[List[int]] = None,
-    model_dimension: Optional[int] = None,
-    polynomial_order: Optional[int] = None,
-    nr_tau: Optional[int] = None,
-    force_ascii_normalization: bool = False,
-    retry_reason: Optional[str] = None,
-) -> DdaResult:
-    variant_channel_index_map = variant_channel_indices or {
-        variant_id: list(selected_channel_indices)
-        for variant_id in selected_variants
-    }
-    variant_pair_index_map = variant_pair_indices or {}
-    selected_channel_names = [
-        dataset.channel_names[index]
-        for index in selected_channel_indices
-        if 0 <= index < len(dataset.channel_names)
-    ]
-    if not selected_channel_names:
-        raise _DdaInputValidationError("Selected channels could not be resolved.")
-
-    requested_start_seconds = max(float(start_time_seconds), 0.0)
-    requested_end_seconds = max(
-        float(end_time_seconds if end_time_seconds is not None else dataset.duration_seconds),
-        requested_start_seconds,
-    )
-    if end_time_seconds is not None and requested_end_seconds <= requested_start_seconds:
-        raise _DdaInputValidationError("End time must be greater than start time.")
-
-    original_path = Path(dataset.file_path)
-    use_original_edf = (
-        original_path.exists()
-        and not original_path.is_dir()
-        and original_path.suffix.lower() == ".edf"
-    )
-    edf_info = _read_edf_native_info(original_path) if use_original_edf else None
-    force_ascii_for_selected_channels = _selected_channels_require_ascii_normalization(
-        selected_channel_names
-    )
-    use_direct_edf_input = use_original_edf and (
-        not force_ascii_normalization
-        and
-        not force_ascii_for_selected_channels
-        and (edf_info is None or len(edf_info.unique_visible_sample_rates_hz) <= 1)
-    )
-    temp_path: Optional[Path] = None
-    if use_direct_edf_input:
-        input_path = original_path
-        if (
-            edf_info is not None
-            and selected_channel_indices
-            and max(selected_channel_indices) < len(edf_info.visible_to_raw_indices)
-        ):
-            cli_index_lookup = {
-                index: edf_info.visible_to_raw_indices[index]
-                for index in selected_channel_indices
-            }
-        else:
-            cli_index_lookup = {
-                index: index for index in selected_channel_indices
-            }
-        sample_rate = max(
-            edf_info.first_visible_sample_rate_hz if edf_info is not None else dataset.dominant_sample_rate_hz,
-            1.0,
-        )
-        total_samples = max(
-            edf_info.first_visible_total_samples if edf_info is not None else int(dataset.total_sample_count),
-            0,
-        )
-        requested_start_sample = max(int(requested_start_seconds * sample_rate), 0)
-        requested_end_sample = max(
-            int(requested_end_seconds * sample_rate),
-            requested_start_sample + 1,
-        )
-    else:
-        handle, temp_name = tempfile.mkstemp(prefix="ddalab-python-", suffix=".ascii")
-        os.close(handle)
-        temp_path = Path(temp_name)
-        input_path = temp_path
-        analysis_duration_seconds = max(
-            requested_end_seconds - requested_start_seconds,
-            1.0 / max(dataset.dominant_sample_rate_hz, 1.0),
-        )
-        sample_rate, total_samples = _write_normalized_ascii(
-            client,
-            dataset,
-            selected_channel_names,
-            temp_path,
-            start_time_seconds=requested_start_seconds,
-            duration_seconds=analysis_duration_seconds,
-        )
-        cli_index_lookup = {
-            dataset_index: ascii_index
-            for ascii_index, dataset_index in enumerate(selected_channel_indices)
-        }
-        requested_start_sample = 0
-        requested_end_sample = max(total_samples, requested_start_sample + 1)
-    if total_samples > 0 and requested_start_sample >= total_samples:
-        max_start_seconds = max((total_samples - 1) / sample_rate, 0.0)
-        raise _DdaInputValidationError(
-            "Start time is outside the dataset bounds. "
-            f"Requested {requested_start_seconds:.3f}s, max valid start is {max_start_seconds:.3f}s."
-        )
-    safety_margin = min(256, total_samples // 10) if total_samples > 0 else 0
-    bounded_end_sample = (
-        min(requested_end_sample, total_samples)
-        if total_samples > 0
-        else requested_end_sample
-    )
-    if total_samples <= 0:
-        safe_end_sample = bounded_end_sample
-    elif total_samples > safety_margin:
-        safe_end_sample = min(bounded_end_sample, total_samples - safety_margin)
-    else:
-        safe_end_sample = bounded_end_sample
-    safe_end_sample = max(safe_end_sample, requested_start_sample + 1)
-    if total_samples > 0:
-        safe_end_sample = min(safe_end_sample, total_samples)
-    if safe_end_sample <= requested_start_sample:
-        raise _DdaInputValidationError(
-            "DDA bounds resolved to an empty sample range. "
-            f"Start={requested_start_sample}, end={safe_end_sample}."
-        )
-    available_samples = max(safe_end_sample - requested_start_sample, 0)
-    if available_samples < int(window_length_samples):
-        raise _DdaInputValidationError(
-            "Insufficient data for analysis. "
-            f"{available_samples} samples available, but window length is {window_length_samples}."
-        )
-
-    base_diagnostics = [
-        f"Requested variants: {', '.join(selected_variants)}",
-        f"Selected channels: {', '.join(selected_channel_names)}",
-        f"Window: {window_length_samples}/{window_step_samples} samples",
-        f"Bounds: {requested_start_sample}-{safe_end_sample} samples @ {sample_rate:.3f} Hz",
-    ]
-    if force_ascii_normalization and retry_reason:
-        base_diagnostics.append(
-            "Direct EDF execution returned no parseable DDA output, so DDALAB "
-            "retried the same native analysis on a normalized ASCII slice."
-        )
-    if use_original_edf and not use_direct_edf_input:
-        normalization_reasons: List[str] = []
-        if force_ascii_normalization:
-            normalization_reasons.append("direct EDF execution was retried via ASCII")
-        if force_ascii_for_selected_channels:
-            normalization_reasons.append(
-                "selected channels include event or marker data"
-            )
-        if edf_info is not None and len(edf_info.unique_visible_sample_rates_hz) > 1:
-            normalization_reasons.append("the file exposes mixed sample rates")
-        if not normalization_reasons:
-            normalization_reasons.append("direct EDF execution was not suitable")
-        base_diagnostics.append(
-            "EDF input was normalized to an ASCII analysis slice because "
-            + " and ".join(normalization_reasons)
-            + "."
-        )
-
-    should_retry_with_ascii = False
-    original_retry_error: Optional[str] = None
-    try:
-        grouped_previews: List[_NativeDdaGroupPreview] = []
-
-        def add_group(
-            *,
-            variants: List[str],
-            group_channel_indices: List[int],
-            group_label: str,
-            group_pair_indices: Optional[Dict[str, List[tuple[int, int]]]] = None,
-            ct_window_length: Optional[int] = None,
-            ct_window_step: Optional[int] = None,
-            use_ct_pairs: bool = False,
-            use_cd_pairs: bool = False,
-        ) -> None:
-            cli_group_indices = [
-                cli_index_lookup[index]
-                for index in group_channel_indices
-                if index in cli_index_lookup
-            ]
-            if not cli_group_indices:
-                raise _DdaInputValidationError(
-                    f"{group_label} channels could not be resolved for native DDA."
-                )
-            grouped_previews.append(
-                _execute_sidecar_dda_group(
-                    client=client,
-                    cli_command=cli_command,
-                    binary_path=binary_path,
-                    allow_native_fallback=True,
-                    repo_root=client.repo_root,
-                    dataset=dataset,
-                    selected_channel_indices=group_channel_indices,
-                    cli_selected_indices=cli_group_indices,
-                    input_path=input_path,
-                    variants=variants,
-                    window_length_samples=window_length_samples,
-                    window_step_samples=window_step_samples,
-                    delays=delays,
-                    requested_start_sample=requested_start_sample,
-                    safe_end_sample=safe_end_sample,
-                    sample_rate=sample_rate,
-                    base_diagnostics=base_diagnostics,
-                    requested_start_seconds=requested_start_seconds,
-                    group_label=group_label,
-                    variant_pair_indices=group_pair_indices,
-                    model_terms=model_terms,
-                    model_dimension=model_dimension,
-                    polynomial_order=polynomial_order,
-                    nr_tau=nr_tau,
-                    ct_pairs=(
-                        [
-                            (cli_index_lookup[left], cli_index_lookup[right])
-                            for left, right in group_pair_indices.get("CT", [])
-                            if left in cli_index_lookup and right in cli_index_lookup
-                        ]
-                        if use_ct_pairs and group_pair_indices and group_pair_indices.get("CT")
-                        else (
-                            _build_undirected_pairs(cli_group_indices)
-                            if use_ct_pairs
-                            else None
-                        )
-                    ),
-                    cd_pairs=(
-                        [
-                            (cli_index_lookup[left], cli_index_lookup[right])
-                            for left, right in group_pair_indices.get("CD", [])
-                            if left in cli_index_lookup and right in cli_index_lookup
-                        ]
-                        if use_cd_pairs and group_pair_indices and group_pair_indices.get("CD")
-                        else (
-                            _build_directed_pairs(cli_group_indices)
-                            if use_cd_pairs
-                            else None
-                        )
-                    ),
-                    ct_window_length=ct_window_length,
-                    ct_window_step=ct_window_step,
-                )
-            )
-
-        st_indices = variant_channel_index_map.get("ST", [])
-        sy_indices = variant_channel_index_map.get("SY", [])
-        if "SY" in selected_variants:
-            _validate_sy_selection(sy_indices)
-        if "ST" in selected_variants and "SY" in selected_variants and st_indices == sy_indices:
-            if not st_indices:
-                raise _DdaInputValidationError(
-                    "ST and SY require at least one selected channel."
-                )
-            add_group(
-                variants=["ST", "SY"],
-                group_channel_indices=st_indices,
-                group_label="ST/SY",
-            )
-        else:
-            if "ST" in selected_variants:
-                if not st_indices:
-                    raise _DdaInputValidationError(
-                        "ST requires at least one selected channel."
-                    )
-                add_group(
-                    variants=["ST"],
-                    group_channel_indices=st_indices,
-                    group_label="ST",
-                )
-            if "SY" in selected_variants:
-                add_group(
-                    variants=["SY"],
-                    group_channel_indices=sy_indices,
-                    group_label="SY",
-                )
-        if "DE" in selected_variants:
-            de_indices = variant_channel_index_map.get("DE", [])
-            if not de_indices:
-                raise _DdaInputValidationError(
-                    "DE requires at least one selected channel."
-                )
-            add_group(
-                variants=["DE"],
-                group_channel_indices=de_indices,
-                group_label="DE",
-                ct_window_length=_NATIVE_CROSS_WINDOW_LENGTH,
-                ct_window_step=_NATIVE_CROSS_WINDOW_STEP,
-            )
-        if "CT" in selected_variants:
-            ct_pairs = variant_pair_index_map.get("CT", [])
-            ct_indices = (
-                _pair_channel_indices(ct_pairs)
-                if ct_pairs
-                else variant_channel_index_map.get("CT", [])
-            )
-            if ct_pairs:
-                if not ct_indices:
-                    raise _DdaInputValidationError(
-                        "CT requires at least one selected pair."
-                    )
-            elif len(ct_indices) < 2:
-                raise _DdaInputValidationError(
-                    "CT requires at least two selected channels."
-                )
-            add_group(
-                variants=["CT"],
-                group_channel_indices=ct_indices,
-                group_label="CT",
-                group_pair_indices={"CT": ct_pairs} if ct_pairs else None,
-                use_ct_pairs=True,
-                ct_window_length=_NATIVE_CROSS_WINDOW_LENGTH,
-                ct_window_step=_NATIVE_CROSS_WINDOW_STEP,
-            )
-        if "CD" in selected_variants:
-            cd_pairs = variant_pair_index_map.get("CD", [])
-            cd_indices = (
-                _pair_channel_indices(cd_pairs)
-                if cd_pairs
-                else variant_channel_index_map.get("CD", [])
-            )
-            if cd_pairs:
-                if not cd_indices:
-                    raise _DdaInputValidationError(
-                        "CD requires at least one selected directed pair."
-                    )
-            elif len(cd_indices) < 2:
-                raise _DdaInputValidationError(
-                    "CD requires at least two selected channels."
-                )
-            add_group(
-                variants=["CD"],
-                group_channel_indices=cd_indices,
-                group_label="CD",
-                group_pair_indices={"CD": cd_pairs} if cd_pairs else None,
-                use_cd_pairs=True,
-                ct_window_length=_NATIVE_CROSS_WINDOW_LENGTH,
-                ct_window_step=_NATIVE_CROSS_WINDOW_STEP,
-            )
-        if not grouped_previews:
-            raise RuntimeError("Native DDA produced no execution groups.")
-        return _materialize_sidecar_dda_result(
-            client=client,
-            dataset=dataset,
-            selected_variants=selected_variants,
-            grouped_previews=grouped_previews,
-            result_id=uuid.uuid4().hex,
-            window_length_samples=window_length_samples,
-            window_step_samples=window_step_samples,
-            delays=delays,
-            requested_start_seconds=requested_start_seconds,
-        )
-    except Exception as error:
-        if (
-            use_direct_edf_input
-            and not force_ascii_normalization
-            and _should_retry_native_ascii(error)
-        ):
-            should_retry_with_ascii = True
-            original_retry_error = str(error)
-        else:
-            raise
-    finally:
-        if temp_path is not None:
-            try:
-                temp_path.unlink(missing_ok=True)
-            except OSError:
-                pass
-    if should_retry_with_ascii:
-        try:
-            return _run_native_dda(
-                client,
-                dataset=dataset,
-                selected_channel_indices=selected_channel_indices,
-                selected_variants=selected_variants,
-                window_length_samples=window_length_samples,
-                window_step_samples=window_step_samples,
-                delays=delays,
-                start_time_seconds=start_time_seconds,
-                end_time_seconds=end_time_seconds,
-                cli_command=cli_command,
-                binary_path=binary_path,
-                variant_channel_indices=variant_channel_indices,
-                variant_pair_indices=variant_pair_indices,
-                model_terms=model_terms,
-                model_dimension=model_dimension,
-                polynomial_order=polynomial_order,
-                nr_tau=nr_tau,
-                force_ascii_normalization=True,
-                retry_reason=original_retry_error,
-            )
-        except Exception as retry_error:
-            raise RuntimeError(
-                "Direct EDF execution produced no parseable DDA output, and the "
-                "normalized ASCII retry also failed.\n\n"
-                f"Direct EDF error: {original_retry_error}\n"
-                f"ASCII retry error: {retry_error}"
-            ) from retry_error
-    raise RuntimeError("Native DDA execution terminated unexpectedly.")
-
 
 def _execute_sidecar_dda_group(
     *,
     client: LocalBackendClient,
     cli_command: List[str],
-    binary_path: Optional[Path],
-    allow_native_fallback: bool,
     repo_root: Path,
     dataset: LoadedDataset,
     selected_channel_indices: List[int],
@@ -2006,7 +1571,7 @@ def _execute_sidecar_dda_group(
     input_matrix_cols: Optional[int] = None,
     input_channel_labels: Optional[List[str]] = None,
     variant_configs: Optional[dict] = None,
-) -> _NativeDdaGroupPreview:
+) -> _SidecarDdaGroupPreview:
     diagnostics = list(base_diagnostics)
     diagnostics.append(f"Execution group: {group_label}")
     diagnostics.append(
@@ -2027,8 +1592,6 @@ def _execute_sidecar_dda_group(
     sidecar = _get_dda_sidecar(
         client=client,
         cli_command=cli_command,
-        binary_path=binary_path,
-        allow_native_fallback=allow_native_fallback,
         repo_root=repo_root,
     )
 
@@ -2114,7 +1677,7 @@ def _execute_sidecar_dda_group(
     else:
         parsed = sidecar.run_group(request_payload, on_progress=_handle_progress)
     backend_id = str(parsed.get("backend") or "").lower()
-    return _NativeDdaGroupPreview(
+    return _SidecarDdaGroupPreview(
         analysis_id=str(parsed.get("id") or uuid.uuid4().hex),
         backend_label=(
             "Rust DDA"
@@ -2136,7 +1699,7 @@ def _materialize_sidecar_dda_result(
     client: LocalBackendClient,
     dataset: LoadedDataset,
     selected_variants: List[str],
-    grouped_previews: List[_NativeDdaGroupPreview],
+    grouped_previews: List[_SidecarDdaGroupPreview],
     result_id: str,
     window_length_samples: int,
     window_step_samples: int,
@@ -2164,7 +1727,7 @@ def _materialize_sidecar_dda_result(
                 delays=delays,
             )
         )
-    return _merge_native_dda_results(
+    return _merge_sidecar_dda_results(
         dataset=dataset,
         selected_variants=selected_variants,
         grouped_results=grouped_results,
@@ -2173,7 +1736,7 @@ def _materialize_sidecar_dda_result(
     )
 
 
-def _merge_native_dda_results(
+def _merge_sidecar_dda_results(
     *,
     dataset: LoadedDataset,
     selected_variants: List[str],
@@ -2209,7 +1772,7 @@ def _merge_native_dda_results(
         if variant_id in variants_by_id
     ]
     if not merged_variants:
-        raise RuntimeError("Native DDA returned no variant matrices.")
+        raise RuntimeError("Rust DDA sidecar returned no variant matrices.")
 
     return DdaResult(
         id=result_id or uuid.uuid4().hex,
@@ -2224,77 +1787,29 @@ def _merge_native_dda_results(
     )
 
 
-def _resolve_native_dda_support(
-    runtime_paths: RuntimePaths,
-    repo_root: Path,
-) -> Optional[tuple[List[str], Path]]:
-    rust_support = _resolve_rust_dda_support(runtime_paths, repo_root)
-    if rust_support is None:
-        return None
-    cli_command, binary_path = rust_support
-    if binary_path is None:
-        return None
-    return cli_command, binary_path
-
-
 def _resolve_rust_dda_support(
     runtime_paths: RuntimePaths,
     repo_root: Path,
-) -> Optional[tuple[List[str], Optional[Path]]]:
-    cli_command = _find_cli_command(runtime_paths, repo_root)
-    if cli_command is None:
-        return None
-    return cli_command, _find_dda_binary(runtime_paths, repo_root)
+) -> Optional[List[str]]:
+    return _find_cli_command(runtime_paths, repo_root)
 
 
 def _get_dda_sidecar(
     *,
     client: LocalBackendClient,
     cli_command: List[str],
-    binary_path: Optional[Path],
-    allow_native_fallback: bool,
     repo_root: Path,
 ) -> DdaSidecarClient:
-    sidecar_key = (
-        tuple(str(part) for part in cli_command),
-        str(binary_path) if binary_path is not None else None,
-        bool(allow_native_fallback),
-    )
+    sidecar_key = tuple(str(part) for part in cli_command)
     if client._dda_sidecar is None or client._dda_sidecar_key != sidecar_key:
         if client._dda_sidecar is not None:
             client._dda_sidecar.close()
         client._dda_sidecar = DdaSidecarClient(
             cli_command=cli_command,
-            binary_path=binary_path,
-            disable_native_fallback=not allow_native_fallback,
-            cwd=repo_root,
+            cwd=str(repo_root),
         )
         client._dda_sidecar_key = sidecar_key
     return client._dda_sidecar
-
-
-def _find_dda_binary(runtime_paths: RuntimePaths, repo_root: Path) -> Optional[Path]:
-    binary_name = platform_binary_name(DDA_BINARY_STEM)
-    env_path = os.environ.get("DDA_BINARY_PATH")
-    if env_path:
-        candidate = Path(env_path).expanduser()
-        if candidate.exists():
-            return candidate
-
-    if runtime_paths.is_source_checkout():
-        repo_candidate = repo_root / "bin" / binary_name
-        if repo_candidate.exists():
-            return repo_candidate
-
-    for candidate in _runtime_binary_candidates(runtime_paths, binary_name):
-        if candidate.exists():
-            return candidate
-
-    if runtime_paths.is_source_checkout():
-        system_binary = shutil.which(binary_name)
-        if system_binary:
-            return Path(system_binary)
-    return None
 
 
 def _find_cli_command(runtime_paths: RuntimePaths, repo_root: Path) -> Optional[List[str]]:
@@ -2354,117 +1869,6 @@ def _runtime_binary_candidates(
     return candidates
 
 
-def _read_edf_native_info(path: Path) -> Optional[_EdfNativeInfo]:
-    try:
-        file_size = path.stat().st_size
-    except OSError:
-        return None
-
-    try:
-        with path.open("rb") as handle:
-            def read_ascii_field(length: int) -> str:
-                data = handle.read(length)
-                if len(data) != length:
-                    raise ValueError("Unexpected EDF header truncation")
-                return data.decode("ascii", errors="replace").strip()
-
-            read_ascii_field(8)
-            read_ascii_field(80)
-            read_ascii_field(80)
-            read_ascii_field(8)
-            read_ascii_field(8)
-            header_bytes = int(read_ascii_field(8) or "256")
-            read_ascii_field(44)
-            declared_records = int(read_ascii_field(8) or "-1")
-            record_duration = float(read_ascii_field(8) or "1")
-            signal_count = int(read_ascii_field(4) or "1")
-
-            def read_field_block(width: int) -> List[str]:
-                return [read_ascii_field(width) for _ in range(signal_count)]
-
-            labels = read_field_block(16)
-            read_field_block(80)
-            read_field_block(8)
-            read_field_block(8)
-            read_field_block(8)
-            read_field_block(8)
-            read_field_block(8)
-            read_field_block(80)
-            samples_per_record = [
-                max(int(value or "1"), 1) for value in read_field_block(8)
-            ]
-            read_field_block(32)
-    except (OSError, ValueError, OverflowError):
-        return None
-
-    if signal_count <= 0 or record_duration <= 0:
-        return None
-
-    record_size_bytes = sum(samples_per_record) * 2
-    if record_size_bytes <= 0 or header_bytes <= 0 or header_bytes > file_size:
-        return None
-
-    inferred_records = max((file_size - header_bytes) // record_size_bytes, 0)
-    if declared_records > 0 and inferred_records > 0:
-        record_count = min(declared_records, inferred_records)
-    elif declared_records > 0:
-        record_count = declared_records
-    else:
-        record_count = inferred_records
-
-    visible_to_raw_indices = [
-        index for index, label in enumerate(labels) if "annotation" not in label.lower()
-    ]
-    if not visible_to_raw_indices:
-        visible_to_raw_indices = list(range(signal_count))
-
-    first_raw_index = visible_to_raw_indices[0]
-    unique_visible_sample_rates_hz = sorted(
-        {
-            round(samples_per_record[index] / record_duration, 9)
-            for index in visible_to_raw_indices
-        }
-    )
-    return _EdfNativeInfo(
-        visible_to_raw_indices=visible_to_raw_indices,
-        first_visible_sample_rate_hz=samples_per_record[first_raw_index] / record_duration,
-        first_visible_total_samples=int(samples_per_record[first_raw_index] * record_count),
-        unique_visible_sample_rates_hz=unique_visible_sample_rates_hz,
-    )
-
-
-def _coerce_finite_sample_value(value: float) -> float:
-    numeric = float(value)
-    if not math.isfinite(numeric):
-        return 0.0
-    return numeric
-
-
-def _waveform_window_to_matrix(
-    window: WaveformWindow,
-) -> tuple[List[List[float]], List[str], float, int]:
-    if not window.channels:
-        raise RuntimeError("Could not extract any channels for DDA input.")
-    sample_rate = max(
-        min(channel.sample_rate_hz for channel in window.channels),
-        1.0,
-    )
-    sample_count = min(len(channel.samples) for channel in window.channels)
-    channel_labels = [channel.name for channel in window.channels]
-    if sample_count <= 0:
-        return [], channel_labels, sample_rate, 0
-
-    matrix: List[List[float]] = []
-    for sample_index in range(sample_count):
-        matrix.append(
-            [
-                _coerce_finite_sample_value(channel.samples[sample_index])
-                for channel in window.channels
-            ]
-        )
-    return matrix, channel_labels, sample_rate, sample_count
-
-
 def _write_waveform_window_matrix_file(
     window: WaveformWindow,
 ) -> tuple[Path, List[str], float, int, int]:
@@ -2506,51 +1910,6 @@ def _write_waveform_window_matrix_file(
     finally:
         handle.close()
     return path, channel_labels, sample_rate, sample_count, int(matrix.shape[1])
-
-
-def _write_normalized_ascii(
-    client: LocalBackendClient,
-    dataset: LoadedDataset,
-    channel_names: List[str],
-    target_path: Path,
-    *,
-    start_time_seconds: float,
-    duration_seconds: float,
-) -> tuple[float, int]:
-    window = client.load_waveform_window(
-        dataset.file_path,
-        start_time_seconds,
-        duration_seconds,
-        channel_names,
-    )
-    if not window.channels:
-        raise RuntimeError("Could not extract any channels for native DDA input.")
-    sample_rate = max(
-        min(channel.sample_rate_hz for channel in window.channels),
-        1.0,
-    )
-    sample_count = min(len(channel.samples) for channel in window.channels)
-    with target_path.open("w", encoding="utf-8") as handle:
-        buffered_lines: List[str] = []
-        for sample_index in range(sample_count):
-            buffered_lines.append(
-                " ".join(
-                    _format_native_ascii_value(channel.samples[sample_index])
-                    for channel in window.channels
-                )
-                + "\n"
-            )
-            if len(buffered_lines) >= 1024:
-                handle.writelines(buffered_lines)
-                buffered_lines.clear()
-        if buffered_lines:
-            handle.writelines(buffered_lines)
-    return sample_rate, sample_count
-
-
-def _format_native_ascii_value(value: float) -> str:
-    numeric = _coerce_finite_sample_value(value)
-    return f"{numeric:.6f}"
 
 
 def _payload_channel_labels(payload: dict) -> List[str]:
@@ -2597,15 +1956,6 @@ def _labels_are_generic_pair_numbers(labels: List[str]) -> bool:
         if not matched:
             return False
     return True
-
-
-def _selected_channels_require_ascii_normalization(channel_names: List[str]) -> bool:
-    keywords = ("event", "stim", "trigger", "trig", "marker", "status")
-    for name in channel_names:
-        normalized = str(name).strip().lower()
-        if any(keyword in normalized for keyword in keywords):
-            return True
-    return False
 
 
 def _default_variant_row_labels(
@@ -2733,7 +2083,7 @@ def _map_cli_result(
                 label=str(payload.get("variant_name") or payload.get("variantName") or variant_id),
                 row_labels=row_labels,
                 matrix=matrix,
-                summary=f"Native {variant_id} view",
+                summary=f"Rust {variant_id} view",
                 min_value=min_value,
                 max_value=max_value,
                 column_count=column_count,
@@ -2744,7 +2094,7 @@ def _map_cli_result(
         )
 
     if not variants:
-        raise RuntimeError("Native DDA returned no variant matrices.")
+        raise RuntimeError("Rust DDA sidecar returned no variant matrices.")
 
     sample_rate = max(dataset.dominant_sample_rate_hz, 1.0)
     step_seconds = window_step_samples / sample_rate
@@ -2763,7 +2113,7 @@ def _map_cli_result(
             or parsed.get("createdAt")
             or datetime.now(timezone.utc).isoformat()
         ),
-        engine_label="Rust CLI",
+        engine_label="Rust DDA sidecar",
         diagnostics=diagnostics,
         window_centers_seconds=window_centers_seconds,
         variants=variants,

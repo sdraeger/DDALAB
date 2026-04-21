@@ -13,9 +13,7 @@ def _source_checkout_version() -> str | None:
         package_json = candidate / "package.json"
         if not package_json.exists():
             continue
-        if not (candidate / "packages" / "ddalab-cli").exists():
-            continue
-        if not (candidate / "packages" / "ddalab-gui").exists():
+        if not (candidate / "packages" / "ddalab").exists():
             continue
         payload = json.loads(package_json.read_text())
         version = payload.get("version")
@@ -28,9 +26,8 @@ def get_app_version() -> str:
     source_version = _source_checkout_version()
     if source_version is not None:
         return source_version
-    for package_name in ("ddalab-gui", "ddalab"):
-        try:
-            return package_version(package_name)
-        except PackageNotFoundError:
-            continue
+    try:
+        return package_version("ddalab")
+    except PackageNotFoundError:
+        pass
     return _FALLBACK_VERSION

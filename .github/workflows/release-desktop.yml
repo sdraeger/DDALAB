@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       release_version:
-        description: "Version to release, for example 1.2.9. Defaults to the ddalab package version."
+        description: "Version to release, for example 1.2.9. Defaults to the unified ddalab package version."
         required: false
         type: string
       publish_release:
@@ -50,7 +50,7 @@ jobs:
           import tomllib
           from pathlib import Path
 
-          payload = tomllib.loads(Path("packages/ddalab-cli/pyproject.toml").read_text())
+          payload = tomllib.loads(Path("packages/ddalab/pyproject.toml").read_text())
           print(payload["project"]["version"])
           PY
           )"
@@ -81,11 +81,8 @@ jobs:
           expected = os.environ["EXPECTED_VERSION"]
           checks = {
               "package.json": json.loads(Path("package.json").read_text())["version"],
-              "packages/ddalab-cli/pyproject.toml": tomllib.loads(
-                  Path("packages/ddalab-cli/pyproject.toml").read_text()
-              )["project"]["version"],
-              "packages/ddalab-gui/pyproject.toml": tomllib.loads(
-                  Path("packages/ddalab-gui/pyproject.toml").read_text()
+              "packages/ddalab/pyproject.toml": tomllib.loads(
+                  Path("packages/ddalab/pyproject.toml").read_text()
               )["project"]["version"],
           }
           mismatches = [
@@ -157,7 +154,7 @@ jobs:
             patchelf
 
       - name: Stage bundled runtime backend
-        working-directory: packages/ddalab-cli
+        working-directory: packages/ddalab
         shell: bash
         run: python scripts/prepare_runtime.py --clean --print-dir
 
@@ -165,16 +162,16 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e packages/ddalab-cli -e packages/ddalab-gui pyinstaller
+          python -m pip install -e packages/ddalab pyinstaller
 
       - name: Build frozen desktop bundle
-        working-directory: packages/ddalab-gui
+        working-directory: packages/ddalab
         shell: bash
         run: pyinstaller DDALAB.spec --noconfirm --clean
 
       - name: Smoke test frozen Linux binary
         if: runner.os == 'Linux'
-        working-directory: packages/ddalab-gui
+        working-directory: packages/ddalab
         shell: bash
         env:
           QT_QPA_PLATFORM: offscreen
@@ -182,7 +179,7 @@ jobs:
 
       - name: Smoke test frozen macOS app
         if: runner.os == 'macOS'
-        working-directory: packages/ddalab-gui
+        working-directory: packages/ddalab
         shell: bash
         env:
           QT_QPA_PLATFORM: offscreen
@@ -190,13 +187,13 @@ jobs:
 
       - name: Smoke test frozen Windows bundle
         if: runner.os == 'Windows'
-        working-directory: packages/ddalab-gui
+        working-directory: packages/ddalab
         shell: pwsh
         run: dist/DDALAB/DDALAB.exe --smoke-test
 
       - name: Package Linux release assets
         if: runner.os == 'Linux'
-        working-directory: packages/ddalab-gui
+        working-directory: packages/ddalab
         shell: bash
         run: |
           mkdir -p ../../release-assets
@@ -204,7 +201,7 @@ jobs:
 
       - name: Package macOS release assets
         if: runner.os == 'macOS'
-        working-directory: packages/ddalab-gui
+        working-directory: packages/ddalab
         shell: bash
         env:
           DDALAB_ARCH: ${{ matrix.arch }}
@@ -225,7 +222,7 @@ jobs:
 
       - name: Package Windows release assets
         if: runner.os == 'Windows'
-        working-directory: packages/ddalab-gui
+        working-directory: packages/ddalab
         shell: pwsh
         run: |
           $sourceDir = Join-Path $PWD "dist\DDALAB"
