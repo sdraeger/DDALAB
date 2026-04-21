@@ -77,15 +77,6 @@ pub async fn execute(args: RunArgs) -> i32 {
         return exit_codes::INPUT_ERROR;
     }
 
-    // Resolve DDA binary
-    let runner = match dda_params::resolve_runner(&args.binary) {
-        Ok(r) => r,
-        Err(msg) => {
-            eprintln!("Error: {}", msg);
-            return exit_codes::BINARY_NOT_FOUND;
-        }
-    };
-
     // Build DDARequest
     let request = match dda_params::build_dda_request_with_options(
         &args.file,
@@ -139,25 +130,33 @@ pub async fn execute(args: RunArgs) -> i32 {
     }
 
     // Execute analysis
-    match runner.run(&request, start_bound, end_bound, None).await {
-        Ok(result) => match output::to_json(&result, args.compact) {
-            Ok(json) => {
-                if let Err(e) = output::write_output(&json, args.output.as_deref()) {
-                    eprintln!("Error: {}", e);
-                    return exit_codes::EXECUTION_ERROR;
-                }
-                if !args.quiet {
-                    if let Some(ref path) = args.output {
-                        eprintln!("Results written to {}", path);
+    match dda_params::execute_request(&request, start_bound, end_bound).await {
+        Ok(execution) => {
+            if !args.quiet {
+                let backend_label = match execution.backend {
+                    dda_params::ExecutionBackend::PureRust => "pure-rust",
+                };
+                eprintln!("  Backend: {}", backend_label);
+            }
+            match output::to_json(&execution.result, args.compact) {
+                Ok(json) => {
+                    if let Err(e) = output::write_output(&json, args.output.as_deref()) {
+                        eprintln!("Error: {}", e);
+                        return exit_codes::EXECUTION_ERROR;
                     }
+                    if !args.quiet {
+                        if let Some(ref path) = args.output {
+                            eprintln!("Results written to {}", path);
+                        }
+                    }
+                    exit_codes::SUCCESS
                 }
-                exit_codes::SUCCESS
+                Err(e) => {
+                    eprintln!("Error serializing result: {}", e);
+                    exit_codes::EXECUTION_ERROR
+                }
             }
-            Err(e) => {
-                eprintln!("Error serializing result: {}", e);
-                exit_codes::EXECUTION_ERROR
-            }
-        },
+        }
         Err(e) => {
             eprintln!("DDA execution failed: {}", e);
             exit_codes::EXECUTION_ERROR
@@ -334,6 +333,21 @@ mod tests {
         );
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("out of range"));
+    }
+
+    #[test]
+    fn test_validate_negative_delay() {
+        let result = dda_params::validate_common_params(
+            &[0, 1, 2],
+            &["ST".to_string()],
+            &[-1, 10],
+            200,
+            100,
+            &None,
+            &None,
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("non-negative"));
     }
 
     #[test]

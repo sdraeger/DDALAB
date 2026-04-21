@@ -101,15 +101,6 @@ pub async fn execute(args: BatchArgs) -> i32 {
         return exit_codes::INPUT_ERROR;
     }
 
-    // Resolve DDA binary
-    let runner = match dda_params::resolve_runner(&args.binary) {
-        Ok(r) => r,
-        Err(msg) => {
-            eprintln!("Error: {}", msg);
-            return exit_codes::BINARY_NOT_FOUND;
-        }
-    };
-
     // Create output directory if specified
     if let Some(ref dir) = args.output_dir {
         if let Err(e) = std::fs::create_dir_all(dir) {
@@ -173,8 +164,8 @@ pub async fn execute(args: BatchArgs) -> i32 {
         };
 
         // Run analysis
-        match runner.run(&request, None, None, None).await {
-            Ok(result) => match output::to_json(&result, args.compact) {
+        match dda_params::execute_request(&request, None, None).await {
+            Ok(execution) => match output::to_json(&execution.result, args.compact) {
                 Ok(json) => {
                     if let Some(ref dir) = args.output_dir {
                         let stem = Path::new(file_path)
@@ -192,7 +183,7 @@ pub async fn execute(args: BatchArgs) -> i32 {
                         }
                     } else {
                         // JSONL to stdout
-                        let compact_json = match output::to_json(&result, true) {
+                        let compact_json = match output::to_json(&execution.result, true) {
                             Ok(j) => j,
                             Err(e) => {
                                 eprintln!("  Error serializing result: {}", e);
@@ -211,6 +202,12 @@ pub async fn execute(args: BatchArgs) -> i32 {
                             }
                             continue;
                         }
+                    }
+                    if !args.quiet {
+                        let backend_label = match execution.backend {
+                            dda_params::ExecutionBackend::PureRust => "pure-rust",
+                        };
+                        eprintln!("  Backend: {}", backend_label);
                     }
                     succeeded += 1;
                 }

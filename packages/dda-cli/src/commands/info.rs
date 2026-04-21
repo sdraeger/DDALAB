@@ -1,48 +1,61 @@
 use crate::cli::InfoArgs;
 use crate::exit_codes;
 use crate::output;
-use dda_rs::variants::{find_binary, BINARY_NAME, DEFAULT_BINARY_PATHS};
 use serde::Serialize;
 
 #[derive(Serialize)]
 struct InfoOutput {
     cli_version: String,
-    binary_name: &'static str,
-    binary_path: Option<String>,
-    binary_found: bool,
+    built_in_backend: &'static str,
+    built_in_backend_inputs: Vec<&'static str>,
+    native_binary_enabled: bool,
+    rayon_default_mode_cli: &'static str,
+    rayon_default_mode_sidecar: &'static str,
+    rayon_override_env_vars: Vec<&'static str>,
     platform: String,
     arch: String,
-    search_paths: Vec<&'static str>,
     supported_variants: Vec<&'static str>,
     accepted_variant_ids: Vec<&'static str>,
     supports_variant_configs: bool,
     supports_preprocessing_flags: bool,
+    notes: Vec<&'static str>,
 }
 
 pub fn execute(args: InfoArgs) -> i32 {
-    let binary_path = match &args.binary {
-        Some(path) => find_binary(Some(path.as_str())),
-        None => find_binary(None),
-    };
+    let _ = args.binary;
 
     let info = InfoOutput {
         cli_version: env!("CARGO_PKG_VERSION").to_string(),
-        binary_name: BINARY_NAME,
-        binary_path: binary_path.as_ref().map(|p| p.display().to_string()),
-        binary_found: binary_path.is_some(),
+        built_in_backend: "pure-rust",
+        built_in_backend_inputs: vec!["ascii", "txt", "csv"],
+        native_binary_enabled: false,
+        rayon_default_mode_cli: "throughput",
+        rayon_default_mode_sidecar: "desktop",
+        rayon_override_env_vars: vec!["DDALAB_RAYON_MODE", "DDALAB_RAYON_THREADS"],
         platform: std::env::consts::OS.to_string(),
         arch: std::env::consts::ARCH.to_string(),
-        search_paths: DEFAULT_BINARY_PATHS.to_vec(),
-        supported_variants: vec!["ST", "CT", "CD", "DE", "SY"],
+        supported_variants: vec![
+            "ST", "CT", "CD", "CCD", "CCDSIG", "CCDSTAB", "TRCCD", "MVCCD", "DE", "SY",
+        ],
         accepted_variant_ids: vec![
             "single_timeseries",
             "cross_timeseries",
             "cross_dynamical",
+            "conditional_cross_dynamical",
+            "conditional_cross_dynamical_significance",
+            "conditional_cross_dynamical_stability",
+            "temporally_regularized_conditional_cross_dynamical",
+            "multivariate_conditional_cross_dynamical",
             "dynamical_ergodicity",
             "synchronization",
         ],
         supports_variant_configs: true,
         supports_preprocessing_flags: true,
+        notes: vec![
+            "execution is handled entirely by the Rust dda-rs engine",
+            "non-ASCII requests must be normalized before DDA execution",
+            "CCD-family variants are pure-Rust-only conditional directed extensions",
+        ],
     };
 
     if args.json {
@@ -62,15 +75,30 @@ pub fn execute(args: InfoArgs) -> i32 {
         println!("ddalab CLI v{}", info.cli_version);
         println!("Platform: {} ({})", info.platform, info.arch);
         println!();
-        if let Some(ref path) = info.binary_path {
-            println!("DDA binary: {}", path);
-        } else {
-            println!("DDA binary: not found");
-        }
-        println!("Binary name: {}", info.binary_name);
+        println!("Built-in backend: {}", info.built_in_backend);
         println!(
-            "Search paths: $DDA_BINARY_PATH, $DDA_HOME/bin, {}",
-            info.search_paths.join(", ")
+            "Built-in inputs: {}",
+            info.built_in_backend_inputs.join(", ")
+        );
+        println!(
+            "Native binary enabled: {}",
+            if info.native_binary_enabled {
+                "yes"
+            } else {
+                "no"
+            }
+        );
+        println!(
+            "Rayon default mode (CLI runs): {}",
+            info.rayon_default_mode_cli
+        );
+        println!(
+            "Rayon default mode (sidecar / GUI): {}",
+            info.rayon_default_mode_sidecar
+        );
+        println!(
+            "Rayon overrides: {}",
+            info.rayon_override_env_vars.join(", ")
         );
         println!("Supported variants: {}", info.supported_variants.join(", "));
         println!(
@@ -93,6 +121,7 @@ pub fn execute(args: InfoArgs) -> i32 {
                 "no"
             }
         );
+        println!("Notes: {}", info.notes.join("; "));
     }
 
     exit_codes::SUCCESS

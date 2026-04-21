@@ -1,8 +1,22 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
+use std::io::Write;
 
 fn ddalab() -> Command {
-    Command::cargo_bin("ddalab").unwrap()
+    assert_cmd::cargo::cargo_bin_cmd!("ddalab")
+}
+
+fn write_ascii_fixture() -> tempfile::NamedTempFile {
+    let mut file = tempfile::Builder::new()
+        .suffix(".ascii")
+        .tempfile()
+        .unwrap();
+    for t in 0..256 {
+        let x = (t as f64 * 0.05).sin();
+        let y = 0.6 * x + (t as f64 * 0.07).cos() * 0.1;
+        writeln!(file, "{x:.12} {y:.12}").unwrap();
+    }
+    file
 }
 
 // =============================================================================
@@ -103,7 +117,12 @@ fn test_info_json() {
     assert!(parsed.get("cli_version").is_some());
     assert!(parsed.get("platform").is_some());
     assert!(parsed.get("arch").is_some());
-    assert!(parsed.get("binary_found").is_some());
+    assert_eq!(
+        parsed
+            .get("native_binary_enabled")
+            .and_then(|value| value.as_bool()),
+        Some(false)
+    );
 }
 
 // =============================================================================
@@ -219,6 +238,38 @@ fn test_run_nonexistent_file() {
         .failure()
         .code(1)
         .stderr(predicate::str::contains("not found"));
+}
+
+#[test]
+fn test_run_ascii_uses_pure_rust_backend() {
+    let ascii = write_ascii_fixture();
+
+    let output = ddalab()
+        .env_remove("DDA_BINARY_PATH")
+        .arg("run")
+        .arg("--file")
+        .arg(ascii.path().to_str().unwrap())
+        .arg("--channels")
+        .arg("0")
+        .arg("1")
+        .arg("--variants")
+        .arg("ST")
+        .arg("--wl")
+        .arg("64")
+        .arg("--ws")
+        .arg("32")
+        .arg("--delays")
+        .arg("1")
+        .arg("2")
+        .assert()
+        .success();
+
+    let stderr = String::from_utf8(output.get_output().stderr.clone()).unwrap();
+    assert!(stderr.contains("Backend: pure-rust"));
+
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert!(parsed.get("variant_results").is_some());
 }
 
 #[test]

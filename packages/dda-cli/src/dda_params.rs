@@ -1,18 +1,162 @@
 use crate::cli;
 use dda_rs::{
-    format_select_mask, generate_select_mask, AlgorithmSelection, DDARequest, DDARunner,
-    DelayParameters, FileType, ModelParameters, PreprocessingOptions, TimeRange,
-    VariantChannelConfig, WindowParameters,
+    format_select_mask, generate_select_mask, run_request_on_ascii_file_with_progress,
+    run_request_on_f64_matrix_file_with_progress, run_request_on_matrix_with_progress,
+    AlgorithmSelection, DDARequest, DDAResult, DelayParameters, FileType, ModelParameters,
+    PreprocessingOptions, PureRustProgress, TimeRange, VariantChannelConfig, WindowParameters,
 };
 use serde::Deserialize;
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 
-pub fn resolve_runner(binary_path: &Option<String>) -> Result<DDARunner, String> {
-    match binary_path {
-        Some(path) => DDARunner::new(path).map_err(|e| e.to_string()),
-        None => DDARunner::discover().map_err(|e| e.to_string()),
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecutionBackend {
+    PureRust,
+}
+
+#[derive(Debug)]
+pub struct ExecutionResult {
+    pub result: DDAResult,
+    pub backend: ExecutionBackend,
+}
+
+fn pure_rust_common_support_reason(request: &DDARequest) -> Result<(), String> {
+    if request.preprocessing_options.highpass.is_some()
+        || request.preprocessing_options.lowpass.is_some()
+    {
+        return Err(
+            "pure Rust DDA does not yet implement highpass/lowpass preprocessing".to_string(),
+        );
     }
+    if request
+        .delay_parameters
+        .delays
+        .iter()
+        .any(|delay| *delay < 0)
+    {
+        return Err(
+            "delay values must be non-negative because negative delays imply lookahead".to_string(),
+        );
+    }
+    let nr_tau = request
+        .model_parameters
+        .as_ref()
+        .map(|model| model.nr_tau as usize)
+        .unwrap_or(dda_rs::DEFAULT_NUM_TAU as usize);
+    if request.delay_parameters.delays.len() < nr_tau {
+        return Err(format!(
+            "pure Rust DDA needs at least nr_tau={} delays, but only {} were supplied",
+            nr_tau,
+            request.delay_parameters.delays.len()
+        ));
+    }
+    Ok(())
+}
+
+pub fn pure_rust_support_reason(request: &DDARequest) -> Result<(), String> {
+    let ext = Path::new(&request.file_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+
+    if FileType::from_extension(ext) != Some(FileType::ASCII) {
+        return Err("pure Rust DDA currently supports ASCII/TXT/CSV inputs only".to_string());
+    }
+
+    pure_rust_common_support_reason(request)
+}
+
+pub fn pure_rust_matrix_support_reason(request: &DDARequest) -> Result<(), String> {
+    pure_rust_common_support_reason(request)
+}
+
+pub async fn execute_request(
+    request: &DDARequest,
+    start_bound: Option<u64>,
+    end_bound: Option<u64>,
+) -> Result<ExecutionResult, String> {
+    execute_request_with_progress(request, start_bound, end_bound, |_| {}).await
+}
+
+pub async fn execute_request_with_progress<F>(
+    request: &DDARequest,
+    start_bound: Option<u64>,
+    end_bound: Option<u64>,
+    mut on_progress: F,
+) -> Result<ExecutionResult, String>
+where
+    F: FnMut(&PureRustProgress),
+{
+    pure_rust_support_reason(request)
+        .map_err(|reason| format!("Pure Rust DDA cannot execute this request: {}", reason))?;
+
+    let result = run_request_on_ascii_file_with_progress(
+        request,
+        &request.file_path,
+        start_bound,
+        end_bound,
+        |progress| on_progress(progress),
+    )
+    .map_err(|error| format!("Pure Rust DDA failed: {}", error))?;
+
+    Ok(ExecutionResult {
+        result,
+        backend: ExecutionBackend::PureRust,
+    })
+}
+
+pub async fn execute_request_on_matrix_with_progress<F>(
+    request: &DDARequest,
+    samples: &[Vec<f64>],
+    channel_labels: Option<&[String]>,
+    mut on_progress: F,
+) -> Result<ExecutionResult, String>
+where
+    F: FnMut(&PureRustProgress),
+{
+    pure_rust_matrix_support_reason(request)
+        .map_err(|reason| format!("Pure Rust DDA cannot execute this request: {}", reason))?;
+
+    let result =
+        run_request_on_matrix_with_progress(request, samples, channel_labels, |progress| {
+            on_progress(progress)
+        })
+        .map_err(|error| format!("Pure Rust DDA failed: {}", error))?;
+
+    Ok(ExecutionResult {
+        result,
+        backend: ExecutionBackend::PureRust,
+    })
+}
+
+pub async fn execute_request_on_matrix_file_with_progress<F>(
+    request: &DDARequest,
+    matrix_path: &str,
+    rows: usize,
+    cols: usize,
+    channel_labels: Option<&[String]>,
+    mut on_progress: F,
+) -> Result<ExecutionResult, String>
+where
+    F: FnMut(&PureRustProgress),
+{
+    pure_rust_matrix_support_reason(request)
+        .map_err(|reason| format!("Pure Rust DDA cannot execute this request: {}", reason))?;
+
+    let result = run_request_on_f64_matrix_file_with_progress(
+        request,
+        matrix_path,
+        rows,
+        cols,
+        channel_labels,
+        |progress| on_progress(progress),
+    )
+    .map_err(|error| format!("Pure Rust DDA failed: {}", error))?;
+
+    Ok(ExecutionResult {
+        result,
+        backend: ExecutionBackend::PureRust,
+    })
 }
 
 /// Validate a single file path: existence and supported extension.
@@ -42,6 +186,26 @@ pub fn normalize_variant_id(input: &str) -> Option<&'static str> {
         "st" | "single_timeseries" | "single-timeseries" | "single timeseries" => Some("ST"),
         "ct" | "cross_timeseries" | "cross-timeseries" | "cross timeseries" => Some("CT"),
         "cd" | "cross_dynamical" | "cross-dynamical" | "cross dynamical" => Some("CD"),
+        "ccd"
+        | "conditional_cross_dynamical"
+        | "conditional-cross-dynamical"
+        | "conditional cross dynamical" => Some("CCD"),
+        "ccdsig"
+        | "conditional_cross_dynamical_significance"
+        | "conditional-cross-dynamical-significance"
+        | "conditional cross dynamical significance" => Some("CCDSIG"),
+        "ccdstab"
+        | "conditional_cross_dynamical_stability"
+        | "conditional-cross-dynamical-stability"
+        | "conditional cross dynamical stability" => Some("CCDSTAB"),
+        "trccd"
+        | "temporally_regularized_conditional_cross_dynamical"
+        | "temporally-regularized-conditional-cross-dynamical"
+        | "temporally regularized conditional cross dynamical" => Some("TRCCD"),
+        "mvccd"
+        | "multivariate_conditional_cross_dynamical"
+        | "multivariate-conditional-cross-dynamical"
+        | "multivariate conditional cross dynamical" => Some("MVCCD"),
         "de" | "dynamical_ergodicity" | "dynamical-ergodicity" | "dynamical ergodicity" => {
             Some("DE")
         }
@@ -55,6 +219,11 @@ fn to_variant_config_key(abbrev: &str) -> &'static str {
         "ST" => "single_timeseries",
         "CT" => "cross_timeseries",
         "CD" => "cross_dynamical",
+        "CCD" => "conditional_cross_dynamical",
+        "CCDSIG" => "conditional_cross_dynamical_significance",
+        "CCDSTAB" => "conditional_cross_dynamical_stability",
+        "TRCCD" => "temporally_regularized_conditional_cross_dynamical",
+        "MVCCD" => "multivariate_conditional_cross_dynamical",
         "DE" => "dynamical_ergodicity",
         "SY" => "synchronization",
         _ => "single_timeseries",
@@ -67,7 +236,7 @@ pub fn normalize_variants(variants: &[String]) -> Result<Vec<String>, String> {
     for v in variants {
         let abbrev = normalize_variant_id(v).ok_or_else(|| {
             format!(
-                "Unknown variant '{}'. Valid variants: ST, CT, CD, DE, SY (or app IDs like single_timeseries)",
+                "Unknown variant '{}'. Valid variants: ST, CT, CD, CCD, CCDSIG, CCDSTAB, TRCCD, MVCCD, DE, SY (or app IDs like single_timeseries)",
                 v
             )
         })?;
@@ -85,6 +254,11 @@ struct VariantConfigInput {
     selected_channels: Option<Vec<usize>>,
     ct_channel_pairs: Option<Vec<[usize; 2]>>,
     cd_channel_pairs: Option<Vec<[usize; 2]>>,
+    conditioning_channels: Option<Vec<usize>>,
+    conditioning_strategy: Option<dda_rs::CcdConditioningStrategy>,
+    surrogate_shifts: Option<Vec<usize>>,
+    temporal_lambda: Option<f64>,
+    max_active_sources: Option<usize>,
 }
 
 /// Load app-compatible variant config JSON from disk.
@@ -110,7 +284,7 @@ pub fn load_variant_configs(path: &str) -> Result<HashMap<String, VariantChannel
     for (key, cfg) in parsed {
         let Some(abbrev) = normalize_variant_id(&key) else {
             return Err(format!(
-                "Unknown variant config key '{}'. Expected ST/CT/CD/DE/SY or app IDs",
+                "Unknown variant config key '{}'. Expected ST/CT/CD/CCD/CCDSIG/CCDSTAB/TRCCD/MVCCD/DE/SY or app IDs",
                 key
             ));
         };
@@ -121,6 +295,11 @@ pub fn load_variant_configs(path: &str) -> Result<HashMap<String, VariantChannel
                 selected_channels: cfg.selected_channels,
                 ct_channel_pairs: cfg.ct_channel_pairs,
                 cd_channel_pairs: cfg.cd_channel_pairs,
+                conditioning_channels: cfg.conditioning_channels,
+                conditioning_strategy: cfg.conditioning_strategy,
+                surrogate_shifts: cfg.surrogate_shifts,
+                temporal_lambda: cfg.temporal_lambda,
+                max_active_sources: cfg.max_active_sources,
             },
         );
     }
@@ -223,10 +402,20 @@ pub fn validate_common_params(
         );
     }
 
+    // Delay values must be non-negative; negative values imply lookahead.
+    for &d in delays {
+        if d < 0 {
+            return Err(format!(
+                "Delay value {} is invalid: delays must be non-negative because negative delays imply lookahead",
+                d
+            ));
+        }
+    }
+
     // Delay range
     for &d in delays {
-        if d < -100 || d > 100 {
-            return Err(format!("Delay value {} is out of range [-100, 100]", d));
+        if d > 100 {
+            return Err(format!("Delay value {} is out of range [0, 100]", d));
         }
     }
 
@@ -265,6 +454,7 @@ pub fn validate_common_params(
 
 /// Build a DDARequest from individual parameters.
 #[allow(clippy::too_many_arguments)]
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn build_dda_request(
     file_path: &str,
     channels: &[usize],
@@ -415,6 +605,7 @@ pub fn compute_bounds(
 }
 
 /// Check if a file extension is supported for DDA analysis.
+#[allow(dead_code)]
 pub fn is_supported_extension(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
@@ -425,6 +616,22 @@ pub fn is_supported_extension(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::NamedTempFile;
+
+    fn write_ascii_fixture() -> NamedTempFile {
+        use std::io::Write;
+
+        let mut file = tempfile::Builder::new()
+            .suffix(".ascii")
+            .tempfile()
+            .unwrap();
+        for t in 0..256 {
+            let x = (t as f64 * 0.05).sin();
+            let y = 0.7 * x + (t as f64 * 0.09).cos() * 0.1;
+            writeln!(file, "{x:.12} {y:.12}").unwrap();
+        }
+        file
+    }
 
     #[test]
     fn test_validate_common_params_valid() {
@@ -465,6 +672,14 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_common_params_negative_delay_is_rejected() {
+        let result =
+            validate_common_params(&[0], &["ST".to_string()], &[-7, 10], 200, 100, &None, &None);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("non-negative"));
+    }
+
+    #[test]
     fn test_validate_common_params_ws_exceeds_wl() {
         let result =
             validate_common_params(&[0], &["ST".to_string()], &[7], 100, 200, &None, &None);
@@ -477,10 +692,11 @@ mod tests {
         let normalized = normalize_variants(&[
             "single_timeseries".to_string(),
             "cross_dynamical".to_string(),
+            "conditional_cross_dynamical".to_string(),
             "SY".to_string(),
         ])
         .unwrap();
-        assert_eq!(normalized, vec!["ST", "CD", "SY"]);
+        assert_eq!(normalized, vec!["ST", "CD", "CCD", "SY"]);
     }
 
     #[test]
@@ -490,7 +706,12 @@ mod tests {
         let json = r#"{
           "variant_configs": {
             "single_timeseries": { "selectedChannels": [0, 2] },
-            "CT": { "ctChannelPairs": [[0, 1]] }
+            "CT": { "ctChannelPairs": [[0, 1]] },
+            "conditional_cross_dynamical": {
+              "selectedChannels": [0, 1, 2],
+              "cdChannelPairs": [[1, 0]],
+              "conditioningChannels": [2]
+            }
           }
         }"#;
         std::fs::write(tmp.path(), json).unwrap();
@@ -498,6 +719,13 @@ mod tests {
         let cfgs = load_variant_configs(tmp.path().to_str().unwrap()).unwrap();
         assert!(cfgs.contains_key("single_timeseries"));
         assert!(cfgs.contains_key("cross_timeseries"));
+        assert!(cfgs.contains_key("conditional_cross_dynamical"));
+        assert_eq!(
+            cfgs["conditional_cross_dynamical"]
+                .conditioning_channels
+                .as_deref(),
+            Some(&[2][..])
+        );
     }
 
     #[test]
@@ -574,5 +802,174 @@ mod tests {
         let (start, end) = compute_bounds(None, None, None, None, None);
         assert_eq!(start, None);
         assert_eq!(end, None);
+    }
+
+    #[tokio::test]
+    async fn test_execute_request_runs_ascii_without_native_runner() {
+        let ascii = write_ascii_fixture();
+        let request = build_dda_request_with_options(
+            ascii.path().to_str().unwrap(),
+            &[0, 1],
+            &["ST".to_string()],
+            64,
+            32,
+            &[1, 2],
+            None,
+            4,
+            4,
+            2,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let execution = execute_request(&request, None, None).await.unwrap();
+        assert_eq!(execution.backend, ExecutionBackend::PureRust);
+
+        let variants = execution.result.variant_results.unwrap();
+        assert_eq!(variants.len(), 1);
+        assert_eq!(variants[0].variant_id, "ST");
+    }
+
+    #[tokio::test]
+    async fn test_execute_request_rejects_edf_without_native_backend() {
+        let edf = tempfile::Builder::new().suffix(".edf").tempfile().unwrap();
+        let request = build_dda_request_with_options(
+            edf.path().to_str().unwrap(),
+            &[0],
+            &["ST".to_string()],
+            64,
+            32,
+            &[1, 2],
+            None,
+            4,
+            4,
+            2,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let error = execute_request(&request, None, None).await.unwrap_err();
+        assert!(error.contains("Pure Rust DDA cannot execute this request"));
+        assert!(error.contains("ASCII/TXT/CSV"));
+    }
+
+    #[tokio::test]
+    async fn test_execute_request_on_matrix_accepts_non_ascii_source_path() {
+        let request = build_dda_request_with_options(
+            "/tmp/test.edf",
+            &[0, 1],
+            &["ST".to_string()],
+            32,
+            16,
+            &[1, 2],
+            None,
+            4,
+            4,
+            2,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(0.0),
+            Some(63.0),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let samples = (0..64)
+            .map(|index| {
+                let x = index as f64 * 0.05;
+                vec![x.sin(), (x * 1.7).cos()]
+            })
+            .collect::<Vec<_>>();
+        let labels = vec!["A".to_string(), "B".to_string()];
+
+        let execution = execute_request_on_matrix_with_progress(
+            &request,
+            &samples,
+            Some(labels.as_slice()),
+            |_| {},
+        )
+        .await
+        .unwrap();
+        assert_eq!(execution.backend, ExecutionBackend::PureRust);
+        assert_eq!(execution.result.file_path, "/tmp/test.edf");
+    }
+
+    #[tokio::test]
+    async fn test_execute_request_on_matrix_file_accepts_non_ascii_source_path() {
+        use std::io::Write;
+
+        let request = build_dda_request_with_options(
+            "/tmp/test.edf",
+            &[0, 1],
+            &["ST".to_string()],
+            32,
+            16,
+            &[1, 2],
+            None,
+            4,
+            4,
+            2,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(0.0),
+            Some(63.0),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let samples = (0..64)
+            .map(|index| {
+                let x = index as f64 * 0.05;
+                vec![x.sin(), (x * 1.7).cos()]
+            })
+            .collect::<Vec<_>>();
+        let labels = vec!["A".to_string(), "B".to_string()];
+        let mut raw = tempfile::Builder::new().suffix(".f64").tempfile().unwrap();
+        for row in &samples {
+            for value in row {
+                raw.write_all(&value.to_le_bytes()).unwrap();
+            }
+        }
+
+        let execution = execute_request_on_matrix_file_with_progress(
+            &request,
+            raw.path().to_str().unwrap(),
+            samples.len(),
+            samples[0].len(),
+            Some(labels.as_slice()),
+            |_| {},
+        )
+        .await
+        .unwrap();
+        assert_eq!(execution.backend, ExecutionBackend::PureRust);
+        assert_eq!(execution.result.file_path, "/tmp/test.edf");
     }
 }
