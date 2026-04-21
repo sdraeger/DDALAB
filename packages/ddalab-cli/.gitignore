@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+ddalab_qt/__pycache__/
+ddalab_qt/widgets/__pycache__/
+ddalab_qt.egg-info/
+ddalab_qt/runtime/bin/*
+!ddalab_qt/runtime/bin/.gitkeep
+build/
+dist/
