@@ -1048,7 +1048,7 @@ def _local_backend_health(runtime_paths: RuntimePaths, repo_root: Path) -> ApiHe
             f"Rust DDA available via {Path(cli_command[0]).name}."
         )
         diagnostics.append(
-            "Native DDA binary execution is disabled; all DDA requests stay on the Rust backend."
+            "All DDA requests run through the bundled dda-rs backend."
         )
     ica_available = _has_python_ica_support()
     diagnostics.append(
@@ -1261,7 +1261,7 @@ def _run_local_dda(
     if rust_support is None:
         raise RuntimeError(
             "Local DDALAB Rust backend was not found in this desktop build. "
-            "Build or bundle the local CLI backend before running DDA."
+            "Build or bundle the local dda-rs backend before running DDA."
         )
 
     cli_command, _binary_path = rust_support
@@ -1291,7 +1291,7 @@ def _run_local_dda(
         raise RuntimeError(
             "Pure Rust DDA backend failed.\n\n"
             f"Rust backend error: {rust_error}\n\n"
-            "Native run_DDA_AsciiEdf execution is disabled."
+            "No native fallback backend is bundled in this desktop build."
         ) from rust_error
 
 
@@ -1392,7 +1392,7 @@ def _run_rust_default_dda(
         f"Window: {window_length_samples}/{window_step_samples} samples",
         f"Bounds: {requested_start_sample}-{safe_end_sample} samples @ {sample_rate:.3f} Hz",
         "Default backend: Rust DDA on an in-memory analysis matrix.",
-        "Native run_DDA_AsciiEdf execution is disabled.",
+        "All analysis runs through the bundled dda-rs backend.",
     ]
 
     def _localize_channels(indices: List[int]) -> List[int]:
@@ -2307,13 +2307,13 @@ def _find_cli_command(runtime_paths: RuntimePaths, repo_root: Path) -> Optional[
     if runtime_paths.is_source_checkout():
         dev_cli_name = platform_binary_name(DEV_CLI_BINARY_STEM)
         for candidate in (
-            repo_root / "packages" / "dda-cli" / "target" / "release" / dev_cli_name,
-            repo_root / "packages" / "dda-cli" / "target" / "debug" / dev_cli_name,
+            repo_root / "packages" / "dda-rs" / "target" / "release" / dev_cli_name,
+            repo_root / "packages" / "dda-rs" / "target" / "debug" / dev_cli_name,
         ):
             if candidate.exists():
                 return [str(candidate)]
 
-        manifest = repo_root / "packages" / "dda-cli" / "Cargo.toml"
+        manifest = repo_root / "packages" / "dda-rs" / "Cargo.toml"
         if manifest.exists() and shutil.which("cargo"):
             return ["cargo", "run", "--manifest-path", str(manifest), "--"]
 

@@ -41,7 +41,7 @@ jobs:
       - name: Cache Rust artifacts
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: "./packages/dda-cli -> target"
+          workspaces: "./packages/dda-rs -> target"
 
       - name: Stage bundled runtime backend
         working-directory: packages/ddalab-cli

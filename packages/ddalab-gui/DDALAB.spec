@@ -7,7 +7,6 @@ from PyInstaller.compat import is_darwin
 from PyInstaller.utils.hooks import collect_data_files
 from PyInstaller.utils.hooks import copy_metadata
 from ddalab_qt.runtime_binary_names import (
-    DDA_BINARY_STEM,
     PACKAGED_CLI_BINARY_STEM,
     platform_binary_name,
 )
@@ -20,13 +19,11 @@ RUNTIME_BIN_DIR = CLI_PROJECT_ROOT / "ddalab_qt" / "runtime" / "bin"
 APP_VERSION = os.environ.get("DDALAB_VERSION", get_app_version())
 DIST_MODE = os.environ.get("DDALAB_DIST_MODE", "dir").lower()
 
-DDA_BINARY_NAME = platform_binary_name(DDA_BINARY_STEM)
 CLI_BINARY_NAME = platform_binary_name(PACKAGED_CLI_BINARY_STEM)
 
-DDA_BINARY_PATH = RUNTIME_BIN_DIR / DDA_BINARY_NAME
 CLI_BINARY_PATH = RUNTIME_BIN_DIR / CLI_BINARY_NAME
 
-missing = [path for path in (DDA_BINARY_PATH, CLI_BINARY_PATH) if not path.exists()]
+missing = [path for path in (CLI_BINARY_PATH,) if not path.exists()]
 if missing:
     raise SystemExit(
         "Missing staged native dependencies for Qt bundle build. Run scripts/prepare_runtime.py first: "
@@ -56,7 +53,6 @@ a = Analysis(
     ["run_ddalab_gui.py"],
     pathex=[str(PROJECT_ROOT), str(CLI_PROJECT_ROOT)],
     binaries=[
-        (str(DDA_BINARY_PATH), "bin"),
         (str(CLI_BINARY_PATH), "bin"),
     ],
     datas=datas,

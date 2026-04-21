@@ -13,7 +13,7 @@ from importlib.metadata import PackageNotFoundError, version as package_version
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
-from .backend.api import LocalBackendClient, _find_cli_command, _find_dda_binary
+from .backend.api import LocalBackendClient, _find_cli_command
 from .domain.file_types import resolve_dataset_path, supports_qt_dataset_path
 from .domain.models import DdaReproductionConfig, DdaResult
 from .runtime_paths import RuntimePaths
@@ -459,8 +459,8 @@ def _handle_dda_info(args: argparse.Namespace) -> int:
     print("")
     print(f"DDA available: {'yes' if info['ddaAvailable'] else 'no'}")
     print(f"Backend CLI: {info['backendCliPath'] or 'not found'}")
-    print(f"DDA binary: {info['ddaBinaryPath'] or 'not found'}")
-    print("Engine chain: Python CLI -> bundled Rust backend -> run_DDA_AsciiEdf")
+    print(f"Native DDA binary: {info['ddaBinaryPath'] or 'not required'}")
+    print("Engine chain: Python CLI -> bundled dda-rs backend")
     print(f"Default window/step: {info['defaultWindowLengthSamples']}/{info['defaultWindowStepSamples']} samples")
     print(
         "Default delays: "
@@ -525,7 +525,7 @@ def _handle_dda_validate(args: argparse.Namespace) -> int:
         "dominantSampleRateHz": dataset.dominant_sample_rate_hz,
         "ddaAvailable": bool(info["ddaAvailable"]),
         "valid": bool(info["ddaAvailable"]) and len(dataset.channels) > 0,
-        "engine": "Python CLI -> bundled Rust backend -> run_DDA_AsciiEdf",
+        "engine": "Python CLI -> bundled dda-rs backend",
     }
     if args.json:
         _print_json(payload)
@@ -633,17 +633,14 @@ def _handle_dda_raw(args: argparse.Namespace) -> int:
     if cli_command is None:
         raise RuntimeError("DDALAB backend CLI is unavailable in this install.")
 
-    dda_binary = _find_dda_binary(runtime_paths, repo_root)
     env = dict(os.environ)
-    if dda_binary is not None and not env.get("DDA_BINARY_PATH"):
-        env["DDA_BINARY_PATH"] = str(dda_binary)
 
     backend_args = list(args.backend_args or [])
     if backend_args and backend_args[0] == "--":
         backend_args = backend_args[1:]
     if not backend_args:
         backend_args = ["--help"]
-    backend_args = _normalize_dda_backend_args(backend_args, dda_binary)
+    backend_args = _normalize_dda_backend_args(backend_args)
 
     process = subprocess.run(
         [*cli_command, *backend_args],
@@ -656,7 +653,6 @@ def _handle_dda_raw(args: argparse.Namespace) -> int:
 
 def _normalize_dda_backend_args(
     backend_args: Sequence[str],
-    dda_binary: Optional[Path],
 ) -> list[str]:
     normalized = list(backend_args)
     if not normalized:
@@ -665,10 +661,6 @@ def _normalize_dda_backend_args(
     subcommand = normalized[0]
     if subcommand == "run":
         normalized = _normalize_dda_run_args(normalized)
-
-    if subcommand in {"run", "info", "batch"} and dda_binary is not None:
-        if not _has_cli_flag(normalized[1:], "--binary"):
-            normalized.extend(["--binary", str(dda_binary)])
 
     return normalized
 
@@ -927,16 +919,15 @@ def _batch_result_path(output_dir: Path, dataset_file_path: str) -> Path:
 
 def _dda_engine_info(runtime_paths: RuntimePaths) -> dict[str, Any]:
     repo_root = runtime_paths.source_repo_root or runtime_paths.browser_fallback_root()
-    dda_binary = _find_dda_binary(runtime_paths, repo_root)
     backend_cli = _find_cli_command(runtime_paths, repo_root)
     return {
         "service": "ddalab",
         "version": _installed_package_version(),
         "platform": _normalized_platform_name(),
         "architecture": platform.machine().lower() or "unknown",
-        "ddaAvailable": bool(dda_binary and backend_cli),
+        "ddaAvailable": bool(backend_cli),
         "backendCliPath": backend_cli[0] if backend_cli else None,
-        "ddaBinaryPath": str(dda_binary) if dda_binary is not None else None,
+        "ddaBinaryPath": None,
         "defaultWindowLengthSamples": _DEFAULT_DDA_WINDOW_LENGTH,
         "defaultWindowStepSamples": _DEFAULT_DDA_WINDOW_STEP,
         "defaultDelays": list(_DEFAULT_DDA_DELAYS),

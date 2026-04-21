@@ -89,7 +89,6 @@ DDALAB reproduction script for {result.file_name}
 
 Requirements:
     - ddalab must be installed and available as `ddalab` or via $DDALAB_CLI
-    - run_DDA_AsciiEdf must be available via $DDA_BINARY_PATH or on PATH
 """
 
 import json
@@ -131,7 +130,6 @@ def generate_matlab_script(result: DdaResult, variant_id: Optional[str] = None) 
 %
 % Requirements:
 %   - ddalab must be installed and available as `ddalab` or via DDALAB_CLI
-%   - run_DDA_AsciiEdf must be available via DDA_BINARY_PATH or on PATH
 
 function main()
     ddalab_cli = getenv_default('DDALAB_CLI', 'ddalab');
@@ -185,7 +183,6 @@ DDALAB reproduction script for {result.file_name}
 
 Requirements:
     - ddalab must be installed and available as `ddalab` or via ENV[\"DDALAB_CLI\"]
-    - run_DDA_AsciiEdf must be available via ENV[\"DDA_BINARY_PATH\"] or on PATH
 \"\"\"
 
 using JSON3
@@ -218,7 +215,6 @@ def generate_rust_source(result: DdaResult, variant_id: Optional[str] = None) ->
 //
 // Requirements:
 //   - ddalab must be installed and available as `ddalab` or via DDALAB_CLI
-//   - run_DDA_AsciiEdf must be available via DDA_BINARY_PATH or on PATH
 
 use std::env;
 use std::fs;

@@ -28,7 +28,7 @@ This installs:
 - `ddalab`
 - `ddalab-cli`
 
-Published wheels bundle the local Rust backend and `run_DDA_AsciiEdf`, so DDA works offline without a separate network service. The public `ddalab dda ...` commands are Python-owned and use the bundled native engine internally.
+Published wheels bundle the local `dda-rs` backend, so DDA works offline without a separate network service. The public `ddalab dda ...` commands are Python-owned and use the bundled Rust engine internally.
 
 ## Examples
 

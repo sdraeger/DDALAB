@@ -14,17 +14,15 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from ddalab_qt.runtime_binary_names import (  # noqa: E402
-    DDA_BINARY_STEM,
     DEV_CLI_BINARY_STEM,
     PACKAGED_CLI_BINARY_STEM,
     platform_binary_name,
 )
-from ensure_dda_binary import ensure_dda_binary  # noqa: E402
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Stage native DDALAB backend binaries into ddalab_qt/runtime/bin."
+        description="Stage the DDALAB Rust backend binary into ddalab_qt/runtime/bin."
     )
     parser.add_argument(
         "--clean",
@@ -61,19 +59,14 @@ def stage_runtime_binaries(*, clean: bool = False, build_cli: bool = True) -> Pa
         shutil.rmtree(runtime_bin_dir)
     runtime_bin_dir.mkdir(parents=True, exist_ok=True)
 
-    dda_source = ensure_dda_binary()
     cli_source = _ensure_cli_binary(repo_root, build_cli=build_cli)
-
-    dda_target = runtime_bin_dir / platform_binary_name(DDA_BINARY_STEM)
     cli_target = runtime_bin_dir / platform_binary_name(PACKAGED_CLI_BINARY_STEM)
-
-    _copy_executable(dda_source, dda_target)
     _copy_executable(cli_source, cli_target)
     return runtime_bin_dir
 
 
 def _ensure_cli_binary(repo_root: Path, *, build_cli: bool) -> Path:
-    cli_root = repo_root / "packages" / "dda-cli"
+    cli_root = repo_root / "packages" / "dda-rs"
     manifest_path = cli_root / "Cargo.toml"
     binary_name = platform_binary_name(DEV_CLI_BINARY_STEM)
     candidates = [
