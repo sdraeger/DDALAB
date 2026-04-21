@@ -73,14 +73,12 @@ jobs:
           EXPECTED_VERSION: ${{ steps.version.outputs.version }}
         run: |
           python - <<'PY'
-          import json
           import os
           import tomllib
           from pathlib import Path
 
           expected = os.environ["EXPECTED_VERSION"]
           checks = {
-              "package.json": json.loads(Path("package.json").read_text())["version"],
               "packages/ddalab/pyproject.toml": tomllib.loads(
                   Path("packages/ddalab/pyproject.toml").read_text()
               )["project"]["version"],
@@ -108,7 +106,7 @@ jobs:
             platform: windows
             arch: x64
             dist_mode: dir
-          - runner: macos-13
+          - runner: macos-15-intel
             platform: macos
             arch: x64
             dist_mode: dir

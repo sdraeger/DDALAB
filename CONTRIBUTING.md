@@ -35,11 +35,10 @@ We embrace the use of **Large Language Models (LLMs)** and AI coding assistants 
 
 ## Style & Formatting Guidelines
 
-To maintain a consistent codebase, we provide a unified formatting command. Before submitting a Pull Request, please ensure all code is formatted:
+Before submitting a Pull Request, format the code for the language you changed and keep style consistent with the surrounding files.
 
-`bun run fmt`
-
-This custom command automatically handles all formattable code across the entire repository (Rust, TypeScript, JSON, etc.). Please ensure you have [Bun](https://bun.sh) installed to use this utility.
+For Rust changes, run:
+`cargo fmt --manifest-path packages/dda-rs/Cargo.toml`
 
 ## Development Workflow
 

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, version as package_version
-import json
 from pathlib import Path
+import tomllib
 
 _FALLBACK_VERSION = "0.0.0.dev0"
 
@@ -10,13 +10,16 @@ _FALLBACK_VERSION = "0.0.0.dev0"
 def _source_checkout_version() -> str | None:
     module_path = Path(__file__).resolve()
     for candidate in module_path.parents:
-        package_json = candidate / "package.json"
-        if not package_json.exists():
+        pyproject = candidate / "pyproject.toml"
+        if not pyproject.exists():
             continue
-        if not (candidate / "packages" / "ddalab").exists():
+        payload = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+        project = payload.get("project")
+        if not isinstance(project, dict):
             continue
-        payload = json.loads(package_json.read_text())
-        version = payload.get("version")
+        if project.get("name") != "ddalab":
+            continue
+        version = project.get("version")
         if isinstance(version, str) and version.strip():
             return version.strip()
     return None

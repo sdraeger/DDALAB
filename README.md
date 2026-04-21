@@ -116,14 +116,12 @@ To start the broker:
 
 - **Rust** ≥ 1.70 ([rustup.rs](https://rustup.rs))
 - **Python** 3.11 or 3.12
-- **Node.js** is only needed for legacy archived assets and historical docs.
 
 ### Getting Started
 
 `git clone https://github.com/sdraeger/DDALAB.git`
-`cd DDALAB`
-`bun install`
-`bun run dev:desktop`
+`cd DDALAB/packages/ddalab`
+`./start.sh`
 
 ### Active Packages
 
@@ -133,18 +131,18 @@ To start the broker:
 
 Useful helper commands:
 
-- `bun run check:desktop`
-- `bun run build:desktop`
-- `bun run build:cli`
+- `cd packages/ddalab && ./start.sh --smoke-test`
+- `cd packages/ddalab && python3 scripts/prepare_runtime.py --clean --print-dir`
+- `cd packages/ddalab && ./.venv/bin/python -m build --wheel`
 
 ### Production Build
 
-`bun run build:desktop`
+`cd packages/ddalab && ./.venv/bin/pyinstaller DDALAB.spec --noconfirm --clean`
 
 ## Conformance & Parity
 
 - Shared cross-language contract: `conformance/dda_conformance_contract.json`
-- Unified conformance runner: `bun run test:conformance`
+- Unified conformance runner: `bash scripts/run-conformance-suite.sh`
 - Formal parity matrix: `docs/feature-parity.md`
 
 ## Configuration & Data Storage
