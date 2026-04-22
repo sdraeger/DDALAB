@@ -6,6 +6,11 @@ from typing import Optional, Sequence
 
 from PySide6.QtWidgets import QApplication
 
+from .app.runtime_logging import (
+    configure_runtime_logging,
+    install_exception_logging,
+    runtime_logger,
+)
 from .app.main_window import build_main_window
 from .runtime_paths import RuntimePaths
 from .ui.style import apply_theme
@@ -27,6 +32,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     runtime_paths = RuntimePaths.detect()
+    log_path = configure_runtime_logging()
+    install_exception_logging()
+    runtime_logger("startup").info(
+        "Launching DDALAB version=%s frozen=%s executable=%s log=%s",
+        get_app_version(),
+        bool(getattr(sys, "frozen", False)),
+        runtime_paths.executable_path,
+        log_path,
+    )
     app = QApplication(sys.argv)
     app.setApplicationName("DDALAB")
     app.setApplicationVersion(get_app_version())

@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 from PyInstaller.compat import is_darwin
+from PyInstaller.utils.hooks import collect_all
 from PyInstaller.utils.hooks import collect_data_files
 from PyInstaller.utils.hooks import copy_metadata
 from ddalab_qt.runtime_binary_names import (
@@ -31,29 +32,70 @@ if missing:
     )
 
 datas = collect_data_files("ddalab_qt", excludes=["runtime/bin/*"])
-datas += collect_data_files("matplotlib")
 datas += copy_metadata("ddalab")
-hiddenimports = [
+
+binaries = [
+    (str(CLI_BINARY_PATH), "bin"),
+]
+
+hiddenimports = []
+
+_EXCLUDED_DATA_PATTERNS = [
+    "**/tests/**",
+    "**/test/**",
+    "**/testing/**",
+    "**/examples/**",
+    "**/__pycache__/**",
+]
+
+
+def _runtime_submodule_filter(name: str) -> bool:
+    return not any(
+        fragment in name
+        for fragment in (".tests", ".test", ".testing", ".examples")
+    )
+
+# Collect the full optional reader/runtime stacks so the packaged app exposes
+# the same file-format support as the installed Python environment.
+for package_name in (
     "matplotlib",
-    "matplotlib.font_manager",
-    "matplotlib.mathtext",
-    "matplotlib.backends.backend_agg",
     "mne",
+    "defusedxml",
+    "pymatreader",
+    "mffpy",
     "nibabel",
     "pyxdf",
     "pynwb",
-    "sklearn",
-    "sklearn.decomposition",
+    "hdmf",
+    "lazy_loader",
+):
+    package_datas, package_binaries, package_hiddenimports = collect_all(
+        package_name,
+        filter_submodules=_runtime_submodule_filter,
+        exclude_datas=_EXCLUDED_DATA_PATTERNS,
+    )
+    datas += package_datas
+    binaries += package_binaries
+    hiddenimports += package_hiddenimports
+
+hiddenimports += [
+    "defusedxml.ElementTree",
+    "defusedxml.minidom",
+    "matplotlib.backends.backend_agg",
     "scipy.signal",
     "scipy.stats",
+    "sklearn",
+    "sklearn.decomposition",
 ]
+
+datas = list(dict.fromkeys(datas))
+binaries = list(dict.fromkeys(binaries))
+hiddenimports = sorted(dict.fromkeys(hiddenimports))
 
 a = Analysis(
     ["run_ddalab_gui.py"],
     pathex=[str(PROJECT_ROOT)],
-    binaries=[
-        (str(CLI_BINARY_PATH), "bin"),
-    ],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
