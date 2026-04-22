@@ -3,6 +3,9 @@ matplotlib==3.10.8
 scipy==1.13.1
 scikit-learn==1.5.2
 mne==1.8.0
+defusedxml>=0.7,<1
+pymatreader>=0.0.32,<1
+mffpy>=0.10,<1
 nibabel==5.3.3
 pyxdf==1.16.8
 pynwb==2.8.3

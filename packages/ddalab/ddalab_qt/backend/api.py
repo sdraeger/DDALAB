@@ -636,7 +636,10 @@ class LocalBackendClient(BackendClient):
         path_obj = Path(path)
         if not supports_qt_dataset_path(path, path_obj.is_dir()):
             raise RuntimeError(f"Unsupported local dataset format: {path}")
-        return _python_dataset_reader(path).load_metadata()
+        try:
+            return _python_dataset_reader(path).load_metadata()
+        except Exception as exc:
+            raise RuntimeError(f"Could not open {path_obj.name}: {exc}") from exc
 
     def load_waveform_window(
         self,

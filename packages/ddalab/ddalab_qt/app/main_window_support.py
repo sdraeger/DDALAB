@@ -53,6 +53,7 @@ from ..domain.models import (
 from ..persistence.state_db import StateDatabase
 from ..ui.style import apply_theme, current_theme_colors, normalize_theme_mode
 from ..update_manager import AvailableUpdate, UpdateDownloadProgress
+from .runtime_logging import add_log_file_hint, runtime_logger
 
 
 class WorkerSignals(QObject):
@@ -930,6 +931,15 @@ class MainWindowSupportMixin:
             try:
                 result = task()
             except Exception as exc:  # noqa: BLE001
+                task_name = getattr(
+                    task,
+                    "__qualname__",
+                    getattr(task, "__name__", task.__class__.__name__),
+                )
+                runtime_logger("worker").exception(
+                    "Background task failed task=%s",
+                    task_name,
+                )
                 signals.error.emit(str(exc))
                 return
             signals.success.emit(result)
@@ -953,6 +963,15 @@ class MainWindowSupportMixin:
             try:
                 result = task(signals.progress.emit)
             except Exception as exc:  # noqa: BLE001
+                task_name = getattr(
+                    task,
+                    "__qualname__",
+                    getattr(task, "__name__", task.__class__.__name__),
+                )
+                runtime_logger("worker").exception(
+                    "Background task with progress failed task=%s",
+                    task_name,
+                )
                 signals.error.emit(str(exc))
                 return
             signals.success.emit(result)
@@ -1213,13 +1232,17 @@ class MainWindowSupportMixin:
                 self._pending_session_restore = None
             self._clear_dataset_loading_state()
             self._update_dataset_ui()
-            self._notify("file", "error", "Dataset Open Failed", message)
+            runtime_logger("dataset").error(
+                "Dataset open failed path=%s error=%s",
+                path,
+                message,
+            )
+            self._show_error(f"Dataset open failed: {message}")
 
-        self._run_task(
-            lambda: self.backend.load_dataset(path),
-            on_success,
-            on_error,
-        )
+        def load_dataset_task() -> object:
+            return self.backend.load_dataset(path)
+
+        self._run_task(load_dataset_task, on_success, on_error)
 
     def _set_saved_state_loading_state(self, file_name: str) -> None:
         if hasattr(self, "results_summary_label"):
@@ -2819,7 +2842,7 @@ class MainWindowSupportMixin:
 
     def _show_error(self, message: str) -> None:
         self._notify("system", "error", "Error", message, show_status=False)
-        QMessageBox.critical(self, "DDALAB Qt", message)
+        QMessageBox.critical(self, "DDALAB Qt", add_log_file_hint(message))
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         self._stop_streaming()
