@@ -206,9 +206,13 @@ jobs:
         run: |
           mkdir -p ../../release-assets
           ditto -c -k --keepParent dist/DDALAB.app "../../release-assets/DDALAB-${DDALAB_VERSION}-macos-${DDALAB_ARCH}-app.zip"
+          dmg_staging="$(mktemp -d)"
+          trap 'rm -rf "$dmg_staging"' EXIT
+          ditto dist/DDALAB.app "$dmg_staging/DDALAB.app"
+          ln -s /Applications "$dmg_staging/Applications"
           hdiutil create \
             -volname "DDALAB" \
-            -srcfolder dist/DDALAB.app \
+            -srcfolder "$dmg_staging" \
             -ov \
             -format UDZO \
             "../../release-assets/DDALAB-${DDALAB_VERSION}-macos-${DDALAB_ARCH}.dmg"
