@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from PyInstaller.compat import is_darwin
+from PyInstaller.compat import is_darwin, is_win
 from PyInstaller.utils.hooks import collect_all
 from PyInstaller.utils.hooks import collect_data_files
 from PyInstaller.utils.hooks import copy_metadata
@@ -17,6 +17,9 @@ from ddalab_qt.version import get_app_version
 PROJECT_ROOT = Path(globals().get("SPECPATH", Path.cwd())).resolve()
 PACKAGE_ROOT = PROJECT_ROOT.resolve()
 RUNTIME_BIN_DIR = PACKAGE_ROOT / "ddalab_qt" / "runtime" / "bin"
+ICON_DIR = PACKAGE_ROOT / "ddalab_qt" / "assets" / "icons"
+WINDOWS_ICON_PATH = ICON_DIR / "icon.ico"
+MACOS_ICON_PATH = ICON_DIR / "icon.icns"
 APP_VERSION = os.environ.get("DDALAB_VERSION", get_app_version())
 DIST_MODE = os.environ.get("DDALAB_DIST_MODE", "dir").lower()
 
@@ -24,12 +27,26 @@ CLI_BINARY_NAME = platform_binary_name(PACKAGED_CLI_BINARY_STEM)
 
 CLI_BINARY_PATH = RUNTIME_BIN_DIR / CLI_BINARY_NAME
 
-missing = [path for path in (CLI_BINARY_PATH,) if not path.exists()]
+missing_paths = [CLI_BINARY_PATH]
+if is_win:
+    missing_paths.append(WINDOWS_ICON_PATH)
+if is_darwin:
+    missing_paths.append(MACOS_ICON_PATH)
+
+missing = [path for path in missing_paths if not path.exists()]
 if missing:
     raise SystemExit(
         "Missing staged native dependencies for Qt bundle build. Run scripts/prepare_runtime.py first: "
         + ", ".join(str(path) for path in missing)
     )
+
+EXE_ICON = None
+BUNDLE_ICON = None
+if is_win:
+    EXE_ICON = str(WINDOWS_ICON_PATH)
+elif is_darwin:
+    EXE_ICON = str(MACOS_ICON_PATH)
+    BUNDLE_ICON = str(MACOS_ICON_PATH)
 
 datas = collect_data_files("ddalab_qt", excludes=["runtime/bin/*"])
 datas += copy_metadata("ddalab")
@@ -120,6 +137,7 @@ if DIST_MODE == "onefile":
         strip=False,
         upx=False,
         console=False,
+        icon=EXE_ICON,
     )
 else:
     exe = EXE(
@@ -133,6 +151,7 @@ else:
         strip=False,
         upx=False,
         console=False,
+        icon=EXE_ICON,
     )
 
     coll = COLLECT(
@@ -156,4 +175,5 @@ else:
                 "CFBundleShortVersionString": APP_VERSION,
                 "CFBundleVersion": APP_VERSION,
             },
+            icon=BUNDLE_ICON,
         )

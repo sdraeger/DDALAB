@@ -4,6 +4,7 @@ import argparse
 import sys
 from typing import Optional, Sequence
 
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from .app.runtime_logging import (
@@ -44,12 +45,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("DDALAB")
     app.setApplicationVersion(get_app_version())
+    app_icon: Optional[QIcon] = None
+    app_icon_path = runtime_paths.package_asset("icons", "icon.png")
+    if app_icon_path.exists():
+        candidate_icon = QIcon(str(app_icon_path))
+        if not candidate_icon.isNull():
+            app_icon = candidate_icon
+            app.setWindowIcon(app_icon)
     apply_theme(app, runtime_paths)
     window = build_main_window(
         runtime_paths=runtime_paths,
         server_url=args.server,
         bootstrap_backend=not args.smoke_test,
     )
+    if app_icon is not None:
+        window.setWindowIcon(app_icon)
 
     if args.smoke_test:
         app.processEvents()
