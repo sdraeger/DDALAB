@@ -68,6 +68,8 @@ workflow_state.md
 .config/
 .turbo/
 bin/
+!packages/dda-rs/src/bin/
+!packages/dda-rs/src/bin/**
 
 packages/electron/release/
 packages/web/cookies.txt
@@ -116,3 +118,8 @@ packages/dda-cli/target/
 DDA_Intro
 
 packages/archive/
+.reverse/
+docs/
+experiments/
+
+sessions.md
