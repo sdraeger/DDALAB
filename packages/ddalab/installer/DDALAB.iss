@@ -8,6 +8,7 @@
 #ifndef OutputDir
   #define OutputDir "."
 #endif
+#define AppIconFile SourcePath + "..\\ddalab_qt\\assets\\icons\\icon.ico"
 
 [Setup]
 AppId=ddalab-desktop
@@ -28,6 +29,7 @@ WizardStyle=modern
 CloseApplications=yes
 RestartApplications=yes
 SetupLogging=yes
+SetupIconFile={#AppIconFile}
 UninstallDisplayIcon={app}\DDALAB.exe
 
 [Tasks]
