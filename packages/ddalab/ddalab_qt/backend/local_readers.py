@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import threading
 from abc import ABC, abstractmethod
 from dataclasses import asdict
@@ -87,6 +88,19 @@ class PythonDatasetReader(ABC):
 _reader_lock = threading.Lock()
 _reader_cache: Dict[str, PythonDatasetReader] = {}
 _DELIMITED_TIME_HEADERS = {"time", "timestamp", "seconds", "sample", "samples"}
+_DEFAULT_NIFTI_BROWSER_CHANNEL_LIMIT = 65_536
+
+
+def _nifti_browser_channel_limit() -> int:
+    raw_limit = os.environ.get(
+        "DDALAB_NIFTI_BROWSER_CHANNEL_LIMIT",
+        str(_DEFAULT_NIFTI_BROWSER_CHANNEL_LIMIT),
+    ).strip()
+    try:
+        parsed_limit = int(raw_limit)
+    except ValueError:
+        return _DEFAULT_NIFTI_BROWSER_CHANNEL_LIMIT
+    return max(parsed_limit, 0)
 
 
 def _overview_cache_root() -> Path:
@@ -791,6 +805,20 @@ class NiftiDatasetReader(PythonDatasetReader):
         if self._metadata is not None:
             return self._metadata
         zooms = self.image.header.get_zooms()
+        representative_indices = _representative_nifti_indices(
+            self.num_voxels,
+            _nifti_browser_channel_limit(),
+        )
+        truncated = len(representative_indices) < self.num_voxels
+        notes = [
+            f"Spatial dimensions: {self.spatial_shape[0]}×{self.spatial_shape[1]}×{self.spatial_shape[2]}",
+            f"Voxel size: {', '.join(f'{value:.3f}' for value in zooms[: min(len(zooms), 3)])}",
+        ]
+        if truncated:
+            notes.append(
+                "Showing a representative subset of "
+                f"{len(representative_indices):,} voxels out of {self.num_voxels:,} total."
+            )
         self._metadata = LoadedDataset(
             file_path=self.path,
             file_name=self.path_obj.name,
@@ -801,11 +829,12 @@ class NiftiDatasetReader(PythonDatasetReader):
             else 0.0,
             total_sample_count=self.num_timepoints,
             time_axis_name="Timepoints",
-            source_summary="NIfTI volume flattened to per-voxel time series for inspection.",
-            notes=[
-                f"Spatial dimensions: {self.spatial_shape[0]}×{self.spatial_shape[1]}×{self.spatial_shape[2]}",
-                f"Voxel size: {', '.join(f'{value:.3f}' for value in zooms[: min(len(zooms), 3)])}",
-            ],
+            source_summary=(
+                "NIfTI volume exposed as per-voxel time series for inspection."
+                if not truncated
+                else "NIfTI volume exposed as a representative per-voxel subset for inspection."
+            ),
+            notes=notes,
             channels=[
                 ChannelDescriptor(
                     name=_voxel_name(index, self.spatial_shape),
@@ -813,7 +842,7 @@ class NiftiDatasetReader(PythonDatasetReader):
                     sample_count=self.num_timepoints,
                     unit="a.u.",
                 )
-                for index in range(self.num_voxels)
+                for index in representative_indices
             ],
             supports_windowed_access=True,
         )
@@ -1217,6 +1246,19 @@ def _voxel_coordinates_from_name(name: str) -> Optional[tuple[int, int, int]]:
         return int(x_value), int(y_value), int(z_value)
     except (TypeError, ValueError):
         return None
+
+
+def _representative_nifti_indices(total_voxels: int, limit: int) -> list[int]:
+    if total_voxels <= 0:
+        return []
+    if limit <= 0 or total_voxels <= limit:
+        return list(range(total_voxels))
+    if limit == 1:
+        return [0]
+    return [
+        round(index * (total_voxels - 1) / (limit - 1))
+        for index in range(limit)
+    ]
 
 
 def _select_xdf_stream(streams: Sequence[dict]) -> dict:

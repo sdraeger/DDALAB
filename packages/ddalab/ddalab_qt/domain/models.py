@@ -750,79 +750,6 @@ class OpenNeuroDataset:
 
 
 @dataclass
-class PluginInstalledEntry:
-    plugin_id: str
-    name: str
-    version: str
-    description: Optional[str]
-    author: Optional[str]
-    category: str
-    permissions: List[str]
-    source: str
-    source_url: Optional[str]
-    installed_at: str
-    enabled: bool
-
-    @classmethod
-    def from_json(cls, payload: dict) -> "PluginInstalledEntry":
-        return cls(
-            plugin_id=payload["id"],
-            name=payload["name"],
-            version=payload["version"],
-            description=payload.get("description"),
-            author=payload.get("author"),
-            category=payload.get("category", ""),
-            permissions=[str(value) for value in payload.get("permissions", [])],
-            source=payload.get("source", ""),
-            source_url=payload.get("sourceUrl"),
-            installed_at=payload.get("installedAt", ""),
-            enabled=bool(payload.get("enabled", False)),
-        )
-
-
-@dataclass
-class PluginRegistryEntry:
-    plugin_id: str
-    name: str
-    version: str
-    description: str
-    author: str
-    category: str
-    permissions: List[str]
-    artifact_url: str
-    published_at: str
-
-    @classmethod
-    def from_json(cls, payload: dict) -> "PluginRegistryEntry":
-        return cls(
-            plugin_id=payload["id"],
-            name=payload["name"],
-            version=payload["version"],
-            description=payload.get("description", ""),
-            author=payload.get("author", ""),
-            category=payload.get("category", ""),
-            permissions=[str(value) for value in payload.get("permissions", [])],
-            artifact_url=payload.get("artifactUrl", ""),
-            published_at=payload.get("publishedAt", ""),
-        )
-
-
-@dataclass
-class PluginExecutionResult:
-    plugin_id: str
-    output_json: str
-    logs: List[str]
-
-    @classmethod
-    def from_json(cls, payload: dict) -> "PluginExecutionResult":
-        return cls(
-            plugin_id=payload["pluginId"],
-            output_json=payload.get("outputJson", ""),
-            logs=[str(value) for value in payload.get("logs", [])],
-        )
-
-
-@dataclass
 class NsgCredentialsStatus:
     username: str
     has_password: bool
@@ -986,9 +913,6 @@ class AppState:
     dda_run_details: Optional[DdaRunDetails] = None
     dda_run_progress: Optional[DdaRunProgress] = None
     ica_result: Optional[IcaResult] = None
-    installed_plugins: List[PluginInstalledEntry] = field(default_factory=list)
-    plugin_registry: List[PluginRegistryEntry] = field(default_factory=list)
-    current_plugin_output: Optional[PluginExecutionResult] = None
     nsg_credentials: Optional[NsgCredentialsStatus] = None
     nsg_jobs: List[NsgJobSnapshot] = field(default_factory=list)
     annotations_by_file: Dict[str, List[WaveformAnnotation]] = field(

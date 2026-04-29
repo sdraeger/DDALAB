@@ -22,6 +22,11 @@ from PySide6.QtWidgets import (
 )
 
 from ..domain.models import LoadedDataset, WaveformAnnotation
+from .main_window_support import (
+    apply_list_widget_filter,
+    filter_text_choices,
+    set_check_state_for_list_items,
+)
 from .perf_logging import perf_logger
 
 
@@ -188,7 +193,6 @@ class MainWindowVisualizeMixin:
             self._apply_ica_result(None)
             self._refresh_results_page()
             self._refresh_visible_analysis_subviews()
-            self._update_plugin_panels()
             self._update_nsg_panels()
             self._update_workflow_ui()
             self._populate_dda_variant_channel_lists()
@@ -217,7 +221,6 @@ class MainWindowVisualizeMixin:
         self._update_ica_channel_summary()
         self._refresh_results_page()
         self._refresh_visible_analysis_subviews()
-        self._update_plugin_panels()
         self._update_nsg_panels()
         self._update_workflow_ui()
 
@@ -227,6 +230,7 @@ class MainWindowVisualizeMixin:
         dataset = self.state.selected_dataset
         if not dataset:
             self.channel_list.blockSignals(False)
+            self._apply_channel_list_filter()
             self._populate_annotation_channels()
             return
         selected = set(self.state.selected_channel_names)
@@ -237,6 +241,7 @@ class MainWindowVisualizeMixin:
             item.setCheckState(Qt.Checked if channel.name in selected else Qt.Unchecked)
             self.channel_list.addItem(item)
         self.channel_list.blockSignals(False)
+        self._apply_channel_list_filter()
         self._populate_annotation_channels()
 
     def _selected_channel_names(self) -> List[str]:
@@ -260,8 +265,11 @@ class MainWindowVisualizeMixin:
         ]
 
     def _select_all_channels(self) -> None:
-        for index in range(self.channel_list.count()):
-            self.channel_list.item(index).setCheckState(Qt.Checked)
+        set_check_state_for_list_items(self.channel_list, Qt.Checked)
+        self._schedule_waveform_reload()
+
+    def _select_no_channels(self) -> None:
+        set_check_state_for_list_items(self.channel_list, Qt.Unchecked)
         self._schedule_waveform_reload()
 
     def _select_top_channels(self, count: int) -> None:
@@ -269,13 +277,19 @@ class MainWindowVisualizeMixin:
         preferred = set(
             self._preferred_channel_names(dataset, count) if dataset is not None else []
         )
-        for index in range(self.channel_list.count()):
-            item = self.channel_list.item(index)
-            channel_name = str(item.data(Qt.UserRole))
-            self.channel_list.item(index).setCheckState(
-                Qt.Checked if channel_name in preferred else Qt.Unchecked
-            )
+        with QSignalBlocker(self.channel_list):
+            for index in range(self.channel_list.count()):
+                item = self.channel_list.item(index)
+                channel_name = str(item.data(Qt.UserRole))
+                self.channel_list.item(index).setCheckState(
+                    Qt.Checked if channel_name in preferred else Qt.Unchecked
+                )
         self._schedule_waveform_reload()
+
+    def _apply_channel_list_filter(self) -> None:
+        filter_edit = getattr(self, "channel_filter_edit", None)
+        query = filter_edit.text() if filter_edit is not None else ""
+        apply_list_widget_filter(self.channel_list, query)
 
     def _schedule_waveform_reload(self) -> None:
         self.state.selected_channel_names = self._selected_channel_names()
@@ -545,12 +559,21 @@ class MainWindowVisualizeMixin:
         )
         if not hasattr(self, "annotation_channel_combo"):
             return
+        filter_query = (
+            self.annotation_channel_filter_edit.text()
+            if hasattr(self, "annotation_channel_filter_edit")
+            else ""
+        )
         with QSignalBlocker(self.annotation_channel_combo):
             self.annotation_channel_combo.clear()
             self.annotation_channel_combo.addItem("Global", None)
             if dataset:
                 visible = set(self.state.selected_channel_names)
-                for channel_name in dataset.channel_names:
+                filtered_channel_names = filter_text_choices(
+                    dataset.channel_names,
+                    filter_query,
+                )
+                for channel_name in filtered_channel_names:
                     label = (
                         channel_name
                         if channel_name in visible

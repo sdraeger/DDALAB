@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QApplication
 from .app.runtime_logging import (
     configure_runtime_logging,
     install_exception_logging,
+    logging_bootstrap_warning,
     runtime_logger,
 )
 from .app.main_window import build_main_window
@@ -33,15 +34,28 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     runtime_paths = RuntimePaths.detect()
-    log_path = configure_runtime_logging()
-    install_exception_logging()
-    runtime_logger("startup").info(
-        "Launching DDALAB version=%s frozen=%s executable=%s log=%s",
-        get_app_version(),
-        bool(getattr(sys, "frozen", False)),
-        runtime_paths.executable_path,
-        log_path,
-    )
+    startup_logger = None
+    log_path = None
+    try:
+        log_path = configure_runtime_logging()
+        install_exception_logging()
+        startup_logger = runtime_logger("startup")
+    except Exception as exc:  # noqa: BLE001
+        print(
+            f"DDALAB logging bootstrap failed; continuing without file logging: {exc}",
+            file=sys.stderr,
+        )
+    if startup_logger is not None:
+        startup_logger.info(
+            "Launching DDALAB version=%s frozen=%s executable=%s log=%s",
+            get_app_version(),
+            bool(getattr(sys, "frozen", False)),
+            runtime_paths.executable_path,
+            log_path,
+        )
+        bootstrap_warning = logging_bootstrap_warning()
+        if bootstrap_warning:
+            startup_logger.warning("Logging bootstrap degraded: %s", bootstrap_warning)
     app = QApplication(sys.argv)
     app.setApplicationName("DDALAB")
     app.setApplicationVersion(get_app_version())

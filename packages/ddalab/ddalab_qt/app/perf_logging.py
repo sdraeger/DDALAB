@@ -6,6 +6,8 @@ from threading import Lock
 from time import monotonic, perf_counter_ns
 from typing import Dict
 
+from .runtime_logging import log_root_path
+
 
 class PerfLogger:
     def __init__(self, path: Path) -> None:
@@ -61,7 +63,7 @@ class PerfLogger:
         return text if text else '""'
 
 
-_PERF_LOGGER = PerfLogger(Path.home() / ".ddalab-qt" / "ddalab-qt-debug.log")
+_PERF_LOGGER = PerfLogger(log_root_path() / "perf.log")
 
 
 def perf_logger() -> PerfLogger:

@@ -13,11 +13,14 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
+from time import perf_counter_ns
 from typing import Callable, Dict, List, Optional, Tuple
 
 import requests
 
+from ..app.perf_logging import perf_logger
 from .dda_sidecar import DdaSidecarClient
+from .local_nsg import LocalNsgManager
 from ..domain.file_types import (
     classify_path,
     supports_qt_dataset_path,
@@ -35,9 +38,6 @@ from ..domain.models import (
     NsgCredentialsStatus,
     NsgJobSnapshot,
     OpenNeuroDataset,
-    PluginExecutionResult,
-    PluginInstalledEntry,
-    PluginRegistryEntry,
     WaveformOverview,
     WaveformWindow,
 )
@@ -91,10 +91,14 @@ class ApiHealth:
     dda_available: bool
     ica_available: bool
     diagnostics: List[str]
+    nsg_available: bool = False
 
 
 class _DdaInputValidationError(RuntimeError):
     pass
+
+
+_DIRECT_FILE_RUST_EXTENSIONS = {".ascii", ".txt", ".csv"}
 
 
 def _validate_sy_selection(channel_indices: List[int]) -> None:
@@ -105,6 +109,10 @@ def _validate_sy_selection(channel_indices: List[int]) -> None:
             "SY expects an even number of selected channels because it "
             "analyzes adjacent channel pairs."
         )
+
+
+def _supports_rust_direct_file_execution(file_path: str) -> bool:
+    return Path(str(file_path)).suffix.lower() in _DIRECT_FILE_RUST_EXTENSIONS
 
 
 @dataclass(frozen=True)
@@ -123,10 +131,10 @@ class BackendClient(ABC):
     def connection_label(self) -> str:
         raise NotImplementedError
 
-    def supports_plugins(self) -> bool:
+    def supports_nsg(self) -> bool:
         return False
 
-    def supports_nsg(self) -> bool:
+    def supports_nsg_submission(self) -> bool:
         return False
 
     @abstractmethod
@@ -200,36 +208,6 @@ class BackendClient(ABC):
     ) -> IcaResult:
         raise NotImplementedError
 
-    @abstractmethod
-    def list_installed_plugins(self) -> List[PluginInstalledEntry]:
-        raise NotImplementedError
-
-    @abstractmethod
-    def fetch_plugin_registry(self) -> List[PluginRegistryEntry]:
-        raise NotImplementedError
-
-    @abstractmethod
-    def install_plugin(self, plugin_id: str) -> PluginInstalledEntry:
-        raise NotImplementedError
-
-    @abstractmethod
-    def uninstall_plugin(self, plugin_id: str) -> None:
-        raise NotImplementedError
-
-    @abstractmethod
-    def set_plugin_enabled(self, plugin_id: str, enabled: bool) -> bool:
-        raise NotImplementedError
-
-    @abstractmethod
-    def run_plugin(
-        self,
-        plugin_id: str,
-        dataset: LoadedDataset,
-        selected_channel_indices: List[int],
-    ) -> PluginExecutionResult:
-        raise NotImplementedError
-
-    @abstractmethod
     def get_nsg_credentials_status(self) -> Optional[NsgCredentialsStatus]:
         raise NotImplementedError
 
@@ -340,6 +318,13 @@ class RemoteBackendClient(BackendClient):
         self.base_url = base_url.rstrip("/")
         self._headers = {"Content-Type": "application/json"}
         self._session_pool = _RequestsSessionPool(self._headers)
+        self._capabilities = ApiHealth(
+            service="ddalab-remote",
+            status="unknown",
+            dda_available=False,
+            ica_available=False,
+            diagnostics=[],
+        )
 
     @property
     def connection_label(self) -> str:
@@ -366,8 +351,14 @@ class RemoteBackendClient(BackendClient):
         parsed = response.json()
         return parsed if isinstance(parsed, dict) else {}
 
+    def supports_nsg(self) -> bool:
+        return self._capabilities.nsg_available
+
     def health(self) -> ApiHealth:
-        return _parse_health(self._request_json("GET", "/api/health", timeout=15))
+        self._capabilities = _parse_health(
+            self._request_json("GET", "/api/health", timeout=15)
+        )
+        return self._capabilities
 
     def default_root(self) -> str:
         return self._request_json("GET", "/api/fs/root", timeout=15)["path"]
@@ -508,41 +499,6 @@ class RemoteBackendClient(BackendClient):
     def close(self) -> None:
         self._session_pool.close()
 
-    def list_installed_plugins(self) -> List[PluginInstalledEntry]:
-        raise RuntimeError(
-            "Plugin management is not available through remote HTTP backends."
-        )
-
-    def fetch_plugin_registry(self) -> List[PluginRegistryEntry]:
-        raise RuntimeError(
-            "Plugin management is not available through remote HTTP backends."
-        )
-
-    def install_plugin(self, plugin_id: str) -> PluginInstalledEntry:
-        raise RuntimeError(
-            "Plugin management is not available through remote HTTP backends."
-        )
-
-    def uninstall_plugin(self, plugin_id: str) -> None:
-        raise RuntimeError(
-            "Plugin management is not available through remote HTTP backends."
-        )
-
-    def set_plugin_enabled(self, plugin_id: str, enabled: bool) -> bool:
-        raise RuntimeError(
-            "Plugin management is not available through remote HTTP backends."
-        )
-
-    def run_plugin(
-        self,
-        plugin_id: str,
-        dataset: LoadedDataset,
-        selected_channel_indices: List[int],
-    ) -> PluginExecutionResult:
-        raise RuntimeError(
-            "Plugin execution is not available through remote HTTP backends."
-        )
-
     def get_nsg_credentials_status(self) -> Optional[NsgCredentialsStatus]:
         raise RuntimeError(
             "NSG integration is not available through remote HTTP backends."
@@ -618,10 +574,19 @@ class LocalBackendClient(BackendClient):
         self.repo_root = runtime_paths.source_repo_root or runtime_paths.browser_fallback_root()
         self._dda_sidecar: Optional[DdaSidecarClient] = None
         self._dda_sidecar_key: Optional[tuple[str, ...]] = None
+        self._nsg_manager: Optional[LocalNsgManager] = None
 
     @property
     def connection_label(self) -> str:
         return "Local Python backend"
+
+    def supports_nsg(self) -> bool:
+        return True
+
+    def _get_nsg_manager(self) -> LocalNsgManager:
+        if self._nsg_manager is None:
+            self._nsg_manager = LocalNsgManager(self.runtime_paths)
+        return self._nsg_manager
 
     def health(self) -> ApiHealth:
         return _local_backend_health(self.runtime_paths, self.repo_root)
@@ -727,31 +692,8 @@ class LocalBackendClient(BackendClient):
             whitening=whitening,
         )
 
-    def list_installed_plugins(self) -> List[PluginInstalledEntry]:
-        raise RuntimeError(_unsupported_local_feature("Plugin management"))
-
-    def fetch_plugin_registry(self) -> List[PluginRegistryEntry]:
-        raise RuntimeError(_unsupported_local_feature("Plugin management"))
-
-    def install_plugin(self, plugin_id: str) -> PluginInstalledEntry:
-        raise RuntimeError(_unsupported_local_feature("Plugin installation"))
-
-    def uninstall_plugin(self, plugin_id: str) -> None:
-        raise RuntimeError(_unsupported_local_feature("Plugin removal"))
-
-    def set_plugin_enabled(self, plugin_id: str, enabled: bool) -> bool:
-        raise RuntimeError(_unsupported_local_feature("Plugin enable/disable"))
-
-    def run_plugin(
-        self,
-        plugin_id: str,
-        dataset: LoadedDataset,
-        selected_channel_indices: List[int],
-    ) -> PluginExecutionResult:
-        raise RuntimeError(_unsupported_local_feature("Plugin execution"))
-
     def get_nsg_credentials_status(self) -> Optional[NsgCredentialsStatus]:
-        raise RuntimeError(_unsupported_local_feature("NSG integration"))
+        return self._get_nsg_manager().get_credentials_status()
 
     def save_nsg_credentials(
         self,
@@ -759,16 +701,16 @@ class LocalBackendClient(BackendClient):
         password: str,
         app_key: str,
     ) -> None:
-        raise RuntimeError(_unsupported_local_feature("NSG integration"))
+        self._get_nsg_manager().save_credentials(username, password, app_key)
 
     def delete_nsg_credentials(self) -> None:
-        raise RuntimeError(_unsupported_local_feature("NSG integration"))
+        self._get_nsg_manager().delete_credentials()
 
     def test_nsg_connection(self) -> bool:
-        raise RuntimeError(_unsupported_local_feature("NSG integration"))
+        return self._get_nsg_manager().test_connection()
 
     def list_nsg_jobs(self) -> List[NsgJobSnapshot]:
-        raise RuntimeError(_unsupported_local_feature("NSG integration"))
+        return self._get_nsg_manager().list_jobs()
 
     def create_nsg_job(
         self,
@@ -784,24 +726,39 @@ class LocalBackendClient(BackendClient):
         cores: Optional[int],
         nodes: Optional[int],
     ) -> NsgJobSnapshot:
-        raise RuntimeError(_unsupported_local_feature("NSG integration"))
+        return self._get_nsg_manager().create_job(
+            dataset=dataset,
+            selected_channel_indices=selected_channel_indices,
+            selected_variants=selected_variants,
+            window_length_samples=window_length_samples,
+            window_step_samples=window_step_samples,
+            delays=delays,
+            start_time_seconds=start_time_seconds,
+            end_time_seconds=end_time_seconds,
+            runtime_hours=runtime_hours,
+            cores=cores,
+            nodes=nodes,
+        )
 
     def submit_nsg_job(self, job_id: str) -> NsgJobSnapshot:
-        raise RuntimeError(_unsupported_local_feature("NSG integration"))
+        return self._get_nsg_manager().submit_job(job_id)
 
     def refresh_nsg_job(self, job_id: str) -> NsgJobSnapshot:
-        raise RuntimeError(_unsupported_local_feature("NSG integration"))
+        return self._get_nsg_manager().refresh_job(job_id)
 
     def cancel_nsg_job(self, job_id: str) -> None:
-        raise RuntimeError(_unsupported_local_feature("NSG integration"))
+        self._get_nsg_manager().cancel_job(job_id)
 
     def download_nsg_results(self, job_id: str) -> List[str]:
-        raise RuntimeError(_unsupported_local_feature("NSG integration"))
+        return self._get_nsg_manager().download_results(job_id)
 
     def close(self) -> None:
         if self._dda_sidecar is not None:
             self._dda_sidecar.close()
             self._dda_sidecar = None
+        if self._nsg_manager is not None:
+            self._nsg_manager.close()
+            self._nsg_manager = None
         _close_python_dataset_readers()
 
 
@@ -911,8 +868,6 @@ def _build_dda_request(
             ]
             for variant_id, indices in variant_pair_indices.items()
         }
-    if variant_configs:
-        request_payload["variant_configs"] = variant_configs
     if model_terms:
         payload["config"]["modelTerms"] = [int(term) for term in model_terms]
     if (
@@ -958,12 +913,20 @@ def _build_ica_request(
 
 
 def _parse_health(payload: dict) -> ApiHealth:
+    capability_map = (
+        payload.get("capabilities")
+        if isinstance(payload.get("capabilities"), dict)
+        else {}
+    )
     return ApiHealth(
         service=payload.get("service", "ddalab"),
         status=payload.get("status", "unknown"),
         dda_available=bool(payload.get("ddaAvailable", False)),
         ica_available=bool(payload.get("icaAvailable", False)),
         diagnostics=list(payload.get("diagnostics", [])),
+        nsg_available=bool(
+            payload.get("nsgAvailable") or capability_map.get("nsg")
+        ),
     )
 
 
@@ -1049,12 +1012,16 @@ def _local_backend_health(runtime_paths: RuntimePaths, repo_root: Path) -> ApiHe
         if ica_available
         else "ICA requires scikit-learn and scipy in the local desktop environment."
     )
+    diagnostics.append(
+        "NSG job browsing is available in Settings after you save your NSG credentials."
+    )
     return ApiHealth(
         service="ddalab-python",
         status="ready",
         dda_available=rust_support is not None,
         ica_available=ica_available,
         diagnostics=diagnostics,
+        nsg_available=True,
     )
 
 
@@ -1307,6 +1274,7 @@ def _run_rust_default_dda(
     nr_tau: Optional[int] = None,
     progress_callback: Optional[Callable[[dict], None]] = None,
 ) -> DdaResult:
+    run_started_ns = perf_counter_ns()
     variant_channel_index_map = variant_channel_indices or {
         variant_id: list(selected_channel_indices)
         for variant_id in selected_variants
@@ -1328,12 +1296,30 @@ def _run_rust_default_dda(
     if end_time_seconds is not None and requested_end_seconds <= requested_start_seconds:
         raise _DdaInputValidationError("End time must be greater than start time.")
 
+    direct_file_mode = _supports_rust_direct_file_execution(dataset.file_path)
+    source_mode = "direct-file" if direct_file_mode else "matrix-file"
+    perf_logger().log(
+        "dda.run.start",
+        file=dataset.file_path,
+        mode=source_mode,
+        variants=",".join(selected_variants),
+        channelCount=len(selected_channel_names),
+        wl=window_length_samples,
+        ws=window_step_samples,
+        startSeconds=requested_start_seconds,
+        endSeconds=requested_end_seconds,
+    )
+
     if progress_callback is not None:
         progress_callback(
             {
                 "group_label": "Input Prep",
                 "stage_id": "input-prep",
-                "stage_label": "Preparing in-memory analysis slice",
+                "stage_label": (
+                    "Preparing direct file-backed analysis request"
+                    if direct_file_mode
+                    else "Preparing in-memory analysis slice"
+                ),
                 "step_index": 0,
                 "total_steps": 0,
                 "window_index": 0,
@@ -1341,67 +1327,126 @@ def _run_rust_default_dda(
                 "item_index": 0,
                 "total_items": 0,
                 "item_kind": "phase",
-                "item_label": "analysis matrix",
+                "item_label": (
+                    "analysis request"
+                    if direct_file_mode
+                    else "analysis matrix"
+                ),
             }
         )
 
-    analysis_duration_seconds = max(
-        requested_end_seconds - requested_start_seconds,
-        1.0 / max(dataset.dominant_sample_rate_hz, 1.0),
-    )
-    analysis_window = client.load_waveform_window(
-        dataset.file_path,
-        requested_start_seconds,
-        analysis_duration_seconds,
-        selected_channel_names,
-    )
-    (
-        matrix_path,
-        _matrix_channel_labels,
-        sample_rate,
-        total_samples,
-        total_channels,
-    ) = _write_waveform_window_matrix_file(analysis_window)
-    matrix_index_lookup = {
-        dataset_index: matrix_index
-        for matrix_index, dataset_index in enumerate(selected_channel_indices)
-    }
-    requested_start_sample = 0
-    safe_end_sample = max(total_samples, requested_start_sample + 1)
+    sample_rate = max(dataset.dominant_sample_rate_hz, 1.0)
+    matrix_path: Optional[Path] = None
+    total_channels = len(selected_channel_names)
+    total_samples = 0
+    if direct_file_mode:
+        requested_start_sample = max(
+            int(math.floor(requested_start_seconds * sample_rate)),
+            0,
+        )
+        requested_end_sample = (
+            int(math.ceil(requested_end_seconds * sample_rate))
+            if requested_end_seconds > requested_start_seconds
+            else requested_start_sample + 1
+        )
+        dataset_total_samples = max(int(dataset.total_sample_count), 0)
+        if dataset_total_samples > 0:
+            safe_end_sample = min(
+                max(requested_end_sample, requested_start_sample + 1),
+                dataset_total_samples,
+            )
+        else:
+            safe_end_sample = max(requested_end_sample, requested_start_sample + 1)
+        available_samples = max(safe_end_sample - requested_start_sample, 0)
+        total_samples = available_samples
+        request_channel_indices = list(selected_channel_indices)
+        index_lookup = {index: index for index in selected_channel_indices}
+        base_diagnostics = [
+            f"Requested variants: {', '.join(selected_variants)}",
+            f"Selected channels: {', '.join(selected_channel_names)}",
+            f"Window: {window_length_samples}/{window_step_samples} samples",
+            f"Bounds: {requested_start_sample}-{safe_end_sample} samples @ {sample_rate:.3f} Hz",
+            "Default backend: Rust DDA on the source ASCII/CSV input file.",
+            "All analysis runs through the bundled dda-rs backend.",
+        ]
+    else:
+        analysis_duration_seconds = max(
+            requested_end_seconds - requested_start_seconds,
+            1.0 / sample_rate,
+        )
+        waveform_fetch_started_ns = perf_counter_ns()
+        analysis_window = client.load_waveform_window(
+            dataset.file_path,
+            requested_start_seconds,
+            analysis_duration_seconds,
+            selected_channel_names,
+        )
+        perf_logger().log_duration(
+            "dda.input.window.fetch",
+            waveform_fetch_started_ns,
+            file=dataset.file_path,
+            mode=source_mode,
+            channelCount=len(selected_channel_names),
+            startSeconds=requested_start_seconds,
+            durationSeconds=analysis_duration_seconds,
+        )
+        matrix_stage_started_ns = perf_counter_ns()
+        (
+            matrix_path,
+            _matrix_channel_labels,
+            sample_rate,
+            total_samples,
+            total_channels,
+        ) = _write_waveform_window_matrix_file(analysis_window)
+        perf_logger().log_duration(
+            "dda.input.matrix.stage",
+            matrix_stage_started_ns,
+            file=dataset.file_path,
+            mode=source_mode,
+            rows=total_samples,
+            cols=total_channels,
+            approxBytes=int(total_samples * total_channels * 8),
+        )
+        requested_start_sample = 0
+        safe_end_sample = max(total_samples, requested_start_sample + 1)
+        available_samples = max(safe_end_sample - requested_start_sample, 0)
+        request_channel_indices = list(range(len(selected_channel_names)))
+        index_lookup = {
+            dataset_index: matrix_index
+            for matrix_index, dataset_index in enumerate(selected_channel_indices)
+        }
+        base_diagnostics = [
+            f"Requested variants: {', '.join(selected_variants)}",
+            f"Selected channels: {', '.join(selected_channel_names)}",
+            f"Window: {window_length_samples}/{window_step_samples} samples",
+            f"Bounds: {requested_start_sample}-{safe_end_sample} samples @ {sample_rate:.3f} Hz",
+            "Default backend: Rust DDA on an in-memory analysis matrix.",
+            "All analysis runs through the bundled dda-rs backend.",
+        ]
 
     if total_samples <= 0:
         raise _DdaInputValidationError("Analysis slice contains no samples.")
-    available_samples = max(safe_end_sample - requested_start_sample, 0)
     if available_samples < int(window_length_samples):
         raise _DdaInputValidationError(
             "Insufficient data for analysis. "
             f"{available_samples} samples available, but window length is {window_length_samples}."
         )
 
-    base_diagnostics = [
-        f"Requested variants: {', '.join(selected_variants)}",
-        f"Selected channels: {', '.join(selected_channel_names)}",
-        f"Window: {window_length_samples}/{window_step_samples} samples",
-        f"Bounds: {requested_start_sample}-{safe_end_sample} samples @ {sample_rate:.3f} Hz",
-        "Default backend: Rust DDA on an in-memory analysis matrix.",
-        "All analysis runs through the bundled dda-rs backend.",
-    ]
-
     def _localize_channels(indices: List[int]) -> List[int]:
         return [
-            matrix_index_lookup[index]
+            index_lookup[index]
             for index in indices
-            if index in matrix_index_lookup
+            if index in index_lookup
         ]
 
     def _localize_pairs(pairs: List[tuple[int, int]]) -> List[tuple[int, int]]:
         return [
-            (matrix_index_lookup[left], matrix_index_lookup[right])
+            (index_lookup[left], index_lookup[right])
             for left, right in pairs
-            if left in matrix_index_lookup and right in matrix_index_lookup
+            if left in index_lookup and right in index_lookup
         ]
 
-    full_local_indices = list(range(len(selected_channel_names)))
+    full_local_indices = list(request_channel_indices)
     variant_configs_payload: dict[str, dict[str, object]] = {}
 
     if "SY" in selected_variants:
@@ -1494,8 +1539,10 @@ def _run_rust_default_dda(
             repo_root=client.repo_root,
             dataset=dataset,
             selected_channel_indices=selected_channel_indices,
-            cli_selected_indices=None,
-            input_path=None,
+            cli_selected_indices=(
+                list(selected_channel_indices) if direct_file_mode else None
+            ),
+            input_path=Path(dataset.file_path) if direct_file_mode else None,
             variants=selected_variants,
             window_length_samples=window_length_samples,
             window_step_samples=window_step_samples,
@@ -1517,27 +1564,50 @@ def _run_rust_default_dda(
             ct_window_step=ct_window_step,
             progress_callback=progress_callback,
             input_matrix_path=matrix_path,
-            input_matrix_rows=total_samples,
-            input_matrix_cols=total_channels,
+            input_matrix_rows=total_samples if matrix_path is not None else None,
+            input_matrix_cols=total_channels if matrix_path is not None else None,
             input_channel_labels=selected_channel_names,
             variant_configs=variant_configs_payload or None,
         )
+        materialized = _materialize_sidecar_dda_result(
+            client=client,
+            dataset=dataset,
+            selected_variants=selected_variants,
+            grouped_previews=[preview],
+            result_id=uuid.uuid4().hex,
+            window_length_samples=window_length_samples,
+            window_step_samples=window_step_samples,
+            delays=delays,
+            requested_start_seconds=requested_start_seconds,
+        )
+        perf_logger().log_duration(
+            "dda.run.complete",
+            run_started_ns,
+            file=dataset.file_path,
+            mode=source_mode,
+            variants=",".join(selected_variants),
+            channelCount=len(selected_channel_names),
+            sampleCount=total_samples,
+            sampleRateHz=sample_rate,
+        )
+        return materialized
+    except Exception as exc:
+        perf_logger().log_duration(
+            "dda.run.error",
+            run_started_ns,
+            file=dataset.file_path,
+            mode=source_mode,
+            variants=",".join(selected_variants),
+            channelCount=len(selected_channel_names),
+            error=str(exc),
+        )
+        raise
     finally:
-        try:
-            matrix_path.unlink(missing_ok=True)
-        except Exception:
-            pass
-    return _materialize_sidecar_dda_result(
-        client=client,
-        dataset=dataset,
-        selected_variants=selected_variants,
-        grouped_previews=[preview],
-        result_id=uuid.uuid4().hex,
-        window_length_samples=window_length_samples,
-        window_step_samples=window_step_samples,
-        delays=delays,
-        requested_start_seconds=requested_start_seconds,
-    )
+        if matrix_path is not None:
+            try:
+                matrix_path.unlink(missing_ok=True)
+            except Exception:
+                pass
 
 
 def _execute_sidecar_dda_group(
@@ -1592,6 +1662,7 @@ def _execute_sidecar_dda_group(
             f"{ct_window_step if ct_window_step is not None else window_step_samples}"
             " samples"
         )
+    sidecar_mode = "matrix-file" if input_matrix_path is not None else "direct-file"
     sidecar = _get_dda_sidecar(
         client=client,
         cli_command=cli_command,
@@ -1665,21 +1736,83 @@ def _execute_sidecar_dda_group(
     if nr_tau is not None:
         request_payload["nr_tau"] = int(nr_tau)
 
+    request_started_ns = perf_counter_ns()
+    progress_events = 0
+    last_stage_signature: Optional[tuple[str, str]] = None
+    perf_logger().log(
+        "dda.sidecar.request.start",
+        file=dataset.file_path,
+        mode=sidecar_mode,
+        group=group_label,
+        variants=",".join(variants),
+        channelCount=(
+            len(input_channel_labels or [])
+            if input_matrix_path is not None
+            else len(cli_selected_indices or selected_channel_indices)
+        ),
+        wl=window_length_samples,
+        ws=window_step_samples,
+    )
+
     def _handle_progress(payload: dict[str, object]) -> None:
+        nonlocal progress_events
+        nonlocal last_stage_signature
+        progress_events += 1
+        stage_signature = (
+            str(payload.get("stage_id") or ""),
+            str(payload.get("stage_label") or ""),
+        )
+        if stage_signature != last_stage_signature:
+            last_stage_signature = stage_signature
+            perf_logger().log(
+                "dda.sidecar.progress.stage",
+                file=dataset.file_path,
+                mode=sidecar_mode,
+                group=group_label,
+                stageId=stage_signature[0] or "unknown",
+                stageLabel=stage_signature[1] or "unknown",
+                stepIndex=payload.get("step_index"),
+                totalSteps=payload.get("total_steps"),
+                itemKind=payload.get("item_kind"),
+                itemLabel=payload.get("item_label"),
+            )
         if progress_callback is None:
             return
         enriched = dict(payload)
         enriched.setdefault("group_label", group_label)
         progress_callback(enriched)
 
-    if input_matrix_path is not None:
-        parsed = sidecar.run_group_matrix_file(
-            request_payload,
-            on_progress=_handle_progress,
+    try:
+        if input_matrix_path is not None:
+            parsed = sidecar.run_group_matrix_file(
+                request_payload,
+                on_progress=_handle_progress,
+            )
+        else:
+            parsed = sidecar.run_group(request_payload, on_progress=_handle_progress)
+    except Exception as exc:
+        perf_logger().log_duration(
+            "dda.sidecar.request.error",
+            request_started_ns,
+            file=dataset.file_path,
+            mode=sidecar_mode,
+            group=group_label,
+            progressEvents=progress_events,
+            error=str(exc),
         )
-    else:
-        parsed = sidecar.run_group(request_payload, on_progress=_handle_progress)
+        raise
     backend_id = str(parsed.get("backend") or "").lower()
+    perf_logger().log_duration(
+        "dda.sidecar.request.complete",
+        request_started_ns,
+        file=dataset.file_path,
+        mode=sidecar_mode,
+        group=group_label,
+        progressEvents=progress_events,
+        backend=backend_id or "pure-rust",
+        rows=input_matrix_rows if input_matrix_rows is not None else None,
+        cols=input_matrix_cols if input_matrix_cols is not None else None,
+    )
     return _SidecarDdaGroupPreview(
         analysis_id=str(parsed.get("id") or uuid.uuid4().hex),
         backend_label=(
@@ -1805,6 +1938,7 @@ def _get_dda_sidecar(
 ) -> DdaSidecarClient:
     sidecar_key = tuple(str(part) for part in cli_command)
     if client._dda_sidecar is None or client._dda_sidecar_key != sidecar_key:
+        sidecar_start_ns = perf_counter_ns()
         if client._dda_sidecar is not None:
             client._dda_sidecar.close()
         client._dda_sidecar = DdaSidecarClient(
@@ -1812,6 +1946,11 @@ def _get_dda_sidecar(
             cwd=str(repo_root),
         )
         client._dda_sidecar_key = sidecar_key
+        perf_logger().log_duration(
+            "dda.sidecar.client.start",
+            sidecar_start_ns,
+            command=" ".join(str(part) for part in cli_command),
+        )
     return client._dda_sidecar
 
 
@@ -1819,7 +1958,7 @@ def _find_cli_command(runtime_paths: RuntimePaths, repo_root: Path) -> Optional[
     env_path = os.environ.get("DDALAB_CLI_PATH")
     if env_path:
         candidate = Path(env_path).expanduser()
-        if candidate.exists():
+        if _is_executable_binary(candidate):
             return [str(candidate)]
 
     if runtime_paths.is_source_checkout():
@@ -1828,7 +1967,7 @@ def _find_cli_command(runtime_paths: RuntimePaths, repo_root: Path) -> Optional[
             repo_root / "packages" / "dda-rs" / "target" / "release" / dev_cli_name,
             repo_root / "packages" / "dda-rs" / "target" / "debug" / dev_cli_name,
         ):
-            if candidate.exists():
+            if _is_executable_binary(candidate):
                 return [str(candidate)]
 
         manifest = repo_root / "packages" / "dda-rs" / "Cargo.toml"
@@ -1841,9 +1980,17 @@ def _find_cli_command(runtime_paths: RuntimePaths, repo_root: Path) -> Optional[
 
     packaged_cli_name = platform_binary_name(PACKAGED_CLI_BINARY_STEM)
     for candidate in _runtime_binary_candidates(runtime_paths, packaged_cli_name):
-        if candidate.exists():
+        if _is_executable_binary(candidate):
             return [str(candidate)]
     return None
+
+
+def _is_executable_binary(path: Path) -> bool:
+    if not path.is_file():
+        return False
+    if os.name == "nt":
+        return True
+    return os.access(path, os.X_OK)
 
 
 def _runtime_binary_candidates(

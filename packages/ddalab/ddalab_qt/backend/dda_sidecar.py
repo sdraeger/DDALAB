@@ -5,7 +5,10 @@ import os
 import subprocess
 import threading
 from collections import deque
+from time import perf_counter_ns
 from typing import Any, Callable, Mapping, Optional, Sequence
+
+from ..app.perf_logging import perf_logger
 
 
 class DdaSidecarClient:
@@ -96,6 +99,7 @@ class DdaSidecarClient:
             return
         self._stderr_lines.clear()
         env = dict(os.environ)
+        spawn_started_ns = perf_counter_ns()
         process = subprocess.Popen(
             self._command,
             cwd=self._cwd,
@@ -118,6 +122,11 @@ class DdaSidecarClient:
             )
             self._stderr_thread.start()
         self._request_locked("ping", {})
+        perf_logger().log_duration(
+            "dda.sidecar.process.start",
+            spawn_started_ns,
+            command=" ".join(self._command),
+        )
 
     def _request_locked(
         self,

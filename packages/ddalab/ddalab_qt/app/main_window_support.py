@@ -25,6 +25,8 @@ from PySide6.QtGui import QColor
 from PySide6.QtGui import QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
+    QComboBox,
+    QCompleter,
     QFileDialog,
     QListWidget,
     QListWidgetItem,
@@ -53,6 +55,12 @@ from ..domain.models import (
 from ..persistence.state_db import StateDatabase
 from ..ui.style import apply_theme, current_theme_colors, normalize_theme_mode
 from ..update_manager import AvailableUpdate, UpdateDownloadProgress
+from .analysis_input import parse_time_bounds
+from .snapshot_payload import (
+    first_missing_snapshot_source,
+    missing_snapshot_source_name,
+    relink_snapshot_payload,
+)
 from .runtime_logging import add_log_file_hint, runtime_logger
 
 
@@ -107,6 +115,162 @@ class ToggleListWidget(QListWidget):
             QStyle.SE_ItemViewItemCheckIndicator, option, self
         )
         return indicator_rect.contains(point)
+
+
+def _normalized_selector_text(value: object) -> str:
+    return " ".join(str(value).strip().lower().split())
+
+
+def filter_text_choices(values: list[str], query: str) -> list[str]:
+    tokens = [token for token in _normalized_selector_text(query).split(" ") if token]
+    if not tokens:
+        return list(values)
+    return [
+        value
+        for value in values
+        if all(token in _normalized_selector_text(value) for token in tokens)
+    ]
+
+
+def _list_widget_item_filter_text(item: QListWidgetItem) -> str:
+    label = str(item.text())
+    user_value = item.data(Qt.UserRole)
+    if isinstance(user_value, str) and user_value:
+        return f"{label} {user_value}"
+    if isinstance(user_value, (tuple, list)):
+        joined = " ".join(str(part) for part in user_value)
+        return f"{label} {joined}"
+    return label
+
+
+def apply_list_widget_filter(
+    list_widget: QListWidget,
+    query: str,
+    *,
+    text_getter: Callable[[QListWidgetItem], str] | None = None,
+) -> int:
+    matcher = text_getter or _list_widget_item_filter_text
+    tokens = [token for token in _normalized_selector_text(query).split(" ") if token]
+    visible_count = 0
+    for index in range(list_widget.count()):
+        item = list_widget.item(index)
+        haystack = _normalized_selector_text(matcher(item))
+        is_visible = all(token in haystack for token in tokens)
+        item.setHidden(not is_visible)
+        if is_visible:
+            visible_count += 1
+    return visible_count
+
+
+def set_check_state_for_list_items(
+    list_widget: QListWidget,
+    state: Qt.CheckState,
+    *,
+    visible_only: bool = True,
+) -> int:
+    changed = 0
+    with QSignalBlocker(list_widget):
+        for index in range(list_widget.count()):
+            item = list_widget.item(index)
+            if visible_only and item.isHidden():
+                continue
+            if not bool(item.flags() & Qt.ItemIsUserCheckable):
+                continue
+            if item.checkState() == state:
+                continue
+            item.setCheckState(state)
+            changed += 1
+    return changed
+
+
+def select_list_widget_items(
+    list_widget: QListWidget,
+    *,
+    selected: bool,
+    visible_only: bool = True,
+) -> int:
+    changed = 0
+    with QSignalBlocker(list_widget):
+        for index in range(list_widget.count()):
+            item = list_widget.item(index)
+            if visible_only and item.isHidden():
+                continue
+            if item.isSelected() == selected:
+                continue
+            item.setSelected(selected)
+            changed += 1
+    return changed
+
+
+def configure_searchable_combo_box(
+    combo_box: QComboBox,
+    *,
+    placeholder: str,
+) -> None:
+    combo_box.setEditable(True)
+    combo_box.setInsertPolicy(QComboBox.NoInsert)
+    line_edit = combo_box.lineEdit()
+    if line_edit is not None:
+        line_edit.setPlaceholderText(placeholder)
+        line_edit.setClearButtonEnabled(False)
+    completer = combo_box.completer()
+    if completer is None:
+        completer = QCompleter(combo_box.model(), combo_box)
+        combo_box.setCompleter(completer)
+    completer.setCaseSensitivity(Qt.CaseInsensitive)
+    completer.setFilterMode(Qt.MatchContains)
+    completer.setCompletionMode(QCompleter.PopupCompletion)
+
+
+def current_combo_box_value(combo_box: QComboBox) -> str:
+    raw_text = combo_box.currentText().strip()
+    if raw_text:
+        normalized_text = raw_text.casefold()
+        for index in range(combo_box.count()):
+            item_text = combo_box.itemText(index).strip()
+            if item_text.casefold() != normalized_text:
+                continue
+            exact_data = combo_box.itemData(index)
+            if isinstance(exact_data, str) and exact_data.strip():
+                return exact_data.strip()
+            if item_text:
+                return item_text
+        return raw_text
+    raw_data = combo_box.currentData()
+    if isinstance(raw_data, str) and raw_data.strip():
+        return raw_data.strip()
+    return raw_text
+
+
+def sync_searchable_combo_box_selection(
+    combo_box: QComboBox,
+    *,
+    preferred_value: str | None = None,
+) -> None:
+    if combo_box.count() <= 0:
+        combo_box.setCurrentIndex(-1)
+        line_edit = combo_box.lineEdit()
+        if line_edit is not None:
+            line_edit.clear()
+        return
+    target_index = 0
+    if preferred_value:
+        normalized_preferred = preferred_value.strip().casefold()
+        for index in range(combo_box.count()):
+            candidate_text = combo_box.itemText(index).strip()
+            candidate_data = combo_box.itemData(index)
+            candidate_value = (
+                str(candidate_data).strip()
+                if isinstance(candidate_data, str) and candidate_data.strip()
+                else candidate_text
+            )
+            if candidate_value.casefold() == normalized_preferred:
+                target_index = index
+                break
+    combo_box.setCurrentIndex(target_index)
+    line_edit = combo_box.lineEdit()
+    if line_edit is not None:
+        line_edit.setText(combo_box.itemText(target_index))
 
 
 class MainWindowSupportMixin:
@@ -497,6 +661,9 @@ class MainWindowSupportMixin:
         primary_section: str,
         secondary_section: Optional[str],
     ) -> None:
+        if primary_section == "Learn":
+            primary_section = "Overview"
+            secondary_section = None
         if hasattr(self, "primary_stack") and primary_section in self.page_registry:
             self.primary_stack.setCurrentWidget(self.page_registry[primary_section])
         self._rebuild_secondary_nav(primary_section)
@@ -528,11 +695,7 @@ class MainWindowSupportMixin:
             )
         elif primary_section == "Collaborate" and hasattr(self, "collaborate_stack"):
             self.collaborate_stack.setCurrentIndex(
-                {"Results": 0, "Workflow": 1}.get(secondary_section, 0)
-            )
-        elif primary_section == "Learn" and hasattr(self, "learn_stack"):
-            self.learn_stack.setCurrentIndex(
-                {"Tutorials": 0, "Files": 1, "Reference": 2}.get(
+                {"Results": 0, "Workflow": 1, "Action Log": 1}.get(
                     secondary_section, 0
                 )
             )
@@ -607,6 +770,9 @@ class MainWindowSupportMixin:
         self._update_streaming_ui()
         primary_section = payload.get("primarySection")
         secondary_section = payload.get("secondarySection")
+        if primary_section == "Learn":
+            primary_section = "Overview"
+            secondary_section = None
         if isinstance(primary_section, str) and primary_section in self.primary_sections:
             primary_index = self.primary_sections.index(primary_section)
             with QSignalBlocker(self.primary_nav):
@@ -1621,16 +1787,11 @@ class MainWindowSupportMixin:
         elif section == "Collaborate":
             if hasattr(self, "collaborate_stack"):
                 self.collaborate_stack.setCurrentIndex(
-                    {"Results": 0, "Workflow": 1}.get(tab, 0)
+                    {"Results": 0, "Workflow": 1, "Action Log": 1}.get(tab, 0)
                 )
             self._refresh_results_page()
             self._refresh_workflow_table()
             self._update_workflow_ui()
-        elif section == "Learn":
-            if hasattr(self, "learn_stack"):
-                self.learn_stack.setCurrentIndex(
-                    {"Tutorials": 0, "Files": 1, "Reference": 2}.get(tab, 0)
-                )
         self._schedule_session_save()
 
     def _now_iso(self) -> str:
@@ -1721,10 +1882,10 @@ class MainWindowSupportMixin:
     def _update_workflow_ui(self) -> None:
         if not hasattr(self, "workflow_status_label"):
             return
-        status = "Recording" if self.state.workflow_recording_enabled else "Idle"
+        status = "Logging" if self.state.workflow_recording_enabled else "Idle"
         action_count = len(self.state.workflow_actions)
         self.workflow_status_label.setText(
-            f"{status} • {action_count} recorded action{'s' if action_count != 1 else ''}"
+            f"{status} • {action_count} logged action{'s' if action_count != 1 else ''}"
         )
         self.start_workflow_button.setEnabled(not self.state.workflow_recording_enabled)
         self.stop_workflow_button.setEnabled(self.state.workflow_recording_enabled)
@@ -2138,7 +2299,7 @@ class MainWindowSupportMixin:
         )
         if dataset is None and result_summary is None and ica_result is None:
             self.results_summary_label.setText(
-                "Run DDA or import a portable .ddalab file."
+                "Run DDA or import a DDALAB snapshot file."
             )
             self.results_details.setPlainText("")
         else:
@@ -2172,7 +2333,7 @@ class MainWindowSupportMixin:
                     ]
                 )
             self.results_summary_label.setText(
-                "Current file state, DDA output, and portable .ddalab exports."
+                "Current file state, DDA output, and DDALAB snapshot exports."
             )
             self.results_details.setPlainText("\n".join(lines))
         has_result = result_summary is not None
@@ -2238,9 +2399,9 @@ class MainWindowSupportMixin:
     def _workflow_payload(self) -> dict:
         return {
             "name": (
-                f"{Path(self.state.active_file_path).name} workflow"
+                f"{Path(self.state.active_file_path).name} action log"
                 if self.state.active_file_path
-                else "DDALAB workflow"
+                else "DDALAB action log"
             ),
             "createdAtIso": self._now_iso(),
             "actions": [asdict(action) for action in self.state.workflow_actions],
@@ -2252,11 +2413,19 @@ class MainWindowSupportMixin:
             for key, checkbox in self.variant_checkboxes.items()
             if checkbox.isChecked()
         ]
-        end_text = self.dda_end_edit.text().strip()
         try:
             delays = self._parse_dda_delay_values()
         except ValueError:
             delays = self._safe_dda_delay_values()
+        try:
+            start_time_seconds, end_time_seconds = parse_time_bounds(
+                self.dda_start_edit.text(),
+                self.dda_end_edit.text(),
+                label="DDA time range",
+                default_start=0.0,
+            )
+        except ValueError:
+            start_time_seconds, end_time_seconds = 0.0, None
         return {
             "expertMode": self.state.expert_mode,
             "variantIds": selected_variants,
@@ -2267,8 +2436,8 @@ class MainWindowSupportMixin:
             "modelDimension": self.dda_model_dimension_spin.value(),
             "polynomialOrder": self.dda_polynomial_order_spin.value(),
             "nrTau": self.dda_nr_tau_spin.value(),
-            "startTimeSeconds": float(self.dda_start_edit.text() or "0"),
-            "endTimeSeconds": float(end_text) if end_text else None,
+            "startTimeSeconds": start_time_seconds,
+            "endTimeSeconds": end_time_seconds,
             "variantChannelNames": self._current_dda_variant_channel_payload(),
             "variantChannelPairs": self._current_dda_variant_pair_payload(),
         }
@@ -2832,6 +3001,15 @@ class MainWindowSupportMixin:
                 self._pending_snapshot_restore = payload
                 self._open_dataset(target_file)
                 return
+            relinked_path = self._prompt_snapshot_source_relink(payload)
+            if relinked_path is not None:
+                self._pending_snapshot_restore = relink_snapshot_payload(
+                    payload,
+                    old_path=target_file,
+                    new_path=relinked_path,
+                )
+                self._open_dataset(relinked_path)
+                return
             self._notify(
                 "snapshot",
                 "error",
@@ -2839,6 +3017,32 @@ class MainWindowSupportMixin:
                 f"Could not reopen {target_file}. Restored exports and annotations only.",
             )
         self._refresh_results_page()
+
+    def _prompt_snapshot_source_relink(self, payload: dict) -> Optional[str]:
+        missing_path = first_missing_snapshot_source(payload) or ""
+        dataset_name = missing_snapshot_source_name(payload, missing_path)
+        missing_target = Path(missing_path) if missing_path else Path()
+        start_dir = str(
+            missing_target.parent
+            if missing_path and missing_target.parent.exists()
+            else Path.home()
+        )
+        if missing_path and missing_target.suffix.lower() in {".ds", ".mff"}:
+            replacement_path = QFileDialog.getExistingDirectory(
+                self,
+                f"Locate {dataset_name}",
+                start_dir,
+            )
+            return replacement_path or None
+        replacement_path, _ = QFileDialog.getOpenFileName(
+            self,
+            f"Locate {dataset_name}",
+            start_dir,
+            open_file_dialog_filter(),
+        )
+        if not replacement_path:
+            return None
+        return replacement_path
 
     def _show_error(self, message: str) -> None:
         self._notify("system", "error", "Error", message, show_status=False)
