@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Dict
 
 from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtGui import QDoubleValidator
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -253,10 +254,7 @@ class MainWindowUiMixin:
         brand.setSpacing(2)
         title = QLabel("DDALAB")
         title.setProperty("title", True)
-        subtitle = QLabel("Qt workstation aligned to the desktop shell")
-        subtitle.setProperty("muted", True)
         brand.addWidget(title)
-        brand.addWidget(subtitle)
         layout.addLayout(brand, 1)
 
         self.dataset_label = QLabel("No dataset open")
@@ -386,7 +384,6 @@ class MainWindowUiMixin:
         self._add_primary_page("Visualize", self._build_visualize_page())
         self._add_primary_page("DDA", self._build_analyze_page())
         self._add_primary_page("Data", self._build_data_page())
-        self._add_primary_page("Learn", self._build_learn_page())
         self._add_primary_page("Collaborate", self._build_collaborate_page())
         self._add_primary_page("Settings", self._build_settings_page())
         self._add_primary_page("Notifications", self._build_notifications_page())
@@ -471,12 +468,18 @@ class MainWindowUiMixin:
 
         inspector = QGroupBox("Channels")
         inspector_layout = QVBoxLayout(inspector)
+        self.channel_filter_edit = QLineEdit()
+        self.channel_filter_edit.setPlaceholderText("Search channels")
+        self.channel_filter_edit.setClearButtonEnabled(True)
+        inspector_layout.addWidget(self.channel_filter_edit)
         channel_actions = QHBoxLayout()
         self.select_all_channels_button = QPushButton("All")
+        self.select_no_channels_button = QPushButton("None")
         self.select_top_eight_button = QPushButton("Top 8")
         self.select_top_four_button = QPushButton("Top 4")
         for button in (
             self.select_all_channels_button,
+            self.select_no_channels_button,
             self.select_top_eight_button,
             self.select_top_four_button,
         ):
@@ -544,6 +547,9 @@ class MainWindowUiMixin:
         self.annotation_label_edit.setPlaceholderText("Optional annotation label")
         self.annotation_notes_edit = QLineEdit()
         self.annotation_notes_edit.setPlaceholderText("Optional note")
+        self.annotation_channel_filter_edit = QLineEdit()
+        self.annotation_channel_filter_edit.setPlaceholderText("Filter channels")
+        self.annotation_channel_filter_edit.setClearButtonEnabled(True)
         self.annotation_channel_combo = QComboBox()
         self.annotation_channel_combo.addItem("Global", None)
         self.annotation_mode_combo = QComboBox()
@@ -551,6 +557,7 @@ class MainWindowUiMixin:
         self.annotation_mode_combo.addItem("Point at current viewport center", "point")
         editor_layout.addRow("Label", self.annotation_label_edit)
         editor_layout.addRow("Note", self.annotation_notes_edit)
+        editor_layout.addRow("Scope Filter", self.annotation_channel_filter_edit)
         editor_layout.addRow("Scope", self.annotation_channel_combo)
         editor_layout.addRow("Capture", self.annotation_mode_combo)
         layout.addWidget(editor_box)
@@ -714,7 +721,13 @@ class MainWindowUiMixin:
         self.dda_variant_selector_stack = CurrentPageStackedWidget()
         self.dda_variant_channel_sections: Dict[str, QGroupBox] = {}
         self.dda_variant_channel_lists: Dict[str, ToggleListWidget] = {}
+        self.dda_variant_channel_filter_edits: Dict[str, QLineEdit] = {}
+        self.dda_variant_channel_select_all_buttons: Dict[str, QPushButton] = {}
+        self.dda_variant_channel_select_none_buttons: Dict[str, QPushButton] = {}
         self.dda_variant_pair_lists: Dict[str, QListWidget] = {}
+        self.dda_variant_pair_filter_edits: Dict[str, QLineEdit] = {}
+        self.dda_variant_pair_source_filter_edits: Dict[str, QLineEdit] = {}
+        self.dda_variant_pair_target_filter_edits: Dict[str, QLineEdit] = {}
         self.dda_variant_pair_source_combos: Dict[str, QComboBox] = {}
         self.dda_variant_pair_target_combos: Dict[str, QComboBox] = {}
         self.dda_variant_pair_add_buttons: Dict[str, QPushButton] = {}
@@ -736,6 +749,10 @@ class MainWindowUiMixin:
             summary.setProperty("muted", True)
             section_layout.addWidget(summary)
             if variant in {"CT", "CD"}:
+                pair_filter_edit = QLineEdit()
+                pair_filter_edit.setPlaceholderText("Search selected pairs")
+                pair_filter_edit.setClearButtonEnabled(True)
+                section_layout.addWidget(pair_filter_edit)
                 pair_list = QListWidget()
                 pair_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
                 pair_list.setAlternatingRowColors(True)
@@ -743,10 +760,22 @@ class MainWindowUiMixin:
                 section_layout.addWidget(pair_list, 1)
 
                 pair_controls = QHBoxLayout()
+                source_column = QVBoxLayout()
+                source_filter_edit = QLineEdit()
+                source_filter_edit.setPlaceholderText("Filter source channels")
+                source_filter_edit.setClearButtonEnabled(True)
                 source_combo = QComboBox()
                 source_combo.setMinimumWidth(120)
+                source_column.addWidget(source_filter_edit)
+                source_column.addWidget(source_combo)
+                target_column = QVBoxLayout()
+                target_filter_edit = QLineEdit()
+                target_filter_edit.setPlaceholderText("Filter target channels")
+                target_filter_edit.setClearButtonEnabled(True)
                 target_combo = QComboBox()
                 target_combo.setMinimumWidth(120)
+                target_column.addWidget(target_filter_edit)
+                target_column.addWidget(target_combo)
                 arrow = QLabel("<>")
                 if variant == "CD":
                     arrow.setText("→")
@@ -757,14 +786,17 @@ class MainWindowUiMixin:
                 remove_button.setProperty("secondary", True)
                 clear_button = QPushButton("Clear")
                 clear_button.setProperty("secondary", True)
-                pair_controls.addWidget(source_combo, 1)
+                pair_controls.addLayout(source_column, 1)
                 pair_controls.addWidget(arrow)
-                pair_controls.addWidget(target_combo, 1)
+                pair_controls.addLayout(target_column, 1)
                 pair_controls.addWidget(add_button)
                 pair_controls.addWidget(remove_button)
                 pair_controls.addWidget(clear_button)
                 section_layout.addLayout(pair_controls)
 
+                self.dda_variant_pair_filter_edits[variant] = pair_filter_edit
+                self.dda_variant_pair_source_filter_edits[variant] = source_filter_edit
+                self.dda_variant_pair_target_filter_edits[variant] = target_filter_edit
                 self.dda_variant_pair_lists[variant] = pair_list
                 self.dda_variant_pair_source_combos[variant] = source_combo
                 self.dda_variant_pair_target_combos[variant] = target_combo
@@ -772,12 +804,28 @@ class MainWindowUiMixin:
                 self.dda_variant_pair_remove_buttons[variant] = remove_button
                 self.dda_variant_pair_clear_buttons[variant] = clear_button
             else:
+                channel_filter_edit = QLineEdit()
+                channel_filter_edit.setPlaceholderText("Search channels")
+                channel_filter_edit.setClearButtonEnabled(True)
+                section_layout.addWidget(channel_filter_edit)
+                channel_actions = QHBoxLayout()
+                select_all_button = QPushButton("All")
+                select_all_button.setProperty("secondary", True)
+                select_none_button = QPushButton("None")
+                select_none_button.setProperty("secondary", True)
+                channel_actions.addWidget(select_all_button)
+                channel_actions.addWidget(select_none_button)
+                channel_actions.addStretch(1)
+                section_layout.addLayout(channel_actions)
                 channel_list = ToggleListWidget()
                 channel_list.setSelectionMode(QAbstractItemView.NoSelection)
                 channel_list.setUniformItemSizes(True)
                 channel_list.setSpacing(3)
                 channel_list.setMinimumHeight(220)
                 section_layout.addWidget(channel_list, 1)
+                self.dda_variant_channel_filter_edits[variant] = channel_filter_edit
+                self.dda_variant_channel_select_all_buttons[variant] = select_all_button
+                self.dda_variant_channel_select_none_buttons[variant] = select_none_button
                 self.dda_variant_channel_lists[variant] = channel_list
             self.dda_variant_channel_sections[variant] = section
             self.dda_variant_channel_summaries[variant] = summary
@@ -796,6 +844,11 @@ class MainWindowUiMixin:
         self.window_step_spin.setValue(10)
         self.dda_start_edit = QLineEdit("0")
         self.dda_end_edit = QLineEdit("30")
+        dda_time_validator = QDoubleValidator(0.0, 1_000_000_000.0, 6, self)
+        dda_time_validator.setNotation(QDoubleValidator.StandardNotation)
+        self.dda_start_edit.setValidator(dda_time_validator)
+        self.dda_end_edit.setValidator(dda_time_validator)
+        self.dda_end_edit.setPlaceholderText("Leave blank for end")
         form.addRow("Window length", self.window_length_spin)
         form.addRow("Window step", self.window_step_spin)
         form.addRow("Start (s)", self.dda_start_edit)
@@ -921,7 +974,7 @@ class MainWindowUiMixin:
         self.dda_import_snapshot_button = QPushButton("Import .ddalab")
         self.dda_import_snapshot_button.setProperty("secondary", True)
         self.dda_import_snapshot_button.setToolTip(
-            "Open a portable DDALAB file (.ddalab)."
+            "Open a DDALAB snapshot file (.ddalab)."
         )
         history_box = QGroupBox("Analysis History")
         history_layout = QVBoxLayout(history_box)
@@ -977,7 +1030,7 @@ class MainWindowUiMixin:
         self.dda_snapshot_export_button = QPushButton("Export .ddalab")
         self.dda_snapshot_export_button.setProperty("secondary", True)
         self.dda_snapshot_export_button.setToolTip(
-            "Save the current dataset state and result to a portable DDALAB file."
+            "Save the current dataset state and result to a DDALAB snapshot file."
         )
         self.dda_data_export_button = self._build_more_exports_button(
             include_annotations=False,
@@ -1036,6 +1089,11 @@ class MainWindowUiMixin:
         self.ica_tolerance_spin.setValue(0.0001)
         self.ica_start_edit = QLineEdit("0")
         self.ica_end_edit = QLineEdit("")
+        ica_time_validator = QDoubleValidator(0.0, 1_000_000_000.0, 6, self)
+        ica_time_validator.setNotation(QDoubleValidator.StandardNotation)
+        self.ica_start_edit.setValidator(ica_time_validator)
+        self.ica_end_edit.setValidator(ica_time_validator)
+        self.ica_end_edit.setPlaceholderText("Leave blank for end")
         form.addRow("Components", self.ica_n_components_spin)
         form.addRow("Max iterations", self.ica_max_iterations_spin)
         form.addRow("Tolerance", self.ica_tolerance_spin)
@@ -1107,11 +1165,14 @@ class MainWindowUiMixin:
 
         batch_actions = QHBoxLayout()
         self.batch_select_all_button = QPushButton("Select All")
-        self.batch_select_open_button = QPushButton("Open Files")
+        self.batch_add_files_button = QPushButton("Add Files")
+        self.batch_add_files_button.setProperty("secondary", True)
+        self.batch_select_open_button = QPushButton("Select Open")
         self.batch_select_open_button.setProperty("secondary", True)
         self.batch_run_button = QPushButton("Run Batch")
         self.batch_run_button.setProperty("secondary", True)
         batch_actions.addWidget(self.batch_select_all_button)
+        batch_actions.addWidget(self.batch_add_files_button)
         batch_actions.addWidget(self.batch_select_open_button)
         batch_actions.addWidget(self.batch_run_button)
         batch_actions.addStretch(1)
@@ -1430,8 +1491,19 @@ class MainWindowUiMixin:
         self.openneuro_search.setPlaceholderText("Filter datasets")
         self.openneuro_refresh_button = QPushButton("Refresh OpenNeuro")
         self.openneuro_refresh_button.setProperty("secondary", True)
+        self.openneuro_load_more_button = QPushButton("Load More")
+        self.openneuro_load_more_button.setProperty("secondary", True)
+        self.openneuro_open_button = QPushButton("Open Dataset Page")
+        self.openneuro_open_button.setProperty("secondary", True)
+        self.openneuro_copy_id_button = QPushButton("Copy Dataset ID")
+        self.openneuro_copy_id_button.setProperty("secondary", True)
+        self.openneuro_open_button.setEnabled(False)
+        self.openneuro_copy_id_button.setEnabled(False)
         toolbar.addWidget(self.openneuro_search, 1)
         toolbar.addWidget(self.openneuro_refresh_button)
+        toolbar.addWidget(self.openneuro_load_more_button)
+        toolbar.addWidget(self.openneuro_open_button)
+        toolbar.addWidget(self.openneuro_copy_id_button)
         layout.addLayout(toolbar)
 
         splitter = QSplitter(Qt.Horizontal)
@@ -1460,29 +1532,6 @@ class MainWindowUiMixin:
         stack.addWidget(openneuro_page)
         return stack
 
-    def _build_learn_page(self) -> QWidget:
-        stack = CurrentPageStackedWidget()
-        self.learn_stack = stack
-        stack.addWidget(
-            self._build_info_page(
-                "Tutorials",
-                "Use Visualize for waveform inspection, DDA for analysis, and Collaborate for snapshots and workflow exports.",
-            )
-        )
-        stack.addWidget(
-            self._build_info_page(
-                "Files",
-                "BIDS roots, EDF/BDF, BrainVision, FIF/EEGLAB, XDF, NWB, and NIfTI datasets can be opened from the browser or the file/folder picker.",
-            )
-        )
-        stack.addWidget(
-            self._build_info_page(
-                "Reference",
-                "The Qt client keeps the same top-level DDALAB structure while using a Python-native desktop backend for analysis and OpenNeuro browsing.",
-            )
-        )
-        return stack
-
     def _build_collaborate_page(self) -> QWidget:
         stack = CurrentPageStackedWidget()
         self.collaborate_stack = stack
@@ -1497,7 +1546,7 @@ class MainWindowUiMixin:
 
         summary_box = QGroupBox("Current Analysis")
         summary_layout = QVBoxLayout(summary_box)
-        self.results_summary_label = QLabel("Run DDA to create or export a portable .ddalab file.")
+        self.results_summary_label = QLabel("Run DDA to create or export a DDALAB snapshot file.")
         self.results_summary_label.setWordWrap(True)
         self.results_summary_label.setProperty("muted", True)
         summary_layout.addWidget(self.results_summary_label)
@@ -1507,12 +1556,12 @@ class MainWindowUiMixin:
         self.import_snapshot_button = QPushButton("Import .ddalab")
         self.import_snapshot_button.setProperty("secondary", True)
         self.import_snapshot_button.setToolTip(
-            "Open a portable DDALAB file (.ddalab)."
+            "Open a DDALAB snapshot file (.ddalab)."
         )
         self.snapshot_export_button = QPushButton("Export .ddalab")
         self.snapshot_export_button.setProperty("secondary", True)
         self.snapshot_export_button.setToolTip(
-            "Save the current dataset state and result to a portable DDALAB file."
+            "Save the current dataset state and result to a DDALAB snapshot file."
         )
         self.view_history_result_button = QPushButton("Open Selected")
         self.view_history_result_button.setProperty("secondary", True)
@@ -1581,23 +1630,23 @@ class MainWindowUiMixin:
         layout = QVBoxLayout(page)
         layout.setSpacing(12)
 
-        status_box = QGroupBox("Workflow Recorder")
+        status_box = QGroupBox("Workflow Log")
         status_layout = QVBoxLayout(status_box)
-        self.workflow_status_label = QLabel("Recorder idle")
+        self.workflow_status_label = QLabel("Action log idle")
         self.workflow_status_label.setWordWrap(True)
         self.workflow_status_label.setProperty("muted", True)
         status_layout.addWidget(self.workflow_status_label)
         layout.addWidget(status_box)
 
         actions = QHBoxLayout()
-        self.start_workflow_button = QPushButton("Start Recording")
-        self.stop_workflow_button = QPushButton("Stop Recording")
+        self.start_workflow_button = QPushButton("Start Logging")
+        self.stop_workflow_button = QPushButton("Stop Logging")
         self.stop_workflow_button.setProperty("secondary", True)
         self.clear_workflow_button = QPushButton("Clear")
         self.clear_workflow_button.setProperty("secondary", True)
-        self.export_workflow_button = QPushButton("Export Workflow")
+        self.export_workflow_button = QPushButton("Export Action Log")
         self.export_workflow_button.setProperty("secondary", True)
-        self.import_workflow_button = QPushButton("Import Workflow")
+        self.import_workflow_button = QPushButton("Import Action Log")
         self.import_workflow_button.setProperty("secondary", True)
         for button in (
             self.start_workflow_button,
@@ -1908,8 +1957,8 @@ class MainWindowUiMixin:
         for line in (
             "Waveform inspection and viewport navigation",
             "DDA, ICA, batch analysis, connectivity, and compare views",
-            "Annotations, portable .ddalab snapshots, and reproducible exports",
-            "Workflow recording, notifications, and OpenNeuro browsing",
+            "Annotations, DDALAB snapshots, and reproducible exports",
+            "Workflow logging, notifications, and OpenNeuro browsing",
         ):
             item = QLabel(line)
             item.setWordWrap(True)
@@ -1990,9 +2039,45 @@ class MainWindowUiMixin:
                     target_variant
                 )
             )
+        for variant_id, filter_edit in self.dda_variant_channel_filter_edits.items():
+            filter_edit.textChanged.connect(
+                lambda *_args, target_variant=variant_id: self._apply_dda_variant_channel_filter(
+                    target_variant
+                )
+            )
+        for variant_id, button in self.dda_variant_channel_select_all_buttons.items():
+            button.clicked.connect(
+                lambda _checked=False, target_variant=variant_id: self._set_dda_variant_channels_checked(
+                    target_variant, True
+                )
+            )
+        for variant_id, button in self.dda_variant_channel_select_none_buttons.items():
+            button.clicked.connect(
+                lambda _checked=False, target_variant=variant_id: self._set_dda_variant_channels_checked(
+                    target_variant, False
+                )
+            )
         for variant_id, pair_list in self.dda_variant_pair_lists.items():
             pair_list.itemSelectionChanged.connect(
                 lambda target_variant=variant_id: self._update_dda_variant_pair_buttons(
+                    target_variant
+                )
+            )
+        for variant_id, filter_edit in self.dda_variant_pair_filter_edits.items():
+            filter_edit.textChanged.connect(
+                lambda *_args, target_variant=variant_id: self._apply_dda_variant_pair_filter(
+                    target_variant
+                )
+            )
+        for variant_id, filter_edit in self.dda_variant_pair_source_filter_edits.items():
+            filter_edit.textChanged.connect(
+                lambda *_args, target_variant=variant_id: self._apply_dda_variant_pair_combo_filters(
+                    target_variant
+                )
+            )
+        for variant_id, filter_edit in self.dda_variant_pair_target_filter_edits.items():
+            filter_edit.textChanged.connect(
+                lambda *_args, target_variant=variant_id: self._apply_dda_variant_pair_combo_filters(
                     target_variant
                 )
             )
@@ -2016,6 +2101,7 @@ class MainWindowUiMixin:
             )
         self.run_ica_button.clicked.connect(self._run_ica)
         self.batch_select_all_button.clicked.connect(self._select_all_batch_files)
+        self.batch_add_files_button.clicked.connect(self._add_batch_files)
         self.batch_select_open_button.clicked.connect(self._select_open_batch_files)
         self.batch_run_button.clicked.connect(self._run_batch_analysis)
         self.file_tabs.currentChanged.connect(self._on_tab_changed)
@@ -2040,7 +2126,14 @@ class MainWindowUiMixin:
         )
         self.file_browser.search_changed.connect(self._on_browser_search_changed)
 
+        self.annotation_channel_filter_edit.textChanged.connect(
+            lambda *_: self._populate_annotation_channels()
+        )
+        self.channel_filter_edit.textChanged.connect(
+            lambda *_: self._apply_channel_list_filter()
+        )
         self.select_all_channels_button.clicked.connect(self._select_all_channels)
+        self.select_no_channels_button.clicked.connect(self._select_no_channels)
         self.select_top_eight_button.clicked.connect(
             lambda: self._select_top_channels(8)
         )
@@ -2137,20 +2230,15 @@ class MainWindowUiMixin:
         self.compare_table.itemSelectionChanged.connect(
             self._on_compare_variant_table_selection_changed
         )
-        if hasattr(self, "refresh_plugins_button"):
-            self.refresh_plugins_button.clicked.connect(self._refresh_plugins)
-            self.install_plugin_button.clicked.connect(self._install_selected_plugin)
-            self.uninstall_plugin_button.clicked.connect(self._uninstall_selected_plugin)
-            self.toggle_plugin_button.clicked.connect(self._toggle_selected_plugin)
-            self.run_plugin_button.clicked.connect(self._run_selected_plugin)
-            self.installed_plugins_table.itemSelectionChanged.connect(
-                self._update_plugin_panels
-            )
-            self.plugin_registry_table.itemSelectionChanged.connect(
-                self._update_plugin_panels
-            )
         self.theme_mode_combo.currentIndexChanged.connect(self._on_theme_mode_changed)
         self.openneuro_refresh_button.clicked.connect(self._load_openneuro)
+        self.openneuro_load_more_button.clicked.connect(self._load_more_openneuro)
+        self.openneuro_open_button.clicked.connect(
+            self._open_selected_openneuro_dataset_page
+        )
+        self.openneuro_copy_id_button.clicked.connect(
+            self._copy_selected_openneuro_dataset_id
+        )
         self.openneuro_search.textChanged.connect(self._filter_openneuro_table)
         self.openneuro_table.itemSelectionChanged.connect(
             self._update_openneuro_details

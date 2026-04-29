@@ -26,7 +26,9 @@ cd packages/ddalab
 python -m pip install .
 ```
 
-Published wheels bundle the local `dda-rs` backend, so DDA works offline without a separate network service.
+Published wheels and desktop installers bundle the local `dda-rs` backend, so DDA works offline without a separate network service.
+
+For editable or source installs, local DDA analysis also requires a working Rust toolchain with `cargo` so the bundled `dda-rs` binary can be built for your platform.
 
 ## CLI Examples
 
@@ -47,6 +49,8 @@ cd packages/ddalab
 ```
 
 The script provisions a local virtual environment, installs the unified package in editable mode, and launches the Qt application.
+
+If you are working from source, `./start.sh` expects `cargo` to be available so it can build or refresh the bundled `dda-rs` runtime.
 
 ## Smoke Test
 

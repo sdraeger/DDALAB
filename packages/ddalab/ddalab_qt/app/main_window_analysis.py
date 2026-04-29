@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import combinations_with_replacement
 import math
+import os
 from pathlib import Path
 import time
+from time import perf_counter_ns
 from typing import Dict, List, Optional
 
 from PySide6.QtCore import QSignalBlocker, Qt
 from PySide6.QtWidgets import (
+    QFileDialog,
     QFrame,
     QLabel,
     QListWidgetItem,
@@ -18,7 +22,8 @@ from PySide6.QtWidgets import (
     QWidgetAction,
 )
 
-from ..backend.api import build_network_motif_data
+from ..backend.api import LocalBackendClient, build_network_motif_data
+from ..domain.file_types import open_file_dialog_filter
 from ..domain.models import (
     DdaReproductionConfig,
     DdaResult,
@@ -28,11 +33,17 @@ from ..domain.models import (
     IcaResult,
     NetworkMotifData,
 )
+from .analysis_input import parse_time_bounds
 from .main_window_support import (
     _build_connectivity_metrics,
     _build_variant_comparisons,
     _human_bytes,
+    apply_list_widget_filter,
+    current_combo_box_value,
+    filter_text_choices,
+    set_check_state_for_list_items,
 )
+from .perf_logging import perf_logger
 
 
 class MainWindowAnalysisMixin:
@@ -45,6 +56,19 @@ class MainWindowAnalysisMixin:
     DDA_DEFAULT_MODEL_DIMENSION = 4
     DDA_DEFAULT_POLYNOMIAL_ORDER = 4
     DDA_DEFAULT_NR_TAU = 2
+
+    def _batch_worker_count(self, candidate_count: int) -> int:
+        if candidate_count <= 1:
+            return 1
+        cpu_count = os.cpu_count() or 2
+        if isinstance(self.backend, LocalBackendClient):
+            return max(1, min(candidate_count, max(2, min(4, cpu_count // 2 or 1))))
+        return max(1, min(candidate_count, min(6, cpu_count)))
+
+    def _build_batch_backend(self):
+        if isinstance(self.backend, LocalBackendClient):
+            return LocalBackendClient(self.runtime_paths)
+        return self.backend
 
     def _required_dda_delay_count(self, raw_nr_tau: Optional[object] = None) -> int:
         if raw_nr_tau is None:
@@ -708,6 +732,82 @@ class MainWindowAnalysisMixin:
                 )
         self._populate_dda_variant_channel_lists()
 
+    def _apply_dda_variant_channel_filter(self, variant_id: str) -> None:
+        channel_list = getattr(self, "dda_variant_channel_lists", {}).get(variant_id)
+        filter_edit = getattr(self, "dda_variant_channel_filter_edits", {}).get(
+            variant_id
+        )
+        if channel_list is None:
+            return
+        query = filter_edit.text() if filter_edit is not None else ""
+        apply_list_widget_filter(channel_list, query)
+
+    def _set_dda_variant_channels_checked(
+        self,
+        variant_id: str,
+        checked: bool,
+    ) -> None:
+        channel_list = getattr(self, "dda_variant_channel_lists", {}).get(variant_id)
+        if channel_list is None:
+            return
+        set_check_state_for_list_items(
+            channel_list,
+            Qt.Checked if checked else Qt.Unchecked,
+        )
+        self._on_dda_variant_channel_list_changed(variant_id)
+
+    def _apply_dda_variant_pair_filter(self, variant_id: str) -> None:
+        pair_list = getattr(self, "dda_variant_pair_lists", {}).get(variant_id)
+        filter_edit = getattr(self, "dda_variant_pair_filter_edits", {}).get(variant_id)
+        if pair_list is None:
+            return
+        query = filter_edit.text() if filter_edit is not None else ""
+        apply_list_widget_filter(pair_list, query)
+
+    def _apply_dda_variant_pair_combo_filters(self, variant_id: str) -> None:
+        dataset = self.state.selected_dataset
+        source_combo = getattr(self, "dda_variant_pair_source_combos", {}).get(variant_id)
+        target_combo = getattr(self, "dda_variant_pair_target_combos", {}).get(variant_id)
+        if dataset is None or source_combo is None or target_combo is None:
+            return
+        previous_source_name = current_combo_box_value(source_combo)
+        previous_target_name = current_combo_box_value(target_combo)
+        source_filter_edit = getattr(
+            self,
+            "dda_variant_pair_source_filter_edits",
+            {},
+        ).get(variant_id)
+        target_filter_edit = getattr(
+            self,
+            "dda_variant_pair_target_filter_edits",
+            {},
+        ).get(variant_id)
+        source_names = filter_text_choices(
+            dataset.channel_names,
+            source_filter_edit.text() if source_filter_edit is not None else "",
+        )
+        target_names = filter_text_choices(
+            dataset.channel_names,
+            target_filter_edit.text() if target_filter_edit is not None else "",
+        )
+        with QSignalBlocker(source_combo):
+            source_combo.clear()
+            for channel_name in source_names:
+                source_combo.addItem(channel_name, channel_name)
+            source_combo.setEnabled(bool(source_names))
+            if source_names:
+                source_index = source_combo.findData(previous_source_name)
+                source_combo.setCurrentIndex(source_index if source_index >= 0 else 0)
+        with QSignalBlocker(target_combo):
+            target_combo.clear()
+            for channel_name in target_names:
+                target_combo.addItem(channel_name, channel_name)
+            target_combo.setEnabled(bool(target_names))
+            if target_names:
+                target_index = target_combo.findData(previous_target_name)
+                target_combo.setCurrentIndex(target_index if target_index >= 0 else 0)
+        self._update_dda_variant_pair_buttons(variant_id)
+
     def _populate_dda_variant_channel_lists(self) -> None:
         if not hasattr(self, "dda_variant_channel_sections"):
             return
@@ -769,6 +869,7 @@ class MainWindowAnalysisMixin:
                         else Qt.Unchecked
                     )
                     channel_list.addItem(item)
+            self._apply_dda_variant_channel_filter(variant_id)
             self._update_dda_variant_channel_summary(variant_id)
         for variant_id in self.DDA_PAIR_VARIANTS:
             pair_list = self.dda_variant_pair_lists.get(variant_id)
@@ -791,16 +892,8 @@ class MainWindowAnalysisMixin:
                     )
                     item.setData(Qt.UserRole, (left_name, right_name))
                     pair_list.addItem(item)
-            with QSignalBlocker(source_combo):
-                source_combo.clear()
-                for channel_name in dataset.channel_names:
-                    source_combo.addItem(channel_name, channel_name)
-                source_combo.setEnabled(True)
-            with QSignalBlocker(target_combo):
-                target_combo.clear()
-                for channel_name in dataset.channel_names:
-                    target_combo.addItem(channel_name, channel_name)
-                target_combo.setEnabled(True)
+            self._apply_dda_variant_pair_filter(variant_id)
+            self._apply_dda_variant_pair_combo_filters(variant_id)
             self._update_dda_variant_channel_summary(variant_id)
             self._update_dda_variant_pair_buttons(variant_id)
         self._update_dda_variant_selector_ui()
@@ -960,8 +1053,16 @@ class MainWindowAnalysisMixin:
         has_dataset = dataset is not None
         has_pairs = bool(self._selected_dda_variant_pair_names(variant_id))
         has_selection = bool(pair_list and pair_list.selectedItems())
+        source_combo = self.dda_variant_pair_source_combos.get(variant_id)
+        target_combo = self.dda_variant_pair_target_combos.get(variant_id)
+        has_channel_choices = bool(
+            source_combo
+            and target_combo
+            and source_combo.count() > 0
+            and target_combo.count() > 0
+        )
         if add_button is not None:
-            add_button.setEnabled(has_dataset)
+            add_button.setEnabled(has_dataset and has_channel_choices)
         if remove_button is not None:
             remove_button.setEnabled(has_dataset and has_selection)
         if clear_button is not None:
@@ -1008,10 +1109,19 @@ class MainWindowAnalysisMixin:
         target_combo = self.dda_variant_pair_target_combos.get(variant_id)
         if dataset is None or source_combo is None or target_combo is None:
             return
-        left_name = str(source_combo.currentData() or source_combo.currentText()).strip()
-        right_name = str(target_combo.currentData() or target_combo.currentText()).strip()
+        left_name = current_combo_box_value(source_combo)
+        right_name = current_combo_box_value(target_combo)
         if not left_name or not right_name:
             self._show_error("Choose two channels before adding a pair.")
+            return
+        available_channel_names = set(dataset.channel_names)
+        if (
+            left_name not in available_channel_names
+            or right_name not in available_channel_names
+        ):
+            self._show_error(
+                "Choose channels from the dataset list before adding a pair."
+            )
             return
         if left_name == right_name:
             self._show_error("A DDA pair must use two different channels.")
@@ -1529,9 +1639,16 @@ class MainWindowAnalysisMixin:
         except ValueError as exc:
             self._show_error(str(exc))
             return
-        start = float(self.dda_start_edit.text() or "0")
-        end_text = self.dda_end_edit.text().strip()
-        end = float(end_text) if end_text else None
+        try:
+            start, end = parse_time_bounds(
+                self.dda_start_edit.text(),
+                self.dda_end_edit.text(),
+                label="DDA time range",
+                default_start=0.0,
+            )
+        except ValueError as exc:
+            self._show_error(str(exc))
+            return
         details = DdaRunDetails(
             file_name=dataset.file_name,
             file_path=dataset.file_path,
@@ -1567,6 +1684,17 @@ class MainWindowAnalysisMixin:
             end_time_seconds=end,
             sample_rate_hz=dataset.dominant_sample_rate_hz,
             engine_label=self.backend.connection_label,
+        )
+        dda_run_started_ns = perf_counter_ns()
+        perf_logger().log(
+            "dda.ui.run.start",
+            file=dataset.file_path,
+            variants=",".join(variant_ids),
+            channelCount=len(selected_indices),
+            wl=window_length_samples,
+            ws=window_step_samples,
+            startSeconds=start,
+            endSeconds=end,
         )
         self._set_dda_running_state(
             True,
@@ -1648,12 +1776,32 @@ class MainWindowAnalysisMixin:
                 "DDA Completed",
                 f"{dataset.file_name} • {', '.join(variant_ids)}",
             )
+            perf_logger().log_duration(
+                "dda.ui.run.complete",
+                dda_run_started_ns,
+                file=dataset.file_path,
+                variants=",".join(variant_ids),
+                channelCount=len(selected_indices),
+                resultVariants=(
+                    len(dda_result.variants)
+                    if isinstance(dda_result, DdaResult)
+                    else 0
+                ),
+            )
 
         def on_error(message: str) -> None:
             self._set_dda_running_state(False)
             self.dda_diagnostics.setPlainText(f"DDA failed:\n{message}")
             self.result_summary.setPlainText(f"DDA failed.\n\n{message}")
             self._notify("analysis", "error", "DDA Failed", message)
+            perf_logger().log_duration(
+                "dda.ui.run.error",
+                dda_run_started_ns,
+                file=dataset.file_path,
+                variants=",".join(variant_ids),
+                channelCount=len(selected_indices),
+                error=message,
+            )
 
         self._run_task_with_progress(
             task,
@@ -1812,6 +1960,10 @@ class MainWindowAnalysisMixin:
             if path and path not in seen:
                 candidates.append(path)
                 seen.add(path)
+        for path in getattr(self, "_batch_extra_paths", []):
+            if path and path not in seen and Path(path).exists():
+                candidates.append(path)
+                seen.add(path)
         for entry in self.directory_entries:
             if entry.path in seen:
                 continue
@@ -1842,7 +1994,7 @@ class MainWindowAnalysisMixin:
         self.batch_run_button.setEnabled(bool(candidates))
         if not candidates:
             self.batch_status_label.setText(
-                "Open files or browse a supported data directory to seed the batch queue."
+                "Add files, open files, or browse a supported data directory to seed the batch queue."
             )
 
     def _selected_batch_paths(self) -> List[str]:
@@ -1860,6 +2012,25 @@ class MainWindowAnalysisMixin:
     def _select_all_batch_files(self) -> None:
         for index in range(self.batch_file_list.count()):
             self.batch_file_list.item(index).setCheckState(Qt.Checked)
+
+    def _add_batch_files(self) -> None:
+        paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Add Files to Batch Queue",
+            self.state.browser_path or str(self.repo_root),
+            open_file_dialog_filter(),
+        )
+        if not paths:
+            return
+        seen = set(getattr(self, "_batch_extra_paths", []))
+        for path in paths:
+            if path and path not in seen:
+                self._batch_extra_paths.append(path)
+                seen.add(path)
+        self._refresh_batch_candidates()
+        self.batch_status_label.setText(
+            f"Added {len(paths)} file{'s' if len(paths) != 1 else ''} to the batch queue."
+        )
 
     def _select_open_batch_files(self) -> None:
         open_paths = set(self.state.open_files)
@@ -1927,22 +2098,46 @@ class MainWindowAnalysisMixin:
         except ValueError as exc:
             self._show_error(str(exc))
             return
-        start = float(self.dda_start_edit.text() or "0")
-        end_text = self.dda_end_edit.text().strip()
-        end = float(end_text) if end_text else None
+        try:
+            start, end = parse_time_bounds(
+                self.dda_start_edit.text(),
+                self.dda_end_edit.text(),
+                label="Batch DDA time range",
+                default_start=0.0,
+            )
+        except ValueError as exc:
+            self._show_error(str(exc))
+            return
         window_length_samples = self.window_length_spin.value()
         window_step_samples = self.window_step_spin.value()
+        batch_workers = self._batch_worker_count(len(candidate_paths))
         self.batch_status_label.setText(
-            f"Running batch analysis across {len(candidate_paths)} file(s)…"
+            f"Running batch analysis across {len(candidate_paths)} file(s) with {batch_workers} worker(s)…"
         )
-        self.batch_details.setPlainText("Submitting batch analysis…")
+        self.batch_details.setPlainText(
+            f"Submitting batch analysis across {batch_workers} worker(s)…"
+        )
 
         def task() -> object:
-            results: List[DdaResult] = []
+            batch_started_ns = perf_counter_ns()
+            perf_logger().log(
+                "dda.batch.start",
+                files=len(candidate_paths),
+                workers=batch_workers,
+                variants=",".join(variant_ids),
+                wl=window_length_samples,
+                ws=window_step_samples,
+                startSeconds=start,
+                endSeconds=end,
+            )
+            results_by_index: Dict[int, DdaResult] = {}
             failures: List[str] = []
-            for path in candidate_paths:
+
+            def run_single(index: int, path: str) -> tuple[int, Optional[DdaResult], Optional[str]]:
+                file_started_ns = perf_counter_ns()
+                backend_client = self._build_batch_backend()
                 try:
-                    dataset = self.backend.load_dataset(path)
+                    dataset = backend_client.load_dataset(path)
                     channel_names = (
                         selected_channel_names
                         or dataset.channel_names[: min(8, len(dataset.channel_names))]
@@ -1954,24 +2149,80 @@ class MainWindowAnalysisMixin:
                     ]
                     if not selected_indices:
                         raise RuntimeError("No analyzable channels")
-                    results.append(
-                        self.backend.run_dda(
-                            dataset=dataset,
-                            selected_channel_indices=selected_indices,
-                            selected_variants=variant_ids,
-                            window_length_samples=window_length_samples,
-                            window_step_samples=window_step_samples,
-                            delays=delays,
-                            start_time_seconds=start,
-                            end_time_seconds=end,
-                            model_terms=model_terms,
-                            model_dimension=model_dimension,
-                            polynomial_order=polynomial_order,
-                            nr_tau=nr_tau,
-                        )
+                    result = backend_client.run_dda(
+                        dataset=dataset,
+                        selected_channel_indices=selected_indices,
+                        selected_variants=variant_ids,
+                        window_length_samples=window_length_samples,
+                        window_step_samples=window_step_samples,
+                        delays=delays,
+                        start_time_seconds=start,
+                        end_time_seconds=end,
+                        model_terms=model_terms,
+                        model_dimension=model_dimension,
+                        polynomial_order=polynomial_order,
+                        nr_tau=nr_tau,
                     )
+                    perf_logger().log_duration(
+                        "dda.batch.file.complete",
+                        file_started_ns,
+                        file=path,
+                        workers=batch_workers,
+                        variants=",".join(variant_ids),
+                        channelCount=len(selected_indices),
+                    )
+                    return index, result, None
                 except Exception as exc:  # noqa: BLE001
-                    failures.append(f"{Path(path).name}: {exc}")
+                    perf_logger().log_duration(
+                        "dda.batch.file.error",
+                        file_started_ns,
+                        file=path,
+                        workers=batch_workers,
+                        error=str(exc),
+                    )
+                    return index, None, f"{Path(path).name}: {exc}"
+                finally:
+                    if backend_client is not self.backend:
+                        try:
+                            backend_client.close()
+                        except Exception:
+                            pass
+
+            if batch_workers <= 1:
+                for index, path in enumerate(candidate_paths):
+                    result_index, result, failure = run_single(index, path)
+                    if result is not None:
+                        results_by_index[result_index] = result
+                    if failure is not None:
+                        failures.append(failure)
+            else:
+                with ThreadPoolExecutor(
+                    max_workers=batch_workers,
+                    thread_name_prefix="ddalab-batch",
+                ) as executor:
+                    futures = [
+                        executor.submit(run_single, index, path)
+                        for index, path in enumerate(candidate_paths)
+                    ]
+                    for future in as_completed(futures):
+                        result_index, result, failure = future.result()
+                        if result is not None:
+                            results_by_index[result_index] = result
+                        if failure is not None:
+                            failures.append(failure)
+
+            results = [
+                results_by_index[index]
+                for index in sorted(results_by_index)
+            ]
+            perf_logger().log_duration(
+                "dda.batch.complete",
+                batch_started_ns,
+                files=len(candidate_paths),
+                workers=batch_workers,
+                succeeded=len(results),
+                failed=len(failures),
+            )
             return {"results": results, "failures": failures}
 
         def on_success(result: object) -> None:
@@ -2699,8 +2950,16 @@ class MainWindowAnalysisMixin:
         ]
         start_text = self.ica_start_edit.text().strip()
         end_text = self.ica_end_edit.text().strip()
-        start_seconds = float(start_text) if start_text else None
-        end_seconds = float(end_text) if end_text else None
+        try:
+            start_seconds, end_seconds = parse_time_bounds(
+                start_text,
+                end_text,
+                label="ICA time range",
+                default_start=0.0,
+            )
+        except ValueError as exc:
+            self._show_error(str(exc))
+            return
         n_components = self.ica_n_components_spin.value() or None
         max_iterations = self.ica_max_iterations_spin.value()
         tolerance = float(self.ica_tolerance_spin.value())

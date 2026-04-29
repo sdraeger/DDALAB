@@ -117,7 +117,7 @@ def classify_path(path: str, is_directory: bool) -> PathTypeInfo:
         if suffix == ".mff":
             return PathTypeInfo("EGI MFF", True, open_as_dataset=True)
         if _is_bids_root(path):
-            return PathTypeInfo("BIDS Dataset", False, is_bids_root=True)
+            return PathTypeInfo("BIDS Dataset Root", False, is_bids_root=True)
         if _SUBJECT_PATTERN.match(target.name):
             return PathTypeInfo("BIDS Subject", False)
         if _SESSION_PATTERN.match(target.name):

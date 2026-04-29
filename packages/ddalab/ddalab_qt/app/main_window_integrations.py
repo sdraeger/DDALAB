@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Callable, List, Optional
 import uuid
+import webbrowser
 
 from PySide6.QtCore import QMarginsF, Qt
 from PySide6.QtGui import QPageLayout, QPageSize, QPainter, QPdfWriter
@@ -16,9 +17,6 @@ from ..domain.models import (
     DdaResult,
     NsgJobSnapshot,
     OpenNeuroDataset,
-    PluginExecutionResult,
-    PluginInstalledEntry,
-    PluginRegistryEntry,
     WorkflowSessionEntry,
 )
 from .dda_export_utils import (
@@ -192,134 +190,12 @@ class MainWindowIntegrationsMixin:
             self.use_local_bridge_button.setEnabled(False)
         self._refresh_settings_overview()
 
-    def _backend_supports_plugins(self) -> bool:
-        return bool(getattr(self.backend, "supports_plugins", lambda: False)())
-
     def _backend_supports_nsg(self) -> bool:
         return bool(getattr(self.backend, "supports_nsg", lambda: False)())
 
-    def _selected_installed_plugin(self) -> Optional[PluginInstalledEntry]:
-        if not hasattr(self, "installed_plugins_table"):
-            return None
-        selected_rows = self.installed_plugins_table.selectionModel().selectedRows()
-        if not selected_rows:
-            return None
-        item = self.installed_plugins_table.item(selected_rows[0].row(), 0)
-        plugin_id = item.data(Qt.UserRole) if item is not None else None
-        return next(
-            (
-                entry
-                for entry in self.state.installed_plugins
-                if entry.plugin_id == plugin_id
-            ),
-            None,
-        )
-
-    def _selected_registry_plugin(self) -> Optional[PluginRegistryEntry]:
-        if not hasattr(self, "plugin_registry_table"):
-            return None
-        selected_rows = self.plugin_registry_table.selectionModel().selectedRows()
-        if not selected_rows:
-            return None
-        item = self.plugin_registry_table.item(selected_rows[0].row(), 0)
-        plugin_id = item.data(Qt.UserRole) if item is not None else None
-        return next(
-            (
-                entry
-                for entry in self.state.plugin_registry
-                if entry.plugin_id == plugin_id
-            ),
-            None,
-        )
-
-    def _refresh_plugins(self) -> None:
-        if not hasattr(self, "plugins_status_label"):
-            return
-        if not self._backend_supports_plugins():
-            self.state.installed_plugins = []
-            self.state.plugin_registry = []
-            self.plugins_status_label.setText(
-                "Plugin management is not yet available in the Python-only desktop build."
-            )
-            self.installed_plugins_table.setRowCount(0)
-            self.plugin_registry_table.setRowCount(0)
-            self._update_plugin_panels()
-            return
-        self.plugins_status_label.setText("Refreshing installed plugins and registry…")
-
-        def task() -> object:
-            return {
-                "installed": self.backend.list_installed_plugins(),
-                "registry": self.backend.fetch_plugin_registry(),
-            }
-
-        def on_success(result: object) -> None:
-            payload = result if isinstance(result, dict) else {}
-            self.state.installed_plugins = list(payload.get("installed") or [])
-            self.state.plugin_registry = list(payload.get("registry") or [])
-            self._refresh_plugin_tables()
-            self._update_plugin_panels()
-            self.plugins_status_label.setText(
-                f"{len(self.state.installed_plugins)} installed • "
-                f"{len(self.state.plugin_registry)} available in registry"
-            )
-
-        def on_error(message: str) -> None:
-            self.plugins_status_label.setText("Plugin refresh failed")
-            self.plugin_details.setPlainText(message)
-            self._notify("plugin", "error", "Plugin Refresh Failed", message)
-
-        self._run_task(task, on_success, on_error)
-
-    def _refresh_plugin_tables(self) -> None:
-        if not hasattr(self, "installed_plugins_table"):
-            return
-        current_installed = self._selected_installed_plugin()
-        current_registry = self._selected_registry_plugin()
-
-        self.installed_plugins_table.setRowCount(len(self.state.installed_plugins))
-        for row, plugin in enumerate(self.state.installed_plugins):
-            values = [
-                plugin.name,
-                plugin.version,
-                plugin.category,
-                "Enabled" if plugin.enabled else "Disabled",
-                plugin.source,
-            ]
-            for column, value in enumerate(values):
-                item = QTableWidgetItem(value)
-                if column == 0:
-                    item.setData(Qt.UserRole, plugin.plugin_id)
-                    item.setToolTip(
-                        plugin.source_url or plugin.description or plugin.plugin_id
-                    )
-                self.installed_plugins_table.setItem(row, column, item)
-        self.installed_plugins_table.resizeColumnsToContents()
-
-        self.plugin_registry_table.setRowCount(len(self.state.plugin_registry))
-        for row, plugin in enumerate(self.state.plugin_registry):
-            values = [
-                plugin.name,
-                plugin.version,
-                plugin.category,
-                plugin.author,
-                plugin.published_at,
-            ]
-            for column, value in enumerate(values):
-                item = QTableWidgetItem(value)
-                if column == 0:
-                    item.setData(Qt.UserRole, plugin.plugin_id)
-                    item.setToolTip(plugin.description or plugin.artifact_url)
-                self.plugin_registry_table.setItem(row, column, item)
-        self.plugin_registry_table.resizeColumnsToContents()
-
-        self._restore_table_selection(
-            self.installed_plugins_table,
-            current_installed.plugin_id if current_installed else None,
-        )
-        self._restore_table_selection(
-            self.plugin_registry_table,
-            current_registry.plugin_id if current_registry else None,
+    def _backend_supports_nsg_submission(self) -> bool:
+        return bool(
+            getattr(self.backend, "supports_nsg_submission", lambda: False)()
         )
 
     def _restore_table_selection(
@@ -334,194 +210,6 @@ class MainWindowIntegrationsMixin:
             if item is not None and item.data(Qt.UserRole) == target_id:
                 table.selectRow(row)
                 break
-
-    def _update_plugin_panels(self) -> None:
-        if not hasattr(self, "plugin_details"):
-            return
-        installed = self._selected_installed_plugin()
-        registry = self._selected_registry_plugin()
-        selected = installed or registry
-        if selected is None:
-            self.plugin_details.setPlainText(
-                "Select an installed or registry plugin to inspect its details."
-            )
-        elif isinstance(selected, PluginInstalledEntry):
-            details = [
-                f"Name: {selected.name}",
-                f"ID: {selected.plugin_id}",
-                f"Version: {selected.version}",
-                f"Category: {selected.category}",
-                f"Author: {selected.author or '—'}",
-                f"Status: {'Enabled' if selected.enabled else 'Disabled'}",
-                f"Source: {selected.source}",
-                f"Installed: {selected.installed_at}",
-                f"Permissions: {', '.join(selected.permissions) if selected.permissions else 'None'}",
-                "",
-                selected.description or "No description provided.",
-            ]
-            if selected.source_url:
-                details.extend(["", f"Source URL: {selected.source_url}"])
-            self.plugin_details.setPlainText("\n".join(details))
-        else:
-            details = [
-                f"Name: {selected.name}",
-                f"ID: {selected.plugin_id}",
-                f"Version: {selected.version}",
-                f"Category: {selected.category}",
-                f"Author: {selected.author}",
-                f"Published: {selected.published_at}",
-                f"Permissions: {', '.join(selected.permissions) if selected.permissions else 'None'}",
-                "",
-                selected.description or "No description provided.",
-                "",
-                f"Artifact: {selected.artifact_url}",
-            ]
-            self.plugin_details.setPlainText("\n".join(details))
-
-        output = self.state.current_plugin_output
-        if output is None:
-            self.plugin_output.setPlainText("")
-        else:
-            output_lines = [f"Plugin: {output.plugin_id}", ""]
-            if output.output_json:
-                try:
-                    pretty_json = json.dumps(json.loads(output.output_json), indent=2)
-                except ValueError:
-                    pretty_json = output.output_json
-                output_lines.extend(["Output:", pretty_json])
-            if output.logs:
-                output_lines.extend(["", "Logs:", *output.logs])
-            self.plugin_output.setPlainText("\n".join(output_lines))
-
-        installed_ids = {entry.plugin_id for entry in self.state.installed_plugins}
-        plugins_enabled = self._backend_supports_plugins()
-        self.refresh_plugins_button.setEnabled(plugins_enabled)
-        self.install_plugin_button.setEnabled(
-            plugins_enabled
-            and registry is not None
-            and registry.plugin_id not in installed_ids
-        )
-        self.uninstall_plugin_button.setEnabled(
-            plugins_enabled and installed is not None
-        )
-        self.toggle_plugin_button.setEnabled(plugins_enabled and installed is not None)
-        self.toggle_plugin_button.setText(
-            "Disable" if installed and installed.enabled else "Enable"
-        )
-        self.run_plugin_button.setEnabled(
-            plugins_enabled
-            and installed is not None
-            and installed.enabled
-            and self.state.selected_dataset is not None
-        )
-
-    def _install_selected_plugin(self) -> None:
-        plugin = self._selected_registry_plugin()
-        if plugin is None:
-            self._show_error("Select a registry plugin to install.")
-            return
-
-        def on_success(result: object) -> None:
-            _ = result
-            self._refresh_plugins()
-            self._record_workflow_action(
-                "plugin-install",
-                f"Installed plugin {plugin.name}",
-                {"pluginId": plugin.plugin_id, "version": plugin.version},
-            )
-            self._notify("plugin", "info", "Plugin Installed", plugin.name)
-
-        self._run_task(
-            lambda: self.backend.install_plugin(plugin.plugin_id), on_success
-        )
-
-    def _uninstall_selected_plugin(self) -> None:
-        plugin = self._selected_installed_plugin()
-        if plugin is None:
-            self._show_error("Select an installed plugin to uninstall.")
-            return
-
-        def on_success(result: object) -> None:
-            _ = result
-            self.state.current_plugin_output = None
-            self._refresh_plugins()
-            self._record_workflow_action(
-                "plugin-uninstall",
-                f"Uninstalled plugin {plugin.name}",
-                {"pluginId": plugin.plugin_id},
-            )
-            self._notify("plugin", "info", "Plugin Removed", plugin.name)
-
-        self._run_task(
-            lambda: self.backend.uninstall_plugin(plugin.plugin_id), on_success
-        )
-
-    def _toggle_selected_plugin(self) -> None:
-        plugin = self._selected_installed_plugin()
-        if plugin is None:
-            self._show_error("Select an installed plugin first.")
-            return
-        next_state = not plugin.enabled
-
-        def on_success(result: object) -> None:
-            enabled = bool(result)
-            for entry in self.state.installed_plugins:
-                if entry.plugin_id == plugin.plugin_id:
-                    entry.enabled = enabled
-            self._refresh_plugin_tables()
-            self._update_plugin_panels()
-            self._record_workflow_action(
-                "plugin-toggle",
-                f"{'Enabled' if enabled else 'Disabled'} plugin {plugin.name}",
-                {"pluginId": plugin.plugin_id, "enabled": str(enabled).lower()},
-            )
-            self._notify(
-                "plugin",
-                "info",
-                "Plugin Updated",
-                f"{plugin.name} {'enabled' if enabled else 'disabled'}",
-            )
-
-        self._run_task(
-            lambda: self.backend.set_plugin_enabled(plugin.plugin_id, next_state),
-            on_success,
-        )
-
-    def _run_selected_plugin(self) -> None:
-        plugin = self._selected_installed_plugin()
-        dataset = self.state.selected_dataset
-        if plugin is None:
-            self._show_error("Select an installed plugin to run.")
-            return
-        if dataset is None:
-            self._show_error("Open a dataset before running a plugin.")
-            return
-        selected_indices = self._selected_channel_indices(dataset)
-        self.plugin_output.setPlainText("Running plugin…")
-
-        def on_success(result: object) -> None:
-            execution = result if isinstance(result, PluginExecutionResult) else result
-            self.state.current_plugin_output = execution
-            self._update_plugin_panels()
-            self._record_workflow_action(
-                "plugin-run",
-                f"Ran plugin {plugin.name}",
-                {
-                    "pluginId": plugin.plugin_id,
-                    "channels": ",".join(str(value) for value in selected_indices),
-                },
-                file_path=dataset.file_path,
-            )
-            self._notify("plugin", "info", "Plugin Finished", plugin.name)
-
-        self._run_task(
-            lambda: self.backend.run_plugin(
-                plugin.plugin_id,
-                dataset,
-                selected_indices,
-            ),
-            on_success,
-        )
 
     def _selected_nsg_job(self) -> Optional[NsgJobSnapshot]:
         if not hasattr(self, "nsg_jobs_table"):
@@ -609,7 +297,11 @@ class MainWindowIntegrationsMixin:
             self.nsg_password_edit.clear()
             self.nsg_app_key_edit.clear()
         selected_job = self._selected_nsg_job()
-        if selected_job is None:
+        if selected_job is None and creds is None:
+            self.nsg_job_details.setPlainText(
+                "Save your NSG username, password, and app key in Settings, then refresh to load jobs from your NSG account."
+            )
+        elif selected_job is None:
             self.nsg_job_details.setPlainText(
                 "Select an NSG job to inspect its details."
             )
@@ -631,12 +323,22 @@ class MainWindowIntegrationsMixin:
                 lines.extend(["", f"Error: {selected_job.error_message}"])
             self.nsg_job_details.setPlainText("\n".join(lines))
         nsg_enabled = self._backend_supports_nsg()
+        submission_enabled = self._backend_supports_nsg_submission()
+        has_credentials = creds is not None
+        selected_status = (
+            str(selected_job.status).strip().lower() if selected_job is not None else ""
+        )
+        selected_is_external = (
+            bool(selected_job.job_id.startswith("external_"))
+            if selected_job is not None
+            else False
+        )
         creds_summary = (
             f"{creds.username} • "
             f"{'password saved' if creds.has_password else 'no password'} • "
             f"{'app key saved' if creds.has_app_key else 'no app key'}"
             if creds
-            else "No saved NSG credentials"
+            else "Authenticate with your NSG credentials in Settings to load jobs"
         )
         self.nsg_status_label.setText(
             f"{creds_summary} • {len(self.state.nsg_jobs)} job{'s' if len(self.state.nsg_jobs) != 1 else ''}"
@@ -645,24 +347,36 @@ class MainWindowIntegrationsMixin:
         self.nsg_delete_credentials_button.setEnabled(
             nsg_enabled and creds is not None
         )
-        self.nsg_test_connection_button.setEnabled(nsg_enabled and creds is not None)
+        self.nsg_test_connection_button.setEnabled(nsg_enabled and has_credentials)
         self.nsg_create_job_button.setEnabled(
             nsg_enabled
-            and creds is not None
+            and has_credentials
+            and submission_enabled
             and self.state.selected_dataset is not None
         )
-        self.nsg_refresh_jobs_button.setEnabled(nsg_enabled)
+        self.nsg_refresh_jobs_button.setEnabled(nsg_enabled and has_credentials)
         self.nsg_submit_job_button.setEnabled(
-            nsg_enabled and selected_job is not None
+            nsg_enabled
+            and has_credentials
+            and submission_enabled
+            and selected_job is not None
+            and not selected_is_external
+            and selected_status == "pending"
         )
         self.nsg_refresh_job_button.setEnabled(
-            nsg_enabled and selected_job is not None
+            nsg_enabled and has_credentials and selected_job is not None
         )
         self.nsg_cancel_job_button.setEnabled(
-            nsg_enabled and selected_job is not None
+            nsg_enabled
+            and has_credentials
+            and selected_job is not None
+            and selected_status in {"submitted", "queue", "inputstaging", "running"}
         )
         self.nsg_download_results_button.setEnabled(
-            nsg_enabled and selected_job is not None
+            nsg_enabled
+            and has_credentials
+            and selected_job is not None
+            and selected_status == "completed"
         )
 
     def _save_nsg_credentials(self) -> None:
@@ -877,18 +591,36 @@ class MainWindowIntegrationsMixin:
             lambda: self.backend.download_nsg_results(job.job_id), on_success
         )
 
-    def _load_openneuro(self) -> None:
-        self.status_bar.showMessage("Loading OpenNeuro datasets…", 3000)
+    def _load_openneuro(self, append: bool = False) -> None:
+        if append and not self._openneuro_has_more:
+            self.status_bar.showMessage("No more OpenNeuro datasets to load.", 3000)
+            return
+        self.status_bar.showMessage(
+            "Loading more OpenNeuro datasets…" if append else "Loading OpenNeuro datasets…",
+            3000,
+        )
 
         def on_success(result: object) -> None:
             datasets, end_cursor, has_more = result
-            self.openneuro_datasets = datasets
+            if append:
+                merged = list(self.openneuro_datasets)
+                seen = {item.dataset_id for item in merged}
+                for dataset in datasets:
+                    if dataset.dataset_id not in seen:
+                        merged.append(dataset)
+                        seen.add(dataset.dataset_id)
+                self.openneuro_datasets = merged
+            else:
+                self.openneuro_datasets = datasets
             self._openneuro_end_cursor = end_cursor
             self._openneuro_has_more = has_more
-            self._populate_openneuro_table(datasets)
+            self._populate_openneuro_table(self.openneuro_datasets)
 
         self._run_task(
-            lambda: self.openneuro.list_datasets(limit=50),
+            lambda: self.openneuro.list_datasets(
+                limit=50,
+                after=self._openneuro_end_cursor if append else None,
+            ),
             on_success,
             lambda message: self.status_bar.showMessage(
                 f"OpenNeuro load failed: {message}", 5000
@@ -910,6 +642,7 @@ class MainWindowIntegrationsMixin:
                 self.openneuro_table.setItem(row, column, item)
         self.openneuro_table.resizeColumnsToContents()
         self._filter_openneuro_table(self.openneuro_search.text())
+        self._update_openneuro_actions()
 
     def _filter_openneuro_table(self, text: str) -> None:
         needle = text.strip().lower()
@@ -929,6 +662,8 @@ class MainWindowIntegrationsMixin:
     def _update_openneuro_details(self) -> None:
         selected = self.openneuro_table.selectedItems()
         if not selected:
+            self.openneuro_details.setPlainText("")
+            self._update_openneuro_actions()
             return
         dataset_id = selected[0].data(Qt.UserRole)
         dataset = next(
@@ -936,6 +671,7 @@ class MainWindowIntegrationsMixin:
             None,
         )
         if not dataset:
+            self._update_openneuro_actions()
             return
         self.openneuro_details.setPlainText(
             f"{dataset.dataset_id}\n"
@@ -947,6 +683,47 @@ class MainWindowIntegrationsMixin:
             f"Tasks: {', '.join(dataset.tasks) or '—'}\n"
             f"Files: {dataset.total_files or '—'}\n"
             f"Size: {_human_bytes(dataset.size_bytes)}"
+        )
+        self._update_openneuro_actions()
+
+    def _update_openneuro_actions(self) -> None:
+        selected_dataset = self._selected_openneuro_dataset()
+        self.openneuro_load_more_button.setEnabled(self._openneuro_has_more)
+        self.openneuro_open_button.setEnabled(selected_dataset is not None)
+        self.openneuro_copy_id_button.setEnabled(selected_dataset is not None)
+
+    def _selected_openneuro_dataset(self) -> Optional[OpenNeuroDataset]:
+        selected = self.openneuro_table.selectedItems()
+        if not selected:
+            return None
+        dataset_id = selected[0].data(Qt.UserRole)
+        return next(
+            (item for item in self.openneuro_datasets if item.dataset_id == dataset_id),
+            None,
+        )
+
+    def _load_more_openneuro(self) -> None:
+        self._load_openneuro(append=True)
+
+    def _open_selected_openneuro_dataset_page(self) -> None:
+        dataset = self._selected_openneuro_dataset()
+        if dataset is None:
+            self._show_error("Select an OpenNeuro dataset first.")
+            return
+        webbrowser.open(f"https://openneuro.org/datasets/{dataset.dataset_id}")
+        self.status_bar.showMessage(
+            f"Opened OpenNeuro page for {dataset.dataset_id}",
+            3000,
+        )
+
+    def _copy_selected_openneuro_dataset_id(self) -> None:
+        dataset = self._selected_openneuro_dataset()
+        if dataset is None:
+            self._show_error("Select an OpenNeuro dataset first.")
+            return
+        self._copy_text_to_clipboard(
+            dataset.dataset_id,
+            f"Copied {dataset.dataset_id}",
         )
 
     def _export_target_result(self) -> Optional[DdaResult]:
@@ -1403,7 +1180,7 @@ class MainWindowIntegrationsMixin:
         )
         target_path, _ = QFileDialog.getSaveFileName(
             self,
-            "Export DDALAB File",
+            "Export DDALAB Snapshot",
             str(Path.home() / default_name),
             "DDALAB Files (*.ddalab);;JSON Files (*.json)",
         )
@@ -1457,11 +1234,11 @@ class MainWindowIntegrationsMixin:
                     ),
                     encoding="utf-8",
                 ),
-                pending_message="Exporting DDALAB file…",
-                success_title="DDALAB File Exported",
-                failure_title="DDALAB File Export Failed",
+                pending_message="Exporting DDALAB snapshot…",
+                success_title="DDALAB Snapshot Exported",
+                failure_title="DDALAB Snapshot Export Failed",
                 workflow_action_type="export-snapshot",
-                workflow_description=f"Exported DDALAB file to {Path(target_path).name}",
+                workflow_description=f"Exported DDALAB snapshot to {Path(target_path).name}",
                 workflow_payload={"path": target_path, "mode": mode},
                 file_path=self.state.active_file_path,
             )
@@ -1494,7 +1271,7 @@ class MainWindowIntegrationsMixin:
     def _import_snapshot(self) -> None:
         source_path, _ = QFileDialog.getOpenFileName(
             self,
-            "Import DDALAB File",
+            "Import DDALAB Snapshot",
             str(Path.home()),
             "DDALAB Files (*.ddalab *.json)",
         )
@@ -1504,26 +1281,31 @@ class MainWindowIntegrationsMixin:
             self._apply_snapshot_payload(payload)
             self._record_workflow_action(
                 "import-snapshot",
-                f"Imported DDALAB file {Path(source_path).name}",
+                f"Imported DDALAB snapshot {Path(source_path).name}",
                 {"path": source_path},
                 file_path=self.state.active_file_path,
             )
-            self._notify("import", "info", "DDALAB File Imported", Path(source_path).name)
+            self._notify(
+                "import",
+                "info",
+                "DDALAB Snapshot Imported",
+                Path(source_path).name,
+            )
             self._schedule_session_save()
 
         self._load_json_payload_async(
             source_path=source_path,
-            pending_message="Importing DDALAB file…",
-            success_title="DDALAB File Imported",
-            failure_title="DDALAB File Import Failed",
-            invalid_message="DDALAB file format is invalid.",
+            pending_message="Importing DDALAB snapshot…",
+            success_title="DDALAB Snapshot Imported",
+            failure_title="DDALAB Snapshot Import Failed",
+            invalid_message="DDALAB snapshot format is invalid.",
             on_payload=on_payload,
         )
 
     def _start_workflow_recording(self) -> None:
         self.state.workflow_recording_enabled = True
         self._update_workflow_ui()
-        self._notify("workflow", "info", "Workflow Recording", "Recording started")
+        self._notify("workflow", "info", "Action Log", "Logging started")
 
     def _stop_workflow_recording(self) -> None:
         self.state.workflow_recording_enabled = False
@@ -1533,9 +1315,9 @@ class MainWindowIntegrationsMixin:
                 WorkflowSessionEntry(
                     id=uuid.uuid4().hex,
                     name=(
-                        f"{Path(self.state.active_file_path).name} workflow"
+                        f"{Path(self.state.active_file_path).name} action log"
                         if self.state.active_file_path
-                        else "DDALAB workflow"
+                        else "DDALAB action log"
                     ),
                     created_at_iso=self._now_iso(),
                     actions=list(self.state.workflow_actions),
@@ -1544,27 +1326,27 @@ class MainWindowIntegrationsMixin:
             self.state.saved_workflow_sessions = self.state.saved_workflow_sessions[:20]
             self.state_db.replace_workflow_sessions(self.state.saved_workflow_sessions)
         self._update_workflow_ui()
-        self._notify("workflow", "info", "Workflow Recording", "Recording stopped")
+        self._notify("workflow", "info", "Action Log", "Logging stopped")
 
     def _clear_workflow_actions(self) -> None:
         self.state.workflow_actions.clear()
         self.state_db.replace_workflow_actions(self.state.workflow_actions)
         self._refresh_workflow_table()
         self._update_workflow_ui()
-        self._notify("workflow", "info", "Workflow Cleared", "Removed recorded actions")
+        self._notify("workflow", "info", "Action Log Cleared", "Removed logged actions")
 
     def _export_workflow(self) -> None:
         if not self.state.workflow_actions:
-            self._show_error("Record at least one action before exporting a workflow.")
+            self._show_error("Log at least one action before exporting the action log.")
             return
         default_name = (
-            f"{Path(self.state.active_file_path).stem}-workflow.json"
+            f"{Path(self.state.active_file_path).stem}-workflow-log.json"
             if self.state.active_file_path
-            else "ddalab-workflow.json"
+            else "ddalab-workflow-log.json"
         )
         target_path, _ = QFileDialog.getSaveFileName(
             self,
-            "Export Workflow",
+            "Export Action Log",
             str(Path.home() / default_name),
             "JSON Files (*.json)",
         )
@@ -1577,15 +1359,15 @@ class MainWindowIntegrationsMixin:
                 json.dumps(workflow_payload, indent=2),
                 encoding="utf-8",
             ),
-            pending_message="Exporting workflow…",
-            success_title="Workflow Exported",
-            failure_title="Workflow Export Failed",
+            pending_message="Exporting action log…",
+            success_title="Action Log Exported",
+            failure_title="Action Log Export Failed",
         )
 
     def _import_workflow(self) -> None:
         source_path, _ = QFileDialog.getOpenFileName(
             self,
-            "Import Workflow",
+            "Import Action Log",
             str(Path.home()),
             "JSON Files (*.json)",
         )
@@ -1609,14 +1391,14 @@ class MainWindowIntegrationsMixin:
             self.state_db.replace_workflow_sessions(self.state.saved_workflow_sessions)
             self._refresh_workflow_table()
             self._update_workflow_ui()
-            self._notify("import", "info", "Workflow Imported", Path(source_path).name)
+            self._notify("import", "info", "Action Log Imported", Path(source_path).name)
 
         self._load_json_payload_async(
             source_path=source_path,
-            pending_message="Importing workflow…",
-            success_title="Workflow Imported",
-            failure_title="Workflow Import Failed",
-            invalid_message="Workflow format is invalid.",
+            pending_message="Importing action log…",
+            success_title="Action Log Imported",
+            failure_title="Action Log Import Failed",
+            invalid_message="Action log format is invalid.",
             on_payload=on_payload,
         )
 
@@ -1671,7 +1453,6 @@ class MainWindowIntegrationsMixin:
         self._update_backend_mode_ui()
         self._refresh_health()
         self._bootstrap_browser()
-        self._refresh_plugins()
         self._refresh_nsg_state()
 
     def _use_local_backend(self) -> None:
@@ -1688,5 +1469,4 @@ class MainWindowIntegrationsMixin:
         self._update_backend_mode_ui()
         self._refresh_health()
         self._bootstrap_browser()
-        self._refresh_plugins()
         self._refresh_nsg_state()

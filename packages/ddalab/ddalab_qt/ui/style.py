@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QPalette
 from PySide6.QtWidgets import QApplication, QWidget
@@ -9,6 +10,7 @@ from ..runtime_paths import RuntimePaths
 
 
 THEME_MODE_PROPERTY = "ddalab.themeMode"
+_LOGGER = logging.getLogger("ddalab.ui")
 
 
 @dataclass(frozen=True)
@@ -577,6 +579,12 @@ def _load_fonts(runtime_paths: RuntimePaths) -> str:
         ):
             font_path = font_dir / font_name
             if font_path.exists():
+                if _looks_like_html(font_path):
+                    _LOGGER.warning(
+                        "Skipping invalid bundled font asset: %s",
+                        font_path,
+                    )
+                    continue
                 font_id = QFontDatabase.addApplicationFont(str(font_path))
                 if font_id >= 0:
                     loaded_families.extend(
@@ -585,3 +593,12 @@ def _load_fonts(runtime_paths: RuntimePaths) -> str:
         if loaded_families:
             break
     return loaded_families[0] if loaded_families else "Helvetica Neue"
+
+
+def _looks_like_html(font_path) -> bool:
+    try:
+        with open(font_path, "rb") as handle:
+            prefix = handle.read(256).lstrip()
+    except OSError:
+        return False
+    return prefix.startswith(b"<!DOCTYPE html") or prefix.startswith(b"<html")

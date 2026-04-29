@@ -69,20 +69,28 @@ def _ensure_cli_binary(repo_root: Path, *, build_cli: bool) -> Path:
     cli_root = repo_root / "packages" / "dda-rs"
     manifest_path = cli_root / "Cargo.toml"
     binary_name = platform_binary_name(DEV_CLI_BINARY_STEM)
-    candidates = [
-        cli_root / "target" / "release" / binary_name,
-        cli_root / "target" / "debug" / binary_name,
-    ]
+    release_binary = cli_root / "target" / "release" / binary_name
 
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
+    if build_cli:
+        _build_release_binary(manifest_path, repo_root)
+        if not release_binary.exists():
+            raise FileNotFoundError(
+                f"Rust backend build completed without producing {release_binary}."
+            )
+        return release_binary
+
+    if release_binary.exists():
+        return release_binary
 
     if not build_cli:
         raise FileNotFoundError(
-            f"Rust backend binary was not found in {cli_root / 'target'}."
+            f"Rust backend release binary was not found in {cli_root / 'target' / 'release'}."
         )
 
+    return release_binary
+
+
+def _build_release_binary(manifest_path: Path, repo_root: Path) -> None:
     cargo = shutil.which("cargo")
     if cargo is None:
         raise RuntimeError(
@@ -102,13 +110,6 @@ def _ensure_cli_binary(repo_root: Path, *, build_cli: bool) -> Path:
         cwd=repo_root,
         check=True,
     )
-
-    release_binary = cli_root / "target" / "release" / binary_name
-    if not release_binary.exists():
-        raise FileNotFoundError(
-            f"Rust backend build completed without producing {release_binary}."
-        )
-    return release_binary
 
 
 def _copy_executable(source: Path, target: Path) -> None:

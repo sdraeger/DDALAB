@@ -39,7 +39,6 @@ class MainWindow(
         "Visualize",
         "DDA",
         "Data",
-        "Learn",
         "Collaborate",
         "Settings",
         "Notifications",
@@ -49,8 +48,7 @@ class MainWindow(
         "Visualize": ["Time Series", "Annotations", "Streaming"],
         "DDA": ["DDA", "ICA", "Batch", "Connectivity", "Compare"],
         "Data": ["OpenNeuro"],
-        "Learn": ["Tutorials", "Files", "Reference"],
-        "Collaborate": ["Results", "Workflow"],
+        "Collaborate": ["Results", "Action Log"],
     }
 
     def __init__(
@@ -94,6 +92,7 @@ class MainWindow(
         self.openneuro_datasets: List[OpenNeuroDataset] = []
         self._openneuro_end_cursor: Optional[str] = None
         self._openneuro_has_more = True
+        self._batch_extra_paths: List[str] = []
         self._active_variant_id: Optional[str] = None
         self._dataset_loading_path: Optional[str] = None
         self._dataset_request_serial = 0

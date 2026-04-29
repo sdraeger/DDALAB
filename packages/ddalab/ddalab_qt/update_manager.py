@@ -15,6 +15,10 @@ import zipfile
 from packaging.version import InvalidVersion, Version
 import requests
 
+from .app.runtime_logging import (
+    append_update_audit_event,
+    update_installer_log_path,
+)
 from .runtime_paths import RuntimePaths
 
 DEFAULT_RELEASE_REPOSITORY = os.environ.get(
@@ -102,15 +106,28 @@ class UpdateManager:
                 "Automatic updates are available only in packaged desktop builds."
             )
 
+        append_update_audit_event(
+            "check-start",
+            repository=self.repository,
+            platform=self.platform_name,
+            architecture=self.architecture,
+            current_version=self.current_version,
+        )
         release = self._fetch_latest_release()
         tag_name = str(release.get("tag_name") or "").strip()
         release_version = self._normalized_release_version(tag_name)
         current_version = self._normalized_release_version(self.current_version)
         if Version(release_version) <= Version(current_version):
+            append_update_audit_event(
+                "check-no-update",
+                repository=self.repository,
+                latest_version=release_version,
+                current_version=current_version,
+            )
             return None
 
         asset = self._select_release_asset(release)
-        return AvailableUpdate(
+        update = AvailableUpdate(
             current_version=current_version,
             latest_version=release_version,
             tag_name=tag_name or f"v{release_version}",
@@ -123,6 +140,14 @@ class UpdateManager:
             ),
             asset=asset,
         )
+        append_update_audit_event(
+            "check-update-available",
+            repository=self.repository,
+            latest_version=update.latest_version,
+            tag_name=update.tag_name,
+            asset_name=update.asset.name,
+        )
+        return update
 
     def download_update(
         self,
@@ -131,6 +156,13 @@ class UpdateManager:
     ) -> Path:
         download_dir = Path(tempfile.mkdtemp(prefix="ddalab-update-"))
         target_path = download_dir / update.asset.name
+        append_update_audit_event(
+            "download-start",
+            tag_name=update.tag_name,
+            asset_name=update.asset.name,
+            target_path=target_path,
+            size_bytes=update.asset.size_bytes,
+        )
         headers = {
             "Accept": "application/octet-stream",
             "User-Agent": "DDALAB-Updater",
@@ -159,9 +191,23 @@ class UpdateManager:
                                 total_bytes=total_bytes,
                             )
                         )
+        append_update_audit_event(
+            "download-complete",
+            tag_name=update.tag_name,
+            asset_name=update.asset.name,
+            target_path=target_path,
+            downloaded_bytes=downloaded_bytes,
+        )
         return target_path
 
     def start_install(self, asset_path: Path, *, current_pid: int) -> str:
+        append_update_audit_event(
+            "install-start",
+            asset_path=asset_path,
+            current_pid=current_pid,
+            platform=self.platform_name,
+            architecture=self.architecture,
+        )
         if self.platform_name == "windows":
             return self._start_windows_install(asset_path)
         if self.platform_name == "macos":
@@ -219,7 +265,7 @@ class UpdateManager:
         if self.platform_name == "macos" and self.architecture in {"x64", "arm64"}:
             return f"-macos-{self.architecture}-app.zip"
         if self.platform_name == "linux" and self.architecture == "x64":
-            return "-linux-x64"
+            return "-linux-x64.AppImage"
         return None
 
     def _start_windows_install(self, asset_path: Path) -> str:
@@ -267,22 +313,11 @@ class UpdateManager:
 
         script_path = work_dir / "install_update.sh"
         script_path.write_text(
-            "\n".join(
-                [
-                    "#!/bin/bash",
-                    "set -euo pipefail",
-                    f"PID={current_pid}",
-                    f"TARGET={shlex.quote(str(target_app))}",
-                    f"SOURCE={shlex.quote(str(extracted_app))}",
-                    'BACKUP="${TARGET}.old"',
-                    'while kill -0 "$PID" 2>/dev/null; do sleep 1; done',
-                    'rm -rf "$BACKUP"',
-                    'if [ -d "$TARGET" ]; then mv "$TARGET" "$BACKUP"; fi',
-                    'ditto "$SOURCE" "$TARGET"',
-                    'rm -rf "$BACKUP"',
-                    'open "$TARGET"',
-                    "",
-                ]
+            _build_macos_installer_script(
+                current_pid=current_pid,
+                target_app=target_app,
+                extracted_app=extracted_app,
+                installer_log_path=update_installer_log_path(),
             ),
             encoding="utf-8",
         )
@@ -290,8 +325,6 @@ class UpdateManager:
         subprocess.Popen(
             ["/bin/bash", str(script_path)],
             start_new_session=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
         )
         return (
             "DDALAB will close, replace the installed macOS app bundle, and relaunch "
@@ -310,21 +343,11 @@ class UpdateManager:
         work_dir = Path(tempfile.mkdtemp(prefix="ddalab-linux-update-"))
         script_path = work_dir / "install_update.sh"
         script_path.write_text(
-            "\n".join(
-                [
-                    "#!/bin/bash",
-                    "set -euo pipefail",
-                    f"PID={current_pid}",
-                    f"TARGET={shlex.quote(str(target_binary))}",
-                    f"SOURCE={shlex.quote(str(asset_path))}",
-                    'STAGED="${TARGET}.new"',
-                    'while kill -0 "$PID" 2>/dev/null; do sleep 1; done',
-                    'cp "$SOURCE" "$STAGED"',
-                    'chmod +x "$STAGED"',
-                    'mv "$STAGED" "$TARGET"',
-                    '"$TARGET" >/dev/null 2>&1 &',
-                    "",
-                ]
+            _build_linux_installer_script(
+                current_pid=current_pid,
+                target_binary=target_binary,
+                downloaded_binary=asset_path,
+                installer_log_path=update_installer_log_path(),
             ),
             encoding="utf-8",
         )
@@ -332,10 +355,83 @@ class UpdateManager:
         subprocess.Popen(
             ["/bin/bash", str(script_path)],
             start_new_session=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
         )
         return (
             "DDALAB will close, replace the installed Linux binary, and relaunch the "
             "new version."
         )
+
+
+def _build_macos_installer_script(
+    *,
+    current_pid: int,
+    target_app: Path,
+    extracted_app: Path,
+    installer_log_path: Path,
+) -> str:
+    return "\n".join(
+        [
+            "#!/bin/bash",
+            "set -euo pipefail",
+            f"PID={current_pid}",
+            f"TARGET={shlex.quote(str(target_app))}",
+            f"SOURCE={shlex.quote(str(extracted_app))}",
+            f"LOG_FILE={shlex.quote(str(installer_log_path))}",
+            'BACKUP="${TARGET}.previous"',
+            'mkdir -p "$(dirname "$LOG_FILE")"',
+            'exec >>"$LOG_FILE" 2>&1',
+            'echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] Starting macOS update install"',
+            'restore_backup() {',
+            '  if [ -d "$BACKUP" ]; then',
+            '    rm -rf "$TARGET"',
+            '    mv "$BACKUP" "$TARGET"',
+            "  fi",
+            "}",
+            'trap \'echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] macOS update failed"; restore_backup\' ERR',
+            'while kill -0 "$PID" 2>/dev/null; do sleep 1; done',
+            'rm -rf "$BACKUP"',
+            'if [ -d "$TARGET" ]; then mv "$TARGET" "$BACKUP"; fi',
+            'ditto "$SOURCE" "$TARGET"',
+            'open "$TARGET"',
+            'echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] macOS update install finished"',
+            "",
+        ]
+    )
+
+
+def _build_linux_installer_script(
+    *,
+    current_pid: int,
+    target_binary: Path,
+    downloaded_binary: Path,
+    installer_log_path: Path,
+) -> str:
+    return "\n".join(
+        [
+            "#!/bin/bash",
+            "set -euo pipefail",
+            f"PID={current_pid}",
+            f"TARGET={shlex.quote(str(target_binary))}",
+            f"SOURCE={shlex.quote(str(downloaded_binary))}",
+            f"LOG_FILE={shlex.quote(str(installer_log_path))}",
+            'STAGED="${TARGET}.new"',
+            'BACKUP="${TARGET}.previous"',
+            'mkdir -p "$(dirname "$LOG_FILE")"',
+            'exec >>"$LOG_FILE" 2>&1',
+            'echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] Starting Linux update install"',
+            'restore_backup() {',
+            '  if [ -f "$BACKUP" ]; then',
+            '    mv "$BACKUP" "$TARGET"',
+            "  fi",
+            "}",
+            'trap \'echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] Linux update failed"; rm -f "$STAGED"; restore_backup\' ERR',
+            'while kill -0 "$PID" 2>/dev/null; do sleep 1; done',
+            'cp "$SOURCE" "$STAGED"',
+            'chmod +x "$STAGED"',
+            'if [ -f "$TARGET" ]; then cp "$TARGET" "$BACKUP"; fi',
+            'mv "$STAGED" "$TARGET"',
+            '"$TARGET" &',
+            'echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] Linux update install finished"',
+            "",
+        ]
+    )
