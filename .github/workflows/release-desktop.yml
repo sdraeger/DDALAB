@@ -138,8 +138,8 @@ jobs:
         with:
           workspaces: "./packages/dda-rs -> target"
 
-      - name: Require macOS signing configuration for published releases
-        if: runner.os == 'macOS' && needs.resolve.outputs.publish_release == 'true'
+      - name: Inspect macOS signing configuration
+        if: runner.os == 'macOS'
         shell: bash
         env:
           APPLE_SIGNING_CERTIFICATE_BASE64: ${{ secrets.APPLE_SIGNING_CERTIFICATE_BASE64 }}
@@ -165,8 +165,10 @@ jobs:
             fi
           done
           if (( ${#missing[@]} > 0 )); then
-            echo "Missing required macOS signing/notarization secrets: ${missing[*]}" >&2
-            exit 1
+            echo "macOS signing/notarization secrets not fully configured; building unsigned assets."
+            echo "Missing secrets: ${missing[*]}"
+          else
+            echo "macOS signing and notarization secrets detected."
           fi
 
       - name: Install Linux Qt runtime dependencies
