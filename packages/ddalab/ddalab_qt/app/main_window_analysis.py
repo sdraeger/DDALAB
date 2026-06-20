@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from itertools import combinations_with_replacement
 import math
 import os
-from pathlib import Path
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from itertools import combinations_with_replacement
+from pathlib import Path
 from time import perf_counter_ns
 from typing import Dict, List, Optional
 
@@ -33,6 +33,8 @@ from ..domain.models import (
     IcaResult,
     NetworkMotifData,
 )
+from ..ui.quick_plot_surface import update_quick_variant_bridge
+from ..ui.plot_layers import PlotLayerConfig
 from .analysis_input import parse_time_bounds
 from .main_window_support import (
     _build_connectivity_metrics,
@@ -97,9 +99,7 @@ class MainWindowAnalysisMixin:
             except ValueError:
                 invalid_tokens.append(token)
         if invalid_tokens:
-            raise ValueError(
-                "Invalid delay values: " + ", ".join(invalid_tokens) + "."
-            )
+            raise ValueError("Invalid delay values: " + ", ".join(invalid_tokens) + ".")
         if not delays:
             raise ValueError("Provide at least one DDA delay value.")
         negative_delays = [str(delay) for delay in delays if delay < 0]
@@ -134,7 +134,9 @@ class MainWindowAnalysisMixin:
             monomials.append((0, delay_index))
         choices = list(range(1, num_delays + 1))
         for degree in range(2, polynomial_order + 1):
-            monomials.extend(tuple(combo) for combo in combinations_with_replacement(choices, degree))
+            monomials.extend(
+                tuple(combo) for combo in combinations_with_replacement(choices, degree)
+            )
         return monomials
 
     def _sanitize_dda_model_terms(
@@ -144,9 +146,7 @@ class MainWindowAnalysisMixin:
         num_delays: int,
         polynomial_order: int,
     ) -> List[int]:
-        total_terms = len(
-            self._generate_dda_monomials(num_delays, polynomial_order)
-        )
+        total_terms = len(self._generate_dda_monomials(num_delays, polynomial_order))
         ordered: List[int] = []
         seen: set[int] = set()
         for raw_term in terms or []:
@@ -329,11 +329,13 @@ class MainWindowAnalysisMixin:
                 if expert_mode
                 else "Standard EEG preset active"
             )
-        delays = self._safe_dda_delay_values() if expert_mode else list(self.DDA_DEFAULT_DELAYS)
+        delays = (
+            self._safe_dda_delay_values()
+            if expert_mode
+            else list(self.DDA_DEFAULT_DELAYS)
+        )
         if expert_mode:
-            summary_text = (
-                "Expert mode is active. The selected delays and MODEL encoding below will be sent directly to the DDA backend."
-            )
+            summary_text = "Expert mode is active. The selected delays and MODEL encoding below will be sent directly to the DDA backend."
             try:
                 model_terms, _model_dimension, polynomial_order, nr_tau = (
                     self._current_dda_model_parameters()
@@ -347,9 +349,7 @@ class MainWindowAnalysisMixin:
                 polynomial_order = self.dda_polynomial_order_spin.value()
                 nr_tau = self.dda_nr_tau_spin.value()
         else:
-            summary_text = (
-                "Standard mode matches the archived DDALAB EEG preset: delays [7, 10], MODEL terms [1, 2, 10], dm=4, order=4, nr_tau=2."
-            )
+            summary_text = "Standard mode matches the archived DDALAB EEG preset: delays [7, 10], MODEL terms [1, 2, 10], dm=4, order=4, nr_tau=2."
             model_terms = list(self.DDA_DEFAULT_MODEL_TERMS)
             polynomial_order = self.DDA_DEFAULT_POLYNOMIAL_ORDER
             nr_tau = self.DDA_DEFAULT_NR_TAU
@@ -386,9 +386,7 @@ class MainWindowAnalysisMixin:
                 else " No monomials are available for the current model space."
             )
             if expert_mode and len(delays) < nr_tau:
-                note += (
-                    f" The model references {nr_tau} delay slots, but only {len(delays)} concrete delays are defined."
-                )
+                note += f" The model references {nr_tau} delay slots, but only {len(delays)} concrete delays are defined."
             self.dda_model_term_summary.setText(note.strip())
 
     def _refresh_dda_model_term_list(self) -> None:
@@ -421,7 +419,9 @@ class MainWindowAnalysisMixin:
                 )
                 item.setData(Qt.UserRole, index)
                 item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-                item.setCheckState(Qt.Checked if index in selected_lookup else Qt.Unchecked)
+                item.setCheckState(
+                    Qt.Checked if index in selected_lookup else Qt.Unchecked
+                )
                 self.dda_model_terms_list.addItem(item)
         self._refresh_dda_expert_mode_ui()
 
@@ -473,7 +473,9 @@ class MainWindowAnalysisMixin:
         with QSignalBlocker(self.dda_nr_tau_spin):
             self.dda_nr_tau_spin.setValue(self.DDA_DEFAULT_NR_TAU)
         with QSignalBlocker(self.delays_edit):
-            self.delays_edit.setText(",".join(str(delay) for delay in self.DDA_DEFAULT_DELAYS))
+            self.delays_edit.setText(
+                ",".join(str(delay) for delay in self.DDA_DEFAULT_DELAYS)
+            )
         preset_index = self.dda_model_preset_combo.findData("eeg-standard")
         if preset_index >= 0:
             with QSignalBlocker(self.dda_model_preset_combo):
@@ -482,10 +484,15 @@ class MainWindowAnalysisMixin:
         self._refresh_dda_model_term_list()
         self._schedule_session_save()
 
-    def _apply_expert_mode(self, enabled: object, *, schedule_save: bool = True) -> None:
+    def _apply_expert_mode(
+        self, enabled: object, *, schedule_save: bool = True
+    ) -> None:
         normalized = bool(enabled)
         self.state.expert_mode = normalized
-        if hasattr(self, "dda_expert_mode_checkbox") and self.dda_expert_mode_checkbox.isChecked() != normalized:
+        if (
+            hasattr(self, "dda_expert_mode_checkbox")
+            and self.dda_expert_mode_checkbox.isChecked() != normalized
+        ):
             with QSignalBlocker(self.dda_expert_mode_checkbox):
                 self.dda_expert_mode_checkbox.setChecked(normalized)
         if (
@@ -528,7 +535,9 @@ class MainWindowAnalysisMixin:
             min(8, len(dataset.channel_names)),
         )
 
-    def _default_dda_variant_pair_names(self, variant_id: str, dataset) -> List[tuple[str, str]]:
+    def _default_dda_variant_pair_names(
+        self, variant_id: str, dataset
+    ) -> List[tuple[str, str]]:
         _ = variant_id
         _ = dataset
         return []
@@ -698,7 +707,9 @@ class MainWindowAnalysisMixin:
                 ]
                 if variant_id not in self._dda_variant_pair_names:
                     self._dda_variant_pair_names[variant_id] = []
-                if normalized_names and not self._dda_variant_pair_names.get(variant_id):
+                if normalized_names and not self._dda_variant_pair_names.get(
+                    variant_id
+                ):
                     self._dda_variant_pair_names[variant_id] = (
                         self._legacy_pair_names_from_channel_names(
                             variant_id,
@@ -766,8 +777,12 @@ class MainWindowAnalysisMixin:
 
     def _apply_dda_variant_pair_combo_filters(self, variant_id: str) -> None:
         dataset = self.state.selected_dataset
-        source_combo = getattr(self, "dda_variant_pair_source_combos", {}).get(variant_id)
-        target_combo = getattr(self, "dda_variant_pair_target_combos", {}).get(variant_id)
+        source_combo = getattr(self, "dda_variant_pair_source_combos", {}).get(
+            variant_id
+        )
+        target_combo = getattr(self, "dda_variant_pair_target_combos", {}).get(
+            variant_id
+        )
         if dataset is None or source_combo is None or target_combo is None:
             return
         previous_source_name = current_combo_box_value(source_combo)
@@ -864,9 +879,7 @@ class MainWindowAnalysisMixin:
                     item.setData(Qt.UserRole, channel.name)
                     item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
                     item.setCheckState(
-                        Qt.Checked
-                        if channel.name in selected_lookup
-                        else Qt.Unchecked
+                        Qt.Checked if channel.name in selected_lookup else Qt.Unchecked
                     )
                     channel_list.addItem(item)
             self._apply_dda_variant_channel_filter(variant_id)
@@ -934,7 +947,9 @@ class MainWindowAnalysisMixin:
                         self._variant_selector_status_text(variant_id),
                     )
                 if current_variant_id in active_variant_ids:
-                    selector_nav.setCurrentIndex(active_variant_ids.index(current_variant_id))
+                    selector_nav.setCurrentIndex(
+                        active_variant_ids.index(current_variant_id)
+                    )
             selector_nav.setVisible(len(active_variant_ids) > 1)
         stack = getattr(self, "dda_variant_selector_stack", None)
         empty_state = getattr(self, "dda_variant_selector_empty", None)
@@ -956,11 +971,7 @@ class MainWindowAnalysisMixin:
         self._active_dda_selector_variant_id = variant_id
         stack = getattr(self, "dda_variant_selector_stack", None)
         page_indices = getattr(self, "_dda_variant_selector_page_indices", {})
-        if (
-            stack is None
-            or variant_id is None
-            or variant_id not in page_indices
-        ):
+        if stack is None or variant_id is None or variant_id not in page_indices:
             return
         stack.setCurrentIndex(page_indices[variant_id])
 
@@ -1037,10 +1048,12 @@ class MainWindowAnalysisMixin:
             ):
                 pairs.append((str(raw_pair[0]), str(raw_pair[1])))
         dataset = self.state.selected_dataset
-        self._dda_variant_pair_names[variant_id] = self._sanitize_dda_variant_pair_names(
-            variant_id,
-            pairs,
-            dataset,
+        self._dda_variant_pair_names[variant_id] = (
+            self._sanitize_dda_variant_pair_names(
+                variant_id,
+                pairs,
+                dataset,
+            )
         )
         return list(self._dda_variant_pair_names[variant_id])
 
@@ -1133,7 +1146,9 @@ class MainWindowAnalysisMixin:
             updated_pairs,
             dataset,
         )
-        if len(sanitized_pairs) == len(self._dda_variant_pair_names.get(variant_id, [])):
+        if len(sanitized_pairs) == len(
+            self._dda_variant_pair_names.get(variant_id, [])
+        ):
             self._show_error("That pair is already selected.")
             return
         self._dda_variant_pair_names[variant_id] = sanitized_pairs
@@ -1155,10 +1170,12 @@ class MainWindowAnalysisMixin:
         for row in selected_rows:
             if 0 <= row < len(current_pairs):
                 current_pairs.pop(row)
-        self._dda_variant_pair_names[variant_id] = self._sanitize_dda_variant_pair_names(
-            variant_id,
-            current_pairs,
-            dataset,
+        self._dda_variant_pair_names[variant_id] = (
+            self._sanitize_dda_variant_pair_names(
+                variant_id,
+                current_pairs,
+                dataset,
+            )
         )
         self._populate_dda_variant_channel_lists()
         self._schedule_session_save()
@@ -1286,7 +1303,9 @@ class MainWindowAnalysisMixin:
             (dataset.channel_names[left], dataset.channel_names[right])
             for left_index in range(len(selected_indices))
             for right_index in range(left_index + 1, len(selected_indices))
-            for left, right in [(selected_indices[left_index], selected_indices[right_index])]
+            for left, right in [
+                (selected_indices[left_index], selected_indices[right_index])
+            ]
         ]
 
     def _build_directed_name_pairs(
@@ -1487,18 +1506,31 @@ class MainWindowAnalysisMixin:
             else 0
         )
         channel_names = ", ".join(details.channel_names) or "—"
-        channel_indices = ", ".join(str(index) for index in details.channel_indices) or "—"
+        channel_indices = (
+            ", ".join(str(index) for index in details.channel_indices) or "—"
+        )
         delays = ", ".join(str(delay) for delay in details.delays) or "—"
         model_terms = ", ".join(str(term) for term in details.model_terms) or "—"
         variants = ", ".join(details.variant_ids) or "—"
-        sample_rate = f"{details.sample_rate_hz:.3f} Hz" if details.sample_rate_hz > 0 else "—"
-        start_sample = max(int(round(details.start_time_seconds * details.sample_rate_hz)), 0)
+        sample_rate = (
+            f"{details.sample_rate_hz:.3f} Hz" if details.sample_rate_hz > 0 else "—"
+        )
+        start_sample = max(
+            int(round(details.start_time_seconds * details.sample_rate_hz)), 0
+        )
         if details.end_time_seconds is None:
             end_sample = "end"
             bounds_seconds = f"{details.start_time_seconds:.2f}s → end"
         else:
-            end_sample = str(max(int(round(details.end_time_seconds * details.sample_rate_hz)), start_sample))
-            bounds_seconds = f"{details.start_time_seconds:.2f}s → {details.end_time_seconds:.2f}s"
+            end_sample = str(
+                max(
+                    int(round(details.end_time_seconds * details.sample_rate_hz)),
+                    start_sample,
+                )
+            )
+            bounds_seconds = (
+                f"{details.start_time_seconds:.2f}s → {details.end_time_seconds:.2f}s"
+            )
         file_size_bytes = (
             self.state.selected_dataset.file_size_bytes
             if self.state.selected_dataset
@@ -1581,7 +1613,9 @@ class MainWindowAnalysisMixin:
         if not variant_ids:
             self._show_error("Select at least one DDA variant.")
             return
-        variant_channel_names = self._selected_dda_variant_channel_names_map(variant_ids)
+        variant_channel_names = self._selected_dda_variant_channel_names_map(
+            variant_ids
+        )
         variant_pair_names = self._selected_dda_variant_pair_names_map(variant_ids)
         missing_channel_variants = [
             variant_id
@@ -1783,9 +1817,7 @@ class MainWindowAnalysisMixin:
                 variants=",".join(variant_ids),
                 channelCount=len(selected_indices),
                 resultVariants=(
-                    len(dda_result.variants)
-                    if isinstance(dda_result, DdaResult)
-                    else 0
+                    len(dda_result.variants) if isinstance(dda_result, DdaResult) else 0
                 ),
             )
 
@@ -1826,6 +1858,17 @@ class MainWindowAnalysisMixin:
             if hasattr(self, "compare_baseline_heatmap"):
                 self.compare_baseline_heatmap.set_color_scheme(scheme)
                 self.compare_target_heatmap.set_color_scheme(scheme)
+            result = self.state.dda_result
+            if result and result.variants:
+                variant = next(
+                    (
+                        item
+                        for item in result.variants
+                        if item.id == self._active_variant_id
+                    ),
+                    result.variants[0],
+                )
+                self._update_quick_variant_view(variant)
             self._schedule_session_save()
 
     def _update_variant_view(self) -> None:
@@ -1833,6 +1876,7 @@ class MainWindowAnalysisMixin:
         if not result or not result.variants:
             self.heatmap_widget.set_variant(None)
             self.dda_lineplot_widget.set_variant(None)
+            self._update_quick_variant_view(None)
             return
         variant = next(
             (item for item in result.variants if item.id == self._active_variant_id),
@@ -1849,6 +1893,7 @@ class MainWindowAnalysisMixin:
             result.window_centers_seconds,
             view_key=view_key,
         )
+        self._update_quick_variant_view(variant)
         self.result_summary.setPlainText(
             f"{variant.label}\n\n"
             f"{variant.summary}\n\n"
@@ -1857,6 +1902,106 @@ class MainWindowAnalysisMixin:
             f"Value range: {variant.min_value:.4f} → {variant.max_value:.4f}\n"
             f"Engine: {result.engine_label}\n"
             f"Created: {result.created_at_iso}"
+        )
+
+    def _update_quick_variant_view(
+        self,
+        variant: Optional[DdaVariantResult],
+    ) -> None:
+        bridge = getattr(self, "quick_heatmap_bridge", None)
+        if bridge is None:
+            return
+        if variant is None or variant.effective_column_count <= 0:
+            bridge.clear()
+            return
+        color_scheme = self.heatmap_color_scheme_combo.currentData()
+        if not isinstance(color_scheme, str):
+            color_scheme = "viridis"
+        quick_widget = getattr(self, "quick_heatmap_widget", None)
+        target_columns = 512
+        if quick_widget is not None:
+            target_columns = max(1, int(quick_widget.width()) or target_columns)
+        target_columns = min(variant.effective_column_count, target_columns)
+        heatmap_widget = getattr(self, "heatmap_widget", None)
+        start_fraction, span_fraction = _plot_widget_view_window(heatmap_widget)
+        update_quick_variant_bridge(
+            bridge,
+            variant,
+            target_columns=target_columns,
+            title=f"{variant.label} heatmap",
+            color_scheme=color_scheme,
+            start_fraction=start_fraction,
+            span_fraction=span_fraction,
+        )
+
+    def _refresh_quick_variant_viewport(self) -> None:
+        self._update_quick_variant_view(self._active_dda_result_variant())
+
+    def _sync_result_plot_viewport(
+        self, start_fraction: float, span_fraction: float
+    ) -> None:
+        heatmap = getattr(self, "heatmap_widget", None)
+        if heatmap is not None:
+            heatmap.set_view_window(start_fraction, span_fraction, emit=False)
+        lineplot = getattr(self, "dda_lineplot_widget", None)
+        if lineplot is not None:
+            lineplot.set_view_window(start_fraction, span_fraction, emit=False)
+        self._refresh_quick_variant_viewport()
+
+    def _sync_result_plot_cursor(self, cursor_fraction: float) -> None:
+        heatmap = getattr(self, "heatmap_widget", None)
+        if heatmap is not None and hasattr(heatmap, "set_cursor_fraction"):
+            heatmap.set_cursor_fraction(cursor_fraction, emit=False)
+        lineplot = getattr(self, "dda_lineplot_widget", None)
+        if lineplot is not None and hasattr(lineplot, "set_cursor_fraction"):
+            lineplot.set_cursor_fraction(cursor_fraction, emit=False)
+        bridge = getattr(self, "quick_heatmap_bridge", None)
+        if bridge is not None and hasattr(bridge, "set_cursor_fraction"):
+            bridge.set_cursor_fraction(cursor_fraction)
+
+    def _apply_result_plot_layers(
+        self,
+        layers: PlotLayerConfig,
+        *,
+        schedule_save: bool = True,
+    ) -> bool:
+        changed = False
+        for target_name in (
+            "heatmap_widget",
+            "dda_lineplot_widget",
+            "quick_heatmap_bridge",
+        ):
+            target = getattr(self, target_name, None)
+            if target is not None and hasattr(target, "set_plot_layers"):
+                changed = bool(target.set_plot_layers(layers)) or changed
+        if changed and schedule_save and hasattr(self, "_schedule_session_save"):
+            self._schedule_session_save()
+        return changed
+
+    def _current_result_plot_layers(self) -> PlotLayerConfig:
+        return PlotLayerConfig(
+            heatmap=_checkbox_checked(self, "result_layer_heatmap_checkbox", True),
+            line=_checkbox_checked(self, "result_layer_line_checkbox", True),
+            annotations=_checkbox_checked(
+                self,
+                "result_layer_annotations_checkbox",
+                True,
+            ),
+            cursor=_checkbox_checked(self, "result_layer_cursor_checkbox", True),
+        )
+
+    def _on_result_plot_layers_changed(self) -> bool:
+        return self._apply_result_plot_layers(self._current_result_plot_layers())
+
+    def _active_dda_result_variant(self) -> Optional[DdaVariantResult]:
+        result = getattr(getattr(self, "state", None), "dda_result", None)
+        variants = list(getattr(result, "variants", []) or [])
+        if not variants:
+            return None
+        active_variant_id = getattr(self, "_active_variant_id", None)
+        return next(
+            (item for item in variants if item.id == active_variant_id),
+            variants[0],
         )
 
     def _update_ica_channel_summary(self) -> None:
@@ -2133,7 +2278,9 @@ class MainWindowAnalysisMixin:
             results_by_index: Dict[int, DdaResult] = {}
             failures: List[str] = []
 
-            def run_single(index: int, path: str) -> tuple[int, Optional[DdaResult], Optional[str]]:
+            def run_single(
+                index: int, path: str
+            ) -> tuple[int, Optional[DdaResult], Optional[str]]:
                 file_started_ns = perf_counter_ns()
                 backend_client = self._build_batch_backend()
                 try:
@@ -2211,10 +2358,7 @@ class MainWindowAnalysisMixin:
                         if failure is not None:
                             failures.append(failure)
 
-            results = [
-                results_by_index[index]
-                for index in sorted(results_by_index)
-            ]
+            results = [results_by_index[index] for index in sorted(results_by_index)]
             perf_logger().log_duration(
                 "dda.batch.complete",
                 batch_started_ns,
@@ -2264,12 +2408,13 @@ class MainWindowAnalysisMixin:
 
         self._run_task(task, on_success, on_error)
 
-
     def _connectivity_candidates(self) -> List[DdaResult]:
         return [
             summary
             for summary in self.state.dda_history_summaries
-            if any(variant_id in {"CD", "CT", "SY"} for variant_id in summary.variant_ids)
+            if any(
+                variant_id in {"CD", "CT", "SY"} for variant_id in summary.variant_ids
+            )
         ]
 
     def _refresh_connectivity_sources(self) -> None:
@@ -2430,18 +2575,21 @@ class MainWindowAnalysisMixin:
         variant_id = payload.get("variantId")
         view_mode = payload.get("viewMode")
         selected_rows = payload.get("selectedRowLabels")
-        self._compare_baseline_id = baseline_id if isinstance(baseline_id, str) else None
+        self._compare_baseline_id = (
+            baseline_id if isinstance(baseline_id, str) else None
+        )
         self._compare_target_id = target_id if isinstance(target_id, str) else None
         self._compare_variant_id = variant_id if isinstance(variant_id, str) else None
         self._compare_view_mode = (
             view_mode
-            if isinstance(view_mode, str)
-            and view_mode in self.COMPARE_VIEW_MODE_ORDER
+            if isinstance(view_mode, str) and view_mode in self.COMPARE_VIEW_MODE_ORDER
             else "summary"
         )
-        self._compare_selected_row_labels = [
-            str(label) for label in selected_rows if isinstance(label, str)
-        ] if isinstance(selected_rows, list) else []
+        self._compare_selected_row_labels = (
+            [str(label) for label in selected_rows if isinstance(label, str)]
+            if isinstance(selected_rows, list)
+            else []
+        )
         self._compare_row_context_key = None
         if hasattr(self, "compare_view_nav"):
             self._set_compare_view_mode(self._compare_view_mode, schedule_save=False)
@@ -2459,7 +2607,9 @@ class MainWindowAnalysisMixin:
         schedule_save: bool = True,
     ) -> None:
         normalized = (
-            mode if mode in self.COMPARE_VIEW_MODE_ORDER else self.COMPARE_VIEW_MODE_ORDER[0]
+            mode
+            if mode in self.COMPARE_VIEW_MODE_ORDER
+            else self.COMPARE_VIEW_MODE_ORDER[0]
         )
         self._compare_view_mode = normalized
         if hasattr(self, "compare_view_nav"):
@@ -2514,7 +2664,9 @@ class MainWindowAnalysisMixin:
     def _on_compare_view_mode_changed(self, index: int) -> None:
         if index < 0 or index >= len(self.COMPARE_VIEW_MODE_ORDER):
             return
-        self._set_compare_view_mode(self.COMPARE_VIEW_MODE_ORDER[index], schedule_save=False)
+        self._set_compare_view_mode(
+            self.COMPARE_VIEW_MODE_ORDER[index], schedule_save=False
+        )
         self._schedule_session_save()
 
     def _on_compare_row_selection_changed(self, _item) -> None:
@@ -2596,7 +2748,10 @@ class MainWindowAnalysisMixin:
         if not isinstance(variant_id, str):
             return
         combo_index = self.compare_variant_combo.findData(variant_id)
-        if combo_index >= 0 and combo_index != self.compare_variant_combo.currentIndex():
+        if (
+            combo_index >= 0
+            and combo_index != self.compare_variant_combo.currentIndex()
+        ):
             self.compare_variant_combo.setCurrentIndex(combo_index)
 
     def _compare_candidates(self) -> list:
@@ -2616,7 +2771,9 @@ class MainWindowAnalysisMixin:
     def _refresh_compare_sources(self) -> None:
         if not hasattr(self, "compare_baseline_combo"):
             return
-        baseline_id = self._compare_baseline_id or self.compare_baseline_combo.currentData()
+        baseline_id = (
+            self._compare_baseline_id or self.compare_baseline_combo.currentData()
+        )
         target_id = self._compare_target_id or self.compare_target_combo.currentData()
         candidates = self._compare_candidates()
         with (
@@ -2642,8 +2799,12 @@ class MainWindowAnalysisMixin:
                 self.compare_target_combo.setCurrentIndex(target_index)
         current_baseline = self.compare_baseline_combo.currentData()
         current_target = self.compare_target_combo.currentData()
-        self._compare_baseline_id = current_baseline if isinstance(current_baseline, str) else None
-        self._compare_target_id = current_target if isinstance(current_target, str) else None
+        self._compare_baseline_id = (
+            current_baseline if isinstance(current_baseline, str) else None
+        )
+        self._compare_target_id = (
+            current_target if isinstance(current_target, str) else None
+        )
 
     def _clear_compare_widgets(self, message: str) -> None:
         self.compare_summary.setPlainText(message)
@@ -2668,7 +2829,9 @@ class MainWindowAnalysisMixin:
     def _refresh_compare_row_summary_label(self) -> None:
         if not hasattr(self, "compare_row_summary_label"):
             return
-        total_rows = self.compare_row_list.count() if hasattr(self, "compare_row_list") else 0
+        total_rows = (
+            self.compare_row_list.count() if hasattr(self, "compare_row_list") else 0
+        )
         selected_rows = len(self._selected_compare_row_labels())
         if total_rows == 0:
             self.compare_row_summary_label.setText(
@@ -2704,7 +2867,9 @@ class MainWindowAnalysisMixin:
                 item.setData(Qt.UserRole, metric["row_label"])
                 item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
                 item.setCheckState(
-                    Qt.Checked if metric["row_label"] in selected_lookup else Qt.Unchecked
+                    Qt.Checked
+                    if metric["row_label"] in selected_lookup
+                    else Qt.Unchecked
                 )
                 self.compare_row_list.addItem(item)
         self._refresh_compare_row_summary_label()
@@ -3005,6 +3170,23 @@ class MainWindowAnalysisMixin:
             self._notify("analysis", "error", "ICA Failed", message)
 
         self._run_task(task, on_success, on_error)
+
+
+def _plot_widget_view_window(widget: object | None) -> tuple[float, float]:
+    if widget is not None and hasattr(widget, "view_window"):
+        start, span = widget.view_window()
+        return float(start), float(span)
+    return (
+        float(getattr(widget, "_x_view_start", 0.0)),
+        float(getattr(widget, "_x_view_span", 1.0)),
+    )
+
+
+def _checkbox_checked(owner: object, name: str, default: bool) -> bool:
+    checkbox = getattr(owner, name, None)
+    if checkbox is None or not hasattr(checkbox, "isChecked"):
+        return default
+    return bool(checkbox.isChecked())
 
 
 def _build_connectivity_view_payload(result: DdaResult) -> Dict[str, object]:
@@ -3345,7 +3527,9 @@ def _build_compare_row_statistics(
         target_row = target_rows.get(label, [])
         pairs = _finite_aligned_pairs(baseline_row, target_row)
         if pairs:
-            diffs = [target_value - baseline_value for baseline_value, target_value in pairs]
+            diffs = [
+                target_value - baseline_value for baseline_value, target_value in pairs
+            ]
             mean_abs_diff = sum(abs(value) for value in diffs) / len(diffs)
             max_abs_diff = max(abs(value) for value in diffs)
             rms_diff = math.sqrt(sum(value * value for value in diffs) / len(diffs))
@@ -3370,10 +3554,7 @@ def _build_compare_row_statistics(
 
 def _row_bounds(matrix: List[List[float]]) -> tuple[float, float]:
     finite = [
-        float(value)
-        for row in matrix
-        for value in row
-        if math.isfinite(float(value))
+        float(value) for row in matrix for value in row if math.isfinite(float(value))
     ]
     if not finite:
         return (0.0, 0.0)
@@ -3416,7 +3597,10 @@ def _filtered_compare_variant(
         return None
     row_mean_absolute = [_mean_absolute(row) for row in matrix]
     row_peak_absolute = [
-        max((abs(float(value)) for value in row if math.isfinite(float(value))), default=0.0)
+        max(
+            (abs(float(value)) for value in row if math.isfinite(float(value))),
+            default=0.0,
+        )
         for row in matrix
     ]
     return DdaVariantResult(
@@ -3458,9 +3642,7 @@ def _difference_compare_variant(
                 else float("nan")
             )
             target_value = (
-                float(target_row[index])
-                if index < len(target_row)
-                else float("nan")
+                float(target_row[index]) if index < len(target_row) else float("nan")
             )
             if not math.isfinite(baseline_value) or not math.isfinite(target_value):
                 diff_row.append(float("nan"))
@@ -3474,7 +3656,10 @@ def _difference_compare_variant(
     symmetric_bound = max(max_value, 1e-6)
     row_mean_absolute = [_mean_absolute(row) for row in matrix]
     row_peak_absolute = [
-        max((abs(float(value)) for value in row if math.isfinite(float(value))), default=0.0)
+        max(
+            (abs(float(value)) for value in row if math.isfinite(float(value))),
+            default=0.0,
+        )
         for row in matrix
     ]
     return DdaVariantResult(
@@ -3521,7 +3706,10 @@ def _overlay_compare_variant(
         return None
     row_mean_absolute = [_mean_absolute(row) for row in matrix]
     row_peak_absolute = [
-        max((abs(float(value)) for value in row if math.isfinite(float(value))), default=0.0)
+        max(
+            (abs(float(value)) for value in row if math.isfinite(float(value))),
+            default=0.0,
+        )
         for row in matrix
     ]
     return DdaVariantResult(
