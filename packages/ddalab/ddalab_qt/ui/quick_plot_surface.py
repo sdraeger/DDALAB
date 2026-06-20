@@ -24,6 +24,7 @@ from ..domain.models import DdaVariantResult
 from .plot_data import (
     DdaVariantPlotProvider,
     LineGeometryView,
+    MatrixTileCache,
     MatrixView,
     MatrixViewRenderKey,
     MatrixViewRequest,
@@ -71,6 +72,7 @@ class QuickPlotSurfaceBridge(QObject):
         self._cursor_fraction = -1.0
         self._plot_layers = PlotLayerConfig()
         self._active_render_key: MatrixViewRenderKey | None = None
+        self._matrix_tile_cache = MatrixTileCache()
         self._render_cache = LruRenderCache[
             MatrixViewRenderKey,
             MatrixRenderArtifacts,
@@ -89,6 +91,7 @@ class QuickPlotSurfaceBridge(QObject):
         self._line_geometry = _empty_line_geometry()
         self._cursor_fraction = -1.0
         self._active_render_key = None
+        self._matrix_tile_cache.clear()
         self._render_cache.clear()
         self._image_revision += 1
         self.changed.emit()
@@ -164,6 +167,9 @@ class QuickPlotSurfaceBridge(QObject):
 
     def line_geometry(self) -> LineGeometryView:
         return self._line_geometry
+
+    def matrix_tile_cache(self) -> MatrixTileCache:
+        return self._matrix_tile_cache
 
     @Property(str, notify=changed)
     def title(self) -> str:
@@ -442,7 +448,10 @@ def update_quick_variant_bridge(
     row_start: int = 0,
     row_count: int | None = None,
 ) -> None:
-    provider = DdaVariantPlotProvider(variant)
+    provider = DdaVariantPlotProvider(
+        variant,
+        tile_cache=bridge.matrix_tile_cache(),
+    )
     request = MatrixViewRequest(
         target_columns=target_columns,
         start_fraction=start_fraction,

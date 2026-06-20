@@ -14,7 +14,7 @@ if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
 
 from ddalab_qt.domain.models import DdaVariantResult
-from ddalab_qt.ui import quick_plot_surface
+from ddalab_qt.ui import plot_data, quick_plot_surface
 from ddalab_qt.ui.plot_data import build_matrix_view
 from ddalab_qt.ui.plot_layers import PlotLayerConfig
 from ddalab_qt.ui.qt_plot_renderer import MatrixRenderArtifacts, QtCpuMatrixPlotRenderer
@@ -551,8 +551,25 @@ class QuickPlotSurfaceTests(unittest.TestCase):
                 span_fraction=0.5,
             )
 
-        provider_class.assert_called_once_with(variant)
+        provider_class.assert_called_once_with(
+            variant,
+            tile_cache=bridge.matrix_tile_cache(),
+        )
         self.assertEqual(bridge.visibleColumnCount, 5)
+
+    def test_update_variant_helper_reuses_bridge_matrix_tile_cache(self) -> None:
+        bridge = QuickPlotSurfaceBridge()
+        variant = _variant()
+
+        with patch(
+            "ddalab_qt.ui.plot_data.build_matrix_view",
+            wraps=plot_data.build_matrix_view,
+        ) as build:
+            update_quick_variant_bridge(bridge, variant, target_columns=5)
+            update_quick_variant_bridge(bridge, variant, target_columns=5)
+
+        self.assertEqual(build.call_count, 1)
+        self.assertEqual(bridge.matrix_tile_cache().size, 1)
 
     def test_update_variant_helper_accepts_visible_row_range(self) -> None:
         bridge = QuickPlotSurfaceBridge()
