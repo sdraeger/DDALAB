@@ -14,6 +14,7 @@ from ..domain.models import (
     WaveformEnvelopeLevel,
     WaveformWindow,
 )
+from .render_cache import LruRenderCache
 
 HEATMAP_COLOR_SCHEME_OPTIONS: tuple[tuple[str, str], ...] = (
     ("viridis", "Viridis"),
@@ -116,6 +117,37 @@ class MatrixViewRequest:
     max_rows: int | None = None
 
 
+MatrixTileKey = tuple[
+    str,
+    int,
+    float,
+    float,
+    int,
+    int | None,
+    int | None,
+]
+
+
+class MatrixTileCache:
+    def __init__(self, capacity: int = 16) -> None:
+        self._cache: LruRenderCache[MatrixTileKey, MatrixView] = LruRenderCache(
+            capacity
+        )
+
+    @property
+    def size(self) -> int:
+        return self._cache.size
+
+    def get(self, key: MatrixTileKey) -> MatrixView | None:
+        return self._cache.get(key)
+
+    def put(self, key: MatrixTileKey, view: MatrixView) -> None:
+        self._cache.put(key, view)
+
+    def clear(self) -> None:
+        self._cache.clear()
+
+
 @dataclass(frozen=True)
 class WaveformViewRequest:
     target_width: int
@@ -128,8 +160,14 @@ class WaveformViewRequest:
 @dataclass(frozen=True)
 class DdaVariantPlotProvider:
     variant: DdaVariantResult
+    tile_cache: MatrixTileCache | None = None
 
     def matrix_view(self, request: MatrixViewRequest) -> MatrixView:
+        tile_key = matrix_tile_key(self.variant, request)
+        if self.tile_cache is not None:
+            cached = self.tile_cache.get(tile_key)
+            if cached is not None:
+                return cached
         started_ns = perf_counter_ns()
         view = build_matrix_view(
             self.variant,
@@ -140,6 +178,8 @@ class DdaVariantPlotProvider:
             row_count=request.row_count,
             max_rows=request.max_rows,
         )
+        if self.tile_cache is not None:
+            self.tile_cache.put(tile_key, view)
         _log_slow_matrix_view_build(started_ns, view, request)
         return view
 
@@ -311,6 +351,20 @@ def build_matrix_view(
     )
 
 
+def matrix_tile_key(
+    variant: DdaVariantResult,
+    request: MatrixViewRequest,
+) -> MatrixTileKey:
+    return (
+        _variant_matrix_identity(variant),
+        max(1, int(request.target_columns)),
+        *_clamp_view_window(request.start_fraction, request.span_fraction),
+        max(0, int(request.row_start)),
+        None if request.row_count is None else max(0, int(request.row_count)),
+        None if request.max_rows is None else max(0, int(request.max_rows)),
+    )
+
+
 def build_line_geometry_view(
     view: MatrixView,
     *,
@@ -354,6 +408,18 @@ def matrix_view_render_key(view: MatrixView, color_scheme: str) -> MatrixViewRen
         float(view.display_min_value),
         float(view.display_max_value),
         digest,
+    )
+
+
+def _variant_matrix_identity(variant: DdaVariantResult) -> str:
+    return "|".join(
+        (
+            str(getattr(variant, "id", "")),
+            str(getattr(variant, "label", "")),
+            str(id(getattr(variant, "matrix", None))),
+            str(int(getattr(variant, "effective_column_count", 0))),
+            str(len(getattr(variant, "matrix", []) or [])),
+        )
     )
 
 

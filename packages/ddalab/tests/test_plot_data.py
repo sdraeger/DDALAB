@@ -22,6 +22,7 @@ from ddalab_qt.domain.models import (
 from ddalab_qt.ui.plot_data import (
     DdaVariantPlotProvider,
     LINE_PLOT_COLORS,
+    MatrixTileCache,
     MatrixViewRequest,
     WAVEFORM_LINE_COLOR,
     WaveformViewRequest,
@@ -203,6 +204,59 @@ class PlotDataTests(unittest.TestCase):
             startFraction=0.25,
             spanFraction=0.5,
         )
+
+    def test_variant_plot_provider_reuses_cached_matrix_tiles(self) -> None:
+        tile_cache = MatrixTileCache()
+        provider = DdaVariantPlotProvider(
+            _variant(
+                [
+                    list(range(10)),
+                    list(range(10, 20)),
+                ],
+                min_value=0.0,
+                max_value=20.0,
+            ),
+            tile_cache=tile_cache,
+        )
+        request = MatrixViewRequest(
+            target_columns=4,
+            start_fraction=0.25,
+            span_fraction=0.5,
+            row_start=1,
+            row_count=1,
+        )
+
+        first = provider.matrix_view(request)
+        second = provider.matrix_view(request)
+
+        self.assertIs(first, second)
+        self.assertEqual(tile_cache.size, 1)
+
+    def test_variant_plot_provider_cache_key_separates_viewports(self) -> None:
+        tile_cache = MatrixTileCache()
+        provider = DdaVariantPlotProvider(
+            _variant(
+                [
+                    list(range(10)),
+                    list(range(10, 20)),
+                ],
+                min_value=0.0,
+                max_value=20.0,
+            ),
+            tile_cache=tile_cache,
+        )
+
+        first = provider.matrix_view(MatrixViewRequest(target_columns=4))
+        second = provider.matrix_view(
+            MatrixViewRequest(
+                target_columns=4,
+                start_fraction=0.25,
+                span_fraction=0.5,
+            )
+        )
+
+        self.assertIsNot(first, second)
+        self.assertEqual(tile_cache.size, 2)
 
     def test_variant_plot_provider_honors_visible_row_range(self) -> None:
         provider = DdaVariantPlotProvider(
