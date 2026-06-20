@@ -22,6 +22,8 @@ from PySide6.QtWidgets import (
 )
 
 from ..domain.models import LoadedDataset, WaveformAnnotation
+from ..ui.plot_layers import PlotLayerConfig
+from ..ui.quick_waveform_surface import update_quick_waveform_bridge
 from .main_window_support import (
     apply_list_widget_filter,
     filter_text_choices,
@@ -95,9 +97,7 @@ class MainWindowVisualizeMixin:
     ) -> None:
         loading_path = path or getattr(self, "_dataset_loading_path", None)
         file_name = (
-            Path(loading_path).name or str(loading_path)
-            if loading_path
-            else "dataset"
+            Path(loading_path).name or str(loading_path) if loading_path else "dataset"
         )
         loading_message = detail or (
             f"Loading {file_name} and restoring saved state…"
@@ -141,15 +141,11 @@ class MainWindowVisualizeMixin:
                 "Loading ICA summaries and diagnostics…"
             )
         if hasattr(self, "connectivity_summary"):
-            self.connectivity_summary.setPlainText(
-                "Loading connectivity views…"
-            )
+            self.connectivity_summary.setPlainText("Loading connectivity views…")
         if hasattr(self, "compare_summary"):
             self.compare_summary.setPlainText("Loading comparison views…")
         if hasattr(self, "ica_channel_summary_label"):
-            self.ica_channel_summary_label.setText(
-                "Loading dataset channels for ICA…"
-            )
+            self.ica_channel_summary_label.setText("Loading dataset channels for ICA…")
         if hasattr(self, "dda_variant_selector_status"):
             self.dda_variant_selector_status.setText(
                 "Loading dataset channels and pair selectors…"
@@ -157,9 +153,7 @@ class MainWindowVisualizeMixin:
         for summary in getattr(self, "dda_variant_channel_summaries", {}).values():
             summary.setText("Loading dataset channels…")
         if hasattr(self, "results_summary_label"):
-            self.results_summary_label.setText(
-                "Loading saved analyses for this file…"
-            )
+            self.results_summary_label.setText("Loading saved analyses for this file…")
 
     def _update_dataset_ui(self) -> None:
         dataset = self.state.selected_dataset
@@ -179,6 +173,7 @@ class MainWindowVisualizeMixin:
             )
             self.dataset_notes.setPlainText("")
             self.waveform_widget.set_waveform(None, 0.0, 10.0, 0.0)
+            self._update_quick_waveform_view(None)
             self.overview_widget.set_overview(None, 0.0, 10.0, 0.0)
             self.waveform_widget.set_annotations([])
             self.overview_widget.set_annotations([])
@@ -363,6 +358,7 @@ class MainWindowVisualizeMixin:
                 self.state.waveform_viewport_duration_seconds,
                 dataset.duration_seconds,
             )
+            self._update_quick_waveform_view(window)
             current_overview = self.state.waveform_overview
             self.overview_widget.set_overview(
                 current_overview,
@@ -460,6 +456,7 @@ class MainWindowVisualizeMixin:
             self.state.waveform_viewport_duration_seconds,
             dataset.duration_seconds,
         )
+        self._update_quick_waveform_view(self.state.waveform_window)
         self.overview_widget.set_overview(
             self.state.waveform_overview,
             self.state.waveform_viewport_start_seconds,
@@ -518,6 +515,85 @@ class MainWindowVisualizeMixin:
         if self._waveform_reload_pending:
             self._waveform_reload_pending = False
             self._load_waveform_data()
+
+    def _update_quick_waveform_view(self, window) -> None:
+        bridge = getattr(self, "quick_waveform_bridge", None)
+        if bridge is None:
+            return
+        if window is None or not getattr(window, "channels", None):
+            bridge.clear()
+            return
+        quick_widget = getattr(self, "quick_waveform_widget", None)
+        target_width = 512
+        if quick_widget is not None:
+            target_width = max(1, int(quick_widget.width()) or target_width)
+        start_fraction, span_fraction = self._loaded_waveform_view_fraction(window)
+        update_quick_waveform_bridge(
+            bridge,
+            window,
+            target_width=target_width,
+            title="Waveform preview",
+            start_fraction=start_fraction,
+            span_fraction=span_fraction,
+        )
+
+    def _loaded_waveform_view_fraction(self, window) -> tuple[float, float]:
+        loaded_duration = max(float(getattr(window, "duration_seconds", 0.0)), 0.0)
+        display_duration = max(
+            float(getattr(self.state, "waveform_viewport_duration_seconds", 0.0)),
+            0.0,
+        )
+        if loaded_duration <= 0.0 or display_duration <= 0.0:
+            return 0.0, 0.0
+        loaded_start = float(getattr(window, "start_time_seconds", 0.0))
+        display_start = float(
+            getattr(self.state, "waveform_viewport_start_seconds", loaded_start)
+        )
+        overlap_start = max(loaded_start, display_start)
+        overlap_end = min(
+            loaded_start + loaded_duration,
+            display_start + display_duration,
+        )
+        if overlap_end <= overlap_start:
+            return 0.0, 0.0
+        return (
+            self._fraction(overlap_start - loaded_start, loaded_duration),
+            self._fraction(overlap_end - overlap_start, loaded_duration),
+        )
+
+    @staticmethod
+    def _fraction(value: float, total: float) -> float:
+        if total <= 0.0:
+            return 0.0
+        return max(0.0, min(1.0, value / total))
+
+    def _apply_waveform_plot_layers(
+        self,
+        layers: PlotLayerConfig,
+        *,
+        schedule_save: bool = True,
+    ) -> bool:
+        changed = False
+        for target_name in ("waveform_widget", "quick_waveform_bridge"):
+            target = getattr(self, target_name, None)
+            if target is not None and hasattr(target, "set_plot_layers"):
+                changed = bool(target.set_plot_layers(layers)) or changed
+        if changed and schedule_save and hasattr(self, "_schedule_session_save"):
+            self._schedule_session_save()
+        return changed
+
+    def _current_waveform_plot_layers(self) -> PlotLayerConfig:
+        return PlotLayerConfig(
+            waveform=_checkbox_checked(self, "waveform_layer_waveform_checkbox", True),
+            annotations=_checkbox_checked(
+                self,
+                "waveform_layer_annotations_checkbox",
+                True,
+            ),
+        )
+
+    def _on_waveform_plot_layers_changed(self) -> bool:
+        return self._apply_waveform_plot_layers(self._current_waveform_plot_layers())
 
     def _on_overview_load_error(self, message: str) -> None:
         self._overview_request_in_flight = False
@@ -642,7 +718,9 @@ class MainWindowVisualizeMixin:
     def _update_annotation_actions(self) -> None:
         selected = self._selected_annotation()
         has_dataset = self.state.selected_dataset is not None
-        has_annotations = bool(self.state.active_file_path and self._current_annotations())
+        has_annotations = bool(
+            self.state.active_file_path and self._current_annotations()
+        )
         if hasattr(self, "capture_annotation_button"):
             self.capture_annotation_button.setEnabled(has_dataset)
             self.jump_annotation_button.setEnabled(selected is not None)
@@ -681,7 +759,9 @@ class MainWindowVisualizeMixin:
             clamped = max(0.0, min(dataset.duration_seconds, target))
             return clamped, None
         if view_range_seconds is not None:
-            start_seconds = max(0.0, min(dataset.duration_seconds, view_range_seconds[0]))
+            start_seconds = max(
+                0.0, min(dataset.duration_seconds, view_range_seconds[0])
+            )
             end_seconds = max(
                 start_seconds,
                 min(dataset.duration_seconds, view_range_seconds[1]),
@@ -942,7 +1022,9 @@ class MainWindowVisualizeMixin:
             mode_combo = QComboBox()
             mode_combo.addItem("Point at cursor", "point")
             mode_combo.addItem(
-                "Range from visible plot" if view_range_seconds is not None else "Range from current viewport",
+                "Range from visible plot"
+                if view_range_seconds is not None
+                else "Range from current viewport",
                 "range",
             )
             form.addRow("Capture", mode_combo)
@@ -1111,3 +1193,10 @@ class MainWindowVisualizeMixin:
         self.ica_start_edit.setText("0")
         self.ica_end_edit.setText(f"{dataset.duration_seconds:.3f}")
         self._update_streaming_ui()
+
+
+def _checkbox_checked(owner: object, name: str, default: bool) -> bool:
+    checkbox = getattr(owner, name, None)
+    if checkbox is None or not hasattr(checkbox, "isChecked"):
+        return default
+    return bool(checkbox.isChecked())

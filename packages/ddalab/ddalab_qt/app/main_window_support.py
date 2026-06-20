@@ -53,6 +53,7 @@ from ..domain.models import (
     WorkflowActionEntry,
 )
 from ..persistence.state_db import StateDatabase
+from ..ui.plot_layers import PlotLayerConfig
 from ..ui.style import apply_theme, current_theme_colors, normalize_theme_mode
 from ..update_manager import AvailableUpdate, UpdateDownloadProgress
 from .analysis_input import parse_time_bounds
@@ -115,6 +116,25 @@ class ToggleListWidget(QListWidget):
             QStyle.SE_ItemViewItemCheckIndicator, option, self
         )
         return indicator_rect.contains(point)
+
+
+def _plot_layer_payload(
+    layers: PlotLayerConfig,
+    names: tuple[str, ...],
+) -> dict[str, bool]:
+    return {name: bool(getattr(layers, name)) for name in names}
+
+
+def _plot_layer_config_from_payload(
+    payload: dict,
+    names: tuple[str, ...],
+) -> PlotLayerConfig:
+    values = {
+        name: bool(payload[name])
+        for name in names
+        if isinstance(payload.get(name), bool)
+    }
+    return PlotLayerConfig(**values)
 
 
 def _normalized_selector_text(value: object) -> str:
@@ -370,9 +390,7 @@ class MainWindowSupportMixin:
             supports_updates and self._pending_update is not None and not busy
         )
         self.settings_update_check_button.setText(
-            "Checking…"
-            if self._update_check_in_progress
-            else "Check for Updates"
+            "Checking…" if self._update_check_in_progress else "Check for Updates"
         )
         self.settings_update_install_button.setText(
             "Downloading…"
@@ -459,13 +477,9 @@ class MainWindowSupportMixin:
         self._run_task(self._update_manager.check_for_updates, on_success, on_error)
 
     def _prompt_for_update_install(self, update: AvailableUpdate) -> None:
-        release_line = (
-            f"Release tag: {update.tag_name}\n" if update.tag_name else ""
-        )
+        release_line = f"Release tag: {update.tag_name}\n" if update.tag_name else ""
         published_line = (
-            f"Published: {update.published_at_iso}\n"
-            if update.published_at_iso
-            else ""
+            f"Published: {update.published_at_iso}\n" if update.published_at_iso else ""
         )
         should_install = (
             QMessageBox.question(
@@ -591,12 +605,70 @@ class MainWindowSupportMixin:
             },
             "ddaConfig": self._current_dda_config_payload(),
             "compareConfig": self._current_compare_config_payload(),
+            "plotLayers": self._current_plot_layers_payload(),
             "windowGeometry": bytes(self.saveGeometry().toBase64()).decode("ascii"),
             "windowMaximized": self.isMaximized(),
             "ddaColorScheme": self.heatmap_color_scheme_combo.currentData(),
             "themeMode": self.state.theme_mode,
             "expertMode": self.state.expert_mode,
         }
+
+    def _current_plot_layers_payload(self) -> dict:
+        waveform_layers = self._current_waveform_plot_layers()
+        result_layers = self._current_result_plot_layers()
+        return {
+            "waveform": _plot_layer_payload(
+                waveform_layers,
+                ("waveform", "annotations"),
+            ),
+            "results": _plot_layer_payload(
+                result_layers,
+                ("heatmap", "line", "annotations", "cursor"),
+            ),
+        }
+
+    def _apply_plot_layers_payload(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            return
+        waveform_payload = payload.get("waveform")
+        if isinstance(waveform_payload, dict):
+            waveform_layers = _plot_layer_config_from_payload(
+                waveform_payload,
+                ("waveform", "annotations"),
+            )
+            self._set_plot_layer_checkboxes(
+                {
+                    "waveform_layer_waveform_checkbox": waveform_layers.waveform,
+                    "waveform_layer_annotations_checkbox": waveform_layers.annotations,
+                }
+            )
+            self._apply_waveform_plot_layers(waveform_layers, schedule_save=False)
+        result_payload = payload.get("results")
+        if isinstance(result_payload, dict):
+            result_layers = _plot_layer_config_from_payload(
+                result_payload,
+                ("heatmap", "line", "annotations", "cursor"),
+            )
+            self._set_plot_layer_checkboxes(
+                {
+                    "result_layer_heatmap_checkbox": result_layers.heatmap,
+                    "result_layer_line_checkbox": result_layers.line,
+                    "result_layer_annotations_checkbox": result_layers.annotations,
+                    "result_layer_cursor_checkbox": result_layers.cursor,
+                }
+            )
+            self._apply_result_plot_layers(result_layers, schedule_save=False)
+
+    def _set_plot_layer_checkboxes(self, values: dict[str, bool]) -> None:
+        for name, checked in values.items():
+            checkbox = getattr(self, name, None)
+            if checkbox is None or not hasattr(checkbox, "setChecked"):
+                continue
+            try:
+                with QSignalBlocker(checkbox):
+                    checkbox.setChecked(bool(checked))
+            except TypeError:
+                checkbox.setChecked(bool(checked))
 
     def _save_session_state(self) -> None:
         payload = self._current_session_payload()
@@ -690,14 +762,10 @@ class MainWindowSupportMixin:
                 )
             )
         elif primary_section == "Data" and hasattr(self, "data_stack"):
-            self.data_stack.setCurrentIndex(
-                {"OpenNeuro": 0}.get(secondary_section, 0)
-            )
+            self.data_stack.setCurrentIndex({"OpenNeuro": 0}.get(secondary_section, 0))
         elif primary_section == "Collaborate" and hasattr(self, "collaborate_stack"):
             self.collaborate_stack.setCurrentIndex(
-                {"Results": 0, "Workflow": 1, "Action Log": 1}.get(
-                    secondary_section, 0
-                )
+                {"Results": 0, "Workflow": 1, "Action Log": 1}.get(secondary_section, 0)
             )
 
     def _apply_lightweight_session_state(self, payload: dict) -> None:
@@ -739,7 +807,9 @@ class MainWindowSupportMixin:
         if isinstance(viewport, dict):
             try:
                 self.state.waveform_viewport_start_seconds = float(
-                    viewport.get("startSeconds", self.state.waveform_viewport_start_seconds)
+                    viewport.get(
+                        "startSeconds", self.state.waveform_viewport_start_seconds
+                    )
                 )
                 self.state.waveform_viewport_duration_seconds = float(
                     viewport.get(
@@ -761,6 +831,7 @@ class MainWindowSupportMixin:
             self._apply_expert_mode(payload.get("expertMode"), schedule_save=False)
         self._apply_dda_config_payload(payload.get("ddaConfig"))
         self._apply_compare_config_payload(payload.get("compareConfig"))
+        self._apply_plot_layers_payload(payload.get("plotLayers"))
         if hasattr(self, "viewport_label"):
             self.viewport_label.setText(
                 f"{self.state.waveform_viewport_start_seconds:.2f}s → "
@@ -773,7 +844,10 @@ class MainWindowSupportMixin:
         if primary_section == "Learn":
             primary_section = "Overview"
             secondary_section = None
-        if isinstance(primary_section, str) and primary_section in self.primary_sections:
+        if (
+            isinstance(primary_section, str)
+            and primary_section in self.primary_sections
+        ):
             primary_index = self.primary_sections.index(primary_section)
             with QSignalBlocker(self.primary_nav):
                 self.primary_nav.setCurrentIndex(primary_index)
@@ -893,7 +967,12 @@ class MainWindowSupportMixin:
         seen: set[str] = set()
         open_paths = {path for path in self.state.open_files if path}
         for path in self.state.pinned_file_paths:
-            if not isinstance(path, str) or not path or path in seen or path not in open_paths:
+            if (
+                not isinstance(path, str)
+                or not path
+                or path in seen
+                or path not in open_paths
+            ):
                 continue
             normalized.append(path)
             seen.add(path)
@@ -1032,11 +1111,7 @@ class MainWindowSupportMixin:
         )
         suffix = "file" if tab_count == 1 else "files"
         pinned_count = len(self.state.pinned_file_paths)
-        pinned_label = (
-            f" • {pinned_count} pinned"
-            if pinned_count > 0
-            else ""
-        )
+        pinned_label = f" • {pinned_count} pinned" if pinned_count > 0 else ""
         self.file_tabs_summary_label.setText(
             f"{tab_count} {suffix} open{pinned_label} • {current_label}"
         )
@@ -1063,7 +1138,9 @@ class MainWindowSupportMixin:
         _ = from_index, to_index
         current_path = self.file_tabs.tabData(self.file_tabs.currentIndex())
         self._rebuild_open_files_from_tabs()
-        self._rebuild_file_tabs(current_path=current_path if isinstance(current_path, str) else None)
+        self._rebuild_file_tabs(
+            current_path=current_path if isinstance(current_path, str) else None
+        )
         self._schedule_session_save()
 
     def _close_other_tabs(self) -> None:
@@ -1276,7 +1353,9 @@ class MainWindowSupportMixin:
                 else:
                     subprocess.Popen(["explorer", str(target)])
             else:
-                subprocess.Popen(["xdg-open", str(target if target.is_dir() else target.parent)])
+                subprocess.Popen(
+                    ["xdg-open", str(target if target.is_dir() else target.parent)]
+                )
         except Exception as exc:  # noqa: BLE001
             self._show_error(f"Could not reveal path: {exc}")
             return
@@ -1918,9 +1997,7 @@ class MainWindowSupportMixin:
 
     def _upsert_dda_history_summary(self, summary: DdaResultSummary) -> None:
         self.state.dda_history_summaries = [summary] + [
-            item
-            for item in self.state.dda_history_summaries
-            if item.id != summary.id
+            item for item in self.state.dda_history_summaries if item.id != summary.id
         ]
         self.state.dda_history_summaries.sort(
             key=lambda item: item.created_at_iso, reverse=True
@@ -2037,9 +2114,15 @@ class MainWindowSupportMixin:
             return self.state.dda_history_summaries[0]
         return None
 
-    def _cached_history_result(self, result_id: Optional[str] = None) -> Optional[DdaResult]:
+    def _cached_history_result(
+        self, result_id: Optional[str] = None
+    ) -> Optional[DdaResult]:
         target_id = result_id or self.state.selected_results_history_id
-        if target_id and self.state.dda_result is not None and self.state.dda_result.id == target_id:
+        if (
+            target_id
+            and self.state.dda_result is not None
+            and self.state.dda_result.id == target_id
+        ):
             return self.state.dda_result
         if target_id:
             for result in self.state.dda_history:
@@ -2087,9 +2170,7 @@ class MainWindowSupportMixin:
                 and self._current_secondary_section() == "DDA"
             ):
                 if defer_view_render:
-                    self._schedule_deferred_startup_dda_render(
-                        self.state.dda_result.id
-                    )
+                    self._schedule_deferred_startup_dda_render(self.state.dda_result.id)
                 else:
                     self._update_variant_view()
             return
@@ -2117,9 +2198,15 @@ class MainWindowSupportMixin:
         def on_success(result: Optional[DdaResult]) -> None:
             if result is None:
                 return
-            if self.state.selected_results_history_id and self.state.selected_results_history_id != result.id:
+            if (
+                self.state.selected_results_history_id
+                and self.state.selected_results_history_id != result.id
+            ):
                 return
-            if self._current_primary_section() == "DDA" and self._current_secondary_section() == "DDA":
+            if (
+                self._current_primary_section() == "DDA"
+                and self._current_secondary_section() == "DDA"
+            ):
                 self._apply_dda_result(
                     result,
                     persist=False,
@@ -2144,9 +2231,15 @@ class MainWindowSupportMixin:
             if result is None:
                 return
             current_dataset = self.state.selected_dataset
-            if current_dataset is None or current_dataset.file_path != dataset.file_path:
+            if (
+                current_dataset is None
+                or current_dataset.file_path != dataset.file_path
+            ):
                 return
-            if self._current_primary_section() == "DDA" and self._current_secondary_section() == "ICA":
+            if (
+                self._current_primary_section() == "DDA"
+                and self._current_secondary_section() == "ICA"
+            ):
                 self._apply_ica_result(result, persist=False)
 
         self._load_latest_ica_result_async(dataset.file_path, on_success)
@@ -2339,7 +2432,10 @@ class MainWindowSupportMixin:
         has_result = result_summary is not None
         has_dataset = dataset is not None
         has_exportable_state = has_dataset or has_result or ica_result is not None
-        for widget_name in ("view_history_result_button", "dda_view_history_result_button"):
+        for widget_name in (
+            "view_history_result_button",
+            "dda_view_history_result_button",
+        ):
             widget = getattr(self, widget_name, None)
             if widget is not None:
                 widget.setEnabled(has_result)
@@ -2349,7 +2445,9 @@ class MainWindowSupportMixin:
                 widget.setEnabled(has_exportable_state)
         results_more_exports = getattr(self, "data_export_button", None)
         if results_more_exports is not None:
-            results_more_exports.setEnabled(has_exportable_state or annotation_count > 0)
+            results_more_exports.setEnabled(
+                has_exportable_state or annotation_count > 0
+            )
         dda_more_exports = getattr(self, "dda_data_export_button", None)
         if dda_more_exports is not None:
             dda_more_exports.setEnabled(has_exportable_state)
@@ -2377,7 +2475,9 @@ class MainWindowSupportMixin:
             "lineplot_pdf",
         )
 
-        def set_action_state(actions_attr: str, keys: tuple[str, ...], enabled: bool) -> None:
+        def set_action_state(
+            actions_attr: str, keys: tuple[str, ...], enabled: bool
+        ) -> None:
             actions = getattr(self, actions_attr, None)
             if not isinstance(actions, dict):
                 return
@@ -2386,8 +2486,12 @@ class MainWindowSupportMixin:
                 if action is not None:
                     action.setEnabled(enabled)
 
-        set_action_state("results_more_export_actions", ("recipe_ddalab",), has_exportable_state)
-        set_action_state("dda_more_export_actions", ("recipe_ddalab",), has_exportable_state)
+        set_action_state(
+            "results_more_export_actions", ("recipe_ddalab",), has_exportable_state
+        )
+        set_action_state(
+            "dda_more_export_actions", ("recipe_ddalab",), has_exportable_state
+        )
         set_action_state("results_more_export_actions", result_action_keys, has_result)
         set_action_state("dda_more_export_actions", result_action_keys, has_result)
         set_action_state(
@@ -2807,7 +2911,9 @@ class MainWindowSupportMixin:
         refresh_auxiliary_views: bool = True,
     ) -> None:
         self.state.dda_result = result
-        self.state.selected_results_history_id = result.id if result is not None else None
+        self.state.selected_results_history_id = (
+            result.id if result is not None else None
+        )
         self.variant_combo.blockSignals(True)
         self.variant_combo.clear()
         self.variant_combo.blockSignals(False)
@@ -2936,7 +3042,9 @@ class MainWindowSupportMixin:
             return
         self._apply_session_restore_to_dataset(payload)
         if not self.state.selected_channel_names:
-            self.state.selected_channel_names = dataset.channel_names[: min(8, len(dataset.channel_names))]
+            self.state.selected_channel_names = dataset.channel_names[
+                : min(8, len(dataset.channel_names))
+            ]
             self._populate_channels()
         self._update_dataset_ui()
         self._load_waveform_data()

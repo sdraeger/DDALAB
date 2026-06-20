@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import math
 from time import perf_counter_ns
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Hashable, List, Optional, Tuple
 
 from PySide6.QtCore import QPoint, QPointF, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
-    QImage,
     QMouseEvent,
     QPainter,
     QPainterPath,
@@ -25,6 +24,18 @@ from ...domain.models import (
     WaveformOverview,
     WaveformWindow,
 )
+from ..plot_data import (
+    DdaVariantPlotProvider,
+    HEATMAP_COLOR_SCHEME_OPTIONS,
+    MatrixViewRequest,
+    WaveformViewRequest,
+    WaveformWindowPlotProvider,
+    build_waveform_trace_view,
+    matrix_view_render_key,
+    variant_plot_bounds,
+)
+from ..plot_layers import PlotLayerConfig
+from ..qt_plot_renderer import heatmap_qimage
 from ..style import current_theme_colors
 
 
@@ -44,11 +55,12 @@ class WaveformWidget(QWidget):
         self._drag_origin: Optional[QPoint] = None
         self._drag_start_seconds = 0.0
         self.annotations: List[WaveformAnnotation] = []
-        self._path_cache: Dict[Tuple[str, int, int, int], QPainterPath] = {}
+        self._path_cache: Dict[Tuple[Hashable, int, int], QPainterPath] = {}
         self._segment_cache: Dict[
-            Tuple[str, int, int, int, int], list[Tuple[QPointF, QPointF]]
+            Tuple[Hashable, int, int], list[Tuple[QPointF, QPointF]]
         ] = {}
-        self._channel_pixmap_cache: Dict[Tuple[str, int, int, int], QPixmap] = {}
+        self._channel_pixmap_cache: Dict[Tuple[Hashable, int, int], QPixmap] = {}
+        self._plot_layers = PlotLayerConfig()
         self._resize_cache_timer = QTimer(self)
         self._resize_cache_timer.setSingleShot(True)
         self._resize_cache_timer.timeout.connect(self._finalize_resize)
@@ -90,6 +102,16 @@ class WaveformWidget(QWidget):
         self._invalidate_render_cache()
         self.update()
 
+    def set_plot_layers(self, layers: PlotLayerConfig) -> bool:
+        if layers == self._plot_layers:
+            return False
+        self._plot_layers = layers
+        self.update()
+        return True
+
+    def plot_layers(self) -> PlotLayerConfig:
+        return self._plot_layers
+
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         self._resize_cache_timer.start(90)
         self.update()
@@ -124,15 +146,20 @@ class WaveformWidget(QWidget):
             center_y = top + channel_height / 2.0
             painter.setPen(QPen(QColor(theme.plot_grid_alt), 1))
             painter.drawLine(0, int(center_y), self.width(), int(center_y))
-            self._draw_channel(
-                painter, channel, QRectF(0, top + 8, self.width(), channel_height - 16)
-            )
-            self._draw_annotation_overlays(
-                painter,
-                channel.name,
-                row_rect,
-                index,
-            )
+            if self._plot_layers.waveform:
+                self._draw_channel(
+                    painter,
+                    channel,
+                    QRectF(0, top + 8, self.width(), channel_height - 16),
+                    index,
+                )
+            if self._plot_layers.annotations:
+                self._draw_annotation_overlays(
+                    painter,
+                    channel.name,
+                    row_rect,
+                    index,
+                )
             painter.setPen(QColor(theme.plot_text))
             painter.drawText(10, int(top + 18), channel.name)
         perf_logger().log_slow(
@@ -204,34 +231,30 @@ class WaveformWidget(QWidget):
         event.accept()
 
     def _draw_channel(
-        self, painter: QPainter, channel: ChannelWaveform, rect: QRectF
+        self,
+        painter: QPainter,
+        channel: ChannelWaveform,
+        rect: QRectF,
+        channel_index: int,
     ) -> None:
         if not channel.samples or not self.window:
             return
-        pixmap = self._channel_pixmap(channel, rect.size().toSize())
+        (
+            _source_start_fraction,
+            source_width_fraction,
+            dest_left_fraction,
+            dest_width_fraction,
+        ) = self._visible_waveform_fractions()
+        if source_width_fraction <= 0.0 or dest_width_fraction <= 0.0:
+            return
+        pixmap = self._channel_pixmap(
+            channel,
+            rect.size().toSize(),
+            channel_index=channel_index,
+        )
         if pixmap.isNull():
             return
-        loaded_start = self.window.start_time_seconds
-        loaded_duration = max(self.window.duration_seconds, 1e-6)
-        loaded_end = loaded_start + loaded_duration
-        display_start = self.display_start_seconds
-        display_duration = max(self.display_duration_seconds, 1e-6)
-        display_end = display_start + display_duration
-        overlap_start = max(loaded_start, display_start)
-        overlap_end = min(loaded_end, display_end)
-        if overlap_end <= overlap_start:
-            return
-        source_left_fraction = (overlap_start - loaded_start) / loaded_duration
-        source_width_fraction = (overlap_end - overlap_start) / loaded_duration
-        dest_left_fraction = (overlap_start - display_start) / display_duration
-        dest_width_fraction = (overlap_end - overlap_start) / display_duration
-
-        source_rect = QRectF(
-            source_left_fraction * pixmap.width(),
-            0.0,
-            max(1.0, source_width_fraction * pixmap.width()),
-            pixmap.height(),
-        )
+        source_rect = QRectF(0.0, 0.0, pixmap.width(), pixmap.height())
         target_rect = QRectF(
             rect.left() + dest_left_fraction * rect.width(),
             rect.top(),
@@ -240,16 +263,23 @@ class WaveformWidget(QWidget):
         )
         painter.drawPixmap(target_rect, pixmap, source_rect)
 
-    def _channel_pixmap(self, channel: ChannelWaveform, size: QSize) -> QPixmap:
+    def _channel_pixmap(
+        self,
+        channel: ChannelWaveform,
+        size: QSize,
+        *,
+        channel_index: int,
+    ) -> QPixmap:
         width = max(size.width(), 1)
         height = max(size.height(), 1)
         sample_count = len(channel.samples)
-        cache_key = (channel.name, sample_count, width, height)
+        render_key = self._channel_render_key(channel_index, width)
+        cache_key = (render_key, width, height)
         pixmap = self._channel_pixmap_cache.get(cache_key)
         if pixmap is not None:
             return pixmap
         if self._resize_cache_timer.isActive():
-            fallback = self._find_cached_channel_pixmap(channel.name, sample_count)
+            fallback = self._find_cached_channel_pixmap(render_key)
             if fallback is not None:
                 return fallback
 
@@ -259,7 +289,7 @@ class WaveformWidget(QWidget):
         channel_painter = QPainter(pixmap)
         channel_painter.setRenderHint(QPainter.Antialiasing, False)
         rect = QRectF(0, 0, width, height)
-        self._draw_channel_geometry(channel_painter, channel, rect)
+        self._draw_channel_geometry(channel_painter, channel, rect, render_key)
         channel_painter.end()
         self._channel_pixmap_cache[cache_key] = pixmap
         perf_logger().log_slow(
@@ -269,25 +299,38 @@ class WaveformWidget(QWidget):
             threshold_ms=12.0,
             channel=channel.name,
             samples=sample_count,
+            renderKey=str(render_key[:4]),
             width=width,
             height=height,
         )
         return pixmap
 
-    def _find_cached_channel_pixmap(
-        self, channel_name: str, sample_count: int
-    ) -> Optional[QPixmap]:
+    def _channel_render_key(self, channel_index: int, target_width: int) -> Hashable:
+        if self.window is None:
+            return (None, int(channel_index), int(target_width))
+        start_fraction, span_fraction, _, _ = self._visible_waveform_fractions()
+        return WaveformWindowPlotProvider(self.window).render_key(
+            WaveformViewRequest(
+                target_width=max(1, int(target_width)),
+                channel_start=max(0, int(channel_index)),
+                channel_count=1,
+                start_fraction=start_fraction,
+                span_fraction=span_fraction,
+            )
+        )
+
+    def _find_cached_channel_pixmap(self, render_key: Hashable) -> Optional[QPixmap]:
         for key, pixmap in self._channel_pixmap_cache.items():
-            if (
-                key[0] == channel_name
-                and key[1] == sample_count
-                and not pixmap.isNull()
-            ):
+            if key[0] == render_key and not pixmap.isNull():
                 return pixmap
         return None
 
     def _draw_channel_geometry(
-        self, painter: QPainter, channel: ChannelWaveform, rect: QRectF
+        self,
+        painter: QPainter,
+        channel: ChannelWaveform,
+        rect: QRectF,
+        render_key: Hashable,
     ) -> None:
         theme = current_theme_colors(self)
         range_value = max(channel.max_value - channel.min_value, 1e-6)
@@ -299,19 +342,24 @@ class WaveformWidget(QWidget):
             return rect.top() + vertical_padding + (1.0 - normalized) * drawable_height
 
         painter.setPen(QPen(QColor(theme.waveform_line), 1.0))
-        sample_count = len(channel.samples)
-        if sample_count <= max(int(rect.width()), 1) * 8:
+        start_fraction, span_fraction, _, _ = self._visible_waveform_fractions()
+        trace_view = build_waveform_trace_view(
+            channel,
+            target_width=rect.width(),
+            start_fraction=start_fraction,
+            span_fraction=span_fraction,
+        )
+        if trace_view.mode == "samples":
             cache_key = (
-                channel.name,
-                sample_count,
+                render_key,
                 int(rect.width()),
                 int(rect.height()),
             )
             path = self._path_cache.get(cache_key)
             if path is None:
                 path = QPainterPath()
-                for index, value in enumerate(channel.samples):
-                    x = rect.left() + (index / max(sample_count - 1, 1)) * rect.width()
+                for index, value in enumerate(trace_view.values):
+                    x = rect.left() + float(trace_view.x_fraction[index]) * rect.width()
                     y = map_y(float(value))
                     if index == 0:
                         path.moveTo(x, y)
@@ -321,34 +369,22 @@ class WaveformWidget(QWidget):
             painter.drawPath(path)
             return
 
-        bucket_level = None
-        target_segments = max(int(rect.width() * 2), 1)
-        ideal_bucket = max(1, math.ceil(sample_count / target_segments))
-        for level in channel.levels:
-            if level.bucket_size <= ideal_bucket:
-                bucket_level = level
-        if bucket_level is None and channel.levels:
-            bucket_level = channel.levels[0]
-
-        if bucket_level is None:
+        if trace_view.mode != "envelope":
             return
         cache_key = (
-            channel.name,
-            sample_count,
-            bucket_level.bucket_size,
+            render_key,
             int(rect.width()),
             int(rect.height()),
         )
         segments = self._segment_cache.get(cache_key)
         if segments is None:
             segments = []
-            for bucket_index, (bucket_min, bucket_max) in enumerate(
-                zip(bucket_level.mins, bucket_level.maxs)
+            for x_fraction, bucket_min, bucket_max in zip(
+                trace_view.x_fraction,
+                trace_view.min_values,
+                trace_view.max_values,
             ):
-                x = (
-                    rect.left()
-                    + (bucket_index / max(len(bucket_level.mins) - 1, 1)) * rect.width()
-                )
+                x = rect.left() + float(x_fraction) * rect.width()
                 segments.append(
                     (
                         QPointF(x, map_y(float(bucket_max))),
@@ -367,6 +403,41 @@ class WaveformWidget(QWidget):
         self._path_cache.clear()
         self._segment_cache.clear()
         self._channel_pixmap_cache.clear()
+
+    def _visible_waveform_fractions(self) -> tuple[float, float, float, float]:
+        if self.window is None:
+            return 0.0, 1.0, 0.0, 1.0
+        loaded_duration = max(float(self.window.duration_seconds), 0.0)
+        display_duration = max(float(self.display_duration_seconds), 0.0)
+        if loaded_duration <= 0.0 or display_duration <= 0.0:
+            return 0.0, 0.0, 0.0, 0.0
+        loaded_start = float(self.window.start_time_seconds)
+        loaded_end = loaded_start + loaded_duration
+        display_start = float(self.display_start_seconds)
+        display_end = display_start + display_duration
+        overlap_start = max(loaded_start, display_start)
+        overlap_end = min(loaded_end, display_end)
+        if overlap_end <= overlap_start:
+            return 0.0, 0.0, 0.0, 0.0
+        overlap_duration = overlap_end - overlap_start
+        return (
+            self._fraction_start(overlap_start - loaded_start, loaded_duration),
+            self._fraction_span(overlap_duration, loaded_duration),
+            self._fraction_start(overlap_start - display_start, display_duration),
+            self._fraction_span(overlap_duration, display_duration),
+        )
+
+    @staticmethod
+    def _fraction_start(offset: float, duration: float) -> float:
+        if duration <= 0.0:
+            return 0.0
+        return max(0.0, min(1.0, offset / duration))
+
+    @staticmethod
+    def _fraction_span(span: float, duration: float) -> float:
+        if duration <= 0.0:
+            return 0.0
+        return max(0.0, min(1.0, span / duration))
 
     def _draw_annotation_overlays(
         self,
@@ -888,52 +959,6 @@ class OverviewWidget(QWidget):
         return closest
 
 
-HEATMAP_COLOR_SCHEME_OPTIONS: tuple[tuple[str, str], ...] = (
-    ("viridis", "Viridis"),
-    ("plasma", "Plasma"),
-    ("inferno", "Inferno"),
-    ("jet", "Jet"),
-    ("cool", "Cool"),
-    ("hot", "Hot"),
-)
-
-_VIRIDIS_STOPS: tuple[tuple[int, int, int], ...] = (
-    (68, 1, 84),
-    (72, 40, 120),
-    (62, 73, 137),
-    (49, 104, 142),
-    (38, 130, 142),
-    (31, 158, 137),
-    (53, 183, 121),
-    (109, 205, 89),
-    (180, 222, 44),
-    (253, 231, 37),
-)
-
-_PLASMA_STOPS: tuple[tuple[int, int, int], ...] = (
-    (13, 8, 135),
-    (75, 3, 161),
-    (125, 3, 168),
-    (168, 34, 150),
-    (203, 70, 121),
-    (229, 107, 93),
-    (248, 148, 65),
-    (253, 195, 40),
-    (239, 248, 33),
-)
-
-_INFERNO_STOPS: tuple[tuple[int, int, int], ...] = (
-    (0, 0, 4),
-    (31, 12, 72),
-    (85, 15, 109),
-    (136, 34, 106),
-    (186, 54, 85),
-    (227, 89, 51),
-    (249, 140, 10),
-    (249, 201, 50),
-    (252, 255, 164),
-)
-
 _LINE_PLOT_COLORS: tuple[str, ...] = (
     "#3b82f6",
     "#ef4444",
@@ -953,41 +978,26 @@ def _plot_value(value: float) -> float:
     return numeric if math.isfinite(numeric) else 0.0
 
 
-def _variant_contains_nonfinite(variant: DdaVariantResult) -> bool:
-    return any(
-        not math.isfinite(float(value))
-        for row in variant.matrix
-        for value in row
-    )
-
-
-def _variant_plot_bounds(variant: DdaVariantResult) -> tuple[float, float]:
-    min_value = float(variant.min_value)
-    max_value = float(variant.max_value)
-    if not math.isfinite(min_value):
-        min_value = 0.0
-    if not math.isfinite(max_value):
-        max_value = 0.0
-    if _variant_contains_nonfinite(variant):
-        min_value = min(min_value, 0.0)
-        max_value = max(max_value, 0.0)
-    return min_value, max_value
-
-
 class HeatmapWidget(QWidget):
+    view_window_changed = Signal(float, float)
+    cursor_fraction_changed = Signal(float)
     annotation_context_requested = Signal(object, float, object, object)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setMinimumHeight(320)
+        self.setMouseTracking(True)
         self.variant: Optional[DdaVariantResult] = None
         self.window_centers_seconds: List[float] = []
         self.annotations: List[WaveformAnnotation] = []
         self.color_scheme = "viridis"
+        self._plot_layers = PlotLayerConfig()
         self._heatmap_pixmap: Optional[QPixmap] = None
+        self._heatmap_pixmap_key: Optional[object] = None
         self._view_key: Optional[object] = None
         self._x_view_start = 0.0
         self._x_view_span = 1.0
+        self._cursor_fraction = -1.0
         self._drag_origin: Optional[QPointF] = None
         self._drag_view_start = 0.0
         self.setToolTip("Scroll to zoom, drag to pan, double-click to reset.")
@@ -1029,6 +1039,16 @@ class HeatmapWidget(QWidget):
         self._invalidate_render_cache()
         self.update()
 
+    def set_plot_layers(self, layers: PlotLayerConfig) -> bool:
+        if layers == self._plot_layers:
+            return False
+        self._plot_layers = layers
+        self.update()
+        return True
+
+    def plot_layers(self) -> PlotLayerConfig:
+        return self._plot_layers
+
     def refresh_theme(self) -> None:
         self._invalidate_render_cache()
         self.update()
@@ -1038,6 +1058,7 @@ class HeatmapWidget(QWidget):
         super().resizeEvent(event)
 
     def paintEvent(self, event) -> None:  # type: ignore[override]
+        paint_started_ns = perf_counter_ns()
         painter = QPainter(self)
         theme = current_theme_colors(self)
         painter.fillRect(self.rect(), QColor(theme.plot_surface))
@@ -1047,11 +1068,29 @@ class HeatmapWidget(QWidget):
             painter.drawText(
                 self.rect(), Qt.AlignCenter, "Run DDA to see a result heatmap"
             )
+            _log_result_plot_paint(
+                "heatmap",
+                paint_started_ns,
+                width=self.width(),
+                height=self.height(),
+                rows=0,
+                source_columns=0,
+            )
             return
         pixmap = self._ensure_heatmap_pixmap()
-        if pixmap is not None and not pixmap.isNull():
+        if self._plot_layers.heatmap and pixmap is not None and not pixmap.isNull():
             painter.drawPixmap(self.rect(), pixmap)
-        self._draw_annotation_overlays(painter)
+        if self._plot_layers.annotations:
+            self._draw_annotation_overlays(painter)
+        self._draw_cursor_overlay(painter)
+        _log_result_plot_paint(
+            "heatmap",
+            paint_started_ns,
+            width=self.width(),
+            height=self.height(),
+            rows=len(variant.matrix),
+            source_columns=variant.effective_column_count,
+        )
 
     def wheelEvent(self, event) -> None:  # type: ignore[override]
         variant = self.variant
@@ -1064,8 +1103,8 @@ class HeatmapWidget(QWidget):
         if delta == 0:
             event.accept()
             return
-        anchor_fraction = (
-            (event.position().x() - plot_rect.left()) / max(plot_rect.width(), 1.0)
+        anchor_fraction = (event.position().x() - plot_rect.left()) / max(
+            plot_rect.width(), 1.0
         )
         min_visible_columns = min(
             variant.effective_column_count,
@@ -1075,22 +1114,21 @@ class HeatmapWidget(QWidget):
             1.0 / max(variant.effective_column_count, 1),
             min_visible_columns / max(float(variant.effective_column_count), 1.0),
         )
-        self._x_view_start, self._x_view_span = _zoom_view_window(
+        next_start, next_span = _zoom_view_window(
             self._x_view_start,
             self._x_view_span,
             anchor_fraction=anchor_fraction,
             zoom_in=delta > 0,
             min_span=min_span,
         )
-        self._invalidate_render_cache()
-        self.update()
+        self._apply_view_window(next_start, next_span)
         event.accept()
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:  # type: ignore[override]
         if event.button() == Qt.LeftButton:
-            self._reset_view()
-            self._invalidate_render_cache()
-            self.update()
+            if self._reset_view(emit=True):
+                self._invalidate_render_cache()
+                self.update()
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
@@ -1108,6 +1146,13 @@ class HeatmapWidget(QWidget):
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:  # type: ignore[override]
         if self._drag_origin is None:
+            plot_rect = self._heatmap_plot_rect()
+            if plot_rect.contains(event.position()):
+                self.set_cursor_fraction(
+                    _plot_cursor_fraction(plot_rect, event.position().x())
+                )
+                event.accept()
+                return
             return super().mouseMoveEvent(event)
         plot_rect = self._heatmap_plot_rect()
         if plot_rect.width() <= 0:
@@ -1115,12 +1160,11 @@ class HeatmapWidget(QWidget):
         delta_fraction = (event.position().x() - self._drag_origin.x()) / max(
             plot_rect.width(), 1.0
         )
-        self._x_view_start, self._x_view_span = _clamp_view_window(
+        next_start, next_span = _clamp_view_window(
             self._drag_view_start - delta_fraction * self._x_view_span,
             self._x_view_span,
         )
-        self._invalidate_render_cache()
-        self.update()
+        self._apply_view_window(next_start, next_span)
         event.accept()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # type: ignore[override]
@@ -1166,25 +1210,29 @@ class HeatmapWidget(QWidget):
             or self.height() <= 0
         ):
             return None
+        rect = self._heatmap_plot_rect()
+        cols = variant.effective_column_count
+        target_cols = max(1, min(cols, int(rect.width())))
+        matrix_view = DdaVariantPlotProvider(variant).matrix_view(
+            MatrixViewRequest(
+                target_columns=target_cols,
+                start_fraction=self._x_view_start,
+                span_fraction=self._x_view_span,
+            )
+        )
+        rows = matrix_view.source_row_count
+        cell_height = rect.height() / max(rows, 1)
+        pixmap_key = (
+            matrix_view_render_key(matrix_view, self.color_scheme),
+            self.size().width(),
+            self.size().height(),
+        )
         if (
             self._heatmap_pixmap is not None
+            and self._heatmap_pixmap_key == pixmap_key
             and self._heatmap_pixmap.size() == self.size()
         ):
             return self._heatmap_pixmap
-
-        rows = len(variant.matrix)
-        cols = variant.effective_column_count
-        rect = self._heatmap_plot_rect()
-        cell_height = rect.height() / max(rows, 1)
-        display_min_value, display_max_value = _variant_plot_bounds(variant)
-        value_range = max(display_max_value - display_min_value, 1e-6)
-        target_cols = max(1, min(cols, int(rect.width())))
-        sample_indices = _windowed_resample_indices(
-            cols,
-            target_cols,
-            start_fraction=self._x_view_start,
-            span_fraction=self._x_view_span,
-        )
         build_started_ns = perf_counter_ns()
 
         pixmap = QPixmap(self.size())
@@ -1193,29 +1241,12 @@ class HeatmapWidget(QWidget):
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.Antialiasing, False)
 
-        image = QImage(max(target_cols, 1), max(rows, 1), QImage.Format_RGB32)
-        for row_index, row in enumerate(variant.matrix):
-            for col_index in range(target_cols):
-                value = (
-                    _plot_value(row[sample_indices[col_index]])
-                    if sample_indices
-                    else display_min_value
-                )
-                image.setPixelColor(
-                    col_index,
-                    row_index,
-                    _heat_color(
-                        value,
-                        display_min_value,
-                        value_range,
-                        self.color_scheme,
-                    ),
-                )
+        image = heatmap_qimage(matrix_view, self.color_scheme)
         painter.drawImage(rect, image, QRectF(image.rect()))
 
         painter.setPen(QColor(theme.plot_text))
         label_width = max(int(rect.left() - 18.0), 20)
-        for row_index, label in enumerate(variant.row_labels):
+        for row_index, label in enumerate(matrix_view.row_labels):
             y = rect.top() + row_index * cell_height + cell_height * 0.65
             elided_label = painter.fontMetrics().elidedText(
                 label,
@@ -1229,7 +1260,7 @@ class HeatmapWidget(QWidget):
             )
         if self._x_view_span < 0.999:
             painter.setPen(QColor(theme.plot_muted_text))
-            visible_columns = max(1, len(set(sample_indices)))
+            visible_columns = max(1, matrix_view.visible_column_count)
             painter.drawText(
                 QRectF(rect.left(), 2.0, rect.width(), 14.0),
                 Qt.AlignRight | Qt.AlignVCenter,
@@ -1237,6 +1268,7 @@ class HeatmapWidget(QWidget):
             )
         painter.end()
         self._heatmap_pixmap = pixmap
+        self._heatmap_pixmap_key = pixmap_key
         perf_logger().log_slow(
             "dda.heatmap_pixmap",
             "dda.heatmap_pixmap.build",
@@ -1244,7 +1276,7 @@ class HeatmapWidget(QWidget):
             threshold_ms=12.0,
             rows=rows,
             sourceCols=cols,
-            targetCols=target_cols,
+            targetCols=matrix_view.target_column_count,
             width=self.width(),
             height=self.height(),
         )
@@ -1252,12 +1284,55 @@ class HeatmapWidget(QWidget):
 
     def _invalidate_render_cache(self) -> None:
         self._heatmap_pixmap = None
+        self._heatmap_pixmap_key = None
 
-    def _reset_view(self) -> None:
+    def set_view_window(self, start: float, span: float, *, emit: bool = True) -> bool:
+        next_start, next_span = _clamp_view_window(start, span)
+        if math.isclose(next_start, self._x_view_start) and math.isclose(
+            next_span, self._x_view_span
+        ):
+            return False
+        self._x_view_start = next_start
+        self._x_view_span = next_span
+        self._invalidate_render_cache()
+        self.update()
+        if emit:
+            self.view_window_changed.emit(next_start, next_span)
+        return True
+
+    def view_window(self) -> tuple[float, float]:
+        return self._x_view_start, self._x_view_span
+
+    def set_cursor_fraction(
+        self,
+        fraction: float | None,
+        *,
+        emit: bool = True,
+    ) -> bool:
+        next_fraction = _normalize_cursor_fraction(fraction)
+        if math.isclose(next_fraction, self._cursor_fraction):
+            return False
+        self._cursor_fraction = next_fraction
+        self.update()
+        if emit:
+            self.cursor_fraction_changed.emit(next_fraction)
+        return True
+
+    def _apply_view_window(self, start: float, span: float) -> bool:
+        return self.set_view_window(start, span)
+
+    def _reset_view(self, *, emit: bool = False) -> bool:
+        changed = not (
+            math.isclose(self._x_view_start, 0.0)
+            and math.isclose(self._x_view_span, 1.0)
+        )
         self._x_view_start = 0.0
         self._x_view_span = 1.0
         self._drag_origin = None
         self._drag_view_start = 0.0
+        if changed and emit:
+            self.view_window_changed.emit(self._x_view_start, self._x_view_span)
+        return changed
 
     def _heatmap_plot_rect(self) -> QRectF:
         left_gutter = _dda_plot_left_margin(self, self.variant)
@@ -1294,7 +1369,11 @@ class HeatmapWidget(QWidget):
             return []
         if self.window_centers_seconds:
             return [
-                float(self.window_centers_seconds[min(index, len(self.window_centers_seconds) - 1)])
+                float(
+                    self.window_centers_seconds[
+                        min(index, len(self.window_centers_seconds) - 1)
+                    ]
+                )
                 for index in range(column_count)
             ]
         return [float(index) for index in range(column_count)]
@@ -1372,19 +1451,12 @@ class HeatmapWidget(QWidget):
     def _draw_annotation_overlays(self, painter: QPainter) -> None:
         variant = self.variant
         visible_range = self.visible_time_range()
-        if (
-            variant is None
-            or visible_range is None
-            or not self.annotations
-        ):
+        if variant is None or visible_range is None or not self.annotations:
             return
         plot_rect = self._heatmap_plot_rect()
         rows = max(len(variant.row_labels), 1)
         row_height = plot_rect.height() / rows
-        row_lookup = {
-            label: index
-            for index, label in enumerate(variant.row_labels)
-        }
+        row_lookup = {label: index for index, label in enumerate(variant.row_labels)}
         start_seconds, end_seconds = visible_range
         theme = current_theme_colors(self)
         for annotation in self.annotations:
@@ -1405,7 +1477,10 @@ class HeatmapWidget(QWidget):
                 else theme.annotation_global
             )
             if annotation.is_range and annotation.end_seconds is not None:
-                if annotation.end_seconds < start_seconds or annotation.start_seconds > end_seconds:
+                if (
+                    annotation.end_seconds < start_seconds
+                    or annotation.start_seconds > end_seconds
+                ):
                     continue
                 left_fraction = (
                     max(annotation.start_seconds, start_seconds) - start_seconds
@@ -1436,10 +1511,14 @@ class HeatmapWidget(QWidget):
                 timestamp = annotation.center_seconds
                 if timestamp < start_seconds or timestamp > end_seconds:
                     continue
-                fraction = (timestamp - start_seconds) / max(end_seconds - start_seconds, 1e-6)
+                fraction = (timestamp - start_seconds) / max(
+                    end_seconds - start_seconds, 1e-6
+                )
                 x = target_rect.left() + fraction * target_rect.width()
                 painter.setPen(QPen(color, 1.5))
-                painter.drawLine(QPointF(x, target_rect.top()), QPointF(x, target_rect.bottom()))
+                painter.drawLine(
+                    QPointF(x, target_rect.top()), QPointF(x, target_rect.bottom())
+                )
                 _draw_plot_annotation_flag(
                     painter,
                     annotation.label,
@@ -1449,72 +1528,14 @@ class HeatmapWidget(QWidget):
                     target_rect,
                 )
 
-
-def _heat_color(
-    value: float,
-    min_value: float,
-    value_range: float,
-    color_scheme: str,
-) -> QColor:
-    normalized = max(0.0, min(1.0, (value - min_value) / value_range))
-    if color_scheme == "viridis":
-        return _interpolate_stops(normalized, _VIRIDIS_STOPS)
-    if color_scheme == "plasma":
-        return _interpolate_stops(normalized, _PLASMA_STOPS)
-    if color_scheme == "inferno":
-        return _interpolate_stops(normalized, _INFERNO_STOPS)
-    if color_scheme == "jet":
-        red = max(0.0, min(1.0, 1.5 - 4.0 * abs(normalized - 0.75)))
-        green = max(0.0, min(1.0, 1.5 - 4.0 * abs(normalized - 0.5)))
-        blue = max(0.0, min(1.0, 1.5 - 4.0 * abs(normalized - 0.25)))
-        return QColor(
-            int(round(red * 255.0)),
-            int(round(green * 255.0)),
-            int(round(blue * 255.0)),
-        )
-    if color_scheme == "cool":
-        return QColor(
-            int(round(normalized * 255.0)),
-            int(round((1.0 - normalized) * 255.0)),
-            255,
-        )
-    if color_scheme == "hot":
-        if normalized < 0.4:
-            red = normalized / 0.4
-            green = 0.0
-            blue = 0.0
-        elif normalized < 0.8:
-            red = 1.0
-            green = (normalized - 0.4) / 0.4
-            blue = 0.0
-        else:
-            red = 1.0
-            green = 1.0
-            blue = (normalized - 0.8) / 0.2
-        return QColor(
-            int(round(max(0.0, min(1.0, red)) * 255.0)),
-            int(round(max(0.0, min(1.0, green)) * 255.0)),
-            int(round(max(0.0, min(1.0, blue)) * 255.0)),
-        )
-    return _interpolate_stops(normalized, _VIRIDIS_STOPS)
-
-
-def _interpolate_stops(
-    t: float,
-    stops: tuple[tuple[int, int, int], ...],
-) -> QColor:
-    if len(stops) == 1:
-        red, green, blue = stops[0]
-        return QColor(red, green, blue)
-    position = max(0.0, min(1.0, t)) * (len(stops) - 1)
-    index = min(int(position), len(stops) - 1)
-    fraction = position - index
-    start = stops[index]
-    end = stops[min(index + 1, len(stops) - 1)]
-    red = round(start[0] + fraction * (end[0] - start[0]))
-    green = round(start[1] + fraction * (end[1] - start[1]))
-    blue = round(start[2] + fraction * (end[2] - start[2]))
-    return QColor(red, green, blue)
+    def _draw_cursor_overlay(self, painter: QPainter) -> None:
+        if not self._plot_layers.cursor or self._cursor_fraction < 0.0:
+            return
+        plot_rect = self._heatmap_plot_rect()
+        x = plot_rect.left() + self._cursor_fraction * plot_rect.width()
+        theme = current_theme_colors(self)
+        painter.setPen(QPen(QColor(theme.viewport_border), 1.2))
+        painter.drawLine(QPointF(x, plot_rect.top()), QPointF(x, plot_rect.bottom()))
 
 
 def _dda_plot_left_margin(
@@ -1530,18 +1551,24 @@ def _dda_plot_left_margin(
 
 
 class DdaLinePlotWidget(QWidget):
+    view_window_changed = Signal(float, float)
+    cursor_fraction_changed = Signal(float)
     annotation_context_requested = Signal(object, float, object, object)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setMinimumHeight(240)
+        self.setMouseTracking(True)
         self.variant: Optional[DdaVariantResult] = None
         self.window_centers_seconds: List[float] = []
         self.annotations: List[WaveformAnnotation] = []
+        self._plot_layers = PlotLayerConfig()
         self._lineplot_pixmap: Optional[QPixmap] = None
+        self._lineplot_pixmap_key: Optional[object] = None
         self._view_key: Optional[object] = None
         self._x_view_start = 0.0
         self._x_view_span = 1.0
+        self._cursor_fraction = -1.0
         self._drag_origin: Optional[QPointF] = None
         self._drag_view_start = 0.0
         self.setToolTip("Scroll to zoom, drag to pan, double-click to reset.")
@@ -1571,6 +1598,16 @@ class DdaLinePlotWidget(QWidget):
         self.annotations = annotations
         self.update()
 
+    def set_plot_layers(self, layers: PlotLayerConfig) -> bool:
+        if layers == self._plot_layers:
+            return False
+        self._plot_layers = layers
+        self.update()
+        return True
+
+    def plot_layers(self) -> PlotLayerConfig:
+        return self._plot_layers
+
     def refresh_theme(self) -> None:
         self._invalidate_render_cache()
         self.update()
@@ -1580,6 +1617,7 @@ class DdaLinePlotWidget(QWidget):
         super().resizeEvent(event)
 
     def paintEvent(self, event) -> None:  # type: ignore[override]
+        paint_started_ns = perf_counter_ns()
         painter = QPainter(self)
         theme = current_theme_colors(self)
         painter.fillRect(self.rect(), QColor(theme.plot_surface))
@@ -1591,11 +1629,29 @@ class DdaLinePlotWidget(QWidget):
                 Qt.AlignCenter,
                 "Run DDA to see the line plot",
             )
+            _log_result_plot_paint(
+                "lineplot",
+                paint_started_ns,
+                width=self.width(),
+                height=self.height(),
+                rows=0,
+                source_columns=0,
+            )
             return
         pixmap = self._ensure_lineplot_pixmap()
-        if pixmap is not None and not pixmap.isNull():
+        if self._plot_layers.line and pixmap is not None and not pixmap.isNull():
             painter.drawPixmap(self.rect(), pixmap)
-        self._draw_annotation_overlays(painter)
+        if self._plot_layers.annotations:
+            self._draw_annotation_overlays(painter)
+        self._draw_cursor_overlay(painter)
+        _log_result_plot_paint(
+            "lineplot",
+            paint_started_ns,
+            width=self.width(),
+            height=self.height(),
+            rows=len(variant.matrix),
+            source_columns=variant.effective_column_count,
+        )
 
     def wheelEvent(self, event) -> None:  # type: ignore[override]
         variant = self.variant
@@ -1608,8 +1664,8 @@ class DdaLinePlotWidget(QWidget):
         if delta == 0:
             event.accept()
             return
-        anchor_fraction = (
-            (event.position().x() - plot_rect.left()) / max(plot_rect.width(), 1.0)
+        anchor_fraction = (event.position().x() - plot_rect.left()) / max(
+            plot_rect.width(), 1.0
         )
         min_visible_columns = min(
             variant.effective_column_count,
@@ -1619,22 +1675,21 @@ class DdaLinePlotWidget(QWidget):
             1.0 / max(variant.effective_column_count, 1),
             min_visible_columns / max(float(variant.effective_column_count), 1.0),
         )
-        self._x_view_start, self._x_view_span = _zoom_view_window(
+        next_start, next_span = _zoom_view_window(
             self._x_view_start,
             self._x_view_span,
             anchor_fraction=anchor_fraction,
             zoom_in=delta > 0,
             min_span=min_span,
         )
-        self._invalidate_render_cache()
-        self.update()
+        self.set_view_window(next_start, next_span)
         event.accept()
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:  # type: ignore[override]
         if event.button() == Qt.LeftButton:
-            self._reset_view()
-            self._invalidate_render_cache()
-            self.update()
+            if self._reset_view():
+                self._invalidate_render_cache()
+                self.update()
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
@@ -1652,6 +1707,13 @@ class DdaLinePlotWidget(QWidget):
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:  # type: ignore[override]
         if self._drag_origin is None:
+            plot_rect = self._line_plot_rect()
+            if plot_rect.contains(event.position()):
+                self.set_cursor_fraction(
+                    _plot_cursor_fraction(plot_rect, event.position().x())
+                )
+                event.accept()
+                return
             return super().mouseMoveEvent(event)
         plot_rect = self._line_plot_rect()
         if plot_rect.width() <= 0:
@@ -1659,12 +1721,11 @@ class DdaLinePlotWidget(QWidget):
         delta_fraction = (event.position().x() - self._drag_origin.x()) / max(
             plot_rect.width(), 1.0
         )
-        self._x_view_start, self._x_view_span = _clamp_view_window(
+        next_start, next_span = _clamp_view_window(
             self._drag_view_start - delta_fraction * self._x_view_span,
             self._x_view_span,
         )
-        self._invalidate_render_cache()
-        self.update()
+        self.set_view_window(next_start, next_span)
         event.accept()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # type: ignore[override]
@@ -1704,13 +1765,19 @@ class DdaLinePlotWidget(QWidget):
         plot_state = self._line_plot_state()
         if plot_state is None:
             return None
+        pixmap_key = (
+            plot_state["render_key"],
+            self.size().width(),
+            self.size().height(),
+        )
         if (
             self._lineplot_pixmap is not None
+            and self._lineplot_pixmap_key == pixmap_key
             and self._lineplot_pixmap.size() == self.size()
         ):
             return self._lineplot_pixmap
 
-        variant = plot_state["variant"]
+        matrix_view = plot_state["matrix_view"]
         row_count = plot_state["row_count"]
         column_count = plot_state["column_count"]
         min_value = plot_state["min_value"]
@@ -1765,18 +1832,13 @@ class DdaLinePlotWidget(QWidget):
                 - ((value - min_value) / (max_value - min_value)) * plot_rect.height()
             )
 
-        for row_index, row in enumerate(variant.matrix[:rendered_row_count]):
-            if not row:
+        for row_index, row in enumerate(matrix_view.values[:rendered_row_count]):
+            if row.size <= 0:
                 continue
-            row_sample_indices = (
-                sample_indices
-                if len(row) == column_count
-                else _resample_indices(len(row), target_points)
-            )
             path = QPainterPath()
-            for column_index, source_index in enumerate(row_sample_indices):
+            for column_index, value in enumerate(row):
                 x = map_x(x_values[min(column_index, len(x_values) - 1)])
-                y = map_y(_plot_value(row[source_index]))
+                y = map_y(_plot_value(float(value)))
                 if column_index == 0:
                     path.moveTo(x, y)
                 else:
@@ -1838,8 +1900,8 @@ class DdaLinePlotWidget(QWidget):
             )
         for row_index in range(legend_entries):
             label = (
-                variant.row_labels[row_index]
-                if row_index < len(variant.row_labels)
+                matrix_view.row_labels[row_index]
+                if row_index < len(matrix_view.row_labels)
                 else f"Row {row_index + 1}"
             )
             color = QColor(_LINE_PLOT_COLORS[row_index % len(_LINE_PLOT_COLORS)])
@@ -1862,6 +1924,7 @@ class DdaLinePlotWidget(QWidget):
 
         painter.end()
         self._lineplot_pixmap = pixmap
+        self._lineplot_pixmap_key = pixmap_key
         perf_logger().log_slow(
             "dda.lineplot_pixmap",
             "dda.lineplot_pixmap.build",
@@ -1889,12 +1952,50 @@ class DdaLinePlotWidget(QWidget):
 
     def _invalidate_render_cache(self) -> None:
         self._lineplot_pixmap = None
+        self._lineplot_pixmap_key = None
 
-    def _reset_view(self) -> None:
+    def set_view_window(self, start: float, span: float, *, emit: bool = True) -> bool:
+        next_start, next_span = _clamp_view_window(start, span)
+        if math.isclose(next_start, self._x_view_start) and math.isclose(
+            next_span, self._x_view_span
+        ):
+            return False
+        self._x_view_start = next_start
+        self._x_view_span = next_span
+        self._invalidate_render_cache()
+        self.update()
+        if emit:
+            self.view_window_changed.emit(next_start, next_span)
+        return True
+
+    def view_window(self) -> tuple[float, float]:
+        return self._x_view_start, self._x_view_span
+
+    def set_cursor_fraction(
+        self,
+        fraction: float | None,
+        *,
+        emit: bool = True,
+    ) -> bool:
+        next_fraction = _normalize_cursor_fraction(fraction)
+        if math.isclose(next_fraction, self._cursor_fraction):
+            return False
+        self._cursor_fraction = next_fraction
+        self.update()
+        if emit:
+            self.cursor_fraction_changed.emit(next_fraction)
+        return True
+
+    def _reset_view(self) -> bool:
+        changed = not (
+            math.isclose(self._x_view_start, 0.0)
+            and math.isclose(self._x_view_span, 1.0)
+        )
         self._x_view_start = 0.0
         self._x_view_span = 1.0
         self._drag_origin = None
         self._drag_view_start = 0.0
+        return changed
 
     def _line_plot_rect(self) -> QRectF:
         left_margin = _dda_plot_left_margin(self, self.variant)
@@ -1954,7 +2055,10 @@ class DdaLinePlotWidget(QWidget):
                     and annotation.channel_name != row_hint
                 ):
                     continue
-            elif annotation.channel_name is not None and annotation.channel_name not in row_labels:
+            elif (
+                annotation.channel_name is not None
+                and annotation.channel_name not in row_labels
+            ):
                 continue
             if annotation.is_range and annotation.end_seconds is not None:
                 if (
@@ -1984,7 +2088,10 @@ class DdaLinePlotWidget(QWidget):
         row_labels = list(self.variant.row_labels if self.variant is not None else [])
         theme = current_theme_colors(self)
         for annotation in self.annotations:
-            if annotation.channel_name is not None and annotation.channel_name not in row_labels:
+            if (
+                annotation.channel_name is not None
+                and annotation.channel_name not in row_labels
+            ):
                 continue
             color = QColor(
                 theme.annotation_channel
@@ -1994,12 +2101,12 @@ class DdaLinePlotWidget(QWidget):
             if annotation.is_range and annotation.end_seconds is not None:
                 if annotation.end_seconds < x_min or annotation.start_seconds > x_max:
                     continue
-                left_fraction = (
-                    max(annotation.start_seconds, x_min) - x_min
-                ) / max(x_max - x_min, 1e-6)
-                right_fraction = (
-                    min(annotation.end_seconds, x_max) - x_min
-                ) / max(x_max - x_min, 1e-6)
+                left_fraction = (max(annotation.start_seconds, x_min) - x_min) / max(
+                    x_max - x_min, 1e-6
+                )
+                right_fraction = (min(annotation.end_seconds, x_max) - x_min) / max(
+                    x_max - x_min, 1e-6
+                )
                 overlay_rect = QRectF(
                     plot_rect.left() + left_fraction * plot_rect.width(),
                     plot_rect.top(),
@@ -2026,7 +2133,9 @@ class DdaLinePlotWidget(QWidget):
                 fraction = (timestamp - x_min) / max(x_max - x_min, 1e-6)
                 x = plot_rect.left() + fraction * plot_rect.width()
                 painter.setPen(QPen(color, 1.5))
-                painter.drawLine(QPointF(x, plot_rect.top()), QPointF(x, plot_rect.bottom()))
+                painter.drawLine(
+                    QPointF(x, plot_rect.top()), QPointF(x, plot_rect.bottom())
+                )
                 _draw_plot_annotation_flag(
                     painter,
                     annotation.label,
@@ -2036,6 +2145,15 @@ class DdaLinePlotWidget(QWidget):
                     plot_rect,
                 )
 
+    def _draw_cursor_overlay(self, painter: QPainter) -> None:
+        if not self._plot_layers.cursor or self._cursor_fraction < 0.0:
+            return
+        plot_rect = self._line_plot_rect()
+        x = plot_rect.left() + self._cursor_fraction * plot_rect.width()
+        theme = current_theme_colors(self)
+        painter.setPen(QPen(QColor(theme.viewport_border), 1.2))
+        painter.drawLine(QPointF(x, plot_rect.top()), QPointF(x, plot_rect.bottom()))
+
     def _nearest_row_label_at(self, point: QPoint) -> Optional[str]:
         plot_state = self._line_plot_state()
         variant = self.variant
@@ -2044,16 +2162,20 @@ class DdaLinePlotWidget(QWidget):
         plot_rect = plot_state["plot_rect"]
         if not plot_rect.contains(point):
             return None
-        row_count = plot_state["row_count"]
-        column_count = plot_state["column_count"]
-        sample_indices = plot_state["sample_indices"]
+        matrix_view = plot_state["matrix_view"]
         x_values = plot_state["x_values"]
         rendered_row_count = plot_state["rendered_row_count"]
         if not x_values:
             return None
         position_index = int(
             round(
-                max(0.0, min(1.0, (point.x() - plot_rect.left()) / max(plot_rect.width(), 1.0)))
+                max(
+                    0.0,
+                    min(
+                        1.0,
+                        (point.x() - plot_rect.left()) / max(plot_rect.width(), 1.0),
+                    ),
+                )
                 * max(len(x_values) - 1, 0)
             )
         )
@@ -2068,22 +2190,19 @@ class DdaLinePlotWidget(QWidget):
 
         best_distance = float("inf")
         best_label: Optional[str] = None
-        for row_index, row in enumerate(variant.matrix[:rendered_row_count]):
-            if not row:
+        for row_index, row in enumerate(matrix_view.values[:rendered_row_count]):
+            if row.size <= 0:
                 continue
-            row_sample_indices = (
-                sample_indices
-                if len(row) == column_count
-                else _resample_indices(len(row), len(sample_indices))
-            )
-            if not row_sample_indices:
-                continue
-            source_index = row_sample_indices[min(position_index, len(row_sample_indices) - 1)]
-            y = map_y(_plot_value(row[source_index]))
+            source_index = min(position_index, len(row) - 1)
+            y = map_y(_plot_value(float(row[source_index])))
             distance = abs(point.y() - y)
             if distance < best_distance:
                 best_distance = distance
-                best_label = variant.row_labels[row_index] if row_index < len(variant.row_labels) else None
+                best_label = (
+                    variant.row_labels[row_index]
+                    if row_index < len(variant.row_labels)
+                    else None
+                )
         return best_label if best_distance <= 18.0 else None
 
     def _line_plot_state(self) -> Optional[dict[str, object]]:
@@ -2096,9 +2215,8 @@ class DdaLinePlotWidget(QWidget):
             or self.height() <= 0
         ):
             return None
-        row_count = len(variant.matrix)
         column_count = variant.effective_column_count
-        min_value, max_value = _variant_plot_bounds(variant)
+        min_value, max_value = variant_plot_bounds(variant)
         if math.isclose(min_value, max_value, rel_tol=1e-9, abs_tol=1e-9):
             padding = max(abs(min_value) * 0.1, 1.0)
             min_value -= padding
@@ -2113,12 +2231,15 @@ class DdaLinePlotWidget(QWidget):
             2,
             min(column_count, max(128, int(plot_rect.width() / 2.0))),
         )
-        sample_indices = _windowed_resample_indices(
-            column_count,
-            target_points,
-            start_fraction=self._x_view_start,
-            span_fraction=self._x_view_span,
+        matrix_view = DdaVariantPlotProvider(variant).matrix_view(
+            MatrixViewRequest(
+                target_columns=target_points,
+                start_fraction=self._x_view_start,
+                span_fraction=self._x_view_span,
+                max_rows=8,
+            )
         )
+        sample_indices = list(matrix_view.sample_indices)
         x_values = self._x_values(sample_indices)
         if not x_values:
             return None
@@ -2128,7 +2249,7 @@ class DdaLinePlotWidget(QWidget):
             x_max = x_min + 1.0
         return {
             "variant": variant,
-            "row_count": row_count,
+            "row_count": matrix_view.source_row_count,
             "column_count": column_count,
             "min_value": min_value,
             "max_value": max_value,
@@ -2138,7 +2259,9 @@ class DdaLinePlotWidget(QWidget):
             "x_values": x_values,
             "x_min": x_min,
             "x_max": x_max,
-            "rendered_row_count": min(row_count, 8),
+            "matrix_view": matrix_view,
+            "render_key": matrix_view_render_key(matrix_view, "lineplot"),
+            "rendered_row_count": min(matrix_view.source_row_count, 8),
         }
 
 
@@ -2286,10 +2409,7 @@ class NetworkMotifWidget(QWidget):
                 18.0,
             ),
             Qt.AlignLeft | Qt.AlignVCenter,
-            (
-                f"Avg weight {average_weight:.3f}    "
-                f"Peak {max_weight:.3f}"
-            ),
+            (f"Avg weight {average_weight:.3f}    Peak {max_weight:.3f}"),
         )
         painter.restore()
 
@@ -2322,7 +2442,8 @@ class NetworkMotifWidget(QWidget):
             for edge in adjacency.edges
             if edge.from_node != edge.to_node
             and any(
-                candidate.from_node == edge.to_node and candidate.to_node == edge.from_node
+                candidate.from_node == edge.to_node
+                and candidate.to_node == edge.from_node
                 for candidate in adjacency.edges
             )
         }
@@ -2377,7 +2498,10 @@ class NetworkMotifWidget(QWidget):
                 center_point.x() + math.cos(angle) * 26.0,
                 center_point.y() + math.sin(angle) * 26.0,
             )
-            label_width = min(96.0, max(54.0, painter.fontMetrics().horizontalAdvance(label_text) + 16.0))
+            label_width = min(
+                96.0,
+                max(54.0, painter.fontMetrics().horizontalAdvance(label_text) + 16.0),
+            )
             label_rect = QRectF(
                 label_anchor.x() - label_width / 2.0,
                 label_anchor.y() - 10.0,
@@ -2385,10 +2509,16 @@ class NetworkMotifWidget(QWidget):
                 20.0,
             )
             label_rect.moveLeft(
-                max(graph_rect.left(), min(label_rect.left(), graph_rect.right() - label_rect.width()))
+                max(
+                    graph_rect.left(),
+                    min(label_rect.left(), graph_rect.right() - label_rect.width()),
+                )
             )
             label_rect.moveTop(
-                max(graph_rect.top(), min(label_rect.top(), graph_rect.bottom() - label_rect.height()))
+                max(
+                    graph_rect.top(),
+                    min(label_rect.top(), graph_rect.bottom() - label_rect.height()),
+                )
             )
             painter.setPen(QPen(label_border, 1.0))
             painter.setBrush(label_fill)
@@ -2397,7 +2527,9 @@ class NetworkMotifWidget(QWidget):
             painter.drawText(
                 label_rect.adjusted(6.0, 0.0, -6.0, 0.0),
                 Qt.AlignCenter,
-                painter.fontMetrics().elidedText(label_text, Qt.ElideRight, int(label_rect.width() - 10.0)),
+                painter.fontMetrics().elidedText(
+                    label_text, Qt.ElideRight, int(label_rect.width() - 10.0)
+                ),
             )
         painter.restore()
 
@@ -2558,21 +2690,48 @@ def _draw_plot_annotation_flag(
     painter.restore()
 
 
-def _resample_indices(source_length: int, target_length: int) -> List[int]:
-    if source_length <= 0 or target_length <= 0:
-        return []
-    if source_length == 1:
-        return [0] * target_length
-    if target_length == 1:
-        return [0]
-    return [
-        min(source_length - 1, (position * (source_length - 1)) // (target_length - 1))
-        for position in range(target_length)
-    ]
+def _log_result_plot_paint(
+    surface: str,
+    start_ns: int,
+    *,
+    width: int,
+    height: int,
+    rows: int,
+    source_columns: int,
+) -> None:
+    duration_ms = max(0.0, (perf_counter_ns() - start_ns) / 1_000_000.0)
+    perf_logger().log_slow(
+        f"dda.{surface}.paint",
+        f"dda.{surface}.paint",
+        duration_ms,
+        threshold_ms=12.0,
+        width=width,
+        height=height,
+        rows=rows,
+        sourceCols=source_columns,
+    )
 
 
 def _clamp_unit_interval(value: float) -> float:
     return max(0.0, min(1.0, float(value)))
+
+
+def _normalize_cursor_fraction(fraction: float | None) -> float:
+    if fraction is None:
+        return -1.0
+    try:
+        numeric = float(fraction)
+    except (TypeError, ValueError):
+        return -1.0
+    if not math.isfinite(numeric) or numeric < 0.0:
+        return -1.0
+    return _clamp_unit_interval(numeric)
+
+
+def _plot_cursor_fraction(plot_rect: QRectF, x: float) -> float:
+    return _clamp_unit_interval(
+        (float(x) - plot_rect.left()) / max(plot_rect.width(), 1.0)
+    )
 
 
 def _clamp_view_window(start: float, span: float) -> tuple[float, float]:
@@ -2628,12 +2787,14 @@ def _windowed_resample_indices(
     window_start = start_fraction * last_index
     window_end = window_start + span_fraction * last_index
     if target_length == 1:
-        return [min(source_length - 1, max(0, int(round((window_start + window_end) / 2.0))))]
+        return [
+            min(
+                source_length - 1, max(0, int(round((window_start + window_end) / 2.0)))
+            )
+        ]
     indices: List[int] = []
     for position in range(target_length):
         fraction = position / max(target_length - 1, 1)
         source_position = window_start + fraction * (window_end - window_start)
-        indices.append(
-            min(source_length - 1, max(0, int(round(source_position))))
-        )
+        indices.append(min(source_length - 1, max(0, int(round(source_position)))))
     return indices

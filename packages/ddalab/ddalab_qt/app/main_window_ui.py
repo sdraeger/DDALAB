@@ -13,8 +13,8 @@ from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QGroupBox,
-    QHeaderView,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -35,18 +35,22 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..ui.plot_surface_factory import (
+    create_result_plot_surface,
+    create_waveform_plot_surface,
+)
 from ..ui.widgets.busy_indicator import BusyIndicatorBar
 from ..ui.widgets.clickable_label import ClickableLabel
 from ..ui.widgets.file_browser import FileBrowserWidget
+from ..ui.widgets.math_label import MathLabel
 from ..ui.widgets.plots import (
-    DdaLinePlotWidget,
     HEATMAP_COLOR_SCHEME_OPTIONS,
+    DdaLinePlotWidget,
     HeatmapWidget,
     NetworkMotifWidget,
     OverviewWidget,
     WaveformWidget,
 )
-from ..ui.widgets.math_label import MathLabel
 from .main_window_support import ToggleListWidget
 
 
@@ -161,8 +165,7 @@ class MainWindowUiMixin:
             )
         else:
             button.setToolTip(
-                "Export recipe-only .ddalab files, JSON/CSV data, scripts,"
-                " and plots."
+                "Export recipe-only .ddalab files, JSON/CSV data, scripts, and plots."
             )
         menu = QMenu(button)
         actions: Dict[str, object] = {}
@@ -505,6 +508,8 @@ class MainWindowUiMixin:
         self.zoom_out_button = QPushButton("Zoom Out")
         self.zoom_in_button = QPushButton("Zoom In")
         self.reset_view_button = QPushButton("Reset")
+        self.waveform_layer_waveform_checkbox = QCheckBox("Waveform")
+        self.waveform_layer_annotations_checkbox = QCheckBox("Annotations")
         for button in (
             self.pan_left_button,
             self.pan_right_button,
@@ -514,9 +519,24 @@ class MainWindowUiMixin:
         ):
             button.setProperty("secondary", True)
             controls.addWidget(button)
+        controls.addWidget(QLabel("Layers"))
+        for checkbox in (
+            self.waveform_layer_waveform_checkbox,
+            self.waveform_layer_annotations_checkbox,
+        ):
+            checkbox.setChecked(True)
+            controls.addWidget(checkbox)
         workspace_layout.addLayout(controls)
 
         self.waveform_widget = WaveformWidget()
+        self.quick_waveform_bridge = None
+        self.quick_waveform_widget = None
+        quick_waveform_surface = create_waveform_plot_surface(self)
+        if quick_waveform_surface is not None:
+            self.quick_waveform_bridge = quick_waveform_surface.bridge
+            self.quick_waveform_widget = quick_waveform_surface.widget
+            self.quick_waveform_widget.setMinimumHeight(180)
+            workspace_layout.addWidget(self.quick_waveform_widget)
         self.overview_widget = OverviewWidget()
         workspace_layout.addWidget(self.waveform_widget, 1)
         workspace_layout.addWidget(self.overview_widget)
@@ -825,7 +845,9 @@ class MainWindowUiMixin:
                 section_layout.addWidget(channel_list, 1)
                 self.dda_variant_channel_filter_edits[variant] = channel_filter_edit
                 self.dda_variant_channel_select_all_buttons[variant] = select_all_button
-                self.dda_variant_channel_select_none_buttons[variant] = select_none_button
+                self.dda_variant_channel_select_none_buttons[variant] = (
+                    select_none_button
+                )
                 self.dda_variant_channel_lists[variant] = channel_list
             self.dda_variant_channel_sections[variant] = section
             self.dda_variant_channel_summaries[variant] = summary
@@ -1023,6 +1045,19 @@ class MainWindowUiMixin:
         )
         header.addWidget(QLabel("Colors"))
         header.addWidget(self.heatmap_color_scheme_combo)
+        header.addWidget(QLabel("Layers"))
+        self.result_layer_heatmap_checkbox = QCheckBox("Heatmap")
+        self.result_layer_line_checkbox = QCheckBox("Line")
+        self.result_layer_cursor_checkbox = QCheckBox("Cursor")
+        self.result_layer_annotations_checkbox = QCheckBox("Annotations")
+        for checkbox in (
+            self.result_layer_heatmap_checkbox,
+            self.result_layer_line_checkbox,
+            self.result_layer_cursor_checkbox,
+            self.result_layer_annotations_checkbox,
+        ):
+            checkbox.setChecked(True)
+            header.addWidget(checkbox)
         results_layout.addLayout(header)
 
         export_actions = QHBoxLayout()
@@ -1044,6 +1079,17 @@ class MainWindowUiMixin:
             export_actions.addWidget(button)
         export_actions.addStretch(1)
         results_layout.addLayout(export_actions)
+        self.quick_heatmap_bridge = None
+        self.quick_heatmap_widget = None
+        quick_result_surface = create_result_plot_surface(self)
+        if quick_result_surface is not None:
+            quick_heatmap_box = QGroupBox("Qt Quick Heatmap")
+            quick_heatmap_layout = QVBoxLayout(quick_heatmap_box)
+            self.quick_heatmap_bridge = quick_result_surface.bridge
+            self.quick_heatmap_widget = quick_result_surface.widget
+            self.quick_heatmap_widget.setMinimumHeight(260)
+            quick_heatmap_layout.addWidget(self.quick_heatmap_widget)
+            results_layout.addWidget(quick_heatmap_box, 1)
         self.heatmap_widget = HeatmapWidget()
         results_layout.addWidget(self.heatmap_widget, 1)
         self.dda_lineplot_widget = DdaLinePlotWidget()
@@ -1248,9 +1294,7 @@ class MainWindowUiMixin:
         self.connectivity_motif_scroll.setHorizontalScrollBarPolicy(
             Qt.ScrollBarAsNeeded
         )
-        self.connectivity_motif_scroll.setVerticalScrollBarPolicy(
-            Qt.ScrollBarAsNeeded
-        )
+        self.connectivity_motif_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.connectivity_motif_widget = NetworkMotifWidget()
         self.connectivity_motif_scroll.setWidget(self.connectivity_motif_widget)
         motif_layout.addWidget(self.connectivity_motif_scroll, 1)
@@ -1546,7 +1590,9 @@ class MainWindowUiMixin:
 
         summary_box = QGroupBox("Current Analysis")
         summary_layout = QVBoxLayout(summary_box)
-        self.results_summary_label = QLabel("Run DDA to create or export a DDALAB snapshot file.")
+        self.results_summary_label = QLabel(
+            "Run DDA to create or export a DDALAB snapshot file."
+        )
         self.results_summary_label.setWordWrap(True)
         self.results_summary_label.setProperty("muted", True)
         summary_layout.addWidget(self.results_summary_label)
@@ -1555,9 +1601,7 @@ class MainWindowUiMixin:
         actions = QHBoxLayout()
         self.import_snapshot_button = QPushButton("Import .ddalab")
         self.import_snapshot_button.setProperty("secondary", True)
-        self.import_snapshot_button.setToolTip(
-            "Open a DDALAB snapshot file (.ddalab)."
-        )
+        self.import_snapshot_button.setToolTip("Open a DDALAB snapshot file (.ddalab).")
         self.snapshot_export_button = QPushButton("Export .ddalab")
         self.snapshot_export_button.setProperty("secondary", True)
         self.snapshot_export_button.setToolTip(
@@ -1587,7 +1631,9 @@ class MainWindowUiMixin:
         history_layout = QVBoxLayout(history_panel)
         history_layout.setContentsMargins(0, 0, 0, 0)
         history_layout.setSpacing(10)
-        self.results_history_status_label = QLabel("No saved analyses for this file yet.")
+        self.results_history_status_label = QLabel(
+            "No saved analyses for this file yet."
+        )
         self.results_history_status_label.setProperty("muted", True)
         self.results_history_status_label.setWordWrap(True)
         history_layout.addWidget(self.results_history_status_label)
@@ -2013,9 +2059,7 @@ class MainWindowUiMixin:
             self._on_dda_model_space_changed
         )
         self.dda_nr_tau_spin.valueChanged.connect(self._on_dda_model_space_changed)
-        self.dda_model_terms_list.itemChanged.connect(
-            self._on_dda_model_terms_changed
-        )
+        self.dda_model_terms_list.itemChanged.connect(self._on_dda_model_terms_changed)
         self.dda_apply_model_preset_button.clicked.connect(
             self._apply_selected_dda_model_preset
         )
@@ -2026,7 +2070,8 @@ class MainWindowUiMixin:
         self.ica_end_edit.textChanged.connect(lambda *_: self._schedule_session_save())
         for variant_id, checkbox in self.variant_checkboxes.items():
             checkbox.toggled.connect(
-                lambda checked, target_variant=variant_id: self._on_dda_variant_checkbox_toggled(
+                lambda checked,
+                target_variant=variant_id: self._on_dda_variant_checkbox_toggled(
                     target_variant, checked
                 )
             )
@@ -2035,25 +2080,29 @@ class MainWindowUiMixin:
         )
         for variant_id, channel_list in self.dda_variant_channel_lists.items():
             channel_list.itemChanged.connect(
-                lambda *_args, target_variant=variant_id: self._on_dda_variant_channel_list_changed(
+                lambda *_args,
+                target_variant=variant_id: self._on_dda_variant_channel_list_changed(
                     target_variant
                 )
             )
         for variant_id, filter_edit in self.dda_variant_channel_filter_edits.items():
             filter_edit.textChanged.connect(
-                lambda *_args, target_variant=variant_id: self._apply_dda_variant_channel_filter(
+                lambda *_args,
+                target_variant=variant_id: self._apply_dda_variant_channel_filter(
                     target_variant
                 )
             )
         for variant_id, button in self.dda_variant_channel_select_all_buttons.items():
             button.clicked.connect(
-                lambda _checked=False, target_variant=variant_id: self._set_dda_variant_channels_checked(
+                lambda _checked=False,
+                target_variant=variant_id: self._set_dda_variant_channels_checked(
                     target_variant, True
                 )
             )
         for variant_id, button in self.dda_variant_channel_select_none_buttons.items():
             button.clicked.connect(
-                lambda _checked=False, target_variant=variant_id: self._set_dda_variant_channels_checked(
+                lambda _checked=False,
+                target_variant=variant_id: self._set_dda_variant_channels_checked(
                     target_variant, False
                 )
             )
@@ -2065,37 +2114,49 @@ class MainWindowUiMixin:
             )
         for variant_id, filter_edit in self.dda_variant_pair_filter_edits.items():
             filter_edit.textChanged.connect(
-                lambda *_args, target_variant=variant_id: self._apply_dda_variant_pair_filter(
+                lambda *_args,
+                target_variant=variant_id: self._apply_dda_variant_pair_filter(
                     target_variant
                 )
             )
-        for variant_id, filter_edit in self.dda_variant_pair_source_filter_edits.items():
+        for (
+            variant_id,
+            filter_edit,
+        ) in self.dda_variant_pair_source_filter_edits.items():
             filter_edit.textChanged.connect(
-                lambda *_args, target_variant=variant_id: self._apply_dda_variant_pair_combo_filters(
+                lambda *_args,
+                target_variant=variant_id: self._apply_dda_variant_pair_combo_filters(
                     target_variant
                 )
             )
-        for variant_id, filter_edit in self.dda_variant_pair_target_filter_edits.items():
+        for (
+            variant_id,
+            filter_edit,
+        ) in self.dda_variant_pair_target_filter_edits.items():
             filter_edit.textChanged.connect(
-                lambda *_args, target_variant=variant_id: self._apply_dda_variant_pair_combo_filters(
+                lambda *_args,
+                target_variant=variant_id: self._apply_dda_variant_pair_combo_filters(
                     target_variant
                 )
             )
         for variant_id, button in self.dda_variant_pair_add_buttons.items():
             button.clicked.connect(
-                lambda _checked=False, target_variant=variant_id: self._on_dda_variant_pair_add_requested(
+                lambda _checked=False,
+                target_variant=variant_id: self._on_dda_variant_pair_add_requested(
                     target_variant
                 )
             )
         for variant_id, button in self.dda_variant_pair_remove_buttons.items():
             button.clicked.connect(
-                lambda _checked=False, target_variant=variant_id: self._on_dda_variant_pair_remove_requested(
+                lambda _checked=False,
+                target_variant=variant_id: self._on_dda_variant_pair_remove_requested(
                     target_variant
                 )
             )
         for variant_id, button in self.dda_variant_pair_clear_buttons.items():
             button.clicked.connect(
-                lambda _checked=False, target_variant=variant_id: self._on_dda_variant_pair_clear_requested(
+                lambda _checked=False,
+                target_variant=variant_id: self._on_dda_variant_pair_clear_requested(
                     target_variant
                 )
             )
@@ -2145,6 +2206,11 @@ class MainWindowUiMixin:
         self.waveform_widget.annotation_context_requested.connect(
             self._open_waveform_annotation_context_menu
         )
+        for checkbox in (
+            self.waveform_layer_waveform_checkbox,
+            self.waveform_layer_annotations_checkbox,
+        ):
+            checkbox.toggled.connect(lambda *_: self._on_waveform_plot_layers_changed())
         self.overview_widget.viewport_jump_requested.connect(self._jump_viewport)
         self.overview_widget.annotation_context_requested.connect(
             self._open_overview_annotation_context_menu
@@ -2152,9 +2218,26 @@ class MainWindowUiMixin:
         self.heatmap_widget.annotation_context_requested.connect(
             self._open_dda_heatmap_annotation_context_menu
         )
+        self.heatmap_widget.view_window_changed.connect(self._sync_result_plot_viewport)
+        self.heatmap_widget.cursor_fraction_changed.connect(
+            self._sync_result_plot_cursor
+        )
         self.dda_lineplot_widget.annotation_context_requested.connect(
             self._open_dda_lineplot_annotation_context_menu
         )
+        self.dda_lineplot_widget.view_window_changed.connect(
+            self._sync_result_plot_viewport
+        )
+        self.dda_lineplot_widget.cursor_fraction_changed.connect(
+            self._sync_result_plot_cursor
+        )
+        for checkbox in (
+            self.result_layer_heatmap_checkbox,
+            self.result_layer_line_checkbox,
+            self.result_layer_cursor_checkbox,
+            self.result_layer_annotations_checkbox,
+        ):
+            checkbox.toggled.connect(lambda *_: self._on_result_plot_layers_changed())
 
         self.pan_left_button.clicked.connect(lambda: self._shift_viewport(-1.0))
         self.pan_right_button.clicked.connect(lambda: self._shift_viewport(1.0))
@@ -2219,7 +2302,9 @@ class MainWindowUiMixin:
             self._on_compare_variant_changed
         )
         self.compare_view_nav.currentChanged.connect(self._on_compare_view_mode_changed)
-        self.compare_row_list.itemChanged.connect(self._on_compare_row_selection_changed)
+        self.compare_row_list.itemChanged.connect(
+            self._on_compare_row_selection_changed
+        )
         self.compare_select_top_rows_button.clicked.connect(
             self._select_top_changed_compare_rows
         )
@@ -2245,7 +2330,9 @@ class MainWindowUiMixin:
         )
         if hasattr(self, "nsg_save_credentials_button"):
             self.nsg_save_credentials_button.clicked.connect(self._save_nsg_credentials)
-            self.nsg_delete_credentials_button.clicked.connect(self._delete_nsg_credentials)
+            self.nsg_delete_credentials_button.clicked.connect(
+                self._delete_nsg_credentials
+            )
             self.nsg_test_connection_button.clicked.connect(self._test_nsg_connection)
             self.nsg_create_job_button.clicked.connect(self._create_nsg_job)
             self.nsg_refresh_jobs_button.clicked.connect(self._refresh_nsg_state)
@@ -2258,7 +2345,9 @@ class MainWindowUiMixin:
             self.nsg_jobs_table.itemSelectionChanged.connect(self._update_nsg_panels)
         self.import_snapshot_button.clicked.connect(self._import_snapshot)
         self.snapshot_export_button.clicked.connect(self._export_snapshot)
-        self.view_history_result_button.clicked.connect(self._view_selected_history_result)
+        self.view_history_result_button.clicked.connect(
+            self._view_selected_history_result
+        )
         self.results_history_table.itemSelectionChanged.connect(
             self._on_results_history_selection_changed
         )
