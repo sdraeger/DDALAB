@@ -7,11 +7,10 @@ from pathlib import Path
 from time import perf_counter_ns
 from typing import Mapping
 
-from PySide6.QtCore import Property, QObject, QRectF, QSize, QUrl, Signal
+from PySide6.QtCore import Property, QObject, QRectF, QUrl, Signal
 from PySide6.QtGui import QImage
 from PySide6.QtQml import qmlRegisterType
 from PySide6.QtQuick import (
-    QQuickImageProvider,
     QQuickItem,
     QSGNode,
     QSGSimpleTextureNode,
@@ -39,7 +38,6 @@ from .qt_plot_renderer import (
 )
 from .render_cache import LruRenderCache
 
-_IMAGE_PROVIDER_NAME = "ddalab-plot"
 _QML_MODULE = "DDALAB.Plots"
 _QML_MAJOR_VERSION = 1
 _QML_MINOR_VERSION = 0
@@ -219,11 +217,9 @@ class QuickPlotSurfaceBridge(QObject):
     def statusText(self) -> str:
         return self._status_text
 
-    @Property(str, notify=changed)
-    def imageSource(self) -> str:
-        if self._image.isNull():
-            return ""
-        return f"image://{_IMAGE_PROVIDER_NAME}/heatmap-{self._image_revision}"
+    @Property(bool, notify=changed)
+    def hasImage(self) -> bool:
+        return not self._image.isNull()
 
     @Property(int, notify=changed)
     def lineGeometryRevision(self) -> int:
@@ -246,36 +242,9 @@ class QuickPlotSurfaceBridge(QObject):
         return self._plot_layers.cursor
 
 
-class QuickHeatmapImageProvider(QQuickImageProvider):
-    def __init__(self, bridge: QuickPlotSurfaceBridge) -> None:
-        super().__init__(QQuickImageProvider.Image)
-        self._bridge = bridge
-
-    def requestImage(
-        self,
-        image_id: str,
-        size: QSize | None,
-        requested_size: QSize | None,
-    ) -> tuple[QImage, QSize]:
-        started_ns = perf_counter_ns()
-        image = self._bridge.image()
-        if image.isNull():
-            image = QImage(1, 1, QImage.Format_RGBA8888)
-            image.fill(0)
-        if requested_size is not None and requested_size.isValid():
-            image = image.scaled(requested_size)
-        image_size = image.size()
-        _log_slow_heatmap_provider_request(
-            started_ns,
-            image_id=image_id,
-            image_size=image_size,
-            requested_size=requested_size,
-        )
-        return image, image_size
-
-
 class _QuickBridgeTextureItem(QQuickItem):
     bridgeChanged = Signal()
+    _log_surface = "texture"
 
     def __init__(self, parent: QQuickItem | None = None) -> None:
         super().__init__(parent)
@@ -324,13 +293,24 @@ class _QuickBridgeTextureItem(QQuickItem):
         if node is None:
             node = QSGSimpleTextureNode()
             node.setOwnsTexture(True)
+        started_ns = perf_counter_ns()
         texture = self.window().createTextureFromImage(image)
         node.setTexture(texture)
         node.setRect(QRectF(0.0, 0.0, self.width(), self.height()))
+        _log_slow_texture_node_update(
+            self._log_surface,
+            started_ns,
+            image_width=image.width(),
+            image_height=image.height(),
+            width=float(self.width()),
+            height=float(self.height()),
+        )
         return node
 
 
 class QuickHeatmapTextureItem(_QuickBridgeTextureItem):
+    _log_surface = "result_heatmap"
+
     def _image(self) -> QImage:
         return self._bridge.image() if self._bridge is not None else QImage()
 
@@ -446,8 +426,6 @@ def create_quick_plot_surface_widget(
     widget.ddalabSceneGraphTypesRegistered = register_quick_plot_types()
     widget.setResizeMode(QQuickWidget.SizeRootObjectToView)
     widget.rootContext().setContextProperty("plotBridge", bridge)
-    widget.ddalabImageProvider = QuickHeatmapImageProvider(bridge)
-    widget.engine().addImageProvider(_IMAGE_PROVIDER_NAME, widget.ddalabImageProvider)
     widget.setSource(QUrl.fromLocalFile(str(quick_plot_surface_qml_path())))
     return widget
 
@@ -568,29 +546,6 @@ def _log_render_cache_lookup(
     )
 
 
-def _log_slow_heatmap_provider_request(
-    start_ns: int,
-    *,
-    image_id: str,
-    image_size: QSize,
-    requested_size: QSize | None,
-) -> None:
-    duration_ms = max(0.0, (perf_counter_ns() - start_ns) / 1_000_000.0)
-    requested_width = requested_size.width() if requested_size is not None else None
-    requested_height = requested_size.height() if requested_size is not None else None
-    perf_logger().log_slow(
-        "qml.heatmap_provider",
-        "qml.heatmap_provider.request",
-        duration_ms,
-        threshold_ms=8.0,
-        imageId=image_id,
-        width=image_size.width(),
-        height=image_size.height(),
-        requestedWidth=requested_width,
-        requestedHeight=requested_height,
-    )
-
-
 def _log_slow_plot_build(kind: str, start_ns: int, view: MatrixView) -> None:
     duration_ms = max(0.0, (perf_counter_ns() - start_ns) / 1_000_000.0)
     perf_logger().log_slow(
@@ -623,6 +578,28 @@ def _log_slow_scene_graph_update(
         threshold_ms=8.0,
         nodes=nodes,
         vertices=vertices,
+        width=round(width, 2),
+        height=round(height, 2),
+    )
+
+
+def _log_slow_texture_node_update(
+    surface: str,
+    start_ns: int,
+    *,
+    image_width: int,
+    image_height: int,
+    width: float,
+    height: float,
+) -> None:
+    duration_ms = max(0.0, (perf_counter_ns() - start_ns) / 1_000_000.0)
+    perf_logger().log_slow(
+        f"qml.scene_graph.{surface}",
+        f"qml.scene_graph.{surface}.update",
+        duration_ms,
+        threshold_ms=8.0,
+        imageWidth=image_width,
+        imageHeight=image_height,
         width=round(width, 2),
         height=round(height, 2),
     )
