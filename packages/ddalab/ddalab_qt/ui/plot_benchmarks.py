@@ -54,6 +54,8 @@ def dense_matrix_tile_contract(
     column_count: int = 20_000,
     target_columns: int = 800,
     max_rows: int = 32,
+    start_fraction: float = 0.0,
+    span_fraction: float = 1.0,
 ) -> dict[str, Any]:
     started_ns = perf_counter_ns()
     variant = _synthetic_variant(row_count, column_count)
@@ -61,6 +63,8 @@ def dense_matrix_tile_contract(
     provider = DdaVariantPlotProvider(variant, tile_cache=cache)
     request = MatrixViewRequest(
         target_columns=max(1, int(target_columns)),
+        start_fraction=start_fraction,
+        span_fraction=span_fraction,
         max_rows=max(0, int(max_rows)),
     )
     first = provider.matrix_view(request)
@@ -70,6 +74,8 @@ def dense_matrix_tile_contract(
         "durationMs": _duration_ms(started_ns),
         "sourceRows": max(0, int(row_count)),
         "sourceColumns": max(0, int(column_count)),
+        "sourceColumnStart": first.source_column_start,
+        "sourceColumnEnd": first.source_column_end,
         "tileRows": first.source_row_count,
         "tileColumns": first.target_column_count,
         "tileCells": int(first.values.size),
