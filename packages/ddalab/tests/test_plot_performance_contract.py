@@ -32,6 +32,20 @@ class PlotPerformanceContractTests(unittest.TestCase):
         self.assertEqual(contract["drawModes"], ("lines", "lines", "lines"))
         self.assertLessEqual(contract["vertices"], 3 * 200 * 4)
 
+    def test_dense_waveform_contract_reports_envelope_pyramid_metadata(self) -> None:
+        contract = dense_waveform_geometry_contract(
+            channel_count=2,
+            sample_count=20_000,
+            target_width=200,
+        )
+
+        self.assertEqual(contract["envelopeLevelsPerChannel"], [4, 4])
+        self.assertEqual(
+            contract["envelopeBucketSizes"],
+            [[8, 16, 32, 50], [8, 16, 32, 50]],
+        )
+        self.assertEqual(contract["maxEnvelopeBucketSize"], 50)
+
     def test_dense_matrix_contract_bounds_tile_cells_by_request(self) -> None:
         contract = dense_matrix_tile_contract(
             row_count=20,
@@ -89,6 +103,8 @@ class PlotPerformanceContractTests(unittest.TestCase):
         self.assertIn("visibleSamples", waveform_log.kwargs)
         self.assertIn("vertices", waveform_log.kwargs)
         self.assertIn("targetWidth", waveform_log.kwargs)
+        self.assertIn("envelopeLevelsPerChannel", waveform_log.kwargs)
+        self.assertIn("maxEnvelopeBucketSize", waveform_log.kwargs)
         self.assertIn("tileRows", matrix_log.kwargs)
         self.assertIn("tileColumns", matrix_log.kwargs)
         self.assertIn("sourceColumnStart", matrix_log.kwargs)

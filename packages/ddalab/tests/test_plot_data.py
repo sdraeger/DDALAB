@@ -526,7 +526,7 @@ class PlotDataTests(unittest.TestCase):
         self.assertEqual(float(view.min_values.min()), -10.0)
         self.assertEqual(float(view.max_values.max()), 9.0)
 
-    def test_waveform_trace_view_stores_generated_envelope_level_for_reuse(
+    def test_waveform_trace_view_builds_lazy_envelope_pyramid_for_reuse(
         self,
     ) -> None:
         channel = _channel(
@@ -540,11 +540,28 @@ class PlotDataTests(unittest.TestCase):
         first = build_waveform_trace_view(channel, target_width=2)
         second = build_waveform_trace_view(channel, target_width=2)
 
-        self.assertEqual(len(channel.levels), 1)
-        self.assertEqual(channel.levels[0].bucket_size, first.bucket_size)
+        self.assertEqual([level.bucket_size for level in channel.levels], [4, 5])
+        self.assertEqual(first.bucket_size, 5)
         self.assertEqual(second.bucket_size, first.bucket_size)
         np.testing.assert_allclose(second.min_values, first.min_values)
         np.testing.assert_allclose(second.max_values, first.max_values)
+
+    def test_waveform_trace_view_reuses_pyramid_for_finer_request(self) -> None:
+        channel = _channel([float(value) for value in range(64)])
+
+        coarse = build_waveform_trace_view(
+            channel, target_width=4, dense_sample_factor=1
+        )
+        levels_after_coarse = tuple(level.bucket_size for level in channel.levels)
+        fine = build_waveform_trace_view(channel, target_width=8, dense_sample_factor=1)
+
+        self.assertEqual(coarse.bucket_size, 8)
+        self.assertEqual(fine.bucket_size, 4)
+        self.assertEqual(levels_after_coarse, (4, 8))
+        self.assertEqual(
+            tuple(level.bucket_size for level in channel.levels),
+            levels_after_coarse,
+        )
 
     def test_waveform_trace_view_is_empty_without_samples(self) -> None:
         view = build_waveform_trace_view(_channel([]), target_width=20)
