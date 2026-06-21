@@ -99,6 +99,8 @@ class QuickPlotSurfaceTests(unittest.TestCase):
         self.assertEqual(bridge.totalRowCount, 2)
         self.assertEqual(bridge.visibleColumnCount, 4)
         self.assertEqual(bridge.sourceColumnCount, 10)
+        self.assertEqual(bridge.sourceColumnStart, 0)
+        self.assertEqual(bridge.sourceColumnEnd, 10)
         self.assertIn("2 rows", bridge.statusText)
         self.assertIn("4 visible columns", bridge.statusText)
         self.assertEqual(bridge.imageSource, "image://ddalab-plot/heatmap-1")
@@ -189,6 +191,8 @@ class QuickPlotSurfaceTests(unittest.TestCase):
         self.assertEqual(
             [call.kwargs["layerCursor"] for call in cache_logs], [True, True]
         )
+        self.assertEqual([call.kwargs["sourceColStart"] for call in cache_logs], [0, 0])
+        self.assertEqual([call.kwargs["sourceColEnd"] for call in cache_logs], [10, 10])
 
     def test_bridge_reuses_recent_cached_matrix_view_after_view_switch(self) -> None:
         renderer = _RecordingMatrixRenderer()
@@ -515,6 +519,20 @@ class QuickPlotSurfaceTests(unittest.TestCase):
         self.assertEqual(bridge.rendererName, "Qt Quick scene graph texture")
         self.assertEqual(bridge.rowCount, 2)
         self.assertEqual(bridge.visibleColumnCount, 5)
+
+    def test_update_variant_helper_exposes_source_column_window(self) -> None:
+        bridge = QuickPlotSurfaceBridge()
+
+        update_quick_variant_bridge(
+            bridge,
+            _variant(),
+            target_columns=4,
+            start_fraction=0.25,
+            span_fraction=0.5,
+        )
+
+        self.assertEqual(bridge.sourceColumnStart, 2)
+        self.assertEqual(bridge.sourceColumnEnd, 8)
 
     def test_update_variant_helper_populates_heatmap_and_line_bridge_images(
         self,

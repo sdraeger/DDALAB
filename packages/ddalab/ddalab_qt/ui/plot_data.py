@@ -91,6 +91,8 @@ class MatrixView:
     sample_indices: tuple[int, ...]
     source_row_count: int
     source_column_count: int
+    source_column_start: int
+    source_column_end: int
     display_min_value: float
     display_max_value: float
     value_range: float
@@ -301,6 +303,8 @@ def build_matrix_view(
             sample_indices=(),
             source_row_count=visible_row_count,
             source_column_count=column_count,
+            source_column_start=0,
+            source_column_end=0,
             display_min_value=display_min_value,
             display_max_value=display_max_value,
             value_range=value_range,
@@ -336,12 +340,19 @@ def build_matrix_view(
             values[row_index, valid_positions] = row_values[
                 [sample_indices[position] for position in valid_positions]
             ]
+    source_column_start, source_column_end = _sample_window_bounds(
+        column_count,
+        start_fraction=start_fraction,
+        span_fraction=span_fraction,
+    )
 
     return MatrixView(
         values=np.ascontiguousarray(values),
         sample_indices=sample_indices,
         source_row_count=visible_row_count,
         source_column_count=column_count,
+        source_column_start=source_column_start,
+        source_column_end=source_column_end,
         display_min_value=display_min_value,
         display_max_value=display_max_value,
         value_range=value_range,
@@ -680,6 +691,8 @@ def _log_slow_matrix_view_build(
         rowStart=view.row_start,
         totalRows=view.total_row_count,
         sourceCols=view.source_column_count,
+        sourceColStart=view.source_column_start,
+        sourceColEnd=view.source_column_end,
         targetCols=view.target_column_count,
         startFraction=request.start_fraction,
         spanFraction=request.span_fraction,

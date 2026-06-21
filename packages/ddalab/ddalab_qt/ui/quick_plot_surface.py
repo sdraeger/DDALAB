@@ -65,6 +65,8 @@ class QuickPlotSurfaceBridge(QObject):
         self._total_row_count = 0
         self._visible_column_count = 0
         self._source_column_count = 0
+        self._source_column_start = 0
+        self._source_column_end = 0
         self._status_text = "No plot data loaded"
         self._image_revision = 0
         self._image = QImage()
@@ -86,6 +88,8 @@ class QuickPlotSurfaceBridge(QObject):
         self._total_row_count = 0
         self._visible_column_count = 0
         self._source_column_count = 0
+        self._source_column_start = 0
+        self._source_column_end = 0
         self._status_text = "No plot data loaded"
         self._image = QImage()
         self._line_geometry = _empty_line_geometry()
@@ -111,6 +115,8 @@ class QuickPlotSurfaceBridge(QObject):
         self._total_row_count = view.total_row_count
         self._visible_column_count = view.target_column_count
         self._source_column_count = view.source_column_count
+        self._source_column_start = view.source_column_start
+        self._source_column_end = view.source_column_end
         row_text = f"{self._row_count} rows"
         if self._total_row_count != self._row_count or self._row_start != 0:
             row_text = (
@@ -137,6 +143,8 @@ class QuickPlotSurfaceBridge(QObject):
             row_start=view.row_start,
             total_rows=view.total_row_count,
             source_columns=view.source_column_count,
+            source_column_start=view.source_column_start,
+            source_column_end=view.source_column_end,
             target_columns=view.target_column_count,
             layers=self._plot_layers,
         )
@@ -198,6 +206,14 @@ class QuickPlotSurfaceBridge(QObject):
     @Property(int, notify=changed)
     def sourceColumnCount(self) -> int:
         return self._source_column_count
+
+    @Property(int, notify=changed)
+    def sourceColumnStart(self) -> int:
+        return self._source_column_start
+
+    @Property(int, notify=changed)
+    def sourceColumnEnd(self) -> int:
+        return self._source_column_end
 
     @Property(str, notify=changed)
     def statusText(self) -> str:
@@ -510,6 +526,8 @@ def _log_slow_matrix_view_build(
         rowStart=view.row_start,
         totalRows=view.total_row_count,
         sourceCols=view.source_column_count,
+        sourceColStart=view.source_column_start,
+        sourceColEnd=view.source_column_end,
         targetCols=view.target_column_count,
         rowCount=request.row_count,
         startFraction=request.start_fraction,
@@ -526,6 +544,8 @@ def _log_render_cache_lookup(
     row_start: int,
     total_rows: int,
     source_columns: int,
+    source_column_start: int,
+    source_column_end: int,
     target_columns: int,
     layers: PlotLayerConfig,
 ) -> None:
@@ -538,6 +558,8 @@ def _log_render_cache_lookup(
         rowStart=row_start,
         totalRows=total_rows,
         sourceCols=source_columns,
+        sourceColStart=source_column_start,
+        sourceColEnd=source_column_end,
         targetCols=target_columns,
         layerHeatmap=layers.heatmap,
         layerLine=layers.line,
