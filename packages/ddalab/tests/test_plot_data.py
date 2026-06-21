@@ -158,11 +158,25 @@ class PlotDataTests(unittest.TestCase):
 
         self.assertEqual(view.source_row_count, 1)
         self.assertEqual(view.source_column_count, 10)
+        self.assertEqual(view.source_column_start, 2)
+        self.assertEqual(view.source_column_end, 8)
         self.assertEqual(view.sample_indices, (2, 4, 5, 7))
         np.testing.assert_array_equal(
             view.values,
             np.asarray([[2, 4, 5, 7]], dtype=np.float32),
         )
+
+    def test_matrix_view_source_column_window_tracks_requested_window(self) -> None:
+        view = build_matrix_view(
+            _variant([list(range(10))]),
+            target_columns=1,
+            start_fraction=0.0,
+            span_fraction=1.0,
+        )
+
+        self.assertEqual(view.source_column_start, 0)
+        self.assertEqual(view.source_column_end, 10)
+        self.assertEqual(view.sample_indices, (4,))
 
     def test_variant_plot_provider_logs_slow_matrix_view_metadata(self) -> None:
         provider = DdaVariantPlotProvider(
@@ -200,6 +214,8 @@ class PlotDataTests(unittest.TestCase):
             rowStart=1,
             totalRows=2,
             sourceCols=10,
+            sourceColStart=2,
+            sourceColEnd=8,
             targetCols=4,
             startFraction=0.25,
             spanFraction=0.5,
