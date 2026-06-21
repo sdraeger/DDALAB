@@ -47,6 +47,18 @@ class PlotPerformanceContractTests(unittest.TestCase):
         self.assertEqual(contract["tileColumns"], 300)
         self.assertLessEqual(contract["tileCells"], 10 * 300)
 
+    def test_dense_matrix_contract_reports_source_column_window(self) -> None:
+        contract = dense_matrix_tile_contract(
+            row_count=2,
+            column_count=10,
+            target_columns=4,
+            start_fraction=0.25,
+            span_fraction=0.5,
+        )
+
+        self.assertEqual(contract["sourceColumnStart"], 2)
+        self.assertEqual(contract["sourceColumnEnd"], 8)
+
     def test_dense_matrix_contract_records_provider_cache_reuse(self) -> None:
         contract = dense_matrix_tile_contract(
             row_count=8,
@@ -79,6 +91,8 @@ class PlotPerformanceContractTests(unittest.TestCase):
         self.assertIn("targetWidth", waveform_log.kwargs)
         self.assertIn("tileRows", matrix_log.kwargs)
         self.assertIn("tileColumns", matrix_log.kwargs)
+        self.assertIn("sourceColumnStart", matrix_log.kwargs)
+        self.assertIn("sourceColumnEnd", matrix_log.kwargs)
         self.assertIn("cacheReused", matrix_log.kwargs)
 
 
