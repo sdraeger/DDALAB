@@ -23,18 +23,22 @@ def dense_waveform_geometry_contract(
     target_width: int = 800,
 ) -> dict[str, Any]:
     started_ns = perf_counter_ns()
+    channels = [
+        _synthetic_channel(index, sample_count)
+        for index in range(max(0, int(channel_count)))
+    ]
     window = WaveformWindow(
         dataset_file_path="synthetic-large.edf",
         start_time_seconds=0.0,
         duration_seconds=sample_count / 1000.0,
-        channels=[
-            _synthetic_channel(index, sample_count)
-            for index in range(max(0, int(channel_count)))
-        ],
+        channels=channels,
         from_cache=False,
     )
     request = WaveformViewRequest(target_width=max(1, int(target_width)))
     geometry = WaveformWindowPlotProvider(window).geometry_view(request)
+    envelope_bucket_sizes = [
+        [int(level.bucket_size) for level in channel.levels] for channel in channels
+    ]
     return {
         "surface": "waveform",
         "durationMs": _duration_ms(started_ns),
@@ -45,6 +49,18 @@ def dense_waveform_geometry_contract(
         "lines": len(geometry.lines),
         "vertices": sum(len(line) for line in geometry.lines),
         "drawModes": geometry.draw_modes,
+        "envelopeLevelsPerChannel": [
+            len(bucket_sizes) for bucket_sizes in envelope_bucket_sizes
+        ],
+        "envelopeBucketSizes": envelope_bucket_sizes,
+        "maxEnvelopeBucketSize": max(
+            (
+                max(bucket_sizes)
+                for bucket_sizes in envelope_bucket_sizes
+                if bucket_sizes
+            ),
+            default=0,
+        ),
     }
 
 
