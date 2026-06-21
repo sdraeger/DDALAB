@@ -19,7 +19,6 @@ from ddalab_qt.ui.plot_data import build_matrix_view
 from ddalab_qt.ui.plot_layers import PlotLayerConfig
 from ddalab_qt.ui.qt_plot_renderer import MatrixRenderArtifacts, QtCpuMatrixPlotRenderer
 from ddalab_qt.ui.quick_plot_surface import (
-    QuickHeatmapImageProvider,
     QuickHeatmapTextureItem,
     QuickLineGeometryItem,
     QuickPlotSurfaceBridge,
@@ -82,10 +81,22 @@ class QuickPlotSurfaceTests(unittest.TestCase):
         self.assertTrue(qml_path.exists())
         self.assertEqual(qml_path.name, "QuickPlotSurface.qml")
 
+    def test_qml_uses_direct_texture_availability_for_scene_graph_item(self) -> None:
+        qml = quick_plot_surface_qml_path().read_text(encoding="utf-8")
+
+        self.assertIn("root.plotBridge.hasImage", qml)
+        self.assertNotIn("imageSource", qml)
+
+    def test_bridge_does_not_expose_unused_image_provider_source(self) -> None:
+        bridge = QuickPlotSurfaceBridge()
+
+        self.assertFalse(hasattr(bridge, "imageSource"))
+
     def test_bridge_exposes_matrix_view_metadata_for_qml(self) -> None:
         bridge = QuickPlotSurfaceBridge()
         view = build_matrix_view(_variant(), target_columns=4)
 
+        self.assertFalse(bridge.hasImage)
         bridge.set_matrix_view(
             view,
             title="ST heatmap",
@@ -101,13 +112,13 @@ class QuickPlotSurfaceTests(unittest.TestCase):
         self.assertEqual(bridge.sourceColumnCount, 10)
         self.assertEqual(bridge.sourceColumnStart, 0)
         self.assertEqual(bridge.sourceColumnEnd, 10)
+        self.assertTrue(bridge.hasImage)
         self.assertIn("2 rows", bridge.statusText)
         self.assertIn("4 visible columns", bridge.statusText)
-        self.assertEqual(bridge.imageSource, "image://ddalab-plot/heatmap-1")
         self.assertEqual(bridge.lineGeometryRevision, 1)
         self.assertEqual(len(bridge.line_geometry().lines), 2)
 
-    def test_bridge_revisions_image_source_when_plot_data_changes(self) -> None:
+    def test_bridge_revisions_scene_graph_render_when_plot_data_changes(self) -> None:
         bridge = QuickPlotSurfaceBridge()
         first_view = build_matrix_view(_variant(), target_columns=4)
         second_view = build_matrix_view(_variant(), target_columns=6)
@@ -115,17 +126,16 @@ class QuickPlotSurfaceTests(unittest.TestCase):
         bridge.set_matrix_view(
             first_view,
             title="ST heatmap",
-            renderer_name="Qt Quick image provider",
+            renderer_name="Qt Quick scene graph texture",
         )
-        first_source = bridge.imageSource
+        first_revision = bridge.lineGeometryRevision
         bridge.set_matrix_view(
             second_view,
             title="ST heatmap",
-            renderer_name="Qt Quick image provider",
+            renderer_name="Qt Quick scene graph texture",
         )
 
-        self.assertEqual(first_source, "image://ddalab-plot/heatmap-1")
-        self.assertEqual(bridge.imageSource, "image://ddalab-plot/heatmap-2")
+        self.assertEqual(first_revision, 1)
         self.assertEqual(bridge.lineGeometryRevision, 2)
         self.assertEqual(bridge.visibleColumnCount, 6)
 
@@ -137,16 +147,15 @@ class QuickPlotSurfaceTests(unittest.TestCase):
         bridge.set_matrix_view(
             view,
             title="ST heatmap",
-            renderer_name="Qt Quick image provider",
+            renderer_name="Qt Quick scene graph texture",
         )
         bridge.set_matrix_view(
             view,
             title="ST heatmap",
-            renderer_name="Qt Quick image provider",
+            renderer_name="Qt Quick scene graph texture",
         )
 
         self.assertEqual(renderer.calls, 1)
-        self.assertEqual(bridge.imageSource, "image://ddalab-plot/heatmap-1")
         self.assertEqual(bridge.lineGeometryRevision, 1)
 
     def test_bridge_logs_render_cache_lookup_outcomes(self) -> None:
@@ -162,12 +171,12 @@ class QuickPlotSurfaceTests(unittest.TestCase):
             bridge.set_matrix_view(
                 view,
                 title="ST heatmap",
-                renderer_name="Qt Quick image provider",
+                renderer_name="Qt Quick scene graph texture",
             )
             bridge.set_matrix_view(
                 view,
                 title="ST heatmap",
-                renderer_name="Qt Quick image provider",
+                renderer_name="Qt Quick scene graph texture",
             )
 
         cache_logs = [
@@ -203,21 +212,20 @@ class QuickPlotSurfaceTests(unittest.TestCase):
         bridge.set_matrix_view(
             first_view,
             title="ST heatmap",
-            renderer_name="Qt Quick image provider",
+            renderer_name="Qt Quick scene graph texture",
         )
         bridge.set_matrix_view(
             second_view,
             title="ST heatmap",
-            renderer_name="Qt Quick image provider",
+            renderer_name="Qt Quick scene graph texture",
         )
         bridge.set_matrix_view(
             first_view,
             title="ST heatmap",
-            renderer_name="Qt Quick image provider",
+            renderer_name="Qt Quick scene graph texture",
         )
 
         self.assertEqual(renderer.calls, 2)
-        self.assertEqual(bridge.imageSource, "image://ddalab-plot/heatmap-3")
         self.assertEqual(bridge.lineGeometryRevision, 3)
         self.assertEqual(bridge.visibleColumnCount, 4)
 
@@ -228,17 +236,16 @@ class QuickPlotSurfaceTests(unittest.TestCase):
         bridge.set_matrix_view(
             view,
             title="ST heatmap",
-            renderer_name="Qt Quick image provider",
+            renderer_name="Qt Quick scene graph texture",
             color_scheme="viridis",
         )
         bridge.set_matrix_view(
             view,
             title="ST heatmap",
-            renderer_name="Qt Quick image provider",
+            renderer_name="Qt Quick scene graph texture",
             color_scheme="cool",
         )
 
-        self.assertEqual(bridge.imageSource, "image://ddalab-plot/heatmap-2")
         self.assertEqual(bridge.lineGeometryRevision, 2)
 
     def test_default_matrix_renderer_returns_heatmap_and_line_geometry(self) -> None:
@@ -272,7 +279,7 @@ class QuickPlotSurfaceTests(unittest.TestCase):
         bridge.set_matrix_view(
             build_matrix_view(_variant(), target_columns=4),
             title="ST heatmap",
-            renderer_name="Qt Quick image provider",
+            renderer_name="Qt Quick scene graph texture",
         )
 
         bridge.clear()
@@ -281,8 +288,8 @@ class QuickPlotSurfaceTests(unittest.TestCase):
         self.assertEqual(bridge.rowCount, 0)
         self.assertEqual(bridge.visibleColumnCount, 0)
         self.assertEqual(bridge.sourceColumnCount, 0)
+        self.assertFalse(bridge.hasImage)
         self.assertEqual(bridge.statusText, "No plot data loaded")
-        self.assertEqual(bridge.imageSource, "")
         self.assertEqual(bridge.lineGeometryRevision, 2)
         self.assertEqual(len(bridge.line_geometry().lines), 0)
 
@@ -324,7 +331,7 @@ class QuickPlotSurfaceTests(unittest.TestCase):
 
         self.assertIsInstance(widget, QQuickWidget)
         self.assertIs(widget.rootContext().contextProperty("plotBridge"), bridge)
-        self.assertIsInstance(widget.ddalabImageProvider, QuickHeatmapImageProvider)
+        self.assertFalse(hasattr(widget, "ddalabImageProvider"))
         self.assertTrue(widget.ddalabSceneGraphTypesRegistered)
         self.assertEqual(
             widget.source().toLocalFile(), str(quick_plot_surface_qml_path())
@@ -341,6 +348,49 @@ class QuickPlotSurfaceTests(unittest.TestCase):
 
         self.assertIs(item.bridge, bridge)
         self.assertTrue(item.flags() & QQuickItem.ItemHasContents)
+
+    def test_heatmap_texture_item_logs_scene_graph_texture_updates(self) -> None:
+        from PySide6.QtGui import QGuiApplication
+        from PySide6.QtQuick import QQuickWindow, QSGSimpleTextureNode
+
+        app = QGuiApplication.instance() or QGuiApplication([])
+        bridge = QuickPlotSurfaceBridge()
+        bridge.set_matrix_view(
+            build_matrix_view(_variant(), target_columns=4),
+            title="ST heatmap",
+        )
+        window = QQuickWindow()
+        item = QuickHeatmapTextureItem(window.contentItem())
+        item.bridge = bridge
+        item.setWidth(120)
+        item.setHeight(80)
+        logger = Mock()
+
+        with (
+            patch(
+                "ddalab_qt.ui.quick_plot_surface.perf_counter_ns",
+                side_effect=[0, 20_000_000],
+                create=True,
+            ),
+            patch(
+                "ddalab_qt.ui.quick_plot_surface.perf_logger",
+                return_value=logger,
+                create=True,
+            ),
+        ):
+            node = item.updatePaintNode(None, None)
+
+        self.assertIsNotNone(app)
+        self.assertIsInstance(node, QSGSimpleTextureNode)
+        logger.log_slow.assert_called_once()
+        self.assertEqual(
+            logger.log_slow.call_args.args[1],
+            "qml.scene_graph.result_heatmap.update",
+        )
+        self.assertEqual(logger.log_slow.call_args.kwargs["imageWidth"], 4)
+        self.assertEqual(logger.log_slow.call_args.kwargs["imageHeight"], 2)
+        self.assertEqual(logger.log_slow.call_args.kwargs["width"], 120.0)
+        self.assertEqual(logger.log_slow.call_args.kwargs["height"], 80.0)
 
     def test_line_geometry_item_tracks_bridge_and_has_contents(self) -> None:
         from PySide6.QtQuick import QQuickItem
@@ -387,71 +437,13 @@ class QuickPlotSurfaceTests(unittest.TestCase):
         self.assertEqual(logger.log_slow.call_args.kwargs["nodes"], 2)
         self.assertEqual(logger.log_slow.call_args.kwargs["vertices"], 8)
 
-    def test_heatmap_image_provider_returns_bridge_image(self) -> None:
-        bridge = QuickPlotSurfaceBridge()
-        view = build_matrix_view(_variant(), target_columns=4)
-        bridge.set_matrix_view(
-            view,
-            title="ST heatmap",
-            renderer_name="Qt Quick image provider",
-        )
-        provider = QuickHeatmapImageProvider(bridge)
-
-        image, size = provider.requestImage("heatmap-1", None, None)
-
-        self.assertEqual(image.width(), 4)
-        self.assertEqual(image.height(), 2)
-        self.assertEqual(size.width(), 4)
-        self.assertEqual(size.height(), 2)
-        self.assertEqual(image.pixelColor(0, 0).getRgb(), (68, 1, 84, 255))
-
-    def test_heatmap_image_provider_logs_slow_request_transfer(self) -> None:
-        from PySide6.QtCore import QSize
-
-        bridge = QuickPlotSurfaceBridge()
-        view = build_matrix_view(_variant(), target_columns=4)
-        bridge.set_matrix_view(
-            view,
-            title="ST heatmap",
-            renderer_name="Qt Quick image provider",
-        )
-        provider = QuickHeatmapImageProvider(bridge)
-        logger = Mock()
-
-        with (
-            patch(
-                "ddalab_qt.ui.quick_plot_surface.perf_counter_ns",
-                side_effect=[0, 20_000_000],
-                create=True,
-            ),
-            patch(
-                "ddalab_qt.ui.quick_plot_surface.perf_logger",
-                return_value=logger,
-                create=True,
-            ),
-        ):
-            image, size = provider.requestImage(
-                "heatmap-1",
-                None,
-                QSize(8, 4),
-            )
-
-        self.assertEqual(image.width(), 8)
-        self.assertEqual(image.height(), 4)
-        self.assertEqual(size.width(), 8)
-        self.assertEqual(size.height(), 4)
-        logger.log_slow.assert_called_once()
-        self.assertEqual(
-            logger.log_slow.call_args.args[1], "qml.heatmap_provider.request"
-        )
-
     def test_bridge_exposes_line_geometry_for_scene_graph_renderer(self) -> None:
         bridge = QuickPlotSurfaceBridge()
         view = build_matrix_view(_variant(), target_columns=4)
         bridge.set_matrix_view(
             view,
             title="ST heatmap",
-            renderer_name="Qt Quick image provider",
+            renderer_name="Qt Quick scene graph texture",
         )
 
         geometry = bridge.line_geometry()
@@ -467,13 +459,11 @@ class QuickPlotSurfaceTests(unittest.TestCase):
         bridge.set_matrix_view(
             view,
             title="ST heatmap",
-            renderer_name="Qt Quick image provider",
+            renderer_name="Qt Quick scene graph texture",
             color_scheme="cool",
         )
-        provider = QuickHeatmapImageProvider(bridge)
-        image, _ = provider.requestImage("heatmap-1", None, None)
 
-        self.assertEqual(image.pixelColor(0, 0).getRgb(), (0, 255, 255, 255))
+        self.assertEqual(bridge.image().pixelColor(0, 0).getRgb(), (0, 255, 255, 255))
 
     def test_bridge_logs_slow_matrix_renderer_preparation(self) -> None:
         bridge = QuickPlotSurfaceBridge()
@@ -495,7 +485,7 @@ class QuickPlotSurfaceTests(unittest.TestCase):
             bridge.set_matrix_view(
                 view,
                 title="ST heatmap",
-                renderer_name="Qt Quick image provider",
+                renderer_name="Qt Quick scene graph texture",
             )
 
         self.assertEqual(logger.log_slow.call_count, 1)
@@ -549,7 +539,7 @@ class QuickPlotSurfaceTests(unittest.TestCase):
 
         self.assertEqual(bridge.title, "ST quick result")
         self.assertEqual(bridge.rendererName, "Qt Quick scene graph texture")
-        self.assertEqual(bridge.imageSource, "image://ddalab-plot/heatmap-1")
+        self.assertTrue(bridge.hasImage)
         self.assertEqual(bridge.lineGeometryRevision, 1)
         self.assertEqual(len(bridge.line_geometry().lines), 2)
 

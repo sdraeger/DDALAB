@@ -47,7 +47,7 @@ Rectangle {
                     visible: root.plotBridge !== null
                         && root.plotBridge !== undefined
                         && root.plotBridge.showHeatmapLayer
-                        && root.plotBridge.imageSource !== ""
+                        && root.plotBridge.hasImage
                 }
 
                 Rectangle {
@@ -70,7 +70,7 @@ Rectangle {
                     font.pixelSize: 14
                     visible: root.plotBridge === null
                         || root.plotBridge === undefined
-                        || root.plotBridge.imageSource === ""
+                        || !root.plotBridge.hasImage
                 }
             }
 
