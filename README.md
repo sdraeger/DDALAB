@@ -14,13 +14,11 @@ It combines a Python command-line interface, a Qt desktop application, and a hig
 - [Key Features](#key-features)
 - [Architecture Overview](#architecture-overview)
   - [Core Application Stack](#core-application-stack)
-  - [Optional Network Deployment](#optional-network-deployment)
 - [Quick Start Guide](#quick-start-guide)
 - [Development](#development)
   - [Prerequisites](#prerequisites)
   - [Getting Started](#getting-started)
-  - [Production Build](#production-build)
-- [Conformance & Parity](#conformance--parity)
+- [Production Build](#production-build)
 - [Configuration & Data Storage](#configuration--data-storage)
 - [Citation](#citation)
 - [Acknowledgments](#acknowledgments)
@@ -90,17 +88,6 @@ DDALAB is designed as a modular, high-performance scientific application.
 - **SQLite:** Persistent local storage for analysis history.
 - **Qt Custom Rendering:** Interactive waveform and result visualization for large datasets.
 
-### Optional Network Deployment
-
-For shared or institutional use, DDALAB supports optional network components:
-
-1. **Sync Broker (Rust):** A lightweight service for synchronizing analyses between machines.
-2. **Network API Server:** A centralized backend for multiple clients.
-
-To start the broker:
-`cd packages/ddalab-broker`
-`docker-compose up -d`
-
 ## Quick Start Guide
 
 1. **Launch DDALAB** and select a local data directory.
@@ -138,12 +125,6 @@ Useful helper commands:
 ### Production Build
 
 `cd packages/ddalab && ./.venv/bin/pyinstaller DDALAB.spec --noconfirm --clean`
-
-## Conformance & Parity
-
-- Shared cross-language contract: `conformance/dda_conformance_contract.json`
-- Unified conformance runner: `bash scripts/run-conformance-suite.sh`
-- Formal parity matrix: `docs/feature-parity.md`
 
 ## Configuration & Data Storage
 

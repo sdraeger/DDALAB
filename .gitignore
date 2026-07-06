@@ -125,6 +125,7 @@ packages/DelayDifferentialAnalysis.jl/
 
 # Local paper/research artifacts kept out of the DDALAB application repo.
 ccd_paper/
+paper/
 paper_*/
 figures/
 configs/
@@ -146,3 +147,4 @@ docs/
 experiments/
 
 sessions.md
+goal.md
