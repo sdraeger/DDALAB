@@ -5,6 +5,7 @@ import os
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -15,25 +16,25 @@ if str(PACKAGE_ROOT) not in sys.path:
 from PySide6.QtQuickWidgets import QQuickWidget
 from PySide6.QtWidgets import QApplication
 
-from ddalab_qt.domain.models import ChannelWaveform, DdaVariantResult, WaveformWindow
-from ddalab_qt.ui.plot_data import (
+from qt.domain.models import ChannelWaveform, DdaVariantResult, WaveformWindow
+from qt.ui.plot_data import (
     WaveformViewRequest,
     WaveformWindowPlotProvider,
     build_matrix_view,
 )
-from ddalab_qt.ui.plot_layers import PlotLayerConfig
-from ddalab_qt.ui.qt_plot_renderer import (
+from qt.ui.plot_layers import PlotLayerConfig
+from qt.ui.qt_plot_renderer import (
     MatrixRenderArtifacts,
     QtCpuMatrixPlotRenderer,
     QtSceneGraphWaveformRenderer,
     WaveformRenderArtifacts,
 )
-from ddalab_qt.ui.plot_surface_factory import (
+from qt.ui.plot_surface_factory import (
     create_result_plot_surface,
     create_waveform_plot_surface,
 )
-from ddalab_qt.ui.quick_plot_surface import QuickPlotSurfaceBridge
-from ddalab_qt.ui.quick_waveform_surface import QuickWaveformSurfaceBridge
+from qt.ui.quick_plot_surface import QuickPlotSurfaceBridge
+from qt.ui.quick_waveform_surface import QuickWaveformSurfaceBridge
 
 
 class PlotSurfaceFactoryTests(unittest.TestCase):
@@ -68,6 +69,11 @@ class PlotSurfaceFactoryTests(unittest.TestCase):
     def test_surface_factories_return_none_when_disabled(self) -> None:
         self.assertIsNone(create_waveform_plot_surface(enabled=False))
         self.assertIsNone(create_result_plot_surface(enabled=False))
+
+    def test_surface_factories_do_not_embed_qml_surfaces_by_default(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertIsNone(create_waveform_plot_surface())
+            self.assertIsNone(create_result_plot_surface())
 
     def test_result_surface_factory_accepts_replaceable_matrix_renderer(self) -> None:
         renderer = _RecordingMatrixRenderer()

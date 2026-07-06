@@ -9,8 +9,8 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
 
-from ddalab_qt.app.main_window_support import MainWindowSupportMixin
-from ddalab_qt.ui.plot_layers import PlotLayerConfig
+from qt.app.support.main_window_support import MainWindowSupportMixin
+from qt.ui.plot_layers import PlotLayerConfig
 
 
 class _Window(MainWindowSupportMixin):

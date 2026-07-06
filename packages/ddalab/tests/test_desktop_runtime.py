@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+# ruff: noqa: E402
+
 import os
 from pathlib import Path
 import sys
 import tempfile
+import tomllib
 import unittest
 from unittest.mock import patch
 
@@ -17,8 +20,9 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
 
-from ddalab_qt.app.analysis_input import parse_time_bounds
-from ddalab_qt.app.main_window_support import (
+from qt.app.core.analysis_input import parse_time_bounds
+from qt.app.core.snapshot_payload import relink_snapshot_payload
+from qt.app.support.main_window_support import (
     ToggleListWidget,
     apply_list_widget_filter,
     configure_searchable_combo_box,
@@ -26,29 +30,31 @@ from ddalab_qt.app.main_window_support import (
     set_check_state_for_list_items,
     sync_searchable_combo_box_selection,
 )
-from ddalab_qt.app.snapshot_payload import relink_snapshot_payload
-from ddalab_qt.backend.api import (
+from qt.backend.local import (
     _find_cli_command,
-    _parse_health,
     _supports_rust_direct_file_execution,
 )
-from ddalab_qt.backend.local_nsg import (
+from qt.backend.services.nsg import (
     LocalNsgManager,
     NsgCredentialsStore,
     _parse_job_list_xml,
     _parse_job_status_xml,
     _parse_output_files_xml,
 )
-from ddalab_qt.backend.local_readers import (
+from qt.backend.readers.local import (
     _nifti_browser_channel_limit,
     _representative_nifti_indices,
 )
-from ddalab_qt.runtime_paths import RuntimePaths
-from ddalab_qt.update_manager import (
+from qt.domain.models import NotificationEntry
+from qt.persistence.state_db import StateDatabase
+from qt.runtime_paths import RuntimePaths
+from qt.update_manager import (
     UpdateManager,
     _build_linux_installer_script,
     _build_macos_installer_script,
 )
+import qt.backend as backend_package
+from qt.cli_main import _build_parser
 from scripts.prepare_runtime import _ensure_cli_binary
 
 
@@ -133,7 +139,9 @@ class SelectorSupportTests(unittest.TestCase):
         self.assertEqual(selector.item(0).checkState(), Qt.Checked)
         self.assertEqual(selector.item(1).checkState(), Qt.Unchecked)
 
-    def test_current_combo_box_value_matches_search_text_case_insensitively(self) -> None:
+    def test_current_combo_box_value_matches_search_text_case_insensitively(
+        self,
+    ) -> None:
         combo = QComboBox()
         configure_searchable_combo_box(combo, placeholder="Search channels")
         combo.addItem("Fp1", "Fp1")
@@ -162,17 +170,25 @@ class SelectorSupportTests(unittest.TestCase):
 
 
 class BackendApiTests(unittest.TestCase):
-    def test_parse_health_supports_optional_capabilities(self) -> None:
-        health = _parse_health(
-            {
-                "service": "remote",
-                "status": "ready",
-                "ddaAvailable": True,
-                "icaAvailable": True,
-                "capabilities": {"nsg": True},
-            }
-        )
-        self.assertTrue(health.nsg_available)
+    def test_pyproject_uses_single_gui_package(self) -> None:
+        pyproject = tomllib.loads((PACKAGE_ROOT / "pyproject.toml").read_text())
+        scripts = pyproject["project"]["scripts"]
+        package_include = pyproject["tool"]["setuptools"]["packages"]["find"]["include"]
+
+        self.assertEqual(scripts["ddalab"], "qt.__main__:main")
+        self.assertEqual(scripts["ddalab-cli"], "qt.__main__:main")
+        self.assertEqual(scripts["ddalab-gui"], "qt.gui_main:main")
+        self.assertEqual(package_include, ["qt*"])
+
+    def test_gui_command_no_longer_accepts_remote_server_flag(self) -> None:
+        parser = _build_parser()
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["gui", "--server", "http://127.0.0.1:8000"])
+
+    def test_backend_package_exports_local_clients_only(self) -> None:
+        self.assertFalse(hasattr(backend_package, "RemoteBackendClient"))
+        self.assertTrue(hasattr(backend_package, "LocalBackendClient"))
+        self.assertTrue(hasattr(backend_package, "OpenNeuroClient"))
 
     def test_find_cli_command_rejects_non_executable_env_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -187,7 +203,9 @@ class BackendApiTests(unittest.TestCase):
                 app_bundle_path=None,
                 appimage_path=None,
             )
-            with patch.dict(os.environ, {"DDALAB_CLI_PATH": str(fake_cli)}, clear=False):
+            with patch.dict(
+                os.environ, {"DDALAB_CLI_PATH": str(fake_cli)}, clear=False
+            ):
                 command = _find_cli_command(runtime_paths, Path(tmpdir))
             self.assertIsNone(command)
 
@@ -287,9 +305,7 @@ class LocalNsgTests(unittest.TestCase):
         """
         payload = _parse_job_status_xml(xml)
         self.assertEqual(payload["status"], "completed")
-        self.assertEqual(
-            payload["results_uri"], "https://example.com/results&job=1"
-        )
+        self.assertEqual(payload["results_uri"], "https://example.com/results&job=1")
         self.assertEqual(payload["submitted_at"], "2026-04-28T10:00:00Z")
         self.assertEqual(payload["completed_at"], "2026-04-28T11:00:00Z")
         self.assertEqual(payload["messages"], ["Finished successfully"])
@@ -377,6 +393,53 @@ class UpdateScriptTests(unittest.TestCase):
         self.assertIn('"$TARGET" &', script)
 
 
+class StateDatabaseSqlSafetyTests(unittest.TestCase):
+    def _open_db(self, directory: str) -> StateDatabase:
+        return StateDatabase(Path(directory) / "state.sqlite3")
+
+    def test_session_values_are_bound_as_data(self) -> None:
+        injection_text = "x'); DROP TABLE session_state; --"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db = self._open_db(tmpdir)
+            try:
+                db.save_session_payload(
+                    {
+                        "openFiles": [injection_text],
+                        "activeFilePath": injection_text,
+                    }
+                )
+
+                payload = db.load_session_payload()
+                self.assertEqual(payload["openFiles"], [injection_text])
+                self.assertEqual(payload["activeFilePath"], injection_text)
+            finally:
+                db.close()
+
+    def test_dynamic_sql_identifiers_are_validated_before_execution(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db = self._open_db(tmpdir)
+            try:
+                with self.assertRaises(ValueError):
+                    db._replace_timestamped_payload_rows(
+                        "notifications; DROP TABLE notifications; --",
+                        "notification_id",
+                        [],
+                    )
+
+                entry = NotificationEntry(
+                    id="safe",
+                    category="system",
+                    level="info",
+                    title="Still Available",
+                    message="notifications table was not modified by invalid SQL",
+                    created_at_iso="2026-01-01T00:00:00Z",
+                )
+                db.replace_notifications([entry])
+                self.assertEqual(db.load_notifications(), [entry])
+            finally:
+                db.close()
+
+
 class UpdateManagerTests(unittest.TestCase):
     def test_linux_updates_expect_appimage_assets(self) -> None:
         runtime_paths = RuntimePaths(
@@ -432,7 +495,9 @@ class PrepareRuntimeTests(unittest.TestCase):
                 binary_path.write_text("binary", encoding="utf-8")
 
             with patch("scripts.prepare_runtime.shutil.which", return_value="cargo"):
-                with patch("scripts.prepare_runtime.subprocess.run", side_effect=fake_run):
+                with patch(
+                    "scripts.prepare_runtime.subprocess.run", side_effect=fake_run
+                ):
                     resolved = _ensure_cli_binary(repo_root, build_cli=True)
             self.assertEqual(resolved, binary_path)
 

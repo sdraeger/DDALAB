@@ -8,7 +8,7 @@
 #ifndef OutputDir
   #define OutputDir "."
 #endif
-#define AppIconFile SourcePath + "..\\ddalab_qt\\assets\\icons\\icon.ico"
+#define AppIconFile SourcePath + "..\\qt\\assets\\icons\\icon.ico"
 
 [Setup]
 AppId=ddalab-desktop
