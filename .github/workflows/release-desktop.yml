@@ -322,8 +322,8 @@ jobs:
           Terminal=false
           EOF
           cp "$appdir/DDALAB.desktop" "$appdir/usr/share/applications/DDALAB.desktop"
-          install -m 644 ddalab_qt/assets/icons/icon.png "$appdir/ddalab.png"
-          install -m 644 ddalab_qt/assets/icons/icon.png "$appdir/usr/share/icons/hicolor/256x256/apps/ddalab.png"
+          install -m 644 qt/assets/icons/icon.png "$appdir/ddalab.png"
+          install -m 644 qt/assets/icons/icon.png "$appdir/usr/share/icons/hicolor/256x256/apps/ddalab.png"
           cat > "$appdir/AppRun" <<'EOF'
           #!/bin/sh
           HERE="$(dirname "$(readlink -f "$0")")"
