@@ -28,48 +28,6 @@ from .main_window_support_helpers import (
 
 class MainWindowSupportSessionMixin:
     def _refresh_settings_overview(self) -> None:
-        if hasattr(self, "settings_backend_summary_value"):
-            self.settings_backend_summary_value.setText("Local")
-            self.settings_backend_summary_caption.setText(
-                "Bundled backend on this device"
-            )
-            if hasattr(self, "settings_backend_hint_label"):
-                self.settings_backend_hint_label.setText(
-                    "DDALAB uses the bundled local backend."
-                )
-
-        if hasattr(self, "settings_theme_summary_value"):
-            if self.state.theme_mode == "light":
-                self.settings_theme_summary_value.setText("Light")
-                self.settings_theme_summary_caption.setText(
-                    "Brighter review and presentation mode"
-                )
-                if hasattr(self, "theme_mode_hint"):
-                    self.theme_mode_hint.setText(
-                        "Light mode works well for screenshots, daytime review, and side-by-side reading."
-                    )
-            else:
-                self.settings_theme_summary_value.setText("Dark")
-                self.settings_theme_summary_caption.setText(
-                    "Focused analysis workspace"
-                )
-                if hasattr(self, "theme_mode_hint"):
-                    self.theme_mode_hint.setText(
-                        "Dark mode keeps attention on plots during longer analysis sessions."
-                    )
-
-        if hasattr(self, "settings_analysis_summary_value"):
-            if self.state.expert_mode:
-                self.settings_analysis_summary_value.setText("Expert")
-                self.settings_analysis_summary_caption.setText(
-                    "Custom DDA controls are available"
-                )
-            else:
-                self.settings_analysis_summary_value.setText("Standard")
-                self.settings_analysis_summary_caption.setText(
-                    "Archived EEG defaults stay in control"
-                )
-
         self._refresh_update_ui()
 
     def _initialize_update_support(self) -> None:
@@ -108,7 +66,7 @@ class MainWindowSupportSessionMixin:
             )
 
         busy = self._update_check_in_progress or self._update_install_in_progress
-        self.settings_update_check_button.setEnabled(supports_updates and not busy)
+        self.settings_update_check_button.setEnabled(not busy)
         self.settings_update_install_button.setEnabled(
             supports_updates and self._pending_update is not None and not busy
         )

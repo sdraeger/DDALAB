@@ -258,62 +258,9 @@ class MainWindowUiResultsPagesMixin:
         layout.setContentsMargins(0, 0, 0, 12)
         layout.setSpacing(16)
 
-        hero = QFrame()
-        hero.setProperty("settingsHero", True)
-        hero_layout = QVBoxLayout(hero)
-        hero_layout.setContentsMargins(22, 20, 22, 20)
-        hero_layout.setSpacing(14)
-
-        hero_kicker = QLabel("Workspace Preferences")
-        hero_kicker.setProperty("settingsEyebrow", True)
-        hero_layout.addWidget(hero_kicker)
-
-        hero_title = QLabel("Tune how DDALAB behaves on this machine")
+        hero_title = QLabel("Settings")
         hero_title.setProperty("title", True)
-        hero_layout.addWidget(hero_title)
-
-        hero_copy = QLabel(
-            "Review the local backend status, switch themes, and decide whether the interface should stay streamlined or expose expert DDA controls."
-        )
-        hero_copy.setWordWrap(True)
-        hero_copy.setProperty("settingsCaption", True)
-        hero_layout.addWidget(hero_copy)
-
-        hero_stats = QGridLayout()
-        hero_stats.setHorizontalSpacing(12)
-        hero_stats.setVerticalSpacing(12)
-        (
-            backend_stat,
-            self.settings_backend_summary_value,
-            self.settings_backend_summary_caption,
-        ) = self._build_settings_stat(
-            title="Backend",
-            value="Local",
-            caption="Default on-device mode",
-        )
-        (
-            theme_stat,
-            self.settings_theme_summary_value,
-            self.settings_theme_summary_caption,
-        ) = self._build_settings_stat(
-            title="Theme",
-            value="Dark",
-            caption="Focused analysis workspace",
-        )
-        (
-            analysis_stat,
-            self.settings_analysis_summary_value,
-            self.settings_analysis_summary_caption,
-        ) = self._build_settings_stat(
-            title="Analysis",
-            value="Standard",
-            caption="Archived EEG defaults",
-        )
-        hero_stats.addWidget(backend_stat, 0, 0)
-        hero_stats.addWidget(theme_stat, 0, 1)
-        hero_stats.addWidget(analysis_stat, 0, 2)
-        hero_layout.addLayout(hero_stats)
-        layout.addWidget(hero)
+        layout.addWidget(hero_title)
 
         cards = QGridLayout()
         cards.setHorizontalSpacing(16)
@@ -321,39 +268,8 @@ class MainWindowUiResultsPagesMixin:
         cards.setColumnStretch(0, 1)
         cards.setColumnStretch(1, 1)
 
-        backend_card, backend_layout = self._build_settings_card(
-            title="Backend",
-            description=(
-                "DDALAB runs through the bundled local Python backend and Rust DDA sidecar."
-            ),
-        )
-        backend_mode_panel = QFrame()
-        backend_mode_panel.setProperty("settingsSubcard", True)
-        backend_mode_layout = QVBoxLayout(backend_mode_panel)
-        backend_mode_layout.setContentsMargins(14, 12, 14, 12)
-        backend_mode_layout.setSpacing(6)
-        backend_mode_heading = QLabel("Current mode")
-        backend_mode_heading.setProperty("settingsEyebrow", True)
-        backend_mode_layout.addWidget(backend_mode_heading)
-        self.backend_mode_label = QLabel("Local Python backend is the default backend.")
-        self.backend_mode_label.setWordWrap(True)
-        self.backend_mode_label.setProperty("muted", True)
-        backend_mode_layout.addWidget(self.backend_mode_label)
-        backend_layout.addWidget(backend_mode_panel)
-
-        self.settings_backend_hint_label = QLabel(
-            "External services are limited to OpenNeuro, NSG, and update checks."
-        )
-        self.settings_backend_hint_label.setWordWrap(True)
-        self.settings_backend_hint_label.setProperty("settingsCaption", True)
-        backend_layout.addWidget(self.settings_backend_hint_label)
-        cards.addWidget(backend_card, 0, 0)
-
         appearance_card, appearance_layout = self._build_settings_card(
-            title="Appearance",
-            description=(
-                "Switch between the darker analysis workspace and a lighter review mode without restarting the app."
-            ),
+            title="Appearance"
         )
         appearance_row = QHBoxLayout()
         appearance_row.setSpacing(12)
@@ -368,23 +284,7 @@ class MainWindowUiResultsPagesMixin:
             self.theme_mode_combo.setCurrentIndex(current_theme_index)
         appearance_row.addWidget(self.theme_mode_combo, 1)
         appearance_layout.addLayout(appearance_row)
-
-        appearance_preview = QFrame()
-        appearance_preview.setProperty("settingsSubcard", True)
-        appearance_preview_layout = QVBoxLayout(appearance_preview)
-        appearance_preview_layout.setContentsMargins(14, 12, 14, 12)
-        appearance_preview_layout.setSpacing(6)
-        preview_heading = QLabel("Current feel")
-        preview_heading.setProperty("settingsEyebrow", True)
-        appearance_preview_layout.addWidget(preview_heading)
-        self.theme_mode_hint = QLabel(
-            "Dark mode keeps focus on plots and long sessions."
-        )
-        self.theme_mode_hint.setWordWrap(True)
-        self.theme_mode_hint.setProperty("muted", True)
-        appearance_preview_layout.addWidget(self.theme_mode_hint)
-        appearance_layout.addWidget(appearance_preview)
-        cards.addWidget(appearance_card, 0, 1)
+        cards.addWidget(appearance_card, 0, 0)
 
         analysis_card, analysis_layout = self._build_settings_card(
             title="Analysis Controls",
@@ -407,7 +307,7 @@ class MainWindowUiResultsPagesMixin:
         self.settings_expert_mode_hint.setProperty("muted", True)
         analysis_mode_layout.addWidget(self.settings_expert_mode_hint)
         analysis_layout.addWidget(analysis_mode_panel)
-        cards.addWidget(analysis_card, 1, 0)
+        cards.addWidget(analysis_card, 0, 1)
 
         updates_card, updates_layout = self._build_settings_card(
             title="Updates",
@@ -468,34 +368,7 @@ class MainWindowUiResultsPagesMixin:
         updates_actions.addWidget(self.settings_update_install_button)
         updates_actions.addStretch(1)
         updates_layout.addLayout(updates_actions)
-        cards.addWidget(updates_card, 1, 1)
-
-        scope_card, scope_layout = self._build_settings_card(
-            title="Desktop Scope",
-            description=(
-                "This desktop build focuses on active local workflows and keeps unsupported integrations hidden from the main navigation."
-            ),
-        )
-        included_panel = QFrame()
-        included_panel.setProperty("settingsSubcard", True)
-        included_layout = QVBoxLayout(included_panel)
-        included_layout.setContentsMargins(14, 12, 14, 12)
-        included_layout.setSpacing(6)
-        included_heading = QLabel("Included in this build")
-        included_heading.setProperty("settingsEyebrow", True)
-        included_layout.addWidget(included_heading)
-        for line in (
-            "Waveform inspection and viewport navigation",
-            "DDA, ICA, batch analysis, connectivity, and compare views",
-            "Annotations, DDALAB snapshots, and reproducible exports",
-            "Workflow logging, notifications, and OpenNeuro browsing",
-        ):
-            item = QLabel(line)
-            item.setWordWrap(True)
-            item.setProperty("settingsListItem", True)
-            included_layout.addWidget(item)
-        scope_layout.addWidget(included_panel)
-        cards.addWidget(scope_card, 2, 0, 1, 2)
+        cards.addWidget(updates_card, 1, 0, 1, 2)
 
         layout.addLayout(cards)
         layout.addStretch(1)

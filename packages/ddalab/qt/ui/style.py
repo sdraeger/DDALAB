@@ -438,11 +438,6 @@ def _build_stylesheet(
             font-size: 17px;
             font-weight: 700;
         }}
-        QLabel[settingsValue="true"] {{
-            color: {colors.text_title};
-            font-size: 22px;
-            font-weight: 700;
-        }}
         QLabel[settingsCaption="true"] {{
             color: {colors.text_muted};
             font-size: 12px;
@@ -451,11 +446,6 @@ def _build_stylesheet(
             color: {colors.text_muted};
             font-size: 12px;
             font-weight: 700;
-        }}
-        QLabel[settingsListItem="true"] {{
-            color: {colors.text};
-            font-size: 13px;
-            padding: 2px 0;
         }}
         QCheckBox {{
             spacing: 8px;
@@ -486,20 +476,10 @@ def _build_stylesheet(
             padding: 0 6px;
             color: {colors.text_muted};
         }}
-        QFrame[settingsHero="true"] {{
-            background: {colors.panel_alt_bg};
-            border: 1px solid {colors.border_strong};
-            border-radius: 18px;
-        }}
         QFrame[settingsCard="true"] {{
             background: {colors.group_bg};
             border: 1px solid {colors.border};
             border-radius: 18px;
-        }}
-        QFrame[settingsStat="true"] {{
-            background: {colors.surface_bg};
-            border: 1px solid {colors.border};
-            border-radius: 14px;
         }}
         QFrame[settingsSubcard="true"] {{
             background: {colors.panel_bg};

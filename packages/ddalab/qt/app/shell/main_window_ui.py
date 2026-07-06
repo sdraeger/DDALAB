@@ -60,7 +60,7 @@ class MainWindowUiMixin(
         self,
         *,
         title: str,
-        description: str,
+        description: str | None = None,
     ) -> tuple[QFrame, QVBoxLayout]:
         card = QFrame()
         card.setProperty("settingsCard", True)
@@ -72,38 +72,12 @@ class MainWindowUiMixin(
         title_label.setProperty("settingsSectionTitle", True)
         layout.addWidget(title_label)
 
-        description_label = QLabel(description)
-        description_label.setWordWrap(True)
-        description_label.setProperty("settingsCaption", True)
-        layout.addWidget(description_label)
+        if description:
+            description_label = QLabel(description)
+            description_label.setWordWrap(True)
+            description_label.setProperty("settingsCaption", True)
+            layout.addWidget(description_label)
         return card, layout
-
-    def _build_settings_stat(
-        self,
-        *,
-        title: str,
-        value: str,
-        caption: str,
-    ) -> tuple[QFrame, QLabel, QLabel]:
-        stat = QFrame()
-        stat.setProperty("settingsStat", True)
-        layout = QVBoxLayout(stat)
-        layout.setContentsMargins(14, 12, 14, 12)
-        layout.setSpacing(4)
-
-        title_label = QLabel(title)
-        title_label.setProperty("settingsEyebrow", True)
-        layout.addWidget(title_label)
-
-        value_label = QLabel(value)
-        value_label.setProperty("settingsValue", True)
-        layout.addWidget(value_label)
-
-        caption_label = QLabel(caption)
-        caption_label.setWordWrap(True)
-        caption_label.setProperty("settingsCaption", True)
-        layout.addWidget(caption_label)
-        return stat, value_label, caption_label
 
     def _build_more_exports_button(
         self,
