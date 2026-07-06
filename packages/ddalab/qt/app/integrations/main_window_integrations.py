@@ -173,12 +173,6 @@ class MainWindowIntegrationsMixin:
         self._run_task(runner, on_success, on_error)
 
     def _update_backend_mode_ui(self) -> None:
-        if not hasattr(self, "backend_mode_label"):
-            return
-        self.backend_mode_label.setText(
-            "Local Python backend active.\n"
-            "DDALAB runs file loading, visualization, and analysis on this device."
-        )
         self._refresh_settings_overview()
 
     def _backend_supports_nsg(self) -> bool:

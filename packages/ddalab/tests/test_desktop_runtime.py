@@ -13,7 +13,14 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QComboBox, QListWidgetItem
+from PySide6.QtWidgets import (
+    QApplication,
+    QLabel,
+    QComboBox,
+    QListWidgetItem,
+    QProgressBar,
+    QPushButton,
+)
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
@@ -30,6 +37,7 @@ from qt.app.support.main_window_support import (
     set_check_state_for_list_items,
     sync_searchable_combo_box_selection,
 )
+from qt.app.support.main_window_support_session import MainWindowSupportSessionMixin
 from qt.backend.local import (
     _find_cli_command,
     _supports_rust_direct_file_execution,
@@ -441,6 +449,41 @@ class StateDatabaseSqlSafetyTests(unittest.TestCase):
 
 
 class UpdateManagerTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._app = QApplication.instance() or QApplication([])
+
+    def test_update_check_button_stays_clickable_when_updates_are_unsupported(
+        self,
+    ) -> None:
+        class UnsupportedUpdateManager:
+            def supports_updates(self) -> bool:
+                return False
+
+        class Window(MainWindowSupportSessionMixin):
+            pass
+
+        window = Window()
+        window._update_manager = UnsupportedUpdateManager()
+        window._pending_update = None
+        window._app_version = "1.0.0"
+        window._update_check_in_progress = False
+        window._update_install_in_progress = False
+        window._update_status_text = "Check for updates."
+        window._update_download_percent = None
+        window.settings_update_current_version_value = QLabel()
+        window.settings_update_release_value = QLabel()
+        window.settings_update_status_label = QLabel()
+        window.settings_update_hint_label = QLabel()
+        window.settings_update_check_button = QPushButton()
+        window.settings_update_install_button = QPushButton()
+        window.settings_update_progress = QProgressBar()
+
+        window._refresh_update_ui()
+
+        self.assertTrue(window.settings_update_check_button.isEnabled())
+        self.assertFalse(window.settings_update_install_button.isEnabled())
+
     def test_linux_updates_expect_appimage_assets(self) -> None:
         runtime_paths = RuntimePaths(
             package_root=Path("/tmp/package"),
