@@ -1,3 +1,4 @@
+pub mod ccd_stats;
 pub mod engine;
 pub mod error;
 pub mod input_io;
@@ -7,6 +8,7 @@ pub mod profiling;
 pub mod types;
 pub mod variants;
 
+pub use ccd_stats::*;
 pub use engine::{
     inspect_ccd_conditioning_sets_on_matrix, profile_ccd_conditioning_subsets_on_matrix,
     run_request_on_matrix, run_request_on_matrix_with_progress,

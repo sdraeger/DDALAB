@@ -270,6 +270,8 @@ fn request_for_advanced_ccd(samples_len: usize) -> DDARequest {
         algorithm_selection: AlgorithmSelection {
             enabled_variants: vec![
                 "CCD".to_string(),
+                "CCDLOG".to_string(),
+                "CCDPR2".to_string(),
                 "CCDSIG".to_string(),
                 "CCDSTAB".to_string(),
                 "TRCCD".to_string(),
@@ -471,12 +473,16 @@ fn advanced_ccd_variants_produce_expected_shapes_and_orderings() {
     let result = run_request_on_matrix(&request, &samples, Some(&labels)).expect("run DDA");
 
     let ccd = extract_variant_rows(&result, "CCD");
+    let ccdlog = extract_variant_rows(&result, "CCDLOG");
+    let ccdpr2 = extract_variant_rows(&result, "CCDPR2");
     let ccdsig = extract_variant_rows(&result, "CCDSIG");
     let ccdstab = extract_variant_rows(&result, "CCDSTAB");
     let trccd = extract_variant_rows(&result, "TRCCD");
     let mvccd = extract_variant_rows(&result, "MVCCD");
 
     assert_eq!(ccd.len(), 2);
+    assert_eq!(ccdlog.len(), 2);
+    assert_eq!(ccdpr2.len(), 2);
     assert_eq!(ccdsig.len(), 2);
     assert_eq!(ccdstab.len(), 2);
     assert_eq!(trccd.len(), 2);
@@ -490,6 +496,11 @@ fn advanced_ccd_variants_produce_expected_shapes_and_orderings() {
         .iter()
         .flatten()
         .all(|value| value.is_nan() || (*value >= 0.0 && *value <= 1.0)));
+    assert!(ccdlog.iter().flatten().all(|value| value.is_finite()));
+    assert!(ccdpr2
+        .iter()
+        .flatten()
+        .all(|value| value.is_finite() && *value <= 1.0));
 
     let trccd_means = trccd.iter().map(|row| mean_finite(row)).collect::<Vec<_>>();
     assert!(

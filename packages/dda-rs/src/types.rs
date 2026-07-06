@@ -84,6 +84,20 @@ pub enum CcdConditioningStrategy {
     AutoGroupOmp,
 }
 
+/// Statistic reported for CCD variants.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CcdStatistic {
+    #[default]
+    LegacyRmseGain,
+    DeltaSse,
+    PartialR2,
+    LogMseRatio,
+    ResidualizedDeltaSse,
+    ResidualizedPartialR2,
+    ResidualizedLogMseRatio,
+}
+
 /// Per-variant channel configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VariantChannelConfig {
