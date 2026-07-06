@@ -13,12 +13,12 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
 
-from ddalab_qt.domain.models import DdaVariantResult
-from ddalab_qt.ui import plot_data, quick_plot_surface
-from ddalab_qt.ui.plot_data import build_matrix_view
-from ddalab_qt.ui.plot_layers import PlotLayerConfig
-from ddalab_qt.ui.qt_plot_renderer import MatrixRenderArtifacts, QtCpuMatrixPlotRenderer
-from ddalab_qt.ui.quick_plot_surface import (
+from qt.domain.models import DdaVariantResult
+from qt.ui import plot_data, quick_plot_surface
+from qt.ui.plot_data import build_matrix_view
+from qt.ui.plot_layers import PlotLayerConfig
+from qt.ui.qt_plot_renderer import MatrixRenderArtifacts, QtCpuMatrixPlotRenderer
+from qt.ui.quick_plot_surface import (
     QuickHeatmapTextureItem,
     QuickLineGeometryItem,
     QuickPlotSurfaceBridge,
@@ -28,6 +28,7 @@ from ddalab_qt.ui.quick_plot_surface import (
     update_quick_heatmap_bridge,
     update_quick_variant_bridge,
 )
+from qt.ui.style import theme_colors
 
 
 def _variant() -> DdaVariantResult:
@@ -65,8 +66,8 @@ class QuickPlotSurfaceTests(unittest.TestCase):
             with self.subTest(value=value):
                 self.assertTrue(quick_plots_enabled({"DDALAB_ENABLE_QML_PLOTS": value}))
 
-    def test_quick_plots_enabled_is_on_by_default(self) -> None:
-        self.assertTrue(quick_plots_enabled({}))
+    def test_quick_plots_enabled_is_off_by_default_during_migration(self) -> None:
+        self.assertFalse(quick_plots_enabled({}))
 
     def test_quick_plots_enabled_accepts_explicit_falsey_env_values(self) -> None:
         for value in ("0", "false", "no", "off"):
@@ -87,10 +88,44 @@ class QuickPlotSurfaceTests(unittest.TestCase):
         self.assertIn("root.plotBridge.hasImage", qml)
         self.assertNotIn("imageSource", qml)
 
+    def test_qml_uses_bridge_theme_tokens_instead_of_hardcoded_dark_colors(
+        self,
+    ) -> None:
+        qml = quick_plot_surface_qml_path().read_text(encoding="utf-8")
+
+        self.assertIn("root.theme.surface", qml)
+        self.assertIn("root.theme.canvas", qml)
+        self.assertNotIn('color: "#101820"', qml)
+        self.assertNotIn('color: "#172433"', qml)
+
     def test_bridge_does_not_expose_unused_image_provider_source(self) -> None:
         bridge = QuickPlotSurfaceBridge()
 
         self.assertFalse(hasattr(bridge, "imageSource"))
+
+    def test_bridge_exposes_current_theme_for_qml(self) -> None:
+        bridge = QuickPlotSurfaceBridge()
+
+        with patch(
+            "qt.ui.quick_plot_surface.current_theme_colors",
+            return_value=theme_colors("light"),
+        ):
+            theme = bridge.theme
+
+        self.assertEqual(theme["surface"], "#ffffff")
+        self.assertEqual(theme["canvas"], "#f3f7fb")
+        self.assertEqual(theme["text"], "#13202c")
+        self.assertEqual(theme["mutedText"], "#627387")
+        self.assertEqual(theme["border"], "#b7c7d8")
+
+    def test_refresh_theme_notifies_qml(self) -> None:
+        bridge = QuickPlotSurfaceBridge()
+        emissions: list[bool] = []
+        bridge.changed.connect(lambda: emissions.append(True))
+
+        bridge.refresh_theme()
+
+        self.assertEqual(emissions, [True])
 
     def test_bridge_exposes_matrix_view_metadata_for_qml(self) -> None:
         bridge = QuickPlotSurfaceBridge()
@@ -164,7 +199,7 @@ class QuickPlotSurfaceTests(unittest.TestCase):
         logger = Mock()
 
         with patch(
-            "ddalab_qt.ui.quick_plot_surface.perf_logger",
+            "qt.ui.quick_plot_surface.perf_logger",
             return_value=logger,
             create=True,
         ):
@@ -368,12 +403,12 @@ class QuickPlotSurfaceTests(unittest.TestCase):
 
         with (
             patch(
-                "ddalab_qt.ui.quick_plot_surface.perf_counter_ns",
+                "qt.ui.quick_plot_surface.perf_counter_ns",
                 side_effect=[0, 20_000_000],
                 create=True,
             ),
             patch(
-                "ddalab_qt.ui.quick_plot_surface.perf_logger",
+                "qt.ui.quick_plot_surface.perf_logger",
                 return_value=logger,
                 create=True,
             ),
@@ -417,12 +452,12 @@ class QuickPlotSurfaceTests(unittest.TestCase):
 
         with (
             patch(
-                "ddalab_qt.ui.quick_plot_surface.perf_counter_ns",
+                "qt.ui.quick_plot_surface.perf_counter_ns",
                 side_effect=[0, 20_000_000],
                 create=True,
             ),
             patch(
-                "ddalab_qt.ui.quick_plot_surface.perf_logger",
+                "qt.ui.quick_plot_surface.perf_logger",
                 return_value=logger,
                 create=True,
             ),
@@ -472,12 +507,12 @@ class QuickPlotSurfaceTests(unittest.TestCase):
 
         with (
             patch(
-                "ddalab_qt.ui.quick_plot_surface.perf_counter_ns",
+                "qt.ui.quick_plot_surface.perf_counter_ns",
                 side_effect=[0, 20_000_000, 20_000_000, 45_000_000],
                 create=True,
             ),
             patch(
-                "ddalab_qt.ui.quick_plot_surface.perf_logger",
+                "qt.ui.quick_plot_surface.perf_logger",
                 return_value=logger,
                 create=True,
             ),
@@ -548,7 +583,7 @@ class QuickPlotSurfaceTests(unittest.TestCase):
         variant = _variant()
 
         with patch(
-            "ddalab_qt.ui.quick_plot_surface.DdaVariantPlotProvider",
+            "qt.ui.quick_plot_surface.DdaVariantPlotProvider",
             wraps=quick_plot_surface.DdaVariantPlotProvider,
         ) as provider_class:
             update_quick_variant_bridge(
@@ -570,7 +605,7 @@ class QuickPlotSurfaceTests(unittest.TestCase):
         variant = _variant()
 
         with patch(
-            "ddalab_qt.ui.plot_data.build_matrix_view",
+            "qt.ui.plot_matrix_data.build_matrix_view",
             wraps=plot_data.build_matrix_view,
         ) as build:
             update_quick_variant_bridge(bridge, variant, target_columns=5)
@@ -601,7 +636,7 @@ class QuickPlotSurfaceTests(unittest.TestCase):
 
         with (
             patch(
-                "ddalab_qt.ui.quick_plot_surface.perf_counter_ns",
+                "qt.ui.quick_plot_surface.perf_counter_ns",
                 side_effect=[
                     0,
                     20_000_000,
@@ -613,7 +648,7 @@ class QuickPlotSurfaceTests(unittest.TestCase):
                 create=True,
             ),
             patch(
-                "ddalab_qt.ui.quick_plot_surface.perf_logger",
+                "qt.ui.quick_plot_surface.perf_logger",
                 return_value=logger,
                 create=True,
             ),

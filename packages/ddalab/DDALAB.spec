@@ -7,17 +7,17 @@ from PyInstaller.compat import is_darwin, is_win
 from PyInstaller.utils.hooks import collect_all
 from PyInstaller.utils.hooks import collect_data_files
 from PyInstaller.utils.hooks import copy_metadata
-from ddalab_qt.runtime_binary_names import (
+from qt.runtime_binary_names import (
     PACKAGED_CLI_BINARY_STEM,
     platform_binary_name,
 )
-from ddalab_qt.version import get_app_version
+from qt.version import get_app_version
 
 
 PROJECT_ROOT = Path(globals().get("SPECPATH", Path.cwd())).resolve()
 PACKAGE_ROOT = PROJECT_ROOT.resolve()
-RUNTIME_BIN_DIR = PACKAGE_ROOT / "ddalab_qt" / "runtime" / "bin"
-ICON_DIR = PACKAGE_ROOT / "ddalab_qt" / "assets" / "icons"
+RUNTIME_BIN_DIR = PACKAGE_ROOT / "qt" / "runtime" / "bin"
+ICON_DIR = PACKAGE_ROOT / "qt" / "assets" / "icons"
 WINDOWS_ICON_PATH = ICON_DIR / "icon.ico"
 MACOS_ICON_PATH = ICON_DIR / "icon.icns"
 APP_VERSION = os.environ.get("DDALAB_VERSION", get_app_version())
@@ -48,7 +48,7 @@ elif is_darwin:
     EXE_ICON = str(MACOS_ICON_PATH)
     BUNDLE_ICON = str(MACOS_ICON_PATH)
 
-datas = collect_data_files("ddalab_qt", excludes=["runtime/bin/*"])
+datas = collect_data_files("qt", excludes=["runtime/bin/*"])
 datas += copy_metadata("ddalab")
 
 binaries = [
@@ -68,9 +68,9 @@ _EXCLUDED_DATA_PATTERNS = [
 
 def _runtime_submodule_filter(name: str) -> bool:
     return not any(
-        fragment in name
-        for fragment in (".tests", ".test", ".testing", ".examples")
+        fragment in name for fragment in (".tests", ".test", ".testing", ".examples")
     )
+
 
 # Collect the full optional reader/runtime stacks so the packaged app exposes
 # the same file-format support as the installed Python environment.
@@ -110,7 +110,7 @@ binaries = list(dict.fromkeys(binaries))
 hiddenimports = sorted(dict.fromkeys(hiddenimports))
 
 a = Analysis(
-    ["run_ddalab_gui.py"],
+    ["run_ddalab.py"],
     pathex=[str(PROJECT_ROOT)],
     binaries=binaries,
     datas=datas,

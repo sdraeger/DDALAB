@@ -10,7 +10,7 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
 
-from ddalab_qt.ui.plot_benchmarks import (
+from qt.ui.plot_benchmarks import (
     dense_matrix_tile_contract,
     dense_waveform_geometry_contract,
     run_plot_performance_contracts,
@@ -88,7 +88,7 @@ class PlotPerformanceContractTests(unittest.TestCase):
         logger = Mock()
 
         with patch(
-            "ddalab_qt.ui.plot_benchmarks.perf_logger",
+            "qt.ui.plot_benchmarks.perf_logger",
             return_value=logger,
         ):
             contracts = run_plot_performance_contracts(log=True)

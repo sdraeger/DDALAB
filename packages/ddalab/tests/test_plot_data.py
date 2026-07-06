@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+import hashlib
 from unittest.mock import patch
 
 # ruff: noqa: E402
@@ -13,13 +14,13 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
 
-from ddalab_qt.domain.models import (
+from qt.domain.models import (
     ChannelWaveform,
     DdaVariantResult,
     WaveformEnvelopeLevel,
     WaveformWindow,
 )
-from ddalab_qt.ui.plot_data import (
+from qt.ui.plot_data import (
     DdaVariantPlotProvider,
     LINE_PLOT_COLORS,
     MatrixTileCache,
@@ -35,7 +36,7 @@ from ddalab_qt.ui.plot_data import (
     variant_plot_bounds,
     windowed_resample_indices,
 )
-from ddalab_qt.ui.qt_plot_renderer import heatmap_qimage, lineplot_qimage
+from qt.ui.qt_plot_renderer import heatmap_qimage, lineplot_qimage
 
 
 def _variant(matrix: list[list[float]], *, min_value=0.0, max_value=1.0):
@@ -199,9 +200,13 @@ class PlotDataTests(unittest.TestCase):
 
         with (
             patch(
-                "ddalab_qt.ui.plot_data.perf_counter_ns", side_effect=[0, 20_000_000]
+                "qt.ui.plot_matrix_data.perf_counter_ns",
+                side_effect=[0, 20_000_000],
             ),
-            patch("ddalab_qt.ui.plot_data.perf_logger", create=True) as perf_logger,
+            patch(
+                "qt.ui.plot_matrix_data.perf_logger",
+                create=True,
+            ) as perf_logger,
         ):
             provider.matrix_view(request)
 
@@ -311,6 +316,55 @@ class PlotDataTests(unittest.TestCase):
             ),
             (0.0, 3.0),
         )
+
+    def test_variant_plot_bounds_skips_nonfinite_scan_when_zero_is_already_visible(
+        self,
+    ) -> None:
+        variant = _variant([[1.0, float("nan")]], min_value=-1.0, max_value=3.0)
+
+        with patch("qt.ui.plot_data._variant_contains_nonfinite") as scan:
+            bounds = variant_plot_bounds(variant)
+
+        self.assertEqual(bounds, (-1.0, 3.0))
+        scan.assert_not_called()
+
+    def test_variant_plot_bounds_caches_nonfinite_scan(self) -> None:
+        variant = _variant([[1.0, float("nan")]], min_value=2.0, max_value=3.0)
+
+        with patch(
+            "qt.ui.plot_data._variant_contains_nonfinite",
+            wraps=lambda item: any(
+                not np.isfinite(value) for row in item.matrix for value in row
+            ),
+        ) as scan:
+            self.assertEqual(variant_plot_bounds(variant), (0.0, 3.0))
+            self.assertEqual(variant_plot_bounds(variant), (0.0, 3.0))
+
+        self.assertEqual(scan.call_count, 1)
+
+    def test_build_matrix_view_samples_rows_without_full_numpy_conversion(self) -> None:
+        variant = _variant(
+            [
+                list(range(10)),
+                list(range(10, 20)),
+            ],
+            min_value=0.0,
+            max_value=20.0,
+        )
+
+        with patch(
+            "qt.ui.plot_matrix_data.np.asarray",
+            wraps=np.asarray,
+        ) as asarray:
+            build_matrix_view(variant, target_columns=4)
+            build_matrix_view(
+                variant,
+                target_columns=4,
+                start_fraction=0.25,
+                span_fraction=0.5,
+            )
+
+        asarray.assert_not_called()
 
     def test_heatmap_rgba_returns_renderer_ready_buffer(self) -> None:
         view = build_matrix_view(
@@ -477,6 +531,27 @@ class PlotDataTests(unittest.TestCase):
 
         self.assertEqual(before, after)
 
+    def test_waveform_render_key_reuses_channel_digest_across_viewports(self) -> None:
+        channel = _channel([float(value) for value in range(1000)])
+        provider = WaveformWindowPlotProvider(_waveform_window([channel]))
+
+        with patch(
+            "qt.ui.plot_waveform_data.hashlib.blake2b",
+            wraps=hashlib.blake2b,
+        ) as digest:
+            provider.render_key(WaveformViewRequest(target_width=40))
+            first_call_count = digest.call_count
+            provider.render_key(
+                WaveformViewRequest(
+                    target_width=40,
+                    start_fraction=0.25,
+                    span_fraction=0.5,
+                )
+            )
+
+        self.assertGreater(first_call_count, 0)
+        self.assertEqual(digest.call_count, first_call_count)
+
     def test_waveform_trace_view_uses_raw_samples_for_small_channels(self) -> None:
         view = build_waveform_trace_view(_channel([1.0, 2.0, 4.0]), target_width=20)
 
@@ -561,6 +636,23 @@ class PlotDataTests(unittest.TestCase):
         self.assertEqual(
             tuple(level.bucket_size for level in channel.levels),
             levels_after_coarse,
+        )
+
+    def test_waveform_trace_view_extends_pyramid_for_much_coarser_request(
+        self,
+    ) -> None:
+        channel = _channel([float(value) for value in range(2000)])
+
+        first = build_waveform_trace_view(channel, target_width=80)
+        levels_after_first = tuple(level.bucket_size for level in channel.levels)
+        second = build_waveform_trace_view(channel, target_width=5)
+
+        self.assertEqual(first.bucket_size, 13)
+        self.assertEqual(levels_after_first, (4, 8, 13))
+        self.assertEqual(second.bucket_size, 200)
+        self.assertEqual(
+            tuple(level.bucket_size for level in channel.levels),
+            (4, 8, 13, 32, 64, 128, 200),
         )
 
     def test_waveform_trace_view_is_empty_without_samples(self) -> None:
@@ -656,9 +748,13 @@ class PlotDataTests(unittest.TestCase):
 
         with (
             patch(
-                "ddalab_qt.ui.plot_data.perf_counter_ns", side_effect=[0, 20_000_000]
+                "qt.ui.plot_waveform_data.perf_counter_ns",
+                side_effect=[0, 20_000_000],
             ),
-            patch("ddalab_qt.ui.plot_data.perf_logger", create=True) as perf_logger,
+            patch(
+                "qt.ui.plot_waveform_data.perf_logger",
+                create=True,
+            ) as perf_logger,
         ):
             provider.geometry_view(request)
 

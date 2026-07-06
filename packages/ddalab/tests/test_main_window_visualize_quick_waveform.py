@@ -11,9 +11,9 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
 
-from ddalab_qt.app.main_window_visualize import MainWindowVisualizeMixin
-from ddalab_qt.domain.models import ChannelWaveform, WaveformWindow
-from ddalab_qt.ui.plot_layers import PlotLayerConfig
+from qt.app.visualization.main_window_visualize import MainWindowVisualizeMixin
+from qt.domain.models import ChannelWaveform, WaveformAnnotation, WaveformWindow
+from qt.ui.plot_layers import PlotLayerConfig
 
 
 def _window() -> WaveformWindow:
@@ -52,9 +52,14 @@ class _CheckBox:
 class _QuickBridge:
     def __init__(self) -> None:
         self.layers: list[PlotLayerConfig] = []
+        self.annotations: list[list[WaveformAnnotation]] = []
 
     def set_plot_layers(self, layers: PlotLayerConfig) -> bool:
         self.layers.append(layers)
+        return True
+
+    def set_annotations(self, annotations: list[WaveformAnnotation]) -> bool:
+        self.annotations.append(list(annotations))
         return True
 
 
@@ -70,6 +75,7 @@ class _WaveformWidget:
     def __init__(self) -> None:
         self.viewports: list[tuple[float, float, float]] = []
         self.layers: list[PlotLayerConfig] = []
+        self.annotations: list[list[WaveformAnnotation]] = []
 
     def set_display_viewport(
         self,
@@ -85,10 +91,14 @@ class _WaveformWidget:
         self.layers.append(layers)
         return True
 
+    def set_annotations(self, annotations: list[WaveformAnnotation]) -> None:
+        self.annotations.append(list(annotations))
+
 
 class _OverviewWidget:
     def __init__(self) -> None:
         self.calls: list[tuple[object, float, float, float]] = []
+        self.annotations: list[list[WaveformAnnotation]] = []
 
     def set_overview(
         self,
@@ -100,6 +110,9 @@ class _OverviewWidget:
         self.calls.append(
             (overview, start_seconds, duration_seconds, dataset_duration_seconds)
         )
+
+    def set_annotations(self, annotations: list[WaveformAnnotation]) -> None:
+        self.annotations.append(list(annotations))
 
 
 class _Timer:
@@ -117,6 +130,8 @@ class _Window(MainWindowVisualizeMixin):
         self.state = SimpleNamespace(
             waveform_viewport_start_seconds=2.0,
             waveform_viewport_duration_seconds=4.0,
+            active_file_path="demo.edf",
+            annotations_by_file={},
         )
 
 
@@ -149,7 +164,7 @@ class MainWindowVisualizeQuickWaveformTests(unittest.TestCase):
         window = _Window()
 
         with patch(
-            "ddalab_qt.app.main_window_visualize.update_quick_waveform_bridge"
+            "qt.app.visualization.main_window_visualize.update_quick_waveform_bridge"
         ) as update_bridge:
             window._update_quick_waveform_view(_window())
 
@@ -191,6 +206,23 @@ class MainWindowVisualizeQuickWaveformTests(unittest.TestCase):
         self.assertTrue(changed)
         self.assertEqual(window.waveform_widget.layers, [expected])
         self.assertEqual(window.quick_waveform_bridge.layers, [expected])
+
+    def test_apply_annotations_to_views_updates_quick_waveform_bridge(self) -> None:
+        window = _ViewportWindow()
+        annotation = WaveformAnnotation(
+            id="event",
+            label="Event",
+            notes="",
+            channel_name=None,
+            start_seconds=2.5,
+        )
+        window.state.annotations_by_file = {"demo.edf": [annotation]}
+
+        window._apply_annotations_to_views()
+
+        self.assertEqual(window.waveform_widget.annotations, [[annotation]])
+        self.assertEqual(window.overview_widget.annotations, [[annotation]])
+        self.assertEqual(window.quick_waveform_bridge.annotations, [[annotation]])
 
 
 if __name__ == "__main__":

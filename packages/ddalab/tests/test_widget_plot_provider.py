@@ -18,17 +18,18 @@ import numpy as np
 from PySide6.QtCore import QRectF
 from PySide6.QtWidgets import QApplication
 
-from ddalab_qt.domain.models import ChannelWaveform, DdaVariantResult, WaveformWindow
-from ddalab_qt.ui.plot_data import (
+from qt.domain.models import ChannelWaveform, DdaVariantResult, WaveformWindow
+from qt.ui.plot_data import (
     DdaVariantPlotProvider,
     MatrixView,
     MatrixViewRequest,
     WaveformTraceView,
     waveform_render_key,
 )
-from ddalab_qt.ui.plot_layers import PlotLayerConfig
-from ddalab_qt.ui.widgets import plots
-from ddalab_qt.ui.widgets.plots import DdaLinePlotWidget, HeatmapWidget, WaveformWidget
+from qt.ui.plot_layers import PlotLayerConfig
+from qt.ui.widgets import dda_line_plot_widget, heatmap_widget, waveform_widget
+from qt.ui.widgets import plot_widget_helpers
+from qt.ui.widgets.plots import DdaLinePlotWidget, HeatmapWidget, WaveformWidget
 
 
 def _variant() -> DdaVariantResult:
@@ -124,7 +125,7 @@ class WidgetPlotProviderTests(unittest.TestCase):
         providers: list[_RecordingProvider] = []
 
         with patch.object(
-            plots,
+            heatmap_widget,
             "DdaVariantPlotProvider",
             side_effect=lambda variant: _RecordingProvider(variant, providers),
             create=True,
@@ -157,9 +158,13 @@ class WidgetPlotProviderTests(unittest.TestCase):
         logger = Mock()
 
         with (
-            patch.object(plots, "perf_counter_ns", side_effect=[0, 20_000_000]),
-            patch.object(plots, "perf_logger", return_value=logger),
-            patch.object(plots, "QPainter", _FakePainter),
+            patch.object(
+                plot_widget_helpers,
+                "perf_counter_ns",
+                side_effect=[0, 20_000_000],
+            ),
+            patch.object(plot_widget_helpers, "perf_logger", return_value=logger),
+            patch.object(heatmap_widget, "QPainter", _FakePainter),
         ):
             widget.paintEvent(None)
 
@@ -240,7 +245,7 @@ class WidgetPlotProviderTests(unittest.TestCase):
         providers: list[_RecordingProvider] = []
 
         with patch.object(
-            plots,
+            dda_line_plot_widget,
             "DdaVariantPlotProvider",
             side_effect=lambda variant: _RecordingProvider(variant, providers),
             create=True,
@@ -275,9 +280,13 @@ class WidgetPlotProviderTests(unittest.TestCase):
         logger = Mock()
 
         with (
-            patch.object(plots, "perf_counter_ns", side_effect=[0, 20_000_000]),
-            patch.object(plots, "perf_logger", return_value=logger),
-            patch.object(plots, "QPainter", _FakePainter),
+            patch.object(
+                plot_widget_helpers,
+                "perf_counter_ns",
+                side_effect=[0, 20_000_000],
+            ),
+            patch.object(plot_widget_helpers, "perf_logger", return_value=logger),
+            patch.object(dda_line_plot_widget, "QPainter", _FakePainter),
         ):
             widget.paintEvent(None)
 
@@ -357,7 +366,7 @@ class WidgetPlotProviderTests(unittest.TestCase):
         providers = []
 
         with patch.object(
-            plots,
+            waveform_widget,
             "WaveformWindowPlotProvider",
             side_effect=lambda window: _RecordingWaveformProvider(window, providers),
             create=True,
@@ -386,7 +395,7 @@ class WidgetPlotProviderTests(unittest.TestCase):
         providers = []
 
         with patch.object(
-            plots,
+            waveform_widget,
             "WaveformWindowPlotProvider",
             side_effect=lambda window: _RecordingWaveformProvider(window, providers),
             create=True,
@@ -421,7 +430,7 @@ class WidgetPlotProviderTests(unittest.TestCase):
         )
 
         with patch.object(
-            plots,
+            waveform_widget,
             "build_waveform_trace_view",
             return_value=empty_trace,
         ) as build_trace:
@@ -458,7 +467,7 @@ class WidgetPlotProviderTests(unittest.TestCase):
         widget.set_plot_layers(PlotLayerConfig(waveform=False))
 
         with (
-            patch.object(plots, "QPainter", _FakePainter),
+            patch.object(waveform_widget, "QPainter", _FakePainter),
             patch.object(widget, "_draw_channel") as draw_channel,
             patch.object(widget, "_draw_annotation_overlays"),
         ):
@@ -475,7 +484,7 @@ class WidgetPlotProviderTests(unittest.TestCase):
         widget.set_plot_layers(PlotLayerConfig(annotations=False))
 
         with (
-            patch.object(plots, "QPainter", _FakePainter),
+            patch.object(waveform_widget, "QPainter", _FakePainter),
             patch.object(widget, "_draw_channel"),
             patch.object(widget, "_draw_annotation_overlays") as draw_annotations,
         ):

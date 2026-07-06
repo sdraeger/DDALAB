@@ -129,4 +129,4 @@ else
 fi
 
 install_dependencies
-venv_python -m ddalab_gui "$@"
+venv_python -m qt.gui_main "$@"

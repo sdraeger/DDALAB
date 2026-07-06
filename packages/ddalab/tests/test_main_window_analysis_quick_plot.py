@@ -11,9 +11,9 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
 
-from ddalab_qt.app.main_window_analysis import MainWindowAnalysisMixin
-from ddalab_qt.domain.models import DdaVariantResult
-from ddalab_qt.ui.plot_layers import PlotLayerConfig
+from qt.app.analysis.main_window_analysis import MainWindowAnalysisMixin
+from qt.domain.models import DdaVariantResult
+from qt.ui.plot_layers import PlotLayerConfig
 
 
 def _variant() -> DdaVariantResult:
@@ -125,7 +125,7 @@ class MainWindowAnalysisQuickPlotTests(unittest.TestCase):
         window = _Window()
 
         with patch(
-            "ddalab_qt.app.main_window_analysis.update_quick_variant_bridge"
+            "qt.app.analysis.main_window_analysis_results.update_quick_variant_bridge"
         ) as update_bridge:
             window._update_quick_variant_view(_variant())
 
