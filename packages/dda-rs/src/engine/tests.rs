@@ -332,8 +332,7 @@ fn temporal_regularization_smooths_and_recovers_slowly_varying_coefficients() {
         .iter()
         .map(|window| solve_regression_window(window, SvdBackend::RobustSvd))
         .collect::<Vec<_>>();
-    let regularized =
-        solve_temporally_regularized_windows(&windows, 6.0, SvdBackend::RobustSvd);
+    let regularized = solve_temporally_regularized_windows(&windows, 6.0, SvdBackend::RobustSvd);
 
     let coefficient_tv = |blocks: &[super::solver::SolvedBlock]| -> f64 {
         blocks

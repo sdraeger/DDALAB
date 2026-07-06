@@ -480,10 +480,7 @@ fn solve_matrix_with_robust_svd(matrix: &DMatrix<f64>, rhs: &DVector<f64>) -> DV
         .unwrap_or_else(|_| DVector::from_element(matrix.ncols(), f64::NAN))
 }
 
-fn solve_matrix_with_native_compat_svd(
-    matrix: &DMatrix<f64>,
-    rhs: &DVector<f64>,
-) -> DVector<f64> {
+fn solve_matrix_with_native_compat_svd(matrix: &DMatrix<f64>, rhs: &DVector<f64>) -> DVector<f64> {
     if matrix.nrows() == 0 || matrix.ncols() == 0 || rhs.len() != matrix.nrows() {
         return DVector::from_element(matrix.ncols(), f64::NAN);
     }
@@ -749,8 +746,7 @@ fn dsvdcmp_native_compat(
             let y = w[nm];
             let g_local = rv1[nm];
             let h = rv1[k_idx];
-            let mut f =
-                ((y - z) * (y + z) + (g_local - h) * (g_local + h)) / ((h + h) * y);
+            let mut f = ((y - z) * (y + z) + (g_local - h) * (g_local + h)) / ((h + h) * y);
             let mut g2 = dpythag_native_compat(f, 1.0);
             if f < 0.0 {
                 g2 = -g2.abs();

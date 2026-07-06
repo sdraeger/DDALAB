@@ -190,6 +190,14 @@ pub fn normalize_variant_id(input: &str) -> Option<&'static str> {
         | "conditional_cross_dynamical"
         | "conditional-cross-dynamical"
         | "conditional cross dynamical" => Some("CCD"),
+        "ccdlog"
+        | "conditional_cross_dynamical_log_mse_ratio"
+        | "conditional-cross-dynamical-log-mse-ratio"
+        | "conditional cross dynamical log mse ratio" => Some("CCDLOG"),
+        "ccdpr2"
+        | "conditional_cross_dynamical_partial_r2"
+        | "conditional-cross-dynamical-partial-r2"
+        | "conditional cross dynamical partial r2" => Some("CCDPR2"),
         "ccdsig"
         | "conditional_cross_dynamical_significance"
         | "conditional-cross-dynamical-significance"
@@ -220,6 +228,8 @@ fn to_variant_config_key(abbrev: &str) -> &'static str {
         "CT" => "cross_timeseries",
         "CD" => "cross_dynamical",
         "CCD" => "conditional_cross_dynamical",
+        "CCDLOG" => "conditional_cross_dynamical_log_mse_ratio",
+        "CCDPR2" => "conditional_cross_dynamical_partial_r2",
         "CCDSIG" => "conditional_cross_dynamical_significance",
         "CCDSTAB" => "conditional_cross_dynamical_stability",
         "TRCCD" => "temporally_regularized_conditional_cross_dynamical",
@@ -236,7 +246,7 @@ pub fn normalize_variants(variants: &[String]) -> Result<Vec<String>, String> {
     for v in variants {
         let abbrev = normalize_variant_id(v).ok_or_else(|| {
             format!(
-                "Unknown variant '{}'. Valid variants: ST, CT, CD, CCD, CCDSIG, CCDSTAB, TRCCD, MVCCD, DE, SY (or app IDs like single_timeseries)",
+                "Unknown variant '{}'. Valid variants: ST, CT, CD, CCD, CCDLOG, CCDPR2, CCDSIG, CCDSTAB, TRCCD, MVCCD, DE, SY (or app IDs like single_timeseries)",
                 v
             )
         })?;
@@ -284,7 +294,7 @@ pub fn load_variant_configs(path: &str) -> Result<HashMap<String, VariantChannel
     for (key, cfg) in parsed {
         let Some(abbrev) = normalize_variant_id(&key) else {
             return Err(format!(
-                "Unknown variant config key '{}'. Expected ST/CT/CD/CCD/CCDSIG/CCDSTAB/TRCCD/MVCCD/DE/SY or app IDs",
+                "Unknown variant config key '{}'. Expected ST/CT/CD/CCD/CCDLOG/CCDPR2/CCDSIG/CCDSTAB/TRCCD/MVCCD/DE/SY or app IDs",
                 key
             ));
         };

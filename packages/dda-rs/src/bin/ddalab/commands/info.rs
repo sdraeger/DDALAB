@@ -35,13 +35,16 @@ pub fn execute(args: InfoArgs) -> i32 {
         platform: std::env::consts::OS.to_string(),
         arch: std::env::consts::ARCH.to_string(),
         supported_variants: vec![
-            "ST", "CT", "CD", "CCD", "CCDSIG", "CCDSTAB", "TRCCD", "MVCCD", "DE", "SY",
+            "ST", "CT", "CD", "CCD", "CCDLOG", "CCDPR2", "CCDSIG", "CCDSTAB", "TRCCD", "MVCCD",
+            "DE", "SY",
         ],
         accepted_variant_ids: vec![
             "single_timeseries",
             "cross_timeseries",
             "cross_dynamical",
             "conditional_cross_dynamical",
+            "conditional_cross_dynamical_log_mse_ratio",
+            "conditional_cross_dynamical_partial_r2",
             "conditional_cross_dynamical_significance",
             "conditional_cross_dynamical_stability",
             "temporally_regularized_conditional_cross_dynamical",

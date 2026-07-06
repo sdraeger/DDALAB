@@ -8,6 +8,8 @@ pub(crate) struct VariantMode {
     pub(crate) ct_enabled: bool,
     pub(crate) cd_enabled: bool,
     pub(crate) ccd_enabled: bool,
+    pub(crate) ccdlog_enabled: bool,
+    pub(crate) ccdpr2_enabled: bool,
     pub(crate) ccdsig_enabled: bool,
     pub(crate) ccdstab_enabled: bool,
     pub(crate) trccd_enabled: bool,
@@ -46,6 +48,14 @@ impl VariantMode {
                         || enabled.contains("TEMPORALLY_REGULARIZED_CONDITIONAL_CROSS_DYNAMICAL")
                         || enabled.contains("MVCCD")
                         || enabled.contains("MULTIVARIATE_CONDITIONAL_CROSS_DYNAMICAL"),
+                    ccdlog_enabled: enabled.contains("CCDLOG")
+                        || enabled.contains("CONDITIONAL_CROSS_DYNAMICAL_LOG_MSE_RATIO")
+                        || enabled.contains("CONDITIONAL-CROSS-DYNAMICAL-LOG-MSE-RATIO")
+                        || enabled.contains("CONDITIONAL CROSS DYNAMICAL LOG MSE RATIO"),
+                    ccdpr2_enabled: enabled.contains("CCDPR2")
+                        || enabled.contains("CONDITIONAL_CROSS_DYNAMICAL_PARTIAL_R2")
+                        || enabled.contains("CONDITIONAL-CROSS-DYNAMICAL-PARTIAL-R2")
+                        || enabled.contains("CONDITIONAL CROSS DYNAMICAL PARTIAL R2"),
                     ccdsig_enabled: enabled.contains("CCDSIG")
                         || enabled.contains("CONDITIONAL_CROSS_DYNAMICAL_SIGNIFICANCE")
                         || enabled.contains("CONDITIONAL-CROSS-DYNAMICAL-SIGNIFICANCE")
@@ -84,6 +94,14 @@ impl VariantMode {
                 || enabled.contains("TEMPORALLY_REGULARIZED_CONDITIONAL_CROSS_DYNAMICAL")
                 || enabled.contains("MVCCD")
                 || enabled.contains("MULTIVARIATE_CONDITIONAL_CROSS_DYNAMICAL"),
+            ccdlog_enabled: enabled.contains("CCDLOG")
+                || enabled.contains("CONDITIONAL_CROSS_DYNAMICAL_LOG_MSE_RATIO")
+                || enabled.contains("CONDITIONAL-CROSS-DYNAMICAL-LOG-MSE-RATIO")
+                || enabled.contains("CONDITIONAL CROSS DYNAMICAL LOG MSE RATIO"),
+            ccdpr2_enabled: enabled.contains("CCDPR2")
+                || enabled.contains("CONDITIONAL_CROSS_DYNAMICAL_PARTIAL_R2")
+                || enabled.contains("CONDITIONAL-CROSS-DYNAMICAL-PARTIAL-R2")
+                || enabled.contains("CONDITIONAL CROSS DYNAMICAL PARTIAL R2"),
             ccdsig_enabled: enabled.contains("CCDSIG")
                 || enabled.contains("CONDITIONAL_CROSS_DYNAMICAL_SIGNIFICANCE")
                 || enabled.contains("CONDITIONAL-CROSS-DYNAMICAL-SIGNIFICANCE")
@@ -293,6 +311,10 @@ pub(crate) fn resolve_ccd_pairs(request: &DDARequest, total_channels: usize) -> 
             "ccd",
             "conditional_cross_dynamical",
             "conditional-cross-dynamical",
+            "ccdlog",
+            "conditional_cross_dynamical_log_mse_ratio",
+            "ccdpr2",
+            "conditional_cross_dynamical_partial_r2",
             "conditional_cross_dynamical_significance",
             "conditional_cross_dynamical_stability",
             "temporally_regularized_conditional_cross_dynamical",
@@ -342,6 +364,10 @@ pub(crate) fn resolve_ccd_conditioning_strategy(request: &DDARequest) -> CcdCond
             "ccd",
             "conditional_cross_dynamical",
             "conditional-cross-dynamical",
+            "ccdlog",
+            "conditional_cross_dynamical_log_mse_ratio",
+            "ccdpr2",
+            "conditional_cross_dynamical_partial_r2",
             "conditional_cross_dynamical_significance",
             "conditional_cross_dynamical_stability",
             "temporally_regularized_conditional_cross_dynamical",
@@ -363,6 +389,10 @@ pub(crate) fn resolve_ccd_candidate_channels(
             "ccd",
             "conditional_cross_dynamical",
             "conditional-cross-dynamical",
+            "ccdlog",
+            "conditional_cross_dynamical_log_mse_ratio",
+            "ccdpr2",
+            "conditional_cross_dynamical_partial_r2",
             "conditional_cross_dynamical_significance",
             "conditional_cross_dynamical_stability",
             "temporally_regularized_conditional_cross_dynamical",
