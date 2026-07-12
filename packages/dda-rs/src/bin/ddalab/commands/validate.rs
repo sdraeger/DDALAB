@@ -47,40 +47,32 @@ pub fn execute(args: ValidateArgs) -> i32 {
     };
 
     let result = ValidateOutput {
-        file: args.file.clone(),
+        file: args.file,
         exists,
         readable,
         supported,
         file_type: file_type.map(|ft| format!("{:?}", ft)),
         size_bytes,
-        error: error.clone(),
+        error,
     };
 
     if args.json {
-        match output::to_json(&result, false) {
-            Ok(json) => {
-                if let Err(e) = output::write_output(&json, None) {
-                    eprintln!("Error: {}", e);
-                    return exit_codes::EXECUTION_ERROR;
-                }
-            }
-            Err(e) => {
-                eprintln!("Error: {}", e);
-                return exit_codes::EXECUTION_ERROR;
-            }
+        if let Err(error) = output::write_json(&result, false, None) {
+            eprintln!("Error: {}", error);
+            return exit_codes::EXECUTION_ERROR;
         }
-    } else if let Some(ref err) = error {
+    } else if let Some(err) = &result.error {
         eprintln!("Error: {}", err);
     } else {
         println!(
             "File '{}' is valid ({}, {} bytes)",
-            args.file,
+            result.file,
             file_type.map(|ft| format!("{:?}", ft)).unwrap_or_default(),
             size_bytes.unwrap_or(0)
         );
     }
 
-    if error.is_some() {
+    if result.error.is_some() {
         exit_codes::INPUT_ERROR
     } else {
         exit_codes::SUCCESS

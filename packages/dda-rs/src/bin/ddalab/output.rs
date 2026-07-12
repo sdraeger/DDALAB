@@ -25,3 +25,13 @@ pub fn to_json<T: serde::Serialize>(value: &T, compact: bool) -> Result<String, 
         serde_json::to_string_pretty(value).map_err(|e| format!("JSON serialization failed: {}", e))
     }
 }
+
+/// Serialize and write a JSON value to stdout or a file.
+pub fn write_json<T: serde::Serialize>(
+    value: &T,
+    compact: bool,
+    output_path: Option<&str>,
+) -> Result<(), String> {
+    let json = to_json(value, compact)?;
+    write_output(&json, output_path)
+}

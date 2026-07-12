@@ -9,17 +9,6 @@ use serde::Deserialize;
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExecutionBackend {
-    PureRust,
-}
-
-#[derive(Debug)]
-pub struct ExecutionResult {
-    pub result: DDAResult,
-    pub backend: ExecutionBackend,
-}
-
 fn pure_rust_common_support_reason(request: &DDARequest) -> Result<(), String> {
     if request.preprocessing_options.highpass.is_some()
         || request.preprocessing_options.lowpass.is_some()
@@ -74,7 +63,7 @@ pub async fn execute_request(
     request: &DDARequest,
     start_bound: Option<u64>,
     end_bound: Option<u64>,
-) -> Result<ExecutionResult, String> {
+) -> Result<DDAResult, String> {
     execute_request_with_progress(request, start_bound, end_bound, |_| {}).await
 }
 
@@ -82,51 +71,38 @@ pub async fn execute_request_with_progress<F>(
     request: &DDARequest,
     start_bound: Option<u64>,
     end_bound: Option<u64>,
-    mut on_progress: F,
-) -> Result<ExecutionResult, String>
+    on_progress: F,
+) -> Result<DDAResult, String>
 where
     F: FnMut(&PureRustProgress),
 {
     pure_rust_support_reason(request)
         .map_err(|reason| format!("Pure Rust DDA cannot execute this request: {}", reason))?;
 
-    let result = run_request_on_ascii_file_with_progress(
+    run_request_on_ascii_file_with_progress(
         request,
         &request.file_path,
         start_bound,
         end_bound,
-        |progress| on_progress(progress),
+        on_progress,
     )
-    .map_err(|error| format!("Pure Rust DDA failed: {}", error))?;
-
-    Ok(ExecutionResult {
-        result,
-        backend: ExecutionBackend::PureRust,
-    })
+    .map_err(|error| format!("Pure Rust DDA failed: {}", error))
 }
 
 pub async fn execute_request_on_matrix_with_progress<F>(
     request: &DDARequest,
     samples: &[Vec<f64>],
     channel_labels: Option<&[String]>,
-    mut on_progress: F,
-) -> Result<ExecutionResult, String>
+    on_progress: F,
+) -> Result<DDAResult, String>
 where
     F: FnMut(&PureRustProgress),
 {
     pure_rust_matrix_support_reason(request)
         .map_err(|reason| format!("Pure Rust DDA cannot execute this request: {}", reason))?;
 
-    let result =
-        run_request_on_matrix_with_progress(request, samples, channel_labels, |progress| {
-            on_progress(progress)
-        })
-        .map_err(|error| format!("Pure Rust DDA failed: {}", error))?;
-
-    Ok(ExecutionResult {
-        result,
-        backend: ExecutionBackend::PureRust,
-    })
+    run_request_on_matrix_with_progress(request, samples, channel_labels, on_progress)
+        .map_err(|error| format!("Pure Rust DDA failed: {}", error))
 }
 
 pub async fn execute_request_on_matrix_file_with_progress<F>(
@@ -135,28 +111,23 @@ pub async fn execute_request_on_matrix_file_with_progress<F>(
     rows: usize,
     cols: usize,
     channel_labels: Option<&[String]>,
-    mut on_progress: F,
-) -> Result<ExecutionResult, String>
+    on_progress: F,
+) -> Result<DDAResult, String>
 where
     F: FnMut(&PureRustProgress),
 {
     pure_rust_matrix_support_reason(request)
         .map_err(|reason| format!("Pure Rust DDA cannot execute this request: {}", reason))?;
 
-    let result = run_request_on_f64_matrix_file_with_progress(
+    run_request_on_f64_matrix_file_with_progress(
         request,
         matrix_path,
         rows,
         cols,
         channel_labels,
-        |progress| on_progress(progress),
+        on_progress,
     )
-    .map_err(|error| format!("Pure Rust DDA failed: {}", error))?;
-
-    Ok(ExecutionResult {
-        result,
-        backend: ExecutionBackend::PureRust,
-    })
+    .map_err(|error| format!("Pure Rust DDA failed: {}", error))
 }
 
 /// Validate a single file path: existence and supported extension.
@@ -177,6 +148,32 @@ pub fn validate_file(file_path: &str) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+const VARIANT_IDS: &[(&str, &str)] = &[
+    ("ST", "single_timeseries"),
+    ("CT", "cross_timeseries"),
+    ("CD", "cross_dynamical"),
+    ("CCD", "conditional_cross_dynamical"),
+    ("CCDLOG", "conditional_cross_dynamical_log_mse_ratio"),
+    ("CCDPR2", "conditional_cross_dynamical_partial_r2"),
+    ("CCDSIG", "conditional_cross_dynamical_significance"),
+    ("CCDSTAB", "conditional_cross_dynamical_stability"),
+    (
+        "TRCCD",
+        "temporally_regularized_conditional_cross_dynamical",
+    ),
+    ("MVCCD", "multivariate_conditional_cross_dynamical"),
+    ("DE", "dynamical_ergodicity"),
+    ("SY", "synchronization"),
+];
+
+pub fn supported_variant_ids() -> impl Iterator<Item = &'static str> {
+    VARIANT_IDS.iter().map(|(variant_id, _)| *variant_id)
+}
+
+pub fn app_variant_ids() -> impl Iterator<Item = &'static str> {
+    VARIANT_IDS.iter().map(|(_, app_id)| *app_id)
 }
 
 /// Normalize variant IDs to canonical abbreviations used by dda-rs.
@@ -222,22 +219,10 @@ pub fn normalize_variant_id(input: &str) -> Option<&'static str> {
     }
 }
 
-fn to_variant_config_key(abbrev: &str) -> &'static str {
-    match abbrev {
-        "ST" => "single_timeseries",
-        "CT" => "cross_timeseries",
-        "CD" => "cross_dynamical",
-        "CCD" => "conditional_cross_dynamical",
-        "CCDLOG" => "conditional_cross_dynamical_log_mse_ratio",
-        "CCDPR2" => "conditional_cross_dynamical_partial_r2",
-        "CCDSIG" => "conditional_cross_dynamical_significance",
-        "CCDSTAB" => "conditional_cross_dynamical_stability",
-        "TRCCD" => "temporally_regularized_conditional_cross_dynamical",
-        "MVCCD" => "multivariate_conditional_cross_dynamical",
-        "DE" => "dynamical_ergodicity",
-        "SY" => "synchronization",
-        _ => "single_timeseries",
-    }
+pub fn variant_app_id(abbrev: &str) -> Option<&'static str> {
+    VARIANT_IDS
+        .iter()
+        .find_map(|(candidate, app_id)| (*candidate == abbrev).then_some(*app_id))
 }
 
 /// Normalize and deduplicate variants while preserving input order.
@@ -246,8 +231,9 @@ pub fn normalize_variants(variants: &[String]) -> Result<Vec<String>, String> {
     for v in variants {
         let abbrev = normalize_variant_id(v).ok_or_else(|| {
             format!(
-                "Unknown variant '{}'. Valid variants: ST, CT, CD, CCD, CCDLOG, CCDPR2, CCDSIG, CCDSTAB, TRCCD, MVCCD, DE, SY (or app IDs like single_timeseries)",
-                v
+                "Unknown variant '{}'. Valid variants: {} (or app IDs like single_timeseries)",
+                v,
+                supported_variant_ids().collect::<Vec<_>>().join(", ")
             )
         })?;
 
@@ -298,7 +284,9 @@ pub fn load_variant_configs(path: &str) -> Result<HashMap<String, VariantChannel
                 key
             ));
         };
-        let canonical_key = to_variant_config_key(abbrev).to_string();
+        let canonical_key = variant_app_id(abbrev)
+            .unwrap_or("single_timeseries")
+            .to_string();
         configs.insert(
             canonical_key,
             VariantChannelConfig {
@@ -317,58 +305,69 @@ pub fn load_variant_configs(path: &str) -> Result<HashMap<String, VariantChannel
     Ok(configs)
 }
 
-/// Merge legacy CLI channel/pair args with optional app-style variant configs.
-/// Variant config values take precedence when present and non-empty.
-pub fn derive_effective_channels_and_pairs(
+pub struct PreparedSelection {
+    pub variants: Vec<String>,
+    pub channels: Vec<usize>,
+    pub ct_pairs: Option<Vec<[usize; 2]>>,
+    pub cd_pairs: Option<Vec<[usize; 2]>>,
+    pub variant_configs: Option<HashMap<String, VariantChannelConfig>>,
+}
+
+/// Normalize the shared channel, pair, and per-variant CLI inputs.
+pub fn prepare_selection(
     channels: Option<Vec<usize>>,
-    ct_pairs: Option<Vec<[usize; 2]>>,
-    cd_pairs: Option<Vec<[usize; 2]>>,
-    variant_configs: Option<&HashMap<String, VariantChannelConfig>>,
-) -> (Vec<usize>, Option<Vec<[usize; 2]>>, Option<Vec<[usize; 2]>>) {
+    variants: &[String],
+    ct_pairs: Option<&[String]>,
+    cd_pairs: Option<&[String]>,
+    variant_configs_path: Option<&str>,
+) -> Result<PreparedSelection, String> {
+    let variants = normalize_variants(variants)?;
+    let ct_pairs = ct_pairs.map(cli::parse_pairs).transpose()?;
+    let cd_pairs = cd_pairs.map(cli::parse_pairs).transpose()?;
+    let variant_configs = variant_configs_path.map(load_variant_configs).transpose()?;
     let mut channel_set: BTreeSet<usize> = channels.unwrap_or_default().into_iter().collect();
-    let mut effective_ct = ct_pairs;
-    let mut effective_cd = cd_pairs;
+    let mut ct_pairs = ct_pairs;
+    let mut cd_pairs = cd_pairs;
 
-    if let Some(configs) = variant_configs {
-        if let Some(ct_cfg) = configs.get("cross_timeseries") {
-            if let Some(pairs) = &ct_cfg.ct_channel_pairs {
-                if !pairs.is_empty() {
-                    effective_ct = Some(pairs.clone());
-                }
-            }
+    if let Some(configs) = &variant_configs {
+        if let Some(pairs) = configs
+            .get("cross_timeseries")
+            .and_then(|config| config.ct_channel_pairs.as_ref())
+            .filter(|pairs| !pairs.is_empty())
+        {
+            ct_pairs = Some(pairs.clone());
         }
-        if let Some(cd_cfg) = configs.get("cross_dynamical") {
-            if let Some(pairs) = &cd_cfg.cd_channel_pairs {
-                if !pairs.is_empty() {
-                    effective_cd = Some(pairs.clone());
-                }
-            }
+        if let Some(pairs) = configs
+            .get("cross_dynamical")
+            .and_then(|config| config.cd_channel_pairs.as_ref())
+            .filter(|pairs| !pairs.is_empty())
+        {
+            cd_pairs = Some(pairs.clone());
         }
 
-        let mut single_variant_channels: BTreeSet<usize> = BTreeSet::new();
-        for key in [
+        let configured_channels = [
             "single_timeseries",
             "dynamical_ergodicity",
             "synchronization",
-        ] {
-            if let Some(cfg) = configs.get(key) {
-                if let Some(chans) = &cfg.selected_channels {
-                    for ch in chans {
-                        single_variant_channels.insert(*ch);
-                    }
-                }
-            }
-        }
-        if !single_variant_channels.is_empty() {
-            channel_set = single_variant_channels;
+        ]
+        .iter()
+        .filter_map(|key| configs.get(*key))
+        .filter_map(|config| config.selected_channels.as_ref())
+        .flatten()
+        .copied()
+        .collect::<BTreeSet<_>>();
+        if !configured_channels.is_empty() {
+            channel_set = configured_channels;
         }
     }
 
-    (
-        channel_set.into_iter().collect(),
-        effective_ct,
-        effective_cd,
-    )
+    Ok(PreparedSelection {
+        variants,
+        channels: channel_set.into_iter().collect(),
+        ct_pairs,
+        cd_pairs,
+        variant_configs,
+    })
 }
 
 /// Validate shared DDA parameters (not file-specific).
@@ -396,7 +395,7 @@ pub fn validate_common_params(
 
     // CT requires pairs
     if normalized_variants.iter().any(|v| v == "CT")
-        && ct_pairs.as_ref().map_or(true, |pairs| pairs.is_empty())
+        && !matches!(ct_pairs, Some(pairs) if !pairs.is_empty())
     {
         return Err(
             "CT variant requires --ct-pairs (e.g., --ct-pairs \"0,1\" \"0,2\")".to_string(),
@@ -405,7 +404,7 @@ pub fn validate_common_params(
 
     // CD requires pairs
     if normalized_variants.iter().any(|v| v == "CD")
-        && cd_pairs.as_ref().map_or(true, |pairs| pairs.is_empty())
+        && !matches!(cd_pairs, Some(pairs) if !pairs.is_empty())
     {
         return Err(
             "CD variant requires --cd-pairs (e.g., --cd-pairs \"0,1\" \"1,0\")".to_string(),
@@ -443,18 +442,14 @@ pub fn validate_common_params(
         ));
     }
 
-    // Validate pair semantics
-    if let Some(pairs) = ct_pairs {
-        for pair in pairs {
-            if pair[0] == pair[1] {
-                return Err("CT channel pairs cannot contain identical channels".to_string());
-            }
-        }
-    }
-    if let Some(pairs) = cd_pairs {
-        for pair in pairs {
-            if pair[0] == pair[1] {
-                return Err("CD channel pairs cannot contain identical channels".to_string());
+    // Validate pair semantics in the same CT-before-CD order used above.
+    for (variant, pairs) in [("CT", ct_pairs), ("CD", cd_pairs)] {
+        if let Some(pairs) = pairs {
+            if pairs.iter().any(|pair| pair[0] == pair[1]) {
+                return Err(format!(
+                    "{} channel pairs cannot contain identical channels",
+                    variant
+                ));
             }
         }
     }
@@ -462,87 +457,33 @@ pub fn validate_common_params(
     Ok(())
 }
 
-/// Build a DDARequest from individual parameters.
-#[allow(clippy::too_many_arguments)]
-#[cfg_attr(not(test), allow(dead_code))]
-pub fn build_dda_request(
-    file_path: &str,
-    channels: &[usize],
-    variants: &[String],
-    wl: u32,
-    ws: u32,
-    delays: &[i32],
-    model_terms: Option<Vec<i32>>,
-    dm: u32,
-    order: u32,
-    nr_tau: u32,
-    ct_wl: Option<u32>,
-    ct_ws: Option<u32>,
-    ct_pairs: &Option<Vec<String>>,
-    cd_pairs: &Option<Vec<String>>,
-    sr: Option<f64>,
-    start: Option<f64>,
-    end: Option<f64>,
-) -> Result<DDARequest, String> {
-    let parsed_ct_pairs = ct_pairs
-        .as_ref()
-        .map(|pairs| cli::parse_pairs(pairs))
-        .transpose()?;
-
-    let parsed_cd_pairs = cd_pairs
-        .as_ref()
-        .map(|pairs| cli::parse_pairs(pairs))
-        .transpose()?;
-
-    build_dda_request_with_options(
-        file_path,
-        channels,
-        variants,
-        wl,
-        ws,
-        delays,
-        model_terms,
-        dm,
-        order,
-        nr_tau,
-        ct_wl,
-        ct_ws,
-        parsed_ct_pairs,
-        parsed_cd_pairs,
-        sr,
-        start,
-        end,
-        None,
-        None,
-        None,
-    )
+/// Inputs used to construct a DDA request from CLI or sidecar parameters.
+pub struct RequestConfig<'a> {
+    pub file_path: &'a str,
+    pub channels: &'a [usize],
+    pub variants: &'a [String],
+    pub window_length: u32,
+    pub window_step: u32,
+    pub delays: &'a [i32],
+    pub model_terms: Option<Vec<i32>>,
+    pub dm: u32,
+    pub order: u32,
+    pub nr_tau: u32,
+    pub ct_window_length: Option<u32>,
+    pub ct_window_step: Option<u32>,
+    pub ct_channel_pairs: Option<Vec<[usize; 2]>>,
+    pub cd_channel_pairs: Option<Vec<[usize; 2]>>,
+    pub sampling_rate: Option<f64>,
+    pub start: Option<f64>,
+    pub end: Option<f64>,
+    pub highpass: Option<f64>,
+    pub lowpass: Option<f64>,
+    pub variant_configs: Option<HashMap<String, VariantChannelConfig>>,
 }
 
-/// Build a DDARequest with full CLI options (preprocessing + parsed pairs + variant configs).
-#[allow(clippy::too_many_arguments)]
-pub fn build_dda_request_with_options(
-    file_path: &str,
-    channels: &[usize],
-    variants: &[String],
-    wl: u32,
-    ws: u32,
-    delays: &[i32],
-    model_terms: Option<Vec<i32>>,
-    dm: u32,
-    order: u32,
-    nr_tau: u32,
-    ct_wl: Option<u32>,
-    ct_ws: Option<u32>,
-    ct_channel_pairs: Option<Vec<[usize; 2]>>,
-    cd_channel_pairs: Option<Vec<[usize; 2]>>,
-    sr: Option<f64>,
-    start: Option<f64>,
-    end: Option<f64>,
-    highpass: Option<f64>,
-    lowpass: Option<f64>,
-    variant_configs: Option<HashMap<String, VariantChannelConfig>>,
-) -> Result<DDARequest, String> {
-    let normalized_variants = normalize_variants(variants)?;
+/// Build a DDA request from normalized CLI or sidecar options.
+pub fn build_dda_request(config: RequestConfig<'_>) -> Result<DDARequest, String> {
+    let normalized_variants = normalize_variants(config.variants)?;
     let variant_refs: Vec<&str> = normalized_variants.iter().map(|s| s.as_str()).collect();
     let mask = generate_select_mask(&variant_refs);
     let mask_str = format_select_mask(&mask);
@@ -552,42 +493,57 @@ pub fn build_dda_request_with_options(
     let needs_ct_params = normalized_variants
         .iter()
         .any(|v| v == "CT" || v == "CD" || v == "DE");
-    let ct_wl = ct_wl.or(if needs_ct_params { Some(wl) } else { None });
-    let ct_ws = ct_ws.or(if needs_ct_params { Some(ws) } else { None });
+    let ct_window_length = config.ct_window_length.or(if needs_ct_params {
+        Some(config.window_length)
+    } else {
+        None
+    });
+    let ct_window_step = config.ct_window_step.or(if needs_ct_params {
+        Some(config.window_step)
+    } else {
+        None
+    });
 
-    let channels = if channels.is_empty() {
+    let channels = if config.channels.is_empty() {
         None
     } else {
-        Some(channels.to_vec())
+        Some(config.channels.to_vec())
     };
 
     Ok(DDARequest {
-        file_path: file_path.to_string(),
+        file_path: config.file_path.to_string(),
         channels,
         time_range: TimeRange {
-            start: start.unwrap_or(0.0),
-            end: end.unwrap_or(f64::MAX),
+            start: config.start.unwrap_or(0.0),
+            end: config.end.unwrap_or(f64::MAX),
         },
-        preprocessing_options: PreprocessingOptions { highpass, lowpass },
+        preprocessing_options: PreprocessingOptions {
+            highpass: config.highpass,
+            lowpass: config.lowpass,
+        },
         algorithm_selection: AlgorithmSelection {
             enabled_variants: normalized_variants,
             select_mask: Some(mask_str),
         },
         window_parameters: WindowParameters {
-            window_length: wl,
-            window_step: ws,
-            ct_window_length: ct_wl,
-            ct_window_step: ct_ws,
+            window_length: config.window_length,
+            window_step: config.window_step,
+            ct_window_length,
+            ct_window_step,
         },
         delay_parameters: DelayParameters {
-            delays: delays.to_vec(),
+            delays: config.delays.to_vec(),
         },
-        ct_channel_pairs,
-        cd_channel_pairs,
-        model_parameters: Some(ModelParameters { dm, order, nr_tau }),
-        model_terms: model_terms.filter(|terms| !terms.is_empty()),
-        variant_configs: variant_configs.filter(|cfg| !cfg.is_empty()),
-        sampling_rate: sr,
+        ct_channel_pairs: config.ct_channel_pairs,
+        cd_channel_pairs: config.cd_channel_pairs,
+        model_parameters: Some(ModelParameters {
+            dm: config.dm,
+            order: config.order,
+            nr_tau: config.nr_tau,
+        }),
+        model_terms: config.model_terms.filter(|terms| !terms.is_empty()),
+        variant_configs: config.variant_configs.filter(|cfg| !cfg.is_empty()),
+        sampling_rate: config.sampling_rate,
     })
 }
 
@@ -641,6 +597,38 @@ mod tests {
             writeln!(file, "{x:.12} {y:.12}").unwrap();
         }
         file
+    }
+
+    fn test_request_config<'a>(
+        file_path: &'a str,
+        channels: &'a [usize],
+        variants: &'a [String],
+        window_length: u32,
+        window_step: u32,
+        delays: &'a [i32],
+    ) -> RequestConfig<'a> {
+        RequestConfig {
+            file_path,
+            channels,
+            variants,
+            window_length,
+            window_step,
+            delays,
+            model_terms: None,
+            dm: 4,
+            order: 4,
+            nr_tau: 2,
+            ct_window_length: None,
+            ct_window_step: None,
+            ct_channel_pairs: None,
+            cd_channel_pairs: None,
+            sampling_rate: None,
+            start: None,
+            end: None,
+            highpass: None,
+            lowpass: None,
+            variant_configs: None,
+        }
     }
 
     #[test]
@@ -740,25 +728,14 @@ mod tests {
 
     #[test]
     fn test_build_dda_request_basic() {
-        let request = build_dda_request(
+        let request = build_dda_request(test_request_config(
             "/tmp/test.edf",
             &[0, 1],
             &["ST".to_string()],
             200,
             100,
             &[7, 10],
-            None,
-            4,
-            4,
-            2,
-            None,
-            None,
-            &None,
-            &None,
-            None,
-            None,
-            None,
-        )
+        ))
         .unwrap();
         assert_eq!(request.window_parameters.window_length, 200);
         assert_eq!(request.window_parameters.window_step, 100);
@@ -767,27 +744,10 @@ mod tests {
 
     #[test]
     fn test_build_dda_request_with_ct() {
-        let ct_pairs = Some(vec!["0,1".to_string()]);
-        let request = build_dda_request(
-            "/tmp/test.edf",
-            &[0, 1],
-            &["CT".to_string()],
-            200,
-            100,
-            &[7],
-            None,
-            4,
-            4,
-            2,
-            None,
-            None,
-            &ct_pairs,
-            &None,
-            None,
-            None,
-            None,
-        )
-        .unwrap();
+        let variants = ["CT".to_string()];
+        let mut config = test_request_config("/tmp/test.edf", &[0, 1], &variants, 200, 100, &[7]);
+        config.ct_channel_pairs = Some(vec![[0, 1]]);
+        let request = build_dda_request(config).unwrap();
         assert_eq!(request.window_parameters.ct_window_length, Some(200));
         assert_eq!(request.window_parameters.ct_window_step, Some(100));
         assert_eq!(request.ct_channel_pairs.unwrap(), vec![[0, 1]]);
@@ -817,34 +777,18 @@ mod tests {
     #[tokio::test]
     async fn test_execute_request_runs_ascii_without_native_runner() {
         let ascii = write_ascii_fixture();
-        let request = build_dda_request_with_options(
+        let request = build_dda_request(test_request_config(
             ascii.path().to_str().unwrap(),
             &[0, 1],
             &["ST".to_string()],
             64,
             32,
             &[1, 2],
-            None,
-            4,
-            4,
-            2,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
+        ))
         .unwrap();
 
-        let execution = execute_request(&request, None, None).await.unwrap();
-        assert_eq!(execution.backend, ExecutionBackend::PureRust);
-
-        let variants = execution.result.variant_results.unwrap();
+        let result = execute_request(&request, None, None).await.unwrap();
+        let variants = result.variant_results.unwrap();
         assert_eq!(variants.len(), 1);
         assert_eq!(variants[0].variant_id, "ST");
     }
@@ -852,28 +796,14 @@ mod tests {
     #[tokio::test]
     async fn test_execute_request_rejects_edf_without_native_backend() {
         let edf = tempfile::Builder::new().suffix(".edf").tempfile().unwrap();
-        let request = build_dda_request_with_options(
+        let request = build_dda_request(test_request_config(
             edf.path().to_str().unwrap(),
             &[0],
             &["ST".to_string()],
             64,
             32,
             &[1, 2],
-            None,
-            4,
-            4,
-            2,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
+        ))
         .unwrap();
 
         let error = execute_request(&request, None, None).await.unwrap_err();
@@ -883,29 +813,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_execute_request_on_matrix_accepts_non_ascii_source_path() {
-        let request = build_dda_request_with_options(
-            "/tmp/test.edf",
-            &[0, 1],
-            &["ST".to_string()],
-            32,
-            16,
-            &[1, 2],
-            None,
-            4,
-            4,
-            2,
-            None,
-            None,
-            None,
-            None,
-            None,
-            Some(0.0),
-            Some(63.0),
-            None,
-            None,
-            None,
-        )
-        .unwrap();
+        let variants = ["ST".to_string()];
+        let mut config = test_request_config("/tmp/test.edf", &[0, 1], &variants, 32, 16, &[1, 2]);
+        config.start = Some(0.0);
+        config.end = Some(63.0);
+        let request = build_dda_request(config).unwrap();
 
         let samples = (0..64)
             .map(|index| {
@@ -915,7 +827,7 @@ mod tests {
             .collect::<Vec<_>>();
         let labels = vec!["A".to_string(), "B".to_string()];
 
-        let execution = execute_request_on_matrix_with_progress(
+        let result = execute_request_on_matrix_with_progress(
             &request,
             &samples,
             Some(labels.as_slice()),
@@ -923,37 +835,18 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(execution.backend, ExecutionBackend::PureRust);
-        assert_eq!(execution.result.file_path, "/tmp/test.edf");
+        assert_eq!(result.file_path, "/tmp/test.edf");
     }
 
     #[tokio::test]
     async fn test_execute_request_on_matrix_file_accepts_non_ascii_source_path() {
         use std::io::Write;
 
-        let request = build_dda_request_with_options(
-            "/tmp/test.edf",
-            &[0, 1],
-            &["ST".to_string()],
-            32,
-            16,
-            &[1, 2],
-            None,
-            4,
-            4,
-            2,
-            None,
-            None,
-            None,
-            None,
-            None,
-            Some(0.0),
-            Some(63.0),
-            None,
-            None,
-            None,
-        )
-        .unwrap();
+        let variants = ["ST".to_string()];
+        let mut config = test_request_config("/tmp/test.edf", &[0, 1], &variants, 32, 16, &[1, 2]);
+        config.start = Some(0.0);
+        config.end = Some(63.0);
+        let request = build_dda_request(config).unwrap();
 
         let samples = (0..64)
             .map(|index| {
@@ -969,7 +862,7 @@ mod tests {
             }
         }
 
-        let execution = execute_request_on_matrix_file_with_progress(
+        let result = execute_request_on_matrix_file_with_progress(
             &request,
             raw.path().to_str().unwrap(),
             samples.len(),
@@ -979,7 +872,6 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(execution.backend, ExecutionBackend::PureRust);
-        assert_eq!(execution.result.file_path, "/tmp/test.edf");
+        assert_eq!(result.file_path, "/tmp/test.edf");
     }
 }

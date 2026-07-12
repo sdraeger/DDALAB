@@ -145,24 +145,21 @@ pub fn compute_ccd_statistic(
     let mut y_valid = Vec::new();
     let mut x0_flat = Vec::new();
     let mut xj_flat = Vec::new();
-    let mut baseline_valid = Vec::with_capacity(y.len());
-    let mut full_valid = Vec::with_capacity(y.len());
 
     for row in 0..y.len() {
-        let b_valid = y[row].is_finite() && x0_rows[row].iter().all(|value| value.is_finite());
-        let f_valid = b_valid && xj_rows[row].iter().all(|value| value.is_finite());
-        baseline_valid.push(b_valid);
-        full_valid.push(f_valid);
-        if f_valid {
+        let baseline_valid =
+            y[row].is_finite() && x0_rows[row].iter().all(|value| value.is_finite());
+        let full_valid = baseline_valid && xj_rows[row].iter().all(|value| value.is_finite());
+        if baseline_valid != full_valid {
+            return Err(DDAError::InvalidParameter(
+                "CCD baseline and full models would use different valid row sets".to_string(),
+            ));
+        }
+        if full_valid {
             y_valid.push(y[row]);
             x0_flat.extend_from_slice(&x0_rows[row]);
             xj_flat.extend_from_slice(&xj_rows[row]);
         }
-    }
-    if baseline_valid != full_valid {
-        return Err(DDAError::InvalidParameter(
-            "CCD baseline and full models would use different valid row sets".to_string(),
-        ));
     }
     if y_valid.is_empty() {
         return Err(DDAError::InvalidParameter(
@@ -483,8 +480,7 @@ fn fit_ols(y: &[f64], x: &DMatrix<f64>, rank_tolerance: f64) -> RegressionFit {
     let svd = x.clone().svd(true, true);
     let singular_values = svd.singular_values.iter().copied().collect::<Vec<_>>();
     let sigma_max = singular_values.iter().copied().fold(0.0_f64, f64::max);
-    let tolerance =
-        rank_tolerance.max((x.nrows().max(x.ncols()) as f64) * f64::EPSILON * sigma_max.max(1.0));
+    let tolerance = svd_tolerance(x, sigma_max, rank_tolerance);
     let coefficients = svd
         .solve(&y_vec, tolerance)
         .unwrap_or_else(|_| DVector::from_element(x.ncols(), f64::NAN));
@@ -529,9 +525,10 @@ fn residualized_fit(
         xj_resid.set_column(col, &residual_col);
     }
     let y_resid_vec = y_resid.iter().copied().collect::<Vec<_>>();
+    let baseline_sse = y_resid_vec.iter().map(|value| value * value).sum::<f64>();
     let baseline = RegressionFit {
-        sse: y_resid_vec.iter().map(|value| value * value).sum::<f64>(),
-        mse: y_resid_vec.iter().map(|value| value * value).sum::<f64>() / y.len() as f64,
+        sse: baseline_sse,
+        mse: baseline_sse / y.len() as f64,
         rank: 0,
         condition_number: f64::NAN,
     };
@@ -542,10 +539,14 @@ fn residualized_fit(
 fn solve_ols_coefficients(x: &DMatrix<f64>, y: &DVector<f64>, rank_tolerance: f64) -> DVector<f64> {
     let svd = x.clone().svd(true, true);
     let sigma_max = svd.singular_values.iter().copied().fold(0.0_f64, f64::max);
-    let tolerance =
-        rank_tolerance.max((x.nrows().max(x.ncols()) as f64) * f64::EPSILON * sigma_max.max(1.0));
+    let tolerance = svd_tolerance(x, sigma_max, rank_tolerance);
     svd.solve(y, tolerance)
         .unwrap_or_else(|_| DVector::from_element(x.ncols(), f64::NAN))
+}
+
+fn svd_tolerance(matrix: &DMatrix<f64>, sigma_max: f64, rank_tolerance: f64) -> f64 {
+    rank_tolerance
+        .max((matrix.nrows().max(matrix.ncols()) as f64) * f64::EPSILON * sigma_max.max(1.0))
 }
 
 fn partial_r2(sse0: f64, sse1: f64) -> f64 {

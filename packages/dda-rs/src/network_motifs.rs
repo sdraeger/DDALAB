@@ -73,7 +73,7 @@ pub fn transform_cd_to_network_motifs(
     // Determine unique nodes from channel pairs
     let mut unique_nodes: Vec<usize> = channel_pairs
         .iter()
-        .flat_map(|pair| vec![pair[0], pair[1]])
+        .flat_map(|pair| pair.iter().copied())
         .collect();
     unique_nodes.sort();
     unique_nodes.dedup();
@@ -103,15 +103,15 @@ pub fn transform_cd_to_network_motifs(
 
     // Select 3 timepoints at 25%, 50%, 75% of range
     let indices = if num_timepoints >= 3 {
-        vec![
+        [
             num_timepoints / 4,
             num_timepoints / 2,
             (num_timepoints * 3) / 4,
         ]
     } else if num_timepoints == 2 {
-        vec![0, 1, 1]
+        [0, 1, 1]
     } else {
-        vec![0, 0, 0]
+        [0, 0, 0]
     };
 
     let delay_values: Vec<f64> = indices
@@ -263,6 +263,6 @@ mod tests {
         // After normalization:
         // Pair 0: 0.5 -> (0.5 - 0) / 1 = 0.5 (kept, > 0.25)
         // Pair 1: 0.25 -> (0.25 - 0) / 0.5 = 0.5 (kept, > 0.25)
-        assert!(middle_matrix.edges.len() >= 1);
+        assert!(!middle_matrix.edges.is_empty());
     }
 }

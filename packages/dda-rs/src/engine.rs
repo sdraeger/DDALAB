@@ -7,21 +7,19 @@ mod window;
 #[cfg(test)]
 mod tests;
 
-use crate::ccd_stats::{log_mse_ratio_from_rmse, partial_r2_from_rmse};
+use crate::ccd_stats::{legacy_rmse_gain_from_rmse, log_mse_ratio_from_rmse, partial_r2_from_rmse};
 use crate::error::{DDAError, Result};
 use crate::types::{CcdConditioningStrategy, DDARequest, DDAResult, VariantResult};
 use dataset::{AnalysisBounds, MatrixDataset};
 use model::ModelSpec;
 use serde::{Deserialize, Serialize};
 use solver::{
-    bic_like_score, build_channel_regression_window_with_inputs, causal_improvement,
-    circular_shift_series, compute_de_value, conditional_causal_improvement,
-    empirical_significance_confidence, greedy_sparse_unique_improvements,
+    bic_like_score, build_channel_regression_window_with_inputs, circular_shift_series,
+    compute_de_value, empirical_significance_confidence, greedy_sparse_unique_improvements,
     solve_channel_with_inputs, solve_channel_with_surrogate_inputs, solve_channels_parallel,
     solve_directed_pair, solve_group_block, solve_temporally_regularized_windows,
-    synchronization_value, SolvedBlock,
+    solve_zipped_parallel, synchronization_value, SolvedBlock,
 };
-use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 use variant_config::{
@@ -163,31 +161,7 @@ impl PureRustRunner {
         let needs_prepared_windows = !matches!(strategy, CcdConditioningStrategy::AllSelected);
 
         let conditioning_sets = if needs_prepared_windows {
-            let native_window_marker = model.window_length + model.max_delay + 2 * model.dm;
-            let required_rows = native_window_marker.saturating_sub(1);
-            if bounds.len < required_rows {
-                return Err(DDAError::InvalidParameter(format!(
-                    "Selected range has {} samples but the current DDA contract needs at least {} samples (WL + 2*dm + max(TAU) - 1)",
-                    bounds.len, required_rows
-                )));
-            }
-            if model.window_step == 0 {
-                return Err(DDAError::InvalidParameter(
-                    "window_step must be greater than zero".to_string(),
-                ));
-            }
-            let num_windows = 1 + (bounds.len - required_rows) / model.window_step;
-            let windows = (0..num_windows)
-                .map(|window_idx| {
-                    prepare_window_for_analysis(
-                        &dataset,
-                        &bounds,
-                        &model,
-                        window_idx,
-                        &self.options,
-                    )
-                })
-                .collect::<Result<Vec<_>>>()?;
+            let windows = prepare_analysis_windows(&dataset, &bounds, &model, &self.options)?;
             compute_ccd_pair_conditioning_sets(
                 Some(&windows),
                 &ccd_pairs,
@@ -228,45 +202,24 @@ impl PureRustRunner {
         let dataset = MatrixDataset::new(samples, channel_labels)?;
         let model = ModelSpec::from_request(request)?;
         let bounds = AnalysisBounds::from_request(request, dataset.rows)?;
-        let native_window_marker = model.window_length + model.max_delay + 2 * model.dm;
-        let required_rows = native_window_marker.saturating_sub(1);
-        if bounds.len < required_rows {
-            return Err(DDAError::InvalidParameter(format!(
-                "Selected range has {} samples but the current DDA contract needs at least {} samples (WL + 2*dm + max(TAU) - 1)",
-                bounds.len, required_rows
-            )));
-        }
-        if model.window_step == 0 {
-            return Err(DDAError::InvalidParameter(
-                "window_step must be greater than zero".to_string(),
-            ));
-        }
-        let num_windows = 1 + (bounds.len - required_rows) / model.window_step;
-        let windows = (0..num_windows)
-            .map(|window_idx| {
-                prepare_window_for_analysis(&dataset, &bounds, &model, window_idx, &self.options)
-            })
-            .collect::<Result<Vec<_>>>()?;
+        let windows = prepare_analysis_windows(&dataset, &bounds, &model, &self.options)?;
 
         Ok(confound_sets
             .iter()
-            .map(|confounds| CcdConditioningSubsetScore {
-                pair,
-                confounds: confounds.clone(),
-                bic_like_score: average_conditioned_baseline_score(
+            .map(|confounds| {
+                let (bic_like_score, mean_rmse) = average_conditioned_baseline_metrics(
                     &windows,
                     pair[0],
                     confounds,
                     &model,
                     self.options.svd_backend,
-                ),
-                mean_rmse: average_conditioned_baseline_rmse(
-                    &windows,
-                    pair[0],
-                    confounds,
-                    &model,
-                    self.options.svd_backend,
-                ),
+                );
+                CcdConditioningSubsetScore {
+                    pair,
+                    confounds: confounds.clone(),
+                    bic_like_score,
+                    mean_rmse,
+                }
             })
             .collect())
     }
@@ -282,25 +235,7 @@ impl PureRustRunner {
         let dataset = MatrixDataset::new(samples, channel_labels)?;
         let model = ModelSpec::from_request(request)?;
         let bounds = AnalysisBounds::from_request(request, dataset.rows)?;
-        let native_window_marker = model.window_length + model.max_delay + 2 * model.dm;
-        let required_rows = native_window_marker.saturating_sub(1);
-        if bounds.len < required_rows {
-            return Err(DDAError::InvalidParameter(format!(
-                "Selected range has {} samples but the current DDA contract needs at least {} samples (WL + 2*dm + max(TAU) - 1)",
-                bounds.len, required_rows
-            )));
-        }
-        if model.window_step == 0 {
-            return Err(DDAError::InvalidParameter(
-                "window_step must be greater than zero".to_string(),
-            ));
-        }
-        let num_windows = 1 + (bounds.len - required_rows) / model.window_step;
-        let windows = (0..num_windows)
-            .map(|window_idx| {
-                prepare_window_for_analysis(&dataset, &bounds, &model, window_idx, &self.options)
-            })
-            .collect::<Result<Vec<_>>>()?;
+        let windows = prepare_analysis_windows(&dataset, &bounds, &model, &self.options)?;
 
         Ok(confound_sets
             .iter()
@@ -405,20 +340,7 @@ impl PureRustRunner {
         }
 
         let native_window_marker = model.window_length + model.max_delay + 2 * model.dm;
-        let required_rows = native_window_marker.saturating_sub(1);
-        if bounds.len < required_rows {
-            return Err(DDAError::InvalidParameter(format!(
-                "Selected range has {} samples but the current DDA contract needs at least {} samples (WL + 2*dm + max(TAU) - 1)",
-                bounds.len, required_rows
-            )));
-        }
-        if model.window_step == 0 {
-            return Err(DDAError::InvalidParameter(
-                "window_step must be greater than zero".to_string(),
-            ));
-        }
-
-        let num_windows = 1 + (bounds.len - required_rows) / model.window_step;
+        let num_windows = analysis_window_count(&bounds, &model)?;
         let needs_prepared_windows = enabled_trccd
             || !matches!(
                 ccd_conditioning_strategy,
@@ -537,33 +459,19 @@ impl PureRustRunner {
         let ccd_target_conditioning_sets =
             build_target_conditioning_sets(&ccd_pairs, &ccd_pair_conditioning_sets);
 
-        let mut st_matrix =
-            enabled_st.then(|| vec![vec![f64::NAN; num_windows]; st_channels.len()]);
-        let mut ct_matrix = enabled_ct.then(|| vec![vec![f64::NAN; num_windows]; ct_groups.len()]);
-        let mut cd_matrix = enabled_cd.then(|| vec![vec![f64::NAN; num_windows]; cd_pairs.len()]);
-        let mut ccd_matrix =
-            enabled_ccd_core.then(|| vec![vec![f64::NAN; num_windows]; ccd_pairs.len()]);
-        let mut ccdlog_matrix =
-            enabled_ccdlog.then(|| vec![vec![f64::NAN; num_windows]; ccd_pairs.len()]);
-        let mut ccdpr2_matrix =
-            enabled_ccdpr2.then(|| vec![vec![f64::NAN; num_windows]; ccd_pairs.len()]);
-        let mut ccdsig_matrix =
-            enabled_ccdsig.then(|| vec![vec![f64::NAN; num_windows]; ccd_pairs.len()]);
-        let mut mvccd_matrix =
-            enabled_mvccd.then(|| vec![vec![f64::NAN; num_windows]; ccd_pairs.len()]);
-        let mut trccd_matrix =
-            enabled_trccd.then(|| vec![vec![f64::NAN; num_windows]; ccd_pairs.len()]);
-        let mut ccdstab_matrix =
-            enabled_ccdstab.then(|| vec![vec![f64::NAN; num_windows]; ccd_pairs.len()]);
-        let mut de_matrix = enabled_de.then(|| vec![vec![f64::NAN; num_windows]; de_groups.len()]);
-        let mut sy_matrix = enabled_sy.then(|| {
-            let rows = if variant_mode.sy_mode == 2 {
-                sy_pairs.len() * 2
-            } else {
-                sy_pairs.len()
-            };
-            vec![vec![f64::NAN; num_windows]; rows]
-        });
+        let mut st_matrix = empty_result_matrix(enabled_st, st_channels.len(), num_windows);
+        let mut ct_matrix = empty_result_matrix(enabled_ct, ct_groups.len(), num_windows);
+        let mut cd_matrix = empty_result_matrix(enabled_cd, cd_pairs.len(), num_windows);
+        let mut ccd_matrix = empty_result_matrix(enabled_ccd_core, ccd_pairs.len(), num_windows);
+        let mut ccdlog_matrix = empty_result_matrix(enabled_ccdlog, ccd_pairs.len(), num_windows);
+        let mut ccdpr2_matrix = empty_result_matrix(enabled_ccdpr2, ccd_pairs.len(), num_windows);
+        let mut ccdsig_matrix = empty_result_matrix(enabled_ccdsig, ccd_pairs.len(), num_windows);
+        let mut mvccd_matrix = empty_result_matrix(enabled_mvccd, ccd_pairs.len(), num_windows);
+        let mut trccd_matrix = empty_result_matrix(enabled_trccd, ccd_pairs.len(), num_windows);
+        let mut ccdstab_matrix = empty_result_matrix(enabled_ccdstab, ccd_pairs.len(), num_windows);
+        let mut de_matrix = empty_result_matrix(enabled_de, de_groups.len(), num_windows);
+        let sy_rows = sy_pairs.len() * (1 + usize::from(variant_mode.sy_mode == 2));
+        let mut sy_matrix = empty_result_matrix(enabled_sy, sy_rows, num_windows);
 
         for window_idx in 0..num_windows {
             let prepared_storage;
@@ -594,13 +502,7 @@ impl PureRustRunner {
                 let computed_st_blocks = solve_channels_parallel(&analysis_channels, |&channel| {
                     (
                         channel,
-                        solve_group_block(
-                            &prepared,
-                            &[channel],
-                            &model.primary_terms,
-                            model.window_length,
-                            self.options.svd_backend,
-                        ),
+                        solve_group_block(prepared, &[channel], &model, self.options.svd_backend),
                     )
                 });
                 for (channel_idx, (channel, block)) in computed_st_blocks.into_iter().enumerate() {
@@ -633,13 +535,7 @@ impl PureRustRunner {
             let mut ct_blocks = Vec::new();
             if enabled_ct {
                 ct_blocks = solve_channels_parallel(&ct_groups, |group| {
-                    solve_group_block(
-                        &prepared,
-                        group,
-                        &model.primary_terms,
-                        model.window_length,
-                        self.options.svd_backend,
-                    )
+                    solve_group_block(prepared, group, &model, self.options.svd_backend)
                 });
                 for (group_idx, _) in ct_groups.iter().enumerate() {
                     report(
@@ -657,22 +553,19 @@ impl PureRustRunner {
             }
 
             if let Some(matrix) = ct_matrix.as_mut() {
-                for (row_idx, block) in ct_blocks.iter().enumerate() {
-                    matrix[row_idx][window_idx] =
-                        block.coefficients.first().copied().unwrap_or(f64::NAN);
-                }
+                fill_result_column(
+                    matrix,
+                    window_idx,
+                    ct_blocks
+                        .iter()
+                        .map(|block| block.coefficients.first().copied().unwrap_or(f64::NAN)),
+                );
             }
 
             let mut de_blocks = Vec::new();
             if enabled_de {
                 de_blocks = solve_channels_parallel(&de_groups, |group| {
-                    solve_group_block(
-                        &prepared,
-                        group,
-                        &model.primary_terms,
-                        model.window_length,
-                        self.options.svd_backend,
-                    )
+                    solve_group_block(prepared, group, &model, self.options.svd_backend)
                 });
                 for (group_idx, _) in de_groups.iter().enumerate() {
                     report(
@@ -690,26 +583,27 @@ impl PureRustRunner {
             }
 
             if let Some(matrix) = de_matrix.as_mut() {
-                for (row_idx, group) in de_groups.iter().enumerate() {
-                    let ct_rmse = de_blocks
-                        .get(row_idx)
-                        .map(|block| block.rmse)
-                        .unwrap_or(f64::NAN);
-                    let de_value = compute_de_value(group, &st_blocks, ct_rmse);
-                    matrix[row_idx][window_idx] = de_value;
-                }
+                fill_result_column(
+                    matrix,
+                    window_idx,
+                    de_groups.iter().enumerate().map(|(row_idx, group)| {
+                        let ct_rmse = de_blocks
+                            .get(row_idx)
+                            .map(|block| block.rmse)
+                            .unwrap_or(f64::NAN);
+                        compute_de_value(group, &st_blocks, ct_rmse)
+                    }),
+                );
             }
 
             if enabled_cd {
                 let cd_values = solve_channels_parallel(&cd_pairs, |pair| {
                     let forward = solve_directed_pair(
-                        &prepared,
+                        prepared,
                         pair[0],
                         pair[1],
                         pair[0],
-                        &model.primary_terms,
-                        &model.secondary_terms,
-                        model.window_length,
+                        &model,
                         self.options.svd_backend,
                     );
                     let baseline = st_blocks
@@ -717,7 +611,7 @@ impl PureRustRunner {
                         .and_then(Option::as_ref)
                         .map(|block| block.rmse)
                         .unwrap_or(f64::NAN);
-                    causal_improvement(baseline, forward.rmse)
+                    legacy_rmse_gain_from_rmse(baseline, forward.rmse)
                 });
                 for (pair_idx, _) in cd_pairs.iter().enumerate() {
                     report(
@@ -733,9 +627,7 @@ impl PureRustRunner {
                     );
                 }
                 if let Some(matrix) = cd_matrix.as_mut() {
-                    for (pair_idx, value) in cd_values.into_iter().enumerate() {
-                        matrix[pair_idx][window_idx] = value;
-                    }
+                    fill_result_column(matrix, window_idx, cd_values);
                 }
             }
 
@@ -760,34 +652,28 @@ impl PureRustRunner {
                         self.options.svd_backend,
                     )
                 } else {
-                    solve_channels_parallel(
-                        &ccd_pairs
-                            .iter()
-                            .zip(ccd_pair_conditioning_sets.iter())
-                            .collect::<Vec<_>>(),
+                    solve_zipped_parallel(
+                        &ccd_pairs,
+                        &ccd_pair_conditioning_sets,
                         |(pair, confounds)| {
                             let baseline = solve_channel_with_inputs(
                                 prepared,
                                 pair[0],
                                 confounds,
-                                &model.primary_terms,
-                                &model.secondary_terms,
-                                model.window_length,
+                                &model,
                                 self.options.svd_backend,
                             );
-                            let mut conditioned_inputs = (*confounds).clone();
+                            let mut conditioned_inputs = confounds.clone();
                             conditioned_inputs.push(pair[1]);
                             let conditioned = solve_channel_with_inputs(
                                 prepared,
                                 pair[0],
                                 &conditioned_inputs,
-                                &model.primary_terms,
-                                &model.secondary_terms,
-                                model.window_length,
+                                &model,
                                 self.options.svd_backend,
                             );
                             let observed =
-                                conditional_causal_improvement(baseline.rmse, conditioned.rmse);
+                                legacy_rmse_gain_from_rmse(baseline.rmse, conditioned.rmse);
                             let log_mse_ratio = log_mse_ratio_from_rmse(
                                 baseline.rmse,
                                 conditioned.rmse,
@@ -820,12 +706,10 @@ impl PureRustRunner {
                                             prepared,
                                             pair[0],
                                             &conditioned_surrogates,
-                                            &model.primary_terms,
-                                            &model.secondary_terms,
-                                            model.window_length,
+                                            &model,
                                             self.options.svd_backend,
                                         );
-                                        conditional_causal_improvement(
+                                        legacy_rmse_gain_from_rmse(
                                             baseline.rmse,
                                             surrogate_block.rmse,
                                         )
@@ -854,24 +738,16 @@ impl PureRustRunner {
                     );
                 }
                 if let Some(matrix) = ccd_matrix.as_mut() {
-                    for (pair_idx, value) in ccd_values.iter().enumerate() {
-                        matrix[pair_idx][window_idx] = value.0;
-                    }
+                    fill_result_column(matrix, window_idx, ccd_values.iter().map(|value| value.0));
                 }
                 if let Some(matrix) = ccdlog_matrix.as_mut() {
-                    for (pair_idx, value) in ccd_values.iter().enumerate() {
-                        matrix[pair_idx][window_idx] = value.1;
-                    }
+                    fill_result_column(matrix, window_idx, ccd_values.iter().map(|value| value.1));
                 }
                 if let Some(matrix) = ccdpr2_matrix.as_mut() {
-                    for (pair_idx, value) in ccd_values.iter().enumerate() {
-                        matrix[pair_idx][window_idx] = value.2;
-                    }
+                    fill_result_column(matrix, window_idx, ccd_values.iter().map(|value| value.2));
                 }
                 if let Some(matrix) = ccdsig_matrix.as_mut() {
-                    for (pair_idx, value) in ccd_values.into_iter().enumerate() {
-                        matrix[pair_idx][window_idx] = value.3;
-                    }
+                    fill_result_column(matrix, window_idx, ccd_values.iter().map(|value| value.3));
                 }
             }
 
@@ -898,32 +774,26 @@ impl PureRustRunner {
                     );
                 }
                 if let Some(matrix) = mvccd_matrix.as_mut() {
-                    for (pair_idx, value) in mvccd_values.into_iter().enumerate() {
-                        matrix[pair_idx][window_idx] = value;
-                    }
+                    fill_result_column(matrix, window_idx, mvccd_values);
                 }
             }
 
             if let Some(matrix) = sy_matrix.as_mut() {
                 let sy_values = solve_channels_parallel(&sy_pairs, |pair| {
                     let forward = solve_directed_pair(
-                        &prepared,
+                        prepared,
                         pair[0],
                         pair[1],
                         pair[1],
-                        &model.primary_terms,
-                        &model.secondary_terms,
-                        model.window_length,
+                        &model,
                         self.options.svd_backend,
                     );
                     let reverse = solve_directed_pair(
-                        &prepared,
+                        prepared,
                         pair[1],
                         pair[0],
                         pair[0],
-                        &model.primary_terms,
-                        &model.secondary_terms,
-                        model.window_length,
+                        &model,
                         self.options.svd_backend,
                     );
                     (forward.rmse, reverse.rmse)
@@ -1022,150 +892,95 @@ impl PureRustRunner {
             }
         }
 
+        let ccd_labels = labels_for_pairs(&dataset.channel_labels, &ccd_pairs, " <- ");
+        let ccd_result_matrix = if enabled_ccd { ccd_matrix } else { None };
         let mut variant_results = Vec::new();
-        if let Some(q_matrix) = st_matrix {
-            variant_results.push(VariantResult {
-                variant_id: "ST".to_string(),
-                variant_name: "Single Timeseries (ST)".to_string(),
+        push_variant_result(
+            &mut variant_results,
+            "ST",
+            "Single Timeseries (ST)",
+            st_matrix,
+            &labels_for_channels(&dataset.channel_labels, &st_channels),
+            &native_window_markers,
+        );
+        push_variant_result(
+            &mut variant_results,
+            "CT",
+            "Cross-Timeseries (CT)",
+            ct_matrix,
+            &labels_for_groups(&dataset.channel_labels, &ct_groups, "&"),
+            &native_window_markers,
+        );
+        push_variant_result(
+            &mut variant_results,
+            "CD",
+            "Cross-Dynamical (CD)",
+            cd_matrix,
+            &labels_for_pairs(&dataset.channel_labels, &cd_pairs, " <- "),
+            &native_window_markers,
+        );
+        for (variant_id, variant_name, q_matrix) in [
+            (
+                "CCD",
+                "Conditional Cross-Dynamical legacy RMSE gain (CCD)",
+                ccd_result_matrix,
+            ),
+            (
+                "CCDLOG",
+                "Conditional Cross-Dynamical log-MSE ratio (CCDLOG)",
+                ccdlog_matrix,
+            ),
+            (
+                "CCDPR2",
+                "Conditional Cross-Dynamical partial R2 (CCDPR2)",
+                ccdpr2_matrix,
+            ),
+            (
+                "CCDSIG",
+                "Conditional Cross-Dynamical Significance (CCDSIG)",
+                ccdsig_matrix,
+            ),
+            (
+                "CCDSTAB",
+                "Conditional Cross-Dynamical Stability (CCDSTAB)",
+                ccdstab_matrix,
+            ),
+            (
+                "TRCCD",
+                "Temporally Regularized Conditional Cross-Dynamical (TRCCD)",
+                trccd_matrix,
+            ),
+            (
+                "MVCCD",
+                "Sparse Multivariate Conditional Cross-Dynamical (MVCCD)",
+                mvccd_matrix,
+            ),
+        ] {
+            push_variant_result(
+                &mut variant_results,
+                variant_id,
+                variant_name,
                 q_matrix,
-                channel_labels: Some(labels_for_channels(&dataset.channel_labels, &st_channels)),
-                error_values: Some(native_window_markers.clone()),
-            });
+                &ccd_labels,
+                &native_window_markers,
+            );
         }
-        if let Some(q_matrix) = ct_matrix {
-            variant_results.push(VariantResult {
-                variant_id: "CT".to_string(),
-                variant_name: "Cross-Timeseries (CT)".to_string(),
-                q_matrix,
-                channel_labels: Some(labels_for_groups(&dataset.channel_labels, &ct_groups, "&")),
-                error_values: Some(native_window_markers.clone()),
-            });
-        }
-        if let Some(q_matrix) = cd_matrix {
-            variant_results.push(VariantResult {
-                variant_id: "CD".to_string(),
-                variant_name: "Cross-Dynamical (CD)".to_string(),
-                q_matrix,
-                channel_labels: Some(labels_for_pairs(&dataset.channel_labels, &cd_pairs, " <- ")),
-                error_values: Some(native_window_markers.clone()),
-            });
-        }
-        if enabled_ccd {
-            if let Some(q_matrix) = ccd_matrix.clone() {
-                variant_results.push(VariantResult {
-                    variant_id: "CCD".to_string(),
-                    variant_name: "Conditional Cross-Dynamical legacy RMSE gain (CCD)".to_string(),
-                    q_matrix,
-                    channel_labels: Some(labels_for_pairs(
-                        &dataset.channel_labels,
-                        &ccd_pairs,
-                        " <- ",
-                    )),
-                    error_values: Some(native_window_markers.clone()),
-                });
-            }
-        }
-        if let Some(q_matrix) = ccdlog_matrix {
-            variant_results.push(VariantResult {
-                variant_id: "CCDLOG".to_string(),
-                variant_name: "Conditional Cross-Dynamical log-MSE ratio (CCDLOG)".to_string(),
-                q_matrix,
-                channel_labels: Some(labels_for_pairs(
-                    &dataset.channel_labels,
-                    &ccd_pairs,
-                    " <- ",
-                )),
-                error_values: Some(native_window_markers.clone()),
-            });
-        }
-        if let Some(q_matrix) = ccdpr2_matrix {
-            variant_results.push(VariantResult {
-                variant_id: "CCDPR2".to_string(),
-                variant_name: "Conditional Cross-Dynamical partial R2 (CCDPR2)".to_string(),
-                q_matrix,
-                channel_labels: Some(labels_for_pairs(
-                    &dataset.channel_labels,
-                    &ccd_pairs,
-                    " <- ",
-                )),
-                error_values: Some(native_window_markers.clone()),
-            });
-        }
-        if let Some(q_matrix) = ccdsig_matrix {
-            variant_results.push(VariantResult {
-                variant_id: "CCDSIG".to_string(),
-                variant_name: "Conditional Cross-Dynamical Significance (CCDSIG)".to_string(),
-                q_matrix,
-                channel_labels: Some(labels_for_pairs(
-                    &dataset.channel_labels,
-                    &ccd_pairs,
-                    " <- ",
-                )),
-                error_values: Some(native_window_markers.clone()),
-            });
-        }
-        if let Some(q_matrix) = ccdstab_matrix {
-            variant_results.push(VariantResult {
-                variant_id: "CCDSTAB".to_string(),
-                variant_name: "Conditional Cross-Dynamical Stability (CCDSTAB)".to_string(),
-                q_matrix,
-                channel_labels: Some(labels_for_pairs(
-                    &dataset.channel_labels,
-                    &ccd_pairs,
-                    " <- ",
-                )),
-                error_values: Some(native_window_markers.clone()),
-            });
-        }
-        if let Some(q_matrix) = trccd_matrix {
-            variant_results.push(VariantResult {
-                variant_id: "TRCCD".to_string(),
-                variant_name: "Temporally Regularized Conditional Cross-Dynamical (TRCCD)"
-                    .to_string(),
-                q_matrix,
-                channel_labels: Some(labels_for_pairs(
-                    &dataset.channel_labels,
-                    &ccd_pairs,
-                    " <- ",
-                )),
-                error_values: Some(native_window_markers.clone()),
-            });
-        }
-        if let Some(q_matrix) = mvccd_matrix {
-            variant_results.push(VariantResult {
-                variant_id: "MVCCD".to_string(),
-                variant_name: "Sparse Multivariate Conditional Cross-Dynamical (MVCCD)".to_string(),
-                q_matrix,
-                channel_labels: Some(labels_for_pairs(
-                    &dataset.channel_labels,
-                    &ccd_pairs,
-                    " <- ",
-                )),
-                error_values: Some(native_window_markers.clone()),
-            });
-        }
-        if let Some(q_matrix) = de_matrix {
-            variant_results.push(VariantResult {
-                variant_id: "DE".to_string(),
-                variant_name: "Dynamical Ergodicity (DE)".to_string(),
-                q_matrix,
-                channel_labels: Some(labels_for_groups(&dataset.channel_labels, &de_groups, "&")),
-                error_values: Some(native_window_markers.clone()),
-            });
-        }
-        if let Some(q_matrix) = sy_matrix {
-            variant_results.push(VariantResult {
-                variant_id: "SY".to_string(),
-                variant_name: "Synchronization (SY)".to_string(),
-                q_matrix,
-                channel_labels: Some(labels_for_sy(
-                    &dataset.channel_labels,
-                    &sy_pairs,
-                    variant_mode.sy_mode,
-                )),
-                error_values: Some(native_window_markers.clone()),
-            });
-        }
+        push_variant_result(
+            &mut variant_results,
+            "DE",
+            "Dynamical Ergodicity (DE)",
+            de_matrix,
+            &labels_for_groups(&dataset.channel_labels, &de_groups, "&"),
+            &native_window_markers,
+        );
+        push_variant_result(
+            &mut variant_results,
+            "SY",
+            "Synchronization (SY)",
+            sy_matrix,
+            &labels_for_sy(&dataset.channel_labels, &sy_pairs, variant_mode.sy_mode),
+            &native_window_markers,
+        );
 
         let primary_q = variant_results
             .first()
@@ -1219,7 +1034,7 @@ impl PureRustRunner {
             return Ok(stability);
         }
 
-        for pair_idx in 0..ccd_pairs.len() {
+        for (pair_idx, stability_row) in stability.iter_mut().enumerate() {
             for (window_idx, marker) in base_markers.iter().enumerate() {
                 let reference = base_ccd
                     .get(pair_idx)
@@ -1242,12 +1057,45 @@ impl PureRustRunner {
                     }
                 }
                 if valid > 0 {
-                    stability[pair_idx][window_idx] = support as f64 / valid as f64;
+                    stability_row[window_idx] = support as f64 / valid as f64;
                 }
             }
         }
 
         Ok(stability)
+    }
+}
+
+fn push_variant_result(
+    results: &mut Vec<VariantResult>,
+    variant_id: &str,
+    variant_name: &str,
+    q_matrix: Option<Vec<Vec<f64>>>,
+    channel_labels: &[String],
+    window_markers: &[f64],
+) {
+    if let Some(q_matrix) = q_matrix {
+        results.push(VariantResult {
+            variant_id: variant_id.to_string(),
+            variant_name: variant_name.to_string(),
+            q_matrix,
+            channel_labels: Some(channel_labels.to_vec()),
+            error_values: Some(window_markers.to_vec()),
+        });
+    }
+}
+
+fn empty_result_matrix(enabled: bool, rows: usize, columns: usize) -> Option<Vec<Vec<f64>>> {
+    enabled.then(|| vec![vec![f64::NAN; columns]; rows])
+}
+
+fn fill_result_column(
+    matrix: &mut [Vec<f64>],
+    column: usize,
+    values: impl IntoIterator<Item = f64>,
+) {
+    for (row, value) in values.into_iter().enumerate() {
+        matrix[row][column] = value;
     }
 }
 
@@ -1271,52 +1119,66 @@ fn solve_all_selected_ccd_values_with_full_model_reuse(
     targets.sort_unstable();
     targets.dedup();
 
-    let full_blocks = solve_channels_parallel(&targets, |target| {
+    let computed_blocks = solve_channels_parallel(&targets, |target| {
         let full_inputs = candidate_channels
             .iter()
             .copied()
             .filter(|channel| *channel != *target)
             .collect::<Vec<_>>();
-        let block = solve_channel_with_inputs(
-            prepared,
-            *target,
-            &full_inputs,
-            &model.primary_terms,
-            &model.secondary_terms,
-            model.window_length,
-            svd_backend,
-        );
+        let block = solve_channel_with_inputs(prepared, *target, &full_inputs, model, svd_backend);
         (*target, block)
-    })
-    .into_iter()
-    .collect::<HashMap<_, _>>();
+    });
+    let mut full_blocks = vec![None; prepared.deriv.len()];
+    for (target, block) in computed_blocks {
+        full_blocks[target] = Some(block);
+    }
 
-    solve_channels_parallel(
-        &ccd_pairs
-            .iter()
-            .zip(ccd_pair_conditioning_sets.iter())
-            .collect::<Vec<_>>(),
+    solve_zipped_parallel(
+        ccd_pairs,
+        ccd_pair_conditioning_sets,
         |(pair, confounds)| {
-            let baseline = solve_channel_with_inputs(
-                prepared,
-                pair[0],
-                confounds,
-                &model.primary_terms,
-                &model.secondary_terms,
-                model.window_length,
-                svd_backend,
-            );
+            let baseline =
+                solve_channel_with_inputs(prepared, pair[0], confounds, model, svd_backend);
             let conditioned_rmse = full_blocks
-                .get(&pair[0])
+                .get(pair[0])
+                .and_then(Option::as_ref)
                 .map(|block| block.rmse)
                 .unwrap_or(f64::NAN);
-            let observed = conditional_causal_improvement(baseline.rmse, conditioned_rmse);
+            let observed = legacy_rmse_gain_from_rmse(baseline.rmse, conditioned_rmse);
             let log_mse_ratio =
                 log_mse_ratio_from_rmse(baseline.rmse, conditioned_rmse, CCD_NORMALIZED_EPSILON);
             let partial_r2 = partial_r2_from_rmse(baseline.rmse, conditioned_rmse);
             (observed, log_mse_ratio, partial_r2, f64::NAN)
         },
     )
+}
+
+fn analysis_window_count(bounds: &AnalysisBounds, model: &ModelSpec) -> Result<usize> {
+    let native_window_marker = model.window_length + model.max_delay + 2 * model.dm;
+    let required_rows = native_window_marker.saturating_sub(1);
+    if bounds.len < required_rows {
+        return Err(DDAError::InvalidParameter(format!(
+            "Selected range has {} samples but the current DDA contract needs at least {} samples (WL + 2*dm + max(TAU) - 1)",
+            bounds.len, required_rows
+        )));
+    }
+    if model.window_step == 0 {
+        return Err(DDAError::InvalidParameter(
+            "window_step must be greater than zero".to_string(),
+        ));
+    }
+    Ok(1 + (bounds.len - required_rows) / model.window_step)
+}
+
+fn prepare_analysis_windows(
+    dataset: &MatrixDataset<'_>,
+    bounds: &AnalysisBounds,
+    model: &ModelSpec,
+    options: &PureRustOptions,
+) -> Result<Vec<PreparedWindow>> {
+    (0..analysis_window_count(bounds, model)?)
+        .map(|window_idx| prepare_window_for_analysis(dataset, bounds, model, window_idx, options))
+        .collect()
 }
 
 fn prepare_window_for_analysis(
@@ -1360,30 +1222,14 @@ fn compute_ccd_pair_conditioning_sets(
     svd_backend: SvdBackend,
 ) -> Vec<Vec<usize>> {
     match strategy {
-        CcdConditioningStrategy::AllSelected => ccd_pairs
-            .iter()
-            .map(|pair| {
-                candidate_channels
-                    .iter()
-                    .copied()
-                    .filter(|channel| *channel != pair[0] && *channel != pair[1])
-                    .collect::<Vec<_>>()
-            })
-            .collect(),
+        CcdConditioningStrategy::AllSelected => {
+            all_selected_conditioning_sets(ccd_pairs, candidate_channels)
+        }
         CcdConditioningStrategy::AutoTargetSparse
         | CcdConditioningStrategy::AutoSharedParents
         | CcdConditioningStrategy::AutoGroupOmp => {
             let Some(windows) = prepared_windows else {
-                return ccd_pairs
-                    .iter()
-                    .map(|pair| {
-                        candidate_channels
-                            .iter()
-                            .copied()
-                            .filter(|channel| *channel != pair[0] && *channel != pair[1])
-                            .collect::<Vec<_>>()
-                    })
-                    .collect();
+                return all_selected_conditioning_sets(ccd_pairs, candidate_channels);
             };
             ccd_pairs
                 .iter()
@@ -1393,10 +1239,12 @@ fn compute_ccd_pair_conditioning_sets(
                         pair[0],
                         pair[1],
                         candidate_channels,
-                        strategy,
                         model,
-                        auto_cap,
-                        svd_backend,
+                        AutoSelectionOptions {
+                            strategy,
+                            max_channels: auto_cap,
+                            svd_backend,
+                        },
                     )
                 })
                 .collect()
@@ -1404,15 +1252,36 @@ fn compute_ccd_pair_conditioning_sets(
     }
 }
 
+fn all_selected_conditioning_sets(
+    pairs: &[[usize; 2]],
+    candidate_channels: &[usize],
+) -> Vec<Vec<usize>> {
+    pairs
+        .iter()
+        .map(|pair| {
+            candidate_channels
+                .iter()
+                .copied()
+                .filter(|channel| *channel != pair[0] && *channel != pair[1])
+                .collect()
+        })
+        .collect()
+}
+
+#[derive(Clone, Copy)]
+struct AutoSelectionOptions {
+    strategy: CcdConditioningStrategy,
+    max_channels: usize,
+    svd_backend: SvdBackend,
+}
+
 fn auto_select_conditioning_channels_for_pair(
     prepared_windows: &[PreparedWindow],
     target: usize,
     source: usize,
     candidate_channels: &[usize],
-    strategy: CcdConditioningStrategy,
     model: &ModelSpec,
-    auto_cap: usize,
-    svd_backend: SvdBackend,
+    options: AutoSelectionOptions,
 ) -> Vec<usize> {
     let usable_candidates = candidate_channels
         .iter()
@@ -1424,14 +1293,14 @@ fn auto_select_conditioning_channels_for_pair(
         return Vec::new();
     }
 
-    if matches!(strategy, CcdConditioningStrategy::AutoGroupOmp) {
+    if matches!(options.strategy, CcdConditioningStrategy::AutoGroupOmp) {
         return omp_select_conditioning_subset(
             prepared_windows,
             target,
             &usable_candidates,
             model,
-            auto_cap.max(1),
-            svd_backend,
+            options.max_channels.max(1),
+            options.svd_backend,
         );
     }
 
@@ -1440,10 +1309,10 @@ fn auto_select_conditioning_channels_for_pair(
         target,
         &usable_candidates,
         model,
-        auto_cap,
-        svd_backend,
+        options.max_channels,
+        options.svd_backend,
     );
-    let ranked = match strategy {
+    let ranked = match options.strategy {
         CcdConditioningStrategy::AutoTargetSparse => rank_channels_by_scores(&target_scores),
         CcdConditioningStrategy::AutoSharedParents => {
             let source_scores = aggregate_parent_support_scores(
@@ -1451,8 +1320,8 @@ fn auto_select_conditioning_channels_for_pair(
                 source,
                 &usable_candidates,
                 model,
-                auto_cap,
-                svd_backend,
+                options.max_channels,
+                options.svd_backend,
             );
             let mut shared = target_scores
                 .iter()
@@ -1482,8 +1351,8 @@ fn auto_select_conditioning_channels_for_pair(
         target,
         &ranked,
         model,
-        auto_cap.max(1),
-        svd_backend,
+        options.max_channels.max(1),
+        options.svd_backend,
     )
 }
 
@@ -1517,9 +1386,7 @@ fn aggregate_parent_support_scores(
             target,
             candidate_channels,
             &[],
-            &model.primary_terms,
-            &model.secondary_terms,
-            model.window_length,
+            model,
             auto_cap.max(1),
             svd_backend,
         ) {
@@ -1605,14 +1472,7 @@ fn omp_select_conditioning_subset(
         for &candidate in &remaining {
             let mut trial = selected.clone();
             trial.push(candidate);
-            let trial_rmse = average_conditioned_baseline_rmse(
-                prepared_windows,
-                target,
-                &trial,
-                model,
-                svd_backend,
-            );
-            let trial_score = average_conditioned_baseline_score(
+            let (trial_score, trial_rmse) = average_conditioned_baseline_metrics(
                 prepared_windows,
                 target,
                 &trial,
@@ -1657,31 +1517,27 @@ fn average_conditioned_baseline_score(
     model: &ModelSpec,
     svd_backend: SvdBackend,
 ) -> f64 {
-    let (window_scores, _) = conditioned_baseline_window_metrics(
-        prepared_windows,
-        target,
-        confounds,
-        model,
-        svd_backend,
-    );
-    finite_mean(&window_scores).unwrap_or(f64::INFINITY)
+    average_conditioned_baseline_metrics(prepared_windows, target, confounds, model, svd_backend).0
 }
 
-fn average_conditioned_baseline_rmse(
+fn average_conditioned_baseline_metrics(
     prepared_windows: &[PreparedWindow],
     target: usize,
     confounds: &[usize],
     model: &ModelSpec,
     svd_backend: SvdBackend,
-) -> f64 {
-    let (_, window_rmses) = conditioned_baseline_window_metrics(
+) -> (f64, f64) {
+    let (window_scores, window_rmses) = conditioned_baseline_window_metrics(
         prepared_windows,
         target,
         confounds,
         model,
         svd_backend,
     );
-    finite_mean(&window_rmses).unwrap_or(f64::INFINITY)
+    (
+        finite_mean(&window_scores).unwrap_or(f64::INFINITY),
+        finite_mean(&window_rmses).unwrap_or(f64::INFINITY),
+    )
 }
 
 fn conditioned_baseline_window_metrics(
@@ -1695,15 +1551,7 @@ fn conditioned_baseline_window_metrics(
     let mut window_scores = Vec::with_capacity(prepared_windows.len());
     let mut window_rmses = Vec::with_capacity(prepared_windows.len());
     for prepared in prepared_windows {
-        let block = solve_channel_with_inputs(
-            prepared,
-            target,
-            confounds,
-            &model.primary_terms,
-            &model.secondary_terms,
-            model.window_length,
-            svd_backend,
-        );
+        let block = solve_channel_with_inputs(prepared, target, confounds, model, svd_backend);
         let rmse = block.rmse;
         let score = bic_like_score(rmse, model.window_length, parameter_count);
         window_scores.push(score);
@@ -1794,9 +1642,7 @@ fn compute_mvccd_window_scores(
             target,
             &candidate_sources,
             &fixed_inputs,
-            &model.primary_terms,
-            &model.secondary_terms,
-            model.window_length,
+            model,
             max_active_sources,
             svd_backend,
         );
@@ -1820,56 +1666,42 @@ fn compute_trccd_matrix(
     lambda: f64,
     svd_backend: SvdBackend,
 ) -> Vec<Vec<f64>> {
-    solve_channels_parallel(
-        &ccd_pairs
+    solve_zipped_parallel(ccd_pairs, pair_conditioning_sets, |(pair, confounds)| {
+        let conditioned_inputs = {
+            let mut inputs = confounds.clone();
+            inputs.push(pair[1]);
+            inputs
+        };
+        let baseline_windows =
+            build_regression_windows(prepared_windows, pair[0], confounds, model);
+        let conditioned_windows =
+            build_regression_windows(prepared_windows, pair[0], &conditioned_inputs, model);
+        let baseline_blocks =
+            solve_temporally_regularized_windows(&baseline_windows, lambda, svd_backend);
+        let conditioned_blocks =
+            solve_temporally_regularized_windows(&conditioned_windows, lambda, svd_backend);
+        baseline_blocks
             .iter()
-            .zip(pair_conditioning_sets.iter())
-            .collect::<Vec<_>>(),
-        |(pair, confounds)| {
-            let conditioned_inputs = {
-                let mut inputs = (*confounds).clone();
-                inputs.push(pair[1]);
-                inputs
-            };
-            let baseline_windows = prepared_windows
-                .iter()
-                .map(|prepared| {
-                    build_channel_regression_window_with_inputs(
-                        prepared,
-                        pair[0],
-                        &confounds,
-                        &model.primary_terms,
-                        &model.secondary_terms,
-                        model.window_length,
-                    )
-                })
-                .collect::<Vec<_>>();
-            let conditioned_windows = prepared_windows
-                .iter()
-                .map(|prepared| {
-                    build_channel_regression_window_with_inputs(
-                        prepared,
-                        pair[0],
-                        &conditioned_inputs,
-                        &model.primary_terms,
-                        &model.secondary_terms,
-                        model.window_length,
-                    )
-                })
-                .collect::<Vec<_>>();
-            let baseline_blocks =
-                solve_temporally_regularized_windows(&baseline_windows, lambda, svd_backend);
-            let conditioned_blocks =
-                solve_temporally_regularized_windows(&conditioned_windows, lambda, svd_backend);
-            baseline_blocks
-                .iter()
-                .zip(conditioned_blocks.iter())
-                .map(|(baseline, conditioned)| {
-                    conditional_causal_improvement(baseline.rmse, conditioned.rmse)
-                })
-                .collect::<Vec<_>>()
-        },
-    )
+            .zip(conditioned_blocks.iter())
+            .map(|(baseline, conditioned)| {
+                legacy_rmse_gain_from_rmse(baseline.rmse, conditioned.rmse)
+            })
+            .collect::<Vec<_>>()
+    })
+}
+
+fn build_regression_windows(
+    prepared_windows: &[PreparedWindow],
+    target: usize,
+    inputs: &[usize],
+    model: &ModelSpec,
+) -> Vec<solver::RegressionWindow> {
+    prepared_windows
+        .iter()
+        .map(|prepared| {
+            build_channel_regression_window_with_inputs(prepared, target, inputs, model)
+        })
+        .collect()
 }
 
 fn build_ccd_stability_requests(request: &DDARequest) -> Vec<DDARequest> {

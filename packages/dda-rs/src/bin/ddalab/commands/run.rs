@@ -4,58 +4,26 @@ use crate::exit_codes;
 use crate::output;
 
 pub async fn execute(args: RunArgs) -> i32 {
-    let normalized_variants = match dda_params::normalize_variants(&args.variants) {
-        Ok(v) => v,
+    let selection = match dda_params::prepare_selection(
+        args.channels.clone(),
+        &args.variants,
+        args.ct_pairs.as_deref(),
+        args.cd_pairs.as_deref(),
+        args.variant_configs.as_deref(),
+    ) {
+        Ok(selection) => selection,
         Err(msg) => {
             eprintln!("Error: {}", msg);
             return exit_codes::INPUT_ERROR;
         }
     };
-
-    let parsed_ct_pairs = match args
-        .ct_pairs
-        .as_ref()
-        .map(|pairs| crate::cli::parse_pairs(pairs))
-        .transpose()
-    {
-        Ok(pairs) => pairs,
-        Err(msg) => {
-            eprintln!("Error: {}", msg);
-            return exit_codes::INPUT_ERROR;
-        }
-    };
-
-    let parsed_cd_pairs = match args
-        .cd_pairs
-        .as_ref()
-        .map(|pairs| crate::cli::parse_pairs(pairs))
-        .transpose()
-    {
-        Ok(pairs) => pairs,
-        Err(msg) => {
-            eprintln!("Error: {}", msg);
-            return exit_codes::INPUT_ERROR;
-        }
-    };
-
-    let variant_configs = match args.variant_configs.as_deref() {
-        Some(path) => match dda_params::load_variant_configs(path) {
-            Ok(cfg) => Some(cfg),
-            Err(msg) => {
-                eprintln!("Error: {}", msg);
-                return exit_codes::INPUT_ERROR;
-            }
-        },
-        None => None,
-    };
-
-    let (effective_channels, effective_ct_pairs, effective_cd_pairs) =
-        dda_params::derive_effective_channels_and_pairs(
-            args.channels.clone(),
-            parsed_ct_pairs,
-            parsed_cd_pairs,
-            variant_configs.as_ref(),
-        );
+    let dda_params::PreparedSelection {
+        variants: normalized_variants,
+        channels: effective_channels,
+        ct_pairs: effective_ct_pairs,
+        cd_pairs: effective_cd_pairs,
+        variant_configs,
+    } = selection;
 
     // Validate file
     if let Err(msg) = dda_params::validate_file(&args.file) {
@@ -78,28 +46,28 @@ pub async fn execute(args: RunArgs) -> i32 {
     }
 
     // Build DDARequest
-    let request = match dda_params::build_dda_request_with_options(
-        &args.file,
-        &effective_channels,
-        &normalized_variants,
-        args.wl,
-        args.ws,
-        &args.delays,
-        args.model.clone(),
-        args.dm,
-        args.order,
-        args.nr_tau,
-        args.ct_wl,
-        args.ct_ws,
-        effective_ct_pairs,
-        effective_cd_pairs,
-        args.sr,
-        args.start,
-        args.end,
-        args.highpass,
-        args.lowpass,
+    let request = match dda_params::build_dda_request(dda_params::RequestConfig {
+        file_path: &args.file,
+        channels: &effective_channels,
+        variants: &normalized_variants,
+        window_length: args.wl,
+        window_step: args.ws,
+        delays: &args.delays,
+        model_terms: args.model.clone(),
+        dm: args.dm,
+        order: args.order,
+        nr_tau: args.nr_tau,
+        ct_window_length: args.ct_wl,
+        ct_window_step: args.ct_ws,
+        ct_channel_pairs: effective_ct_pairs,
+        cd_channel_pairs: effective_cd_pairs,
+        sampling_rate: args.sr,
+        start: args.start,
+        end: args.end,
+        highpass: args.highpass,
+        lowpass: args.lowpass,
         variant_configs,
-    ) {
+    }) {
         Ok(r) => r,
         Err(msg) => {
             eprintln!("Error: {}", msg);
@@ -129,39 +97,33 @@ pub async fn execute(args: RunArgs) -> i32 {
         }
     }
 
-    // Execute analysis
-    match dda_params::execute_request(&request, start_bound, end_bound).await {
-        Ok(execution) => {
-            if !args.quiet {
-                let backend_label = match execution.backend {
-                    dda_params::ExecutionBackend::PureRust => "pure-rust",
-                };
-                eprintln!("  Backend: {}", backend_label);
-            }
-            match output::to_json(&execution.result, args.compact) {
-                Ok(json) => {
-                    if let Err(e) = output::write_output(&json, args.output.as_deref()) {
-                        eprintln!("Error: {}", e);
-                        return exit_codes::EXECUTION_ERROR;
-                    }
-                    if !args.quiet {
-                        if let Some(ref path) = args.output {
-                            eprintln!("Results written to {}", path);
-                        }
-                    }
-                    exit_codes::SUCCESS
-                }
-                Err(e) => {
-                    eprintln!("Error serializing result: {}", e);
-                    exit_codes::EXECUTION_ERROR
-                }
-            }
+    let result = match dda_params::execute_request(&request, start_bound, end_bound).await {
+        Ok(result) => result,
+        Err(error) => {
+            eprintln!("DDA execution failed: {}", error);
+            return exit_codes::EXECUTION_ERROR;
         }
-        Err(e) => {
-            eprintln!("DDA execution failed: {}", e);
-            exit_codes::EXECUTION_ERROR
+    };
+    if !args.quiet {
+        eprintln!("  Backend: pure-rust");
+    }
+    let json = match output::to_json(&result, args.compact) {
+        Ok(json) => json,
+        Err(error) => {
+            eprintln!("Error serializing result: {}", error);
+            return exit_codes::EXECUTION_ERROR;
+        }
+    };
+    if let Err(error) = output::write_output(&json, args.output.as_deref()) {
+        eprintln!("Error: {}", error);
+        return exit_codes::EXECUTION_ERROR;
+    }
+    if !args.quiet {
+        if let Some(path) = &args.output {
+            eprintln!("Results written to {}", path);
         }
     }
+    exit_codes::SUCCESS
 }
 
 #[cfg(test)]
@@ -201,31 +163,50 @@ mod tests {
         }
     }
 
+    fn build_test_request(args: &RunArgs, file_path: &str) -> dda_rs::DDARequest {
+        let ct_channel_pairs = args
+            .ct_pairs
+            .as_ref()
+            .map(|pairs| crate::cli::parse_pairs(pairs))
+            .transpose()
+            .unwrap();
+        let cd_channel_pairs = args
+            .cd_pairs
+            .as_ref()
+            .map(|pairs| crate::cli::parse_pairs(pairs))
+            .transpose()
+            .unwrap();
+        dda_params::build_dda_request(dda_params::RequestConfig {
+            file_path,
+            channels: args.channels.as_deref().unwrap_or_default(),
+            variants: &args.variants,
+            window_length: args.wl,
+            window_step: args.ws,
+            delays: &args.delays,
+            model_terms: args.model.clone(),
+            dm: args.dm,
+            order: args.order,
+            nr_tau: args.nr_tau,
+            ct_window_length: args.ct_wl,
+            ct_window_step: args.ct_ws,
+            ct_channel_pairs,
+            cd_channel_pairs,
+            sampling_rate: args.sr,
+            start: args.start,
+            end: args.end,
+            highpass: args.highpass,
+            lowpass: args.lowpass,
+            variant_configs: None,
+        })
+        .unwrap()
+    }
+
     #[test]
     fn test_build_request_defaults() {
         let tmp = tempfile::Builder::new().suffix(".edf").tempfile().unwrap();
         let args = make_test_args();
 
-        let request = dda_params::build_dda_request(
-            tmp.path().to_str().unwrap(),
-            args.channels.as_deref().unwrap(),
-            &args.variants,
-            args.wl,
-            args.ws,
-            &args.delays,
-            args.model.clone(),
-            args.dm,
-            args.order,
-            args.nr_tau,
-            args.ct_wl,
-            args.ct_ws,
-            &args.ct_pairs,
-            &args.cd_pairs,
-            args.sr,
-            args.start,
-            args.end,
-        )
-        .unwrap();
+        let request = build_test_request(&args, tmp.path().to_str().unwrap());
         assert_eq!(request.window_parameters.window_length, 200);
         assert_eq!(request.window_parameters.window_step, 100);
         assert_eq!(request.delay_parameters.delays, vec![7, 10]);
@@ -243,26 +224,7 @@ mod tests {
         args.variants = vec!["CT".to_string()];
         args.ct_pairs = Some(vec!["0,1".to_string(), "0,2".to_string()]);
 
-        let request = dda_params::build_dda_request(
-            tmp.path().to_str().unwrap(),
-            args.channels.as_deref().unwrap(),
-            &args.variants,
-            args.wl,
-            args.ws,
-            &args.delays,
-            args.model.clone(),
-            args.dm,
-            args.order,
-            args.nr_tau,
-            args.ct_wl,
-            args.ct_ws,
-            &args.ct_pairs,
-            &args.cd_pairs,
-            args.sr,
-            args.start,
-            args.end,
-        )
-        .unwrap();
+        let request = build_test_request(&args, tmp.path().to_str().unwrap());
         let pairs = request.ct_channel_pairs.unwrap();
         assert_eq!(pairs, vec![[0, 1], [0, 2]]);
         assert_eq!(request.window_parameters.ct_window_length, Some(200));
@@ -389,7 +351,7 @@ mod tests {
 
     #[test]
     fn test_select_mask_generation() {
-        let variants = vec!["ST".to_string(), "CD".to_string()];
+        let variants = ["ST".to_string(), "CD".to_string()];
         let variant_refs: Vec<&str> = variants.iter().map(|s| s.as_str()).collect();
         let mask = generate_select_mask(&variant_refs);
         let mask_str = format_select_mask(&mask);

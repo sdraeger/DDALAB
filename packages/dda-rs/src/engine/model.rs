@@ -83,8 +83,7 @@ pub(crate) fn nr_multicombinations(nr_tau: usize, order: usize) -> usize {
 
 pub(crate) fn monomial_list(nr_tau: usize, order: usize) -> Vec<Vec<usize>> {
     let total = nr_multicombinations(nr_tau, order);
-    let mut table = vec![vec![0usize; order]; total];
-    let mut row = 0usize;
+    let mut table = Vec::with_capacity(total);
     for degree in 1..=order {
         let degree_total = nr_multicombinations(nr_tau, degree)
             - if degree > 1 {
@@ -93,38 +92,30 @@ pub(crate) fn monomial_list(nr_tau: usize, order: usize) -> Vec<Vec<usize>> {
                 0
             };
 
-        let start_row = row;
-        for slot in (order - degree)..order {
-            table[row][slot] = 1;
-        }
+        let mut first = vec![0; order];
+        first[(order - degree)..].fill(1);
+        table.push(first);
 
         for _ in 1..degree_total {
-            let previous = table[row].clone();
-            row += 1;
-            table[row] = previous;
+            let mut next = table
+                .last()
+                .expect("each polynomial degree starts with one monomial")
+                .clone();
             let mut updated = false;
             for index in 0..order {
-                if table[row][index] == nr_tau {
-                    let replacement = if index == 0 {
-                        1
-                    } else {
-                        table[row][index - 1] + 1
-                    };
-                    for slot in index.saturating_sub(1)..order {
-                        table[row][slot] = replacement;
-                    }
+                if next[index] == nr_tau {
+                    let replacement = if index == 0 { 1 } else { next[index - 1] + 1 };
+                    next[index.saturating_sub(1)..].fill(replacement);
                     updated = true;
                     break;
                 }
             }
             if !updated {
-                let last = order - 1;
-                table[row][last] += 1;
+                *next
+                    .last_mut()
+                    .expect("positive polynomial degree has at least one slot") += 1;
             }
-        }
-        row += 1;
-        if row == start_row + degree_total {
-            continue;
+            table.push(next);
         }
     }
     table

@@ -1,7 +1,7 @@
 use nalgebra::{DMatrix, DVector};
 use rayon::prelude::*;
 
-use super::{window::PreparedWindow, SvdBackend, PARALLEL_BATCH_MIN_LEN};
+use super::{model::ModelSpec, window::PreparedWindow, SvdBackend, PARALLEL_BATCH_MIN_LEN};
 
 #[derive(Debug, Clone)]
 pub(crate) struct SolvedBlock {
@@ -45,6 +45,10 @@ enum InputSource<'a> {
     Series(&'a [f64]),
 }
 
+fn channel_input_sources(channels: &[usize]) -> Vec<InputSource<'_>> {
+    channels.iter().copied().map(InputSource::Channel).collect()
+}
+
 pub(crate) fn solve_channels_parallel<T, R, F>(items: &[T], solve: F) -> Vec<R>
 where
     T: Sync,
@@ -58,13 +62,28 @@ where
     }
 }
 
+pub(crate) fn solve_zipped_parallel<A, B, R, F>(left: &[A], right: &[B], solve: F) -> Vec<R>
+where
+    A: Sync,
+    B: Sync,
+    R: Send,
+    F: Fn((&A, &B)) -> R + Sync + Send,
+{
+    if left.len().min(right.len()) >= PARALLEL_BATCH_MIN_LEN {
+        left.par_iter().zip(right.par_iter()).map(solve).collect()
+    } else {
+        left.iter().zip(right.iter()).map(solve).collect()
+    }
+}
+
 pub(crate) fn solve_group_block(
     prepared: &PreparedWindow,
     channels: &[usize],
-    model_terms: &[Vec<usize>],
-    window_length: usize,
+    model: &ModelSpec,
     svd_backend: SvdBackend,
 ) -> SolvedBlock {
+    let model_terms = &model.primary_terms;
+    let window_length = model.window_length;
     let total_points = channels.len() * window_length;
     if total_points == 0 {
         return SolvedBlock::nan(model_terms.len());
@@ -116,12 +135,14 @@ pub(crate) fn solve_group_block(
 
 fn build_channel_regression_window(
     prepared: &PreparedWindow,
-    target_channel: usize,
+    fit_channel: usize,
+    response_channel: usize,
     input_sources: &[InputSource<'_>],
-    primary_terms: &[Vec<usize>],
-    secondary_terms: &[Vec<usize>],
-    window_length: usize,
+    model: &ModelSpec,
 ) -> RegressionWindow {
+    let primary_terms = &model.primary_terms;
+    let secondary_terms = &model.secondary_terms;
+    let window_length = model.window_length;
     let feature_count = primary_terms.len() + input_sources.len() * secondary_terms.len();
     let mut flat_design = Vec::with_capacity(window_length * feature_count);
     let mut fit_target = Vec::with_capacity(window_length);
@@ -129,8 +150,8 @@ fn build_channel_regression_window(
     let mut valid_rows = 0usize;
 
     for sample in 0..window_length {
-        let target_value = prepared.deriv[target_channel][sample];
-        if target_value.is_nan() {
+        let fit_value = prepared.deriv[fit_channel][sample];
+        if fit_value.is_nan() {
             continue;
         }
         let row_start = flat_design.len();
@@ -161,7 +182,7 @@ fn build_channel_regression_window(
         for term in primary_terms {
             let value = evaluate_term(
                 &prepared.shifted,
-                target_channel,
+                fit_channel,
                 sample,
                 prepared.max_delay,
                 term,
@@ -173,8 +194,8 @@ fn build_channel_regression_window(
             flat_design.push(value);
         }
         if valid {
-            fit_target.push(target_value);
-            residual_target.push(target_value);
+            fit_target.push(fit_value);
+            residual_target.push(prepared.deriv[response_channel][sample]);
             valid_rows += 1;
         } else {
             flat_design.truncate(row_start);
@@ -199,100 +220,34 @@ pub(crate) fn solve_directed_pair(
     primary_channel: usize,
     secondary_channel: usize,
     response_channel: usize,
-    primary_terms: &[Vec<usize>],
-    secondary_terms: &[Vec<usize>],
-    window_length: usize,
+    model: &ModelSpec,
     svd_backend: SvdBackend,
 ) -> SolvedBlock {
-    let feature_count = primary_terms.len() + secondary_terms.len();
-    let mut flat_design = Vec::with_capacity(window_length * feature_count);
-    let mut fit_target = Vec::with_capacity(window_length);
-    let mut residual_target = Vec::with_capacity(window_length);
-    let mut valid_rows = 0usize;
-
-    for sample in 0..window_length {
-        let fit_value = prepared.deriv[primary_channel][sample];
-        if fit_value.is_nan() {
-            continue;
-        }
-        let row_start = flat_design.len();
-        let mut valid = true;
-        for term in secondary_terms {
-            let value = evaluate_term(
-                &prepared.shifted,
-                secondary_channel,
-                sample,
-                prepared.max_delay,
-                term,
-            );
-            if value.is_nan() {
-                valid = false;
-                break;
-            }
-            flat_design.push(value);
-        }
-        if !valid {
-            flat_design.truncate(row_start);
-            continue;
-        }
-        for term in primary_terms {
-            let value = evaluate_term(
-                &prepared.shifted,
-                primary_channel,
-                sample,
-                prepared.max_delay,
-                term,
-            );
-            if value.is_nan() {
-                valid = false;
-                break;
-            }
-            flat_design.push(value);
-        }
-        if valid {
-            fit_target.push(fit_value);
-            residual_target.push(prepared.deriv[response_channel][sample]);
-            valid_rows += 1;
-        } else {
-            flat_design.truncate(row_start);
-        }
-    }
-
-    if (valid_rows as f64) / (window_length as f64) * 100.0 < 60.0 {
-        return SolvedBlock::nan(feature_count);
-    }
-
-    solve_least_squares_from_flat(
-        &flat_design,
-        valid_rows,
-        feature_count,
-        &fit_target,
-        &residual_target,
-        svd_backend,
-    )
+    let input_sources = [InputSource::Channel(secondary_channel)];
+    let window = build_channel_regression_window(
+        prepared,
+        primary_channel,
+        response_channel,
+        &input_sources,
+        model,
+    );
+    solve_regression_window(&window, svd_backend)
 }
 
 pub(crate) fn solve_channel_with_inputs(
     prepared: &PreparedWindow,
     target_channel: usize,
     input_channels: &[usize],
-    primary_terms: &[Vec<usize>],
-    secondary_terms: &[Vec<usize>],
-    window_length: usize,
+    model: &ModelSpec,
     svd_backend: SvdBackend,
 ) -> SolvedBlock {
-    let input_sources = input_channels
-        .iter()
-        .copied()
-        .map(InputSource::Channel)
-        .collect::<Vec<_>>();
+    let input_sources = channel_input_sources(input_channels);
     let window = build_channel_regression_window(
         prepared,
         target_channel,
+        target_channel,
         &input_sources,
-        primary_terms,
-        secondary_terms,
-        window_length,
+        model,
     );
     solve_regression_window(&window, svd_backend)
 }
@@ -301,9 +256,7 @@ pub(crate) fn solve_channel_with_surrogate_inputs(
     prepared: &PreparedWindow,
     target_channel: usize,
     surrogate_inputs: &[Vec<f64>],
-    primary_terms: &[Vec<usize>],
-    secondary_terms: &[Vec<usize>],
-    window_length: usize,
+    model: &ModelSpec,
     svd_backend: SvdBackend,
 ) -> SolvedBlock {
     let input_sources = surrogate_inputs
@@ -313,10 +266,9 @@ pub(crate) fn solve_channel_with_surrogate_inputs(
     let window = build_channel_regression_window(
         prepared,
         target_channel,
+        target_channel,
         &input_sources,
-        primary_terms,
-        secondary_terms,
-        window_length,
+        model,
     );
     solve_regression_window(&window, svd_backend)
 }
@@ -325,22 +277,15 @@ pub(crate) fn build_channel_regression_window_with_inputs(
     prepared: &PreparedWindow,
     target_channel: usize,
     input_channels: &[usize],
-    primary_terms: &[Vec<usize>],
-    secondary_terms: &[Vec<usize>],
-    window_length: usize,
+    model: &ModelSpec,
 ) -> RegressionWindow {
-    let input_sources = input_channels
-        .iter()
-        .copied()
-        .map(InputSource::Channel)
-        .collect::<Vec<_>>();
+    let input_sources = channel_input_sources(input_channels);
     build_channel_regression_window(
         prepared,
         target_channel,
+        target_channel,
         &input_sources,
-        primary_terms,
-        secondary_terms,
-        window_length,
+        model,
     )
 }
 
@@ -413,19 +358,9 @@ pub(crate) fn solve_temporally_regularized_windows(
             let coeff_slice = coefficients.rows(window_idx * cols, cols).clone_owned();
             let a = DMatrix::from_row_slice(window.rows, cols, &window.flat_design);
             let prediction = &a * &coeff_slice;
-            let residual_sum = window
-                .residual_target
-                .iter()
-                .enumerate()
-                .map(|(row_idx, value)| {
-                    let delta = value - prediction[row_idx];
-                    delta * delta
-                })
-                .sum::<f64>();
-            let rmse = (residual_sum / (window.rows as f64)).sqrt();
             SolvedBlock {
                 coefficients: coeff_slice.iter().copied().collect(),
-                rmse,
+                rmse: residual_rmse(&window.residual_target, &prediction),
             }
         })
         .collect()
@@ -446,19 +381,22 @@ fn solve_least_squares_from_flat(
     let y = DVector::from_column_slice(fit_target);
     let coefficients = solve_matrix_with_backend(&a, &y, svd_backend);
     let prediction = &a * &coefficients;
-    let residual_sum = residual_target
+    SolvedBlock {
+        coefficients: coefficients.iter().copied().collect(),
+        rmse: residual_rmse(residual_target, &prediction),
+    }
+}
+
+fn residual_rmse(target: &[f64], prediction: &DVector<f64>) -> f64 {
+    let residual_sum = target
         .iter()
-        .enumerate()
-        .map(|(row_idx, value)| {
-            let delta = value - prediction[row_idx];
+        .zip(prediction.iter())
+        .map(|(target, prediction)| {
+            let delta = target - prediction;
             delta * delta
         })
         .sum::<f64>();
-    let rmse = (residual_sum / (rows as f64)).sqrt();
-    SolvedBlock {
-        coefficients: coefficients.iter().copied().collect(),
-        rmse,
-    }
+    (residual_sum / target.len() as f64).sqrt()
 }
 
 fn solve_matrix_with_backend(
@@ -512,15 +450,16 @@ fn solve_compact_with_native_compat_svd(compact_x: &[Vec<f64>], compact_y: &[f64
             projected_rhs[feature] += compact_y[sample] * u[feature][sample];
         }
     }
-    for col in 0..feature_count {
-        for row in 0..feature_count {
-            v[row][col] *= projected_rhs[row] / w[row];
+    for (row, values) in v.iter_mut().enumerate() {
+        let scale = projected_rhs[row] / w[row];
+        for value in values {
+            *value *= scale;
         }
     }
     let mut coefficients = vec![0.0; feature_count];
-    for col in 0..feature_count {
-        for row in 0..feature_count {
-            coefficients[col] += v[row][col];
+    for (col, coefficient) in coefficients.iter_mut().enumerate() {
+        for values in &v {
+            *coefficient += values[col];
         }
     }
     coefficients
@@ -538,6 +477,9 @@ fn dpythag_native_compat(a: f64, b: f64) -> f64 {
     }
 }
 
+// This is an exact index-oriented translation of the native solver. Iterator
+// rewrites obscure the matrix algorithm and risk changing compatibility.
+#[allow(clippy::needless_range_loop)]
 fn dsvdcmp_native_compat(
     a_in: &[Vec<f64>],
     m: usize,
@@ -869,20 +811,6 @@ pub(crate) fn compute_de_value(
     (baseline / ct_rmse - 1.0).abs()
 }
 
-pub(crate) fn causal_improvement(baseline_rmse: f64, causal_rmse: f64) -> f64 {
-    if baseline_rmse.is_nan() || causal_rmse.is_nan() {
-        return f64::NAN;
-    }
-    baseline_rmse - causal_rmse
-}
-
-pub(crate) fn conditional_causal_improvement(baseline_rmse: f64, conditioned_rmse: f64) -> f64 {
-    if baseline_rmse.is_nan() || conditioned_rmse.is_nan() {
-        return f64::NAN;
-    }
-    baseline_rmse - conditioned_rmse
-}
-
 pub(crate) fn empirical_significance_confidence(observed: f64, null_scores: &[f64]) -> f64 {
     if observed.is_nan() {
         return f64::NAN;
@@ -921,9 +849,7 @@ pub(crate) fn greedy_sparse_unique_improvements(
     target_channel: usize,
     candidate_sources: &[usize],
     fixed_inputs: &[usize],
-    primary_terms: &[Vec<usize>],
-    secondary_terms: &[Vec<usize>],
-    window_length: usize,
+    model: &ModelSpec,
     max_active_sources: usize,
     svd_backend: SvdBackend,
 ) -> Vec<(usize, f64)> {
@@ -947,19 +873,12 @@ pub(crate) fn greedy_sparse_unique_improvements(
     let mut active_inputs = fixed_inputs.clone();
     let mut selected_sources = Vec::new();
     let mut remaining = candidates.clone();
-    let mut current_block = solve_channel_with_inputs(
-        prepared,
-        target_channel,
-        &active_inputs,
-        primary_terms,
-        secondary_terms,
-        window_length,
-        svd_backend,
-    );
+    let mut current_block =
+        solve_channel_with_inputs(prepared, target_channel, &active_inputs, model, svd_backend);
     let mut current_bic = bic_like_score(
         current_block.rmse,
-        window_length,
-        primary_terms.len() + active_inputs.len() * secondary_terms.len(),
+        model.window_length,
+        model.primary_terms.len() + active_inputs.len() * model.secondary_terms.len(),
     );
 
     for _ in 0..max_active_sources.min(candidates.len()) {
@@ -971,15 +890,13 @@ pub(crate) fn greedy_sparse_unique_improvements(
                 prepared,
                 target_channel,
                 &trial_inputs,
-                primary_terms,
-                secondary_terms,
-                window_length,
+                model,
                 svd_backend,
             );
             let trial_bic = bic_like_score(
                 trial_block.rmse,
-                window_length,
-                primary_terms.len() + trial_inputs.len() * secondary_terms.len(),
+                model.window_length,
+                model.primary_terms.len() + trial_inputs.len() * model.secondary_terms.len(),
             );
             if trial_bic + 1e-12 < current_bic {
                 match best_choice {
@@ -1016,14 +933,12 @@ pub(crate) fn greedy_sparse_unique_improvements(
                 prepared,
                 target_channel,
                 &without_source,
-                primary_terms,
-                secondary_terms,
-                window_length,
+                model,
                 svd_backend,
             );
             (
                 source,
-                conditional_causal_improvement(without_block.rmse, full_rmse),
+                crate::ccd_stats::legacy_rmse_gain_from_rmse(without_block.rmse, full_rmse),
             )
         })
         .collect()
