@@ -18,7 +18,7 @@ struct ServeRequest {
 }
 
 #[derive(Debug, Deserialize)]
-struct RunGroupParams {
+struct RunAnalysisParams {
     file: String,
     #[serde(default)]
     channels: Vec<usize>,
@@ -44,86 +44,38 @@ struct RunGroupParams {
     ct_pairs: Option<Vec<[usize; 2]>>,
     #[serde(default)]
     cd_pairs: Option<Vec<[usize; 2]>>,
+    #[serde(default)]
+    sr: Option<f64>,
+    #[serde(default)]
+    variant_configs: Option<HashMap<String, VariantChannelConfig>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RunGroupParams {
+    #[serde(flatten)]
+    analysis: RunAnalysisParams,
     #[serde(default)]
     start_sample: Option<u64>,
     #[serde(default)]
     end_sample: Option<u64>,
-    #[serde(default)]
-    sr: Option<f64>,
-    #[serde(default)]
-    variant_configs: Option<HashMap<String, VariantChannelConfig>>,
 }
 
 #[derive(Debug, Deserialize)]
 struct RunGroupMatrixParams {
-    file: String,
+    #[serde(flatten)]
+    analysis: RunAnalysisParams,
     channel_labels: Vec<String>,
     samples: Vec<Vec<f64>>,
-    #[serde(default)]
-    channels: Vec<usize>,
-    #[serde(default)]
-    variants: Vec<String>,
-    wl: u32,
-    ws: u32,
-    #[serde(default)]
-    delays: Vec<i32>,
-    #[serde(default)]
-    model_terms: Option<Vec<i32>>,
-    #[serde(default)]
-    dm: Option<u32>,
-    #[serde(default)]
-    order: Option<u32>,
-    #[serde(default)]
-    nr_tau: Option<u32>,
-    #[serde(default)]
-    ct_wl: Option<u32>,
-    #[serde(default)]
-    ct_ws: Option<u32>,
-    #[serde(default)]
-    ct_pairs: Option<Vec<[usize; 2]>>,
-    #[serde(default)]
-    cd_pairs: Option<Vec<[usize; 2]>>,
-    #[serde(default)]
-    sr: Option<f64>,
-    #[serde(default)]
-    variant_configs: Option<HashMap<String, VariantChannelConfig>>,
 }
 
 #[derive(Debug, Deserialize)]
 struct RunGroupMatrixFileParams {
-    file: String,
+    #[serde(flatten)]
+    analysis: RunAnalysisParams,
     matrix_path: String,
     rows: usize,
     cols: usize,
     channel_labels: Vec<String>,
-    #[serde(default)]
-    channels: Vec<usize>,
-    #[serde(default)]
-    variants: Vec<String>,
-    wl: u32,
-    ws: u32,
-    #[serde(default)]
-    delays: Vec<i32>,
-    #[serde(default)]
-    model_terms: Option<Vec<i32>>,
-    #[serde(default)]
-    dm: Option<u32>,
-    #[serde(default)]
-    order: Option<u32>,
-    #[serde(default)]
-    nr_tau: Option<u32>,
-    #[serde(default)]
-    ct_wl: Option<u32>,
-    #[serde(default)]
-    ct_ws: Option<u32>,
-    #[serde(default)]
-    ct_pairs: Option<Vec<[usize; 2]>>,
-    #[serde(default)]
-    cd_pairs: Option<Vec<[usize; 2]>>,
-    #[serde(default)]
-    sr: Option<f64>,
-    #[serde(default)]
-    variant_configs: Option<HashMap<String, VariantChannelConfig>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -135,330 +87,243 @@ struct PingResponse {
 #[derive(Debug, Serialize)]
 struct RunGroupResponse {
     id: String,
-    backend: String,
+    backend: &'static str,
     result: DDAResult,
 }
 
-struct SidecarState {
-    preview_columns: usize,
+impl RunGroupResponse {
+    fn new(result: DDAResult) -> Self {
+        Self {
+            id: result.id.clone(),
+            backend: "pure-rust",
+            result,
+        }
+    }
 }
 
-impl SidecarState {
-    fn new(preview_columns: usize) -> Self {
+struct ProgressThrottle {
+    last_emit: Instant,
+}
+
+impl ProgressThrottle {
+    fn new() -> Self {
         Self {
-            preview_columns: preview_columns.max(16),
+            last_emit: Instant::now() - Duration::from_secs(1),
         }
     }
 
-    async fn run_group<F>(
-        &mut self,
-        params: RunGroupParams,
-        mut on_progress: F,
-    ) -> Result<RunGroupResponse, String>
-    where
-        F: FnMut(&PureRustProgress),
-    {
-        let normalized_variants = dda_params::normalize_variants(&params.variants)?;
-        dda_params::validate_file(&params.file)?;
+    fn should_emit(&self, progress: &PureRustProgress) -> bool {
+        progress.step_index <= 1
+            || progress.step_index >= progress.total_steps
+            || self.last_emit.elapsed() >= Duration::from_millis(60)
+    }
+
+    fn mark_emitted(&mut self) {
+        self.last_emit = Instant::now();
+    }
+}
+
+impl RunAnalysisParams {
+    fn build_request(
+        &self,
+        channels: &[usize],
+        variants: &[String],
+        start: Option<f64>,
+        end: Option<f64>,
+    ) -> Result<dda_rs::DDARequest, String> {
         dda_params::validate_common_params(
-            &params.channels,
-            &normalized_variants,
-            &params.delays,
-            params.wl,
-            params.ws,
-            &params.ct_pairs,
-            &params.cd_pairs,
+            channels,
+            variants,
+            &self.delays,
+            self.wl,
+            self.ws,
+            &self.ct_pairs,
+            &self.cd_pairs,
         )?;
 
-        let request = dda_params::build_dda_request_with_options(
-            &params.file,
-            &params.channels,
-            &normalized_variants,
-            params.wl,
-            params.ws,
-            if params.delays.is_empty() {
+        dda_params::build_dda_request(dda_params::RequestConfig {
+            file_path: &self.file,
+            channels,
+            variants,
+            window_length: self.wl,
+            window_step: self.ws,
+            delays: if self.delays.is_empty() {
                 &DEFAULT_DELAYS
             } else {
-                &params.delays
+                &self.delays
             },
-            params.model_terms.clone(),
-            params.dm.unwrap_or(DEFAULT_MODEL_DIMENSION),
-            params.order.unwrap_or(DEFAULT_POLYNOMIAL_ORDER),
-            params.nr_tau.unwrap_or(DEFAULT_NUM_TAU),
-            params.ct_wl,
-            params.ct_ws,
-            params.ct_pairs.clone(),
-            params.cd_pairs.clone(),
-            params.sr,
-            None,
-            None,
-            None,
-            None,
-            params.variant_configs.clone(),
-        )?;
-
-        let (start_bound, end_bound) = dda_params::compute_bounds(
-            None,
-            None,
-            params.start_sample,
-            params.end_sample,
-            params.sr,
-        );
-        let result = dda_params::execute_request_with_progress(
-            &request,
-            start_bound,
-            end_bound,
-            |progress| on_progress(progress),
-        )
-        .await
-        .map_err(|error| format!("DDA execution failed: {}", error))?;
-        let full_result = result.result;
-        let analysis_id = full_result.id.clone();
-        let backend = match result.backend {
-            dda_params::ExecutionBackend::PureRust => "pure-rust",
-        }
-        .to_string();
-        Ok(RunGroupResponse {
-            id: analysis_id,
-            backend,
-            result: full_result,
+            model_terms: self.model_terms.clone(),
+            dm: self.dm.unwrap_or(DEFAULT_MODEL_DIMENSION),
+            order: self.order.unwrap_or(DEFAULT_POLYNOMIAL_ORDER),
+            nr_tau: self.nr_tau.unwrap_or(DEFAULT_NUM_TAU),
+            ct_window_length: self.ct_wl,
+            ct_window_step: self.ct_ws,
+            ct_channel_pairs: self.ct_pairs.clone(),
+            cd_channel_pairs: self.cd_pairs.clone(),
+            sampling_rate: self.sr,
+            start,
+            end,
+            highpass: None,
+            lowpass: None,
+            variant_configs: self.variant_configs.clone(),
         })
     }
+}
 
-    async fn run_group_matrix<F>(
-        &mut self,
-        params: RunGroupMatrixParams,
-        mut on_progress: F,
-    ) -> Result<RunGroupResponse, String>
-    where
-        F: FnMut(&PureRustProgress),
+fn validate_matrix_selection(
+    params: &RunAnalysisParams,
+    column_count: usize,
+) -> Result<Vec<usize>, String> {
+    let channels = if params.channels.is_empty() {
+        (0..column_count).collect()
+    } else {
+        params.channels.clone()
+    };
+    if let Some(index) = channels
+        .iter()
+        .copied()
+        .find(|index| *index >= column_count)
     {
-        let normalized_variants = dda_params::normalize_variants(&params.variants)?;
-        if params.samples.is_empty() {
-            return Err("Matrix-backed DDA input contains no samples.".to_string());
-        }
-        let column_count = params.samples.first().map(|row| row.len()).unwrap_or(0);
-        if column_count == 0 {
-            return Err("Matrix-backed DDA input contains no channels.".to_string());
-        }
-        for (row_index, row) in params.samples.iter().enumerate() {
-            if row.len() != column_count {
-                return Err(format!(
-                    "Matrix-backed DDA row {} has {} columns, expected {}.",
-                    row_index + 1,
-                    row.len(),
-                    column_count
-                ));
-            }
-        }
-
-        let channels: Vec<usize> = if params.channels.is_empty() {
-            (0..column_count).collect()
-        } else {
-            params.channels.clone()
-        };
-        if let Some(index) = channels
-            .iter()
-            .copied()
-            .find(|index| *index >= column_count)
-        {
-            return Err(format!(
-                "Matrix-backed DDA channel index {} is out of range for {} channels.",
-                index, column_count
-            ));
-        }
-        for (kind, pairs) in [(&"CT", &params.ct_pairs), (&"CD", &params.cd_pairs)] {
-            if let Some(pairs) = pairs {
-                for [left, right] in pairs {
-                    if *left >= column_count || *right >= column_count {
-                        return Err(format!(
-                            "Matrix-backed DDA {} pair ({}, {}) is out of range for {} channels.",
-                            kind, left, right, column_count
-                        ));
-                    }
+        return Err(format!(
+            "Matrix-backed DDA channel index {} is out of range for {} channels.",
+            index, column_count
+        ));
+    }
+    for (kind, pairs) in [("CT", &params.ct_pairs), ("CD", &params.cd_pairs)] {
+        if let Some(pairs) = pairs {
+            for [left, right] in pairs {
+                if *left >= column_count || *right >= column_count {
+                    return Err(format!(
+                        "Matrix-backed DDA {} pair ({}, {}) is out of range for {} channels.",
+                        kind, left, right, column_count
+                    ));
                 }
             }
         }
-
-        dda_params::validate_common_params(
-            &channels,
-            &normalized_variants,
-            &params.delays,
-            params.wl,
-            params.ws,
-            &params.ct_pairs,
-            &params.cd_pairs,
-        )?;
-
-        let end_sample = params.samples.len().saturating_sub(1) as f64;
-        let request = dda_params::build_dda_request_with_options(
-            &params.file,
-            &channels,
-            &normalized_variants,
-            params.wl,
-            params.ws,
-            if params.delays.is_empty() {
-                &DEFAULT_DELAYS
-            } else {
-                &params.delays
-            },
-            params.model_terms.clone(),
-            params.dm.unwrap_or(DEFAULT_MODEL_DIMENSION),
-            params.order.unwrap_or(DEFAULT_POLYNOMIAL_ORDER),
-            params.nr_tau.unwrap_or(DEFAULT_NUM_TAU),
-            params.ct_wl,
-            params.ct_ws,
-            params.ct_pairs.clone(),
-            params.cd_pairs.clone(),
-            params.sr,
-            Some(0.0),
-            Some(end_sample),
-            None,
-            None,
-            params.variant_configs.clone(),
-        )?;
-
-        let labels = if params.channel_labels.len() == column_count {
-            params.channel_labels.clone()
-        } else {
-            (0..column_count)
-                .map(|index| format!("Ch {}", index))
-                .collect::<Vec<_>>()
-        };
-
-        let result = dda_params::execute_request_on_matrix_with_progress(
-            &request,
-            &params.samples,
-            Some(labels.as_slice()),
-            |progress| on_progress(progress),
-        )
-        .await
-        .map_err(|error| format!("DDA execution failed: {}", error))?;
-        let full_result = result.result;
-        let analysis_id = full_result.id.clone();
-        let backend = match result.backend {
-            dda_params::ExecutionBackend::PureRust => "pure-rust",
-        }
-        .to_string();
-        Ok(RunGroupResponse {
-            id: analysis_id,
-            backend,
-            result: full_result,
-        })
     }
+    Ok(channels)
+}
 
-    async fn run_group_matrix_file<F>(
-        &mut self,
-        params: RunGroupMatrixFileParams,
-        mut on_progress: F,
-    ) -> Result<RunGroupResponse, String>
-    where
-        F: FnMut(&PureRustProgress),
-    {
-        let normalized_variants = dda_params::normalize_variants(&params.variants)?;
-        if params.rows == 0 || params.cols == 0 {
-            return Err("Matrix-backed DDA input contains no samples.".to_string());
-        }
+fn resolve_channel_labels(labels: &[String], column_count: usize) -> Vec<String> {
+    if labels.len() == column_count {
+        labels.to_vec()
+    } else {
+        (0..column_count)
+            .map(|index| format!("Ch {}", index))
+            .collect()
+    }
+}
 
-        let channels: Vec<usize> = if params.channels.is_empty() {
-            (0..params.cols).collect()
-        } else {
-            params.channels.clone()
-        };
-        if let Some(index) = channels.iter().copied().find(|index| *index >= params.cols) {
+async fn run_group<F>(params: RunGroupParams, on_progress: F) -> Result<RunGroupResponse, String>
+where
+    F: FnMut(&PureRustProgress),
+{
+    let variants = dda_params::normalize_variants(&params.analysis.variants)?;
+    dda_params::validate_file(&params.analysis.file)?;
+    let request =
+        params
+            .analysis
+            .build_request(&params.analysis.channels, &variants, None, None)?;
+
+    let (start_bound, end_bound) = dda_params::compute_bounds(
+        None,
+        None,
+        params.start_sample,
+        params.end_sample,
+        params.analysis.sr,
+    );
+    let result =
+        dda_params::execute_request_with_progress(&request, start_bound, end_bound, on_progress)
+            .await
+            .map_err(|error| format!("DDA execution failed: {}", error))?;
+    Ok(RunGroupResponse::new(result))
+}
+
+async fn run_group_matrix<F>(
+    params: RunGroupMatrixParams,
+    on_progress: F,
+) -> Result<RunGroupResponse, String>
+where
+    F: FnMut(&PureRustProgress),
+{
+    let variants = dda_params::normalize_variants(&params.analysis.variants)?;
+    if params.samples.is_empty() {
+        return Err("Matrix-backed DDA input contains no samples.".to_string());
+    }
+    let column_count = params.samples.first().map(|row| row.len()).unwrap_or(0);
+    if column_count == 0 {
+        return Err("Matrix-backed DDA input contains no channels.".to_string());
+    }
+    for (row_index, row) in params.samples.iter().enumerate() {
+        if row.len() != column_count {
             return Err(format!(
-                "Matrix-backed DDA channel index {} is out of range for {} channels.",
-                index, params.cols
+                "Matrix-backed DDA row {} has {} columns, expected {}.",
+                row_index + 1,
+                row.len(),
+                column_count
             ));
         }
-        for (kind, pairs) in [(&"CT", &params.ct_pairs), (&"CD", &params.cd_pairs)] {
-            if let Some(pairs) = pairs {
-                for [left, right] in pairs {
-                    if *left >= params.cols || *right >= params.cols {
-                        return Err(format!(
-                            "Matrix-backed DDA {} pair ({}, {}) is out of range for {} channels.",
-                            kind, left, right, params.cols
-                        ));
-                    }
-                }
-            }
-        }
-
-        dda_params::validate_common_params(
-            &channels,
-            &normalized_variants,
-            &params.delays,
-            params.wl,
-            params.ws,
-            &params.ct_pairs,
-            &params.cd_pairs,
-        )?;
-
-        let end_sample = params.rows.saturating_sub(1) as f64;
-        let request = dda_params::build_dda_request_with_options(
-            &params.file,
-            &channels,
-            &normalized_variants,
-            params.wl,
-            params.ws,
-            if params.delays.is_empty() {
-                &DEFAULT_DELAYS
-            } else {
-                &params.delays
-            },
-            params.model_terms.clone(),
-            params.dm.unwrap_or(DEFAULT_MODEL_DIMENSION),
-            params.order.unwrap_or(DEFAULT_POLYNOMIAL_ORDER),
-            params.nr_tau.unwrap_or(DEFAULT_NUM_TAU),
-            params.ct_wl,
-            params.ct_ws,
-            params.ct_pairs.clone(),
-            params.cd_pairs.clone(),
-            params.sr,
-            Some(0.0),
-            Some(end_sample),
-            None,
-            None,
-            params.variant_configs.clone(),
-        )?;
-
-        let labels = if params.channel_labels.len() == params.cols {
-            params.channel_labels.clone()
-        } else {
-            (0..params.cols)
-                .map(|index| format!("Ch {}", index))
-                .collect::<Vec<_>>()
-        };
-
-        let result = dda_params::execute_request_on_matrix_file_with_progress(
-            &request,
-            &params.matrix_path,
-            params.rows,
-            params.cols,
-            Some(labels.as_slice()),
-            |progress| on_progress(progress),
-        )
-        .await
-        .map_err(|error| format!("DDA execution failed: {}", error))?;
-        let full_result = result.result;
-        let analysis_id = full_result.id.clone();
-        let backend = match result.backend {
-            dda_params::ExecutionBackend::PureRust => "pure-rust",
-        }
-        .to_string();
-        Ok(RunGroupResponse {
-            id: analysis_id,
-            backend,
-            result: full_result,
-        })
     }
+
+    let channels = validate_matrix_selection(&params.analysis, column_count)?;
+
+    let end_sample = params.samples.len().saturating_sub(1) as f64;
+    let request =
+        params
+            .analysis
+            .build_request(&channels, &variants, Some(0.0), Some(end_sample))?;
+    let labels = resolve_channel_labels(&params.channel_labels, column_count);
+
+    let result = dda_params::execute_request_on_matrix_with_progress(
+        &request,
+        &params.samples,
+        Some(labels.as_slice()),
+        on_progress,
+    )
+    .await
+    .map_err(|error| format!("DDA execution failed: {}", error))?;
+    Ok(RunGroupResponse::new(result))
+}
+
+async fn run_group_matrix_file<F>(
+    params: RunGroupMatrixFileParams,
+    on_progress: F,
+) -> Result<RunGroupResponse, String>
+where
+    F: FnMut(&PureRustProgress),
+{
+    let variants = dda_params::normalize_variants(&params.analysis.variants)?;
+    if params.rows == 0 || params.cols == 0 {
+        return Err("Matrix-backed DDA input contains no samples.".to_string());
+    }
+
+    let channels = validate_matrix_selection(&params.analysis, params.cols)?;
+
+    let end_sample = params.rows.saturating_sub(1) as f64;
+    let request =
+        params
+            .analysis
+            .build_request(&channels, &variants, Some(0.0), Some(end_sample))?;
+    let labels = resolve_channel_labels(&params.channel_labels, params.cols);
+
+    let result = dda_params::execute_request_on_matrix_file_with_progress(
+        &request,
+        &params.matrix_path,
+        params.rows,
+        params.cols,
+        Some(labels.as_slice()),
+        on_progress,
+    )
+    .await
+    .map_err(|error| format!("DDA execution failed: {}", error))?;
+    Ok(RunGroupResponse::new(result))
 }
 
 pub async fn execute(args: ServeArgs) -> i32 {
     let _ = args.binary;
     let _ = args.disable_native_fallback;
 
-    let mut state = SidecarState::new(args.preview_columns);
+    let preview_columns = args.preview_columns.max(16);
     let stdin = io::stdin();
     let stdout = io::stdout();
     let mut reader = io::BufReader::new(stdin.lock());
@@ -501,23 +366,19 @@ pub async fn execute(args: ServeArgs) -> i32 {
                 &mut writer,
                 &PingResponse {
                     status: "ok",
-                    preview_columns: state.preview_columns,
+                    preview_columns,
                 },
             ),
             "run_group" => match serde_json::from_value::<RunGroupParams>(request.params) {
                 Ok(params) => {
-                    let mut last_progress_at = Instant::now() - Duration::from_secs(1);
-                    match state
-                        .run_group(params, |progress| {
-                            let should_emit = progress.step_index <= 1
-                                || progress.step_index >= progress.total_steps
-                                || last_progress_at.elapsed() >= Duration::from_millis(60);
-                            if should_emit {
-                                let _ = write_progress(&mut writer, progress);
-                                last_progress_at = Instant::now();
-                            }
-                        })
-                        .await
+                    let mut throttle = ProgressThrottle::new();
+                    match run_group(params, |progress| {
+                        if throttle.should_emit(progress) {
+                            let _ = write_progress(&mut writer, progress);
+                            throttle.mark_emitted();
+                        }
+                    })
+                    .await
                     {
                         Ok(result) => write_success(&mut writer, &result),
                         Err(message) => write_error(&mut writer, &message),
@@ -531,18 +392,14 @@ pub async fn execute(args: ServeArgs) -> i32 {
             "run_group_matrix" => {
                 match serde_json::from_value::<RunGroupMatrixParams>(request.params) {
                     Ok(params) => {
-                        let mut last_progress_at = Instant::now() - Duration::from_secs(1);
-                        match state
-                            .run_group_matrix(params, |progress| {
-                                let should_emit = progress.step_index <= 1
-                                    || progress.step_index >= progress.total_steps
-                                    || last_progress_at.elapsed() >= Duration::from_millis(60);
-                                if should_emit {
-                                    let _ = write_progress(&mut writer, progress);
-                                    last_progress_at = Instant::now();
-                                }
-                            })
-                            .await
+                        let mut throttle = ProgressThrottle::new();
+                        match run_group_matrix(params, |progress| {
+                            if throttle.should_emit(progress) {
+                                let _ = write_progress(&mut writer, progress);
+                                throttle.mark_emitted();
+                            }
+                        })
+                        .await
                         {
                             Ok(result) => write_success(&mut writer, &result),
                             Err(message) => write_error(&mut writer, &message),
@@ -557,18 +414,14 @@ pub async fn execute(args: ServeArgs) -> i32 {
             "run_group_matrix_file" => {
                 match serde_json::from_value::<RunGroupMatrixFileParams>(request.params) {
                     Ok(params) => {
-                        let mut last_progress_at = Instant::now() - Duration::from_secs(1);
-                        match state
-                            .run_group_matrix_file(params, |progress| {
-                                let should_emit = progress.step_index <= 1
-                                    || progress.step_index >= progress.total_steps
-                                    || last_progress_at.elapsed() >= Duration::from_millis(60);
-                                if should_emit {
-                                    let _ = write_progress(&mut writer, progress);
-                                    last_progress_at = Instant::now();
-                                }
-                            })
-                            .await
+                        let mut throttle = ProgressThrottle::new();
+                        match run_group_matrix_file(params, |progress| {
+                            if throttle.should_emit(progress) {
+                                let _ = write_progress(&mut writer, progress);
+                                throttle.mark_emitted();
+                            }
+                        })
+                        .await
                         {
                             Ok(result) => write_success(&mut writer, &result),
                             Err(message) => write_error(&mut writer, &message),
@@ -607,40 +460,65 @@ pub async fn execute(args: ServeArgs) -> i32 {
 }
 
 fn write_success<T: Serialize>(writer: &mut impl Write, result: &T) -> io::Result<()> {
-    serde_json::to_writer(
-        &mut *writer,
+    write_json_line(
+        writer,
         &serde_json::json!({
             "ok": true,
             "result": result,
         }),
     )
-    .map_err(io::Error::other)?;
-    writer.write_all(b"\n")?;
-    writer.flush()
 }
 
 fn write_progress(writer: &mut impl Write, progress: &PureRustProgress) -> io::Result<()> {
-    serde_json::to_writer(
-        &mut *writer,
+    write_json_line(
+        writer,
         &serde_json::json!({
             "event": "progress",
             "payload": progress,
         }),
     )
-    .map_err(io::Error::other)?;
-    writer.write_all(b"\n")?;
-    writer.flush()
 }
 
 fn write_error(writer: &mut impl Write, error: &str) -> io::Result<()> {
-    serde_json::to_writer(
-        &mut *writer,
+    write_json_line(
+        writer,
         &serde_json::json!({
             "ok": false,
             "error": error,
         }),
     )
-    .map_err(io::Error::other)?;
+}
+
+fn write_json_line<T: Serialize>(writer: &mut impl Write, value: &T) -> io::Result<()> {
+    serde_json::to_writer(&mut *writer, value).map_err(io::Error::other)?;
     writer.write_all(b"\n")?;
     writer.flush()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn run_group_parameters_keep_the_flat_protocol_shape() {
+        let params: RunGroupParams = serde_json::from_value(serde_json::json!({
+            "file": "/tmp/input.csv",
+            "channels": [0, 2],
+            "variants": ["ST"],
+            "wl": 64,
+            "ws": 32,
+            "delays": [1, 2],
+            "start_sample": 10,
+            "end_sample": 200,
+            "sr": 256.0
+        }))
+        .expect("flat run_group parameters");
+
+        assert_eq!(params.analysis.file, "/tmp/input.csv");
+        assert_eq!(params.analysis.channels, vec![0, 2]);
+        assert_eq!(params.analysis.variants, vec!["ST"]);
+        assert_eq!(params.start_sample, Some(10));
+        assert_eq!(params.end_sample, Some(200));
+        assert_eq!(params.analysis.sr, Some(256.0));
+    }
 }

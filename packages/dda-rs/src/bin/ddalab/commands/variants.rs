@@ -1,4 +1,5 @@
 use crate::cli::VariantsArgs;
+use crate::dda_params;
 use crate::exit_codes;
 use crate::output;
 use dda_rs::VariantMetadata;
@@ -19,14 +20,7 @@ pub fn execute(args: VariantsArgs) -> i32 {
     let variants: Vec<VariantInfo> = VariantMetadata::active_variants()
         .map(|v| VariantInfo {
             abbreviation: v.abbreviation,
-            app_id: match v.abbreviation {
-                "ST" => "single_timeseries",
-                "CT" => "cross_timeseries",
-                "CD" => "cross_dynamical",
-                "DE" => "dynamical_ergodicity",
-                "SY" => "synchronization",
-                _ => "unknown",
-            },
+            app_id: dda_params::variant_app_id(v.abbreviation).unwrap_or("unknown"),
             name: v.name,
             position: v.position,
             stride: v.stride,
@@ -36,17 +30,9 @@ pub fn execute(args: VariantsArgs) -> i32 {
         .collect();
 
     if args.json {
-        match output::to_json(&variants, false) {
-            Ok(json) => {
-                if let Err(e) = output::write_output(&json, None) {
-                    eprintln!("Error: {}", e);
-                    return exit_codes::EXECUTION_ERROR;
-                }
-            }
-            Err(e) => {
-                eprintln!("Error: {}", e);
-                return exit_codes::EXECUTION_ERROR;
-            }
+        if let Err(error) = output::write_json(&variants, false, None) {
+            eprintln!("Error: {}", error);
+            return exit_codes::EXECUTION_ERROR;
         }
     } else {
         println!("Available DDA Variants:\n");

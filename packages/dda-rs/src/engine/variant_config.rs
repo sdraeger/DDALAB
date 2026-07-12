@@ -2,6 +2,42 @@ use std::collections::BTreeSet;
 
 use crate::types::{CcdConditioningStrategy, DDARequest};
 
+const CCD_CONFIG_KEYS: &[&str] = &[
+    "CCD",
+    "ccd",
+    "conditional_cross_dynamical",
+    "conditional-cross-dynamical",
+    "ccdlog",
+    "conditional_cross_dynamical_log_mse_ratio",
+    "ccdpr2",
+    "conditional_cross_dynamical_partial_r2",
+    "conditional_cross_dynamical_significance",
+    "conditional_cross_dynamical_stability",
+    "temporally_regularized_conditional_cross_dynamical",
+    "multivariate_conditional_cross_dynamical",
+];
+
+const CCD_SIGNIFICANCE_CONFIG_KEYS: &[&str] = &[
+    "conditional_cross_dynamical_significance",
+    "CCD",
+    "ccd",
+    "conditional_cross_dynamical",
+];
+
+const TRCCD_CONFIG_KEYS: &[&str] = &[
+    "temporally_regularized_conditional_cross_dynamical",
+    "CCD",
+    "ccd",
+    "conditional_cross_dynamical",
+];
+
+const MVCCD_CONFIG_KEYS: &[&str] = &[
+    "multivariate_conditional_cross_dynamical",
+    "CCD",
+    "ccd",
+    "conditional_cross_dynamical",
+];
+
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct VariantMode {
     pub(crate) st_enabled: bool,
@@ -26,111 +62,132 @@ impl VariantMode {
             .iter()
             .map(|token| token.trim().to_ascii_uppercase())
             .collect();
-        if let Some(mask) = request.algorithm_selection.select_mask.as_deref() {
-            let bits: Vec<u8> = mask
-                .split_whitespace()
-                .filter_map(|value| value.parse::<u8>().ok())
-                .collect();
-            if bits.len() == 6 {
-                return Self {
-                    st_enabled: bits[0] > 0,
-                    ct_enabled: bits[1] > 0,
-                    cd_enabled: bits[2] > 0,
-                    ccd_enabled: enabled.contains("CCD")
-                        || enabled.contains("CONDITIONAL_CROSS_DYNAMICAL")
-                        || enabled.contains("CONDITIONAL-CROSS-DYNAMICAL")
-                        || enabled.contains("CONDITIONAL CROSS DYNAMICAL")
-                        || enabled.contains("CCDSIG")
-                        || enabled.contains("CONDITIONAL_CROSS_DYNAMICAL_SIGNIFICANCE")
-                        || enabled.contains("CCDSTAB")
-                        || enabled.contains("CONDITIONAL_CROSS_DYNAMICAL_STABILITY")
-                        || enabled.contains("TRCCD")
-                        || enabled.contains("TEMPORALLY_REGULARIZED_CONDITIONAL_CROSS_DYNAMICAL")
-                        || enabled.contains("MVCCD")
-                        || enabled.contains("MULTIVARIATE_CONDITIONAL_CROSS_DYNAMICAL"),
-                    ccdlog_enabled: enabled.contains("CCDLOG")
-                        || enabled.contains("CONDITIONAL_CROSS_DYNAMICAL_LOG_MSE_RATIO")
-                        || enabled.contains("CONDITIONAL-CROSS-DYNAMICAL-LOG-MSE-RATIO")
-                        || enabled.contains("CONDITIONAL CROSS DYNAMICAL LOG MSE RATIO"),
-                    ccdpr2_enabled: enabled.contains("CCDPR2")
-                        || enabled.contains("CONDITIONAL_CROSS_DYNAMICAL_PARTIAL_R2")
-                        || enabled.contains("CONDITIONAL-CROSS-DYNAMICAL-PARTIAL-R2")
-                        || enabled.contains("CONDITIONAL CROSS DYNAMICAL PARTIAL R2"),
-                    ccdsig_enabled: enabled.contains("CCDSIG")
-                        || enabled.contains("CONDITIONAL_CROSS_DYNAMICAL_SIGNIFICANCE")
-                        || enabled.contains("CONDITIONAL-CROSS-DYNAMICAL-SIGNIFICANCE")
-                        || enabled.contains("CONDITIONAL CROSS DYNAMICAL SIGNIFICANCE"),
-                    ccdstab_enabled: enabled.contains("CCDSTAB")
-                        || enabled.contains("CONDITIONAL_CROSS_DYNAMICAL_STABILITY")
-                        || enabled.contains("CONDITIONAL-CROSS-DYNAMICAL-STABILITY")
-                        || enabled.contains("CONDITIONAL CROSS DYNAMICAL STABILITY"),
-                    trccd_enabled: enabled.contains("TRCCD")
-                        || enabled.contains("TEMPORALLY_REGULARIZED_CONDITIONAL_CROSS_DYNAMICAL")
-                        || enabled.contains("TEMPORALLY-REGULARIZED-CONDITIONAL-CROSS-DYNAMICAL")
-                        || enabled.contains("TEMPORALLY REGULARIZED CONDITIONAL CROSS DYNAMICAL"),
-                    mvccd_enabled: enabled.contains("MVCCD")
-                        || enabled.contains("MULTIVARIATE_CONDITIONAL_CROSS_DYNAMICAL")
-                        || enabled.contains("MULTIVARIATE-CONDITIONAL-CROSS-DYNAMICAL")
-                        || enabled.contains("MULTIVARIATE CONDITIONAL CROSS DYNAMICAL"),
-                    de_enabled: bits[4] > 0,
-                    sy_mode: bits[5].min(2),
-                };
-            }
-        }
+
+        let select_mask = request
+            .algorithm_selection
+            .select_mask
+            .as_deref()
+            .and_then(|mask| {
+                let bits: Vec<u8> = mask
+                    .split_whitespace()
+                    .filter_map(|value| value.parse::<u8>().ok())
+                    .collect();
+                (bits.len() == 6).then_some(bits)
+            });
+
+        let ccdlog_enabled = contains_any(
+            &enabled,
+            &[
+                "CCDLOG",
+                "CONDITIONAL_CROSS_DYNAMICAL_LOG_MSE_RATIO",
+                "CONDITIONAL-CROSS-DYNAMICAL-LOG-MSE-RATIO",
+                "CONDITIONAL CROSS DYNAMICAL LOG MSE RATIO",
+            ],
+        );
+        let ccdpr2_enabled = contains_any(
+            &enabled,
+            &[
+                "CCDPR2",
+                "CONDITIONAL_CROSS_DYNAMICAL_PARTIAL_R2",
+                "CONDITIONAL-CROSS-DYNAMICAL-PARTIAL-R2",
+                "CONDITIONAL CROSS DYNAMICAL PARTIAL R2",
+            ],
+        );
+        let ccdsig_enabled = contains_any(
+            &enabled,
+            &[
+                "CCDSIG",
+                "CONDITIONAL_CROSS_DYNAMICAL_SIGNIFICANCE",
+                "CONDITIONAL-CROSS-DYNAMICAL-SIGNIFICANCE",
+                "CONDITIONAL CROSS DYNAMICAL SIGNIFICANCE",
+            ],
+        );
+        let ccdstab_enabled = contains_any(
+            &enabled,
+            &[
+                "CCDSTAB",
+                "CONDITIONAL_CROSS_DYNAMICAL_STABILITY",
+                "CONDITIONAL-CROSS-DYNAMICAL-STABILITY",
+                "CONDITIONAL CROSS DYNAMICAL STABILITY",
+            ],
+        );
+        let trccd_enabled = contains_any(
+            &enabled,
+            &[
+                "TRCCD",
+                "TEMPORALLY_REGULARIZED_CONDITIONAL_CROSS_DYNAMICAL",
+                "TEMPORALLY-REGULARIZED-CONDITIONAL-CROSS-DYNAMICAL",
+                "TEMPORALLY REGULARIZED CONDITIONAL CROSS DYNAMICAL",
+            ],
+        );
+        let mvccd_enabled = contains_any(
+            &enabled,
+            &[
+                "MVCCD",
+                "MULTIVARIATE_CONDITIONAL_CROSS_DYNAMICAL",
+                "MULTIVARIATE-CONDITIONAL-CROSS-DYNAMICAL",
+                "MULTIVARIATE CONDITIONAL CROSS DYNAMICAL",
+            ],
+        );
+        let ccd_enabled = contains_any(
+            &enabled,
+            &[
+                "CCD",
+                "CONDITIONAL_CROSS_DYNAMICAL",
+                "CONDITIONAL-CROSS-DYNAMICAL",
+                "CONDITIONAL CROSS DYNAMICAL",
+                "CCDSIG",
+                "CONDITIONAL_CROSS_DYNAMICAL_SIGNIFICANCE",
+                "CCDSTAB",
+                "CONDITIONAL_CROSS_DYNAMICAL_STABILITY",
+                "TRCCD",
+                "TEMPORALLY_REGULARIZED_CONDITIONAL_CROSS_DYNAMICAL",
+                "MVCCD",
+                "MULTIVARIATE_CONDITIONAL_CROSS_DYNAMICAL",
+            ],
+        );
+
+        let (st_enabled, ct_enabled, cd_enabled, de_enabled, sy_mode) =
+            if let Some(bits) = select_mask {
+                (
+                    bits[0] > 0,
+                    bits[1] > 0,
+                    bits[2] > 0,
+                    bits[4] > 0,
+                    bits[5].min(2),
+                )
+            } else {
+                (
+                    contains_any(&enabled, &["ST", "SINGLE_TIMESERIES"]),
+                    contains_any(&enabled, &["CT", "CROSS_TIMESERIES"]),
+                    contains_any(&enabled, &["CD", "CROSS_DYNAMICAL"]),
+                    contains_any(&enabled, &["DE", "DYNAMICAL_ERGODICITY", "DELAY_EMBEDDING"]),
+                    u8::from(contains_any(
+                        &enabled,
+                        &["SY", "SYNCHRONIZATION", "SYNCHRONY"],
+                    )),
+                )
+            };
 
         Self {
-            st_enabled: enabled.contains("ST") || enabled.contains("SINGLE_TIMESERIES"),
-            ct_enabled: enabled.contains("CT") || enabled.contains("CROSS_TIMESERIES"),
-            cd_enabled: enabled.contains("CD") || enabled.contains("CROSS_DYNAMICAL"),
-            ccd_enabled: enabled.contains("CCD")
-                || enabled.contains("CONDITIONAL_CROSS_DYNAMICAL")
-                || enabled.contains("CONDITIONAL-CROSS-DYNAMICAL")
-                || enabled.contains("CONDITIONAL CROSS DYNAMICAL")
-                || enabled.contains("CCDSIG")
-                || enabled.contains("CONDITIONAL_CROSS_DYNAMICAL_SIGNIFICANCE")
-                || enabled.contains("CCDSTAB")
-                || enabled.contains("CONDITIONAL_CROSS_DYNAMICAL_STABILITY")
-                || enabled.contains("TRCCD")
-                || enabled.contains("TEMPORALLY_REGULARIZED_CONDITIONAL_CROSS_DYNAMICAL")
-                || enabled.contains("MVCCD")
-                || enabled.contains("MULTIVARIATE_CONDITIONAL_CROSS_DYNAMICAL"),
-            ccdlog_enabled: enabled.contains("CCDLOG")
-                || enabled.contains("CONDITIONAL_CROSS_DYNAMICAL_LOG_MSE_RATIO")
-                || enabled.contains("CONDITIONAL-CROSS-DYNAMICAL-LOG-MSE-RATIO")
-                || enabled.contains("CONDITIONAL CROSS DYNAMICAL LOG MSE RATIO"),
-            ccdpr2_enabled: enabled.contains("CCDPR2")
-                || enabled.contains("CONDITIONAL_CROSS_DYNAMICAL_PARTIAL_R2")
-                || enabled.contains("CONDITIONAL-CROSS-DYNAMICAL-PARTIAL-R2")
-                || enabled.contains("CONDITIONAL CROSS DYNAMICAL PARTIAL R2"),
-            ccdsig_enabled: enabled.contains("CCDSIG")
-                || enabled.contains("CONDITIONAL_CROSS_DYNAMICAL_SIGNIFICANCE")
-                || enabled.contains("CONDITIONAL-CROSS-DYNAMICAL-SIGNIFICANCE")
-                || enabled.contains("CONDITIONAL CROSS DYNAMICAL SIGNIFICANCE"),
-            ccdstab_enabled: enabled.contains("CCDSTAB")
-                || enabled.contains("CONDITIONAL_CROSS_DYNAMICAL_STABILITY")
-                || enabled.contains("CONDITIONAL-CROSS-DYNAMICAL-STABILITY")
-                || enabled.contains("CONDITIONAL CROSS DYNAMICAL STABILITY"),
-            trccd_enabled: enabled.contains("TRCCD")
-                || enabled.contains("TEMPORALLY_REGULARIZED_CONDITIONAL_CROSS_DYNAMICAL")
-                || enabled.contains("TEMPORALLY-REGULARIZED-CONDITIONAL-CROSS-DYNAMICAL")
-                || enabled.contains("TEMPORALLY REGULARIZED CONDITIONAL CROSS DYNAMICAL"),
-            mvccd_enabled: enabled.contains("MVCCD")
-                || enabled.contains("MULTIVARIATE_CONDITIONAL_CROSS_DYNAMICAL")
-                || enabled.contains("MULTIVARIATE-CONDITIONAL-CROSS-DYNAMICAL")
-                || enabled.contains("MULTIVARIATE CONDITIONAL CROSS DYNAMICAL"),
-            de_enabled: enabled.contains("DE")
-                || enabled.contains("DYNAMICAL_ERGODICITY")
-                || enabled.contains("DELAY_EMBEDDING"),
-            sy_mode: if enabled.contains("SY")
-                || enabled.contains("SYNCHRONIZATION")
-                || enabled.contains("SYNCHRONY")
-            {
-                1
-            } else {
-                0
-            },
+            st_enabled,
+            ct_enabled,
+            cd_enabled,
+            ccd_enabled,
+            ccdlog_enabled,
+            ccdpr2_enabled,
+            ccdsig_enabled,
+            ccdstab_enabled,
+            trccd_enabled,
+            mvccd_enabled,
+            de_enabled,
+            sy_mode,
         }
     }
+}
+
+fn contains_any(enabled: &BTreeSet<String>, aliases: &[&str]) -> bool {
+    aliases.iter().any(|alias| enabled.contains(*alias))
 }
 
 fn find_variant_config<'a>(
@@ -141,62 +198,95 @@ fn find_variant_config<'a>(
     config_keys.iter().find_map(|key| configs.get(*key))
 }
 
+fn requested_channels_or_all(request: &DDARequest, total_channels: usize) -> Vec<usize> {
+    request
+        .channels
+        .as_ref()
+        .filter(|channels| !channels.is_empty())
+        .cloned()
+        .unwrap_or_else(|| (0..total_channels).collect())
+}
+
+fn directed_pairs(channels: &[usize]) -> Vec<[usize; 2]> {
+    channels
+        .iter()
+        .flat_map(|&target| {
+            channels
+                .iter()
+                .copied()
+                .filter(move |&source| target != source)
+                .map(move |source| [target, source])
+        })
+        .collect()
+}
+
+fn sliding_channel_groups(
+    channels: &[usize],
+    window_length: usize,
+    window_step: usize,
+) -> Vec<Vec<usize>> {
+    if window_length == 0 || channels.len() < window_length {
+        return Vec::new();
+    }
+
+    let mut groups = Vec::new();
+    let mut start = 0;
+    while start + window_length <= channels.len() {
+        groups.push(channels[start..start + window_length].to_vec());
+        start += window_step.max(1);
+    }
+    groups
+}
+
 pub(crate) fn resolve_variant_selected_channels(
     request: &DDARequest,
     total_channels: usize,
     config_keys: &[&str],
 ) -> Vec<usize> {
-    if let Some(configs) = &request.variant_configs {
-        for key in config_keys {
-            if let Some(channels) = configs
-                .get(*key)
-                .and_then(|config| config.selected_channels.clone())
-                .filter(|channels| !channels.is_empty())
-            {
-                return channels;
-            }
-        }
-    }
     request
-        .channels
-        .clone()
-        .filter(|channels| !channels.is_empty())
+        .variant_configs
+        .as_ref()
+        .and_then(|configs| {
+            config_keys.iter().find_map(|key| {
+                configs
+                    .get(*key)?
+                    .selected_channels
+                    .as_ref()
+                    .filter(|channels| !channels.is_empty())
+            })
+        })
+        .or(request
+            .channels
+            .as_ref()
+            .filter(|channels| !channels.is_empty()))
+        .cloned()
         .unwrap_or_else(|| (0..total_channels).collect())
 }
 
 pub(crate) fn resolve_ct_groups(request: &DDARequest, total_channels: usize) -> Vec<Vec<usize>> {
     if let Some(groups) = request
         .ct_channel_pairs
-        .clone()
+        .as_ref()
         .filter(|pairs| !pairs.is_empty())
     {
-        return groups.into_iter().map(|pair| pair.to_vec()).collect();
+        return groups.iter().map(|pair| pair.to_vec()).collect();
     }
 
-    let mut channels = request
-        .channels
-        .clone()
-        .filter(|channels| !channels.is_empty())
-        .unwrap_or_else(|| (0..total_channels).collect());
-    if let Some(configs) = &request.variant_configs {
-        if let Some(config) = ["CT", "ct", "cross_timeseries"]
-            .iter()
-            .find_map(|key| configs.get(*key))
+    let mut channels = requested_channels_or_all(request, total_channels);
+    if let Some(config) = find_variant_config(request, &["CT", "ct", "cross_timeseries"]) {
+        if let Some(groups) = config
+            .ct_channel_pairs
+            .as_ref()
+            .filter(|pairs| !pairs.is_empty())
         {
-            if let Some(groups) = config
-                .ct_channel_pairs
-                .clone()
-                .filter(|pairs| !pairs.is_empty())
-            {
-                return groups.into_iter().map(|pair| pair.to_vec()).collect();
-            }
-            if let Some(selected) = config
-                .selected_channels
-                .clone()
-                .filter(|channels| !channels.is_empty())
-            {
-                channels = selected;
-            }
+            return groups.iter().map(|pair| pair.to_vec()).collect();
+        }
+        if let Some(selected) = config
+            .selected_channels
+            .as_ref()
+            .filter(|channels| !channels.is_empty())
+        {
+            channels.clone_from(selected);
         }
     }
 
@@ -208,16 +298,7 @@ pub(crate) fn resolve_ct_groups(request: &DDARequest, total_channels: usize) -> 
         .window_parameters
         .ct_window_step
         .unwrap_or(window_length.max(1) as u32) as usize;
-    if channels.len() < window_length || window_length == 0 {
-        return Vec::new();
-    }
-    let mut groups = Vec::new();
-    let mut start = 0usize;
-    while start + window_length <= channels.len() {
-        groups.push(channels[start..start + window_length].to_vec());
-        start += window_step.max(1);
-    }
-    groups
+    sliding_channel_groups(&channels, window_length, window_step)
 }
 
 pub(crate) fn resolve_de_groups(
@@ -238,230 +319,115 @@ pub(crate) fn resolve_de_groups(
         .window_parameters
         .ct_window_step
         .unwrap_or(window_length.max(1) as u32) as usize;
-    if channels.len() < window_length || window_length == 0 {
-        return Vec::new();
-    }
-
-    let mut groups = Vec::new();
-    let mut start = 0usize;
-    while start + window_length <= channels.len() {
-        groups.push(channels[start..start + window_length].to_vec());
-        start += window_step.max(1);
-    }
-    groups
+    sliding_channel_groups(&channels, window_length, window_step)
 }
 
 pub(crate) fn resolve_cd_pairs(request: &DDARequest, total_channels: usize) -> Vec<[usize; 2]> {
     if let Some(pairs) = request
         .cd_channel_pairs
-        .clone()
+        .as_ref()
         .filter(|pairs| !pairs.is_empty())
     {
-        return pairs;
+        return pairs.clone();
     }
 
-    let mut channels = request
-        .channels
-        .clone()
-        .filter(|channels| !channels.is_empty())
-        .unwrap_or_else(|| (0..total_channels).collect());
-    if let Some(configs) = &request.variant_configs {
-        if let Some(config) = ["CD", "cd", "cross_dynamical"]
-            .iter()
-            .find_map(|key| configs.get(*key))
-        {
-            if let Some(pairs) = config
-                .cd_channel_pairs
-                .clone()
-                .filter(|pairs| !pairs.is_empty())
-            {
-                return pairs;
-            }
-            if let Some(selected) = config
-                .selected_channels
-                .clone()
-                .filter(|channels| !channels.is_empty())
-            {
-                channels = selected;
-            }
-        }
-    }
-
-    let mut pairs = Vec::new();
-    for &target in &channels {
-        for &source in &channels {
-            if target != source {
-                pairs.push([target, source]);
-            }
-        }
-    }
-    pairs
-}
-
-pub(crate) fn resolve_ccd_pairs(request: &DDARequest, total_channels: usize) -> Vec<[usize; 2]> {
-    let mut channels = request
-        .channels
-        .clone()
-        .filter(|channels| !channels.is_empty())
-        .unwrap_or_else(|| (0..total_channels).collect());
-    if let Some(config) = find_variant_config(
-        request,
-        &[
-            "CCD",
-            "ccd",
-            "conditional_cross_dynamical",
-            "conditional-cross-dynamical",
-            "ccdlog",
-            "conditional_cross_dynamical_log_mse_ratio",
-            "ccdpr2",
-            "conditional_cross_dynamical_partial_r2",
-            "conditional_cross_dynamical_significance",
-            "conditional_cross_dynamical_stability",
-            "temporally_regularized_conditional_cross_dynamical",
-            "multivariate_conditional_cross_dynamical",
-        ],
-    ) {
+    let mut channels = requested_channels_or_all(request, total_channels);
+    if let Some(config) = find_variant_config(request, &["CD", "cd", "cross_dynamical"]) {
         if let Some(pairs) = config
             .cd_channel_pairs
-            .clone()
+            .as_ref()
             .filter(|pairs| !pairs.is_empty())
         {
-            return pairs;
+            return pairs.clone();
         }
         if let Some(selected) = config
             .selected_channels
-            .clone()
+            .as_ref()
             .filter(|channels| !channels.is_empty())
         {
-            channels = selected;
+            channels.clone_from(selected);
+        }
+    }
+
+    directed_pairs(&channels)
+}
+
+pub(crate) fn resolve_ccd_pairs(request: &DDARequest, total_channels: usize) -> Vec<[usize; 2]> {
+    let mut channels = requested_channels_or_all(request, total_channels);
+    if let Some(config) = find_variant_config(request, CCD_CONFIG_KEYS) {
+        if let Some(pairs) = config
+            .cd_channel_pairs
+            .as_ref()
+            .filter(|pairs| !pairs.is_empty())
+        {
+            return pairs.clone();
+        }
+        if let Some(selected) = config
+            .selected_channels
+            .as_ref()
+            .filter(|channels| !channels.is_empty())
+        {
+            channels.clone_from(selected);
         }
     }
 
     if let Some(pairs) = request
         .cd_channel_pairs
-        .clone()
+        .as_ref()
         .filter(|pairs| !pairs.is_empty())
     {
-        return pairs;
+        return pairs.clone();
     }
 
-    let mut pairs = Vec::new();
-    for &target in &channels {
-        for &source in &channels {
-            if target != source {
-                pairs.push([target, source]);
-            }
-        }
-    }
-    pairs
+    directed_pairs(&channels)
 }
 
 pub(crate) fn resolve_ccd_conditioning_strategy(request: &DDARequest) -> CcdConditioningStrategy {
-    find_variant_config(
-        request,
-        &[
-            "CCD",
-            "ccd",
-            "conditional_cross_dynamical",
-            "conditional-cross-dynamical",
-            "ccdlog",
-            "conditional_cross_dynamical_log_mse_ratio",
-            "ccdpr2",
-            "conditional_cross_dynamical_partial_r2",
-            "conditional_cross_dynamical_significance",
-            "conditional_cross_dynamical_stability",
-            "temporally_regularized_conditional_cross_dynamical",
-            "multivariate_conditional_cross_dynamical",
-        ],
-    )
-    .and_then(|config| config.conditioning_strategy)
-    .unwrap_or(CcdConditioningStrategy::AllSelected)
+    find_variant_config(request, CCD_CONFIG_KEYS)
+        .and_then(|config| config.conditioning_strategy)
+        .unwrap_or(CcdConditioningStrategy::AllSelected)
 }
 
 pub(crate) fn resolve_ccd_candidate_channels(
     request: &DDARequest,
     total_channels: usize,
 ) -> Vec<usize> {
-    if let Some(config) = find_variant_config(
-        request,
-        &[
-            "CCD",
-            "ccd",
-            "conditional_cross_dynamical",
-            "conditional-cross-dynamical",
-            "ccdlog",
-            "conditional_cross_dynamical_log_mse_ratio",
-            "ccdpr2",
-            "conditional_cross_dynamical_partial_r2",
-            "conditional_cross_dynamical_significance",
-            "conditional_cross_dynamical_stability",
-            "temporally_regularized_conditional_cross_dynamical",
-            "multivariate_conditional_cross_dynamical",
-        ],
-    ) {
+    if let Some(config) = find_variant_config(request, CCD_CONFIG_KEYS) {
         if let Some(channels) = config
             .conditioning_channels
-            .clone()
+            .as_ref()
             .filter(|channels| !channels.is_empty())
         {
-            return channels;
+            return channels.clone();
         }
         if let Some(channels) = config
             .selected_channels
-            .clone()
+            .as_ref()
             .filter(|channels| !channels.is_empty())
         {
-            return channels;
+            return channels.clone();
         }
     }
 
-    request
-        .channels
-        .clone()
-        .filter(|channels| !channels.is_empty())
-        .unwrap_or_else(|| (0..total_channels).collect())
+    requested_channels_or_all(request, total_channels)
 }
 
 pub(crate) fn resolve_ccd_surrogate_shifts(request: &DDARequest) -> Option<Vec<usize>> {
-    find_variant_config(
-        request,
-        &[
-            "conditional_cross_dynamical_significance",
-            "CCD",
-            "ccd",
-            "conditional_cross_dynamical",
-        ],
-    )
-    .and_then(|config| config.surrogate_shifts.clone())
-    .filter(|shifts| !shifts.is_empty())
+    find_variant_config(request, CCD_SIGNIFICANCE_CONFIG_KEYS)
+        .and_then(|config| config.surrogate_shifts.clone())
+        .filter(|shifts| !shifts.is_empty())
 }
 
 pub(crate) fn resolve_ccd_temporal_lambda(request: &DDARequest) -> Option<f64> {
-    find_variant_config(
-        request,
-        &[
-            "temporally_regularized_conditional_cross_dynamical",
-            "CCD",
-            "ccd",
-            "conditional_cross_dynamical",
-        ],
-    )
-    .and_then(|config| config.temporal_lambda)
-    .filter(|value| value.is_finite() && *value >= 0.0)
+    find_variant_config(request, TRCCD_CONFIG_KEYS)
+        .and_then(|config| config.temporal_lambda)
+        .filter(|value| value.is_finite() && *value >= 0.0)
 }
 
 pub(crate) fn resolve_ccd_max_active_sources(request: &DDARequest) -> Option<usize> {
-    find_variant_config(
-        request,
-        &[
-            "multivariate_conditional_cross_dynamical",
-            "CCD",
-            "ccd",
-            "conditional_cross_dynamical",
-        ],
-    )
-    .and_then(|config| config.max_active_sources)
-    .filter(|value| *value > 0)
+    find_variant_config(request, MVCCD_CONFIG_KEYS)
+        .and_then(|config| config.max_active_sources)
+        .filter(|value| *value > 0)
 }
 
 pub(crate) fn resolve_sy_pairs(channels: &[usize]) -> Vec<[usize; 2]> {
@@ -490,42 +456,30 @@ pub(crate) fn collect_analysis_channels(
     ccd_conditioning_channels: &[usize],
 ) -> Vec<usize> {
     let mut set = BTreeSet::new();
-    for &channel in single_channels {
-        set.insert(channel);
-    }
+    set.extend(single_channels.iter().copied());
     for group in ct_groups {
-        for &channel in group {
-            set.insert(channel);
-        }
+        set.extend(group.iter().copied());
     }
     for group in de_groups {
-        for &channel in group {
-            set.insert(channel);
-        }
+        set.extend(group.iter().copied());
     }
-    for pair in cd_pairs {
-        set.insert(pair[0]);
-        set.insert(pair[1]);
-    }
-    for pair in ccd_pairs {
-        set.insert(pair[0]);
-        set.insert(pair[1]);
-    }
-    for &channel in ccd_conditioning_channels {
-        set.insert(channel);
-    }
+    set.extend(cd_pairs.iter().flatten().copied());
+    set.extend(ccd_pairs.iter().flatten().copied());
+    set.extend(ccd_conditioning_channels.iter().copied());
     set.into_iter().collect()
+}
+
+fn channel_label(all_labels: &[String], channel: usize) -> String {
+    all_labels
+        .get(channel)
+        .cloned()
+        .unwrap_or_else(|| format!("Ch {}", channel))
 }
 
 pub(crate) fn labels_for_channels(all_labels: &[String], channels: &[usize]) -> Vec<String> {
     channels
         .iter()
-        .map(|&channel| {
-            all_labels
-                .get(channel)
-                .cloned()
-                .unwrap_or_else(|| format!("Ch {}", channel))
-        })
+        .map(|&channel| channel_label(all_labels, channel))
         .collect()
 }
 
@@ -539,12 +493,7 @@ pub(crate) fn labels_for_groups(
         .map(|group| {
             group
                 .iter()
-                .map(|&channel| {
-                    all_labels
-                        .get(channel)
-                        .cloned()
-                        .unwrap_or_else(|| format!("Ch {}", channel))
-                })
+                .map(|&channel| channel_label(all_labels, channel))
                 .collect::<Vec<_>>()
                 .join(joiner)
         })
@@ -559,14 +508,8 @@ pub(crate) fn labels_for_pairs(
     pairs
         .iter()
         .map(|pair| {
-            let left = all_labels
-                .get(pair[0])
-                .cloned()
-                .unwrap_or_else(|| format!("Ch {}", pair[0]));
-            let right = all_labels
-                .get(pair[1])
-                .cloned()
-                .unwrap_or_else(|| format!("Ch {}", pair[1]));
+            let left = channel_label(all_labels, pair[0]);
+            let right = channel_label(all_labels, pair[1]);
             format!("{left}{joiner}{right}")
         })
         .collect()
@@ -577,14 +520,8 @@ pub(crate) fn labels_for_sy(all_labels: &[String], pairs: &[[usize; 2]], mode: u
         pairs
             .iter()
             .flat_map(|pair| {
-                let left = all_labels
-                    .get(pair[0])
-                    .cloned()
-                    .unwrap_or_else(|| format!("Ch {}", pair[0]));
-                let right = all_labels
-                    .get(pair[1])
-                    .cloned()
-                    .unwrap_or_else(|| format!("Ch {}", pair[1]));
+                let left = channel_label(all_labels, pair[0]);
+                let right = channel_label(all_labels, pair[1]);
                 [format!("{left} -> {right}"), format!("{right} -> {left}")]
             })
             .collect()

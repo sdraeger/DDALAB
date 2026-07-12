@@ -18,6 +18,9 @@ pub enum ChannelFormat {
 }
 
 impl ChannelFormat {
+    // Retain the established Option-returning API instead of changing callers
+    // to the `FromStr` trait's Result contract.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "individual" => Some(Self::Individual),

@@ -52,13 +52,13 @@ where
 }
 
 pub fn load_ascii_matrix_from_path<P: AsRef<Path>>(path: P) -> Result<Vec<Vec<f64>>> {
-    let file = File::open(path.as_ref()).map_err(DDAError::IoError)?;
+    let file = File::open(path.as_ref())?;
     let reader = BufReader::new(file);
     let mut rows = Vec::new();
     let mut expected_columns = None;
 
     for (line_idx, line) in reader.lines().enumerate() {
-        let line = line.map_err(DDAError::IoError)?;
+        let line = line?;
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
@@ -126,26 +126,25 @@ pub fn load_f64_matrix_from_path<P: AsRef<Path>>(
     }
 
     let row_byte_width = cols * std::mem::size_of::<f64>();
-    let decode_row = |row_bytes: &[u8]| -> Result<Vec<f64>> {
+    let decode_row = |row_bytes: &[u8]| -> Vec<f64> {
         row_bytes
             .chunks_exact(std::mem::size_of::<f64>())
             .map(|chunk| {
-                let bytes: [u8; 8] = chunk.try_into().map_err(|_| {
-                    DDAError::ParseError("Could not decode raw matrix bytes".to_string())
-                })?;
-                Ok(f64::from_le_bytes(bytes))
+                let mut bytes = [0; std::mem::size_of::<f64>()];
+                bytes.copy_from_slice(chunk);
+                f64::from_le_bytes(bytes)
             })
             .collect()
     };
 
-    let rows_result: Vec<Result<Vec<f64>>> = if rows >= PARALLEL_BATCH_MIN_LEN {
+    let decoded_rows = if rows >= PARALLEL_BATCH_MIN_LEN {
         mmap.par_chunks_exact(row_byte_width)
             .map(decode_row)
             .collect()
     } else {
         mmap.chunks_exact(row_byte_width).map(decode_row).collect()
     };
-    rows_result.into_iter().collect()
+    Ok(decoded_rows)
 }
 
 fn parse_ascii_token(token: &str) -> Result<f64> {

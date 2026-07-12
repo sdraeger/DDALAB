@@ -9,58 +9,26 @@ const BIDS_EXTENSIONS: &[&str] = &["edf", "set", "vhdr", "fif", "csv", "txt"];
 const BIDS_MAX_DEPTH: usize = 6;
 
 pub async fn execute(args: BatchArgs) -> i32 {
-    let normalized_variants = match dda_params::normalize_variants(&args.variants) {
-        Ok(v) => v,
+    let selection = match dda_params::prepare_selection(
+        args.channels.clone(),
+        &args.variants,
+        args.ct_pairs.as_deref(),
+        args.cd_pairs.as_deref(),
+        args.variant_configs.as_deref(),
+    ) {
+        Ok(selection) => selection,
         Err(msg) => {
             eprintln!("Error: {}", msg);
             return exit_codes::INPUT_ERROR;
         }
     };
-
-    let parsed_ct_pairs = match args
-        .ct_pairs
-        .as_ref()
-        .map(|pairs| crate::cli::parse_pairs(pairs))
-        .transpose()
-    {
-        Ok(pairs) => pairs,
-        Err(msg) => {
-            eprintln!("Error: {}", msg);
-            return exit_codes::INPUT_ERROR;
-        }
-    };
-
-    let parsed_cd_pairs = match args
-        .cd_pairs
-        .as_ref()
-        .map(|pairs| crate::cli::parse_pairs(pairs))
-        .transpose()
-    {
-        Ok(pairs) => pairs,
-        Err(msg) => {
-            eprintln!("Error: {}", msg);
-            return exit_codes::INPUT_ERROR;
-        }
-    };
-
-    let variant_configs = match args.variant_configs.as_deref() {
-        Some(path) => match dda_params::load_variant_configs(path) {
-            Ok(cfg) => Some(cfg),
-            Err(msg) => {
-                eprintln!("Error: {}", msg);
-                return exit_codes::INPUT_ERROR;
-            }
-        },
-        None => None,
-    };
-
-    let (effective_channels, effective_ct_pairs, effective_cd_pairs) =
-        dda_params::derive_effective_channels_and_pairs(
-            args.channels.clone(),
-            parsed_ct_pairs,
-            parsed_cd_pairs,
-            variant_configs.as_ref(),
-        );
+    let dda_params::PreparedSelection {
+        variants: normalized_variants,
+        channels: effective_channels,
+        ct_pairs: effective_ct_pairs,
+        cd_pairs: effective_cd_pairs,
+        variant_configs,
+    } = selection;
 
     // Resolve file list
     let files = match resolve_files(&args) {
@@ -119,108 +87,62 @@ pub async fn execute(args: BatchArgs) -> i32 {
             eprintln!("[{}/{}] {}...", i + 1, total, file_path);
         }
 
-        // Validate file
-        if let Err(msg) = dda_params::validate_file(file_path) {
-            eprintln!("  Error: {}", msg);
-            failed += 1;
-            if !args.continue_on_error {
-                break;
+        let outcome: Result<(), String> = async {
+            dda_params::validate_file(file_path).map_err(|error| format!("Error: {}", error))?;
+            let request = dda_params::build_dda_request(dda_params::RequestConfig {
+                file_path,
+                channels: &effective_channels,
+                variants: &normalized_variants,
+                window_length: args.wl,
+                window_step: args.ws,
+                delays: &args.delays,
+                model_terms: args.model.clone(),
+                dm: args.dm,
+                order: args.order,
+                nr_tau: args.nr_tau,
+                ct_window_length: args.ct_wl,
+                ct_window_step: args.ct_ws,
+                ct_channel_pairs: effective_ct_pairs.clone(),
+                cd_channel_pairs: effective_cd_pairs.clone(),
+                sampling_rate: args.sr,
+                start: None,
+                end: None,
+                highpass: args.highpass,
+                lowpass: args.lowpass,
+                variant_configs: variant_configs.clone(),
+            })
+            .map_err(|error| format!("Error building request: {}", error))?;
+            let result = dda_params::execute_request(&request, None, None)
+                .await
+                .map_err(|error| format!("DDA execution failed: {}", error))?;
+
+            if let Some(dir) = &args.output_dir {
+                let json = output::to_json(&result, args.compact)
+                    .map_err(|error| format!("Error serializing result: {}", error))?;
+                let stem = Path::new(file_path)
+                    .file_stem()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or("output");
+                let out_path = Path::new(dir).join(format!("{}_dda.json", stem));
+                output::write_output(&json, out_path.to_str())
+                    .map_err(|error| format!("Error writing output: {}", error))?;
+            } else {
+                let json = output::to_json(&result, true)
+                    .map_err(|error| format!("Error serializing result: {}", error))?;
+                output::write_output(&json, None)
+                    .map_err(|error| format!("Error writing to stdout: {}", error))?;
             }
-            continue;
+            if !args.quiet {
+                eprintln!("  Backend: pure-rust");
+            }
+            Ok(())
         }
+        .await;
 
-        // Build request
-        let request = match dda_params::build_dda_request_with_options(
-            file_path,
-            &effective_channels,
-            &normalized_variants,
-            args.wl,
-            args.ws,
-            &args.delays,
-            args.model.clone(),
-            args.dm,
-            args.order,
-            args.nr_tau,
-            args.ct_wl,
-            args.ct_ws,
-            effective_ct_pairs.clone(),
-            effective_cd_pairs.clone(),
-            args.sr,
-            None,
-            None,
-            args.highpass,
-            args.lowpass,
-            variant_configs.clone(),
-        ) {
-            Ok(r) => r,
-            Err(msg) => {
-                eprintln!("  Error building request: {}", msg);
-                failed += 1;
-                if !args.continue_on_error {
-                    break;
-                }
-                continue;
-            }
-        };
-
-        // Run analysis
-        match dda_params::execute_request(&request, None, None).await {
-            Ok(execution) => match output::to_json(&execution.result, args.compact) {
-                Ok(json) => {
-                    if let Some(ref dir) = args.output_dir {
-                        let stem = Path::new(file_path)
-                            .file_stem()
-                            .and_then(|s| s.to_str())
-                            .unwrap_or("output");
-                        let out_path = Path::new(dir).join(format!("{}_dda.json", stem));
-                        if let Err(e) = output::write_output(&json, out_path.to_str()) {
-                            eprintln!("  Error writing output: {}", e);
-                            failed += 1;
-                            if !args.continue_on_error {
-                                break;
-                            }
-                            continue;
-                        }
-                    } else {
-                        // JSONL to stdout
-                        let compact_json = match output::to_json(&execution.result, true) {
-                            Ok(j) => j,
-                            Err(e) => {
-                                eprintln!("  Error serializing result: {}", e);
-                                failed += 1;
-                                if !args.continue_on_error {
-                                    break;
-                                }
-                                continue;
-                            }
-                        };
-                        if let Err(e) = output::write_output(&compact_json, None) {
-                            eprintln!("  Error writing to stdout: {}", e);
-                            failed += 1;
-                            if !args.continue_on_error {
-                                break;
-                            }
-                            continue;
-                        }
-                    }
-                    if !args.quiet {
-                        let backend_label = match execution.backend {
-                            dda_params::ExecutionBackend::PureRust => "pure-rust",
-                        };
-                        eprintln!("  Backend: {}", backend_label);
-                    }
-                    succeeded += 1;
-                }
-                Err(e) => {
-                    eprintln!("  Error serializing result: {}", e);
-                    failed += 1;
-                    if !args.continue_on_error {
-                        break;
-                    }
-                }
-            },
-            Err(e) => {
-                eprintln!("  DDA execution failed: {}", e);
+        match outcome {
+            Ok(()) => succeeded += 1,
+            Err(error) => {
+                eprintln!("  {}", error);
                 failed += 1;
                 if !args.continue_on_error {
                     break;

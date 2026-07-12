@@ -76,13 +76,12 @@ fn resolve_rayon_thread_count(
         return explicit;
     }
 
-    let mode = parse_rayon_mode(mode_override).unwrap_or_else(|| {
-        if prefer_ui_responsiveness {
-            RayonMode::Desktop
-        } else {
-            RayonMode::Throughput
-        }
-    });
+    let default_mode = if prefer_ui_responsiveness {
+        RayonMode::Desktop
+    } else {
+        RayonMode::Throughput
+    };
+    let mode = parse_rayon_mode(mode_override).unwrap_or(default_mode);
 
     let target_threads = match mode {
         RayonMode::Desktop => {

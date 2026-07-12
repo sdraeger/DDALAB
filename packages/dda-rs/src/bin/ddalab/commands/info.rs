@@ -1,4 +1,5 @@
 use crate::cli::InfoArgs;
+use crate::dda_params;
 use crate::exit_codes;
 use crate::output;
 use serde::Serialize;
@@ -34,24 +35,8 @@ pub fn execute(args: InfoArgs) -> i32 {
         rayon_override_env_vars: vec!["DDALAB_RAYON_MODE", "DDALAB_RAYON_THREADS"],
         platform: std::env::consts::OS.to_string(),
         arch: std::env::consts::ARCH.to_string(),
-        supported_variants: vec![
-            "ST", "CT", "CD", "CCD", "CCDLOG", "CCDPR2", "CCDSIG", "CCDSTAB", "TRCCD", "MVCCD",
-            "DE", "SY",
-        ],
-        accepted_variant_ids: vec![
-            "single_timeseries",
-            "cross_timeseries",
-            "cross_dynamical",
-            "conditional_cross_dynamical",
-            "conditional_cross_dynamical_log_mse_ratio",
-            "conditional_cross_dynamical_partial_r2",
-            "conditional_cross_dynamical_significance",
-            "conditional_cross_dynamical_stability",
-            "temporally_regularized_conditional_cross_dynamical",
-            "multivariate_conditional_cross_dynamical",
-            "dynamical_ergodicity",
-            "synchronization",
-        ],
+        supported_variants: dda_params::supported_variant_ids().collect(),
+        accepted_variant_ids: dda_params::app_variant_ids().collect(),
         supports_variant_configs: true,
         supports_preprocessing_flags: true,
         notes: vec![
@@ -62,17 +47,9 @@ pub fn execute(args: InfoArgs) -> i32 {
     };
 
     if args.json {
-        match output::to_json(&info, false) {
-            Ok(json) => {
-                if let Err(e) = output::write_output(&json, None) {
-                    eprintln!("Error: {}", e);
-                    return exit_codes::EXECUTION_ERROR;
-                }
-            }
-            Err(e) => {
-                eprintln!("Error: {}", e);
-                return exit_codes::EXECUTION_ERROR;
-            }
+        if let Err(error) = output::write_json(&info, false, None) {
+            eprintln!("Error: {}", error);
+            return exit_codes::EXECUTION_ERROR;
         }
     } else {
         println!("ddalab CLI v{}", info.cli_version);
