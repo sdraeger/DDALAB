@@ -1,8 +1,0 @@
-target/
-
-# Environment files containing secrets - NEVER commit these!
-.env
-.env.local
-.env.production
-*.pem
-*.key
