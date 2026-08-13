@@ -97,7 +97,12 @@ def _is_executable_binary(path: Path) -> bool:
     if not path.is_file():
         return False
     if os.name == "nt":
-        return True
+        executable_suffixes = os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD").split(
+            ";"
+        )
+        return path.suffix.casefold() in {
+            suffix.casefold() for suffix in executable_suffixes
+        }
     return os.access(path, os.X_OK)
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from dataclasses import asdict
 from pathlib import Path
 from typing import Iterable, Iterator, List, Optional, Sequence
@@ -70,10 +70,11 @@ def _default_database_path() -> Path:
     temporary_path.unlink(missing_ok=True)
     try:
         with (
-            sqlite3.connect(legacy_path) as source,
-            sqlite3.connect(temporary_path) as target,
+            closing(sqlite3.connect(legacy_path)) as source,
+            closing(sqlite3.connect(temporary_path)) as target,
         ):
             source.backup(target)
+            target.commit()
         temporary_path.replace(path)
     finally:
         temporary_path.unlink(missing_ok=True)

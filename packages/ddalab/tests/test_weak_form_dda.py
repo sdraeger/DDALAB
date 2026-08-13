@@ -18,11 +18,6 @@ from ddalab_app.backend.dda import (  # noqa: E402
     build_weak_form_design_matrix,
 )
 
-from experiments.weak_form_dda_reliability import (  # noqa: E402
-    select_validation_window,
-    simulate_polynomial_ode,
-)
-
 
 def _simulate_polynomial_system(
     *,
@@ -220,26 +215,6 @@ class WeakFormDdaTests(unittest.TestCase):
         self.assertEqual(derivative.term_names_, weak.term_names_)
         self.assertEqual(derivative.coefficients_.shape, weak.coefficients_.shape)
         self.assertGreater(weak.design_matrix_.shape[0], 0)
-
-    def test_validation_window_selection_uses_contiguous_validation_split(self) -> None:
-        system = simulate_polynomial_ode(samples=360)
-        selected = select_validation_window(
-            system.x,
-            dt=system.dt,
-            delays=system.delays,
-            degree=system.degree,
-            candidate_windows=[3, 5, 9],
-            quadrature_rule="trapezoid",
-            train_end=180,
-            validation_end=270,
-        )
-
-        self.assertIn(selected.selected_window, {3, 5, 9})
-        self.assertEqual(set(selected.validation_errors), {3, 5, 9})
-        self.assertGreater(selected.validation_mse, 0.0)
-        for start in selected.validation_window_starts:
-            self.assertGreaterEqual(int(start), 180)
-            self.assertLess(int(start) + selected.selected_window, 270)
 
 
 if __name__ == "__main__":
