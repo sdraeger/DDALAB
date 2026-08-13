@@ -28,22 +28,25 @@ dependencies = [
 ]
 
 [project.scripts]
-ddalab = "qt.__main__:main"
-ddalab-cli = "qt.__main__:main"
-ddalab-gui = "qt.gui_main:main"
+ddalab = "ddalab_app.__main__:main"
+ddalab-cli = "ddalab_app.__main__:main"
+ddalab-gui = "ddalab_app.gui_main:main"
 
 [tool.setuptools]
 include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["qt*"]
+include = ["ddalab_app*"]
 
 [tool.setuptools.package-data]
-qt = [
+ddalab_app = [
   "assets/*.svg",
   "assets/icons/*",
   "assets/fonts/*.ttf",
   "ui/qml/*.qml",
+  "ui/qml/workbench/*.qml",
+  "ui/qml/workbench/components/*.qml",
+  "ui/qml/workbench/pages/*.qml",
   "runtime/bin/*",
 ]

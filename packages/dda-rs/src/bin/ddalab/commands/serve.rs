@@ -2,8 +2,8 @@ use crate::cli::ServeArgs;
 use crate::dda_params;
 use crate::exit_codes;
 use dda_rs::{
-    DDAResult, PureRustProgress, VariantChannelConfig, DEFAULT_DELAYS, DEFAULT_MODEL_DIMENSION,
-    DEFAULT_NUM_TAU, DEFAULT_POLYNOMIAL_ORDER,
+    available_cuda_devices, ComputeDevice, DDAResult, PureRustProgress, VariantChannelConfig,
+    DEFAULT_DELAYS, DEFAULT_MODEL_DIMENSION, DEFAULT_NUM_TAU, DEFAULT_POLYNOMIAL_ORDER,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -48,6 +48,12 @@ struct RunAnalysisParams {
     sr: Option<f64>,
     #[serde(default)]
     variant_configs: Option<HashMap<String, VariantChannelConfig>>,
+    #[serde(default = "default_device")]
+    device: String,
+}
+
+fn default_device() -> String {
+    "cpu".to_string()
 }
 
 #[derive(Debug, Deserialize)]
@@ -124,6 +130,10 @@ impl ProgressThrottle {
 }
 
 impl RunAnalysisParams {
+    fn compute_device(&self) -> Result<ComputeDevice, String> {
+        self.device.parse()
+    }
+
     fn build_request(
         &self,
         channels: &[usize],
@@ -219,6 +229,7 @@ where
     F: FnMut(&PureRustProgress),
 {
     let variants = dda_params::normalize_variants(&params.analysis.variants)?;
+    let device = params.analysis.compute_device()?;
     dda_params::validate_file(&params.analysis.file)?;
     let request =
         params
@@ -232,10 +243,15 @@ where
         params.end_sample,
         params.analysis.sr,
     );
-    let result =
-        dda_params::execute_request_with_progress(&request, start_bound, end_bound, on_progress)
-            .await
-            .map_err(|error| format!("DDA execution failed: {}", error))?;
+    let result = dda_params::execute_request_with_progress_on_device(
+        &request,
+        start_bound,
+        end_bound,
+        device,
+        on_progress,
+    )
+    .await
+    .map_err(|error| format!("DDA execution failed: {}", error))?;
     Ok(RunGroupResponse::new(result))
 }
 
@@ -247,6 +263,7 @@ where
     F: FnMut(&PureRustProgress),
 {
     let variants = dda_params::normalize_variants(&params.analysis.variants)?;
+    let device = params.analysis.compute_device()?;
     if params.samples.is_empty() {
         return Err("Matrix-backed DDA input contains no samples.".to_string());
     }
@@ -274,10 +291,11 @@ where
             .build_request(&channels, &variants, Some(0.0), Some(end_sample))?;
     let labels = resolve_channel_labels(&params.channel_labels, column_count);
 
-    let result = dda_params::execute_request_on_matrix_with_progress(
+    let result = dda_params::execute_request_on_matrix_with_progress_on_device(
         &request,
         &params.samples,
         Some(labels.as_slice()),
+        device,
         on_progress,
     )
     .await
@@ -293,6 +311,7 @@ where
     F: FnMut(&PureRustProgress),
 {
     let variants = dda_params::normalize_variants(&params.analysis.variants)?;
+    let device = params.analysis.compute_device()?;
     if params.rows == 0 || params.cols == 0 {
         return Err("Matrix-backed DDA input contains no samples.".to_string());
     }
@@ -306,12 +325,13 @@ where
             .build_request(&channels, &variants, Some(0.0), Some(end_sample))?;
     let labels = resolve_channel_labels(&params.channel_labels, params.cols);
 
-    let result = dda_params::execute_request_on_matrix_file_with_progress(
+    let result = dda_params::execute_request_on_matrix_file_with_progress_on_device(
         &request,
         &params.matrix_path,
         params.rows,
         params.cols,
         Some(labels.as_slice()),
+        device,
         on_progress,
     )
     .await
@@ -369,6 +389,7 @@ pub async fn execute(args: ServeArgs) -> i32 {
                     preview_columns,
                 },
             ),
+            "devices" => write_success(&mut writer, &available_cuda_devices()),
             "run_group" => match serde_json::from_value::<RunGroupParams>(request.params) {
                 Ok(params) => {
                     let mut throttle = ProgressThrottle::new();
@@ -510,7 +531,8 @@ mod tests {
             "delays": [1, 2],
             "start_sample": 10,
             "end_sample": 200,
-            "sr": 256.0
+            "sr": 256.0,
+            "device": "cuda:2"
         }))
         .expect("flat run_group parameters");
 
@@ -520,5 +542,6 @@ mod tests {
         assert_eq!(params.start_sample, Some(10));
         assert_eq!(params.end_sample, Some(200));
         assert_eq!(params.analysis.sr, Some(256.0));
+        assert_eq!(params.analysis.compute_device(), Ok(ComputeDevice::Cuda(2)));
     }
 }

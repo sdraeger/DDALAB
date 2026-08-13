@@ -1,1 +1,0 @@
-"""DDA analysis window mixins."""

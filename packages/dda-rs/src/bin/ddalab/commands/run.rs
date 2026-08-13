@@ -97,15 +97,18 @@ pub async fn execute(args: RunArgs) -> i32 {
         }
     }
 
-    let result = match dda_params::execute_request(&request, start_bound, end_bound).await {
-        Ok(result) => result,
-        Err(error) => {
-            eprintln!("DDA execution failed: {}", error);
-            return exit_codes::EXECUTION_ERROR;
-        }
-    };
+    let result =
+        match dda_params::execute_request_on_device(&request, start_bound, end_bound, args.device)
+            .await
+        {
+            Ok(result) => result,
+            Err(error) => {
+                eprintln!("DDA execution failed: {}", error);
+                return exit_codes::EXECUTION_ERROR;
+            }
+        };
     if !args.quiet {
-        eprintln!("  Backend: pure-rust");
+        eprintln!("  Backend: pure-rust ({})", args.device);
     }
     let json = match output::to_json(&result, args.compact) {
         Ok(json) => json,
@@ -160,6 +163,7 @@ mod tests {
             output: None,
             compact: false,
             quiet: false,
+            device: dda_rs::ComputeDevice::Cpu,
         }
     }
 

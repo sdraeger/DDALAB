@@ -1,9 +1,9 @@
 use crate::cli;
 use dda_rs::{
-    format_select_mask, generate_select_mask, run_request_on_ascii_file_with_progress,
-    run_request_on_f64_matrix_file_with_progress, run_request_on_matrix_with_progress,
-    AlgorithmSelection, DDARequest, DDAResult, DelayParameters, FileType, ModelParameters,
-    PreprocessingOptions, PureRustProgress, TimeRange, VariantChannelConfig, WindowParameters,
+    format_select_mask, generate_select_mask, load_ascii_matrix_from_path,
+    load_f64_matrix_from_path, AlgorithmSelection, ComputeDevice, DDARequest, DDAResult,
+    DelayParameters, FileType, ModelParameters, PreprocessingOptions, PureRustOptions,
+    PureRustProgress, PureRustRunner, TimeRange, VariantChannelConfig, WindowParameters,
 };
 use serde::Deserialize;
 use std::collections::{BTreeSet, HashMap};
@@ -59,18 +59,20 @@ pub fn pure_rust_matrix_support_reason(request: &DDARequest) -> Result<(), Strin
     pure_rust_common_support_reason(request)
 }
 
-pub async fn execute_request(
+pub async fn execute_request_on_device(
     request: &DDARequest,
     start_bound: Option<u64>,
     end_bound: Option<u64>,
+    device: ComputeDevice,
 ) -> Result<DDAResult, String> {
-    execute_request_with_progress(request, start_bound, end_bound, |_| {}).await
+    execute_request_with_progress_on_device(request, start_bound, end_bound, device, |_| {}).await
 }
 
-pub async fn execute_request_with_progress<F>(
+pub async fn execute_request_with_progress_on_device<F>(
     request: &DDARequest,
     start_bound: Option<u64>,
     end_bound: Option<u64>,
+    device: ComputeDevice,
     on_progress: F,
 ) -> Result<DDAResult, String>
 where
@@ -78,21 +80,23 @@ where
 {
     pure_rust_support_reason(request)
         .map_err(|reason| format!("Pure Rust DDA cannot execute this request: {}", reason))?;
-
-    run_request_on_ascii_file_with_progress(
-        request,
-        &request.file_path,
-        start_bound,
-        end_bound,
-        on_progress,
-    )
-    .map_err(|error| format!("Pure Rust DDA failed: {}", error))
+    let samples = load_ascii_matrix_from_path(&request.file_path)
+        .map_err(|error| format!("Pure Rust DDA failed: {}", error))?;
+    let mut adjusted_request = request.clone();
+    if let (Some(start), Some(end)) = (start_bound, end_bound) {
+        adjusted_request.time_range.start = start as f64;
+        adjusted_request.time_range.end = end as f64;
+    }
+    runner(device)
+        .run_on_matrix_with_progress(&adjusted_request, &samples, None, on_progress)
+        .map_err(|error| format!("Pure Rust DDA failed: {}", error))
 }
 
-pub async fn execute_request_on_matrix_with_progress<F>(
+pub async fn execute_request_on_matrix_with_progress_on_device<F>(
     request: &DDARequest,
     samples: &[Vec<f64>],
     channel_labels: Option<&[String]>,
+    device: ComputeDevice,
     on_progress: F,
 ) -> Result<DDAResult, String>
 where
@@ -100,17 +104,19 @@ where
 {
     pure_rust_matrix_support_reason(request)
         .map_err(|reason| format!("Pure Rust DDA cannot execute this request: {}", reason))?;
-
-    run_request_on_matrix_with_progress(request, samples, channel_labels, on_progress)
+    runner(device)
+        .run_on_matrix_with_progress(request, samples, channel_labels, on_progress)
         .map_err(|error| format!("Pure Rust DDA failed: {}", error))
 }
 
-pub async fn execute_request_on_matrix_file_with_progress<F>(
+#[allow(clippy::too_many_arguments)]
+pub async fn execute_request_on_matrix_file_with_progress_on_device<F>(
     request: &DDARequest,
     matrix_path: &str,
     rows: usize,
     cols: usize,
     channel_labels: Option<&[String]>,
+    device: ComputeDevice,
     on_progress: F,
 ) -> Result<DDAResult, String>
 where
@@ -118,16 +124,18 @@ where
 {
     pure_rust_matrix_support_reason(request)
         .map_err(|reason| format!("Pure Rust DDA cannot execute this request: {}", reason))?;
+    let samples = load_f64_matrix_from_path(matrix_path, rows, cols)
+        .map_err(|error| format!("Pure Rust DDA failed: {}", error))?;
+    runner(device)
+        .run_on_matrix_with_progress(request, &samples, channel_labels, on_progress)
+        .map_err(|error| format!("Pure Rust DDA failed: {}", error))
+}
 
-    run_request_on_f64_matrix_file_with_progress(
-        request,
-        matrix_path,
-        rows,
-        cols,
-        channel_labels,
-        on_progress,
-    )
-    .map_err(|error| format!("Pure Rust DDA failed: {}", error))
+fn runner(device: ComputeDevice) -> PureRustRunner {
+    PureRustRunner::new(PureRustOptions {
+        compute_device: device,
+        ..PureRustOptions::default()
+    })
 }
 
 /// Validate a single file path: existence and supported extension.
@@ -787,7 +795,9 @@ mod tests {
         ))
         .unwrap();
 
-        let result = execute_request(&request, None, None).await.unwrap();
+        let result = execute_request_on_device(&request, None, None, ComputeDevice::Cpu)
+            .await
+            .unwrap();
         let variants = result.variant_results.unwrap();
         assert_eq!(variants.len(), 1);
         assert_eq!(variants[0].variant_id, "ST");
@@ -806,7 +816,9 @@ mod tests {
         ))
         .unwrap();
 
-        let error = execute_request(&request, None, None).await.unwrap_err();
+        let error = execute_request_on_device(&request, None, None, ComputeDevice::Cpu)
+            .await
+            .unwrap_err();
         assert!(error.contains("Pure Rust DDA cannot execute this request"));
         assert!(error.contains("ASCII/TXT/CSV"));
     }
@@ -827,10 +839,11 @@ mod tests {
             .collect::<Vec<_>>();
         let labels = vec!["A".to_string(), "B".to_string()];
 
-        let result = execute_request_on_matrix_with_progress(
+        let result = execute_request_on_matrix_with_progress_on_device(
             &request,
             &samples,
             Some(labels.as_slice()),
+            ComputeDevice::Cpu,
             |_| {},
         )
         .await
@@ -862,12 +875,13 @@ mod tests {
             }
         }
 
-        let result = execute_request_on_matrix_file_with_progress(
+        let result = execute_request_on_matrix_file_with_progress_on_device(
             &request,
             raw.path().to_str().unwrap(),
             samples.len(),
             samples[0].len(),
             Some(labels.as_slice()),
+            ComputeDevice::Cpu,
             |_| {},
         )
         .await

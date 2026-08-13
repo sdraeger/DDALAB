@@ -1,7 +1,11 @@
 use nalgebra::{DMatrix, DVector};
 use rayon::prelude::*;
 
-use super::{model::ModelSpec, window::PreparedWindow, SvdBackend, PARALLEL_BATCH_MIN_LEN};
+use crate::error::{DDAError, Result};
+
+use super::{
+    model::ModelSpec, window::PreparedWindow, ComputeDevice, SvdBackend, PARALLEL_BATCH_MIN_LEN,
+};
 
 #[derive(Debug, Clone)]
 pub(crate) struct SolvedBlock {
@@ -82,11 +86,20 @@ pub(crate) fn solve_group_block(
     model: &ModelSpec,
     svd_backend: SvdBackend,
 ) -> SolvedBlock {
+    let window = build_group_regression_window(prepared, channels, model);
+    solve_regression_window(&window, svd_backend)
+}
+
+pub(crate) fn build_group_regression_window(
+    prepared: &PreparedWindow,
+    channels: &[usize],
+    model: &ModelSpec,
+) -> RegressionWindow {
     let model_terms = &model.primary_terms;
     let window_length = model.window_length;
     let total_points = channels.len() * window_length;
     if total_points == 0 {
-        return SolvedBlock::nan(model_terms.len());
+        return RegressionWindow::invalid(model_terms.len());
     }
 
     let feature_count = model_terms.len();
@@ -120,17 +133,16 @@ pub(crate) fn solve_group_block(
     }
 
     if (valid_rows as f64) / (total_points as f64) * 100.0 < 60.0 {
-        return SolvedBlock::nan(feature_count);
+        return RegressionWindow::invalid(feature_count);
     }
 
-    solve_least_squares_from_flat(
-        &flat_design,
-        valid_rows,
-        feature_count,
-        &target,
-        &target,
-        svd_backend,
-    )
+    RegressionWindow {
+        rows: valid_rows,
+        cols: feature_count,
+        flat_design,
+        fit_target: target.clone(),
+        residual_target: target,
+    }
 }
 
 fn build_channel_regression_window(
@@ -215,6 +227,23 @@ fn build_channel_regression_window(
     }
 }
 
+pub(crate) fn build_directed_regression_window(
+    prepared: &PreparedWindow,
+    primary_channel: usize,
+    secondary_channel: usize,
+    response_channel: usize,
+    model: &ModelSpec,
+) -> RegressionWindow {
+    let input_sources = [InputSource::Channel(secondary_channel)];
+    build_channel_regression_window(
+        prepared,
+        primary_channel,
+        response_channel,
+        &input_sources,
+        model,
+    )
+}
+
 pub(crate) fn solve_directed_pair(
     prepared: &PreparedWindow,
     primary_channel: usize,
@@ -223,12 +252,11 @@ pub(crate) fn solve_directed_pair(
     model: &ModelSpec,
     svd_backend: SvdBackend,
 ) -> SolvedBlock {
-    let input_sources = [InputSource::Channel(secondary_channel)];
-    let window = build_channel_regression_window(
+    let window = build_directed_regression_window(
         prepared,
         primary_channel,
+        secondary_channel,
         response_channel,
-        &input_sources,
         model,
     );
     solve_regression_window(&window, svd_backend)
@@ -301,6 +329,37 @@ pub(crate) fn solve_regression_window(
         &window.residual_target,
         svd_backend,
     )
+}
+
+pub(crate) fn solve_regression_windows(
+    windows: &[RegressionWindow],
+    svd_backend: SvdBackend,
+    compute_device: ComputeDevice,
+) -> Result<Vec<SolvedBlock>> {
+    match compute_device {
+        ComputeDevice::Cpu => Ok(solve_channels_parallel(windows, |window| {
+            solve_regression_window(window, svd_backend)
+        })),
+        ComputeDevice::Cuda(device_index) => {
+            if svd_backend != SvdBackend::RobustSvd {
+                return Err(DDAError::InvalidParameter(
+                    "CUDA acceleration requires SvdBackend::RobustSvd".to_string(),
+                ));
+            }
+            #[cfg(feature = "cuda")]
+            {
+                super::gpu::solve_regression_windows(windows, device_index, svd_backend)
+            }
+            #[cfg(not(feature = "cuda"))]
+            {
+                let _ = device_index;
+                Err(DDAError::ExecutionFailed(
+                    "CUDA support is not compiled in; rebuild dda-rs with --features cuda"
+                        .to_string(),
+                ))
+            }
+        }
+    }
 }
 
 pub(crate) fn solve_temporally_regularized_windows(

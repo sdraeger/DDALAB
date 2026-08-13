@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import sys
 import unittest
-import hashlib
-from unittest.mock import patch
 
 # ruff: noqa: E402
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 
@@ -14,18 +14,18 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
 
-from qt.domain.models import (
+from ddalab_app.domain.models import (
     ChannelWaveform,
     DdaVariantResult,
     WaveformEnvelopeLevel,
     WaveformWindow,
 )
-from qt.ui.plot_data import (
-    DdaVariantPlotProvider,
+from ddalab_app.ui.plot_data import (
     LINE_PLOT_COLORS,
+    WAVEFORM_LINE_COLOR,
+    DdaVariantPlotProvider,
     MatrixTileCache,
     MatrixViewRequest,
-    WAVEFORM_LINE_COLOR,
     WaveformViewRequest,
     WaveformWindowPlotProvider,
     build_line_geometry_view,
@@ -36,7 +36,7 @@ from qt.ui.plot_data import (
     variant_plot_bounds,
     windowed_resample_indices,
 )
-from qt.ui.qt_plot_renderer import heatmap_qimage, lineplot_qimage
+from ddalab_app.ui.qt_plot_renderer import heatmap_qimage, lineplot_qimage
 
 
 def _variant(matrix: list[list[float]], *, min_value=0.0, max_value=1.0):
@@ -200,11 +200,11 @@ class PlotDataTests(unittest.TestCase):
 
         with (
             patch(
-                "qt.ui.plot_matrix_data.perf_counter_ns",
+                "ddalab_app.ui.plot_matrix_data.perf_counter_ns",
                 side_effect=[0, 20_000_000],
             ),
             patch(
-                "qt.ui.plot_matrix_data.perf_logger",
+                "ddalab_app.ui.plot_matrix_data.perf_logger",
                 create=True,
             ) as perf_logger,
         ):
@@ -322,7 +322,7 @@ class PlotDataTests(unittest.TestCase):
     ) -> None:
         variant = _variant([[1.0, float("nan")]], min_value=-1.0, max_value=3.0)
 
-        with patch("qt.ui.plot_data._variant_contains_nonfinite") as scan:
+        with patch("ddalab_app.ui.plot_data._variant_contains_nonfinite") as scan:
             bounds = variant_plot_bounds(variant)
 
         self.assertEqual(bounds, (-1.0, 3.0))
@@ -332,7 +332,7 @@ class PlotDataTests(unittest.TestCase):
         variant = _variant([[1.0, float("nan")]], min_value=2.0, max_value=3.0)
 
         with patch(
-            "qt.ui.plot_data._variant_contains_nonfinite",
+            "ddalab_app.ui.plot_data._variant_contains_nonfinite",
             wraps=lambda item: any(
                 not np.isfinite(value) for row in item.matrix for value in row
             ),
@@ -353,7 +353,7 @@ class PlotDataTests(unittest.TestCase):
         )
 
         with patch(
-            "qt.ui.plot_matrix_data.np.asarray",
+            "ddalab_app.ui.plot_matrix_data.np.asarray",
             wraps=np.asarray,
         ) as asarray:
             build_matrix_view(variant, target_columns=4)
@@ -536,7 +536,7 @@ class PlotDataTests(unittest.TestCase):
         provider = WaveformWindowPlotProvider(_waveform_window([channel]))
 
         with patch(
-            "qt.ui.plot_waveform_data.hashlib.blake2b",
+            "ddalab_app.ui.plot_waveform_data.hashlib.blake2b",
             wraps=hashlib.blake2b,
         ) as digest:
             provider.render_key(WaveformViewRequest(target_width=40))
@@ -748,11 +748,11 @@ class PlotDataTests(unittest.TestCase):
 
         with (
             patch(
-                "qt.ui.plot_waveform_data.perf_counter_ns",
+                "ddalab_app.ui.plot_waveform_data.perf_counter_ns",
                 side_effect=[0, 20_000_000],
             ),
             patch(
-                "qt.ui.plot_waveform_data.perf_logger",
+                "ddalab_app.ui.plot_waveform_data.perf_logger",
                 create=True,
             ) as perf_logger,
         ):

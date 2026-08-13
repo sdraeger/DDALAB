@@ -10,11 +10,12 @@ pub mod variants;
 
 pub use ccd_stats::*;
 pub use engine::{
-    inspect_ccd_conditioning_sets_on_matrix, profile_ccd_conditioning_subsets_on_matrix,
-    run_request_on_matrix, run_request_on_matrix_with_progress,
-    score_ccd_conditioning_subsets_on_matrix, CcdConditioningInspection,
-    CcdConditioningSubsetProfile, CcdConditioningSubsetScore, NormalizationMode, PureRustOptions,
-    PureRustProgress, PureRustRunner, SvdBackend,
+    available_cuda_devices, inspect_ccd_conditioning_sets_on_matrix,
+    profile_ccd_conditioning_subsets_on_matrix, run_request_on_matrix,
+    run_request_on_matrix_with_progress, score_ccd_conditioning_subsets_on_matrix,
+    CcdConditioningInspection, CcdConditioningSubsetProfile, CcdConditioningSubsetScore,
+    ComputeDevice, CudaDeviceInfo, NormalizationMode, PureRustOptions, PureRustProgress,
+    PureRustRunner, SvdBackend,
 };
 pub use error::{DDAError, Result};
 pub use input_io::{

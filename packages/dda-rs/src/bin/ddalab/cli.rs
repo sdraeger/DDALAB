@@ -151,6 +151,10 @@ pub struct RunArgs {
     /// Suppress progress messages on stderr
     #[arg(long, default_value_t = false)]
     pub quiet: bool,
+
+    /// Compute device: cpu, cuda, or cuda:N
+    #[arg(long, default_value = "cpu")]
+    pub device: dda_rs::ComputeDevice,
 }
 
 #[derive(Args)]
@@ -296,6 +300,10 @@ pub struct BatchArgs {
     /// Suppress progress messages on stderr
     #[arg(long, default_value_t = false)]
     pub quiet: bool,
+
+    /// Compute device: cpu, cuda, or cuda:N
+    #[arg(long, default_value = "cpu")]
+    pub device: dda_rs::ComputeDevice,
 }
 
 #[derive(Args)]
