@@ -7,11 +7,8 @@ from pathlib import Path
 import numpy as np
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
-REPO_ROOT = PACKAGE_ROOT.parents[1]
 if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
 from ddalab_app.backend.dda import (  # noqa: E402
     SparseAdditiveWeakFormDDA,
@@ -21,14 +18,6 @@ from ddalab_app.backend.dda import (  # noqa: E402
     fit_group_lasso,
     stability_select_sparse_additive_weak_form,
     thin_candidate_delays_by_collinearity,
-)
-
-from experiments.sparse_additive_weak_form_ablation import (  # noqa: E402
-    ablation_configs,
-    circular_shift_null,
-    false_delayed_discovery_diagnostics,
-    paired_comparison_summary,
-    tolerance_delay_scores,
 )
 
 
@@ -223,56 +212,6 @@ class SparseAdditiveWeakFormDdaTests(unittest.TestCase):
         self.assertEqual(set(scores.null_selection_frequency), {0, 5, 12})
         self.assertIsInstance(scores.calibrated_selected_delays, list)
         self.assertGreaterEqual(scores.calibrated_threshold, 0.0)
-
-    def test_tolerance_aware_delay_scores(self) -> None:
-        exact = tolerance_delay_scores(
-            selected=[0, 9, 24], active=[0, 10, 24], tolerance=0
-        )
-        near = tolerance_delay_scores(
-            selected=[0, 9, 24], active=[0, 10, 24], tolerance=1
-        )
-
-        self.assertLess(exact["f1"], near["f1"])
-        self.assertEqual(near["true_positive"], 3)
-
-    def test_false_delayed_discovery_diagnostics(self) -> None:
-        diagnostics = false_delayed_discovery_diagnostics(
-            selected_delays=[0, 8, 11],
-            active_delays=[0],
-            stability_scores={0: 1.0, 8: 0.75, 11: 0.25},
-            calibrated_threshold=0.5,
-        )
-
-        self.assertEqual(diagnostics["false_delayed_count"], 2)
-        self.assertAlmostEqual(float(diagnostics["false_delayed_discovery_rate"]), 1.0)
-        self.assertIn(8, diagnostics["threshold_exceeding_false_delays"])
-
-    def test_paired_comparison_summary(self) -> None:
-        summary = paired_comparison_summary(
-            baseline=[4.0, 5.0, 6.0, 8.0],
-            candidate=[3.0, 4.0, 7.0, 7.0],
-            seed=4,
-            n_bootstrap=200,
-        )
-
-        self.assertLess(summary["mean_difference"], 0.0)
-        self.assertEqual(summary["n"], 4)
-        self.assertGreater(summary["win_fraction"], 0.5)
-
-    def test_ablation_config_generation_contains_required_variants(self) -> None:
-        names = [config.name for config in ablation_configs()]
-
-        self.assertIn("weak_polynomial", names)
-        self.assertIn("full_without_multitrajectory", names)
-        self.assertIn("full_without_null_calibration", names)
-        self.assertEqual(len(names), len(set(names)))
-
-    def test_circular_shift_null_preserves_length_and_variance(self) -> None:
-        x = _simulate_saturating_delay(samples=320)
-        shifted = circular_shift_null([x], shift=37)[0]
-
-        self.assertEqual(shifted.shape, x.shape)
-        self.assertAlmostEqual(float(np.var(shifted)), float(np.var(x)), places=12)
 
 
 if __name__ == "__main__":

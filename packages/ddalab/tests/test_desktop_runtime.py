@@ -29,6 +29,7 @@ from ddalab_app.backend.local.dda import (
     _execute_sidecar_dda_group,
     _normalize_compute_device,
 )
+from ddalab_app.backend.local.runtime import _is_executable_binary
 from ddalab_app.backend.readers.local import (
     _nifti_browser_channel_limit,
     _representative_nifti_indices,
@@ -149,6 +150,22 @@ class BackendApiTests(unittest.TestCase):
             ):
                 command = _find_cli_command(runtime_paths, Path(tmpdir))
             self.assertIsNone(command)
+
+    def test_windows_binary_requires_executable_suffix(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for name, expected in (("ddalab", None), ("ddalab.exe", "ddalab.exe")):
+                fake_cli = Path(tmpdir) / name
+                fake_cli.write_text("binary", encoding="utf-8")
+                with (
+                    patch("ddalab_app.backend.local.runtime.os.name", "nt"),
+                    patch.dict(
+                        os.environ,
+                        {"DDALAB_CLI_PATH": str(fake_cli), "PATHEXT": ".COM;.EXE"},
+                        clear=False,
+                    ),
+                ):
+                    is_executable = _is_executable_binary(fake_cli)
+                self.assertEqual(is_executable, bool(expected))
 
     def test_supports_rust_direct_file_execution_for_ascii_inputs(self) -> None:
         self.assertTrue(_supports_rust_direct_file_execution("/tmp/input.csv"))
