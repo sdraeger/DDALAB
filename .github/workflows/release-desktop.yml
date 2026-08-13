@@ -17,18 +17,19 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   resolve:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
       publish_release: ${{ steps.version.outputs.publish_release }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Resolve release version
         id: version
@@ -98,11 +99,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: ubuntu-latest
+          - runner: ubuntu-22.04
             platform: linux
             arch: x64
             dist_mode: dir
-          - runner: windows-latest
+          - runner: windows-2022
             platform: windows
             arch: x64
             dist_mode: dir
@@ -116,6 +117,7 @@ jobs:
             dist_mode: dir
 
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
     env:
       DDALAB_VERSION: ${{ needs.resolve.outputs.version }}
       DDALAB_TAG: ${{ needs.resolve.outputs.tag }}
@@ -123,10 +125,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -142,8 +144,8 @@ jobs:
         if: runner.os == 'macOS'
         shell: bash
         env:
-          APPLE_SIGNING_CERTIFICATE_BASE64: ${{ secrets.APPLE_SIGNING_CERTIFICATE_BASE64 }}
-          APPLE_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_SIGNING_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_P12_BASE64: ${{ secrets.APPLE_SIGNING_P12_BASE64 }}
+          APPLE_SIGNING_P12_PASSWORD: ${{ secrets.APPLE_SIGNING_P12_PASSWORD }}
           APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_NOTARY_APPLE_ID: ${{ secrets.APPLE_NOTARY_APPLE_ID }}
@@ -152,8 +154,8 @@ jobs:
         run: |
           missing=()
           for key in \
-            APPLE_SIGNING_CERTIFICATE_BASE64 \
-            APPLE_SIGNING_CERTIFICATE_PASSWORD \
+            APPLE_SIGNING_P12_BASE64 \
+            APPLE_SIGNING_P12_PASSWORD \
             APPLE_KEYCHAIN_PASSWORD \
             APPLE_SIGNING_IDENTITY \
             APPLE_NOTARY_APPLE_ID \
@@ -193,29 +195,36 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e packages/ddalab pyinstaller
+          python -m pip install -e packages/ddalab pyinstaller==6.19.0
 
-      - name: Install macOS signing certificate
+      - name: Run release test suite
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QT_QUICK_BACKEND: software
+        run: python -m unittest discover -s packages/ddalab/tests
+
+      - name: Import macOS signing identity
         if: runner.os == 'macOS'
         shell: bash
         env:
-          APPLE_SIGNING_CERTIFICATE_BASE64: ${{ secrets.APPLE_SIGNING_CERTIFICATE_BASE64 }}
-          APPLE_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_SIGNING_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_P12_BASE64: ${{ secrets.APPLE_SIGNING_P12_BASE64 }}
+          APPLE_SIGNING_P12_PASSWORD: ${{ secrets.APPLE_SIGNING_P12_PASSWORD }}
           APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
         run: |
-          if [[ -z "$APPLE_SIGNING_CERTIFICATE_BASE64" || -z "$APPLE_SIGNING_CERTIFICATE_PASSWORD" || -z "$APPLE_KEYCHAIN_PASSWORD" ]]; then
+          if [[ -z "$APPLE_SIGNING_P12_BASE64" || -z "$APPLE_SIGNING_P12_PASSWORD" || -z "$APPLE_KEYCHAIN_PASSWORD" ]]; then
             echo "Mac signing secrets not configured; continuing without codesign setup."
             exit 0
           fi
-          cert_path="$RUNNER_TEMP/ddalab-signing-cert.p12"
+          p12_path="$RUNNER_TEMP/ddalab-signing.p12"
           keychain_path="$RUNNER_TEMP/ddalab-build.keychain-db"
-          echo "$APPLE_SIGNING_CERTIFICATE_BASE64" | base64 --decode > "$cert_path"
+          echo "$APPLE_SIGNING_P12_BASE64" | base64 --decode > "$p12_path"
           security create-keychain -p "$APPLE_KEYCHAIN_PASSWORD" "$keychain_path"
           security set-keychain-settings -lut 21600 "$keychain_path"
           security unlock-keychain -p "$APPLE_KEYCHAIN_PASSWORD" "$keychain_path"
-          security import "$cert_path" \
+          security import "$p12_path" \
             -k "$keychain_path" \
-            -P "$APPLE_SIGNING_CERTIFICATE_PASSWORD" \
+            -P "$APPLE_SIGNING_P12_PASSWORD" \
             -T /usr/bin/codesign \
             -T /usr/bin/security
           security list-keychains -d user -s "$keychain_path"
@@ -232,8 +241,16 @@ jobs:
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/appimage-tools"
-          curl -L https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage \
+          curl --fail --location --retry 3 \
+            https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage \
             -o "$RUNNER_TEMP/appimage-tools/appimagetool.AppImage"
+          echo "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  $RUNNER_TEMP/appimage-tools/appimagetool.AppImage" \
+            | sha256sum --check --strict
+          curl --fail --location --retry 3 \
+            https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64 \
+            -o "$RUNNER_TEMP/appimage-tools/runtime-x86_64"
+          echo "1cc49bcf1e2ccd593c379adb17c9f85a36d619088296504de95b1d06215aebbf  $RUNNER_TEMP/appimage-tools/runtime-x86_64" \
+            | sha256sum --check --strict
           chmod +x "$RUNNER_TEMP/appimage-tools/appimagetool.AppImage"
 
       - name: Codesign macOS app bundle
@@ -283,7 +300,21 @@ jobs:
         shell: bash
         env:
           QT_QPA_PLATFORM: offscreen
+          QT_QUICK_BACKEND: software
         run: dist/DDALAB/DDALAB --smoke-test
+
+      - name: Verify bundled Linux DDA backend
+        if: runner.os == 'Linux'
+        working-directory: packages/ddalab
+        shell: bash
+        run: |
+          responses="$(printf '%s\n' \
+            '{"method":"ping","params":{}}' \
+            '{"method":"devices","params":{}}' \
+            '{"method":"shutdown","params":{}}' \
+            | dist/DDALAB/_internal/bin/ddalab-backend serve)"
+          grep -q '"status":"ok"' <<< "$responses"
+          grep -q '"status":"bye"' <<< "$responses"
 
       - name: Smoke test frozen macOS app
         if: runner.os == 'macOS'
@@ -291,13 +322,49 @@ jobs:
         shell: bash
         env:
           QT_QPA_PLATFORM: offscreen
+          QT_QUICK_BACKEND: software
         run: dist/DDALAB.app/Contents/MacOS/DDALAB --smoke-test
+
+      - name: Verify bundled macOS DDA backend
+        if: runner.os == 'macOS'
+        working-directory: packages/ddalab
+        shell: bash
+        run: |
+          responses="$(printf '%s\n' \
+            '{"method":"ping","params":{}}' \
+            '{"method":"devices","params":{}}' \
+            '{"method":"shutdown","params":{}}' \
+            | dist/DDALAB.app/Contents/Frameworks/bin/ddalab-backend serve)"
+          grep -q '"status":"ok"' <<< "$responses"
+          grep -q '"status":"bye"' <<< "$responses"
 
       - name: Smoke test frozen Windows bundle
         if: runner.os == 'Windows'
         working-directory: packages/ddalab
         shell: pwsh
         run: dist/DDALAB/DDALAB.exe --smoke-test
+
+      - name: Verify bundled Windows DDA backend
+        if: runner.os == 'Windows'
+        working-directory: packages/ddalab
+        shell: pwsh
+        run: |
+          $backend = Join-Path $PWD "dist\DDALAB\_internal\bin\ddalab-backend.exe"
+          $responses = @(
+            '{"method":"ping","params":{}}',
+            '{"method":"devices","params":{}}',
+            '{"method":"shutdown","params":{}}'
+          ) | & $backend serve
+          if ($LASTEXITCODE -ne 0) {
+            throw "Bundled DDA backend exited with code $LASTEXITCODE"
+          }
+          $payloads = @($responses | ForEach-Object { $_ | ConvertFrom-Json })
+          if (-not $payloads[0].ok -or $payloads[0].result.status -ne "ok") {
+            throw "Bundled DDA backend ping failed"
+          }
+          if (-not $payloads[-1].ok -or $payloads[-1].result.status -ne "bye") {
+            throw "Bundled DDA backend shutdown failed"
+          }
 
       - name: Package Linux release assets
         if: runner.os == 'Linux'
@@ -322,8 +389,8 @@ jobs:
           Terminal=false
           EOF
           cp "$appdir/DDALAB.desktop" "$appdir/usr/share/applications/DDALAB.desktop"
-          install -m 644 qt/assets/icons/icon.png "$appdir/ddalab.png"
-          install -m 644 qt/assets/icons/icon.png "$appdir/usr/share/icons/hicolor/256x256/apps/ddalab.png"
+          install -m 644 ddalab_app/assets/icons/icon.png "$appdir/ddalab.png"
+          install -m 644 ddalab_app/assets/icons/icon.png "$appdir/usr/share/icons/hicolor/256x256/apps/ddalab.png"
           cat > "$appdir/AppRun" <<'EOF'
           #!/bin/sh
           HERE="$(dirname "$(readlink -f "$0")")"
@@ -333,8 +400,21 @@ jobs:
           chmod +x "$appdir/AppRun"
           ARCH=x86_64 "$RUNNER_TEMP/appimage-tools/appimagetool.AppImage" \
             --appimage-extract-and-run \
+            --runtime-file "$RUNNER_TEMP/appimage-tools/runtime-x86_64" \
             "$appdir" \
             "../../release-assets/DDALAB-${DDALAB_VERSION}-linux-x64.AppImage"
+
+      - name: Smoke test Linux AppImage
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QT_QUICK_BACKEND: software
+        run: |
+          chmod +x "release-assets/DDALAB-${DDALAB_VERSION}-linux-x64.AppImage"
+          "release-assets/DDALAB-${DDALAB_VERSION}-linux-x64.AppImage" \
+            --appimage-extract-and-run \
+            --smoke-test
 
       - name: Package macOS release assets
         if: runner.os == 'macOS'
@@ -356,6 +436,25 @@ jobs:
             -format UDZO \
             "../../release-assets/DDALAB-${DDALAB_VERSION}-macos-${DDALAB_ARCH}.dmg"
 
+      - name: Smoke test macOS disk image
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QT_QUICK_BACKEND: software
+          DDALAB_ARCH: ${{ matrix.arch }}
+        run: |
+          dmg="release-assets/DDALAB-${DDALAB_VERSION}-macos-${DDALAB_ARCH}.dmg"
+          hdiutil verify "$dmg"
+          mount_point="$(mktemp -d)"
+          cleanup() {
+            hdiutil detach "$mount_point" -quiet || true
+            rm -rf "$mount_point"
+          }
+          trap cleanup EXIT
+          hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount_point" -quiet
+          "$mount_point/DDALAB.app/Contents/MacOS/DDALAB" --smoke-test
+
       - name: Install Inno Setup
         if: runner.os == 'Windows'
         shell: pwsh
@@ -376,34 +475,78 @@ jobs:
             "/DOutputDir=$outputDir" `
             "installer\DDALAB.iss"
 
+      - name: Smoke test Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installer = Join-Path $PWD "release-assets\DDALAB-$env:DDALAB_VERSION-windows-x64-installer.exe"
+          $installDir = Join-Path $env:RUNNER_TEMP "DDALAB-install-test"
+          & $installer "/VERYSILENT" "/SUPPRESSMSGBOXES" "/NORESTART" "/SP-" "/DIR=$installDir"
+          if ($LASTEXITCODE -ne 0) {
+            throw "DDALAB installer exited with code $LASTEXITCODE"
+          }
+          & (Join-Path $installDir "DDALAB.exe") --smoke-test
+          if ($LASTEXITCODE -ne 0) {
+            throw "Installed DDALAB smoke test exited with code $LASTEXITCODE"
+          }
+
       - name: Upload release artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-assets-${{ matrix.platform }}-${{ matrix.arch }}
           path: release-assets/*
+          if-no-files-found: error
+          retention-days: 14
 
   publish:
     if: needs.resolve.outputs.publish_release == 'true'
     needs:
       - resolve
       - build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       DDALAB_VERSION: ${{ needs.resolve.outputs.version }}
       DDALAB_TAG: ${{ needs.resolve.outputs.tag }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Download built release assets
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: release-assets-*
           path: release-assets
           merge-multiple: true
+
+      - name: Verify release assets and write checksums
+        shell: bash
+        run: |
+          expected=(
+            "DDALAB-${DDALAB_VERSION}-linux-x64.AppImage"
+            "DDALAB-${DDALAB_VERSION}-macos-arm64-app.zip"
+            "DDALAB-${DDALAB_VERSION}-macos-arm64.dmg"
+            "DDALAB-${DDALAB_VERSION}-macos-x64-app.zip"
+            "DDALAB-${DDALAB_VERSION}-macos-x64.dmg"
+            "DDALAB-${DDALAB_VERSION}-windows-x64-installer.exe"
+            "DDALAB-${DDALAB_VERSION}-windows-x64-portable.zip"
+          )
+          for asset in "${expected[@]}"; do
+            if [[ ! -s "release-assets/$asset" ]]; then
+              echo "Missing or empty release asset: $asset" >&2
+              exit 1
+            fi
+          done
+          (
+            cd release-assets
+            sha256sum "${expected[@]}" > SHA256SUMS.txt
+            sha256sum --check --strict SHA256SUMS.txt
+          )
 
       - name: Ensure release tag exists
         shell: bash
