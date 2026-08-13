@@ -1,68 +1,61 @@
 from __future__ import annotations
 
 # ruff: noqa: E402
-
 import os
-from pathlib import Path
 import sys
 import tempfile
-import tomllib
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
+import tomllib
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QApplication,
-    QLabel,
-    QComboBox,
-    QListWidgetItem,
-    QProgressBar,
-    QPushButton,
-)
-
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
 
-from qt.app.core.analysis_input import parse_time_bounds
-from qt.app.core.snapshot_payload import relink_snapshot_payload
-from qt.app.support.main_window_support import (
-    ToggleListWidget,
-    apply_list_widget_filter,
-    configure_searchable_combo_box,
-    current_combo_box_value,
-    set_check_state_for_list_items,
-    sync_searchable_combo_box_selection,
-)
-from qt.app.support.main_window_support_session import MainWindowSupportSessionMixin
-from qt.backend.local import (
+import ddalab_app.backend as backend_package
+from ddalab_app.app.core.analysis_input import parse_time_bounds
+from ddalab_app.app.core.snapshot_payload import relink_snapshot_payload
+from ddalab_app.app.integrations.dda_export_utils import _build_reproduction_cli_args
+from ddalab_app.backend.dda.sidecar import DdaSidecarClient
+from ddalab_app.backend.local import (
     _find_cli_command,
     _supports_rust_direct_file_execution,
 )
-from qt.backend.services.nsg import (
+from ddalab_app.backend.local.dda import (
+    _execute_sidecar_dda_group,
+    _normalize_compute_device,
+)
+from ddalab_app.backend.readers.local import (
+    _nifti_browser_channel_limit,
+    _representative_nifti_indices,
+)
+from ddalab_app.backend.services.nsg import (
     LocalNsgManager,
     NsgCredentialsStore,
     _parse_job_list_xml,
     _parse_job_status_xml,
     _parse_output_files_xml,
 )
-from qt.backend.readers.local import (
-    _nifti_browser_channel_limit,
-    _representative_nifti_indices,
+from ddalab_app.cli_main import _build_parser
+from ddalab_app.domain.models import (
+    ChannelDescriptor,
+    DdaReproductionConfig,
+    DdaResult,
+    LoadedDataset,
+    NotificationEntry,
 )
-from qt.domain.models import NotificationEntry
-from qt.persistence.state_db import StateDatabase
-from qt.runtime_paths import RuntimePaths
-from qt.update_manager import (
+from ddalab_app.persistence.state_db import StateDatabase
+from ddalab_app.runtime_paths import RuntimePaths
+from ddalab_app.update_manager import (
     UpdateManager,
     _build_linux_installer_script,
     _build_macos_installer_script,
 )
-import qt.backend as backend_package
-from qt.cli_main import _build_parser
+
 from scripts.prepare_runtime import _ensure_cli_binary
 
 
@@ -107,86 +100,16 @@ class SnapshotPayloadTests(unittest.TestCase):
         self.assertEqual(rewritten["icaResult"]["file_path"], "/new/data.edf")
 
 
-class SelectorSupportTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls._app = QApplication.instance() or QApplication([])
-
-    def test_apply_list_widget_filter_hides_non_matching_items(self) -> None:
-        selector = ToggleListWidget()
-        first = QListWidgetItem("Fp1 · 1000.0 Hz")
-        first.setData(Qt.UserRole, "Fp1")
-        second = QListWidgetItem("T3 · 500.0 Hz")
-        second.setData(Qt.UserRole, "T3")
-        selector.addItem(first)
-        selector.addItem(second)
-
-        visible_count = apply_list_widget_filter(selector, "fp1")
-
-        self.assertEqual(visible_count, 1)
-        self.assertFalse(selector.item(0).isHidden())
-        self.assertTrue(selector.item(1).isHidden())
-
-    def test_set_check_state_for_list_items_only_updates_visible_rows(self) -> None:
-        selector = ToggleListWidget()
-        first = QListWidgetItem("Fp1 · 1000.0 Hz")
-        first.setData(Qt.UserRole, "Fp1")
-        first.setFlags(first.flags() | Qt.ItemIsUserCheckable)
-        first.setCheckState(Qt.Unchecked)
-        second = QListWidgetItem("T3 · 500.0 Hz")
-        second.setData(Qt.UserRole, "T3")
-        second.setFlags(second.flags() | Qt.ItemIsUserCheckable)
-        second.setCheckState(Qt.Unchecked)
-        selector.addItem(first)
-        selector.addItem(second)
-
-        apply_list_widget_filter(selector, "fp1")
-        changed = set_check_state_for_list_items(selector, Qt.Checked)
-
-        self.assertEqual(changed, 1)
-        self.assertEqual(selector.item(0).checkState(), Qt.Checked)
-        self.assertEqual(selector.item(1).checkState(), Qt.Unchecked)
-
-    def test_current_combo_box_value_matches_search_text_case_insensitively(
-        self,
-    ) -> None:
-        combo = QComboBox()
-        configure_searchable_combo_box(combo, placeholder="Search channels")
-        combo.addItem("Fp1", "Fp1")
-        combo.addItem("T3", "T3")
-        combo.lineEdit().setText("t3")
-
-        self.assertTrue(combo.isEditable())
-        self.assertEqual(current_combo_box_value(combo), "T3")
-
-    def test_sync_searchable_combo_box_selection_restores_visible_choice(self) -> None:
-        combo = QComboBox()
-        configure_searchable_combo_box(combo, placeholder="Search channels")
-        combo.addItem("Fp1", "Fp1")
-        combo.addItem("T3", "T3")
-        combo.lineEdit().setText("custom search")
-
-        combo.clear()
-        combo.addItem("Fp1", "Fp1")
-        combo.addItem("T3", "T3")
-        sync_searchable_combo_box_selection(combo, preferred_value="T3")
-
-        self.assertEqual(combo.currentIndex(), 1)
-        self.assertEqual(combo.currentText(), "T3")
-        self.assertEqual(combo.lineEdit().text(), "T3")
-        self.assertFalse(combo.lineEdit().isClearButtonEnabled())
-
-
 class BackendApiTests(unittest.TestCase):
     def test_pyproject_uses_single_gui_package(self) -> None:
         pyproject = tomllib.loads((PACKAGE_ROOT / "pyproject.toml").read_text())
         scripts = pyproject["project"]["scripts"]
         package_include = pyproject["tool"]["setuptools"]["packages"]["find"]["include"]
 
-        self.assertEqual(scripts["ddalab"], "qt.__main__:main")
-        self.assertEqual(scripts["ddalab-cli"], "qt.__main__:main")
-        self.assertEqual(scripts["ddalab-gui"], "qt.gui_main:main")
-        self.assertEqual(package_include, ["qt*"])
+        self.assertEqual(scripts["ddalab"], "ddalab_app.__main__:main")
+        self.assertEqual(scripts["ddalab-cli"], "ddalab_app.__main__:main")
+        self.assertEqual(scripts["ddalab-gui"], "ddalab_app.gui_main:main")
+        self.assertEqual(package_include, ["ddalab_app*"])
 
     def test_gui_command_no_longer_accepts_remote_server_flag(self) -> None:
         parser = _build_parser()
@@ -197,6 +120,16 @@ class BackendApiTests(unittest.TestCase):
         self.assertFalse(hasattr(backend_package, "RemoteBackendClient"))
         self.assertTrue(hasattr(backend_package, "LocalBackendClient"))
         self.assertTrue(hasattr(backend_package, "OpenNeuroClient"))
+
+    def test_sidecar_cuda_inventory_ignores_malformed_records(self) -> None:
+        client = DdaSidecarClient(cli_command=["ddalab"], cwd="/tmp")
+        payload = [
+            {"index": 0, "name": "NVIDIA A40"},
+            "invalid",
+            {"index": 1, "name": "NVIDIA A40"},
+        ]
+        with patch.object(client, "request", return_value=payload):
+            self.assertEqual(client.cuda_devices(), [payload[0], payload[2]])
 
     def test_find_cli_command_rejects_non_executable_env_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -224,6 +157,97 @@ class BackendApiTests(unittest.TestCase):
 
     def test_supports_rust_direct_file_execution_rejects_edf(self) -> None:
         self.assertFalse(_supports_rust_direct_file_execution("/tmp/input.edf"))
+
+    def test_compute_device_validation_accepts_cuda_indices(self) -> None:
+        self.assertEqual(_normalize_compute_device("cpu"), "cpu")
+        self.assertEqual(_normalize_compute_device("CUDA"), "cuda")
+        self.assertEqual(_normalize_compute_device("cuda:2"), "cuda:2")
+        with self.assertRaisesRegex(RuntimeError, "expected cpu, cuda, or cuda:N"):
+            _normalize_compute_device("metal")
+
+    def test_sidecar_request_includes_selected_compute_device(self) -> None:
+        class Sidecar:
+            payload: dict = {}
+
+            def run_group(self, params, *, on_progress=None):
+                del on_progress
+                self.payload = dict(params)
+                return {"id": "test", "backend": "pure-rust", "result": {}}
+
+        dataset = LoadedDataset(
+            file_path="/tmp/input.csv",
+            file_name="input.csv",
+            format_label="CSV",
+            file_size_bytes=128,
+            duration_seconds=1.0,
+            total_sample_count=128,
+            time_axis_name="time",
+            source_summary="test",
+            notes=[],
+            channels=[ChannelDescriptor("A", 128.0, 128)],
+            supports_windowed_access=True,
+        )
+        sidecar = Sidecar()
+        with patch(
+            "ddalab_app.backend.local.dda._get_dda_sidecar",
+            return_value=sidecar,
+        ):
+            _execute_sidecar_dda_group(
+                client=object(),
+                cli_command=["ddalab"],
+                repo_root=Path("/tmp"),
+                dataset=dataset,
+                selected_channel_indices=[0],
+                cli_selected_indices=[0],
+                input_path=Path(dataset.file_path),
+                variants=["ST"],
+                window_length_samples=32,
+                window_step_samples=16,
+                delays=[1, 2],
+                requested_start_sample=0,
+                safe_end_sample=127,
+                sample_rate=128.0,
+                base_diagnostics=[],
+                requested_start_seconds=0.0,
+                group_label="Combined",
+                compute_device="cuda:2",
+            )
+        self.assertEqual(sidecar.payload["device"], "cuda:2")
+
+    def test_reproduction_command_preserves_compute_device(self) -> None:
+        result = DdaResult(
+            id="result",
+            file_path="/tmp/input.csv",
+            file_name="input.csv",
+            created_at_iso="2026-01-01T00:00:00Z",
+            engine_label="DDA (CUDA)",
+            diagnostics=[],
+            window_centers_seconds=[],
+            variants=[],
+            is_fallback=False,
+        )
+        reproduction = DdaReproductionConfig(
+            compute_device="cuda",
+            variant_ids=["ST"],
+            selected_channel_indices=[0],
+            window_length_samples=32,
+            window_step_samples=16,
+            delays=[1, 2],
+            model_terms=[1, 2, 10],
+            model_dimension=4,
+            polynomial_order=4,
+            nr_tau=2,
+            end_time_seconds=1.0,
+        )
+        args = _build_reproduction_cli_args(result, reproduction)
+        device_index = args.index("--device")
+        self.assertEqual(args[device_index + 1], "cuda")
+
+    def test_cli_accepts_cuda_device_selection(self) -> None:
+        args = _build_parser().parse_args(
+            ["dda", "run", "--file", "/tmp/input.csv", "--device", "cuda:1"]
+        )
+        self.assertEqual(args.device, "cuda:1")
 
 
 class LocalReaderTests(unittest.TestCase):
@@ -423,6 +447,25 @@ class StateDatabaseSqlSafetyTests(unittest.TestCase):
             finally:
                 db.close()
 
+    def test_default_database_uses_ddalab_home_and_migrates_legacy_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = Path(tmpdir)
+            legacy_path = home / ".ddalab-qt" / "state.sqlite3"
+            legacy = StateDatabase(legacy_path)
+            legacy.save_session_payload({"activeFilePath": "/tmp/example.edf"})
+            legacy.close()
+
+            with patch("ddalab_app.persistence.state_db.Path.home", return_value=home):
+                db = StateDatabase()
+            try:
+                self.assertEqual(db.db_path, home / ".ddalab" / "state.sqlite3")
+                self.assertEqual(
+                    db.load_session_payload()["activeFilePath"],
+                    "/tmp/example.edf",
+                )
+            finally:
+                db.close()
+
     def test_dynamic_sql_identifiers_are_validated_before_execution(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db = self._open_db(tmpdir)
@@ -449,41 +492,6 @@ class StateDatabaseSqlSafetyTests(unittest.TestCase):
 
 
 class UpdateManagerTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls._app = QApplication.instance() or QApplication([])
-
-    def test_update_check_button_stays_clickable_when_updates_are_unsupported(
-        self,
-    ) -> None:
-        class UnsupportedUpdateManager:
-            def supports_updates(self) -> bool:
-                return False
-
-        class Window(MainWindowSupportSessionMixin):
-            pass
-
-        window = Window()
-        window._update_manager = UnsupportedUpdateManager()
-        window._pending_update = None
-        window._app_version = "1.0.0"
-        window._update_check_in_progress = False
-        window._update_install_in_progress = False
-        window._update_status_text = "Check for updates."
-        window._update_download_percent = None
-        window.settings_update_current_version_value = QLabel()
-        window.settings_update_release_value = QLabel()
-        window.settings_update_status_label = QLabel()
-        window.settings_update_hint_label = QLabel()
-        window.settings_update_check_button = QPushButton()
-        window.settings_update_install_button = QPushButton()
-        window.settings_update_progress = QProgressBar()
-
-        window._refresh_update_ui()
-
-        self.assertTrue(window.settings_update_check_button.isEnabled())
-        self.assertFalse(window.settings_update_install_button.isEnabled())
-
     def test_linux_updates_expect_appimage_assets(self) -> None:
         runtime_paths = RuntimePaths(
             package_root=Path("/tmp/package"),
@@ -534,7 +542,10 @@ class PrepareRuntimeTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            def fake_run(*_args, **_kwargs) -> None:
+            commands: list[list[str]] = []
+
+            def fake_run(command, **_kwargs) -> None:
+                commands.append(command)
                 binary_path.write_text("binary", encoding="utf-8")
 
             with patch("scripts.prepare_runtime.shutil.which", return_value="cargo"):
@@ -543,6 +554,8 @@ class PrepareRuntimeTests(unittest.TestCase):
                 ):
                     resolved = _ensure_cli_binary(repo_root, build_cli=True)
             self.assertEqual(resolved, binary_path)
+            self.assertIn("--features", commands[0])
+            self.assertIn("cuda", commands[0])
 
 
 if __name__ == "__main__":

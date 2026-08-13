@@ -113,6 +113,14 @@ install_dependencies() {
 configure_platform_env
 select_python
 
+if [[ -z "${DDALAB_CLI_PATH:-}" ]] && command -v cargo >/dev/null 2>&1; then
+  cargo build \
+    --manifest-path "$REPO_ROOT/packages/dda-rs/Cargo.toml" \
+    --bin ddalab \
+    --release \
+    --features cuda
+fi
+
 if [[ -z "${DDALAB_CLI_PATH:-}" && -x "$DDA_CLI_PATH_DEFAULT" ]]; then
   export DDALAB_CLI_PATH="$DDA_CLI_PATH_DEFAULT"
 fi
@@ -129,4 +137,4 @@ else
 fi
 
 install_dependencies
-venv_python -m qt.gui_main "$@"
+venv_python -m ddalab_app.gui_main "$@"

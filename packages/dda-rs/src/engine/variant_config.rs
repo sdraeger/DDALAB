@@ -306,6 +306,13 @@ pub(crate) fn resolve_de_groups(
     total_channels: usize,
     selected_channels: &[usize],
 ) -> Vec<Vec<usize>> {
+    if let Some(groups) = request
+        .ct_channel_pairs
+        .as_ref()
+        .filter(|pairs| !pairs.is_empty())
+    {
+        return groups.iter().map(|pair| pair.to_vec()).collect();
+    }
     let channels = if selected_channels.is_empty() {
         (0..total_channels).collect::<Vec<_>>()
     } else {

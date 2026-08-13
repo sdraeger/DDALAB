@@ -20,6 +20,10 @@ include = [
 	"tests/**/*.rs",
 ]
 
+[features]
+default = []
+cuda = ["dep:cudarc"]
+
 [[bin]]
 name = "ddalab"
 path = "src/bin/ddalab/main.rs"
@@ -34,6 +38,7 @@ env_logger = "0.11"
 glob = "0.3"
 thiserror = "2.0.17"
 chrono = { version = "0.4", features = ["serde"] }
+cudarc = { version = "0.19", optional = true, default-features = false, features = ["std", "driver", "cublas", "dynamic-loading", "cuda-11040"] }
 dirs = "6.0.0"
 memmap2 = "0.9.9"
 nalgebra = { version = "0.33", default-features = false, features = ["std"] }

@@ -17,7 +17,7 @@ Installing this package provides:
 - `ddalab-cli`
 - `ddalab-gui`
 
-`ddalab` and `ddalab-cli` both invoke the CLI entry point. `ddalab-gui` launches the desktop application directly. All entry points are backed by the single `qt` implementation package.
+`ddalab` and `ddalab-cli` both invoke the CLI entry point. `ddalab-gui` launches the desktop application directly. All entry points are backed by the single `ddalab_app` implementation package.
 
 ## Install
 
@@ -38,8 +38,14 @@ ddalab dataset info --file data/MG100_Seizure1.edf
 ddalab dda info --json
 ddalab dda validate data/MG100_Seizure1.edf --json
 ddalab dda run data/MG100_Seizure1.edf --channels 0 1 2 --variants ST SY --end 30
+ddalab dda run data/MG100_Seizure1.edf --channels 0 1 2 --variants ST --device cuda
 ddalab dda batch --bids-dir data/ds003029 --variants ST --continue-on-error
 ```
+
+CPU execution is the default. The desktop DDA setup and CLI accept CUDA on
+systems with an NVIDIA driver and cuBLAS runtime; `cuda:N` selects a specific
+GPU. Analyses that use Rust-only CCD extensions continue those extension
+computations on the CPU.
 
 ## Python DDA Estimators
 
@@ -59,7 +65,7 @@ on the same differential-equation scale as derivative-form DDA because both the
 response and design matrix are integrated over the same window.
 
 ```python
-from qt.backend.dda import DerivativeDDA, WeakFormDDA
+from ddalab_app.backend.dda import DerivativeDDA, WeakFormDDA
 
 vanilla = DerivativeDDA(degree=3, delays=[0], derivative="finite_difference")
 vanilla.fit(x, dt=0.01)
@@ -131,7 +137,7 @@ Neighboring candidate delays can also be nearly duplicate predictors, so delay
 dictionary thinning and state-coverage diagnostics are part of the estimator.
 
 ```python
-from qt.backend.dda import (
+from ddalab_app.backend.dda import (
     SparseAdditiveWeakFormDDA,
     stability_select_sparse_additive_weak_form,
 )
@@ -219,10 +225,11 @@ cd packages/ddalab
 
 The script provisions a local virtual environment, installs the unified package in editable mode, and launches the Qt application.
 
-Qt Quick plot surfaces are available as an opt-in migration path for waveform
-and DDA-result visualization. Set `DDALAB_ENABLE_QML_PLOTS=1` before launch to
-embed the experimental Qt Quick surfaces while comparing them against the stable
-QWidget plot path.
+The desktop application uses a Qt Quick/QML workbench. Waveform and DDA-result
+plots use viewport-aware, cached Qt Quick scene-graph surfaces; there is no
+separate QWidget rendering mode.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the desktop boundaries and data flow.
 
 If you are working from source, `./start.sh` expects `cargo` to be available so it can build or refresh the bundled `dda-rs` runtime.
 

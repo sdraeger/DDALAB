@@ -112,7 +112,7 @@ pub async fn execute(args: BatchArgs) -> i32 {
                 variant_configs: variant_configs.clone(),
             })
             .map_err(|error| format!("Error building request: {}", error))?;
-            let result = dda_params::execute_request(&request, None, None)
+            let result = dda_params::execute_request_on_device(&request, None, None, args.device)
                 .await
                 .map_err(|error| format!("DDA execution failed: {}", error))?;
 
@@ -133,7 +133,7 @@ pub async fn execute(args: BatchArgs) -> i32 {
                     .map_err(|error| format!("Error writing to stdout: {}", error))?;
             }
             if !args.quiet {
-                eprintln!("  Backend: pure-rust");
+                eprintln!("  Backend: pure-rust ({})", args.device);
             }
             Ok(())
         }
@@ -287,6 +287,7 @@ mod tests {
             dry_run: false,
             compact: false,
             quiet: false,
+            device: dda_rs::ComputeDevice::Cpu,
         }
     }
 

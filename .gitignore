@@ -117,34 +117,35 @@ packages/dda-cli/target/
 
 DDA_Intro
 
-packages/archive/
+/packages/archive/
 
 # External package repositories kept as local checkouts only.
-packages/dda-py/
-packages/DelayDifferentialAnalysis.jl/
+/packages/dda-py/
+/packages/DelayDifferentialAnalysis.jl/
+/packages/dda-rs/examples/
 
 # Local paper/research artifacts kept out of the DDALAB application repo.
-ccd_paper/
-paper/
-paper_*/
-figures/
-configs/
-results/
-requirements-pnas-revision.txt
-ddalab_report_software_sections.tex
+/ccd_paper/
+/paper/
+/paper_*/
+/figures/
+/configs/
+/results/
+/requirements-pnas-revision.txt
+/ddalab_report_software_sections.tex
 
 # Root-level research helpers; tracked shell release scripts remain tracked.
-scripts/*.py
-scripts/*.java
-scripts/archive/
+/scripts/*.py
+/scripts/*.java
+/scripts/archive/
 
 # Local plotting/test scaffolds for research papers.
-src/
-styles/
-tests/
-.reverse/
-docs/
-experiments/
+/src/
+/styles/
+/tests/
+/.reverse/
+/docs/
+/experiments/
 
 sessions.md
 goal.md

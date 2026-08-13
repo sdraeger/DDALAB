@@ -1,5 +1,4 @@
-from qt.gui_main import main
-
+from ddalab_app.gui_main import main
 
 if __name__ == "__main__":
     raise SystemExit(main())

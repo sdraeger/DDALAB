@@ -8,12 +8,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from qt.runtime_binary_names import (  # noqa: E402
+from ddalab_app.runtime_binary_names import (  # noqa: E402
     DEV_CLI_BINARY_STEM,
     PACKAGED_CLI_BINARY_STEM,
     platform_binary_name,
@@ -22,7 +21,7 @@ from qt.runtime_binary_names import (  # noqa: E402
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Stage the DDALAB Rust backend binary into qt/runtime/bin."
+        description="Stage the DDALAB Rust backend binary into ddalab_app/runtime/bin."
     )
     parser.add_argument(
         "--clean",
@@ -52,7 +51,7 @@ def main() -> int:
 
 def stage_runtime_binaries(*, clean: bool = False, build_cli: bool = True) -> Path:
     repo_root = PROJECT_ROOT.parent.parent
-    package_root = PROJECT_ROOT / "qt"
+    package_root = PROJECT_ROOT / "ddalab_app"
     runtime_bin_dir = package_root / "runtime" / "bin"
 
     if clean and runtime_bin_dir.exists():
@@ -106,6 +105,9 @@ def _build_release_binary(manifest_path: Path, repo_root: Path) -> None:
             "--bin",
             DEV_CLI_BINARY_STEM,
             "--release",
+            "--locked",
+            "--features",
+            "cuda",
         ],
         cwd=repo_root,
         check=True,

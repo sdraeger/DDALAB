@@ -12,6 +12,7 @@ Pure Rust Delay Differential Analysis (DDA) engine.
 - Configurable solver backend:
   - `RobustSvd` for the default numerically stable path
   - `NativeCompatSvd` for the native-compatible SVD path
+- Optional batched CUDA acceleration for ST, CT, CD, DE, and SY
 
 ## Installation
 
@@ -83,6 +84,27 @@ The Rust engine exposes two SVD backends through `PureRustOptions::svd_backend`:
 - `SvdBackend::NativeCompatSvd`
   - uses the native-compatible SVD kernel ported into Rust
   - useful when comparing against historical native-binary behavior
+
+## CUDA
+
+CPU execution remains the default. Build the optional CUDA backend and select a device with:
+
+```bash
+cargo run --release --features cuda -- run --file data.csv --channels 0 1 --device cuda
+```
+
+`--device cuda:N` selects device `N`. The CUDA build dynamically loads the NVIDIA driver and cuBLAS, so compilation does not require a local CUDA toolkit; execution requires a working NVIDIA CUDA installation. The implementation batches same-shaped `f64` regressions and computes predictions and residual norms on the GPU. Rank-deficient regressions fall back to the CPU SVD solver. Rust-only CCD extensions continue to use their existing CPU implementations.
+
+Library users configure the same backend through `PureRustOptions`:
+
+```rust
+use dda_rs::{ComputeDevice, PureRustOptions, PureRustRunner};
+
+let runner = PureRustRunner::new(PureRustOptions {
+    compute_device: ComputeDevice::Cuda(0),
+    ..PureRustOptions::default()
+});
+```
 
 ## Modules
 

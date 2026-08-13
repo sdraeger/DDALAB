@@ -1,0 +1,91 @@
+{
+  "scenario": "three Rossler oscillators with diffusive common-drive coupling Z -> {X,Y}",
+  "oscillator_family": "Rossler",
+  "coupling_type": "diffusive x-coordinate coupling",
+  "observed_coordinate": "x",
+  "coupling_strength": 0.08,
+  "delays": [
+    9,
+    32
+  ],
+  "window_length": 3000,
+  "window_step": 50,
+  "model_terms": [
+    1,
+    2,
+    10
+  ],
+  "orientation": "rows are targets, columns are sources",
+  "cd_mean_abs_matrix": [
+    [
+      null,
+      0.0010004677770952682,
+      0.0026709658283854184
+    ],
+    [
+      0.0019850811089185687,
+      null,
+      0.0033881553140316096
+    ],
+    [
+      0.0012784316581494113,
+      0.0010460291579264826,
+      null
+    ]
+  ],
+  "ccd_mean_abs_matrix": [
+    [
+      null,
+      0.0002989378693518476,
+      0.001969435920641998
+    ],
+    [
+      0.0002397742889523339,
+      null,
+      0.0016428484940653712
+    ],
+    [
+      0.0006204623575017221,
+      0.0003880598572787918,
+      null
+    ]
+  ],
+  "edges": [
+    {
+      "edge_label": "X <- Y",
+      "conditioning_label": "condition on Z",
+      "mean_abs_cd": 0.0010004677770952682,
+      "mean_abs_ccd": 0.0002989378693518476
+    },
+    {
+      "edge_label": "X <- Z",
+      "conditioning_label": "condition on Y",
+      "mean_abs_cd": 0.0026709658283854184,
+      "mean_abs_ccd": 0.001969435920641998
+    },
+    {
+      "edge_label": "Y <- X",
+      "conditioning_label": "condition on Z",
+      "mean_abs_cd": 0.0019850811089185687,
+      "mean_abs_ccd": 0.0002397742889523339
+    },
+    {
+      "edge_label": "Y <- Z",
+      "conditioning_label": "condition on X",
+      "mean_abs_cd": 0.0033881553140316096,
+      "mean_abs_ccd": 0.0016428484940653712
+    },
+    {
+      "edge_label": "Z <- X",
+      "conditioning_label": "condition on Y",
+      "mean_abs_cd": 0.0012784316581494113,
+      "mean_abs_ccd": 0.0006204623575017221
+    },
+    {
+      "edge_label": "Z <- Y",
+      "conditioning_label": "condition on X",
+      "mean_abs_cd": 0.0010460291579264826,
+      "mean_abs_ccd": 0.0003880598572787918
+    }
+  ]
+}

@@ -13,22 +13,21 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
 
-from qt.domain.models import ChannelWaveform, WaveformAnnotation, WaveformWindow
-from qt.ui import quick_waveform_surface
-from qt.ui.plot_data import WaveformViewRequest, WaveformWindowPlotProvider
-from qt.ui.plot_layers import PlotLayerConfig
-from qt.ui.qt_plot_renderer import (
+from ddalab_app.domain.models import ChannelWaveform, WaveformAnnotation, WaveformWindow
+from ddalab_app.ui import quick_waveform_surface
+from ddalab_app.ui.plot_data import WaveformViewRequest, WaveformWindowPlotProvider
+from ddalab_app.ui.plot_layers import PlotLayerConfig
+from ddalab_app.ui.qt_plot_renderer import (
     QtSceneGraphWaveformRenderer,
     WaveformRenderArtifacts,
 )
-from qt.ui.quick_waveform_surface import (
-    QuickWaveformGeometryItem,
+from ddalab_app.ui.quick_waveform_surface import (
     QuickWaveformSurfaceBridge,
-    create_quick_waveform_surface_widget,
+    QuickWaveformTextureItem,
     quick_waveform_surface_qml_path,
     update_quick_waveform_bridge,
 )
-from qt.ui.style import theme_colors
+from ddalab_app.ui.style import theme_colors
 
 
 def _window() -> WaveformWindow:
@@ -104,6 +103,39 @@ class QuickWaveformSurfaceTests(unittest.TestCase):
         self.assertTrue(qml_path.exists())
         self.assertEqual(qml_path.name, "QuickWaveformSurface.qml")
 
+        qml = qml_path.read_text(encoding="utf-8")
+        self.assertIn("QuickWaveformTextureItem", qml)
+        self.assertIn("root.waveformBridge.hasImage", qml)
+
+    def test_bridge_emits_viewport_interactions(self) -> None:
+        bridge = QuickWaveformSurfaceBridge()
+        zoom_requests: list[tuple[float, float]] = []
+        pan_requests: list[float] = []
+        bridge.viewport_zoom_requested.connect(
+            lambda factor, anchor: zoom_requests.append((factor, anchor))
+        )
+        bridge.viewport_pan_requested.connect(pan_requests.append)
+
+        bridge.requestZoom(0.8, 0.25)
+        bridge.requestPan(0.1)
+
+        self.assertEqual(zoom_requests, [(0.8, 0.25)])
+        self.assertEqual(pan_requests, [0.1])
+
+    def test_qml_exposes_pan_zoom_and_annotation_interactions(self) -> None:
+        qml = quick_waveform_surface_qml_path().read_text(encoding="utf-8")
+
+        self.assertIn("requestZoom", qml)
+        self.assertIn("requestPan", qml)
+        self.assertIn("requestAnnotationContext", qml)
+
+    def test_qml_exposes_time_and_channel_axes(self) -> None:
+        qml = quick_waveform_surface_qml_path().read_text(encoding="utf-8")
+
+        self.assertIn("waveformBridge.channelLabels", qml)
+        self.assertIn("waveformBridge.timeTicks", qml)
+        self.assertIn('text: "Time (s)"', qml)
+
     def test_qml_uses_bridge_theme_tokens_instead_of_hardcoded_dark_colors(
         self,
     ) -> None:
@@ -118,7 +150,7 @@ class QuickWaveformSurfaceTests(unittest.TestCase):
         bridge = QuickWaveformSurfaceBridge()
 
         with patch(
-            "qt.ui.quick_waveform_surface.current_theme_colors",
+            "ddalab_app.ui.quick_waveform_surface.current_theme_colors",
             return_value=theme_colors("light"),
         ):
             theme = bridge.theme
@@ -146,13 +178,46 @@ class QuickWaveformSurfaceTests(unittest.TestCase):
         bridge.set_waveform_window(_window(), title="Waveform", target_width=80)
 
         self.assertEqual(bridge.title, "Waveform")
-        self.assertEqual(bridge.rendererName, "Qt Quick scene graph waveform renderer")
+        self.assertEqual(bridge.rendererName, "Qt Quick texture waveform renderer")
         self.assertEqual(bridge.channelStart, 0)
         self.assertEqual(bridge.channelCount, 1)
         self.assertEqual(bridge.totalChannelCount, 1)
         self.assertEqual(bridge.geometryRevision, 1)
+        self.assertTrue(bridge.hasImage)
+        image = bridge.image()
+        self.assertFalse(image.isNull())
+        self.assertTrue(
+            any(
+                image.pixelColor(x, y).alpha() > 0
+                for y in range(image.height())
+                for x in range(image.width())
+            )
+        )
         self.assertIn("1 channels", bridge.statusText)
         self.assertEqual(len(bridge.waveform_geometry().lines), 1)
+        self.assertEqual(bridge.channelLabels, ["Cz"])
+        self.assertEqual(
+            bridge.timeTicks,
+            [
+                {"position": 0.0, "label": "0.0"},
+                {"position": 0.2, "label": "0.2"},
+                {"position": 0.4, "label": "0.4"},
+                {"position": 0.6, "label": "0.6"},
+                {"position": 0.8, "label": "0.8"},
+                {"position": 1.0, "label": "1.0"},
+            ],
+        )
+
+    def test_bridge_time_axis_uses_absolute_window_time(self) -> None:
+        window = _window()
+        window.start_time_seconds = 12.5
+        window.duration_seconds = 2.0
+        bridge = QuickWaveformSurfaceBridge()
+
+        bridge.set_waveform_window(window, title="Waveform", target_width=80)
+
+        self.assertEqual(bridge.timeTicks[0], {"position": 0.0, "label": "12.5"})
+        self.assertEqual(bridge.timeTicks[-1], {"position": 1.0, "label": "14.5"})
 
     def test_bridge_exposes_configurable_waveform_layer_for_qml(self) -> None:
         bridge = QuickWaveformSurfaceBridge()
@@ -250,6 +315,8 @@ class QuickWaveformSurfaceTests(unittest.TestCase):
 
         self.assertEqual(bridge.title, "DDALAB waveform")
         self.assertEqual(bridge.channelCount, 0)
+        self.assertEqual(bridge.channelLabels, [])
+        self.assertEqual(bridge.timeTicks, [])
         self.assertEqual(bridge.annotationItems, [])
         self.assertEqual(bridge.geometryRevision, 2)
         self.assertEqual(len(bridge.waveform_geometry().lines), 0)
@@ -275,7 +342,7 @@ class QuickWaveformSurfaceTests(unittest.TestCase):
         logger = Mock()
 
         with patch(
-            "qt.ui.quick_waveform_surface.perf_logger",
+            "ddalab_app.ui.quick_waveform_surface.perf_logger",
             return_value=logger,
             create=True,
         ):
@@ -349,63 +416,43 @@ class QuickWaveformSurfaceTests(unittest.TestCase):
         self.assertEqual(bridge.rendererName, "Recording waveform renderer")
         self.assertEqual(bridge.channelCount, 1)
 
-    def test_scene_graph_item_tracks_bridge_and_has_contents(self) -> None:
+    def test_texture_item_tracks_bridge_and_has_contents(self) -> None:
         from PySide6.QtQuick import QQuickItem
 
         bridge = QuickWaveformSurfaceBridge()
-        item = QuickWaveformGeometryItem()
+        item = QuickWaveformTextureItem()
 
         item.bridge = bridge
 
         self.assertIs(item.bridge, bridge)
         self.assertTrue(item.flags() & QQuickItem.ItemHasContents)
 
-    def test_scene_graph_item_logs_slow_waveform_updates(self) -> None:
+    def test_texture_item_reuses_scene_graph_node_when_view_changes(self) -> None:
+        from PySide6.QtGui import QGuiApplication
+        from PySide6.QtQuick import QQuickWindow
+
+        app = QGuiApplication.instance() or QGuiApplication([])
         bridge = QuickWaveformSurfaceBridge()
-        bridge.set_waveform_window(_window(), title="Waveform", target_width=80)
-        item = QuickWaveformGeometryItem()
+        window = QQuickWindow()
+        item = QuickWaveformTextureItem(window.contentItem())
         item.bridge = bridge
         item.setWidth(160)
         item.setHeight(80)
-        logger = Mock()
+        update_quick_waveform_bridge(bridge, _window(), target_width=80)
+        node = item.updatePaintNode(None, None)
+        first_texture = node.texture()
 
-        with (
-            patch(
-                "qt.ui.quick_waveform_surface.perf_counter_ns",
-                side_effect=[0, 20_000_000],
-                create=True,
-            ),
-            patch(
-                "qt.ui.quick_waveform_surface.perf_logger",
-                return_value=logger,
-                create=True,
-            ),
-        ):
-            item.updatePaintNode(None, None)
-
-        logger.log_slow.assert_called_once()
-        self.assertEqual(
-            logger.log_slow.call_args.args[1],
-            "qml.scene_graph.waveform.update",
+        update_quick_waveform_bridge(
+            bridge,
+            _window(),
+            target_width=80,
+            start_fraction=0.25,
+            span_fraction=0.5,
         )
-        self.assertEqual(logger.log_slow.call_args.kwargs["nodes"], 1)
-        self.assertEqual(logger.log_slow.call_args.kwargs["vertices"], 3)
+        updated_node = item.updatePaintNode(node, None)
 
-    def test_factory_creates_embeddable_qquickwidget_surface(self) -> None:
-        from PySide6.QtQuickWidgets import QQuickWidget
-        from PySide6.QtWidgets import QApplication
-
-        app = QApplication.instance() or QApplication([])
-        bridge = QuickWaveformSurfaceBridge()
-
-        widget = create_quick_waveform_surface_widget(bridge)
-
-        self.assertIsInstance(widget, QQuickWidget)
-        self.assertIs(widget.rootContext().contextProperty("waveformBridge"), bridge)
-        self.assertTrue(widget.ddalabWaveformSceneGraphTypesRegistered)
-        self.assertEqual(
-            widget.source().toLocalFile(), str(quick_waveform_surface_qml_path())
-        )
+        self.assertIs(updated_node, node)
+        self.assertIsNot(updated_node.texture(), first_texture)
         self.assertIsNotNone(app)
 
     def test_update_helper_populates_bridge_from_waveform_window(self) -> None:
@@ -427,7 +474,7 @@ class QuickWaveformSurfaceTests(unittest.TestCase):
         window = _window()
 
         with patch(
-            "qt.ui.quick_waveform_surface.WaveformWindowPlotProvider",
+            "ddalab_app.ui.quick_waveform_surface.WaveformWindowPlotProvider",
             wraps=quick_waveform_surface.WaveformWindowPlotProvider,
         ) as provider_class:
             update_quick_waveform_bridge(

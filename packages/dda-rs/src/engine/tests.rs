@@ -153,6 +153,44 @@ fn ccd_auto_request(file_path: String, strategy: CcdConditioningStrategy) -> DDA
     }
 }
 
+#[test]
+fn de_uses_explicit_pair_groups() {
+    let request = DDARequest {
+        file_path: "synthetic".to_string(),
+        channels: Some(vec![0, 1, 2]),
+        time_range: TimeRange {
+            start: 0.0,
+            end: 100.0,
+        },
+        preprocessing_options: PreprocessingOptions {
+            highpass: None,
+            lowpass: None,
+        },
+        algorithm_selection: AlgorithmSelection {
+            enabled_variants: vec!["DE".to_string()],
+            select_mask: None,
+        },
+        window_parameters: WindowParameters {
+            window_length: 96,
+            window_step: 48,
+            ct_window_length: Some(2),
+            ct_window_step: Some(2),
+        },
+        delay_parameters: DelayParameters { delays: vec![1, 2] },
+        ct_channel_pairs: Some(vec![[0, 2], [1, 2]]),
+        cd_channel_pairs: None,
+        model_parameters: None,
+        model_terms: None,
+        variant_configs: None,
+        sampling_rate: None,
+    };
+
+    assert_eq!(
+        resolve_de_groups(&request, 3, &[0, 1, 2]),
+        vec![vec![0, 2], vec![1, 2]]
+    );
+}
+
 fn ccd_auto_request_with_channels(
     file_path: String,
     strategy: CcdConditioningStrategy,
@@ -282,6 +320,118 @@ fn model_selection_resolves_actual_delays() {
     assert_eq!(selected[0], vec![7]);
     assert_eq!(selected[1], vec![10]);
     assert_eq!(selected[2], vec![7, 7, 7, 7]);
+}
+
+#[test]
+fn compute_device_accepts_cpu_and_indexed_cuda() {
+    assert_eq!("cpu".parse(), Ok(ComputeDevice::Cpu));
+    assert_eq!("CUDA".parse(), Ok(ComputeDevice::Cuda(0)));
+    assert_eq!("cuda:3".parse(), Ok(ComputeDevice::Cuda(3)));
+    assert!("metal".parse::<ComputeDevice>().is_err());
+}
+
+#[cfg(not(feature = "cuda"))]
+#[test]
+fn cuda_inventory_is_empty_without_cuda_support() {
+    assert!(available_cuda_devices().is_empty());
+}
+
+#[cfg(not(feature = "cuda"))]
+#[test]
+fn cuda_request_without_feature_has_a_clear_error() {
+    use super::solver::{solve_regression_windows, RegressionWindow};
+
+    let window = RegressionWindow {
+        rows: 3,
+        cols: 1,
+        flat_design: vec![1.0, 2.0, 3.0],
+        fit_target: vec![2.0, 4.0, 6.0],
+        residual_target: vec![2.0, 4.0, 6.0],
+    };
+    let error = solve_regression_windows(&[window], SvdBackend::RobustSvd, ComputeDevice::Cuda(0))
+        .unwrap_err();
+    assert!(error.to_string().contains("--features cuda"));
+}
+
+#[cfg(feature = "cuda")]
+#[test]
+fn cuda_matches_cpu_for_supported_dda_flavors_when_available() {
+    let request = DDARequest {
+        file_path: "synthetic".to_string(),
+        channels: Some(vec![0, 1, 2]),
+        time_range: TimeRange {
+            start: 0.0,
+            end: 1799.0,
+        },
+        preprocessing_options: PreprocessingOptions {
+            highpass: None,
+            lowpass: None,
+        },
+        algorithm_selection: AlgorithmSelection {
+            enabled_variants: vec![
+                "ST".to_string(),
+                "CT".to_string(),
+                "CD".to_string(),
+                "DE".to_string(),
+                "SY".to_string(),
+            ],
+            select_mask: None,
+        },
+        window_parameters: WindowParameters {
+            window_length: 128,
+            window_step: 64,
+            ct_window_length: Some(2),
+            ct_window_step: Some(1),
+        },
+        delay_parameters: DelayParameters { delays: vec![1, 2] },
+        ct_channel_pairs: Some(vec![[0, 1], [1, 2]]),
+        cd_channel_pairs: Some(vec![[0, 1], [1, 2]]),
+        model_parameters: Some(ModelParameters {
+            dm: 3,
+            order: 2,
+            nr_tau: 2,
+        }),
+        model_terms: Some(vec![1, 2]),
+        variant_configs: None,
+        sampling_rate: None,
+    };
+    let samples = synthetic_samples();
+    let expected = PureRustRunner::default()
+        .run_on_matrix(&request, &samples, None)
+        .expect("CPU result");
+    let actual = match PureRustRunner::new(PureRustOptions {
+        compute_device: ComputeDevice::Cuda(0),
+        ..PureRustOptions::default()
+    })
+    .run_on_matrix(&request, &samples, None)
+    {
+        Ok(result) => result,
+        Err(error) if std::env::var_os("DDA_RS_REQUIRE_CUDA_TEST").is_none() => {
+            eprintln!("CUDA device not available; skipping engine parity check: {error}");
+            return;
+        }
+        Err(error) => panic!("CUDA engine parity test failed: {error}"),
+    };
+
+    let expected_variants = expected.variant_results.expect("CPU variants");
+    let actual_variants = actual.variant_results.expect("CUDA variants");
+    assert_eq!(expected_variants.len(), actual_variants.len());
+    for (cpu, gpu) in expected_variants.iter().zip(&actual_variants) {
+        assert_eq!(cpu.variant_id, gpu.variant_id);
+        for (cpu_row, gpu_row) in cpu.q_matrix.iter().zip(&gpu.q_matrix) {
+            for (&cpu_value, &gpu_value) in cpu_row.iter().zip(gpu_row) {
+                if cpu_value.is_nan() && gpu_value.is_nan() {
+                    continue;
+                }
+                let tolerance = 1e-8 * cpu_value.abs().max(1.0);
+                assert!(
+                    (cpu_value - gpu_value).abs() <= tolerance,
+                    "{} mismatch: cpu={cpu_value}, gpu={gpu_value}",
+                    cpu.variant_id
+                );
+            }
+        }
+    }
 }
 
 #[test]
