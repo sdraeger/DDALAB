@@ -486,13 +486,20 @@ jobs:
         run: |
           $installer = Join-Path $PWD "release-assets\DDALAB-$env:DDALAB_VERSION-windows-x64-installer.exe"
           $installDir = Join-Path $env:RUNNER_TEMP "DDALAB-install-test"
-          & $installer "/VERYSILENT" "/SUPPRESSMSGBOXES" "/NORESTART" "/SP-" "/DIR=$installDir"
-          if ($LASTEXITCODE -ne 0) {
-            throw "DDALAB installer exited with code $LASTEXITCODE"
+          $install = Start-Process -FilePath $installer -ArgumentList @(
+            "/VERYSILENT",
+            "/SUPPRESSMSGBOXES",
+            "/NORESTART",
+            "/SP-",
+            "/DIR=$installDir"
+          ) -Wait -PassThru
+          if ($install.ExitCode -ne 0) {
+            throw "DDALAB installer exited with code $($install.ExitCode)"
           }
-          & (Join-Path $installDir "DDALAB.exe") --smoke-test
-          if ($LASTEXITCODE -ne 0) {
-            throw "Installed DDALAB smoke test exited with code $LASTEXITCODE"
+          $smoke = Start-Process -FilePath (Join-Path $installDir "DDALAB.exe") `
+            -ArgumentList "--smoke-test" -Wait -PassThru
+          if ($smoke.ExitCode -ne 0) {
+            throw "Installed DDALAB smoke test exited with code $($smoke.ExitCode)"
           }
 
       - name: Upload release artifacts
