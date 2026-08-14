@@ -12,6 +12,11 @@ on:
         required: false
         type: boolean
         default: true
+      publish_pypi:
+        description: "Publish platform wheels to PyPI after building."
+        required: false
+        type: boolean
+        default: true
   push:
     tags:
       - "v*"
@@ -27,6 +32,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
       publish_release: ${{ steps.version.outputs.publish_release }}
+      publish_pypi: ${{ steps.version.outputs.publish_pypi }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -44,10 +50,12 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
           INPUT_VERSION: ${{ github.event.inputs.release_version }}
           INPUT_PUBLISH: ${{ github.event.inputs.publish_release }}
+          INPUT_PYPI: ${{ github.event.inputs.publish_pypi }}
         run: |
           if [[ "$EVENT_NAME" == "push" ]]; then
             version="${REF_NAME#v}"
             publish_release="true"
+            publish_pypi="true"
           else
             if [[ -n "$INPUT_VERSION" ]]; then
               version="$INPUT_VERSION"
@@ -62,6 +70,7 @@ jobs:
           )"
             fi
             publish_release="${INPUT_PUBLISH:-true}"
+            publish_pypi="${INPUT_PYPI:-true}"
           fi
 
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9]+)?$ ]]; then
@@ -72,6 +81,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
           echo "publish_release=$publish_release" >> "$GITHUB_OUTPUT"
+          echo "publish_pypi=$publish_pypi" >> "$GITHUB_OUTPUT"
 
       - name: Verify Python package versions
         shell: bash
@@ -108,18 +118,22 @@ jobs:
             platform: linux
             arch: x64
             dist_mode: dir
+            macos_deployment_target: ""
           - runner: windows-2022
             platform: windows
             arch: x64
             dist_mode: dir
+            macos_deployment_target: ""
           - runner: macos-15-intel
             platform: macos
             arch: x64
             dist_mode: dir
+            macos_deployment_target: "11.0"
           - runner: macos-14
             platform: macos
             arch: arm64
             dist_mode: dir
+            macos_deployment_target: "11.0"
 
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
@@ -127,6 +141,7 @@ jobs:
       DDALAB_VERSION: ${{ needs.resolve.outputs.version }}
       DDALAB_TAG: ${{ needs.resolve.outputs.tag }}
       DDALAB_DIST_MODE: ${{ matrix.dist_mode }}
+      MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos_deployment_target }}
 
     steps:
       - name: Checkout repository
@@ -200,7 +215,11 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e packages/ddalab pyinstaller==6.19.0
+          python -m pip install -e packages/ddalab build pyinstaller==6.19.0 twine
+
+      - name: Install Linux wheel tooling
+        if: runner.os == 'Linux'
+        run: python -m pip install auditwheel
 
       - name: Run release test suite
         shell: bash
@@ -502,6 +521,43 @@ jobs:
             throw "Installed DDALAB smoke test exited with code $($smoke.ExitCode)"
           }
 
+      - name: Build Python wheel
+        working-directory: packages/ddalab
+        shell: bash
+        env:
+          DDALAB_SKIP_RUNTIME_PREP: "1"
+        run: python -m build --wheel --outdir dist
+
+      - name: Repair Linux wheel
+        if: runner.os == 'Linux'
+        working-directory: packages/ddalab
+        shell: bash
+        run: |
+          python -m auditwheel repair dist/*.whl --wheel-dir dist/repaired
+          rm dist/*.whl
+          mv dist/repaired/*.whl dist/
+          rmdir dist/repaired
+
+      - name: Verify Python wheel
+        working-directory: packages/ddalab
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QT_QUICK_BACKEND: software
+        run: |
+          python -m twine check dist/*.whl
+          python -m pip install --force-reinstall --no-deps dist/*.whl
+          ddalab health --json
+          ddalab open --smoke-test
+
+      - name: Upload Python wheel
+        uses: actions/upload-artifact@v7
+        with:
+          name: python-wheel-${{ matrix.platform }}-${{ matrix.arch }}
+          path: packages/ddalab/dist/*.whl
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Upload release artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -585,3 +641,27 @@ jobs:
       - name: Upload release assets
         shell: bash
         run: gh release upload "$DDALAB_TAG" release-assets/* --clobber
+
+  publish-pypi:
+    if: needs.resolve.outputs.publish_pypi == 'true'
+    needs:
+      - resolve
+      - build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/p/ddalab
+    permissions:
+      actions: read
+      id-token: write
+    steps:
+      - name: Download Python wheels
+        uses: actions/download-artifact@v8
+        with:
+          pattern: python-wheel-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish Python wheels
+        uses: pypa/gh-action-pypi-publish@release/v1

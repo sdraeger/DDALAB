@@ -34,7 +34,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command")
 
-    gui_parser = subparsers.add_parser("gui", help="Launch the desktop GUI")
+    gui_parser = subparsers.add_parser(
+        "open",
+        aliases=["gui"],
+        help="Open the desktop application",
+    )
     gui_parser.add_argument("--smoke-test", action="store_true")
     gui_parser.set_defaults(handler=_handle_gui)
 

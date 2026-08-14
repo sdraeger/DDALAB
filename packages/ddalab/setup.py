@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import platform
 import subprocess
 import sys
 from pathlib import Path
@@ -37,6 +38,11 @@ class bdist_wheel(_bdist_wheel):
     def finalize_options(self) -> None:
         super().finalize_options()
         self.root_is_pure = False
+        deployment_target = os.environ.get("MACOSX_DEPLOYMENT_TARGET")
+        if sys.platform == "darwin" and deployment_target:
+            target = deployment_target.replace(".", "_")
+            self.plat_name = f"macosx_{target}_{platform.machine().lower()}"
+            self.plat_name_supplied = True
 
     def get_tag(self) -> tuple[str, str, str]:
         _, _, plat = super().get_tag()
