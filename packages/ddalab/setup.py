@@ -6,7 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from setuptools import setup
+from setuptools import Distribution, setup
 from setuptools.command.build_py import build_py as _build_py
 
 try:
@@ -34,6 +34,11 @@ class build_py(_build_py):
         super().run()
 
 
+class BinaryDistribution(Distribution):
+    def has_ext_modules(self) -> bool:
+        return True
+
+
 class bdist_wheel(_bdist_wheel):
     def finalize_options(self) -> None:
         super().finalize_options()
@@ -50,8 +55,9 @@ class bdist_wheel(_bdist_wheel):
 
 
 setup(
+    distclass=BinaryDistribution,
     cmdclass={
         "build_py": build_py,
         "bdist_wheel": bdist_wheel,
-    }
+    },
 )
