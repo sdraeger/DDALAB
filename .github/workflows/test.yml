@@ -98,7 +98,7 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
           QT_QUICK_BACKEND: software
-        run: ddalab-gui --smoke-test
+        run: ddalab open --smoke-test
 
   lint:
     name: Python lint

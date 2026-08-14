@@ -117,6 +117,13 @@ class BackendApiTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             parser.parse_args(["gui", "--server", "http://127.0.0.1:8000"])
 
+    def test_open_and_gui_commands_launch_the_desktop(self) -> None:
+        parser = _build_parser()
+        for command in ("open", "gui"):
+            args = parser.parse_args([command, "--smoke-test"])
+            self.assertEqual(args.handler.__name__, "_handle_gui")
+            self.assertTrue(args.smoke_test)
+
     def test_backend_package_exports_local_clients_only(self) -> None:
         self.assertFalse(hasattr(backend_package, "RemoteBackendClient"))
         self.assertTrue(hasattr(backend_package, "LocalBackendClient"))

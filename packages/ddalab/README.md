@@ -17,9 +17,18 @@ Installing this package provides:
 - `ddalab-cli`
 - `ddalab-gui`
 
-`ddalab` and `ddalab-cli` both invoke the CLI entry point. `ddalab-gui` launches the desktop application directly. All entry points are backed by the single `ddalab_app` implementation package.
+Use `ddalab open` to open the desktop application. Other `ddalab` commands use
+the command-line interface. `ddalab gui` remains an alias for `ddalab open`,
+and `ddalab-gui` launches the application directly.
 
 ## Install
+
+```bash
+python -m pip install ddalab
+ddalab open
+```
+
+For a source checkout:
 
 ```bash
 cd packages/ddalab
