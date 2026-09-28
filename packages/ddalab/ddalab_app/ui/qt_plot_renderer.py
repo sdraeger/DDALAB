@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Iterable, Protocol
 
-from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen
+import numpy as np
+
+from PySide6.QtGui import QColor, QImage
 
 from .plot_data import (
     LINE_PLOT_COLORS,
@@ -15,6 +16,8 @@ from .plot_data import (
     WaveformWindowPlotProvider,
     heatmap_rgba,
 )
+from .plot_data_common import _finite_or_zero
+from .plot_waveform_data import column_spans
 
 
 @dataclass(frozen=True)
@@ -27,20 +30,35 @@ class MatrixPlotRenderer(Protocol):
     name: str
 
     def render(
-        self, view: MatrixView, *, color_scheme: str
+        self,
+        view: MatrixView,
+        *,
+        color_scheme: str,
+        line_size: tuple[int, int] = (0, 0),
+        lines: np.ndarray | None = None,
     ) -> MatrixRenderArtifacts: ...
 
 
 class QtCpuMatrixPlotRenderer:
     name = "Qt CPU matrix renderer"
 
-    def render(self, view: MatrixView, *, color_scheme: str) -> MatrixRenderArtifacts:
+    def render(
+        self,
+        view: MatrixView,
+        *,
+        color_scheme: str,
+        line_size: tuple[int, int] = (0, 0),
+        lines: np.ndarray | None = None,
+    ) -> MatrixRenderArtifacts:
+        width, height = line_size
         return MatrixRenderArtifacts(
             image=heatmap_qimage(view, color_scheme),
             line_image=lineplot_qimage(
-                view,
-                width=max(view.target_column_count, 512),
-                height=160,
+                view.values[:8] if lines is None else lines,
+                view.display_min_value,
+                view.display_max_value,
+                width=width or max(view.target_column_count, 512),
+                height=height or 160,
             ),
         )
 
@@ -74,7 +92,8 @@ class QtSceneGraphWaveformRenderer:
             image=waveform_qimage(
                 geometry,
                 width=request.target_width,
-                height=max(160, geometry.channel_count * 72),
+                height=request.target_height or max(160, geometry.channel_count * 72),
+                pen_width=request.pen_width,
             ),
             geometry=geometry,
         )
@@ -94,52 +113,29 @@ def heatmap_qimage(view: MatrixView, color_scheme: str) -> QImage:
 
 
 def lineplot_qimage(
-    view: MatrixView,
+    rows: np.ndarray,
+    min_value: float,
+    max_value: float,
     *,
-    width: int | None = None,
+    width: int,
     height: int = 96,
-    max_rows: int = 8,
 ) -> QImage:
-    if view.values.size == 0:
+    """One line per row, through every value (column spans, as for waveforms)."""
+    if rows.size == 0:
         return QImage()
-    image_width = max(1, int(width or view.target_column_count or 1))
-    image_height = max(1, int(height))
-    image = QImage(image_width, image_height, QImage.Format_RGBA8888)
-    image.fill(0)
-
-    painter = QPainter(image)
-    painter.setRenderHint(QPainter.Antialiasing, view.target_column_count <= 512)
-    painter.setPen(QPen(QColor("#2f4050"), 1.0))
-    painter.drawLine(
-        QPointF(0.0, image_height - 1.0),
-        QPointF(float(image_width), image_height - 1.0),
-    )
-
-    min_value, max_value = _padded_bounds(
-        view.display_min_value, view.display_max_value
-    )
-    value_range = max(max_value - min_value, 1e-6)
-    row_count = min(view.source_row_count, max(0, int(max_rows)))
-    for row_index in range(row_count):
-        values = view.values[row_index]
-        if values.size == 0:
-            continue
-        path = QPainterPath()
-        for column_index, value in enumerate(values):
-            x = _map_column_to_x(column_index, values.size, image_width)
-            y = _map_value_to_y(
-                _finite_or_zero(float(value)), min_value, value_range, image_height
+    width = max(1, int(width))
+    low, high = _padded_bounds(min_value, max_value)
+    return _spans_qimage(
+        (
+            (
+                column_spans(1.0 - np.clip((row - low) / max(high - low, 1e-6), 0.0, 1.0), width),
+                LINE_PLOT_COLORS[index % len(LINE_PLOT_COLORS)],
             )
-            if column_index == 0:
-                path.moveTo(x, y)
-            else:
-                path.lineTo(x, y)
-        painter.setPen(
-            QPen(QColor(LINE_PLOT_COLORS[row_index % len(LINE_PLOT_COLORS)]), 1.5)
-        )
-        painter.drawPath(path)
-    painter.end()
-    return image
+            for index, row in enumerate(rows)
+        ),
+        width=width,
+        height=height,
+    )
 
 
 def waveform_qimage(
@@ -147,46 +143,44 @@ def waveform_qimage(
     *,
     width: int,
     height: int,
+    pen_width: int = 1,
 ) -> QImage:
-    image_width = max(1, int(width))
-    image_height = max(1, int(height))
-    image = QImage(image_width, image_height, QImage.Format_RGBA8888)
-    image.fill(Qt.transparent)
-    if not geometry.lines:
-        return image
-
-    painter = QPainter(image)
-    painter.setRenderHint(QPainter.Antialiasing, True)
-    for line, color, draw_mode in zip(
-        geometry.lines,
-        geometry.colors,
-        geometry.draw_modes,
-    ):
-        if len(line) < 2:
-            continue
-        painter.setPen(QPen(QColor(color), 1.5))
-        if draw_mode == "lines":
-            for index in range(0, len(line) - 1, 2):
-                painter.drawLine(
-                    _normalized_point(line[index], image_width, image_height),
-                    _normalized_point(line[index + 1], image_width, image_height),
-                )
-            continue
-        path = QPainterPath()
-        first = _normalized_point(line[0], image_width, image_height)
-        path.moveTo(first)
-        for point in line[1:]:
-            path.lineTo(_normalized_point(point, image_width, image_height))
-        painter.drawPath(path)
-    painter.end()
-    return image
-
-
-def _normalized_point(point: object, width: int, height: int) -> QPointF:
-    return QPointF(
-        float(point[0]) * max(width - 1, 1),
-        float(point[1]) * max(height - 1, 1),
+    return _spans_qimage(
+        zip(geometry.lines, geometry.colors),
+        width=width,
+        height=height,
+        pen_width=pen_width,
     )
+
+
+def _spans_qimage(
+    traces: Iterable[tuple[np.ndarray, str]],
+    *,
+    width: int,
+    height: int,
+    pen_width: int = 1,
+) -> QImage:
+    """Rasterize per-column [low, high] spans (0 = top, 1 = bottom), one color each.
+
+    One pixel of pen covers exactly the pixels a line through every sample touches.
+    """
+    width, height = max(1, int(width)), max(1, int(height))
+    rgba = np.zeros((height, width, 4), dtype=np.uint8)
+    rows = np.arange(height, dtype=np.float32)[:, None]
+    for spans, color in traces:
+        low = np.rint(spans[:width, 0] * (height - 1))
+        high = np.rint(spans[:width, 1] * (height - 1))
+        if not np.isfinite(low).any():
+            continue
+        top, bottom = int(np.nanmin(low)), int(np.nanmax(high)) + 1
+        # NaN compares False, so columns without data stay empty
+        mask = (rows[top:bottom] >= low) & (rows[top:bottom] <= high)
+        for shift in range(1, max(1, int(pen_width))):
+            mask[:, shift:] |= mask[:, :-shift]
+        rgba[top:bottom][mask] = QColor(color).getRgb()
+    return QImage(
+        rgba.data, width, height, rgba.strides[0], QImage.Format_RGBA8888
+    ).copy()
 
 
 def _padded_bounds(min_value: float, max_value: float) -> tuple[float, float]:
@@ -197,20 +191,3 @@ def _padded_bounds(min_value: float, max_value: float) -> tuple[float, float]:
     else:
         padding = (max_value - min_value) * 0.08
     return min_value - padding, max_value + padding
-
-
-def _map_column_to_x(index: int, count: int, width: int) -> float:
-    if count <= 1:
-        return 0.0
-    return index / float(count - 1) * max(float(width - 1), 1.0)
-
-
-def _map_value_to_y(
-    value: float, min_value: float, value_range: float, height: int
-) -> float:
-    fraction = max(0.0, min(1.0, (value - min_value) / value_range))
-    return (1.0 - fraction) * max(float(height - 1), 1.0)
-
-
-def _finite_or_zero(value: float) -> float:
-    return value if math.isfinite(value) else 0.0

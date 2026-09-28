@@ -95,7 +95,9 @@ Rectangle {
                         width: channelAxis.width - 4
                         height: channelAxis.height
                             / Math.max(root.waveformBridge.channelCount, 1)
-                        text: modelData
+                        // each channel is scaled to its own range, so show it
+                        text: modelData + (root.waveformBridge.channelRanges[index]
+                            ? "\n" + root.waveformBridge.channelRanges[index] : "")
                         color: root.theme.mutedText
                         font.pixelSize: 11
                         horizontalAlignment: Text.AlignRight

@@ -5,6 +5,15 @@ TextField {
     id: control
 
     property var colors
+    // Model value, shown whenever the field isn't being edited, so a model
+    // update can't overwrite text the user hasn't committed yet.
+    property string value
+
+    Binding on text {
+        value: control.value
+        when: !control.activeFocus
+        restoreMode: Binding.RestoreNone
+    }
 
     implicitHeight: 32
     leftPadding: 10

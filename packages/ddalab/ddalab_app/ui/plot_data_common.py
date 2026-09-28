@@ -5,26 +5,44 @@ import math
 import numpy as np
 
 HEATMAP_COLOR_SCHEME_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("auto", "Auto"),  # diverging for signed values, inferno otherwise
     ("viridis", "Viridis"),
     ("plasma", "Plasma"),
     ("inferno", "Inferno"),
-    ("jet", "Jet"),
-    ("cool", "Cool"),
-    ("hot", "Hot"),
+    ("diverging", "Diverging"),
 )
 
+# Okabe-Ito: distinguishable with the common color-vision deficiencies
 LINE_PLOT_COLORS: tuple[str, ...] = (
-    "#3b82f6",
-    "#ef4444",
-    "#10b981",
-    "#f59e0b",
-    "#8b5cf6",
-    "#06b6d4",
-    "#f97316",
-    "#84cc16",
+    "#0072b2",
+    "#e69f00",
+    "#56b4e9",
+    "#d55e00",
+    "#009e73",
+    "#cc79a7",
+    "#f0e442",
+    "#999999",
 )
 
 WAVEFORM_LINE_COLOR = "#7dd3fc"
+
+# ColorBrewer RdBu, reversed: blue below zero, white at zero, red above
+_DIVERGING_STOPS = np.asarray(
+    (
+        (5, 48, 97),
+        (33, 102, 172),
+        (67, 147, 195),
+        (146, 197, 222),
+        (209, 229, 240),
+        (247, 247, 247),
+        (253, 219, 199),
+        (244, 165, 130),
+        (214, 96, 77),
+        (178, 24, 43),
+        (103, 0, 31),
+    ),
+    dtype=np.float32,
+)
 
 _VIRIDIS_STOPS = np.asarray(
     (
@@ -71,41 +89,6 @@ _INFERNO_STOPS = np.asarray(
     ),
     dtype=np.float32,
 )
-
-
-def windowed_resample_indices(
-    source_length: int,
-    target_length: int,
-    *,
-    start_fraction: float,
-    span_fraction: float,
-) -> list[int]:
-    if source_length <= 0 or target_length <= 0:
-        return []
-    if source_length == 1:
-        return [0] * target_length
-    start_fraction, span_fraction = _clamp_view_window(start_fraction, span_fraction)
-    last_index = float(source_length - 1)
-    window_start = start_fraction * last_index
-    window_end = window_start + span_fraction * last_index
-    if target_length == 1:
-        midpoint = int(round((window_start + window_end) / 2.0))
-        return [min(source_length - 1, max(0, midpoint))]
-    return [
-        min(
-            source_length - 1,
-            max(
-                0,
-                int(
-                    round(
-                        window_start
-                        + position / (target_length - 1) * (window_end - window_start)
-                    )
-                ),
-            ),
-        )
-        for position in range(target_length)
-    ]
 
 
 def _optional_float(value: object) -> float | None:

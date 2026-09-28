@@ -15,7 +15,7 @@ def build_network_motif_data(
     q_matrix: List[List[float]],
     channel_pairs: Optional[List[tuple[int, int]]],
     channel_names: List[str],
-    delays: List[int | float],
+    window_times: List[float],
     threshold: float = 0.25,
 ) -> Optional[NetworkMotifData]:
     if not q_matrix or not channel_pairs:
@@ -49,8 +49,9 @@ def build_network_motif_data(
     else:
         selected_indices = [0, 0, 0]
 
+    # "delay" is the export format's name for the snapshot; it holds the window time (s)
     delay_values = [
-        float(delays[index]) if 0 <= index < len(delays) else float(index)
+        float(window_times[index]) if index < len(window_times) else float("nan")
         for index in selected_indices
     ]
     adjacency_matrices: List[NetworkMotifAdjacencyMatrix] = []
@@ -82,7 +83,8 @@ def build_network_motif_data(
 
         matrix_values = [0.0] * (len(unique_nodes) * len(unique_nodes))
         edges: List[NetworkMotifEdge] = []
-        for pair_index, (from_index, to_index) in enumerate(channel_pairs):
+        # CD pairs are (target, source); an edge runs from source to target
+        for pair_index, (to_index, from_index) in enumerate(channel_pairs):
             mapped_from = node_index_map.get(int(from_index))
             mapped_to = node_index_map.get(int(to_index))
             if mapped_from is None or mapped_to is None:

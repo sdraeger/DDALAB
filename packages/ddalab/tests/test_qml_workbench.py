@@ -199,7 +199,7 @@ def _full_cdr_summary() -> DdaResult:
         variants=[
             DdaVariantResult(
                 id="CD",
-                label="Causal dependence",
+                label="Cross dynamical",
                 row_labels=[
                     f"Ch {target} <- Ch {source}" for target, source in directed_pairs
                 ],
@@ -890,6 +890,13 @@ class QmlWorkbenchTests(unittest.TestCase):
         self.assertEqual(rows[0]["targetValue"], 2.0)
         self.assertEqual(rows[0]["delta"], 1.0)
 
+        # a row only the target has is left out of the comparison
+        target = _result("right", 2.0)
+        target.variants[0].row_labels.append("b1")
+        target.variants[0].matrix.append([100.0, 100.0])
+        (row,) = _compare_results(_result("left", 1.0), target)
+        self.assertEqual((row["sharedRows"], row["targetValue"]), (1, 2.0))
+
     def test_cdr_pair_generation_and_batch_aggregation(self) -> None:
         pair_map = all_pair_indices([0, 1, 2], ["CD", "DE"])
         self.assertEqual(pair_map["DE"], [(0, 1), (0, 2), (1, 2)])
@@ -898,19 +905,20 @@ class QmlWorkbenchTests(unittest.TestCase):
             [(0, 1), (1, 0), (0, 2), (2, 0), (1, 2), (2, 1)],
         )
 
-        summary = aggregate_cdr_results(
-            [
-                _cdr_result("CD_DDA_data_15dB__example.ascii", 2.0),
-                _cdr_result("CD_DDA_data_NoNoise__example.ascii", 1.0),
-            ]
-        )
+        recordings = [_cdr_result("CD_DDA_data_NoNoise__example.ascii", 1.0)] + [
+            _cdr_result(f"CD_DDA_data_{snr:02d}dB__example.ascii", 2.0)
+            for snr in range(20, -1, -1)
+        ]
+        summary = aggregate_cdr_results(recordings)
 
         self.assertIsNotNone(summary)
         assert summary is not None
-        self.assertEqual(summary.diagnostics, ["Conditions: no noise, 15 dB"])
+        self.assertTrue(summary.diagnostics[0].startswith("Conditions: no noise, 20 dB, 19 dB"))
         self.assertEqual(summary.engine_label, "CDR batch aggregate")
-        self.assertEqual(summary.variants[0].label, "Causal dependence")
-        self.assertEqual(summary.variants[0].matrix, [[2.0, 4.0]])
+        self.assertEqual(summary.variants[0].label, "Cross dynamical")
+        self.assertEqual(summary.variants[0].matrix[0][:2], [2.0, 4.0])
+        # a failed condition would shift the later column labels, so there is no summary
+        self.assertIsNone(aggregate_cdr_results(recordings[:1] + recordings[2:]))
 
     def test_cdr_paper_view_restores_network_matrices_and_curves(self) -> None:
         view = build_cdr_paper_view(_full_cdr_summary())
@@ -998,6 +1006,79 @@ class QmlWorkbenchTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "missing 0 dB"):
                 find_cdr_recordings(root)
 
+    def test_deleted_bids_event_stays_deleted_after_reopening(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            recording = root / "sub-01_task-x_ieeg.edf"
+            (root / "sub-01_task-x_events.tsv").write_text(
+                "onset\tduration\ttrial_type\n1.0\t0.0\tonset\n2.0\t0.0\tsz\n"
+            )
+            controller = WorkbenchController(
+                _runtime_paths(root),
+                bootstrap_backend=False,
+                backend=_Backend(),
+                state_db=StateDatabase(root / "state.sqlite3"),
+            )
+            controller._activate_dataset(_dataset(recording))
+            events = controller.state.annotations_by_file[str(recording)]
+            controller._delete_annotation(events[0].id)
+            controller._activate_dataset(_dataset(recording))
+            labels = [a.label for a in controller.state.annotations_by_file[str(recording)]]
+            self.assertEqual(labels, ["sz"])
+            controller.close()
+
+    def test_annotations_round_trip_as_json_and_report_bad_entries(self) -> None:
+        import json
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            controller = WorkbenchController(
+                _runtime_paths(root),
+                bootstrap_backend=False,
+                backend=_Backend(),
+                state_db=StateDatabase(root / "state.sqlite3"),
+            )
+            recording = root / "rec.edf"
+            controller._activate_dataset(_dataset(recording))
+            controller.saveAnnotation("sz", "", "", 1.0, 3.0, "")
+            exported = root / "annotations.json"
+            controller.exportAnnotations(str(exported))
+            entries = json.loads(exported.read_text()) + [{"notes": "no label"}]
+            exported.write_text(json.dumps(entries))
+            controller._delete_annotation(entries[0]["id"])
+            errors: list[str] = []
+            controller.errorRaised.connect(errors.append)
+            controller.importAnnotations(str(exported))
+
+            (annotation,) = controller.state.annotations_by_file[str(recording)]
+            self.assertEqual((annotation.label, annotation.end_seconds), ("sz", 3.0))
+            self.assertIn("skipped 1", errors[0])
+            controller.close()
+
+    def test_analysis_settings_survive_a_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+
+            def controller() -> WorkbenchController:
+                return WorkbenchController(
+                    _runtime_paths(root),
+                    bootstrap_backend=False,
+                    backend=_Backend(),
+                    state_db=StateDatabase(root / "state.sqlite3"),
+                )
+
+            first = controller()
+            first.windowLength = 256
+            first.delaysText = "5, 12"
+            first.setColorScheme("viridis")
+            first.close()
+            second = controller()
+            self.assertEqual(
+                (second.windowLength, second.delaysText, second.colorScheme),
+                (256, "5, 12", "viridis"),
+            )
+            second.close()
+
     def test_included_cdr_action_uses_fixed_settings_and_all_channels(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -1046,7 +1127,8 @@ class QmlWorkbenchTests(unittest.TestCase):
             "Loading recording…",
             "Loading waveform…",
             "Loading DDA result…",
-            "Loading ICA result…",
+            "Running DDA…",
+            "Running ICA…",
             "Loading batch recordings…",
             "Loading OpenNeuro datasets…",
             "Loading NSG jobs…",
@@ -1060,6 +1142,46 @@ class QmlWorkbenchTests(unittest.TestCase):
         self.assertIn('text: "All channels"', qml)
         self.assertIn('text: "Delete"', qml)
         self.assertIn("deleteAnnotationById", qml)
+
+    def test_typed_parameter_survives_updates_and_commits_on_run_click(self) -> None:
+        from PySide6.QtCore import QMetaObject
+
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch.dict(os.environ, {"HOME": tmpdir}),
+        ):
+            runtime = build_workbench(_runtime_paths(Path(tmpdir)), bootstrap_backend=False)
+            controller = runtime.controller
+            controller._activate_dataset(_dataset(Path(tmpdir) / "rec.edf"))
+            controller.setCurrentPage("analysis")
+            self.app.processEvents()
+            items = runtime.window.findChildren(QObject)
+            field = next(
+                item for item in items
+                if item.metaObject().className().startswith("WorkbenchField")
+                and item.property("text") == str(controller.windowLength)
+                and item.property("visible")
+            )
+            run = next(
+                item for item in items
+                if item.metaObject().className().startswith("WorkbenchButton")
+                and item.property("text") == "Run DDA"
+            )
+
+            QMetaObject.invokeMethod(field, "forceActiveFocus")
+            field.setProperty("text", "256")
+            controller.changed.emit()  # an unrelated update used to reset the text
+            self.app.processEvents()
+            self.assertEqual(field.property("text"), "256")
+            QMetaObject.invokeMethod(run, "forceActiveFocus")  # what a click does
+            self.app.processEvents()
+            self.assertEqual(controller.windowLength, 256)
+
+            runtime.window.setProperty("visible", False)
+            runtime.window.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            self.app.processEvents()
+            controller.close()
 
     def test_qml_runtime_loads_with_python_controller(self) -> None:
         with (
@@ -1079,7 +1201,7 @@ class QmlWorkbenchTests(unittest.TestCase):
             self.assertEqual(runtime.controller.currentPage, "workspace")
             self.assertEqual(
                 len(runtime.window.findChildren(QuickWaveformTextureItem)),
-                1,
+                2,  # the waveform and its overview strip
             )
 
             for page, modes in (
@@ -1102,7 +1224,7 @@ class QmlWorkbenchTests(unittest.TestCase):
                     self.app.processEvents()
                     self.assertEqual(
                         len(runtime.window.findChildren(QuickWaveformTextureItem)),
-                        1,
+                        2,
                     )
 
             runtime.controller.setCurrentPage("results")

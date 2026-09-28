@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 # ruff: noqa: E402
+import json
 import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import tomllib
 
@@ -29,11 +30,13 @@ from ddalab_app.backend.local.dda import (
     _execute_sidecar_dda_group,
     _normalize_compute_device,
 )
+from ddalab_app.backend.local.results import _map_cli_result
 from ddalab_app.backend.local.runtime import _is_executable_binary
 from ddalab_app.backend.readers.local import (
     _nifti_browser_channel_limit,
     _representative_nifti_indices,
 )
+from ddalab_app.backend.services import nsg as nsg_service
 from ddalab_app.backend.services.nsg import (
     LocalNsgManager,
     NsgCredentialsStore,
@@ -52,6 +55,8 @@ from ddalab_app.domain.models import (
 from ddalab_app.persistence.state_db import StateDatabase
 from ddalab_app.runtime_paths import RuntimePaths
 from ddalab_app.update_manager import (
+    AvailableUpdate,
+    ReleaseAsset,
     UpdateManager,
     _build_linux_installer_script,
     _build_macos_installer_script,
@@ -139,6 +144,108 @@ class BackendApiTests(unittest.TestCase):
         with patch.object(client, "request", return_value=payload):
             self.assertEqual(client.cuda_devices(), [payload[0], payload[2]])
 
+    def test_sidecar_result_preserves_all_st_coefficients_and_fit_errors(self) -> None:
+        dataset = LoadedDataset(
+            file_path="/tmp/ecg.fif",
+            file_name="ecg.fif",
+            format_label="FIF",
+            file_size_bytes=1,
+            duration_seconds=2.0,
+            total_sample_count=720,
+            time_axis_name="Time",
+            source_summary="test",
+            notes=[],
+            channels=[ChannelDescriptor("MLII", 360.0, 720)],
+            supports_windowed_access=True,
+        )
+        result = _map_cli_result(
+            dataset=dataset,
+            selected_indices=[0],
+            variant_pair_indices=None,
+            parsed={
+                "variant_results": [
+                    {
+                        "variant_id": "ST",
+                        "variant_name": "Single Timeseries (ST)",
+                        "q_matrix": [[1.0, 2.0]],
+                        "coefficient_matrices": [
+                            [[1.0, 2.0]],
+                            [[3.0, 4.0]],
+                            [[5.0, 6.0]],
+                        ],
+                        "fit_error_matrix": [[0.1, 0.2]],
+                        "channel_labels": ["MLII"],
+                    }
+                ]
+            },
+            diagnostics=[],
+            start_time_seconds=0.0,
+            window_length_samples=360,
+            window_step_samples=36,
+            delays=[7, 10],
+        )
+
+        variant = result.variants[0]
+        self.assertEqual(variant.matrix, variant.coefficient_matrices[0])
+        self.assertEqual(variant.coefficient_matrices[2], [[5.0, 6.0]])
+        self.assertEqual(variant.fit_error_matrix, [[0.1, 0.2]])
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            database = StateDatabase(Path(tmpdir) / "state.sqlite3")
+            try:
+                database.save_dda_result(result)
+                restored = database.load_dda_result_by_id(result.id)
+            finally:
+                database.close()
+        self.assertIsNotNone(restored)
+        self.assertEqual(
+            restored.variants[0].coefficient_matrices, variant.coefficient_matrices
+        )
+        self.assertEqual(restored.variants[0].fit_error_matrix, [[0.1, 0.2]])
+
+    def test_sidecar_result_names_placeholder_rows_and_centers_fitted_span(self) -> None:
+        from ddalab_app.app.integrations.cdr import _CD_PAIR_PATTERN, _indexed_rows
+
+        dataset = LoadedDataset(
+            file_path="/tmp/data.ascii",
+            file_name="data.ascii",
+            format_label="ASCII",
+            file_size_bytes=1,
+            duration_seconds=10.0,
+            total_sample_count=1000,
+            time_axis_name="Time",
+            source_summary="test",
+            notes=[],
+            channels=[
+                ChannelDescriptor("Channel 1", 100.0, 1000),
+                ChannelDescriptor("Channel 2", 100.0, 1000),
+            ],
+            supports_windowed_access=True,
+        )
+        result = _map_cli_result(
+            dataset=dataset,
+            selected_indices=[0, 1],
+            variant_pair_indices=None,
+            parsed={
+                "variant_results": [
+                    {"variant_id": "ST", "q_matrix": [[1.0], [2.0]], "channel_labels": ["Ch 0", "Ch 1"]},
+                    {"variant_id": "CD", "q_matrix": [[3.0]], "channel_labels": ["Ch 1 <- Ch 0"]},
+                ]
+            },
+            diagnostics=[],
+            start_time_seconds=0.0,
+            window_length_samples=100,
+            window_step_samples=10,
+            delays=[7, 10],
+            derivative_points=4,
+        )
+
+        self.assertEqual(result.variants[0].row_labels, ["Channel 1", "Channel 2"])
+        self.assertEqual(result.variants[1].row_labels, ["Channel 2 <- Channel 1"])
+        self.assertEqual(_indexed_rows(result.variants[1], _CD_PAIR_PATTERN, 1), [((1, 0), [3.0])])
+        # the engine fits samples dm + max(delay) = 14 samples into each window
+        self.assertAlmostEqual(result.window_centers_seconds[0], (14 + 50) / 100.0)
+
     def test_find_cli_command_rejects_non_executable_env_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             fake_cli = Path(tmpdir) / "ddalab"
@@ -175,9 +282,14 @@ class BackendApiTests(unittest.TestCase):
                 self.assertEqual(is_executable, bool(expected))
 
     def test_supports_rust_direct_file_execution_for_ascii_inputs(self) -> None:
-        self.assertTrue(_supports_rust_direct_file_execution("/tmp/input.csv"))
-        self.assertTrue(_supports_rust_direct_file_execution("/tmp/input.txt"))
-        self.assertTrue(_supports_rust_direct_file_execution("/tmp/input.ascii"))
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("input.csv", "input.txt", "input.ascii"):
+                path = Path(tmp) / name
+                path.write_text("1.0,2.0\n3.0,4.0\n")
+                self.assertTrue(_supports_rust_direct_file_execution(str(path)))
+            header = Path(tmp) / "header.csv"
+            header.write_text("Time,C3\n0,1.0\n")
+            self.assertFalse(_supports_rust_direct_file_execution(str(header)))
 
     def test_supports_rust_direct_file_execution_rejects_edf(self) -> None:
         self.assertFalse(_supports_rust_direct_file_execution("/tmp/input.edf"))
@@ -230,7 +342,6 @@ class BackendApiTests(unittest.TestCase):
                 delays=[1, 2],
                 requested_start_sample=0,
                 safe_end_sample=127,
-                sample_rate=128.0,
                 base_diagnostics=[],
                 requested_start_seconds=0.0,
                 group_label="Combined",
@@ -293,17 +404,53 @@ class LocalReaderTests(unittest.TestCase):
             self.assertEqual(_nifti_browser_channel_limit(), 1024)
 
 
+class _MemoryKeyring:
+    def __init__(self) -> None:
+        self.items: dict[tuple[str, str], str] = {}
+
+    def set_password(self, service: str, account: str, secret: str) -> None:
+        self.items[service, account] = secret
+
+    def get_password(self, service: str, account: str) -> str | None:
+        return self.items.get((service, account))
+
+    def delete_password(self, service: str, account: str) -> None:
+        del self.items[service, account]
+
+
 class LocalNsgTests(unittest.TestCase):
-    def test_credentials_store_round_trips_status(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            store = NsgCredentialsStore(Path(tmpdir))
-            store.save("alice", "secret", "app-key")
-            status = store.status()
-            self.assertIsNotNone(status)
-            assert status is not None
+    def test_credentials_live_in_the_keychain_and_never_on_disk(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, patch.object(
+            nsg_service, "keyring", _MemoryKeyring()
+        ):
+            root = Path(tmpdir)
+            legacy = root / "nsg_credentials.json"
+            legacy.write_text(json.dumps({"username": "bob", "password": "p", "app_key": "k"}))
+            self.assertEqual(NsgCredentialsStore(root).status().username, "bob")
+            self.assertFalse(legacy.exists())
+
+            store = NsgCredentialsStore(root)
+            self.assertTrue(store.save("alice", "secret", "app-key"))
+            status = NsgCredentialsStore(root).status()  # a later session
             self.assertEqual(status.username, "alice")
-            self.assertTrue(status.has_password)
-            self.assertTrue(status.has_app_key)
+            self.assertTrue(status.has_password and status.has_app_key)
+            store.delete()
+            self.assertIsNone(NsgCredentialsStore(root).status())
+            self.assertEqual(list(root.iterdir()), [])
+
+    def test_without_a_keychain_credentials_last_for_the_session(self) -> None:
+        broken = Mock()
+        for name in ("set_password", "get_password", "delete_password"):
+            getattr(broken, name).side_effect = RuntimeError("no keyring backend")
+        with tempfile.TemporaryDirectory() as tmpdir, patch.object(
+            nsg_service, "keyring", broken
+        ):
+            root = Path(tmpdir)
+            store = NsgCredentialsStore(root)
+            self.assertFalse(store.save("alice", "secret", "app-key"))
+            self.assertEqual(store.status().username, "alice")
+            self.assertIsNone(NsgCredentialsStore(root).status())
+            self.assertEqual(list(root.iterdir()), [])
             store.delete()
             self.assertIsNone(store.status())
 
@@ -537,7 +684,50 @@ class UpdateManagerTests(unittest.TestCase):
                 return "x64"
 
         manager = LinuxManager(runtime_paths, "1.0.0")
-        self.assertEqual(manager._supported_asset_suffix(), "-linux-x64.AppImage")
+        self.assertEqual(manager._supported_asset_suffix(), "-x86_64.AppImage")
+
+    def test_download_rejects_a_corrupt_asset_and_keeps_a_good_one(self) -> None:
+        import hashlib
+
+        payload = b"DDALAB update"
+
+        class Response:
+            headers: dict = {}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def raise_for_status(self):
+                pass
+
+            def iter_content(self, chunk_size):
+                yield payload
+
+        def update(sha256: str) -> AvailableUpdate:
+            asset = ReleaseAsset("DDALAB.zip", "https://example.invalid/a", len(payload), sha256)
+            return AvailableUpdate("1.0.0", "1.0.1", "v1.0.1", "DDALAB 1.0.1", "", None, asset)
+
+        runtime_paths = RuntimePaths(
+            package_root=Path("/tmp/package"),
+            source_repo_root=None,
+            executable_dir=Path("/tmp"),
+            executable_path=Path("/tmp/DDALAB"),
+            is_frozen=True,
+            app_bundle_path=None,
+            appimage_path=None,
+        )
+        manager = UpdateManager(runtime_paths, "1.0.0")
+        with (
+            patch("ddalab_app.update_manager.requests.get", return_value=Response()),
+            patch("ddalab_app.update_manager.append_update_audit_event"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "incomplete or corrupt"):
+                manager.download_update(update("0" * 64))
+            path = manager.download_update(update(hashlib.sha256(payload).hexdigest()))
+        self.assertEqual(path.read_bytes(), payload)
 
 
 class PrepareRuntimeTests(unittest.TestCase):

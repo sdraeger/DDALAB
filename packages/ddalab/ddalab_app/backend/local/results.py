@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import math
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from ...domain.models import DdaResult, DdaVariantResult, LoadedDataset
+from ..dda.scalar import DEFAULT_DERIVATIVE_POINTS
 from ..dda.motifs import (
     _build_directed_pairs,
     _build_undirected_pairs,
@@ -18,6 +20,21 @@ def _payload_channel_labels(payload: dict) -> List[str]:
     if not isinstance(raw_labels, list):
         return []
     return [str(value) for value in raw_labels if str(value).strip()]
+
+
+_RUST_PLACEHOLDER_LABEL = re.compile(r"Ch \d+(?:(?:&| <- | <-> )Ch \d+)?")
+
+
+def _named_rust_labels(labels: List[str], channel_names: List[str]) -> List[str]:
+    """Replace the engine's 0-based "Ch N" placeholders with the dataset's channel names."""
+    if not labels or not all(_RUST_PLACEHOLDER_LABEL.fullmatch(x) for x in labels):
+        return labels
+
+    def name(match: re.Match[str]) -> str:
+        index = int(match.group(1))
+        return channel_names[index] if index < len(channel_names) else match.group(0)
+
+    return [re.sub(r"Ch (\d+)", name, label) for label in labels]
 
 
 def _coerce_variant_value(value: object) -> float:
@@ -84,7 +101,7 @@ def _default_variant_row_labels(
         return labels[:row_count]
     if variant_id == "CD":
         labels = [
-            f"{dataset.channel_names[left]} -> {dataset.channel_names[right]}"
+            f"{dataset.channel_names[left]} <- {dataset.channel_names[right]}"
             for left, right in (
                 selected_pairs or _build_directed_pairs(selected_indices)
             )
@@ -105,12 +122,22 @@ def _map_cli_result(
     window_length_samples: int,
     window_step_samples: int,
     delays: List[int],
+    derivative_points: Optional[int] = None,
 ) -> DdaResult:
     selected_names = [
         dataset.channel_names[index]
         for index in selected_indices
         if 0 <= index < len(dataset.channel_names)
     ]
+    sample_rate = max(dataset.dominant_sample_rate_hz, 1.0)
+    step_seconds = window_step_samples / sample_rate
+    # The engine fits the WL samples that follow dm + max(delay) lead-in samples.
+    lead_in = (derivative_points or DEFAULT_DERIVATIVE_POINTS) + max(delays, default=0)
+    center_offset = (lead_in + window_length_samples / 2.0) / sample_rate
+
+    def window_time(index: int) -> float:
+        return start_time_seconds + center_offset + index * step_seconds
+
     variants: List[DdaVariantResult] = []
     for payload in parsed.get("variant_results") or parsed.get("variantResults") or []:
         if not isinstance(payload, dict):
@@ -125,7 +152,9 @@ def _map_cli_result(
         ]
         if not matrix:
             continue
-        payload_labels = _payload_channel_labels(payload)
+        payload_labels = _named_rust_labels(
+            _payload_channel_labels(payload), dataset.channel_names
+        )
         default_labels = _default_variant_row_labels(
             dataset=dataset,
             selected_indices=selected_indices,
@@ -143,16 +172,18 @@ def _map_cli_result(
             else payload_labels or default_labels
         )
         row_labels = preferred_labels[: len(matrix)]
-        nonfinite_labels = [
-            row_labels[index] if index < len(row_labels) else f"Series {index + 1}"
-            for index, row in enumerate(matrix)
-            if not any(math.isfinite(float(value)) for value in row)
-        ]
-        if nonfinite_labels:
+        failed = sum(not math.isfinite(value) for row in matrix for value in row)
+        if failed:
+            empty_rows = [
+                row_labels[index] if index < len(row_labels) else f"Series {index + 1}"
+                for index, row in enumerate(matrix)
+                if not any(math.isfinite(value) for value in row)
+            ]
             note = (
-                f"{variant_id} returned non-finite output for: "
-                + ", ".join(dict.fromkeys(nonfinite_labels))
-                + ". Plots render these rows as 0.0."
+                f"{variant_id}: {failed} of {sum(map(len, matrix))} windows have no value "
+                "(too many missing or constant samples, or no solution); plots leave them blank"
+                + (f". No values at all for {', '.join(dict.fromkeys(empty_rows))}" if empty_rows else "")
+                + "."
             )
             if note not in diagnostics:
                 diagnostics.append(note)
@@ -168,7 +199,7 @@ def _map_cli_result(
                 q_matrix=matrix,
                 channel_pairs=(variant_pair_indices or {}).get("CD"),
                 channel_names=dataset.channel_names,
-                delays=delays,
+                window_times=[window_time(i) for i in range(len(matrix[0]))],
                 threshold=0.25,
             )
             if variant_id == "CD"
@@ -191,22 +222,38 @@ def _map_cli_result(
                 row_mean_absolute=row_mean_absolute,
                 row_peak_absolute=row_peak_absolute,
                 network_motifs=network_motifs,
+                coefficient_matrices=[
+                    [
+                        [_coerce_variant_value(value) for value in row]
+                        for row in coefficient_matrix
+                        if isinstance(row, list)
+                    ]
+                    for coefficient_matrix in (
+                        payload.get("coefficient_matrices")
+                        or payload.get("coefficientMatrices")
+                        or []
+                    )
+                    if isinstance(coefficient_matrix, list)
+                ],
+                fit_error_matrix=[
+                    [_coerce_variant_value(value) for value in row]
+                    for row in (
+                        payload.get("fit_error_matrix")
+                        or payload.get("fitErrorMatrix")
+                        or []
+                    )
+                    if isinstance(row, list)
+                ],
             )
         )
 
     if not variants:
         raise RuntimeError("DDA backend returned no variant matrices.")
 
-    sample_rate = max(dataset.dominant_sample_rate_hz, 1.0)
-    step_seconds = window_step_samples / sample_rate
-    center_offset = window_length_samples / sample_rate / 2.0
     window_count = max(
         (variant.effective_column_count for variant in variants), default=0
     )
-    window_centers_seconds = [
-        start_time_seconds + center_offset + index * step_seconds
-        for index in range(window_count)
-    ]
+    window_centers_seconds = [window_time(index) for index in range(window_count)]
     return DdaResult(
         id=str(parsed.get("id") or uuid.uuid4().hex),
         file_path=dataset.file_path,

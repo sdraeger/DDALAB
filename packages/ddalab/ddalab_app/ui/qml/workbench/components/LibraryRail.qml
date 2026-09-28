@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls.Basic
 import QtQuick.Layouts
 
 Rectangle {
@@ -76,6 +77,10 @@ Rectangle {
                 clip: true
                 spacing: 2
                 model: root.controller.browserModel
+                // Tab focuses the list, arrow keys move, Return opens
+                activeFocusOnTab: true
+                Keys.onReturnPressed: root.controller.openBrowserIndex(currentIndex)
+                Keys.onEnterPressed: root.controller.openBrowserIndex(currentIndex)
 
                 delegate: Rectangle {
                     required property int index
@@ -94,7 +99,8 @@ Rectangle {
                     height: matches ? 44 : 0
                     visible: matches
                     radius: 5
-                    color: rowMouse.containsMouse ? root.colors.panelAlt : "transparent"
+                    color: rowMouse.containsMouse || (files.activeFocus && ListView.isCurrentItem)
+                        ? root.colors.panelAlt : "transparent"
                     opacity: supported ? 1.0 : 0.55
 
                     Column {
@@ -126,8 +132,27 @@ Rectangle {
                         id: rowMouse
                         anchors.fill: parent
                         hoverEnabled: true
-                        enabled: parent.supported
-                        onDoubleClicked: root.controller.openBrowserIndex(parent.index)
+                        acceptedButtons: Qt.LeftButton | Qt.RightButton
+                        onDoubleClicked: if (parent.supported) root.controller.openBrowserIndex(parent.index)
+                        onClicked: function(mouse) {
+                            if (mouse.button === Qt.RightButton) {
+                                rowMenu.path = parent.path
+                                rowMenu.popup()
+                            }
+                        }
+                    }
+                }
+
+                Menu {
+                    id: rowMenu
+                    property string path: ""
+                    MenuItem {
+                        text: "Copy path"
+                        onTriggered: root.controller.copyText(rowMenu.path)
+                    }
+                    MenuItem {
+                        text: "Show containing folder"
+                        onTriggered: root.controller.showInFolder(rowMenu.path)
                     }
                 }
 

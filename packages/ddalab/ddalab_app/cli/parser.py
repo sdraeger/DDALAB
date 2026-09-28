@@ -6,6 +6,7 @@ from .commands import (
     _handle_dataset_info,
     _handle_dda_batch,
     _handle_dda_info,
+    _handle_dda_null,
     _handle_dda_raw,
     _handle_dda_run,
     _handle_dda_validate,
@@ -183,9 +184,20 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Directory to write per-file JSON result payloads",
     )
     dda_batch.add_argument(
+        "--output-format",
+        choices=("json", "npz"),
+        default="json",
+        help="Per-file result format in --output-dir; npz stores compressed arrays",
+    )
+    dda_batch.add_argument(
         "--continue-on-error",
         action="store_true",
         help="Continue processing remaining files after a failure",
+    )
+    dda_batch.add_argument(
+        "--strict",
+        action="store_true",
+        help="Treat data-integrity warnings, such as a truncated data file, as failures",
     )
     dda_batch.add_argument(
         "--dry-run",
@@ -198,6 +210,21 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Emit compact JSON output",
     )
     dda_batch.set_defaults(handler=_handle_dda_batch)
+
+    dda_null = dda_subparsers.add_parser(
+        "null",
+        help="Test a change in a DDA result at a time point against circular shifts",
+    )
+    dda_null.add_argument("result", help="DDA result JSON")
+    dda_null.add_argument(
+        "--time",
+        type=float,
+        required=True,
+        help="Split time in seconds, such as an onset",
+    )
+    dda_null.add_argument("--variant", default="ST", help="Variant ID in the result")
+    dda_null.add_argument("--compact", action="store_true", help="Emit compact JSON")
+    dda_null.set_defaults(handler=_handle_dda_null)
 
     dda_raw = dda_subparsers.add_parser(
         "raw",
@@ -237,8 +264,9 @@ def _add_dda_dataset_config_arguments(
 
 
 def _add_dda_analysis_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--channels", type=int, nargs="+")
-    parser.add_argument("--all-channels", action="store_true")
+    channels = parser.add_mutually_exclusive_group()
+    channels.add_argument("--channels", type=int, nargs="+")
+    channels.add_argument("--all-channels", action="store_true")
     parser.add_argument(
         "--variant-channels",
         action="append",
@@ -250,8 +278,9 @@ def _add_dda_analysis_arguments(parser: argparse.ArgumentParser) -> None:
         "--variant-pairs",
         action="append",
         default=[],
-        metavar="VARIANT:LEFT-RIGHT,LEFT>RIGHT",
-        help="Override CT/CD pairs for a specific variant; may be repeated.",
+        metavar="VARIANT:LEFT-RIGHT,TARGET<SOURCE",
+        help="Override CT/DE/CD pairs for a specific variant; may be repeated. "
+        "CD pairs are TARGET<SOURCE (SOURCE drives TARGET).",
     )
     parser.add_argument(
         "--variants",
@@ -297,5 +326,21 @@ def _add_dda_analysis_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--full-duration",
         action="store_true",
-        help="Use the dataset end instead of DDALAB's 30-second default window",
+        help="Analyze to the end of the recording (the default; kept for older scripts)",
+    )
+    parser.add_argument(
+        "--around-event",
+        metavar="REGEX",
+        help="Center the interval on the earliest BIDS event whose trial_type matches",
+    )
+    parser.add_argument(
+        "--pre", type=float, default=30.0, help="Seconds before the event"
+    )
+    parser.add_argument(
+        "--post", type=float, default=30.0, help="Seconds after the event"
+    )
+    channels.add_argument(
+        "--bids-good-channels",
+        action="store_true",
+        help="Analyze the EEG, ECoG, SEEG, and MEG channels marked good in channels.tsv",
     )

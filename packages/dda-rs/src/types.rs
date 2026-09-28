@@ -178,6 +178,13 @@ pub struct VariantResult {
     pub variant_id: String,      // "ST", "CT", "CD", "DE"
     pub variant_name: String,    // "Single Timeseries (ST)", etc.
     pub q_matrix: Vec<Vec<f64>>, // Q matrix for this variant [channels × timepoints]
+    /// Complete fitted coefficient matrices, indexed as [coefficient][row][window].
+    /// `q_matrix` remains the first coefficient matrix for backward compatibility.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coefficient_matrices: Option<Vec<Vec<Vec<f64>>>>,
+    /// Per-row, per-window regression RMSE for variants that expose fitted models.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fit_error_matrix: Option<Vec<Vec<f64>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub channel_labels: Option<Vec<String>>, // Optional channel labels specific to this variant
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -198,6 +205,9 @@ pub struct DDAResult {
     pub created_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_values: Option<Vec<f64>>, // Error/rho values per window from DDA output
+    /// Human-readable notes on how the run executed, e.g. work a CUDA run did on the CPU.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub engine_notes: Vec<String>,
 }
 
 impl DDAResult {
@@ -220,6 +230,7 @@ impl DDAResult {
             delay_parameters,
             created_at: chrono::Utc::now().to_rfc3339(),
             error_values: None,
+            engine_notes: Vec::new(),
         }
     }
 

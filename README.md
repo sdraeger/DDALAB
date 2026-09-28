@@ -2,7 +2,7 @@
 
 **DDALAB** is a local-first analysis environment for performing **Delay Differential Analysis (DDA)** on neurophysiological time series.
 
-It combines a Python command-line interface, a Qt desktop application, and a high-performance **Rust** analysis engine, delivering interactive, large-scale DDA workflows while ensuring that **all data processing remains local** to the user’s machine.
+It combines a Python command-line interface, a Qt desktop application, and a native **Rust** analysis engine. Analysis runs locally and recordings never leave the machine. The app goes online only to check for updates, search OpenNeuro, and manage NSG jobs.
 
 ## Table of Contents
 
@@ -28,7 +28,7 @@ It combines a Python command-line interface, a Qt desktop application, and a hig
 Prebuilt binaries are available for all major platforms via [GitHub Releases](https://github.com/sdraeger/DDALAB/releases).
 
 **Need help choosing the right file?**
-Visit our [Web Download Portal](https://snl.salk.edu/~claudia/DDALAB/ddalab.html) for a simplified, one-click selection for macOS, Windows, and Linux.
+Visit our [Web Download Portal](https://snl.salk.edu/~claudia/DDALAB/ddalab.html) for a one-click selection for macOS, Windows, and Linux.
 
 ### macOS
 
@@ -43,56 +43,49 @@ Visit our [Web Download Portal](https://snl.salk.edu/~claudia/DDALAB/ddalab.html
 
 ### Windows
 
-1. Download the latest `.msi` installer.
+1. Download the latest `-installer.exe`, or the `-portable.zip` to run without installing.
 2. Run the installer and follow the setup wizard.
 3. Launch DDALAB from the Start menu.
 
 ### Linux
 
-1. Download either the `.AppImage` or `.deb` package.
-2. **For AppImage:**
-   `chmod +x DDALAB-*.AppImage`
-   `./DDALAB-*.AppImage`
-3. **For Debian/Ubuntu:**
-   `sudo dpkg -i DDALAB-*.deb`
-   `sudo apt-get install -f`
+1. Download the `.AppImage` (x86-64, glibc 2.35 or newer).
+2. `chmod +x DDALAB-*.AppImage`
+3. `./DDALAB-*.AppImage`
 
 ## Community & Learning
 
-To stay informed about upcoming **workshops**, new **computational tools**, and latest research from our lab, we encourage you to periodically check the official [DDALAB Website](https://snl.salk.edu/~claudia/).
+For upcoming **workshops**, new **computational tools**, and the latest research from our lab, check the official [DDALAB Website](https://snl.salk.edu/~claudia/) periodically.
 
-These events often cover advanced DDA workflows, data interpretation strategies, and hands-on training sessions that can help you get the most out of DDALAB.
+These events often cover advanced DDA workflows, data interpretation strategies, and hands-on training.
 
 ## Key Features
 
 - **Native Desktop Experience:** Qt desktop application delivered through the unified `packages/ddalab` package.
 - **Scriptable CLI:** `ddalab` command for health checks, dataset inspection, waveform access, ICA, and bundled DDA commands.
-- **High-Performance Backend:** Bundled `dda-rs` binary with no separate native fallback layer or network backend required.
-- **Broad Format Support:** Native support for EDF, FIFF (`.fif`), ASCII/TXT, CSV, BrainVision (`.vhdr`), and EEGLAB (`.set`).
+- **Bundled Native Backend:** `dda-rs` binary with no separate native fallback layer or network backend required.
+- **Broad Format Support:** EDF/BDF, FIFF, BrainVision, EEGLAB, Neuroscan CNT, GDF, KIT/Yokogawa, CTF, EGI MFF, XDF, NWB, NIfTI, and ASCII/TXT/CSV.
 - **BIDS Compatibility:** Native handling of Brain Imaging Data Structure datasets.
-- **OpenNeuro & NEMAR Integration:** Browse and download public datasets directly within the application.
-- **HPC Integration:** Run large-scale computations on the **Neuroscience Gateway (NSG)** for free using your institutional credentials.
-- **Complete Data Privacy:** Zero cloud dependency—all computation is local.
-- **Interactive Visualization:** Real-time heatmaps and time-series plots powered by ECharts.
-- **Multi-Variant DDA:** Support for ST, CT, CD, DE, and SY variants with per-variant channel configuration.
+- **OpenNeuro Search:** Search the OpenNeuro catalog and open a dataset's page; download datasets with the OpenNeuro CLI or DataLad.
+- **NSG Job Management:** Sign in to the **Neuroscience Gateway (NSG)** to list, refresh, download, and cancel existing jobs. Submitting jobs from DDALAB is not available yet.
+- **Interactive Visualization:** Viewport-aware waveform, heatmap, and time-series rendering with Qt Quick/QML.
+- **Multi-Flavor DDA:** ST, CT, CD, DE, and SY flavors; the CLI also runs the CCD family and takes per-flavor channel pairs (`--variant-pairs`).
 - **Persistent History:** Analyses and metadata are stored locally using SQLite.
 
 ## Architecture Overview
-
-DDALAB is designed as a modular, high-performance scientific application.
 
 ### Core Application Stack
 
 - **Unified Python Desktop + CLI Package:** `packages/ddalab`
 - **Rust Native Analysis Engine:** `packages/dda-rs`
 - **SQLite:** Persistent local storage for analysis history.
-- **Qt Custom Rendering:** Interactive waveform and result visualization for large datasets.
+- **Qt Quick/QML:** GPU-capable, viewport-aware waveform and result visualization.
 
 ## Quick Start Guide
 
 1. **Launch DDALAB** and select a local data directory.
-2. **Load Data:** Import local files, BIDS datasets, or download from OpenNeuro.
-3. **Configure Parameters:** Select Channels, Window length, Delay range, and DDA variant.
+2. **Load Data:** Open local files or BIDS datasets.
+3. **Configure Parameters:** Select Channels, Window length, Delay range, and DDA flavor.
 4. **Run Analysis:** Execute the workflow and monitor progress.
 5. **Visualize:** Inspect results using the interactive heatmaps and time-series views.
 6. **Export:** Save results for downstream analysis.
@@ -114,7 +107,8 @@ DDALAB is designed as a modular, high-performance scientific application.
 
 - `packages/ddalab`: unified Python package that installs `ddalab`, `ddalab-cli`, and `ddalab-gui`, bundles the local `dda-rs` backend for packaged releases, and provides the PySide6 desktop application
 - `packages/dda-rs`: Rust implementation and native CLI used by the packaged Python application
-- `packages/archive/*`: archived Tauri, KMP, and WASM implementations retained for historical reference only
+
+The Python and Julia language bindings are maintained in their own repositories and may be checked out locally under `packages/dda-py` and `packages/DelayDifferentialAnalysis.jl`.
 
 Useful helper commands:
 
@@ -128,17 +122,11 @@ Useful helper commands:
 
 ## Configuration & Data Storage
 
-DDALAB stores all data locally in OS-specific directories:
+DDALAB stores its data in your home directory on every platform:
 
-- **macOS:** `~/Library/Application Support/ddalab/`
-- **Windows:** `%APPDATA%\ddalab\`
-- **Linux:** `~/.local/share/ddalab/`
-
-**Key Files:**
-
-- `ddalab.db`: SQLite database for history.
-- `config.json`: User preferences.
-- `logs/`: Diagnostic logs.
+- `~/.ddalab/state.sqlite3`: analysis history, annotations, and the saved session and settings.
+- `~/.ddalab-qt/logs/`: diagnostic logs.
+- NSG sign-in: the system keychain (macOS Keychain, Windows Credential Manager, or a Secret Service keyring such as GNOME Keyring or KWallet on Linux). Without one, DDALAB keeps the sign-in in memory until you quit.
 
 ## Citation
 

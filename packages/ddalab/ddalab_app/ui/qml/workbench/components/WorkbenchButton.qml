@@ -8,6 +8,8 @@ Button {
     property bool primary: false
     property bool quiet: false
 
+    // take focus on click so an edited field commits before the action runs
+    focusPolicy: Qt.StrongFocus
     implicitHeight: 32
     leftPadding: 12
     rightPadding: 12

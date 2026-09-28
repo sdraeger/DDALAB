@@ -353,9 +353,9 @@ def _build_model_spec(
 
 
 def _normalize_delays(delays: Sequence[int], nr_tau: int) -> list[int]:
-    if len(delays) < nr_tau:
+    if len(delays) != nr_tau:
         raise ValueError(
-            f"Received {len(delays)} delays but nr_tau={nr_tau} requires at least {nr_tau}."
+            f"Received {len(delays)} delays but nr_tau={nr_tau} needs exactly {nr_tau}."
         )
     normalized: list[int] = []
     for delay in delays[:nr_tau]:
@@ -473,9 +473,9 @@ def _prepare_window_for_analysis(
         raw_window = data[slice_start:slice_end].copy()
     else:
         available = data[slice_start : data.shape[0]].copy()
-        filler = available[-1, -1] if available.size else float("nan")
+        filler = available[-1] if available.size else np.nan
         pad_rows = native_window_marker - available.shape[0]
-        padding = np.full((pad_rows, data.shape[1]), filler, dtype=float)
+        padding = np.broadcast_to(filler, (pad_rows, data.shape[1])).astype(float)
         raw_window = np.vstack([available, padding])
     return _prepare_raw_window(
         raw_window,
@@ -494,7 +494,7 @@ def _prepare_raw_window(
     nr_exclude: int,
     derivative_step: int,
 ) -> _PreparedWindow:
-    data = raw_window.copy()
+    data = np.where(np.isinf(raw_window), np.nan, raw_window)
     _apply_nan_runs(data, nr_exclude)
     derivative = _deriv_all_2d(data, model.derivative_points, derivative_step)
     shifted, trimmed_derivative = _normalize_window(

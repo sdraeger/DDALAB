@@ -94,7 +94,9 @@ Rectangle {
                         controller: root.controller
                         colors: root.colors
                         onResultRequested: function (index) {
-                            if (root.controller.resultsMode !== "compare")
+                            if (root.controller.resultsMode === "compare")
+                                root.controller.pickComparison(index);
+                            else
                                 root.controller.openHistoryResult(index);
                         }
                     }
@@ -168,13 +170,13 @@ Rectangle {
                                 }
                                 Text {
                                     Layout.preferredWidth: 130
-                                    text: "Mean |a| " + mean.toFixed(4)
+                                    text: "Mean |" + root.controller.quantityLabel + "| " + mean.toFixed(4)
                                     color: root.colors.muted
                                     font.pixelSize: 11
                                 }
                                 Text {
                                     Layout.preferredWidth: 130
-                                    text: "Peak |a| " + peak.toFixed(4)
+                                    text: "Peak |" + root.controller.quantityLabel + "| " + peak.toFixed(4)
                                     color: root.colors.muted
                                     font.pixelSize: 11
                                 }
@@ -199,6 +201,7 @@ Rectangle {
                             required property real baselineValue
                             required property real targetValue
                             required property real delta
+                            required property int sharedRows
                             width: compareList.width
                             height: 42
                             color: index % 2 ? root.colors.surfaceAlt : "transparent"
@@ -207,8 +210,8 @@ Rectangle {
                                 anchors.leftMargin: 8
                                 anchors.rightMargin: 8
                                 Text {
-                                    Layout.preferredWidth: 80
-                                    text: flavor
+                                    Layout.preferredWidth: 130
+                                    text: flavor + " · " + sharedRows + " shared rows"
                                     color: root.colors.text
                                     font.pixelSize: 12
                                     font.weight: Font.Medium

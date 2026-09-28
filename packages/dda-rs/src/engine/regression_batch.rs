@@ -1,17 +1,20 @@
-use crate::error::Result;
+use rayon::prelude::*;
+
+use crate::error::{DDAError, Result};
 
 use super::{
     model::ModelSpec,
     solver::{
-        build_directed_regression_window, build_group_regression_window, solve_regression_windows,
-        RegressionWindow, SolvedBlock,
+        build_directed_regression_window, build_group_regression_window, solve_channels_parallel,
+        solve_directed_pair, solve_group_block, solve_regression_window, RegressionWindow,
+        SolvedBlock,
     },
     window::PreparedWindow,
     ComputeDevice, SvdBackend,
 };
 
 const MAX_PROBLEMS_PER_BATCH: usize = 2048;
-const MAX_WINDOWS_PER_BATCH: usize = 32;
+pub(crate) const MAX_WINDOWS_PER_BATCH: usize = 32;
 
 #[derive(Clone)]
 pub(crate) struct WindowSolutions {
@@ -23,6 +26,70 @@ pub(crate) struct WindowSolutions {
     pub(crate) sy_reverse: Vec<SolvedBlock>,
 }
 
+/// The ST/CT/DE/CD/SY regressions solved in every window; disabled variants are empty.
+pub(crate) struct BasicJobs<'a> {
+    pub(crate) channel_count: usize,
+    pub(crate) st_channels: &'a [usize],
+    pub(crate) ct_groups: &'a [Vec<usize>],
+    pub(crate) de_groups: &'a [Vec<usize>],
+    pub(crate) cd_pairs: &'a [[usize; 2]],
+    pub(crate) sy_pairs: &'a [[usize; 2]],
+}
+
+/// Solves the basic regressions; CUDA state is created once per run.
+pub(crate) enum BasicSolver {
+    Cpu,
+    #[cfg(feature = "cuda")]
+    Cuda(super::gpu::CudaSolver),
+}
+
+impl BasicSolver {
+    pub(crate) fn new(device: ComputeDevice, svd_backend: SvdBackend) -> Result<Self> {
+        let ComputeDevice::Cuda(device_index) = device else {
+            return Ok(Self::Cpu);
+        };
+        if svd_backend != SvdBackend::RobustSvd {
+            return Err(DDAError::InvalidParameter(
+                "CUDA acceleration requires SvdBackend::RobustSvd".to_string(),
+            ));
+        }
+        #[cfg(feature = "cuda")]
+        {
+            super::gpu::CudaSolver::new(device_index).map(Self::Cuda)
+        }
+        #[cfg(not(feature = "cuda"))]
+        {
+            let _ = device_index;
+            Err(DDAError::ExecutionFailed(
+                "CUDA support is not compiled in; rebuild dda-rs with --features cuda".to_string(),
+            ))
+        }
+    }
+
+    /// How many of the regressions sent to CUDA were solved on the CPU instead, and the total.
+    pub(crate) fn cpu_fallbacks(&self) -> (usize, usize) {
+        match self {
+            Self::Cpu => (0, 0),
+            #[cfg(feature = "cuda")]
+            Self::Cuda(solver) => (solver.cpu_fallbacks, solver.problems),
+        }
+    }
+
+    fn solve(
+        &mut self,
+        problems: &[RegressionWindow],
+        svd_backend: SvdBackend,
+    ) -> Result<Vec<SolvedBlock>> {
+        match self {
+            Self::Cpu => Ok(solve_channels_parallel(problems, |problem| {
+                solve_regression_window(problem, svd_backend)
+            })),
+            #[cfg(feature = "cuda")]
+            Self::Cuda(solver) => solver.solve(problems, svd_backend),
+        }
+    }
+}
+
 struct WindowReferences {
     st: Vec<Option<usize>>,
     ct: Vec<usize>,
@@ -32,29 +99,26 @@ struct WindowReferences {
     sy_reverse: Vec<usize>,
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn solve_basic_windows(
     prepared_windows: &[PreparedWindow],
-    channel_count: usize,
-    analysis_channels: &[usize],
-    ct_groups: &[Vec<usize>],
-    de_groups: &[Vec<usize>],
-    cd_pairs: &[[usize; 2]],
-    sy_pairs: &[[usize; 2]],
+    jobs: &BasicJobs<'_>,
     model: &ModelSpec,
-    solve_st: bool,
-    solve_ct: bool,
-    solve_de: bool,
-    solve_cd: bool,
-    solve_sy: bool,
     svd_backend: SvdBackend,
-    compute_device: ComputeDevice,
+    solver: &mut BasicSolver,
 ) -> Result<Vec<WindowSolutions>> {
-    let jobs_per_window = usize::from(solve_st) * analysis_channels.len()
-        + usize::from(solve_ct) * ct_groups.len()
-        + usize::from(solve_de) * de_groups.len()
-        + usize::from(solve_cd) * cd_pairs.len()
-        + usize::from(solve_sy) * 2 * sy_pairs.len();
+    if matches!(solver, BasicSolver::Cpu) {
+        // Solving each problem as it is built keeps one design matrix per thread in memory
+        return Ok(prepared_windows
+            .par_iter()
+            .map(|prepared| solve_window_on_cpu(prepared, jobs, model, svd_backend))
+            .collect());
+    }
+
+    let jobs_per_window = jobs.st_channels.len()
+        + jobs.ct_groups.len()
+        + jobs.de_groups.len()
+        + jobs.cd_pairs.len()
+        + 2 * jobs.sy_pairs.len();
     let windows_per_batch =
         (MAX_PROBLEMS_PER_BATCH / jobs_per_window.max(1)).clamp(1, MAX_WINDOWS_PER_BATCH);
     let mut output = Vec::with_capacity(prepared_windows.len());
@@ -63,26 +127,9 @@ pub(crate) fn solve_basic_windows(
         let mut problems = Vec::with_capacity(window_batch.len() * jobs_per_window);
         let references = window_batch
             .iter()
-            .map(|prepared| {
-                build_window_references(
-                    &mut problems,
-                    prepared,
-                    channel_count,
-                    analysis_channels,
-                    ct_groups,
-                    de_groups,
-                    cd_pairs,
-                    sy_pairs,
-                    model,
-                    solve_st,
-                    solve_ct,
-                    solve_de,
-                    solve_cd,
-                    solve_sy,
-                )
-            })
+            .map(|prepared| build_window_references(&mut problems, prepared, jobs, model))
             .collect::<Vec<_>>();
-        let solutions = solve_regression_windows(&problems, svd_backend, compute_device)?;
+        let solutions = solver.solve(&problems, svd_backend)?;
         output.extend(
             references
                 .iter()
@@ -93,65 +140,72 @@ pub(crate) fn solve_basic_windows(
     Ok(output)
 }
 
-#[allow(clippy::too_many_arguments)]
+fn solve_window_on_cpu(
+    prepared: &PreparedWindow,
+    jobs: &BasicJobs<'_>,
+    model: &ModelSpec,
+    svd_backend: SvdBackend,
+) -> WindowSolutions {
+    let solve_groups = |groups: &[Vec<usize>]| {
+        solve_channels_parallel(groups, |group| {
+            solve_group_block(prepared, group, model, svd_backend)
+        })
+    };
+    let solve_pairs = |pairs: &[[usize; 2]], response_is_source: bool| {
+        solve_channels_parallel(pairs, |&[target, source]| {
+            let response = if response_is_source { source } else { target };
+            solve_directed_pair(prepared, target, source, response, model, svd_backend)
+        })
+    };
+    let mut st = vec![None; jobs.channel_count];
+    let st_blocks = solve_channels_parallel(jobs.st_channels, |&channel| {
+        solve_group_block(prepared, &[channel], model, svd_backend)
+    });
+    for (&channel, block) in jobs.st_channels.iter().zip(st_blocks) {
+        st[channel] = Some(block);
+    }
+    let reversed_sy_pairs = jobs
+        .sy_pairs
+        .iter()
+        .map(|&[left, right]| [right, left])
+        .collect::<Vec<_>>();
+    WindowSolutions {
+        st,
+        ct: solve_groups(jobs.ct_groups),
+        de: solve_groups(jobs.de_groups),
+        cd: solve_pairs(jobs.cd_pairs, false),
+        sy_forward: solve_pairs(jobs.sy_pairs, true),
+        sy_reverse: solve_pairs(&reversed_sy_pairs, true),
+    }
+}
+
 fn build_window_references(
     problems: &mut Vec<RegressionWindow>,
     prepared: &PreparedWindow,
-    channel_count: usize,
-    analysis_channels: &[usize],
-    ct_groups: &[Vec<usize>],
-    de_groups: &[Vec<usize>],
-    cd_pairs: &[[usize; 2]],
-    sy_pairs: &[[usize; 2]],
+    jobs: &BasicJobs<'_>,
     model: &ModelSpec,
-    solve_st: bool,
-    solve_ct: bool,
-    solve_de: bool,
-    solve_cd: bool,
-    solve_sy: bool,
 ) -> WindowReferences {
-    let mut st = vec![None; channel_count];
-    if solve_st {
-        for &channel in analysis_channels {
-            st[channel] = Some(push_problem(
-                problems,
-                build_group_regression_window(prepared, &[channel], model),
-            ));
-        }
+    let mut st = vec![None; jobs.channel_count];
+    let built = jobs
+        .st_channels
+        .par_iter()
+        .map(|&channel| build_group_regression_window(prepared, &[channel], model))
+        .collect();
+    for (&channel, index) in jobs.st_channels.iter().zip(push_all(problems, built)) {
+        st[channel] = Some(index);
     }
-    let ct = if solve_ct {
-        push_group_problems(problems, prepared, ct_groups, model)
-    } else {
-        Vec::new()
-    };
-    let de = if solve_de {
-        push_group_problems(problems, prepared, de_groups, model)
-    } else {
-        Vec::new()
-    };
-    let cd = if solve_cd {
-        push_pair_problems(problems, prepared, cd_pairs, model, false)
-    } else {
-        Vec::new()
-    };
-    let sy_forward = if solve_sy {
-        push_pair_problems(problems, prepared, sy_pairs, model, true)
-    } else {
-        Vec::new()
-    };
-    let sy_reverse = if solve_sy {
-        sy_pairs
-            .iter()
-            .map(|[left, right]| {
-                push_problem(
-                    problems,
-                    build_directed_regression_window(prepared, *right, *left, *left, model),
-                )
-            })
-            .collect()
-    } else {
-        Vec::new()
-    };
+    let ct = push_group_problems(problems, prepared, jobs.ct_groups, model);
+    let de = push_group_problems(problems, prepared, jobs.de_groups, model);
+    let cd = push_pair_problems(problems, prepared, jobs.cd_pairs, model, false);
+    let sy_forward = push_pair_problems(problems, prepared, jobs.sy_pairs, model, true);
+    let built = jobs
+        .sy_pairs
+        .par_iter()
+        .map(|[left, right]| {
+            build_directed_regression_window(prepared, *right, *left, *left, model)
+        })
+        .collect();
+    let sy_reverse = push_all(problems, built);
     WindowReferences {
         st,
         ct,
@@ -168,15 +222,11 @@ fn push_group_problems(
     groups: &[Vec<usize>],
     model: &ModelSpec,
 ) -> Vec<usize> {
-    groups
-        .iter()
-        .map(|group| {
-            push_problem(
-                problems,
-                build_group_regression_window(prepared, group, model),
-            )
-        })
-        .collect()
+    let built = groups
+        .par_iter()
+        .map(|group| build_group_regression_window(prepared, group, model))
+        .collect();
+    push_all(problems, built)
 }
 
 fn push_pair_problems(
@@ -186,22 +236,22 @@ fn push_pair_problems(
     model: &ModelSpec,
     response_is_source: bool,
 ) -> Vec<usize> {
-    pairs
-        .iter()
+    let built = pairs
+        .par_iter()
         .map(|[target, source]| {
             let response = if response_is_source { *source } else { *target };
-            push_problem(
-                problems,
-                build_directed_regression_window(prepared, *target, *source, response, model),
-            )
+            build_directed_regression_window(prepared, *target, *source, response, model)
         })
-        .collect()
+        .collect();
+    push_all(problems, built)
 }
 
-fn push_problem(problems: &mut Vec<RegressionWindow>, problem: RegressionWindow) -> usize {
-    let index = problems.len();
-    problems.push(problem);
-    index
+/// Appends problems built in parallel and returns their indices; the CUDA path
+/// builds every design matrix on the host, which dominated its run time serially.
+fn push_all(problems: &mut Vec<RegressionWindow>, built: Vec<RegressionWindow>) -> Vec<usize> {
+    let start = problems.len();
+    problems.extend(built);
+    (start..problems.len()).collect()
 }
 
 fn resolve_window_solutions(

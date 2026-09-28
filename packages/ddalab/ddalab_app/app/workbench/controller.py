@@ -1,15 +1,23 @@
 from __future__ import annotations
 
+import json
 import math
+import os
+import threading
 import uuid
+from collections import Counter
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import Property, QObject, QTimer, QUrl, Signal, Slot
-from PySide6.QtGui import QGuiApplication
+import numpy as np
+from PySide6.QtCore import Property, QCoreApplication, QObject, QTimer, QUrl, Signal, Slot
+from PySide6.QtGui import QDesktopServices, QGuiApplication
 
+from ...backend.dda.scalar import _monomial_list, _select_model_terms
 from ...backend.local import LocalBackendClient
 from ...backend.services.openneuro import OpenNeuroClient
+from ...domain.bids import event_annotations as bids_event_annotations
 from ...domain.models import (
     AppState,
     BrowserEntry,
@@ -18,11 +26,13 @@ from ...domain.models import (
     DdaVariantResult,
     IcaResult,
     LoadedDataset,
+    ChannelWaveform,
     WaveformAnnotation,
     WaveformWindow,
 )
 from ...persistence.state_db import StateDatabase
 from ...runtime_paths import RuntimePaths
+from ...ui.plot_data_common import HEATMAP_COLOR_SCHEME_OPTIONS
 from ...ui.quick_plot_surface import (
     QuickPlotSurfaceBridge,
     update_quick_variant_bridge,
@@ -49,7 +59,7 @@ from ..integrations.cdr import (
     find_cdr_recordings,
 )
 from ..integrations.cdr_simulation import generate_cdr_recordings
-from ..integrations.dda_export_utils import export_result_json, export_variant_csv
+from ..integrations import dda_export_utils as exports
 from .models import RecordListModel, SelectionListModel
 from .tasks import TaskRunner
 
@@ -57,10 +67,46 @@ _FLAVORS = (
     ("ST", "Single timeseries"),
     ("SY", "Synchronization"),
     ("DE", "Dynamical ergodicity"),
-    ("CT", "Cross-timeseries"),
-    ("CD", "Causal dependence"),
+    ("CT", "Cross timeseries"),
+    ("CD", "Cross dynamical"),
 )
 _FLAVOR_LABELS = dict(_FLAVORS)
+# what each flavor's matrix holds; ST and CT store the first model coefficient
+_QUANTITY_NAMES = {
+    "ST": "a1",
+    "CT": "a1",
+    "CD": "causal improvement",
+    "DE": "ergodicity",
+    "SY": "synchronization",
+}
+
+
+# analysis settings kept between sessions: (attribute, session key, type)
+_SAVED_SETTINGS = (
+    ("_window_length", "windowLength", int),
+    ("_window_step", "windowStep", int),
+    ("_delays_text", "delays", str),
+    ("_model_terms_text", "modelTerms", str),
+    ("_derivative_points", "derivativePoints", int),
+    ("_polynomial_order", "polynomialOrder", int),
+    ("_nr_tau", "nrTau", int),
+    ("_ica_components", "icaComponents", int),
+    ("_ica_max_iterations", "icaMaxIterations", int),
+    ("_color_scheme", "colorScheme", str),
+)
+
+
+def _variant_quantities(variant: DdaVariantResult) -> list[tuple[str, list]]:
+    """(name, matrix) pairs the result view can show for a variant."""
+    quantities = [(_QUANTITY_NAMES.get(variant.id, "value"), variant.matrix)]
+    quantities += [
+        (f"a{index + 1}", matrix)
+        for index, matrix in enumerate(variant.coefficient_matrices)
+        if index > 0
+    ]
+    if variant.fit_error_matrix:
+        quantities.append(("fit error", variant.fit_error_matrix))
+    return quantities
 _DEFAULT_MODEL_TERMS = (1, 2, 10)
 _DEFAULT_DERIVATIVE_POINTS = 4
 _DEFAULT_POLYNOMIAL_ORDER = 4
@@ -111,6 +157,13 @@ class WorkbenchController(QObject):
         self._active_result: DdaResult | None = None
         self._cdr_view: dict[str, object] = {}
         self._ica_summary = "No ICA result"
+        self._cancel = threading.Event()
+        self._quantity_index = 0
+        self._color_scheme = "auto"
+        self._compare_picks: list[int] = []
+        self._available_update = None
+        self._ica_components = 20
+        self._ica_max_iterations = 500
         self._update_status = "Updates are checked against GitHub releases."
         self._replay_active = False
         self._browser_entries: list[BrowserEntry] = []
@@ -144,7 +197,7 @@ class WorkbenchController(QObject):
         self.batch_model = RecordListModel(("file", "status", "details"))
         self.connectivity_model = RecordListModel(("label", "mean", "peak"))
         self.compare_model = RecordListModel(
-            ("flavor", "baselineValue", "targetValue", "delta")
+            ("flavor", "baselineValue", "targetValue", "delta", "sharedRows")
         )
         self.openneuro_model = RecordListModel(
             ("id", "name", "modalities", "subjects", "size")
@@ -165,6 +218,7 @@ class WorkbenchController(QObject):
         self.flavor_model.selectionChanged.connect(self.changed)
 
         self.waveform_bridge = QuickWaveformSurfaceBridge(self)
+        self.overview_bridge = QuickWaveformSurfaceBridge(self)
         self.result_bridge = QuickPlotSurfaceBridge(self)
         self.waveform_bridge.viewport_zoom_requested.connect(self._zoom_waveform)
         self.waveform_bridge.viewport_pan_requested.connect(self._pan_waveform)
@@ -172,9 +226,17 @@ class WorkbenchController(QObject):
             self._request_waveform_annotation
         )
         self.result_bridge.view_window_requested.connect(self._set_result_view)
+        self.result_bridge.annotation_context_requested.connect(
+            self._request_result_annotation
+        )
         self._replay_timer = QTimer(self)
         self._replay_timer.setInterval(800)
         self._replay_timer.timeout.connect(self._advance_replay)
+        # a drag or wheel sends many view changes; load only the last one
+        self._view_timer = QTimer(self)
+        self._view_timer.setSingleShot(True)
+        self._view_timer.setInterval(16)
+        self._view_timer.timeout.connect(self.refreshWaveform)
         self.openneuro = OpenNeuroClient()
         self.update_manager = UpdateManager(
             runtime_paths,
@@ -203,6 +265,13 @@ class WorkbenchController(QObject):
                 )
                 self._viewport_restored = True
         self._expert_mode = bool(session.get("expertMode", False))
+        settings = session.get("analysisSettings")
+        for attribute, key, kind in _SAVED_SETTINGS if isinstance(settings, dict) else ():
+            value = settings.get(key)
+            if isinstance(value, kind) and (kind is str or value > 0):
+                setattr(self, attribute, value)
+        if self._color_scheme not in dict(HEATMAP_COLOR_SCHEME_OPTIONS):
+            self._color_scheme = "auto"
         compute_device = str(session.get("computeDevice") or "cpu").lower()
         self._compute_device = (
             compute_device if _is_compute_device(compute_device) else "cpu"
@@ -214,6 +283,8 @@ class WorkbenchController(QObject):
 
         if bootstrap_backend:
             self._bootstrap()
+            if self.update_manager.supports_updates():
+                QTimer.singleShot(3000, self.checkForUpdates)
         else:
             self._status_text = "Smoke test mode"
 
@@ -261,6 +332,8 @@ class WorkbenchController(QObject):
         component: str = "",
     ) -> None:
         self._busy_count += 1
+        if component in ("dda", "ica", "batch"):
+            self._cancel.clear()
         if component:
             self._loading_components[component] = (
                 self._loading_components.get(component, 0) + 1
@@ -274,6 +347,9 @@ class WorkbenchController(QObject):
 
         def failed(message: str) -> None:
             self._finish_component_load(component)
+            if self._cancel.is_set():
+                self._finish_task("Cancelled")
+                return
             self._finish_task(message)
             self.errorRaised.emit(message)
 
@@ -352,6 +428,88 @@ class WorkbenchController(QObject):
         return self.waveform_bridge
 
     @Property(QObject, constant=True)
+    def overviewBridge(self) -> QObject:
+        return self.overview_bridge
+
+    @Property(float, notify=changed)
+    def viewportStartFraction(self) -> float:
+        dataset = self.state.selected_dataset
+        if dataset is None or dataset.duration_seconds <= 0:
+            return 0.0
+        return self.state.waveform_viewport_start_seconds / dataset.duration_seconds
+
+    @Property(float, notify=changed)
+    def viewportSpanFraction(self) -> float:
+        dataset = self.state.selected_dataset
+        if dataset is None or dataset.duration_seconds <= 0:
+            return 1.0
+        return min(1.0, self.state.waveform_viewport_duration_seconds / dataset.duration_seconds)
+
+    @Slot(str)
+    def copyText(self, text: str) -> None:
+        QGuiApplication.clipboard().setText(text)
+        self._status_text = "Copied to the clipboard"
+        self.changed.emit()
+
+    @Slot(str)
+    def showInFolder(self, path: str) -> None:
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(path).parent)))
+
+    @Slot(float)
+    def jumpToFraction(self, fraction: float) -> None:
+        """Center the waveform view on a point of the overview."""
+        dataset = self.state.selected_dataset
+        if dataset is None:
+            return
+        duration = self.state.waveform_viewport_duration_seconds
+        self.state.waveform_viewport_start_seconds = max(
+            0.0,
+            min(dataset.duration_seconds - duration, fraction * dataset.duration_seconds - duration / 2),
+        )
+        self._view_timer.start()
+        self.changed.emit()
+
+    def _refresh_overview(self) -> None:
+        """Whole-recording min/max envelope of the selected channels."""
+        dataset = self.state.selected_dataset
+        # a few channels keep the 64 px strip readable
+        names = [str(row["name"]) for row in self.channel_model.selected_rows()][:4]
+        if dataset is None or not names:
+            self.overview_bridge.clear()
+            return
+        serial = self._dataset_serial
+
+        def task(_progress: Callable[[object], None]) -> object:
+            return self.backend.load_waveform_overview(dataset.file_path, names, 2000)
+
+        def success(value: object) -> None:
+            if serial != self._dataset_serial or value is None:
+                self._finish_task()
+                return
+            # bucket min and max as consecutive samples: the column spans then
+            # draw exactly the envelope
+            channels = [
+                ChannelWaveform(
+                    channel.name,
+                    2.0 / max(channel.bucket_duration_seconds, 1e-9),
+                    np.column_stack((channel.mins, channel.maxs)).ravel().astype(np.float32),
+                    None,
+                    channel.min_value,
+                    channel.max_value,
+                )
+                for channel in value.channels
+            ]
+            update_quick_waveform_bridge(
+                self.overview_bridge,
+                WaveformWindow(dataset.file_path, 0.0, value.duration_seconds, channels, False),
+                target_width=1600,
+                title="Overview",
+            )
+            self._finish_task()
+
+        self._submit(task, success, status="Loading overview", component="overview")
+
+    @Property(QObject, constant=True)
     def resultBridge(self) -> QObject:
         return self.result_bridge
 
@@ -412,6 +570,18 @@ class WorkbenchController(QObject):
     def busy(self) -> bool:
         return self._busy_count > 0
 
+    @Property(bool, notify=changed)
+    def cancellable(self) -> bool:
+        return any(self._loading_components.get(name) for name in ("dda", "ica", "batch"))
+
+    @Slot()
+    def cancelTask(self) -> None:
+        self._cancel.set()
+        self._result_serial += 1  # results that still arrive are discarded
+        cancel = getattr(self.backend, "cancel_dda", None)
+        if cancel is not None:
+            cancel()
+
     @Property("QVariantMap", notify=changed)
     def loadingComponents(self) -> dict[str, bool]:
         return {name: count > 0 for name, count in self._loading_components.items()}
@@ -442,11 +612,15 @@ class WorkbenchController(QObject):
         dataset = self.state.selected_dataset
         if dataset is None:
             return "Open a physiological recording to begin."
-        return (
-            f"{dataset.format_label} · {len(dataset.channels)} channels · "
-            f"{dataset.duration_seconds:.2f} s · "
-            f"{dataset.dominant_sample_rate_hz:.0f} Hz"
-        )
+        if dataset.time_axis_name == "Sample":
+            # no time column: the reader counts samples, so there is no rate to show
+            timing = f"{dataset.total_sample_count} samples · rate unknown"
+        else:
+            timing = (
+                f"{dataset.duration_seconds:.2f} s · "
+                f"{dataset.dominant_sample_rate_hz:.0f} Hz"
+            )
+        return f"{dataset.format_label} · {len(dataset.channels)} channels · {timing}"
 
     @Property(float, notify=changed)
     def waveformStart(self) -> float:
@@ -570,6 +744,23 @@ class WorkbenchController(QObject):
         self._model_terms_text = str(value)
         self.changed.emit()
 
+    @Property(str, notify=changed)
+    def modelEquation(self) -> str:
+        """The DDA model the settings select, e.g. du/dt = a1 u(t-7) + a2 u(t-10) + ..."""
+        try:
+            terms, _, order, nr_tau = self._resolved_model_parameters()
+            delays = _parse_delays(self._delays_text)[:nr_tau]
+            selected = _select_model_terms(_monomial_list(nr_tau, order), terms, delays)
+        except (ValueError, IndexError) as exc:
+            return str(exc)
+        return "du/dt = " + " + ".join(
+            f"a{index} " + " ".join(
+                f"u(t-{delay})" + (f"^{power}" if power > 1 else "")
+                for delay, power in sorted(Counter(term).items())
+            )
+            for index, term in enumerate(selected, start=1)
+        )
+
     @Property(int, notify=changed)
     def derivativePoints(self) -> int:
         return self._derivative_points
@@ -638,6 +829,24 @@ class WorkbenchController(QObject):
     def icaSummary(self) -> str:
         return self._ica_summary
 
+    @Property(int, notify=changed)
+    def icaComponents(self) -> int:
+        return self._ica_components
+
+    @icaComponents.setter
+    def icaComponents(self, value: int) -> None:
+        self._ica_components = max(1, int(value))
+        self.changed.emit()
+
+    @Property(int, notify=changed)
+    def icaMaxIterations(self) -> int:
+        return self._ica_max_iterations
+
+    @icaMaxIterations.setter
+    def icaMaxIterations(self, value: int) -> None:
+        self._ica_max_iterations = max(1, int(value))
+        self.changed.emit()
+
     @Property(str, notify=changed)
     def updateStatus(self) -> str:
         return self._update_status
@@ -649,6 +858,43 @@ class WorkbenchController(QObject):
     @Property(int, notify=changed)
     def activeVariantIndex(self) -> int:
         return self._active_variant_index
+
+    @Property("QVariantList", notify=changed)
+    def quantityOptions(self) -> list[str]:
+        variant = self._active_variant()
+        return [name for name, _ in _variant_quantities(variant)] if variant else []
+
+    @Property(int, notify=changed)
+    def activeQuantityIndex(self) -> int:
+        return self._quantity_index
+
+    @Property(str, notify=changed)
+    def quantityLabel(self) -> str:
+        options = self.quantityOptions
+        return options[self._quantity_index] if options else "value"
+
+    @Slot(int)
+    def selectQuantity(self, index: int) -> None:
+        if 0 <= index < len(self.quantityOptions) and index != self._quantity_index:
+            self._quantity_index = index
+            self._render_result()
+            self._refresh_connectivity_model()
+            self.changed.emit()
+
+    @Property("QVariantList", constant=True)
+    def colorSchemeOptions(self) -> list[dict[str, str]]:
+        return [{"id": key, "label": label} for key, label in HEATMAP_COLOR_SCHEME_OPTIONS]
+
+    @Property(str, notify=changed)
+    def colorScheme(self) -> str:
+        return self._color_scheme
+
+    @Slot(str)
+    def setColorScheme(self, scheme: str) -> None:
+        if scheme != self._color_scheme and scheme in dict(HEATMAP_COLOR_SCHEME_OPTIONS):
+            self._color_scheme = scheme
+            self._render_result()
+            self.changed.emit()
 
     @Slot(str)
     def setCurrentPage(self, page: str) -> None:
@@ -787,8 +1033,11 @@ class WorkbenchController(QObject):
                 self._finish_task()
                 return
             self._activate_dataset(value)
-            self._finish_task(f"Opened {value.file_name}")
+            self._finish_task(
+                " · ".join([f"Opened {value.file_name}", *value.warnings])
+            )
             self.refreshWaveform()
+            self._refresh_overview()
 
         self._submit(
             task,
@@ -801,6 +1050,8 @@ class WorkbenchController(QObject):
         self._stop_replay()
         self._result_serial += 1
         self._clear_outputs()
+        if (ica := self.state_db.load_latest_ica_result(dataset.file_path)) is not None:
+            self._show_ica_result(ica)
         self._waveform_serial += 1
         self.state.waveform_window = None
         self.waveform_bridge.clear()
@@ -843,6 +1094,13 @@ class WorkbenchController(QObject):
             for index, channel in enumerate(dataset.channels)
         )
         annotations = self.state_db.load_annotations_for_file(dataset.file_path)
+        # BIDS events are copied in once; after that they are ordinary annotations,
+        # so edits and deletions stick
+        imported = f"bidsEventsImported:{dataset.file_path}"
+        if not self.state_db.session_value(imported):
+            annotations += bids_event_annotations(dataset.file_path)
+            self.state_db.replace_annotations_for_file(dataset.file_path, annotations)
+            self.state_db.set_session_value(imported, True)
         self.state.annotations_by_file[dataset.file_path] = annotations
         self.waveform_bridge.set_annotations(annotations)
         self._replace_annotation_model(annotations)
@@ -853,6 +1111,7 @@ class WorkbenchController(QObject):
     def _on_channel_selection_changed(self) -> None:
         self.changed.emit()
         self.refreshWaveform()
+        self._refresh_overview()
 
     @Slot()
     def refreshWaveform(self) -> None:
@@ -888,6 +1147,10 @@ class WorkbenchController(QObject):
                 value,
                 target_width=1600,
                 title=dataset.file_name,
+            )
+            # clear() on an empty channel selection drops the annotations
+            self.waveform_bridge.set_annotations(
+                self.state.annotations_by_file.get(dataset.file_path, [])
             )
             self._finish_task(
                 f"{len(value.channels)} channels · {start:.2f}–{start + duration:.2f} s"
@@ -956,7 +1219,8 @@ class WorkbenchController(QObject):
 
     @Slot()
     def toggleReplay(self) -> None:
-        if self.state.selected_dataset is None or self.busy:
+        # stopping is always allowed; starting waits for running work
+        if self.state.selected_dataset is None or (self.busy and not self._replay_active):
             return
         self._replay_active = not self._replay_active
         if self._replay_active:
@@ -1101,8 +1365,8 @@ class WorkbenchController(QObject):
                 selected_channel_indices=channel_indices,
                 start_time_seconds=start,
                 end_time_seconds=end,
-                n_components=min(len(channel_indices), 20),
-                max_iterations=500,
+                n_components=min(len(channel_indices), self._ica_components),
+                max_iterations=self._ica_max_iterations,
                 tolerance=1e-6,
                 centering=True,
                 whitening=True,
@@ -1122,20 +1386,7 @@ class WorkbenchController(QObject):
             ):
                 self._finish_task("ICA result discarded after context changed")
                 return
-            self.state.ica_result = value
-            self.ica_model.replace(
-                {
-                    "component": item.component_id,
-                    "variance": item.variance_explained,
-                    "kurtosis": item.kurtosis,
-                    "nonGaussianity": item.non_gaussianity,
-                }
-                for item in value.components
-            )
-            self._ica_summary = (
-                f"{len(value.components)} components · {value.sample_count} samples · "
-                f"{value.sample_rate_hz:.0f} Hz"
-            )
+            self._show_ica_result(value)
             self._finish_task("ICA complete")
 
         self._submit(task, success, status="Running ICA", component="ica")
@@ -1157,9 +1408,10 @@ class WorkbenchController(QObject):
         except ValueError as exc:
             self.errorRaised.emit(str(exc))
             return
-        selected_channels = [
-            int(row["index"]) for row in self.channel_model.selected_rows()
-        ]
+        selected_channels = [str(row["name"]) for row in self.channel_model.selected_rows()]
+        if not selected_channels:
+            self.errorRaised.emit("Select the channels to analyze in each file.")
+            return
         self._run_batch(
             targets,
             flavors=flavors,
@@ -1239,7 +1491,7 @@ class WorkbenchController(QObject):
         targets: list[str],
         *,
         flavors: list[str],
-        selected_channels: list[int],
+        selected_channels: list[str],
         use_all_channels: bool,
         window_length: int,
         window_step: int,
@@ -1267,6 +1519,12 @@ class WorkbenchController(QObject):
         def task(progress: Callable[[object], None]) -> object:
             rows: list[dict[str, object]] = []
             for index, path in enumerate(targets):
+                if self._cancel.is_set():
+                    rows += [
+                        {"file": Path(rest).name, "status": "Cancelled", "details": ""}
+                        for rest in targets[index:]
+                    ]
+                    break
                 progress(
                     {
                         "file": Path(path).name,
@@ -1285,11 +1543,16 @@ class WorkbenchController(QObject):
                             )
                         channels = list(range(len(dataset.channels)))
                     else:
+                        # channels are chosen by name; numbering differs between files
+                        missing = [
+                            name for name in selected_channels
+                            if name not in dataset.channel_names
+                        ]
+                        if missing:
+                            raise ValueError("Missing channels: " + ", ".join(missing))
                         channels = [
-                            channel
-                            for channel in selected_channels
-                            if channel < len(dataset.channels)
-                        ] or list(range(min(8, len(dataset.channels))))
+                            dataset.channel_names.index(name) for name in selected_channels
+                        ]
                     pair_map = all_pair_indices(channels, flavors)
 
                     def dda_progress(event: dict) -> None:
@@ -1411,10 +1674,11 @@ class WorkbenchController(QObject):
             success,
             status=f"{status} on {compute_device.upper()}",
             on_progress=progress,
+            component="batch",
         )
 
     def _refresh_connectivity_model(self) -> None:
-        variant = self._active_variant()
+        variant = self._displayed_variant()
         if variant is None:
             self.connectivity_model.replace([])
             return
@@ -1426,6 +1690,22 @@ class WorkbenchController(QObject):
             }
             for index, label in enumerate(variant.row_labels)
         )
+
+    @Slot(int)
+    def pickComparison(self, index: int) -> None:
+        """A click on a history row: the first pick is the baseline, the second the
+        target, which runs the comparison."""
+        self._compare_picks = [*self._compare_picks, index][-2:]
+        if len(self._compare_picks) == 2:
+            self.compareHistoryResults(*self._compare_picks)
+            self._compare_picks = []
+        self.changed.emit()
+
+    @Property(str, notify=changed)
+    def comparisonPrompt(self) -> str:
+        if self._compare_picks:
+            return f"Baseline #{self._compare_picks[0] + 1}; click the target result"
+        return "Click the baseline result, then the target"
 
     @Slot(int, int)
     def compareHistoryResults(self, left_index: int, right_index: int) -> None:
@@ -1509,6 +1789,7 @@ class WorkbenchController(QObject):
             return self.update_manager.check_for_updates()
 
         def success(value: object) -> None:
+            self._available_update = value
             if value is None:
                 self._update_status = "DDALAB is up to date."
             else:
@@ -1524,6 +1805,63 @@ class WorkbenchController(QObject):
             component="updates",
         )
 
+    @Property(bool, notify=changed)
+    def updateAvailable(self) -> bool:
+        return self._available_update is not None
+
+    @Slot()
+    def installUpdate(self) -> None:
+        update = self._available_update
+        if update is None:
+            return
+
+        def task(progress: Callable[[object], None]) -> object:
+            path = self.update_manager.download_update(update, progress)
+            return self.update_manager.start_install(path, current_pid=os.getpid())
+
+        def on_progress(value: object) -> None:
+            percent = getattr(value, "percent", None)
+            self._progress_text = f"Downloading update · {percent}%" if percent is not None else ""
+            self.changed.emit()
+
+        def success(message: object) -> None:
+            self._finish_task(str(message))
+            # the installer waits for this process to exit before replacing the app
+            QTimer.singleShot(1500, QCoreApplication.quit)
+
+        self._submit(
+            task,
+            success,
+            status=f"Installing DDALAB {update.latest_version}",
+            on_progress=on_progress,
+            component="updates",
+        )
+
+    @Slot(str, str)
+    def nsgJobAction(self, job_id: str, action: str) -> None:
+        """Refresh, cancel, or download the results of one NSG job."""
+        actions = {
+            "refresh": self.backend.refresh_nsg_job,
+            "cancel": self.backend.cancel_nsg_job,
+            "download": self.backend.download_nsg_results,
+        }
+        if action not in actions:
+            return
+
+        def task(_progress: Callable[[object], None]) -> object:
+            return actions[action](job_id)
+
+        def success(value: object) -> None:
+            if action == "download":
+                files = list(value or [])
+                folder = Path(files[0]).parent if files else ""
+                self._finish_task(f"Downloaded {len(files)} NSG result files to {folder}")
+            else:
+                self._finish_task(f"NSG job {action} done")
+            self.refreshNsgJobs()
+
+        self._submit(task, success, status=f"NSG job: {action}", component="nsgJobs")
+
     def _set_result(self, result: DdaResult) -> None:
         self._active_result = result.materialize()
         self._cdr_view = build_cdr_paper_view(self._active_result)
@@ -1536,9 +1874,26 @@ class WorkbenchController(QObject):
             for item in self._active_result.variants
         )
         self._active_variant_index = 0 if self._active_result.variants else -1
+        self._quantity_index = 0
         self.result_bridge.set_view_window(0.0, 1.0)
         self._render_result()
         self.changed.emit()
+
+    def _show_ica_result(self, value: IcaResult) -> None:
+        self.state.ica_result = value
+        self.ica_model.replace(
+            {
+                "component": item.component_id,
+                "variance": item.variance_explained,
+                "kurtosis": item.kurtosis,
+                "nonGaussianity": item.non_gaussianity,
+            }
+            for item in value.components
+        )
+        self._ica_summary = (
+            f"{len(value.components)} components · {value.sample_count} samples · "
+            f"{value.sample_rate_hz:.0f} Hz"
+        )
 
     def _clear_outputs(self) -> None:
         self.state.dda_result = None
@@ -1559,11 +1914,26 @@ class WorkbenchController(QObject):
             return None
         return result.variants[self._active_variant_index]
 
+    def _displayed_variant(self) -> DdaVariantResult | None:
+        """The active variant with its matrix swapped for the chosen quantity."""
+        variant = self._active_variant()
+        if variant is None or self._quantity_index == 0:
+            return variant
+        quantities = _variant_quantities(variant)
+        if self._quantity_index >= len(quantities):
+            return variant
+        return replace(
+            variant,
+            matrix=quantities[self._quantity_index][1],
+            row_mean_absolute=[],
+            row_peak_absolute=[],
+        )
+
     def _render_result(self) -> None:
         if self._cdr_view:
             self.result_bridge.clear()
             return
-        variant = self._active_variant()
+        variant = self._displayed_variant()
         if variant is None:
             self.result_bridge.clear()
             return
@@ -1572,8 +1942,8 @@ class WorkbenchController(QObject):
             self.result_bridge,
             variant,
             target_columns=min(max(variant.effective_column_count, 1), 1600),
-            title=_FLAVOR_LABELS.get(variant.id, variant.label),
-            color_scheme="inferno",
+            title=f"{_FLAVOR_LABELS.get(variant.id, variant.label)} · {self.quantityLabel}",
+            color_scheme=self._color_scheme,
             start_fraction=start,
             span_fraction=span,
         )
@@ -1594,6 +1964,7 @@ class WorkbenchController(QObject):
         ):
             return
         self._active_variant_index = index
+        self._quantity_index = 0
         self.result_bridge.set_view_window(0.0, 1.0)
         self._render_result()
         self._refresh_connectivity_model()
@@ -1652,38 +2023,69 @@ class WorkbenchController(QObject):
             component="result",
         )
 
-    @Slot(str)
-    def exportResultJson(self, path: str) -> None:
-        self._export(path, export_result_json, "JSON result exported")
+    def _export_formats(self) -> list[tuple[str, Callable[[DdaResult, Path], None]]]:
+        """(file-dialog filter, writer) for every result export."""
+        variant = self._displayed_variant()
+        vid = variant.id if variant is not None else None
 
-    @Slot(str)
-    def exportVariantCsv(self, path: str) -> None:
-        variant = self._active_variant()
-        variant_id = variant.id if variant is not None else None
-        self._export(
-            path,
-            lambda result: export_variant_csv(result, variant_id),
-            "CSV result exported",
-        )
+        def text(serialize: Callable[[DdaResult], str]) -> Callable[[DdaResult, Path], None]:
+            return lambda result, path: path.write_text(serialize(result), encoding="utf-8")
 
-    def _export(
-        self,
-        path: str,
-        serializer: Callable[[DdaResult], str],
-        success_message: str,
-    ) -> None:
+        def figure(result: DdaResult, path: Path) -> None:
+            if variant is None:
+                raise ValueError("Choose a flavor to export as a figure.")
+            exports.export_result_figure(
+                result,
+                variant,
+                path,
+                quantity=self.quantityLabel,
+                color_scheme=self._color_scheme,
+                start_fraction=self.result_bridge.view_window()[0],
+                span_fraction=self.result_bridge.view_window()[1],
+            )
+
+        return [
+            (
+                "JSON result (*.json)",
+                text(
+                    lambda r: exports.export_result_json(
+                        r, self.state_db.load_annotations_for_file(r.file_path)
+                    )
+                ),
+            ),
+            ("CSV, selected flavor (*.csv)", text(lambda r: exports.export_variant_csv(r, vid))),
+            ("CSV, all flavors (*.csv)", text(exports.export_all_variants_csv)),
+            ("Figure, PDF (*.pdf)", figure),
+            ("Figure, SVG (*.svg)", figure),
+            ("Figure, PNG (*.png)", figure),
+            ("Python script (*.py)", text(lambda r: exports.generate_python_script(r, vid))),
+            ("MATLAB script (*.m)", text(lambda r: exports.generate_matlab_script(r, vid))),
+            ("Julia script (*.jl)", text(lambda r: exports.generate_julia_script(r, vid))),
+            ("Rust source (*.rs)", text(lambda r: exports.generate_rust_source(r, vid))),
+        ]
+
+    @Property("QVariantList", notify=changed)
+    def exportFormats(self) -> list[str]:
+        return [name for name, _ in self._export_formats()]
+
+    @Slot(str, int)
+    def exportResult(self, path: str, format_index: int) -> None:
         result = self._active_result
         target = _local_path(path)
-        if result is None or not target:
+        formats = self._export_formats()
+        if result is None or not target or not 0 <= format_index < len(formats):
             self.errorRaised.emit("Choose a result and output path first.")
             return
+        name, write = formats[format_index]
+        suffix = name[name.index("*") + 1 : -1]
+        output = Path(target) if target.endswith(suffix) else Path(target + suffix)
 
         def task(_progress: Callable[[object], None]) -> object:
-            Path(target).write_text(serializer(result), encoding="utf-8")
-            return target
+            write(result, output)
+            return output
 
         def success(_value: object) -> None:
-            self._finish_task(success_message)
+            self._finish_task(f"Exported {output.name}")
 
         self._submit(task, success, status="Exporting result")
 
@@ -1716,6 +2118,70 @@ class WorkbenchController(QObject):
         else:
             annotations.append(annotation)
         self._store_annotations(dataset.file_path, annotations)
+
+    @Slot(int)
+    def goToAnnotation(self, index: int) -> None:
+        row = self.annotation_model.row(index)
+        dataset = self.state.selected_dataset
+        if row is None or dataset is None:
+            return
+        duration = self.state.waveform_viewport_duration_seconds
+        self.state.waveform_viewport_start_seconds = max(
+            0.0, min(dataset.duration_seconds - duration, float(row["start"]) - duration / 2)
+        )
+        self._workspace_mode = "inspect"
+        self.refreshWaveform()
+        self.changed.emit()
+
+    @Slot(str)
+    def exportAnnotations(self, path: str) -> None:
+        dataset = self.state.selected_dataset
+        target = _local_path(path)
+        if dataset is None or not target:
+            return
+        annotations = self.state.annotations_by_file.get(dataset.file_path, [])
+        Path(target).write_text(
+            json.dumps([asdict(item) for item in annotations], indent=2), encoding="utf-8"
+        )
+        self._status_text = f"Exported {len(annotations)} annotations"
+        self.changed.emit()
+
+    @Slot(str)
+    def importAnnotations(self, path: str) -> None:
+        dataset = self.state.selected_dataset
+        target = _local_path(path)
+        if dataset is None or not target:
+            return
+        try:
+            entries = json.loads(Path(target).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            self.errorRaised.emit(f"Could not read annotations: {exc}")
+            return
+        imported, skipped = [], 0
+        for entry in entries if isinstance(entries, list) else []:
+            try:
+                start = float(entry["start_seconds"])
+                end = entry.get("end_seconds")
+                imported.append(
+                    WaveformAnnotation(
+                        id=str(entry.get("id") or uuid.uuid4()),
+                        label=str(entry["label"]).strip(),
+                        notes=str(entry.get("notes") or ""),
+                        channel_name=entry.get("channel_name") or None,
+                        start_seconds=start,
+                        end_seconds=float(end) if end is not None and float(end) > start else None,
+                    )
+                )
+            except (KeyError, TypeError, ValueError):
+                skipped += 1
+        by_id = {item.id: item for item in self.state.annotations_by_file.get(dataset.file_path, [])}
+        by_id.update((item.id, item) for item in imported if item.label)
+        self._store_annotations(dataset.file_path, list(by_id.values()))
+        message = f"Imported {len(imported)} annotations"
+        if skipped:
+            self.errorRaised.emit(f"{message}; skipped {skipped} entries without a label and start.")
+        self._status_text = message
+        self.changed.emit()
 
     @Slot(int)
     def deleteAnnotation(self, index: int) -> None:
@@ -1770,13 +2236,15 @@ class WorkbenchController(QObject):
     @Slot(str, str, str)
     def saveNsgCredentials(self, username: str, password: str, app_key: str) -> None:
         def task(_progress: Callable[[object], None]) -> object:
-            self.backend.save_nsg_credentials(username, password, app_key)
-            return self.backend.test_nsg_connection()
+            saved = self.backend.save_nsg_credentials(username, password, app_key)
+            return saved, self.backend.test_nsg_connection()
 
         def success(value: object) -> None:
-            self._finish_task(
-                "NSG credentials verified" if value else "NSG connection failed"
-            )
+            saved, connected = value
+            status = "NSG credentials verified" if connected else "NSG connection failed"
+            if not saved:
+                status += "; no system keychain, so the sign-in lasts until you quit"
+            self._finish_task(status)
 
         self._submit(
             task,
@@ -1837,7 +2305,7 @@ class WorkbenchController(QObject):
             ),
         )
         self.state.waveform_viewport_duration_seconds = new_duration
-        self.refreshWaveform()
+        self._view_timer.start()
 
     def _pan_waveform(self, delta: float) -> None:
         dataset = self.state.selected_dataset
@@ -1851,7 +2319,7 @@ class WorkbenchController(QObject):
                 self.state.waveform_viewport_start_seconds + delta * duration,
             ),
         )
-        self.refreshWaveform()
+        self._view_timer.start()
 
     def _set_result_view(self, start: float, span: float) -> None:
         self.result_bridge.set_view_window(start, span)
@@ -1869,6 +2337,16 @@ class WorkbenchController(QObject):
             existing is not None and existing.channel_name is None,
         )
 
+    def _request_result_annotation(self, x: float, y: float) -> None:
+        seconds = self.result_bridge.time_at(x)
+        if seconds is None:
+            return
+        rows = self.result_bridge.rowLabels
+        row = rows[min(len(rows) - 1, int(y * len(rows)))] if rows else ""
+        dataset = self.state.selected_dataset
+        channel = row if dataset is not None and row in dataset.channel_names else ""
+        self.annotationEditRequested.emit(seconds, channel, "", "", -1.0, "", not channel)
+
     def _save_session(self) -> None:
         self.state_db.save_session_payload(
             {
@@ -1876,6 +2354,9 @@ class WorkbenchController(QObject):
                 "browserPath": self.state.browser_path,
                 "expertMode": self._expert_mode,
                 "computeDevice": self._compute_device,
+                "analysisSettings": {
+                    key: getattr(self, attribute) for attribute, key, _ in _SAVED_SETTINGS
+                },
                 "activeFilePath": self.state.active_file_path,
                 "viewport": {
                     "startSeconds": self.state.waveform_viewport_start_seconds,
@@ -1918,12 +2399,14 @@ def _parse_positive_integers(value: str, label: str) -> list[int]:
 
 
 def _browser_row(entry: BrowserEntry) -> dict[str, object]:
+    # CTF .ds and EGI .mff recordings are folders that open as datasets
+    folder = entry.is_directory and not entry.open_as_dataset
     return {
         "name": entry.name,
         "path": entry.path,
-        "directory": entry.is_directory,
-        "supported": entry.supported or entry.is_directory,
-        "type": "Folder" if entry.is_directory else (entry.type_label or "File"),
+        "directory": folder,
+        "supported": entry.supported or folder,
+        "type": "Folder" if folder else (entry.type_label or "File"),
         "size": _format_bytes(entry.size_bytes),
         "search": f"{entry.name} {entry.type_label or ''}".lower(),
     }
@@ -1942,29 +2425,34 @@ def _compare_results(
     left: DdaResult | None,
     right: DdaResult | None,
 ) -> list[dict[str, object]]:
+    """Mean |value| per shared flavor, over the rows (channels or pairs) both have."""
     if left is None or right is None:
         return []
     left_variants = {item.id: item for item in left.materialize().variants}
     right_variants = {item.id: item for item in right.materialize().variants}
     rows: list[dict[str, object]] = []
     for flavor in sorted(left_variants.keys() & right_variants.keys()):
-        left_value = _variant_mean_absolute(left_variants[flavor])
-        right_value = _variant_mean_absolute(right_variants[flavor])
+        baseline, target = left_variants[flavor], right_variants[flavor]
+        shared = set(baseline.row_labels) & set(target.row_labels)
+        left_value = _variant_mean_absolute(baseline, shared)
+        right_value = _variant_mean_absolute(target, shared)
         rows.append(
             {
                 "flavor": flavor,
                 "baselineValue": left_value,
                 "targetValue": right_value,
                 "delta": right_value - left_value,
+                "sharedRows": len(shared),
             }
         )
     return rows
 
 
-def _variant_mean_absolute(variant: DdaVariantResult) -> float:
+def _variant_mean_absolute(variant: DdaVariantResult, rows: set[str]) -> float:
     values = [
         abs(float(value))
-        for row in variant.matrix
+        for label, row in zip(variant.row_labels, variant.matrix)
+        if label in rows
         for value in row
         if math.isfinite(float(value))
     ]

@@ -49,9 +49,9 @@ impl ModelSpec {
 }
 
 pub(crate) fn normalize_delays(delays: &[i32], nr_tau: usize) -> Result<Vec<usize>> {
-    if delays.len() < nr_tau {
+    if delays.len() != nr_tau {
         return Err(DDAError::InvalidParameter(format!(
-            "Received {} delays but nr_tau={} requires at least {}",
+            "Received {} delays but nr_tau={} needs exactly {}",
             delays.len(),
             nr_tau,
             nr_tau

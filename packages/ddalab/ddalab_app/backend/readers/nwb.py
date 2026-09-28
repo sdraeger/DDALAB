@@ -17,6 +17,8 @@ from .common import (
     _build_channel_waveform,
     _build_overview_channel,
     _resolve_channel_indices,
+    _start_sample,
+    _unique_names,
 )
 
 
@@ -38,10 +40,19 @@ class NwbDatasetReader(PythonDatasetReader):
             ) from exc
         self.series = _select_nwb_series(self.nwbfile)
         self.sample_rate_hz = _nwb_sample_rate(self.series)
-        self.channel_names = _nwb_channel_names(self.series)
+        self.channel_names = _unique_names(_nwb_channel_names(self.series))
         data = self.series.data
         self.num_samples = int(data.shape[0])
         self._metadata: Optional[LoadedDataset] = None
+
+    def _samples(self, rows: slice, indices: List[int]) -> np.ndarray:
+        """Stored values scaled to the series unit (NWB conversion and offset)."""
+        data = np.asarray(self.series.data[rows, indices], dtype=np.float64)
+        per_channel = getattr(self.series, "channel_conversion", None)
+        if per_channel is not None:
+            data = data * np.asarray(per_channel, dtype=np.float64)[indices]
+        conversion = getattr(self.series, "conversion", None) or 1.0
+        return data * conversion + (getattr(self.series, "offset", None) or 0.0)
 
     def close(self) -> None:
         try:
@@ -64,7 +75,12 @@ class NwbDatasetReader(PythonDatasetReader):
             total_sample_count=self.num_samples,
             time_axis_name="Time (s)",
             source_summary="ElectricalSeries loaded locally from the NWB container.",
-            notes=[f"Series: {getattr(self.series, 'name', 'ElectricalSeries')}"],
+            notes=[f"Series: {getattr(self.series, 'name', 'ElectricalSeries')}"]
+            + (
+                [f"Times are relative to the series start ({starting_time} s in the file)."]
+                if (starting_time := getattr(self.series, "starting_time", None))
+                else []
+            ),
             channels=[
                 ChannelDescriptor(
                     name=name,
@@ -84,7 +100,7 @@ class NwbDatasetReader(PythonDatasetReader):
         duration_seconds: float,
         channel_names: Sequence[str],
     ) -> WaveformWindow:
-        start_sample = max(int(start_time_seconds * self.sample_rate_hz), 0)
+        start_sample = _start_sample(start_time_seconds, self.sample_rate_hz)
         stop_sample = min(
             max(
                 start_sample + int(math.ceil(duration_seconds * self.sample_rate_hz)),
@@ -93,9 +109,7 @@ class NwbDatasetReader(PythonDatasetReader):
             self.num_samples,
         )
         indices = _resolve_channel_indices(self.channel_names, channel_names)
-        data = np.asarray(
-            self.series.data[start_sample:stop_sample, indices], dtype=np.float64
-        )
+        data = self._samples(slice(start_sample, stop_sample), indices)
         if data.ndim == 1:
             data = data[:, np.newaxis]
         channels = [
@@ -128,7 +142,7 @@ class NwbDatasetReader(PythonDatasetReader):
 
         def build() -> WaveformOverview:
             indices = _resolve_channel_indices(self.channel_names, channel_names)
-            data = np.asarray(self.series.data[:, indices], dtype=np.float64)
+            data = self._samples(slice(None), indices)
             if data.ndim == 1:
                 data = data[:, np.newaxis]
             channels = [
@@ -181,8 +195,9 @@ def _nwb_channel_names(series) -> List[str]:
         table = getattr(electrodes, "table", None)
         if table is not None and hasattr(table, "id"):
             try:
+                # the series records the electrode-table rows in its region, in order
                 ids = list(table.id[:])
-                return [f"Electrode {int(value)}" for value in ids]
+                return [f"Electrode {int(ids[row])}" for row in electrodes.data[:]]
             except Exception:
                 pass
     data = getattr(series, "data")

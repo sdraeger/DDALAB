@@ -15,14 +15,14 @@ use crate::error::{DDAError, Result};
 use crate::types::{CcdConditioningStrategy, DDARequest, DDAResult, VariantResult};
 use dataset::{AnalysisBounds, MatrixDataset};
 use model::ModelSpec;
-use regression_batch::solve_basic_windows;
+use rayon::prelude::*;
+use regression_batch::{solve_basic_windows, BasicJobs, BasicSolver, MAX_WINDOWS_PER_BATCH};
 use serde::{Deserialize, Serialize};
 use solver::{
     bic_like_score, build_channel_regression_window_with_inputs, circular_shift_series,
     compute_de_value, empirical_significance_confidence, greedy_sparse_unique_improvements,
     solve_channel_with_inputs, solve_channel_with_surrogate_inputs, solve_channels_parallel,
-    solve_directed_pair, solve_group_block, solve_temporally_regularized_windows,
-    solve_zipped_parallel, synchronization_value, SolvedBlock,
+    solve_temporally_regularized_windows, solve_zipped_parallel, synchronization_value,
 };
 use std::fmt;
 use std::str::FromStr;
@@ -395,6 +395,16 @@ impl PureRustRunner {
         let enabled_trccd = variant_mode.trccd_enabled && !ccd_pairs.is_empty();
         let enabled_mvccd = variant_mode.mvccd_enabled && !ccd_pairs.is_empty();
         let enabled_de = variant_mode.de_enabled;
+        for (enabled, groups, name) in [
+            (enabled_ct, &ct_groups, "CT"),
+            (enabled_de, &de_groups, "DE"),
+        ] {
+            if enabled && groups.is_empty() {
+                return Err(DDAError::InvalidParameter(format!(
+                    "{name} has no channel groups; pass pairs or a group size (ct_wl) no larger than the channel count"
+                )));
+            }
+        }
         let enabled_sy = variant_mode.sy_mode > 0 && !sy_pairs.is_empty();
 
         if !enabled_st
@@ -411,13 +421,13 @@ impl PureRustRunner {
 
         let native_window_marker = model.window_length + model.max_delay + 2 * model.dm;
         let num_windows = analysis_window_count(&bounds, &model)?;
-        let needs_prepared_windows = self.options.compute_device.is_cuda()
-            || enabled_trccd
-            || !matches!(
-                ccd_conditioning_strategy,
-                CcdConditioningStrategy::AllSelected
-            );
-        let mut prepared_windows = None;
+        // TRCCD and auto-selected CCD conditioning sets use every window at once
+        let needs_all_windows = enabled_trccd
+            || (enabled_ccd_core
+                && !matches!(
+                    ccd_conditioning_strategy,
+                    CcdConditioningStrategy::AllSelected
+                ));
         let progress_enabled = on_progress.is_some();
         let analysis_channel_labels = progress_enabled
             .then(|| labels_for_channels(&dataset.channel_labels, &analysis_channels));
@@ -491,8 +501,8 @@ impl PureRustRunner {
             })
             .collect();
 
-        if needs_prepared_windows {
-            let mut windows = Vec::with_capacity(num_windows);
+        let prepared_windows = if needs_all_windows {
+            let windows = prepare_analysis_windows(&dataset, &bounds, &model, &self.options)?;
             for window_idx in 0..num_windows {
                 report(
                     "prepare-window",
@@ -503,16 +513,11 @@ impl PureRustRunner {
                     "window",
                     None,
                 );
-                windows.push(prepare_window_for_analysis(
-                    &dataset,
-                    &bounds,
-                    &model,
-                    window_idx,
-                    &self.options,
-                )?);
             }
-            prepared_windows = Some(windows);
-        }
+            Some(windows)
+        } else {
+            None
+        };
 
         let ccd_pair_conditioning_sets = if enabled_ccd_core {
             compute_ccd_pair_conditioning_sets(
@@ -531,7 +536,16 @@ impl PureRustRunner {
             build_target_conditioning_sets(&ccd_pairs, &ccd_pair_conditioning_sets);
 
         let mut st_matrix = empty_result_matrix(enabled_st, st_channels.len(), num_windows);
+        let mut st_coefficient_matrices = enabled_st.then(|| {
+            vec![vec![vec![f64::NAN; num_windows]; st_channels.len()]; model.primary_terms.len()]
+        });
+        let mut st_fit_error_matrix =
+            empty_result_matrix(enabled_st, st_channels.len(), num_windows);
         let mut ct_matrix = empty_result_matrix(enabled_ct, ct_groups.len(), num_windows);
+        let mut ct_coefficient_matrices = enabled_ct.then(|| {
+            vec![vec![vec![f64::NAN; num_windows]; ct_groups.len()]; model.primary_terms.len()]
+        });
+        let mut ct_fit_error_matrix = empty_result_matrix(enabled_ct, ct_groups.len(), num_windows);
         let mut cd_matrix = empty_result_matrix(enabled_cd, cd_pairs.len(), num_windows);
         let mut ccd_matrix = empty_result_matrix(enabled_ccd_core, ccd_pairs.len(), num_windows);
         let mut ccdlog_matrix = empty_result_matrix(enabled_ccdlog, ccd_pairs.len(), num_windows);
@@ -543,30 +557,60 @@ impl PureRustRunner {
         let mut de_matrix = empty_result_matrix(enabled_de, de_groups.len(), num_windows);
         let sy_rows = sy_pairs.len() * (1 + usize::from(variant_mode.sy_mode == 2));
         let mut sy_matrix = empty_result_matrix(enabled_sy, sy_rows, num_windows);
-        let accelerated_windows = if self.options.compute_device.is_cuda() {
-            Some(solve_basic_windows(
-                prepared_windows.as_deref().unwrap_or_default(),
-                dataset.cols,
-                &analysis_channels,
-                &ct_groups,
-                &de_groups,
-                &cd_pairs,
-                &sy_pairs,
-                &model,
-                enabled_st || enabled_cd || enabled_de,
-                enabled_ct,
-                enabled_de,
-                enabled_cd,
-                enabled_sy,
-                self.options.svd_backend,
-                self.options.compute_device,
-            )?)
-        } else {
-            None
+        let basic_jobs = BasicJobs {
+            channel_count: dataset.cols,
+            st_channels: if enabled_st || enabled_cd || enabled_de {
+                &analysis_channels
+            } else {
+                &[]
+            },
+            ct_groups: if enabled_ct { &ct_groups } else { &[] },
+            de_groups: if enabled_de { &de_groups } else { &[] },
+            cd_pairs: if enabled_cd { &cd_pairs } else { &[] },
+            sy_pairs: if enabled_sy { &sy_pairs } else { &[] },
         };
+        let mut basic_solver =
+            BasicSolver::new(self.options.compute_device, self.options.svd_backend)?;
 
+        // Windows are prepared and solved in parallel a chunk at a time to bound memory,
+        // then filled and reported in window order. A CUDA chunk spans a full GPU batch.
+        let min_chunk_len = if self.options.compute_device.is_cuda() {
+            MAX_WINDOWS_PER_BATCH
+        } else {
+            8
+        };
+        let chunk_len = rayon::current_num_threads().max(min_chunk_len);
+        let mut prepared_chunk = Vec::new();
+        let mut solved_chunk = Vec::new();
         for window_idx in 0..num_windows {
-            let prepared_storage;
+            let chunk_offset = window_idx % chunk_len;
+            if chunk_offset == 0 {
+                let chunk = window_idx..num_windows.min(window_idx + chunk_len);
+                if prepared_windows.is_none() {
+                    prepared_chunk = chunk
+                        .clone()
+                        .into_par_iter()
+                        .map(|window_idx| {
+                            prepare_window_for_analysis(
+                                &dataset,
+                                &bounds,
+                                &model,
+                                window_idx,
+                                &self.options,
+                            )
+                        })
+                        .collect::<Result<Vec<_>>>()?;
+                }
+                solved_chunk = solve_basic_windows(
+                    prepared_windows
+                        .as_deref()
+                        .map_or(&prepared_chunk[..], |windows| &windows[chunk]),
+                    &basic_jobs,
+                    &model,
+                    self.options.svd_backend,
+                    &mut basic_solver,
+                )?;
+            }
             let prepared = if let Some(windows) = prepared_windows.as_ref() {
                 &windows[window_idx]
             } else {
@@ -579,35 +623,11 @@ impl PureRustRunner {
                     "window",
                     None,
                 );
-                prepared_storage = prepare_window_for_analysis(
-                    &dataset,
-                    &bounds,
-                    &model,
-                    window_idx,
-                    &self.options,
-                )?;
-                &prepared_storage
+                &prepared_chunk[chunk_offset]
             };
+            let solved = &solved_chunk[chunk_offset];
 
-            let accelerated = accelerated_windows
-                .as_ref()
-                .and_then(|windows| windows.get(window_idx));
-            let mut st_blocks: Vec<Option<SolvedBlock>> = accelerated
-                .map(|window| window.st.clone())
-                .unwrap_or_else(|| vec![None; dataset.cols]);
-            if accelerated.is_none() && (enabled_st || enabled_cd || enabled_de) {
-                let computed_st_blocks = solve_channels_parallel(&analysis_channels, |&channel| {
-                    (
-                        channel,
-                        solve_group_block(prepared, &[channel], &model, self.options.svd_backend),
-                    )
-                });
-                for (channel, block) in computed_st_blocks {
-                    if channel < st_blocks.len() {
-                        st_blocks[channel] = Some(block);
-                    }
-                }
-            }
+            let st_blocks = &solved.st;
             if enabled_st || enabled_cd || enabled_de {
                 for channel_idx in 0..analysis_channels.len() {
                     report(
@@ -629,19 +649,22 @@ impl PureRustRunner {
                     if let Some(block) = st_blocks.get(channel).and_then(Option::as_ref) {
                         matrix[row_idx][window_idx] =
                             block.coefficients.first().copied().unwrap_or(f64::NAN);
+                        if let Some(coefficient_matrices) = st_coefficient_matrices.as_mut() {
+                            for (coefficient_idx, coefficient) in
+                                block.coefficients.iter().copied().enumerate()
+                            {
+                                coefficient_matrices[coefficient_idx][row_idx][window_idx] =
+                                    coefficient;
+                            }
+                        }
+                        if let Some(errors) = st_fit_error_matrix.as_mut() {
+                            errors[row_idx][window_idx] = block.rmse;
+                        }
                     }
                 }
             }
 
-            let mut ct_blocks = accelerated
-                .map(|window| window.ct.clone())
-                .unwrap_or_default();
             if enabled_ct {
-                if accelerated.is_none() {
-                    ct_blocks = solve_channels_parallel(&ct_groups, |group| {
-                        solve_group_block(prepared, group, &model, self.options.svd_backend)
-                    });
-                }
                 for (group_idx, _) in ct_groups.iter().enumerate() {
                     report(
                         "ct",
@@ -658,24 +681,24 @@ impl PureRustRunner {
             }
 
             if let Some(matrix) = ct_matrix.as_mut() {
-                fill_result_column(
-                    matrix,
-                    window_idx,
-                    ct_blocks
-                        .iter()
-                        .map(|block| block.coefficients.first().copied().unwrap_or(f64::NAN)),
-                );
+                for (row_idx, block) in solved.ct.iter().enumerate() {
+                    matrix[row_idx][window_idx] =
+                        block.coefficients.first().copied().unwrap_or(f64::NAN);
+                    if let Some(coefficient_matrices) = ct_coefficient_matrices.as_mut() {
+                        for (coefficient_idx, coefficient) in
+                            block.coefficients.iter().copied().enumerate()
+                        {
+                            coefficient_matrices[coefficient_idx][row_idx][window_idx] =
+                                coefficient;
+                        }
+                    }
+                    if let Some(errors) = ct_fit_error_matrix.as_mut() {
+                        errors[row_idx][window_idx] = block.rmse;
+                    }
+                }
             }
 
-            let mut de_blocks = accelerated
-                .map(|window| window.de.clone())
-                .unwrap_or_default();
             if enabled_de {
-                if accelerated.is_none() {
-                    de_blocks = solve_channels_parallel(&de_groups, |group| {
-                        solve_group_block(prepared, group, &model, self.options.svd_backend)
-                    });
-                }
                 for (group_idx, _) in de_groups.iter().enumerate() {
                     report(
                         "de",
@@ -696,47 +719,25 @@ impl PureRustRunner {
                     matrix,
                     window_idx,
                     de_groups.iter().enumerate().map(|(row_idx, group)| {
-                        let ct_rmse = de_blocks
+                        let ct_rmse = solved
+                            .de
                             .get(row_idx)
                             .map(|block| block.rmse)
                             .unwrap_or(f64::NAN);
-                        compute_de_value(group, &st_blocks, ct_rmse)
+                        compute_de_value(group, st_blocks, ct_rmse)
                     }),
                 );
             }
 
             if enabled_cd {
-                let cd_values = if let Some(window) = accelerated {
-                    cd_pairs
-                        .iter()
-                        .zip(&window.cd)
-                        .map(|(pair, forward)| {
-                            let baseline = st_blocks
-                                .get(pair[0])
-                                .and_then(Option::as_ref)
-                                .map(|block| block.rmse)
-                                .unwrap_or(f64::NAN);
-                            legacy_rmse_gain_from_rmse(baseline, forward.rmse)
-                        })
-                        .collect()
-                } else {
-                    solve_channels_parallel(&cd_pairs, |pair| {
-                        let forward = solve_directed_pair(
-                            prepared,
-                            pair[0],
-                            pair[1],
-                            pair[0],
-                            &model,
-                            self.options.svd_backend,
-                        );
-                        let baseline = st_blocks
-                            .get(pair[0])
-                            .and_then(Option::as_ref)
-                            .map(|block| block.rmse)
-                            .unwrap_or(f64::NAN);
-                        legacy_rmse_gain_from_rmse(baseline, forward.rmse)
-                    })
-                };
+                let cd_values = cd_pairs.iter().zip(&solved.cd).map(|(pair, forward)| {
+                    let baseline = st_blocks
+                        .get(pair[0])
+                        .and_then(Option::as_ref)
+                        .map(|block| block.rmse)
+                        .unwrap_or(f64::NAN);
+                    legacy_rmse_gain_from_rmse(baseline, forward.rmse)
+                });
                 for (pair_idx, _) in cd_pairs.iter().enumerate() {
                     report(
                         "cd",
@@ -903,34 +904,11 @@ impl PureRustRunner {
             }
 
             if let Some(matrix) = sy_matrix.as_mut() {
-                let sy_values = if let Some(window) = accelerated {
-                    window
-                        .sy_forward
-                        .iter()
-                        .zip(&window.sy_reverse)
-                        .map(|(forward, reverse)| (forward.rmse, reverse.rmse))
-                        .collect()
-                } else {
-                    solve_channels_parallel(&sy_pairs, |pair| {
-                        let forward = solve_directed_pair(
-                            prepared,
-                            pair[0],
-                            pair[1],
-                            pair[1],
-                            &model,
-                            self.options.svd_backend,
-                        );
-                        let reverse = solve_directed_pair(
-                            prepared,
-                            pair[1],
-                            pair[0],
-                            pair[0],
-                            &model,
-                            self.options.svd_backend,
-                        );
-                        (forward.rmse, reverse.rmse)
-                    })
-                };
+                let sy_values = solved
+                    .sy_forward
+                    .iter()
+                    .zip(&solved.sy_reverse)
+                    .map(|(forward, reverse)| (forward.rmse, reverse.rmse));
                 for (pair_idx, _) in sy_pairs.iter().enumerate() {
                     report(
                         "sy",
@@ -955,7 +933,7 @@ impl PureRustRunner {
                             .and_then(|labels| labels.get(pair_idx).map(String::as_str)),
                     );
                 }
-                for (pair_idx, (forward_rmse, reverse_rmse)) in sy_values.into_iter().enumerate() {
+                for (pair_idx, (forward_rmse, reverse_rmse)) in sy_values.enumerate() {
                     if variant_mode.sy_mode == 2 {
                         let row_base = pair_idx * 2;
                         matrix[row_base][window_idx] = forward_rmse;
@@ -1028,22 +1006,28 @@ impl PureRustRunner {
         let ccd_labels = labels_for_pairs(&dataset.channel_labels, &ccd_pairs, " <- ");
         let ccd_result_matrix = if enabled_ccd { ccd_matrix } else { None };
         let mut variant_results = Vec::new();
-        push_variant_result(
-            &mut variant_results,
-            "ST",
-            "Single Timeseries (ST)",
-            st_matrix,
-            &labels_for_channels(&dataset.channel_labels, &st_channels),
-            &native_window_markers,
-        );
-        push_variant_result(
-            &mut variant_results,
-            "CT",
-            "Cross-Timeseries (CT)",
-            ct_matrix,
-            &labels_for_groups(&dataset.channel_labels, &ct_groups, "&"),
-            &native_window_markers,
-        );
+        if let Some(q_matrix) = st_matrix {
+            variant_results.push(VariantResult {
+                variant_id: "ST".to_string(),
+                variant_name: "Single Timeseries (ST)".to_string(),
+                q_matrix,
+                coefficient_matrices: st_coefficient_matrices,
+                fit_error_matrix: st_fit_error_matrix,
+                channel_labels: Some(labels_for_channels(&dataset.channel_labels, &st_channels)),
+                error_values: Some(native_window_markers.clone()),
+            });
+        }
+        if let Some(q_matrix) = ct_matrix {
+            variant_results.push(VariantResult {
+                variant_id: "CT".to_string(),
+                variant_name: "Cross-Timeseries (CT)".to_string(),
+                q_matrix,
+                coefficient_matrices: ct_coefficient_matrices,
+                fit_error_matrix: ct_fit_error_matrix,
+                channel_labels: Some(labels_for_groups(&dataset.channel_labels, &ct_groups, "&")),
+                error_values: Some(native_window_markers.clone()),
+            });
+        }
         push_variant_result(
             &mut variant_results,
             "CD",
@@ -1120,6 +1104,34 @@ impl PureRustRunner {
             .map(|variant| variant.q_matrix.clone())
             .unwrap_or_default();
 
+        let mut engine_notes = Vec::new();
+        if self.options.compute_device.is_cuda() {
+            let cpu_only = [
+                (enabled_ccd, "CCD"),
+                (enabled_ccdlog, "CCDLOG"),
+                (enabled_ccdpr2, "CCDPR2"),
+                (enabled_ccdsig, "CCDSIG"),
+                (enabled_ccdstab, "CCDSTAB"),
+                (enabled_trccd, "TRCCD"),
+                (enabled_mvccd, "MVCCD"),
+            ]
+            .into_iter()
+            .filter_map(|(enabled, name)| enabled.then_some(name))
+            .collect::<Vec<_>>();
+            if !cpu_only.is_empty() {
+                engine_notes.push(format!(
+                    "{} ran on the CPU (CCD-family variants are CPU-only)",
+                    cpu_only.join(", ")
+                ));
+            }
+        }
+        let (cpu_fallbacks, gpu_problems) = basic_solver.cpu_fallbacks();
+        if cpu_fallbacks > 0 {
+            engine_notes.push(format!(
+                "{cpu_fallbacks} of {gpu_problems} CUDA regressions were solved on the CPU (rank-deficient or non-finite on the GPU)"
+            ));
+        }
+
         Ok(DDAResult {
             id: Uuid::new_v4().to_string(),
             file_path: request.file_path.clone(),
@@ -1131,6 +1143,7 @@ impl PureRustRunner {
             delay_parameters: request.delay_parameters.clone(),
             created_at: chrono::Utc::now().to_rfc3339(),
             error_values: Some(native_window_markers),
+            engine_notes,
         })
     }
 
@@ -1212,6 +1225,8 @@ fn push_variant_result(
             variant_id: variant_id.to_string(),
             variant_name: variant_name.to_string(),
             q_matrix,
+            coefficient_matrices: None,
+            fit_error_matrix: None,
             channel_labels: Some(channel_labels.to_vec()),
             error_values: Some(window_markers.to_vec()),
         });
@@ -1310,6 +1325,7 @@ fn prepare_analysis_windows(
     options: &PureRustOptions,
 ) -> Result<Vec<PreparedWindow>> {
     (0..analysis_window_count(bounds, model)?)
+        .into_par_iter()
         .map(|window_idx| prepare_window_for_analysis(dataset, bounds, model, window_idx, options))
         .collect()
 }
@@ -1328,14 +1344,15 @@ fn prepare_window_for_analysis(
         None
     } else {
         let available = dataset.samples[slice_start..dataset.rows].to_vec();
+        // Each channel repeats its own last sample (the native binary repeated the
+        // last channel's sample in every channel).
         let filler = available
             .last()
-            .and_then(|row| row.last())
-            .copied()
-            .unwrap_or(f64::NAN);
+            .cloned()
+            .unwrap_or_else(|| vec![f64::NAN; dataset.cols]);
         let mut padded = available;
         while padded.len() < native_window_marker {
-            padded.push(vec![filler; dataset.cols]);
+            padded.push(filler.clone());
         }
         Some(padded)
     };

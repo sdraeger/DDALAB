@@ -5,6 +5,8 @@ import threading
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
 
+import numpy as np
+
 _MISSING = object()
 
 
@@ -73,6 +75,8 @@ class LoadedDataset:
     notes: List[str]
     channels: List[ChannelDescriptor]
     supports_windowed_access: bool
+    # Data-integrity problems found while opening, such as a truncated data file
+    warnings: List[str] = field(default_factory=list)
 
     @property
     def channel_names(self) -> List[str]:
@@ -101,21 +105,7 @@ class LoadedDataset:
                 for item in payload.get("channels", [])
             ],
             supports_windowed_access=bool(payload.get("supportsWindowedAccess", False)),
-        )
-
-
-@dataclass
-class WaveformEnvelopeLevel:
-    bucket_size: int
-    mins: List[float]
-    maxs: List[float]
-
-    @classmethod
-    def from_json(cls, payload: dict) -> "WaveformEnvelopeLevel":
-        return cls(
-            bucket_size=int(_json_key(payload, "bucketSize", "bucket_size")),
-            mins=[float(value) for value in payload.get("mins", [])],
-            maxs=[float(value) for value in payload.get("maxs", [])],
+            warnings=list(payload.get("warnings", [])),
         )
 
 
@@ -123,25 +113,20 @@ class WaveformEnvelopeLevel:
 class ChannelWaveform:
     name: str
     sample_rate_hz: float
-    samples: List[float]
+    samples: np.ndarray  # float64 (DDA input); a list works too
     unit: Optional[str]
     min_value: float
     max_value: float
-    levels: List[WaveformEnvelopeLevel]
 
     @classmethod
     def from_json(cls, payload: dict) -> "ChannelWaveform":
         return cls(
             name=payload["name"],
             sample_rate_hz=float(_json_key(payload, "sampleRateHz", "sample_rate_hz")),
-            samples=[float(value) for value in payload.get("samples", [])],
+            samples=np.asarray(payload.get("samples", []), dtype=np.float64),
             unit=payload.get("unit"),
             min_value=float(_json_key(payload, "minValue", "min_value", 0.0)),
             max_value=float(_json_key(payload, "maxValue", "max_value", 0.0)),
-            levels=[
-                WaveformEnvelopeLevel.from_json(item)
-                for item in payload.get("levels", [])
-            ],
         )
 
 
@@ -312,6 +297,8 @@ class DdaVariantResult:
     row_mean_absolute: List[float] = field(default_factory=list)
     row_peak_absolute: List[float] = field(default_factory=list)
     network_motifs: Optional[NetworkMotifData] = None
+    coefficient_matrices: List[List[List[float]]] = field(default_factory=list)
+    fit_error_matrix: List[List[float]] = field(default_factory=list)
 
     @classmethod
     def from_json(cls, payload: dict) -> "DdaVariantResult":
@@ -365,6 +352,25 @@ class DdaVariantResult:
                 )
                 else None
             ),
+            coefficient_matrices=[
+                [
+                    [float("nan") if value is None else float(value) for value in row]
+                    for row in matrix
+                ]
+                for matrix in (
+                    payload.get("coefficientMatrices")
+                    or payload.get("coefficient_matrices")
+                    or []
+                )
+            ],
+            fit_error_matrix=[
+                [float("nan") if value is None else float(value) for value in row]
+                for row in (
+                    payload.get("fitErrorMatrix")
+                    or payload.get("fit_error_matrix")
+                    or []
+                )
+            ],
         )
 
     @property
@@ -493,6 +499,9 @@ class DdaReproductionConfig:
     nr_tau: int = 0
     start_time_seconds: float = 0.0
     end_time_seconds: Optional[float] = None
+    # Provenance: the software that produced the result and the files it read
+    ddalab_version: str = ""
+    input_sha256: Dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def from_json(cls, payload: dict) -> "DdaReproductionConfig":
@@ -622,6 +631,12 @@ class DdaReproductionConfig:
                     or payload.get("end_time_seconds") is not None
                 )
                 else None
+            ),
+            ddalab_version=str(
+                payload.get("ddalabVersion") or payload.get("ddalab_version") or ""
+            ),
+            input_sha256=dict(
+                payload.get("inputSha256") or payload.get("input_sha256") or {}
             ),
         )
 

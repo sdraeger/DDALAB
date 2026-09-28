@@ -18,7 +18,7 @@ ApplicationWindow {
     font.family: plex.name
 
     readonly property var colors: workbench.theme
-    readonly property bool inspectorAvailable: !(workbench.currentPage === "analysis" && workbench.analysisMode !== "dda") && !(workbench.currentPage === "results" && !workbench.resultAvailable && workbench.historyModel.count === 0)
+    readonly property bool inspectorAvailable: !(workbench.currentPage === "analysis" && workbench.analysisMode === "ica") && !(workbench.currentPage === "results" && !workbench.resultAvailable && workbench.historyModel.count === 0)
     readonly property bool showInspector: root.inspectorAvailable && !workbench.inspectorCollapsed
     readonly property bool showLibrary: workbench.currentPage !== "results" && !workbench.libraryCollapsed
 
@@ -41,11 +41,11 @@ ApplicationWindow {
     }
 
     FileDialog {
-        id: exportJsonDialog
+        id: exportDialog
         title: "Export DDA result"
         fileMode: FileDialog.SaveFile
-        nameFilters: ["JSON files (*.json)"]
-        onAccepted: workbench.exportResultJson(selectedFile.toString())
+        nameFilters: workbench.exportFormats
+        onAccepted: workbench.exportResult(selectedFile.toString(), selectedNameFilter.index)
     }
 
     FileDialog {
@@ -59,14 +59,6 @@ ApplicationWindow {
         id: cdrFolderDialog
         title: "Choose the CDR data folder"
         onAccepted: workbench.runCdrReproduction(selectedFolder.toString())
-    }
-
-    FileDialog {
-        id: exportCsvDialog
-        title: "Export selected DDA flavor"
-        fileMode: FileDialog.SaveFile
-        nameFilters: ["CSV files (*.csv)"]
-        onAccepted: workbench.exportVariantCsv(selectedFile.toString())
     }
 
     Dialog {
@@ -98,7 +90,6 @@ ApplicationWindow {
         title: annotationId ? "Edit annotation" : "Add annotation"
         standardButtons: Dialog.Save | Dialog.Cancel
         property real annotationStart: 0
-        property real annotationEnd: -1
         property string channelName: ""
         property string annotationId: ""
         property bool allChannels: false
@@ -141,6 +132,14 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 colors: root.colors
                 placeholderText: "Label"
+                onTextChanged: annotationDialog.standardButton(Dialog.Save).enabled = text.trim().length > 0
+            }
+            WorkbenchField {
+                id: annotationEnd
+                Layout.fillWidth: true
+                colors: root.colors
+                placeholderText: "End (s), optional: makes an interval"
+                validator: DoubleValidator { bottom: 0 }
             }
             WorkbenchField {
                 id: annotationNotes
@@ -149,7 +148,9 @@ ApplicationWindow {
                 placeholderText: "Notes"
             }
         }
-        onAccepted: workbench.saveAnnotation(annotationLabel.text, annotationNotes.text, allChannels ? "" : channelName, annotationStart, annotationEnd, annotationId)
+        // an annotation needs a label, so Save waits for one
+        onOpened: standardButton(Dialog.Save).enabled = annotationLabel.text.trim().length > 0
+        onAccepted: workbench.saveAnnotation(annotationLabel.text, annotationNotes.text, allChannels ? "" : channelName, annotationStart, annotationEnd.text.length ? Number(annotationEnd.text) : -1, annotationId)
     }
 
     Connections {
@@ -160,7 +161,7 @@ ApplicationWindow {
         }
         function onAnnotationEditRequested(seconds, channel, label, notes, endSeconds, annotationId, allChannels) {
             annotationDialog.annotationStart = seconds;
-            annotationDialog.annotationEnd = endSeconds;
+            annotationEnd.text = endSeconds > seconds ? endSeconds.toFixed(3) : "";
             annotationDialog.channelName = channel;
             annotationDialog.annotationId = annotationId;
             annotationDialog.allChannels = allChannels;
@@ -243,6 +244,14 @@ ApplicationWindow {
                     font.pixelSize: 11
                     elide: Text.ElideRight
                     Layout.maximumWidth: 260
+                }
+
+                WorkbenchButton {
+                    visible: workbench.cancellable
+                    colors: root.colors
+                    quiet: true
+                    text: "Cancel"
+                    onClicked: workbench.cancelTask()
                 }
 
                 WorkbenchButton {
@@ -340,8 +349,7 @@ ApplicationWindow {
                 controller: workbench
                 colors: root.colors
                 clip: true
-                onExportJsonRequested: exportJsonDialog.open()
-                onExportCsvRequested: exportCsvDialog.open()
+                onExportRequested: exportDialog.open()
                 Behavior on Layout.preferredWidth {
                     NumberAnimation {
                         duration: 170

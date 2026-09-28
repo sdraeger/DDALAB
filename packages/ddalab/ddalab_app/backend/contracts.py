@@ -122,7 +122,8 @@ class BackendClient(ABC):
         username: str,
         password: str,
         app_key: str,
-    ) -> None:
+    ) -> bool:
+        """Store the NSG sign-in; False when it is kept for this session only."""
         raise NotImplementedError
 
     @abstractmethod

@@ -12,9 +12,13 @@ from importlib.metadata import version as package_version
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
+import numpy as np
+
 from ..backend.local import LocalBackendClient, _find_cli_command
+from ..app.integrations.cdr import all_pair_indices
+from ..domain import bids
 from ..domain.file_types import resolve_dataset_path, supports_qt_dataset_path
-from ..domain.models import DdaReproductionConfig, DdaResult
+from ..domain.models import DdaResult
 from ..runtime_paths import RuntimePaths
 from .constants import (
     _DDA_VARIANT_ALIAS_MAP,
@@ -86,8 +90,20 @@ def _run_dda_for_path(
         variant_channel_indices,
         variant_pair_indices,
     )
+    if getattr(args, "bids_good_channels", False):
+        good = bids.good_channels(dataset.file_path)
+        if good is None:
+            raise RuntimeError("--bids-good-channels needs a BIDS channels.tsv file.")
+        selected_indices = [
+            index for index, name in enumerate(dataset.channel_names) if name in good
+        ]
     if not selected_indices:
         raise RuntimeError("No valid channels were selected for DDA.")
+    # CT, DE, and CD default to all pairs of the selected channels
+    variant_pair_indices = {
+        **all_pair_indices(selected_indices, variants),
+        **variant_pair_indices,
+    }
     start_time_seconds, end_time_seconds = _resolve_dda_time_bounds(dataset, args)
     delays = [int(value) for value in getattr(args, "delays", _DEFAULT_DDA_DELAYS)]
     model_terms = [
@@ -121,56 +137,7 @@ def _run_dda_for_path(
         variant_channel_indices=variant_channel_indices or None,
         variant_pair_indices=variant_pair_indices or None,
     )
-    result.reproduction = DdaReproductionConfig(
-        expert_mode=expert_mode,
-        compute_device=compute_device,
-        variant_ids=list(variants),
-        selected_channel_indices=list(selected_indices),
-        selected_channel_names=[
-            dataset.channel_names[index]
-            for index in selected_indices
-            if 0 <= index < len(dataset.channel_names)
-        ],
-        variant_channel_indices={
-            variant_id: list(indices)
-            for variant_id, indices in variant_channel_indices.items()
-        },
-        variant_channel_names={
-            variant_id: [
-                dataset.channel_names[index]
-                for index in indices
-                if 0 <= index < len(dataset.channel_names)
-            ]
-            for variant_id, indices in variant_channel_indices.items()
-        },
-        variant_pair_indices={
-            variant_id: list(pairs)
-            for variant_id, pairs in variant_pair_indices.items()
-        },
-        variant_pair_names={
-            variant_id: [
-                (
-                    dataset.channel_names[left]
-                    if 0 <= left < len(dataset.channel_names)
-                    else str(left),
-                    dataset.channel_names[right]
-                    if 0 <= right < len(dataset.channel_names)
-                    else str(right),
-                )
-                for left, right in pairs
-            ]
-            for variant_id, pairs in variant_pair_indices.items()
-        },
-        window_length_samples=int(getattr(args, "wl", _DEFAULT_DDA_WINDOW_LENGTH)),
-        window_step_samples=int(getattr(args, "ws", _DEFAULT_DDA_WINDOW_STEP)),
-        delays=delays,
-        model_terms=model_terms,
-        model_dimension=model_dimension,
-        polynomial_order=polynomial_order,
-        nr_tau=nr_tau,
-        start_time_seconds=start_time_seconds,
-        end_time_seconds=end_time_seconds,
-    )
+    result.reproduction.expert_mode = expert_mode
     return result
 
 
@@ -200,6 +167,25 @@ def _resolve_dda_time_bounds(
     end_sample = args.end_sample
     full_duration = bool(args.full_duration)
     sample_rate = max(float(dataset.dominant_sample_rate_hz), 1.0)
+
+    event = getattr(args, "around_event", None)
+    if event:
+        if full_duration or {start_seconds, end_seconds, start_sample, end_sample} != {
+            None
+        }:
+            raise RuntimeError(
+                "Use either --around-event or explicit bounds, not both."
+            )
+        onset = bids.event_onset(dataset.file_path, event)
+        if onset is None:
+            raise RuntimeError(f"No BIDS event matches '{event}'.")
+        start, end = onset - float(args.pre), onset + float(args.post)
+        if start < 0.0 or end > dataset.duration_seconds:
+            raise RuntimeError(
+                f"The interval {start:.2f}-{end:.2f} s around '{event}' "
+                "extends beyond the recording."
+            )
+        return start, end
 
     if start_seconds is not None and start_sample is not None:
         raise RuntimeError("Use either --start or --start-sample, not both.")
@@ -265,7 +251,18 @@ def _resolve_batch_input_paths(args: argparse.Namespace) -> list[str]:
         root = Path(args.bids_dir).expanduser()
         if not root.exists():
             raise RuntimeError(f"BIDS directory does not exist: {root}")
-        candidates.extend(str(path) for path in root.rglob("*"))
+        # recordings sit directly in eeg/, ieeg/, or meg/; this skips code/,
+        # derivatives/, sourcedata/, and the files inside .ds or .mff folders
+        skipped = {"code", "derivatives", "sourcedata"}
+        candidates.extend(
+            str(path)
+            for path in root.rglob("*")
+            if path.parent.name in {"eeg", "ieeg", "meg"}
+            and not any(
+                part in skipped or part.startswith(".")
+                for part in path.relative_to(root).parts
+            )
+        )
 
     resolved: list[str] = []
     seen: set[str] = set()
@@ -367,11 +364,11 @@ def _selected_channel_indices(
     if all_channels:
         return list(range(len(dataset.channel_names)))
     if requested_indices:
-        return [
-            int(index)
-            for index in requested_indices
-            if 0 <= int(index) < len(dataset.channel_names)
-        ]
+        count = len(dataset.channel_names)
+        invalid = [index for index in requested_indices if not 0 <= int(index) < count]
+        if invalid:
+            raise RuntimeError(f"--channels {invalid} are outside 0-{count - 1}.")
+        return [int(index) for index in requested_indices]
     if not default_first_n:
         return []
     return list(range(min(8, len(dataset.channel_names))))
@@ -450,13 +447,23 @@ def _parse_variant_pair_args(
         ]
         pairs: list[tuple[int, int]] = []
         for item in items:
-            if ">" in item:
+            # CD pairs are TARGET<SOURCE (SOURCE drives TARGET); ">" is the older
+            # spelling of the same pair, kept so exported commands still parse
+            if "<" in item:
+                left_token, right_token = item.split("<", 1)
+            elif ">" in item:
                 left_token, right_token = item.split(">", 1)
+                if variant_id == "CD":
+                    print(
+                        f"note: CD:{item} means {right_token.strip()} drives {left_token.strip()}; "
+                        f"write {left_token.strip()}<{right_token.strip()} to say so",
+                        file=sys.stderr,
+                    )
             elif "-" in item:
                 left_token, right_token = item.split("-", 1)
             else:
                 raise RuntimeError(
-                    f"Invalid pair '{item}' in --variant-pairs {raw_value}. Use LEFT-RIGHT or LEFT>RIGHT."
+                    f"Invalid pair '{item}' in --variant-pairs {raw_value}. Use LEFT-RIGHT, or TARGET<SOURCE for CD."
                 )
             try:
                 pair = (int(left_token.strip()), int(right_token.strip()))
@@ -477,6 +484,41 @@ def _write_json_file(path: Path, payload: Any, *, compact: bool) -> None:
     else:
         data = json.dumps(_json_ready(payload), indent=2)
     path.write_text(data + ("\n" if not compact else ""), encoding="utf-8")
+
+
+_NPZ_ARRAY_FIELDS = ("matrix", "coefficient_matrices", "fit_error_matrix", "row_labels")
+
+
+def _write_result_file(path: Path, result: DdaResult, *, compact: bool) -> None:
+    """JSON by default; a .npz path stores the per-variant arrays compressed."""
+    if path.suffix != ".npz":
+        _write_json_file(path, result, compact=compact)
+        return
+    payload = _json_ready(result)
+    arrays = {"window_centers_seconds": np.asarray(payload.pop("window_centers_seconds"))}
+    for variant in payload["variants"]:
+        for field in _NPZ_ARRAY_FIELDS:
+            values = variant.pop(field, None)
+            if values:
+                dtype = str if field == "row_labels" else float
+                arrays[f"{variant['id']}_{field}"] = np.asarray(values, dtype=dtype)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(path, metadata=json.dumps(payload), **arrays)
+
+
+def _read_result_file(path: Path) -> dict:
+    """The JSON payload of a result written by _write_result_file."""
+    if path.suffix != ".npz":
+        return json.loads(path.read_text())
+    with np.load(path) as stored:
+        payload = json.loads(str(stored["metadata"]))
+        payload["window_centers_seconds"] = stored["window_centers_seconds"].tolist()
+        for variant in payload["variants"]:
+            for field in _NPZ_ARRAY_FIELDS:
+                key = f"{variant['id']}_{field}"
+                if key in stored:
+                    variant[field] = stored[key].tolist()
+    return payload
 
 
 def _print_json(payload: Any, *, compact: bool = False) -> None:
