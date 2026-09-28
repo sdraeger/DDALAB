@@ -111,7 +111,6 @@ CLAUDE.md
 data/
 !packages/ddalab-tauri/src/data/
 paper/
-nsg_wrapper/
 website/
 packages/dda-cli/target/
 
