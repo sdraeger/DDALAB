@@ -13,6 +13,7 @@ from .commands import (
     _handle_gui,
     _handle_health,
     _handle_ica_run,
+    _handle_mcp,
     _handle_waveform_overview,
     _handle_waveform_window,
 )
@@ -41,6 +42,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     gui_parser.add_argument("--smoke-test", action="store_true")
     gui_parser.set_defaults(handler=_handle_gui)
+
+    mcp_parser = subparsers.add_parser(
+        "mcp",
+        help="Serve DDALAB to AI agents over the Model Context Protocol (stdio)",
+    )
+    mcp_parser.set_defaults(handler=_handle_mcp)
 
     health_parser = subparsers.add_parser("health", help="Inspect the local backend")
     health_parser.add_argument("--json", action="store_true")

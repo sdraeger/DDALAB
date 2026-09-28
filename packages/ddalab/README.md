@@ -56,6 +56,21 @@ systems with an NVIDIA driver and cuBLAS runtime; `cuda:N` selects a specific
 GPU. Analyses that use Rust-only CCD extensions continue those extension
 computations on the CPU.
 
+## AI Agents (MCP)
+
+`ddalab mcp` serves DDALAB over the Model Context Protocol on stdio, so an agent
+such as Claude Code can open recordings, run DDA, and read results:
+
+```bash
+claude mcp add ddalab -- ddalab mcp
+```
+
+The tools are `dataset_info`, `dda_info`, `dda_run`, `dda_result`, and
+`dda_history`. `dda_run` saves the full result as JSON and returns a summary;
+`dda_result` returns time-binned values for chosen rows, so large matrices do not
+fill the agent's context. `dda_history` lists the results saved by the desktop app,
+and their IDs work in `dda_result`.
+
 ## Python DDA Estimators
 
 The bundled Python backend includes scalar estimators for derivative-form and
