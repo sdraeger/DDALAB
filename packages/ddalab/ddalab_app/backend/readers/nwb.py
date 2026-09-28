@@ -77,7 +77,9 @@ class NwbDatasetReader(PythonDatasetReader):
             source_summary="ElectricalSeries loaded locally from the NWB container.",
             notes=[f"Series: {getattr(self.series, 'name', 'ElectricalSeries')}"]
             + (
-                [f"Times are relative to the series start ({starting_time} s in the file)."]
+                [
+                    f"Times are relative to the series start ({starting_time} s in the file)."
+                ]
                 if (starting_time := getattr(self.series, "starting_time", None))
                 else []
             ),

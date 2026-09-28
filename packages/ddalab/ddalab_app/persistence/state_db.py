@@ -814,9 +814,7 @@ class StateDatabase:
                 fit_error_matrix=[
                     [float(value) for value in row]
                     for row in (
-                        item.get("fit_error_matrix")
-                        or item.get("fitErrorMatrix")
-                        or []
+                        item.get("fit_error_matrix") or item.get("fitErrorMatrix") or []
                     )
                     if isinstance(row, list)
                 ],

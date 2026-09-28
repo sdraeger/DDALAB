@@ -15,7 +15,9 @@ from ddalab_app.cli.runtime import (
 )
 from ddalab_app.domain.models import DdaResult
 
-ENGINE = Path(__file__).resolve().parents[2] / "dda-rs" / "target" / "release" / "ddalab"
+ENGINE = (
+    Path(__file__).resolve().parents[2] / "dda-rs" / "target" / "release" / "ddalab"
+)
 
 
 class CliToolsTest(unittest.TestCase):
@@ -44,7 +46,10 @@ class CliToolsTest(unittest.TestCase):
                         "label": "Single timeseries",
                         "row_labels": ["C3", "C4"],
                         "matrix": [[1.0, 2.0], [3.0, 4.0]],
-                        "coefficient_matrices": [[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]],
+                        "coefficient_matrices": [
+                            [[1.0, 2.0], [3.0, 4.0]],
+                            [[5.0, 6.0], [7.0, 8.0]],
+                        ],
                         "summary": "",
                     }
                 ],
@@ -56,9 +61,14 @@ class CliToolsTest(unittest.TestCase):
             with np.load(path) as stored:
                 self.assertEqual(stored["ST_matrix"].tolist(), [[1.0, 2.0], [3.0, 4.0]])
                 self.assertEqual(stored["ST_row_labels"].tolist(), ["C3", "C4"])
-                self.assertEqual(json.loads(str(stored["metadata"]))["file_name"], "a.edf")
+                self.assertEqual(
+                    json.loads(str(stored["metadata"]))["file_name"], "a.edf"
+                )
             restored = _read_result_file(path)
-            self.assertEqual(restored["variants"][0]["coefficient_matrices"][1], [[5.0, 6.0], [7.0, 8.0]])
+            self.assertEqual(
+                restored["variants"][0]["coefficient_matrices"][1],
+                [[5.0, 6.0], [7.0, 8.0]],
+            )
             self.assertEqual(restored["window_centers_seconds"], [0.5, 1.5])
 
     def test_bids_batch_takes_only_recordings(self) -> None:
@@ -91,12 +101,35 @@ class CliToolsTest(unittest.TestCase):
             path, output = Path(tmp) / "inf.ascii", Path(tmp) / "cd.json"
             np.savetxt(path, samples)
             subprocess.run(
-                [sys.executable, "-m", "ddalab_app", "dda", "run", str(path), "--channels", "0", "1",
-                 "--variants", "CD", "--variant-pairs", "CD:0<1", "--wl", "1000", "--ws", "200",
-                 "--compact", "--output", str(output)],
-                check=True, capture_output=True, timeout=60,
+                [
+                    sys.executable,
+                    "-m",
+                    "ddalab_app",
+                    "dda",
+                    "run",
+                    str(path),
+                    "--channels",
+                    "0",
+                    "1",
+                    "--variants",
+                    "CD",
+                    "--variant-pairs",
+                    "CD:0<1",
+                    "--wl",
+                    "1000",
+                    "--ws",
+                    "200",
+                    "--compact",
+                    "--output",
+                    str(output),
+                ],
+                check=True,
+                capture_output=True,
+                timeout=60,
             )
-            self.assertEqual(len(json.loads(output.read_text())["variants"][0]["matrix"]), 1)
+            self.assertEqual(
+                len(json.loads(output.read_text())["variants"][0]["matrix"]), 1
+            )
 
 
 if __name__ == "__main__":

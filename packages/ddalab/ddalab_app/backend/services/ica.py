@@ -67,9 +67,13 @@ def _run_local_ica(
     )
     # FastICA centers whenever it whitens and keeps every channel without whitening
     if whitening and not centering:
-        raise RuntimeError("Whitening always centers the data; drop --no-centering or add --no-whitening.")
+        raise RuntimeError(
+            "Whitening always centers the data; drop --no-centering or add --no-whitening."
+        )
     if not whitening and n_components and int(n_components) != len(window.channels):
-        raise RuntimeError("Without whitening ICA keeps one component per channel; drop --n-components.")
+        raise RuntimeError(
+            "Without whitening ICA keeps one component per channel; drop --n-components."
+        )
     if centering:
         matrix = matrix - matrix.mean(axis=1, keepdims=True)
 

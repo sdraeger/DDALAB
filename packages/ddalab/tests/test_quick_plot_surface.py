@@ -59,7 +59,9 @@ class _RecordingMatrixRenderer:
     ) -> MatrixRenderArtifacts:
         self.calls += 1
         self.color_schemes.append(color_scheme)
-        return QtCpuMatrixPlotRenderer().render(view, color_scheme=color_scheme, lines=lines)
+        return QtCpuMatrixPlotRenderer().render(
+            view, color_scheme=color_scheme, lines=lines
+        )
 
 
 class QuickPlotSurfaceTests(unittest.TestCase):

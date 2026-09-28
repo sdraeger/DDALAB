@@ -182,7 +182,11 @@ def _map_cli_result(
             note = (
                 f"{variant_id}: {failed} of {sum(map(len, matrix))} windows have no value "
                 "(too many missing or constant samples, or no solution); plots leave them blank"
-                + (f". No values at all for {', '.join(dict.fromkeys(empty_rows))}" if empty_rows else "")
+                + (
+                    f". No values at all for {', '.join(dict.fromkeys(empty_rows))}"
+                    if empty_rows
+                    else ""
+                )
                 + "."
             )
             if note not in diagnostics:

@@ -495,7 +495,9 @@ def _write_result_file(path: Path, result: DdaResult, *, compact: bool) -> None:
         _write_json_file(path, result, compact=compact)
         return
     payload = _json_ready(result)
-    arrays = {"window_centers_seconds": np.asarray(payload.pop("window_centers_seconds"))}
+    arrays = {
+        "window_centers_seconds": np.asarray(payload.pop("window_centers_seconds"))
+    }
     for variant in payload["variants"]:
         for field in _NPZ_ARRAY_FIELDS:
             values = variant.pop(field, None)

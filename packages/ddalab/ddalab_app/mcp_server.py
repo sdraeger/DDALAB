@@ -47,7 +47,9 @@ def _cli(*args: str) -> Any:
         stdin=subprocess.DEVNULL,  # the child must not read the protocol stream
     )
     if proc.returncode != 0:
-        raise RuntimeError(proc.stderr.strip() or f"ddalab exited with {proc.returncode}")
+        raise RuntimeError(
+            proc.stderr.strip() or f"ddalab exited with {proc.returncode}"
+        )
     return json.loads(proc.stdout) if proc.stdout.strip() else None
 
 
@@ -89,13 +91,27 @@ def dda_run(
     device: Optional[str] = None,
     output: Optional[str] = None,
 ) -> dict:
-    out = Path(output).expanduser() if output else RESULTS_DIR / f"{Path(file).stem}-{uuid.uuid4().hex[:8]}.json"
+    out = (
+        Path(output).expanduser()
+        if output
+        else RESULTS_DIR / f"{Path(file).stem}-{uuid.uuid4().hex[:8]}.json"
+    )
     args = ["dda", "run", "--file", file, "--output", str(out), "--compact"]
     args += ["--channels", *map(str, channels)] if channels else ["--all-channels"]
-    for flag, value in (("--start", start), ("--end", end), ("--wl", wl), ("--ws", ws), ("--device", device)):
+    for flag, value in (
+        ("--start", start),
+        ("--end", end),
+        ("--wl", wl),
+        ("--ws", ws),
+        ("--device", device),
+    ):
         if value is not None:
             args += [flag, str(value)]
-    for flag, values in (("--variants", variants), ("--delays", delays), ("--model", model)):
+    for flag, values in (
+        ("--variants", variants),
+        ("--delays", delays),
+        ("--model", model),
+    ):
         if values:
             args += [flag, *map(str, values)]
     for pair in variant_pairs:
@@ -112,7 +128,11 @@ def dda_run(
         "windows": len(centers),
         "window_centers_seconds": [centers[0], centers[-1]] if centers else [],
         "variants": [
-            {"id": v["id"], "rows": len(v["row_labels"]), "row_labels": v["row_labels"][:MAX_ROWS]}
+            {
+                "id": v["id"],
+                "rows": len(v["row_labels"]),
+                "row_labels": v["row_labels"][:MAX_ROWS],
+            }
             for v in result["variants"]
         ],
         "diagnostics": result["diagnostics"],
@@ -132,7 +152,11 @@ def dda_result(
     ids = [v["id"] for v in data["variants"]]
     v = data["variants"][ids.index(variant) if variant else 0]
     labels = v["row_labels"]
-    keep = [labels.index(r) for r in rows] if rows else list(range(min(len(labels), MAX_ROWS)))
+    keep = (
+        [labels.index(r) for r in rows]
+        if rows
+        else list(range(min(len(labels), MAX_ROWS)))
+    )
     t = np.asarray(data["window_centers_seconds"], float)
     lo = -np.inf if start is None else start
     hi = np.inf if end is None else end
@@ -175,7 +199,9 @@ TOOLS = {
     "dataset_info": (
         dataset_info,
         "Open a recording (EDF, BrainVision, BIDS, CSV, ASCII, and more) and return its channels, sampling rate, and duration.",
-        _schema({"file": {"type": "string", "description": "Path to the recording"}}, "file"),
+        _schema(
+            {"file": {"type": "string", "description": "Path to the recording"}}, "file"
+        ),
     ),
     "dda_run": (
         dda_run,
@@ -184,19 +210,31 @@ TOOLS = {
         "or full_duration is given. Window length, step, and delays are in samples.",
         _schema(
             {
-            "file": {"type": "string", "description": "Path to the recording"},
-            "variants": _array("string", "ST, CT, CD, DE, or SY; default ST"),
-            "channels": _array("integer", "0-based channel indices from dataset_info"),
-            "start": {"type": "number", "description": "Start time in seconds"},
-            "end": {"type": "number", "description": "End time in seconds"},
-            "full_duration": {"type": "boolean"},
-            "wl": {"type": "integer", "description": "Window length in samples"},
-            "ws": {"type": "integer", "description": "Window step in samples"},
-            "delays": _array("integer", "Delays in samples"),
-            "model": _array("integer", "MODEL term indices, for example [1, 2, 10]"),
-            "variant_pairs": _array("string", "Channel pairs for CT or CD, for example ['CT:0-1,0-2']"),
-            "device": {"type": "string", "description": "cpu (default), cuda, or cuda:N"},
-            "output": {"type": "string", "description": "Where to save the result JSON; default is a temporary file"},
+                "file": {"type": "string", "description": "Path to the recording"},
+                "variants": _array("string", "ST, CT, CD, DE, or SY; default ST"),
+                "channels": _array(
+                    "integer", "0-based channel indices from dataset_info"
+                ),
+                "start": {"type": "number", "description": "Start time in seconds"},
+                "end": {"type": "number", "description": "End time in seconds"},
+                "full_duration": {"type": "boolean"},
+                "wl": {"type": "integer", "description": "Window length in samples"},
+                "ws": {"type": "integer", "description": "Window step in samples"},
+                "delays": _array("integer", "Delays in samples"),
+                "model": _array(
+                    "integer", "MODEL term indices, for example [1, 2, 10]"
+                ),
+                "variant_pairs": _array(
+                    "string", "Channel pairs for CT or CD, for example ['CT:0-1,0-2']"
+                ),
+                "device": {
+                    "type": "string",
+                    "description": "cpu (default), cuda, or cuda:N",
+                },
+                "output": {
+                    "type": "string",
+                    "description": "Where to save the result JSON; default is a temporary file",
+                },
             },
             "file",
         ),
@@ -208,12 +246,15 @@ TOOLS = {
         "averaged into at most max_windows time bins.",
         _schema(
             {
-            "result": {"type": "string", "description": "Result JSON path from dda_run, or an ID from dda_history"},
-            "variant": {"type": "string"},
-            "rows": _array("string", "Row labels, such as channel names"),
-            "start": {"type": "number"},
-            "end": {"type": "number"},
-            "max_windows": {"type": "integer", "description": "Default 100"},
+                "result": {
+                    "type": "string",
+                    "description": "Result JSON path from dda_run, or an ID from dda_history",
+                },
+                "variant": {"type": "string"},
+                "rows": _array("string", "Row labels, such as channel names"),
+                "start": {"type": "number"},
+                "end": {"type": "number"},
+                "max_windows": {"type": "integer", "description": "Default 100"},
             },
             "result",
         ),
@@ -223,7 +264,10 @@ TOOLS = {
         "List DDA results saved by the DDALAB desktop app, newest first.",
         _schema(
             {
-                "file": {"type": "string", "description": "Only results for this recording"},
+                "file": {
+                    "type": "string",
+                    "description": "Only results for this recording",
+                },
                 "limit": {"type": "integer", "description": "Default 20"},
             }
         ),
@@ -240,7 +284,9 @@ def _call(params: dict) -> dict:
         value = TOOLS[params["name"]][0](**(params.get("arguments") or {}))
     except Exception as exc:
         return {"content": [{"type": "text", "text": str(exc)}], "isError": True}
-    return {"content": [{"type": "text", "text": json.dumps(value, separators=(",", ":"))}]}
+    return {
+        "content": [{"type": "text", "text": json.dumps(value, separators=(",", ":"))}]
+    }
 
 
 def handle(msg: Any) -> Optional[dict]:
@@ -253,7 +299,9 @@ def handle(msg: Any) -> Optional[dict]:
     if method == "initialize":
         asked = params.get("protocolVersion")
         result = {
-            "protocolVersion": asked if asked in PROTOCOL_VERSIONS else PROTOCOL_VERSIONS[0],
+            "protocolVersion": asked
+            if asked in PROTOCOL_VERSIONS
+            else PROTOCOL_VERSIONS[0],
             "capabilities": {"tools": {}},
             "serverInfo": {"name": "ddalab", "version": get_app_version()},
             "instructions": INSTRUCTIONS,

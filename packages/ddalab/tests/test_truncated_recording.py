@@ -85,7 +85,15 @@ class TruncatedRecordingTest(unittest.TestCase):
         region = nwb.create_electrode_table_region([1, 3], "recorded")
         data = np.arange(20, dtype=np.int16).reshape(10, 2)
         nwb.add_acquisition(
-            ElectricalSeries("es", data, region, rate=100.0, conversion=2.0, offset=0.5, starting_time=10.0)
+            ElectricalSeries(
+                "es",
+                data,
+                region,
+                rate=100.0,
+                conversion=2.0,
+                offset=0.5,
+                starting_time=10.0,
+            )
         )
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "probe.nwb"
@@ -96,7 +104,9 @@ class TruncatedRecordingTest(unittest.TestCase):
             window = reader.load_waveform_window(0.0, 0.1, meta.channel_names)
             reader.close()
         self.assertEqual(meta.channel_names, ["Electrode 1", "Electrode 3"])
-        self.assertEqual(window.channels[1].samples[:2].tolist(), [2 * 1 + 0.5, 2 * 3 + 0.5])
+        self.assertEqual(
+            window.channels[1].samples[:2].tolist(), [2 * 1 + 0.5, 2 * 3 + 0.5]
+        )
         self.assertTrue(any("10.0 s" in note for note in meta.notes))
 
     def test_truncated_or_drifting_brainvision_file_is_reported(self) -> None:

@@ -128,7 +128,9 @@ def lineplot_qimage(
     return _spans_qimage(
         (
             (
-                column_spans(1.0 - np.clip((row - low) / max(high - low, 1e-6), 0.0, 1.0), width),
+                column_spans(
+                    1.0 - np.clip((row - low) / max(high - low, 1e-6), 0.0, 1.0), width
+                ),
                 LINE_PLOT_COLORS[index % len(LINE_PLOT_COLORS)],
             )
             for index, row in enumerate(rows)

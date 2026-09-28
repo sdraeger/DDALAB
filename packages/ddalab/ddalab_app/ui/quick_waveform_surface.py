@@ -156,7 +156,9 @@ class QuickWaveformSurfaceBridge(QObject):
         )
         self.changed.emit()
 
-    def set_pixel_size(self, width: float, height: float, device_pixel_ratio: float) -> None:
+    def set_pixel_size(
+        self, width: float, height: float, device_pixel_ratio: float
+    ) -> None:
         size = (round(width * device_pixel_ratio), round(height * device_pixel_ratio))
         if size == self._pixel_size or min(size) <= 0:
             return

@@ -169,7 +169,9 @@ class DelimitedDatasetReader(PythonDatasetReader):
         # Every numeric line is one sample. Empty or non-numeric cells become NaN
         # gaps and rows are padded to the usual width, so no sample is dropped and
         # the time axis stays intact.
-        parsed = [[_safe_float(token) for token in splitter(line)] for line in data_lines]
+        parsed = [
+            [_safe_float(token) for token in splitter(line)] for line in data_lines
+        ]
         rows = [row for row in parsed if any(value is not None for value in row)]
         if not rows:
             raise PythonDatasetReaderError(
@@ -178,7 +180,9 @@ class DelimitedDatasetReader(PythonDatasetReader):
         column_count = Counter(len(row) for row in rows).most_common(1)[0][0]
         data = np.full((len(rows), column_count), np.nan)
         for index, row in enumerate(rows):
-            values = [np.nan if value is None else value for value in row[:column_count]]
+            values = [
+                np.nan if value is None else value for value in row[:column_count]
+            ]
             data[index, : len(values)] = values
         warnings = []
         if len(rows) < len(parsed):
@@ -190,13 +194,17 @@ class DelimitedDatasetReader(PythonDatasetReader):
             )
         gaps = int(np.isnan(data).sum())
         if gaps:
-            warnings.append(f"{gaps} empty or non-numeric cells are treated as gaps (NaN).")
+            warnings.append(
+                f"{gaps} empty or non-numeric cells are treated as gaps (NaN)."
+            )
         effective_header = (
             header[:column_count]
             if header and len(header) >= column_count
             else [f"Channel {index + 1}" for index in range(column_count)]
         )
-        has_explicit_time = bool(effective_header) and _is_time_header(effective_header[0])
+        has_explicit_time = bool(effective_header) and _is_time_header(
+            effective_header[0]
+        )
         start_column = 1 if has_explicit_time else 0
         channel_names = _unique_names(
             [
@@ -214,7 +222,9 @@ class DelimitedDatasetReader(PythonDatasetReader):
         sample_rate = _estimate_sample_rate(
             timestamps.tolist() if timestamps is not None else list(range(len(rows)))
         )
-        finite_times = timestamps[np.isfinite(timestamps)] if timestamps is not None else None
+        finite_times = (
+            timestamps[np.isfinite(timestamps)] if timestamps is not None else None
+        )
         duration_seconds = (
             max(float(finite_times[-1] - finite_times[0]), 0.0)
             if finite_times is not None and finite_times.size > 1
