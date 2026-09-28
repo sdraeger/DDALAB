@@ -133,7 +133,9 @@ def _normalize_variant_pair_indices(
 ) -> Dict[str, List[tuple[int, int]]]:
     normalized: Dict[str, List[tuple[int, int]]] = {}
     provided_map = variant_pair_indices or {}
-    unsupported = sorted(v for v in provided_map if provided_map[v] and v not in {"CT", "CD", "DE"})
+    unsupported = sorted(
+        v for v in provided_map if provided_map[v] and v not in {"CT", "CD", "DE"}
+    )
     if unsupported:
         raise _DdaInputValidationError(
             f"Pairs can be set for CT, DE, and CD only, not {', '.join(unsupported)}; "

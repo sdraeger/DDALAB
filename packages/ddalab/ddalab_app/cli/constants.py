@@ -35,13 +35,48 @@ _DDA_VARIANT_SPECS = [
     *(
         {"id": variant_id, "app_id": app_id, "label": label, "description": description}
         for variant_id, app_id, label, description in (
-            ("CCD", "conditional_cross_dynamical", "Conditional Cross Dynamical", "CD conditioned on the other selected channels."),
-            ("CCDLOG", "conditional_cross_dynamical_log_mse_ratio", "Conditional CD (log MSE ratio)", "Log ratio of conditional fit errors."),
-            ("CCDPR2", "conditional_cross_dynamical_partial_r2", "Conditional CD (partial R2)", "Partial R2 of the source given the conditioning set."),
-            ("CCDSIG", "conditional_cross_dynamical_significance", "Conditional CD (significance)", "Surrogate significance of conditional CD."),
-            ("CCDSTAB", "conditional_cross_dynamical_stability", "Conditional CD (stability)", "Stability of conditional CD under perturbation."),
-            ("TRCCD", "temporally_regularized_conditional_cross_dynamical", "Temporally regularized CCD", "Conditional CD smoothed across windows."),
-            ("MVCCD", "multivariate_conditional_cross_dynamical", "Multivariate CCD", "Conditional CD with several active sources."),
+            (
+                "CCD",
+                "conditional_cross_dynamical",
+                "Conditional Cross Dynamical",
+                "CD conditioned on the other selected channels.",
+            ),
+            (
+                "CCDLOG",
+                "conditional_cross_dynamical_log_mse_ratio",
+                "Conditional CD (log MSE ratio)",
+                "Log ratio of conditional fit errors.",
+            ),
+            (
+                "CCDPR2",
+                "conditional_cross_dynamical_partial_r2",
+                "Conditional CD (partial R2)",
+                "Partial R2 of the source given the conditioning set.",
+            ),
+            (
+                "CCDSIG",
+                "conditional_cross_dynamical_significance",
+                "Conditional CD (significance)",
+                "Surrogate significance of conditional CD.",
+            ),
+            (
+                "CCDSTAB",
+                "conditional_cross_dynamical_stability",
+                "Conditional CD (stability)",
+                "Stability of conditional CD under perturbation.",
+            ),
+            (
+                "TRCCD",
+                "temporally_regularized_conditional_cross_dynamical",
+                "Temporally regularized CCD",
+                "Conditional CD smoothed across windows.",
+            ),
+            (
+                "MVCCD",
+                "multivariate_conditional_cross_dynamical",
+                "Multivariate CCD",
+                "Conditional CD with several active sources.",
+            ),
         )
     ),
 ]

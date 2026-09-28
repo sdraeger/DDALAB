@@ -19,7 +19,6 @@ from ddalab_app.domain.models import (
     WaveformWindow,
 )
 from ddalab_app.ui.plot_data import (
-    WAVEFORM_LINE_COLOR,
     DdaVariantPlotProvider,
     MatrixTileCache,
     MatrixViewRequest,
@@ -30,7 +29,11 @@ from ddalab_app.ui.plot_data import (
     heatmap_rgba,
     variant_plot_bounds,
 )
-from ddalab_app.ui.qt_plot_renderer import heatmap_qimage, lineplot_qimage, waveform_qimage
+from ddalab_app.ui.qt_plot_renderer import (
+    heatmap_qimage,
+    lineplot_qimage,
+    waveform_qimage,
+)
 
 
 def _variant(matrix: list[list[float]], *, min_value=0.0, max_value=1.0):
@@ -355,7 +358,8 @@ class PlotDataTests(unittest.TestCase):
 
         self.assertEqual((image.width(), image.height()), (120, 80))
         painted = [
-            sum(image.pixelColor(x, y).alpha() > 0 for y in range(80)) for x in range(120)
+            sum(image.pixelColor(x, y).alpha() > 0 for y in range(80))
+            for x in range(120)
         ]
         self.assertGreater(painted[60], 40)  # the spike column spans most of the height
         self.assertLess(max(painted[:55] + painted[65:]), 5)
@@ -439,7 +443,9 @@ class PlotDataTests(unittest.TestCase):
 
         self.assertNotEqual(full, zoomed)
 
-    def test_waveform_render_key_matches_a_reload_and_tracks_the_pixel_size(self) -> None:
+    def test_waveform_render_key_matches_a_reload_and_tracks_the_pixel_size(
+        self,
+    ) -> None:
         def key(**request) -> tuple:
             window = _waveform_window([_channel([float(v) for v in range(1000)])])
             return WaveformWindowPlotProvider(window).render_key(
@@ -451,7 +457,9 @@ class PlotDataTests(unittest.TestCase):
 
     def test_waveform_columns_keep_every_spike_step_and_gap(self) -> None:
         samples = np.zeros(360_000, dtype=np.float32)
-        spikes = np.random.default_rng(0).choice(np.arange(1_000, 150_000), 40, replace=False)
+        spikes = np.random.default_rng(0).choice(
+            np.arange(1_000, 150_000), 40, replace=False
+        )
         samples[spikes] = 4.0
         samples[200_000:] = 1.0
         samples[300_000:330_000] = np.nan

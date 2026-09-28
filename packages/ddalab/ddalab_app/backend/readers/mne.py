@@ -37,7 +37,11 @@ class MneDatasetReader(PythonDatasetReader):
         self._mne = mne
         try:
             # read_raw dispatches on the extension and knows only ".fif"
-            read = mne.io.read_raw_fif if self.path.lower().endswith(".fiff") else mne.io.read_raw
+            read = (
+                mne.io.read_raw_fif
+                if self.path.lower().endswith(".fiff")
+                else mne.io.read_raw
+            )
             self.raw = read(self.path, preload=False, verbose="ERROR")
         except Exception as exc:
             raise PythonDatasetReaderError(

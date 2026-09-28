@@ -223,7 +223,9 @@ class NsgCredentialsStore:
         if legacy.exists():
             try:
                 old = json.loads(legacy.read_text(encoding="utf-8"))
-                self.save(str(old["username"]), str(old["password"]), str(old["app_key"]))
+                self.save(
+                    str(old["username"]), str(old["password"]), str(old["app_key"])
+                )
             except (OSError, ValueError, TypeError, KeyError):
                 pass
             legacy.unlink(missing_ok=True)

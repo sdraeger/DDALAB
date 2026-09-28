@@ -9,7 +9,6 @@ import numpy as np
 from ..app.runtime.perf_logging import perf_logger
 from ..domain.models import DdaVariantResult
 from .plot_data_common import (
-    LINE_PLOT_COLORS,
     _clamp_view_window,
     _sample_window_bounds,
 )
@@ -93,8 +92,6 @@ MatrixViewRenderKey = tuple[
 ]
 
 
-
-
 @dataclass(frozen=True)
 class DdaVariantPlotProvider:
     variant: DdaVariantResult
@@ -138,7 +135,9 @@ def build_matrix_view(
     labels = list(variant.row_labels)
     total_rows = matrix.shape[0]
     start_row = max(0, min(total_rows, int(row_start)))
-    requested_row_count = total_rows - start_row if row_count is None else int(row_count)
+    requested_row_count = (
+        total_rows - start_row if row_count is None else int(row_count)
+    )
     visible_row_count = max(0, min(total_rows - start_row, requested_row_count))
     if max_rows is not None:
         visible_row_count = min(visible_row_count, max(0, int(max_rows)))
@@ -149,7 +148,9 @@ def build_matrix_view(
         start_fraction=start_fraction,
         span_fraction=span_fraction,
     )
-    block = matrix[start_row : start_row + visible_row_count, source_column_start:source_column_end]
+    block = matrix[
+        start_row : start_row + visible_row_count, source_column_start:source_column_end
+    ]
     selected_labels = labels[start_row : start_row + visible_row_count]
     if block.size == 0:
         return MatrixView(
@@ -226,7 +227,9 @@ def _variant_array(variant: DdaVariantResult) -> np.ndarray:
     if cached is not None and cached[0] is variant.matrix:
         return cached[1]
     rows = variant.matrix or []
-    array = np.full((len(rows), max(map(len, rows), default=0)), np.nan, dtype=np.float32)
+    array = np.full(
+        (len(rows), max(map(len, rows), default=0)), np.nan, dtype=np.float32
+    )
     for index, row in enumerate(rows):
         array[index, : len(row)] = row
     setattr(variant, "_plot_array", (variant.matrix, array))
@@ -262,7 +265,6 @@ def matrix_tile_key(
         None if request.max_rows is None else max(0, int(request.max_rows)),
         request.target_rows,
     )
-
 
 
 def matrix_view_render_key(view: MatrixView, color_scheme: str) -> MatrixViewRenderKey:
@@ -315,4 +317,3 @@ def _log_slow_matrix_view_build(
         startFraction=request.start_fraction,
         spanFraction=request.span_fraction,
     )
-

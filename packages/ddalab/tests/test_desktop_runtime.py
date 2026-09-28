@@ -203,7 +203,9 @@ class BackendApiTests(unittest.TestCase):
         )
         self.assertEqual(restored.variants[0].fit_error_matrix, [[0.1, 0.2]])
 
-    def test_sidecar_result_names_placeholder_rows_and_centers_fitted_span(self) -> None:
+    def test_sidecar_result_names_placeholder_rows_and_centers_fitted_span(
+        self,
+    ) -> None:
         from ddalab_app.app.integrations.cdr import _CD_PAIR_PATTERN, _indexed_rows
 
         dataset = LoadedDataset(
@@ -228,8 +230,16 @@ class BackendApiTests(unittest.TestCase):
             variant_pair_indices=None,
             parsed={
                 "variant_results": [
-                    {"variant_id": "ST", "q_matrix": [[1.0], [2.0]], "channel_labels": ["Ch 0", "Ch 1"]},
-                    {"variant_id": "CD", "q_matrix": [[3.0]], "channel_labels": ["Ch 1 <- Ch 0"]},
+                    {
+                        "variant_id": "ST",
+                        "q_matrix": [[1.0], [2.0]],
+                        "channel_labels": ["Ch 0", "Ch 1"],
+                    },
+                    {
+                        "variant_id": "CD",
+                        "q_matrix": [[3.0]],
+                        "channel_labels": ["Ch 1 <- Ch 0"],
+                    },
                 ]
             },
             diagnostics=[],
@@ -242,7 +252,9 @@ class BackendApiTests(unittest.TestCase):
 
         self.assertEqual(result.variants[0].row_labels, ["Channel 1", "Channel 2"])
         self.assertEqual(result.variants[1].row_labels, ["Channel 2 <- Channel 1"])
-        self.assertEqual(_indexed_rows(result.variants[1], _CD_PAIR_PATTERN, 1), [((1, 0), [3.0])])
+        self.assertEqual(
+            _indexed_rows(result.variants[1], _CD_PAIR_PATTERN, 1), [((1, 0), [3.0])]
+        )
         # the engine fits samples dm + max(delay) = 14 samples into each window
         self.assertAlmostEqual(result.window_centers_seconds[0], (14 + 50) / 100.0)
 
@@ -420,12 +432,15 @@ class _MemoryKeyring:
 
 class LocalNsgTests(unittest.TestCase):
     def test_credentials_live_in_the_keychain_and_never_on_disk(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir, patch.object(
-            nsg_service, "keyring", _MemoryKeyring()
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch.object(nsg_service, "keyring", _MemoryKeyring()),
         ):
             root = Path(tmpdir)
             legacy = root / "nsg_credentials.json"
-            legacy.write_text(json.dumps({"username": "bob", "password": "p", "app_key": "k"}))
+            legacy.write_text(
+                json.dumps({"username": "bob", "password": "p", "app_key": "k"})
+            )
             self.assertEqual(NsgCredentialsStore(root).status().username, "bob")
             self.assertFalse(legacy.exists())
 
@@ -442,8 +457,9 @@ class LocalNsgTests(unittest.TestCase):
         broken = Mock()
         for name in ("set_password", "get_password", "delete_password"):
             getattr(broken, name).side_effect = RuntimeError("no keyring backend")
-        with tempfile.TemporaryDirectory() as tmpdir, patch.object(
-            nsg_service, "keyring", broken
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch.object(nsg_service, "keyring", broken),
         ):
             root = Path(tmpdir)
             store = NsgCredentialsStore(root)
@@ -707,8 +723,12 @@ class UpdateManagerTests(unittest.TestCase):
                 yield payload
 
         def update(sha256: str) -> AvailableUpdate:
-            asset = ReleaseAsset("DDALAB.zip", "https://example.invalid/a", len(payload), sha256)
-            return AvailableUpdate("1.0.0", "1.0.1", "v1.0.1", "DDALAB 1.0.1", "", None, asset)
+            asset = ReleaseAsset(
+                "DDALAB.zip", "https://example.invalid/a", len(payload), sha256
+            )
+            return AvailableUpdate(
+                "1.0.0", "1.0.1", "v1.0.1", "DDALAB 1.0.1", "", None, asset
+            )
 
         runtime_paths = RuntimePaths(
             package_root=Path("/tmp/package"),

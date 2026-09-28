@@ -311,8 +311,12 @@ class QmlWorkbenchTests(unittest.TestCase):
             offline = requests.ConnectionError("Temporary failure in name resolution")
             with (
                 patch.object(controller._tasks, "submit", side_effect=run_inline),
-                patch.object(controller.update_manager, "supports_updates", return_value=True),
-                patch.object(controller.update_manager, "check_for_updates", side_effect=offline),
+                patch.object(
+                    controller.update_manager, "supports_updates", return_value=True
+                ),
+                patch.object(
+                    controller.update_manager, "check_for_updates", side_effect=offline
+                ),
             ):
                 controller._check_for_updates(quiet=True)
                 self.assertEqual(errors, [])
@@ -946,7 +950,9 @@ class QmlWorkbenchTests(unittest.TestCase):
 
         self.assertIsNotNone(summary)
         assert summary is not None
-        self.assertTrue(summary.diagnostics[0].startswith("Conditions: no noise, 20 dB, 19 dB"))
+        self.assertTrue(
+            summary.diagnostics[0].startswith("Conditions: no noise, 20 dB, 19 dB")
+        )
         self.assertEqual(summary.engine_label, "CDR batch aggregate")
         self.assertEqual(summary.variants[0].label, "Cross dynamical")
         self.assertEqual(summary.variants[0].matrix[0][:2], [2.0, 4.0])
@@ -1056,7 +1062,9 @@ class QmlWorkbenchTests(unittest.TestCase):
             events = controller.state.annotations_by_file[str(recording)]
             controller._delete_annotation(events[0].id)
             controller._activate_dataset(_dataset(recording))
-            labels = [a.label for a in controller.state.annotations_by_file[str(recording)]]
+            labels = [
+                a.label for a in controller.state.annotations_by_file[str(recording)]
+            ]
             self.assertEqual(labels, ["sz"])
             controller.close()
 
@@ -1183,20 +1191,24 @@ class QmlWorkbenchTests(unittest.TestCase):
             tempfile.TemporaryDirectory() as tmpdir,
             patch.dict(os.environ, {"HOME": tmpdir}),
         ):
-            runtime = build_workbench(_runtime_paths(Path(tmpdir)), bootstrap_backend=False)
+            runtime = build_workbench(
+                _runtime_paths(Path(tmpdir)), bootstrap_backend=False
+            )
             controller = runtime.controller
             controller._activate_dataset(_dataset(Path(tmpdir) / "rec.edf"))
             controller.setCurrentPage("analysis")
             self.app.processEvents()
             items = runtime.window.findChildren(QObject)
             field = next(
-                item for item in items
+                item
+                for item in items
                 if item.metaObject().className().startswith("WorkbenchField")
                 and item.property("text") == str(controller.windowLength)
                 and item.property("visible")
             )
             run = next(
-                item for item in items
+                item
+                for item in items
                 if item.metaObject().className().startswith("WorkbenchButton")
                 and item.property("text") == "Run DDA"
             )

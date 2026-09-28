@@ -20,9 +20,9 @@ class BidsEventAnnotationTest(unittest.TestCase):
             other = Path(tmp) / "sub-02" / recording.name
             other.parent.mkdir()
             other.write_text("")
-            other.with_name(recording.name.replace("ieeg.vhdr", "events.tsv")).write_text(
-                "onset\tduration\ttrial_type\n1.0\t0.0\tonset\n"
-            )
+            other.with_name(
+                recording.name.replace("ieeg.vhdr", "events.tsv")
+            ).write_text("onset\tduration\ttrial_type\n1.0\t0.0\tonset\n")
             events = bids_event_annotations(str(recording))
             other_events = bids_event_annotations(str(other))
         self.assertEqual([event.label for event in events], ["onset", "sz", "1"])

@@ -12,7 +12,15 @@ from typing import Callable
 
 import numpy as np
 import requests
-from PySide6.QtCore import Property, QCoreApplication, QObject, QTimer, QUrl, Signal, Slot
+from PySide6.QtCore import (
+    Property,
+    QCoreApplication,
+    QObject,
+    QTimer,
+    QUrl,
+    Signal,
+    Slot,
+)
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 
 from ...backend.dda.scalar import _monomial_list, _select_model_terms
@@ -108,6 +116,8 @@ def _variant_quantities(variant: DdaVariantResult) -> list[tuple[str, list]]:
     if variant.fit_error_matrix:
         quantities.append(("fit error", variant.fit_error_matrix))
     return quantities
+
+
 _DEFAULT_MODEL_TERMS = (1, 2, 10)
 _DEFAULT_DERIVATIVE_POINTS = 4
 _DEFAULT_POLYNOMIAL_ORDER = 4
@@ -267,7 +277,9 @@ class WorkbenchController(QObject):
                 self._viewport_restored = True
         self._expert_mode = bool(session.get("expertMode", False))
         settings = session.get("analysisSettings")
-        for attribute, key, kind in _SAVED_SETTINGS if isinstance(settings, dict) else ():
+        for attribute, key, kind in (
+            _SAVED_SETTINGS if isinstance(settings, dict) else ()
+        ):
             value = settings.get(key)
             if isinstance(value, kind) and (kind is str or value > 0):
                 setattr(self, attribute, value)
@@ -444,7 +456,10 @@ class WorkbenchController(QObject):
         dataset = self.state.selected_dataset
         if dataset is None or dataset.duration_seconds <= 0:
             return 1.0
-        return min(1.0, self.state.waveform_viewport_duration_seconds / dataset.duration_seconds)
+        return min(
+            1.0,
+            self.state.waveform_viewport_duration_seconds / dataset.duration_seconds,
+        )
 
     @Slot(str)
     def copyText(self, text: str) -> None:
@@ -465,7 +480,10 @@ class WorkbenchController(QObject):
         duration = self.state.waveform_viewport_duration_seconds
         self.state.waveform_viewport_start_seconds = max(
             0.0,
-            min(dataset.duration_seconds - duration, fraction * dataset.duration_seconds - duration / 2),
+            min(
+                dataset.duration_seconds - duration,
+                fraction * dataset.duration_seconds - duration / 2,
+            ),
         )
         self._view_timer.start()
         self.changed.emit()
@@ -493,7 +511,9 @@ class WorkbenchController(QObject):
                 ChannelWaveform(
                     channel.name,
                     2.0 / max(channel.bucket_duration_seconds, 1e-9),
-                    np.column_stack((channel.mins, channel.maxs)).ravel().astype(np.float32),
+                    np.column_stack((channel.mins, channel.maxs))
+                    .ravel()
+                    .astype(np.float32),
                     None,
                     channel.min_value,
                     channel.max_value,
@@ -502,7 +522,9 @@ class WorkbenchController(QObject):
             ]
             update_quick_waveform_bridge(
                 self.overview_bridge,
-                WaveformWindow(dataset.file_path, 0.0, value.duration_seconds, channels, False),
+                WaveformWindow(
+                    dataset.file_path, 0.0, value.duration_seconds, channels, False
+                ),
                 target_width=1600,
                 title="Overview",
             )
@@ -573,7 +595,9 @@ class WorkbenchController(QObject):
 
     @Property(bool, notify=changed)
     def cancellable(self) -> bool:
-        return any(self._loading_components.get(name) for name in ("dda", "ica", "batch"))
+        return any(
+            self._loading_components.get(name) for name in ("dda", "ica", "batch")
+        )
 
     @Slot()
     def cancelTask(self) -> None:
@@ -755,7 +779,8 @@ class WorkbenchController(QObject):
         except (ValueError, IndexError) as exc:
             return str(exc)
         return "du/dt = " + " + ".join(
-            f"a{index} " + " ".join(
+            f"a{index} "
+            + " ".join(
                 f"u(t-{delay})" + (f"^{power}" if power > 1 else "")
                 for delay, power in sorted(Counter(term).items())
             )
@@ -884,7 +909,9 @@ class WorkbenchController(QObject):
 
     @Property("QVariantList", constant=True)
     def colorSchemeOptions(self) -> list[dict[str, str]]:
-        return [{"id": key, "label": label} for key, label in HEATMAP_COLOR_SCHEME_OPTIONS]
+        return [
+            {"id": key, "label": label} for key, label in HEATMAP_COLOR_SCHEME_OPTIONS
+        ]
 
     @Property(str, notify=changed)
     def colorScheme(self) -> str:
@@ -892,7 +919,9 @@ class WorkbenchController(QObject):
 
     @Slot(str)
     def setColorScheme(self, scheme: str) -> None:
-        if scheme != self._color_scheme and scheme in dict(HEATMAP_COLOR_SCHEME_OPTIONS):
+        if scheme != self._color_scheme and scheme in dict(
+            HEATMAP_COLOR_SCHEME_OPTIONS
+        ):
             self._color_scheme = scheme
             self._render_result()
             self.changed.emit()
@@ -1221,7 +1250,9 @@ class WorkbenchController(QObject):
     @Slot()
     def toggleReplay(self) -> None:
         # stopping is always allowed; starting waits for running work
-        if self.state.selected_dataset is None or (self.busy and not self._replay_active):
+        if self.state.selected_dataset is None or (
+            self.busy and not self._replay_active
+        ):
             return
         self._replay_active = not self._replay_active
         if self._replay_active:
@@ -1409,7 +1440,9 @@ class WorkbenchController(QObject):
         except ValueError as exc:
             self.errorRaised.emit(str(exc))
             return
-        selected_channels = [str(row["name"]) for row in self.channel_model.selected_rows()]
+        selected_channels = [
+            str(row["name"]) for row in self.channel_model.selected_rows()
+        ]
         if not selected_channels:
             self.errorRaised.emit("Select the channels to analyze in each file.")
             return
@@ -1546,13 +1579,15 @@ class WorkbenchController(QObject):
                     else:
                         # channels are chosen by name; numbering differs between files
                         missing = [
-                            name for name in selected_channels
+                            name
+                            for name in selected_channels
                             if name not in dataset.channel_names
                         ]
                         if missing:
                             raise ValueError("Missing channels: " + ", ".join(missing))
                         channels = [
-                            dataset.channel_names.index(name) for name in selected_channels
+                            dataset.channel_names.index(name)
+                            for name in selected_channels
                         ]
                     pair_map = all_pair_indices(channels, flavors)
 
@@ -1834,7 +1869,9 @@ class WorkbenchController(QObject):
 
         def on_progress(value: object) -> None:
             percent = getattr(value, "percent", None)
-            self._progress_text = f"Downloading update · {percent}%" if percent is not None else ""
+            self._progress_text = (
+                f"Downloading update · {percent}%" if percent is not None else ""
+            )
             self.changed.emit()
 
         def success(message: object) -> None:
@@ -1868,7 +1905,9 @@ class WorkbenchController(QObject):
             if action == "download":
                 files = list(value or [])
                 folder = Path(files[0]).parent if files else ""
-                self._finish_task(f"Downloaded {len(files)} NSG result files to {folder}")
+                self._finish_task(
+                    f"Downloaded {len(files)} NSG result files to {folder}"
+                )
             else:
                 self._finish_task(f"NSG job {action} done")
             self.refreshNsgJobs()
@@ -2041,8 +2080,12 @@ class WorkbenchController(QObject):
         variant = self._displayed_variant()
         vid = variant.id if variant is not None else None
 
-        def text(serialize: Callable[[DdaResult], str]) -> Callable[[DdaResult, Path], None]:
-            return lambda result, path: path.write_text(serialize(result), encoding="utf-8")
+        def text(
+            serialize: Callable[[DdaResult], str],
+        ) -> Callable[[DdaResult, Path], None]:
+            return lambda result, path: path.write_text(
+                serialize(result), encoding="utf-8"
+            )
 
         def figure(result: DdaResult, path: Path) -> None:
             if variant is None:
@@ -2066,15 +2109,30 @@ class WorkbenchController(QObject):
                     )
                 ),
             ),
-            ("CSV, selected flavor (*.csv)", text(lambda r: exports.export_variant_csv(r, vid))),
+            (
+                "CSV, selected flavor (*.csv)",
+                text(lambda r: exports.export_variant_csv(r, vid)),
+            ),
             ("CSV, all flavors (*.csv)", text(exports.export_all_variants_csv)),
             ("Figure, PDF (*.pdf)", figure),
             ("Figure, SVG (*.svg)", figure),
             ("Figure, PNG (*.png)", figure),
-            ("Python script (*.py)", text(lambda r: exports.generate_python_script(r, vid))),
-            ("MATLAB script (*.m)", text(lambda r: exports.generate_matlab_script(r, vid))),
-            ("Julia script (*.jl)", text(lambda r: exports.generate_julia_script(r, vid))),
-            ("Rust source (*.rs)", text(lambda r: exports.generate_rust_source(r, vid))),
+            (
+                "Python script (*.py)",
+                text(lambda r: exports.generate_python_script(r, vid)),
+            ),
+            (
+                "MATLAB script (*.m)",
+                text(lambda r: exports.generate_matlab_script(r, vid)),
+            ),
+            (
+                "Julia script (*.jl)",
+                text(lambda r: exports.generate_julia_script(r, vid)),
+            ),
+            (
+                "Rust source (*.rs)",
+                text(lambda r: exports.generate_rust_source(r, vid)),
+            ),
         ]
 
     @Property("QVariantList", notify=changed)
@@ -2140,7 +2198,10 @@ class WorkbenchController(QObject):
             return
         duration = self.state.waveform_viewport_duration_seconds
         self.state.waveform_viewport_start_seconds = max(
-            0.0, min(dataset.duration_seconds - duration, float(row["start"]) - duration / 2)
+            0.0,
+            min(
+                dataset.duration_seconds - duration, float(row["start"]) - duration / 2
+            ),
         )
         self._workspace_mode = "inspect"
         self.refreshWaveform()
@@ -2154,7 +2215,8 @@ class WorkbenchController(QObject):
             return
         annotations = self.state.annotations_by_file.get(dataset.file_path, [])
         Path(target).write_text(
-            json.dumps([asdict(item) for item in annotations], indent=2), encoding="utf-8"
+            json.dumps([asdict(item) for item in annotations], indent=2),
+            encoding="utf-8",
         )
         self._status_text = f"Exported {len(annotations)} annotations"
         self.changed.emit()
@@ -2182,17 +2244,24 @@ class WorkbenchController(QObject):
                         notes=str(entry.get("notes") or ""),
                         channel_name=entry.get("channel_name") or None,
                         start_seconds=start,
-                        end_seconds=float(end) if end is not None and float(end) > start else None,
+                        end_seconds=float(end)
+                        if end is not None and float(end) > start
+                        else None,
                     )
                 )
             except (KeyError, TypeError, ValueError):
                 skipped += 1
-        by_id = {item.id: item for item in self.state.annotations_by_file.get(dataset.file_path, [])}
+        by_id = {
+            item.id: item
+            for item in self.state.annotations_by_file.get(dataset.file_path, [])
+        }
         by_id.update((item.id, item) for item in imported if item.label)
         self._store_annotations(dataset.file_path, list(by_id.values()))
         message = f"Imported {len(imported)} annotations"
         if skipped:
-            self.errorRaised.emit(f"{message}; skipped {skipped} entries without a label and start.")
+            self.errorRaised.emit(
+                f"{message}; skipped {skipped} entries without a label and start."
+            )
         self._status_text = message
         self.changed.emit()
 
@@ -2254,7 +2323,9 @@ class WorkbenchController(QObject):
 
         def success(value: object) -> None:
             saved, connected = value
-            status = "NSG credentials verified" if connected else "NSG connection failed"
+            status = (
+                "NSG credentials verified" if connected else "NSG connection failed"
+            )
             if not saved:
                 status += "; no system keychain, so the sign-in lasts until you quit"
             self._finish_task(status)
@@ -2358,7 +2429,9 @@ class WorkbenchController(QObject):
         row = rows[min(len(rows) - 1, int(y * len(rows)))] if rows else ""
         dataset = self.state.selected_dataset
         channel = row if dataset is not None and row in dataset.channel_names else ""
-        self.annotationEditRequested.emit(seconds, channel, "", "", -1.0, "", not channel)
+        self.annotationEditRequested.emit(
+            seconds, channel, "", "", -1.0, "", not channel
+        )
 
     def _save_session(self) -> None:
         self.state_db.save_session_payload(
@@ -2368,7 +2441,8 @@ class WorkbenchController(QObject):
                 "expertMode": self._expert_mode,
                 "computeDevice": self._compute_device,
                 "analysisSettings": {
-                    key: getattr(self, attribute) for attribute, key, _ in _SAVED_SETTINGS
+                    key: getattr(self, attribute)
+                    for attribute, key, _ in _SAVED_SETTINGS
                 },
                 "activeFilePath": self.state.active_file_path,
                 "viewport": {

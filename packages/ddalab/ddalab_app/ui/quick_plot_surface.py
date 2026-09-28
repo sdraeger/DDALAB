@@ -163,7 +163,11 @@ class QuickPlotSurfaceBridge(QObject):
             f"from {self._source_column_count} source columns"
         )
         line_size = self._pixel_sizes["result_line"]
-        render_key = (*matrix_view_render_key(view, color_scheme), line_size, tuple(line_labels))
+        render_key = (
+            *matrix_view_render_key(view, color_scheme),
+            line_size,
+            tuple(line_labels),
+        )
         artifacts = self._render_cache.get(render_key)
         cache_hit = artifacts is not None
         if artifacts is None:
@@ -217,7 +221,13 @@ class QuickPlotSurfaceBridge(QObject):
         previous = self._last_variant
         if previous is None or list(previous[0].row_labels) != list(variant.row_labels):
             self._line_rows = []
-        self._last_variant = (variant, title, color_scheme, start_fraction, span_fraction)
+        self._last_variant = (
+            variant,
+            title,
+            color_scheme,
+            start_fraction,
+            span_fraction,
+        )
         width, height = self._pixel_sizes["result_heatmap"]
         request = MatrixViewRequest(
             target_columns=width or fallback_columns,
@@ -236,7 +246,10 @@ class QuickPlotSurfaceBridge(QObject):
             renderer_name="Qt Quick scene graph texture",
             color_scheme=color_scheme,
             lines=variant_rows(
-                variant, rows, start_fraction=start_fraction, span_fraction=span_fraction
+                variant,
+                rows,
+                start_fraction=start_fraction,
+                span_fraction=span_fraction,
             ),
             line_labels=[variant.row_labels[row] for row in rows],
         )
@@ -268,7 +281,11 @@ class QuickPlotSurfaceBridge(QObject):
         if self._last_variant is not None:
             variant, title, scheme, start, span = self._last_variant
             self.show_variant(
-                variant, title=title, color_scheme=scheme, start_fraction=start, span_fraction=span
+                variant,
+                title=title,
+                color_scheme=scheme,
+                start_fraction=start,
+                span_fraction=span,
             )
 
     def set_cursor_fraction(self, fraction: float | None) -> bool:
@@ -523,7 +540,9 @@ class QuickPlotSurfaceBridge(QObject):
 
     @Property(str, notify=changed)
     def cursorText(self) -> str:
-        seconds = self.time_at(self._cursor_fraction) if self._cursor_fraction >= 0 else None
+        seconds = (
+            self.time_at(self._cursor_fraction) if self._cursor_fraction >= 0 else None
+        )
         return "" if seconds is None else f"{seconds:.2f} s"
 
     @Property("QVariantList", notify=changed)

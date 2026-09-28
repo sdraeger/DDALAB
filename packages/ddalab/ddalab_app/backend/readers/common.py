@@ -83,13 +83,17 @@ class PythonDatasetReader(ABC):
 
 
 _reader_lock = threading.Lock()
-_reader_cache: Dict[str, tuple[tuple[int, int], PythonDatasetReader]] = {}  # path -> (mtime, size), reader
+_reader_cache: Dict[
+    str, tuple[tuple[int, int], PythonDatasetReader]
+] = {}  # path -> (mtime, size), reader
 _TIME_HEADER = re.compile(r"(time|timestamp|seconds?|samples?)(?![a-z])")
 
 
 def _is_time_header(name: str) -> bool:
     """True for time column names such as "time", "Time (s)", or "timestamp_ms"."""
     return _TIME_HEADER.match(name.strip().lower()) is not None
+
+
 _DEFAULT_NIFTI_BROWSER_CHANNEL_LIMIT = 65_536
 
 
