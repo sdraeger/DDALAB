@@ -53,10 +53,10 @@ class CliToolsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "r.npz"
             _write_result_file(path, result, compact=True)
-            stored = np.load(path)
-            self.assertEqual(stored["ST_matrix"].tolist(), [[1.0, 2.0], [3.0, 4.0]])
-            self.assertEqual(stored["ST_row_labels"].tolist(), ["C3", "C4"])
-            self.assertEqual(json.loads(str(stored["metadata"]))["file_name"], "a.edf")
+            with np.load(path) as stored:
+                self.assertEqual(stored["ST_matrix"].tolist(), [[1.0, 2.0], [3.0, 4.0]])
+                self.assertEqual(stored["ST_row_labels"].tolist(), ["C3", "C4"])
+                self.assertEqual(json.loads(str(stored["metadata"]))["file_name"], "a.edf")
             restored = _read_result_file(path)
             self.assertEqual(restored["variants"][0]["coefficient_matrices"][1], [[5.0, 6.0], [7.0, 8.0]])
             self.assertEqual(restored["window_centers_seconds"], [0.5, 1.5])

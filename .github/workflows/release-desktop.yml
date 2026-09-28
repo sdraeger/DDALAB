@@ -273,9 +273,9 @@ jobs:
           echo "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  $RUNNER_TEMP/appimage-tools/appimagetool.AppImage" \
             | sha256sum --check --strict
           curl --fail --location --retry 3 \
-            https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64 \
+            https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64 \
             -o "$RUNNER_TEMP/appimage-tools/runtime-x86_64"
-          echo "1cc49bcf1e2ccd593c379adb17c9f85a36d619088296504de95b1d06215aebbf  $RUNNER_TEMP/appimage-tools/runtime-x86_64" \
+          echo "2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d  $RUNNER_TEMP/appimage-tools/runtime-x86_64" \
             | sha256sum --check --strict
           chmod +x "$RUNNER_TEMP/appimage-tools/appimagetool.AppImage"
 
