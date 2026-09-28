@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
+import requests
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("QT_QUICK_BACKEND", "software")
@@ -286,6 +287,38 @@ class QmlWorkbenchTests(unittest.TestCase):
                 },
                 {"first.edf", "second.edf"},
             )
+            controller.close()
+
+    def test_startup_update_check_stays_silent_offline(self) -> None:
+        def run_inline(task, success, failed, _progress) -> None:
+            try:
+                value = task(lambda _update: None)
+            except Exception as exc:
+                failed(str(exc))
+                return
+            success(value)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            controller = WorkbenchController(
+                _runtime_paths(root),
+                bootstrap_backend=False,
+                backend=_Backend(),
+                state_db=StateDatabase(root / "state.sqlite3"),
+            )
+            errors: list[str] = []
+            controller.errorRaised.connect(errors.append)
+            offline = requests.ConnectionError("Temporary failure in name resolution")
+            with (
+                patch.object(controller._tasks, "submit", side_effect=run_inline),
+                patch.object(controller.update_manager, "supports_updates", return_value=True),
+                patch.object(controller.update_manager, "check_for_updates", side_effect=offline),
+            ):
+                controller._check_for_updates(quiet=True)
+                self.assertEqual(errors, [])
+                self.assertFalse(controller.busy)
+                controller.checkForUpdates()  # a check the user asked for reports it
+                self.assertEqual(len(errors), 1)
             controller.close()
 
     def test_component_loading_waits_for_all_overlapping_requests(self) -> None:

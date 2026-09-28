@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Callable
 
 import numpy as np
+import requests
 from PySide6.QtCore import Property, QCoreApplication, QObject, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 
@@ -284,7 +285,7 @@ class WorkbenchController(QObject):
         if bootstrap_backend:
             self._bootstrap()
             if self.update_manager.supports_updates():
-                QTimer.singleShot(3000, self.checkForUpdates)
+                QTimer.singleShot(3000, lambda: self._check_for_updates(quiet=True))
         else:
             self._status_text = "Smoke test mode"
 
@@ -1777,6 +1778,10 @@ class WorkbenchController(QObject):
 
     @Slot()
     def checkForUpdates(self) -> None:
+        self._check_for_updates(quiet=False)
+
+    def _check_for_updates(self, *, quiet: bool) -> None:
+        """quiet: the automatic check at startup, which stays silent offline."""
         if not self.update_manager.supports_updates():
             self._update_status = (
                 "Automatic updates are available in packaged desktop builds."
@@ -1786,9 +1791,17 @@ class WorkbenchController(QObject):
             return
 
         def task(_progress: Callable[[object], None]) -> object:
-            return self.update_manager.check_for_updates()
+            try:
+                return self.update_manager.check_for_updates()
+            except requests.RequestException:
+                if quiet:
+                    return False
+                raise
 
         def success(value: object) -> None:
+            if value is False:
+                self._finish_task("Ready")
+                return
             self._available_update = value
             if value is None:
                 self._update_status = "DDALAB is up to date."
