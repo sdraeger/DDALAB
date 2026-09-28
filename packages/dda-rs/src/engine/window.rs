@@ -23,6 +23,12 @@ impl PreparedWindow {
             ));
         }
         let mut data = raw_window.to_vec();
+        // ±inf would slip past the NaN checks and stall the SVD; treat it as missing
+        for value in data.iter_mut().flatten() {
+            if value.is_infinite() {
+                *value = f64::NAN;
+            }
+        }
         apply_nan_runs(&mut data, options.nr_exclude);
         let derivative = deriv_all_2d(&data, model.dm, options.derivative_step)?;
         normalize_window(
@@ -144,71 +150,100 @@ fn normalize_window(
     let window_length = shifted_rows.checked_sub(max_delay).ok_or_else(|| {
         DDAError::InvalidParameter("Window length became negative after max(TAU) trim".to_string())
     })?;
-    let mut shifted = vec![vec![f64::NAN; cols]; shifted_rows];
-    let mut trimmed_deriv = vec![vec![f64::NAN; window_length]; cols];
+    let mut shifted = raw[dm..dm + shifted_rows].to_vec();
+    let trimmed = |col: usize| &derivative[col][max_delay..max_delay + window_length];
 
-    for col in 0..cols {
-        for (row, shifted_row) in shifted.iter_mut().enumerate() {
-            shifted_row[col] = raw[row + dm][col];
+    // Column statistics accumulate row by row because samples are stored row-major
+    let (center, scale) = match mode {
+        NormalizationMode::Raw => {
+            let deriv = (0..cols).map(|col| trimmed(col).to_vec()).collect();
+            return Ok(PreparedWindow {
+                shifted,
+                deriv,
+                max_delay,
+            });
         }
-        match mode {
-            NormalizationMode::Raw => {
-                trimmed_deriv[col]
-                    .copy_from_slice(&derivative[col][max_delay..max_delay + window_length]);
+        NormalizationMode::MinMax => {
+            let mut min_values = vec![f64::INFINITY; cols];
+            let mut max_values = vec![f64::NEG_INFINITY; cols];
+            for row in &shifted {
+                for (col, &value) in row.iter().enumerate() {
+                    if !value.is_nan() {
+                        min_values[col] = min_values[col].min(value);
+                        max_values[col] = max_values[col].max(value);
+                    }
+                }
             }
-            NormalizationMode::MinMax | NormalizationMode::ZScore => {
-                let (center, scale) = match mode {
-                    NormalizationMode::MinMax => {
-                        let (min_value, max_value) = shifted
-                            .iter()
-                            .map(|row| row[col])
-                            .filter(|value| !value.is_nan())
-                            .fold(
-                                (f64::INFINITY, f64::NEG_INFINITY),
-                                |(min_value, max_value), value| {
-                                    (min_value.min(value), max_value.max(value))
-                                },
-                            );
-                        (min_value, max_value - min_value)
+            let ranges = max_values
+                .iter()
+                .zip(&min_values)
+                .map(|(max_value, min_value)| max_value - min_value)
+                .collect::<Vec<_>>();
+            (min_values, ranges)
+        }
+        NormalizationMode::ZScore => {
+            let mut sums = vec![0.0; cols];
+            let mut counts = vec![0usize; cols];
+            for row in &shifted {
+                for (col, &value) in row.iter().enumerate() {
+                    if !value.is_nan() {
+                        sums[col] += value;
+                        counts[col] += 1;
                     }
-                    NormalizationMode::ZScore => {
-                        let valid_values = shifted
-                            .iter()
-                            .map(|row| row[col])
-                            .filter(|value| !value.is_nan())
-                            .collect::<Vec<_>>();
-                        if valid_values.len() < 2 {
-                            continue;
-                        }
-                        let mean = valid_values.iter().sum::<f64>() / (valid_values.len() as f64);
-                        let variance = valid_values
-                            .iter()
-                            .map(|value| (value - mean).powi(2))
-                            .sum::<f64>()
-                            / ((valid_values.len() - 1) as f64);
-                        (mean, variance.sqrt())
+                }
+            }
+            let means = sums
+                .iter()
+                .zip(&counts)
+                .map(|(sum, &count)| sum / (count as f64))
+                .collect::<Vec<_>>();
+            let mut squares = vec![0.0; cols];
+            for row in &shifted {
+                for (col, &value) in row.iter().enumerate() {
+                    if !value.is_nan() {
+                        squares[col] += (value - means[col]).powi(2);
                     }
-                    NormalizationMode::Raw => unreachable!(),
-                };
-                if !scale.is_finite() || scale == 0.0 {
-                    continue;
                 }
-                for shifted_row in &mut shifted {
-                    shifted_row[col] = (shifted_row[col] - center) / scale;
-                }
-                for (normalized, derivative) in trimmed_deriv[col]
-                    .iter_mut()
-                    .zip(derivative[col].iter().skip(max_delay).take(window_length))
-                {
-                    *normalized = *derivative / scale;
-                }
+            }
+            let deviations = squares
+                .iter()
+                .zip(&counts)
+                .map(|(square, &count)| {
+                    if count < 2 {
+                        f64::NAN
+                    } else {
+                        (square / ((count - 1) as f64)).sqrt()
+                    }
+                })
+                .collect::<Vec<_>>();
+            (means, deviations)
+        }
+    };
+    let usable = |col: usize| scale[col].is_finite() && scale[col] != 0.0;
+
+    for row in &mut shifted {
+        for (col, value) in row.iter_mut().enumerate() {
+            if usable(col) {
+                *value = (*value - center[col]) / scale[col];
             }
         }
     }
+    let deriv = (0..cols)
+        .map(|col| {
+            if usable(col) {
+                trimmed(col)
+                    .iter()
+                    .map(|value| value / scale[col])
+                    .collect()
+            } else {
+                vec![f64::NAN; window_length]
+            }
+        })
+        .collect();
 
     Ok(PreparedWindow {
         shifted,
-        deriv: trimmed_deriv,
+        deriv,
         max_delay,
     })
 }

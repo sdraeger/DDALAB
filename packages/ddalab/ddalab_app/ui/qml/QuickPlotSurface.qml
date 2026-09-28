@@ -6,6 +6,8 @@ Rectangle {
 
     property var plotBridge: null
     property bool chromeVisible: true
+    property real labelWidth: 64
+    property real colorbarWidth: 56
     property real cursorFraction: plotBridge ? plotBridge.cursorFraction : -1
     property var theme: plotBridge ? plotBridge.theme : ({
         "surface": "#141b23",
@@ -47,20 +49,9 @@ Rectangle {
 
             Rectangle {
                 id: heatmapArea
-                width: {
-                    if (!root.plotBridge
-                            || root.plotBridge.rowCount < 1
-                            || root.plotBridge.visibleColumnCount < 1) {
-                        return parent.width
-                    }
-                    return Math.min(
-                        parent.width,
-                        height * root.plotBridge.visibleColumnCount
-                            / root.plotBridge.rowCount
-                    )
-                }
+                x: root.labelWidth
+                width: parent.width - root.labelWidth - root.colorbarWidth
                 height: Math.max(72, parent.height * 0.72)
-                anchors.horizontalCenter: parent.horizontalCenter
                 radius: 10
                 color: root.theme.canvas
                 border.color: root.theme.border
@@ -74,6 +65,27 @@ Rectangle {
                         && root.plotBridge !== undefined
                         && root.plotBridge.showHeatmapLayer
                         && root.plotBridge.hasImage
+                }
+
+                Repeater {
+                    model: root.plotBridge ? root.plotBridge.rowLabels : []
+
+                    Text {
+                        required property var modelData
+                        required property int index
+                        readonly property real rowHeight: heatmapArea.height
+                            / Math.max(root.plotBridge.rowLabels.length, 1)
+
+                        x: -width - 6
+                        y: (index + 0.5) * rowHeight - height / 2
+                        width: root.labelWidth - 8
+                        visible: index % Math.max(1, Math.ceil(14 / rowHeight)) === 0
+                        text: modelData
+                        color: root.theme.mutedText
+                        font.pixelSize: 10
+                        horizontalAlignment: Text.AlignRight
+                        elide: Text.ElideLeft
+                    }
                 }
 
                 Repeater {
@@ -116,6 +128,47 @@ Rectangle {
                 }
 
                 Text {
+                    x: Math.max(0, Math.min(parent.width - width,
+                        parent.width * root.cursorFraction + 6))
+                    y: 4
+                    text: root.plotBridge ? root.plotBridge.cursorText : ""
+                    color: root.theme.text
+                    font.pixelSize: 11
+                    visible: root.cursorFraction >= 0 && text.length > 0
+                }
+
+                // colorbar: scheme and numeric limits of the color scale
+                Column {
+                    x: parent.width + 8
+                    width: root.colorbarWidth - 8
+                    height: parent.height
+                    visible: !!root.plotBridge && root.plotBridge.hasImage
+                    Text {
+                        text: root.plotBridge ? Number(root.plotBridge.colorMax).toPrecision(3) : ""
+                        color: root.theme.mutedText
+                        font.pixelSize: 10
+                    }
+                    Column {
+                        width: 12
+                        height: parent.height - 28
+                        Repeater {
+                            model: root.plotBridge ? root.plotBridge.colorStops.slice().reverse() : []
+                            Rectangle {
+                                required property var modelData
+                                width: 12
+                                height: parent.height / Math.max(1, root.plotBridge.colorStops.length)
+                                color: modelData
+                            }
+                        }
+                    }
+                    Text {
+                        text: root.plotBridge ? Number(root.plotBridge.colorMin).toPrecision(3) : ""
+                        color: root.theme.mutedText
+                        font.pixelSize: 10
+                    }
+                }
+
+                Text {
                     anchors.centerIn: parent
                     text: root.plotBridge ? root.plotBridge.statusText : "No plot data loaded"
                     color: root.theme.mutedText
@@ -130,9 +183,16 @@ Rectangle {
                     acceptedButtons: Qt.LeftButton | Qt.RightButton
                     hoverEnabled: true
                     property real previousX: 0
+                    property real pressX: 0
+                    onExited: if (root.plotBridge) root.plotBridge.clearCursor()
+                    onClicked: function(mouse) {
+                        if (mouse.button === Qt.LeftButton && root.plotBridge && Math.abs(mouse.x - pressX) < 4)
+                            root.plotBridge.toggleLineRowAt(mouse.y / Math.max(height, 1))
+                    }
 
                     onPressed: function(mouse) {
                         previousX = mouse.x
+                        pressX = mouse.x
                         if (mouse.button === Qt.RightButton && root.plotBridge) {
                             root.plotBridge.requestAnnotationContext(
                                 mouse.x / Math.max(width, 1),
@@ -169,12 +229,32 @@ Rectangle {
 
             Rectangle {
                 id: lineArea
-                width: parent.width
-                height: Math.max(48, parent.height * 0.28 - parent.spacing)
+                x: heatmapArea.x
+                width: heatmapArea.width
+                height: Math.max(48, parent.height * 0.28 - 2 * parent.spacing - 14)
                 radius: 10
                 color: root.theme.surfaceAlt
                 border.color: root.theme.border
                 border.width: 1
+
+                Flow {
+                    anchors.top: parent.top
+                    anchors.right: parent.right
+                    anchors.margins: 4
+                    width: parent.width * 0.6
+                    spacing: 8
+                    layoutDirection: Qt.RightToLeft
+                    z: 1
+                    Repeater {
+                        model: root.plotBridge ? root.plotBridge.lineLegend : []
+                        Row {
+                            required property var modelData
+                            spacing: 3
+                            Rectangle { width: 10; height: 2; y: 5; color: modelData.color }
+                            Text { text: modelData.label; color: root.theme.mutedText; font.pixelSize: 9 }
+                        }
+                    }
+                }
 
                 QuickLineTextureItem {
                     anchors.fill: parent
@@ -231,6 +311,26 @@ Rectangle {
                             wheel.x / Math.max(width, 1)
                         )
                         wheel.accepted = true
+                    }
+                }
+            }
+
+            Item {
+                x: heatmapArea.x
+                width: heatmapArea.width
+                height: 14
+
+                Repeater {
+                    model: root.plotBridge ? root.plotBridge.timeTicks : []
+
+                    Text {
+                        required property var modelData
+
+                        x: Math.max(0, Math.min(parent.width - width,
+                            modelData.position * parent.width - width / 2))
+                        text: modelData.label + " s"
+                        color: root.theme.mutedText
+                        font.pixelSize: 10
                     }
                 }
             }

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import sys
 import unittest
 
@@ -17,26 +16,21 @@ if str(PACKAGE_ROOT) not in sys.path:
 from ddalab_app.domain.models import (
     ChannelWaveform,
     DdaVariantResult,
-    WaveformEnvelopeLevel,
     WaveformWindow,
 )
 from ddalab_app.ui.plot_data import (
-    LINE_PLOT_COLORS,
     WAVEFORM_LINE_COLOR,
     DdaVariantPlotProvider,
     MatrixTileCache,
     MatrixViewRequest,
     WaveformViewRequest,
     WaveformWindowPlotProvider,
-    build_line_geometry_view,
     build_matrix_view,
     build_waveform_geometry_view,
-    build_waveform_trace_view,
     heatmap_rgba,
     variant_plot_bounds,
-    windowed_resample_indices,
 )
-from ddalab_app.ui.qt_plot_renderer import heatmap_qimage, lineplot_qimage
+from ddalab_app.ui.qt_plot_renderer import heatmap_qimage, lineplot_qimage, waveform_qimage
 
 
 def _variant(matrix: list[list[float]], *, min_value=0.0, max_value=1.0):
@@ -56,7 +50,6 @@ def _channel(
     samples: list[float],
     *,
     name: str = "Cz",
-    levels: list[WaveformEnvelopeLevel] | None = None,
     min_value: float | None = None,
     max_value: float | None = None,
 ) -> ChannelWaveform:
@@ -75,7 +68,6 @@ def _channel(
         else max(samples)
         if samples
         else 0.0,
-        levels=levels or [],
     )
 
 
@@ -96,17 +88,6 @@ def _waveform_window(
 
 
 class PlotDataTests(unittest.TestCase):
-    def test_windowed_resample_indices_respects_view_window(self) -> None:
-        self.assertEqual(
-            windowed_resample_indices(
-                10,
-                4,
-                start_fraction=0.25,
-                span_fraction=0.5,
-            ),
-            [2, 4, 5, 7],
-        )
-
     def test_build_matrix_view_samples_columns_and_tracks_source_shape(self) -> None:
         view = build_matrix_view(
             _variant(
@@ -124,13 +105,14 @@ class PlotDataTests(unittest.TestCase):
 
         self.assertEqual(view.source_row_count, 2)
         self.assertEqual(view.source_column_count, 10)
-        self.assertEqual(view.sample_indices, (0, 2, 4, 7, 9))
+        # each of the 5 pixels keeps the largest-magnitude value of its 2 windows
+        self.assertEqual(view.sample_indices, (0, 2, 4, 6, 8))
         np.testing.assert_array_equal(
             view.values,
             np.asarray(
                 [
-                    [0, 2, 4, 7, 9],
-                    [10, 12, 14, 17, 19],
+                    [1, 3, 5, 7, 9],
+                    [11, 13, 15, 17, 19],
                 ],
                 dtype=np.float32,
             ),
@@ -161,7 +143,7 @@ class PlotDataTests(unittest.TestCase):
         self.assertEqual(view.source_column_count, 10)
         self.assertEqual(view.source_column_start, 2)
         self.assertEqual(view.source_column_end, 8)
-        self.assertEqual(view.sample_indices, (2, 4, 5, 7))
+        self.assertEqual(view.sample_indices, (2, 3, 5, 6))
         np.testing.assert_array_equal(
             view.values,
             np.asarray([[2, 4, 5, 7]], dtype=np.float32),
@@ -177,7 +159,7 @@ class PlotDataTests(unittest.TestCase):
 
         self.assertEqual(view.source_column_start, 0)
         self.assertEqual(view.source_column_end, 10)
-        self.assertEqual(view.sample_indices, (4,))
+        self.assertEqual(view.sample_indices, (0,))
 
     def test_variant_plot_provider_logs_slow_matrix_view_metadata(self) -> None:
         provider = DdaVariantPlotProvider(
@@ -309,38 +291,12 @@ class PlotDataTests(unittest.TestCase):
             np.asarray([[10, 12, 14]], dtype=np.float32),
         )
 
-    def test_variant_plot_bounds_include_zero_when_values_are_nonfinite(self) -> None:
-        self.assertEqual(
-            variant_plot_bounds(
-                _variant([[1.0, float("nan")]], min_value=2.0, max_value=3.0)
-            ),
-            (0.0, 3.0),
-        )
-
-    def test_variant_plot_bounds_skips_nonfinite_scan_when_zero_is_already_visible(
-        self,
-    ) -> None:
-        variant = _variant([[1.0, float("nan")]], min_value=-1.0, max_value=3.0)
-
-        with patch("ddalab_app.ui.plot_data._variant_contains_nonfinite") as scan:
-            bounds = variant_plot_bounds(variant)
-
-        self.assertEqual(bounds, (-1.0, 3.0))
-        scan.assert_not_called()
-
-    def test_variant_plot_bounds_caches_nonfinite_scan(self) -> None:
-        variant = _variant([[1.0, float("nan")]], min_value=2.0, max_value=3.0)
-
-        with patch(
-            "ddalab_app.ui.plot_data._variant_contains_nonfinite",
-            wraps=lambda item: any(
-                not np.isfinite(value) for row in item.matrix for value in row
-            ),
-        ) as scan:
-            self.assertEqual(variant_plot_bounds(variant), (0.0, 3.0))
-            self.assertEqual(variant_plot_bounds(variant), (0.0, 3.0))
-
-        self.assertEqual(scan.call_count, 1)
+    def test_nonfinite_cells_are_transparent_and_keep_the_finite_range(self) -> None:
+        variant = _variant([[2.0, float("nan"), 3.0]], min_value=2.0, max_value=3.0)
+        low, high = variant_plot_bounds(variant)  # 1st-99th percentile of 2 and 3
+        self.assertTrue(2.0 <= low < high <= 3.0)
+        view = build_matrix_view(variant, target_columns=3)
+        self.assertEqual(heatmap_rgba(view, "inferno")[0, :, 3].tolist(), [255, 0, 255])
 
     def test_build_matrix_view_samples_rows_without_full_numpy_conversion(self) -> None:
         variant = _variant(
@@ -378,15 +334,6 @@ class PlotDataTests(unittest.TestCase):
         np.testing.assert_array_equal(image[0, 0], np.asarray([68, 1, 84, 255]))
         np.testing.assert_array_equal(image[0, 2], np.asarray([253, 231, 37, 255]))
 
-    def test_heatmap_rgba_maps_nonfinite_values_as_zero(self) -> None:
-        view = build_matrix_view(
-            _variant([[float("nan")]], min_value=-1.0, max_value=1.0),
-            target_columns=1,
-        )
-        image = heatmap_rgba(view, "cool")
-
-        np.testing.assert_array_equal(image[0, 0], np.asarray([128, 128, 255, 255]))
-
     def test_heatmap_qimage_wraps_provider_buffer_for_qt_renderer(self) -> None:
         view = build_matrix_view(
             _variant([[0.0, 1.0]], min_value=0.0, max_value=1.0),
@@ -400,40 +347,18 @@ class PlotDataTests(unittest.TestCase):
         self.assertEqual(image.pixelColor(0, 0).getRgb(), (68, 1, 84, 255))
         self.assertEqual(image.pixelColor(1, 0).getRgb(), (253, 231, 37, 255))
 
-    def test_lineplot_qimage_renders_matrix_view_for_qt_quick_texture(self) -> None:
-        view = build_matrix_view(
-            _variant([[0.0, 0.5, 1.0]], min_value=0.0, max_value=1.0),
-            target_columns=3,
-        )
+    def test_lineplot_qimage_draws_every_value_of_each_row(self) -> None:
+        rows = np.zeros((1, 1000))
+        rows[0, 500] = 1.0  # one spike among 1000 windows, drawn 120 px wide
 
-        image = lineplot_qimage(view, width=120, height=80)
+        image = lineplot_qimage(rows, 0.0, 1.0, width=120, height=80)
 
-        self.assertEqual(image.width(), 120)
-        self.assertEqual(image.height(), 80)
-        self.assertFalse(image.isNull())
-
-    def test_line_geometry_view_normalizes_rows_for_scene_graph_renderer(self) -> None:
-        view = build_matrix_view(
-            _variant([[0.0, 0.5, 1.0]], min_value=0.0, max_value=1.0),
-            target_columns=3,
-        )
-
-        geometry = build_line_geometry_view(view)
-
-        self.assertEqual(geometry.source_row_count, 1)
-        self.assertEqual(geometry.source_column_count, 3)
-        self.assertEqual(geometry.colors, (LINE_PLOT_COLORS[0],))
-        np.testing.assert_allclose(
-            geometry.lines[0],
-            np.asarray(
-                [
-                    [0.0, 1.0],
-                    [0.5, 0.5],
-                    [1.0, 0.0],
-                ],
-                dtype=np.float32,
-            ),
-        )
+        self.assertEqual((image.width(), image.height()), (120, 80))
+        painted = [
+            sum(image.pixelColor(x, y).alpha() > 0 for y in range(80)) for x in range(120)
+        ]
+        self.assertGreater(painted[60], 40)  # the spike column spans most of the height
+        self.assertLess(max(painted[:55] + painted[65:]), 5)
 
     def test_waveform_plot_provider_honors_visible_channel_range(self) -> None:
         provider = WaveformWindowPlotProvider(
@@ -514,219 +439,50 @@ class PlotDataTests(unittest.TestCase):
 
         self.assertNotEqual(full, zoomed)
 
-    def test_waveform_render_key_is_stable_after_lazy_envelope_build(self) -> None:
-        channel = _channel(
-            [
-                value
-                for bucket in range(10)
-                for value in (float(bucket), -float(bucket + 1))
-            ]
-        )
-        provider = WaveformWindowPlotProvider(_waveform_window([channel]))
-        request = WaveformViewRequest(target_width=2)
-
-        before = provider.render_key(request)
-        provider.geometry_view(request)
-        after = provider.render_key(request)
-
-        self.assertEqual(before, after)
-
-    def test_waveform_render_key_reuses_channel_digest_across_viewports(self) -> None:
-        channel = _channel([float(value) for value in range(1000)])
-        provider = WaveformWindowPlotProvider(_waveform_window([channel]))
-
-        with patch(
-            "ddalab_app.ui.plot_waveform_data.hashlib.blake2b",
-            wraps=hashlib.blake2b,
-        ) as digest:
-            provider.render_key(WaveformViewRequest(target_width=40))
-            first_call_count = digest.call_count
-            provider.render_key(
-                WaveformViewRequest(
-                    target_width=40,
-                    start_fraction=0.25,
-                    span_fraction=0.5,
-                )
+    def test_waveform_render_key_matches_a_reload_and_tracks_the_pixel_size(self) -> None:
+        def key(**request) -> tuple:
+            window = _waveform_window([_channel([float(v) for v in range(1000)])])
+            return WaveformWindowPlotProvider(window).render_key(
+                WaveformViewRequest(target_width=40, **request)
             )
 
-        self.assertGreater(first_call_count, 0)
-        self.assertEqual(digest.call_count, first_call_count)
+        self.assertEqual(key(), key())  # separately loaded, same range
+        self.assertNotEqual(key(), key(target_height=300))
 
-    def test_waveform_trace_view_uses_raw_samples_for_small_channels(self) -> None:
-        view = build_waveform_trace_view(_channel([1.0, 2.0, 4.0]), target_width=20)
-
-        self.assertEqual(view.mode, "samples")
-        self.assertEqual(view.sample_count, 3)
-        np.testing.assert_allclose(view.x_fraction, np.asarray([0.0, 0.5, 1.0]))
-        np.testing.assert_allclose(view.values, np.asarray([1.0, 2.0, 4.0]))
-
-    def test_waveform_trace_view_selects_envelope_level_for_dense_channels(
-        self,
-    ) -> None:
-        levels = [
-            WaveformEnvelopeLevel(bucket_size=5, mins=[0.0], maxs=[1.0]),
-            WaveformEnvelopeLevel(
-                bucket_size=20,
-                mins=[-1.0, -2.0, -3.0],
-                maxs=[1.0, 2.0, 3.0],
-            ),
-            WaveformEnvelopeLevel(bucket_size=50, mins=[-5.0], maxs=[5.0]),
-        ]
-
-        view = build_waveform_trace_view(
-            _channel(list(range(1000)), levels=levels),
-            target_width=20,
+    def test_waveform_columns_keep_every_spike_step_and_gap(self) -> None:
+        samples = np.zeros(360_000, dtype=np.float32)
+        spikes = np.random.default_rng(0).choice(np.arange(1_000, 150_000), 40, replace=False)
+        samples[spikes] = 4.0
+        samples[200_000:] = 1.0
+        samples[300_000:330_000] = np.nan
+        geometry = build_waveform_geometry_view(
+            _waveform_window([_channel(samples, min_value=0.0, max_value=4.0)]),
+            target_width=600,
         )
 
-        self.assertEqual(view.mode, "envelope")
-        self.assertEqual(view.bucket_size, 20)
-        np.testing.assert_allclose(view.x_fraction, np.asarray([0.0, 0.5, 1.0]))
-        np.testing.assert_allclose(view.min_values, np.asarray([-1.0, -2.0, -3.0]))
-        np.testing.assert_allclose(view.max_values, np.asarray([1.0, 2.0, 3.0]))
+        spans = geometry.lines[0]
+        self.assertEqual(geometry.draw_modes, ("columns",))
+        self.assertEqual(spans.shape, (600, 2))
+        # sample i is drawn in column i * 600 // 360_000; every spike reaches the top
+        self.assertTrue(np.all(spans[spikes * 600 // 360_000, 0] == 0.0))
+        step = 200_000 * 600 // 360_000
+        self.assertEqual((spans[step, 0], spans[step, 1]), (0.75, 1.0))  # joined edge
+        self.assertTrue(np.isnan(spans[505:549]).all())  # gap stays empty
+        image = waveform_qimage(geometry, width=600, height=100)
+        top_row = [image.pixelColor(int(c), 0).alpha() for c in spikes * 600 // 360_000]
+        self.assertTrue(all(top_row))
 
-    def test_waveform_trace_view_builds_envelope_when_dense_channel_has_no_levels(
-        self,
-    ) -> None:
-        samples = [
-            value
-            for bucket in range(10)
-            for value in (float(bucket), -float(bucket + 1))
-        ]
-
-        view = build_waveform_trace_view(_channel(samples), target_width=2)
-
-        self.assertEqual(view.mode, "envelope")
-        self.assertGreater(view.bucket_size, 1)
-        self.assertLessEqual(len(view.min_values), 4)
-        self.assertEqual(float(view.min_values.min()), -10.0)
-        self.assertEqual(float(view.max_values.max()), 9.0)
-
-    def test_waveform_trace_view_builds_lazy_envelope_pyramid_for_reuse(
-        self,
-    ) -> None:
-        channel = _channel(
-            [
-                value
-                for bucket in range(10)
-                for value in (float(bucket), -float(bucket + 1))
-            ]
-        )
-
-        first = build_waveform_trace_view(channel, target_width=2)
-        second = build_waveform_trace_view(channel, target_width=2)
-
-        self.assertEqual([level.bucket_size for level in channel.levels], [4, 5])
-        self.assertEqual(first.bucket_size, 5)
-        self.assertEqual(second.bucket_size, first.bucket_size)
-        np.testing.assert_allclose(second.min_values, first.min_values)
-        np.testing.assert_allclose(second.max_values, first.max_values)
-
-    def test_waveform_trace_view_reuses_pyramid_for_finer_request(self) -> None:
-        channel = _channel([float(value) for value in range(64)])
-
-        coarse = build_waveform_trace_view(
-            channel, target_width=4, dense_sample_factor=1
-        )
-        levels_after_coarse = tuple(level.bucket_size for level in channel.levels)
-        fine = build_waveform_trace_view(channel, target_width=8, dense_sample_factor=1)
-
-        self.assertEqual(coarse.bucket_size, 8)
-        self.assertEqual(fine.bucket_size, 4)
-        self.assertEqual(levels_after_coarse, (4, 8))
-        self.assertEqual(
-            tuple(level.bucket_size for level in channel.levels),
-            levels_after_coarse,
-        )
-
-    def test_waveform_trace_view_extends_pyramid_for_much_coarser_request(
-        self,
-    ) -> None:
-        channel = _channel([float(value) for value in range(2000)])
-
-        first = build_waveform_trace_view(channel, target_width=80)
-        levels_after_first = tuple(level.bucket_size for level in channel.levels)
-        second = build_waveform_trace_view(channel, target_width=5)
-
-        self.assertEqual(first.bucket_size, 13)
-        self.assertEqual(levels_after_first, (4, 8, 13))
-        self.assertEqual(second.bucket_size, 200)
-        self.assertEqual(
-            tuple(level.bucket_size for level in channel.levels),
-            (4, 8, 13, 32, 64, 128, 200),
-        )
-
-    def test_waveform_trace_view_is_empty_without_samples(self) -> None:
-        view = build_waveform_trace_view(_channel([]), target_width=20)
-
-        self.assertEqual(view.mode, "empty")
-        self.assertEqual(view.sample_count, 0)
-
-    def test_waveform_geometry_view_maps_samples_to_scene_graph_lines(self) -> None:
+    def test_waveform_columns_interpolate_sparse_samples(self) -> None:
         geometry = build_waveform_geometry_view(
             _waveform_window([_channel([0.0, 5.0, 10.0])]),
             target_width=50,
         )
 
-        self.assertEqual(geometry.channel_count, 1)
-        self.assertEqual(geometry.channel_labels, ("Cz",))
-        self.assertEqual(geometry.colors, (WAVEFORM_LINE_COLOR,))
-        self.assertEqual(geometry.draw_modes, ("line_strip",))
-        np.testing.assert_allclose(
-            geometry.lines[0],
-            np.asarray(
-                [
-                    [0.0, 1.0],
-                    [0.5, 0.5],
-                    [1.0, 0.0],
-                ],
-                dtype=np.float32,
-            ),
-        )
-
-    def test_waveform_geometry_view_honors_visible_time_window(self) -> None:
-        geometry = build_waveform_geometry_view(
-            _waveform_window([_channel([float(value) for value in range(9)])]),
-            target_width=50,
-            start_fraction=0.25,
-            span_fraction=0.5,
-        )
-
-        self.assertEqual(geometry.sample_count, 5)
-        np.testing.assert_allclose(
-            geometry.lines[0],
-            np.asarray(
-                [
-                    [0.0, 0.75],
-                    [0.25, 0.625],
-                    [0.5, 0.5],
-                    [0.75, 0.375],
-                    [1.0, 0.25],
-                ],
-                dtype=np.float32,
-            ),
-        )
-
-    def test_waveform_plot_provider_builds_requested_geometry_view(self) -> None:
-        provider = WaveformWindowPlotProvider(
-            _waveform_window([_channel([0.0, 5.0, 10.0])])
-        )
-
-        geometry = provider.geometry_view(WaveformViewRequest(target_width=50))
-
-        self.assertEqual(geometry.channel_count, 1)
-        self.assertEqual(geometry.sample_count, 3)
-        self.assertEqual(geometry.draw_modes, ("line_strip",))
-        np.testing.assert_allclose(
-            geometry.lines[0],
-            np.asarray(
-                [
-                    [0.0, 1.0],
-                    [0.5, 0.5],
-                    [1.0, 0.0],
-                ],
-                dtype=np.float32,
-            ),
-        )
+        spans = geometry.lines[0]
+        drawn = np.isfinite(spans[:, 0])
+        # sample i sits at x = i * 50 / 3, so the line ends at the last sample
+        self.assertTrue(drawn[:34].all() and not drawn[34:].any())
+        self.assertTrue(np.all(spans[:33, 0] <= spans[1:34, 1]))  # columns connect
 
     def test_waveform_plot_provider_logs_slow_geometry_metadata(self) -> None:
         provider = WaveformWindowPlotProvider(
@@ -767,37 +523,10 @@ class PlotDataTests(unittest.TestCase):
             channelStart=1,
             totalChannels=2,
             samples=3,
-            lines=1,
-            vertices=3,
             targetWidth=50,
             startFraction=0.25,
             spanFraction=0.5,
         )
-
-    def test_waveform_geometry_view_maps_envelopes_to_vertical_segments(self) -> None:
-        levels = [
-            WaveformEnvelopeLevel(
-                bucket_size=20,
-                mins=[-1.0, -2.0, -3.0],
-                maxs=[1.0, 2.0, 3.0],
-            )
-        ]
-
-        geometry = build_waveform_geometry_view(
-            _waveform_window(
-                [
-                    _channel(
-                        list(range(1000)), levels=levels, min_value=-3.0, max_value=3.0
-                    )
-                ]
-            ),
-            target_width=20,
-        )
-
-        self.assertEqual(geometry.draw_modes, ("lines",))
-        self.assertEqual(geometry.lines[0].shape, (6, 2))
-        np.testing.assert_allclose(geometry.lines[0][0], np.asarray([0.0, 2.0 / 3.0]))
-        np.testing.assert_allclose(geometry.lines[0][1], np.asarray([0.0, 1.0 / 3.0]))
 
 
 if __name__ == "__main__":

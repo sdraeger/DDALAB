@@ -156,10 +156,8 @@ def _write_waveform_window_matrix_file(
     )
     if matrix.ndim != 2 or matrix.shape[0] != sample_count:
         raise RuntimeError("Could not build a valid in-memory DDA matrix.")
-    matrix = np.nan_to_num(matrix, nan=0.0, posinf=0.0, neginf=0.0).astype(
-        "<f8",
-        copy=False,
-    )
+    # Keep gaps as NaN so the engine masks them, as in direct-file mode.
+    matrix = np.where(np.isfinite(matrix), matrix, np.nan).astype("<f8", copy=False)
     matrix = np.ascontiguousarray(matrix)
 
     handle = tempfile.NamedTemporaryFile(

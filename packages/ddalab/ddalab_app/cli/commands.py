@@ -3,8 +3,11 @@ from __future__ import annotations
 import argparse
 import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
+
+import numpy as np
 
 from ..backend.local import _find_cli_command
 from ..domain.file_types import resolve_dataset_path
@@ -17,12 +20,13 @@ from .runtime import (
     _local_backend,
     _normalize_dda_backend_args,
     _print_json,
+    _read_result_file,
     _resolve_batch_input_paths,
     _resolve_cli_file_argument,
     _run_dda_for_path,
     _selected_channel_indices,
     _selected_channel_names,
-    _write_json_file,
+    _write_result_file,
 )
 
 
@@ -241,8 +245,10 @@ def _handle_dda_run(args: argparse.Namespace) -> int:
         result = result.materialize()
     finally:
         backend.close()
+    for warning in _result_warnings(result):
+        print(f"warning: {warning}", file=sys.stderr)
     if args.output:
-        _write_json_file(Path(args.output), result, compact=bool(args.compact))
+        _write_result_file(Path(args.output), result, compact=bool(args.compact))
         return 0
     _print_json(result, compact=bool(args.compact))
     return 0
@@ -267,16 +273,22 @@ def _handle_dda_batch(args: argparse.Namespace) -> int:
     failure_count = 0
     try:
         for input_path in input_paths:
+            warnings: list[str] = []
             try:
                 dda_result = _run_dda_for_path(backend, input_path, args)
                 dda_result = dda_result.materialize()
+                warnings = _result_warnings(dda_result)
+                if warnings and args.strict:
+                    raise RuntimeError(" ".join(warnings))
                 output_path = (
-                    _batch_result_path(output_dir, dda_result.file_path)
+                    _batch_result_path(output_dir, dda_result.file_path).with_suffix(
+                        f".{args.output_format}"
+                    )
                     if output_dir is not None
                     else None
                 )
                 if output_path is not None:
-                    _write_json_file(
+                    _write_result_file(
                         output_path, dda_result, compact=bool(args.compact)
                     )
                 results.append(
@@ -284,10 +296,19 @@ def _handle_dda_batch(args: argparse.Namespace) -> int:
                         "inputPath": input_path,
                         "resolvedDatasetPath": dda_result.file_path,
                         "status": "ok",
+                        "warnings": warnings,
                         "outputPath": str(output_path)
                         if output_path is not None
                         else None,
-                        "result": _json_ready(dda_result),
+                        # with --output-dir the result is in the file; keep stdout small
+                        "result": _json_ready(dda_result)
+                        if output_path is None
+                        else {
+                            "rows": {
+                                v.id: len(v.row_labels) for v in dda_result.variants
+                            },
+                            "windows": len(dda_result.window_centers_seconds),
+                        },
                     }
                 )
             except Exception as exc:
@@ -299,6 +320,7 @@ def _handle_dda_batch(args: argparse.Namespace) -> int:
                             input_path, Path(input_path).expanduser().is_dir()
                         ),
                         "status": "error",
+                        "warnings": warnings,
                         "error": str(exc),
                     }
                 )
@@ -312,10 +334,66 @@ def _handle_dda_batch(args: argparse.Namespace) -> int:
         "processedFiles": len(results),
         "succeeded": sum(1 for item in results if item["status"] == "ok"),
         "failed": failure_count,
+        "withWarnings": sum(1 for item in results if item.get("warnings")),
         "results": results,
     }
     _print_json(payload, compact=bool(args.compact))
     return 0 if failure_count == 0 else 1
+
+
+def circular_shift_test(values: np.ndarray, post: np.ndarray) -> tuple[float, float]:
+    """Post-minus-pre mean and its two-sided p over all circular shifts of values.
+
+    Shifting keeps the autocorrelation of overlapping windows, which a shuffle destroys.
+    """
+
+    def delta(series: np.ndarray) -> float:
+        return float(np.nanmean(series[post]) - np.nanmean(series[~post]))
+
+    observed = delta(values)
+    null = np.array([delta(np.roll(values, shift)) for shift in range(1, len(values))])
+    p_value = (1 + np.sum(np.abs(null) >= abs(observed) - 1e-12)) / len(values)
+    return observed, float(p_value)
+
+
+def _handle_dda_null(args: argparse.Namespace) -> int:
+    payload = _read_result_file(Path(args.result).expanduser())
+    variant = next(
+        (item for item in payload["variants"] if item["id"] == args.variant), None
+    )
+    if variant is None:
+        raise RuntimeError(f"The result contains no {args.variant} variant.")
+    magnitude = np.nanmean(np.abs(np.asarray(variant["matrix"], dtype=float)), axis=0)
+    post = np.asarray(payload["window_centers_seconds"], dtype=float) >= args.time
+    if post.all() or not post.any():
+        raise RuntimeError("--time must fall between the first and last window.")
+    delta, p_value = circular_shift_test(magnitude, post)
+    _print_json(
+        {
+            "variant": args.variant,
+            "timeSeconds": args.time,
+            "windowsBefore": int((~post).sum()),
+            "windowsAfter": int(post.sum()),
+            "statistic": "post minus pre mean of |value| across rows",
+            "delta": delta,
+            "pTwoSided": p_value,
+            "rotations": len(magnitude) - 1,
+            "lag1Autocorrelation": float(
+                np.corrcoef(magnitude[:-1], magnitude[1:])[0, 1]
+            ),
+        },
+        compact=bool(args.compact),
+    )
+    return 0
+
+
+def _result_warnings(result) -> list[str]:
+    prefix = "Warning: "
+    return [
+        line.removeprefix(prefix)
+        for line in result.diagnostics
+        if line.startswith(prefix)
+    ]
 
 
 def _handle_dda_raw(args: argparse.Namespace) -> int:

@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import threading
 from collections import deque
+from pathlib import Path
 from time import perf_counter_ns
 from typing import Any, Callable, Mapping, Optional, Sequence
 
@@ -80,6 +82,13 @@ class DdaSidecarClient:
             self._ensure_process_locked()
             return self._request_locked(method, params or {}, on_progress=on_progress)
 
+    def cancel(self) -> None:
+        """Stop a running request; the next request starts a new process."""
+        # no lock: the running request holds it until the process exits
+        process = self._process
+        if process is not None and process.poll() is None:
+            process.kill()
+
     def close(self) -> None:
         with self._lock:
             process = self._process
@@ -104,7 +113,7 @@ class DdaSidecarClient:
         if process is not None and process.poll() is None:
             return
         self._stderr_lines.clear()
-        env = dict(os.environ)
+        env = _with_cuda_libraries(dict(os.environ))
         spawn_started_ns = perf_counter_ns()
         process = subprocess.Popen(
             self._command,
@@ -222,3 +231,18 @@ class DdaSidecarClient:
                 stream.close()
             except Exception:
                 pass
+
+
+def _with_cuda_libraries(env: dict[str, str]) -> dict[str, str]:
+    """Let the CUDA backend find cuBLAS without a manually set LD_LIBRARY_PATH."""
+    if not sys.platform.startswith("linux"):
+        return env
+    roots = (env.get("CUDA_HOME"), env.get("CUDA_PATH"), "/usr/local/cuda")
+    current = [part for part in env.get("LD_LIBRARY_PATH", "").split(":") if part]
+    for root in filter(None, roots):
+        lib = os.path.join(root, "lib64")
+        if any(Path(lib).glob("libcublas.so*")):
+            if lib not in current:
+                env["LD_LIBRARY_PATH"] = ":".join([*current, lib])
+            break
+    return env

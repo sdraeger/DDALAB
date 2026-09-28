@@ -1,11 +1,7 @@
 use nalgebra::{DMatrix, DVector};
 use rayon::prelude::*;
 
-use crate::error::{DDAError, Result};
-
-use super::{
-    model::ModelSpec, window::PreparedWindow, ComputeDevice, SvdBackend, PARALLEL_BATCH_MIN_LEN,
-};
+use super::{model::ModelSpec, window::PreparedWindow, SvdBackend, PARALLEL_BATCH_MIN_LEN};
 
 #[derive(Debug, Clone)]
 pub(crate) struct SolvedBlock {
@@ -331,37 +327,6 @@ pub(crate) fn solve_regression_window(
     )
 }
 
-pub(crate) fn solve_regression_windows(
-    windows: &[RegressionWindow],
-    svd_backend: SvdBackend,
-    compute_device: ComputeDevice,
-) -> Result<Vec<SolvedBlock>> {
-    match compute_device {
-        ComputeDevice::Cpu => Ok(solve_channels_parallel(windows, |window| {
-            solve_regression_window(window, svd_backend)
-        })),
-        ComputeDevice::Cuda(device_index) => {
-            if svd_backend != SvdBackend::RobustSvd {
-                return Err(DDAError::InvalidParameter(
-                    "CUDA acceleration requires SvdBackend::RobustSvd".to_string(),
-                ));
-            }
-            #[cfg(feature = "cuda")]
-            {
-                super::gpu::solve_regression_windows(windows, device_index, svd_backend)
-            }
-            #[cfg(not(feature = "cuda"))]
-            {
-                let _ = device_index;
-                Err(DDAError::ExecutionFailed(
-                    "CUDA support is not compiled in; rebuild dda-rs with --features cuda"
-                        .to_string(),
-                ))
-            }
-        }
-    }
-}
-
 pub(crate) fn solve_temporally_regularized_windows(
     windows: &[RegressionWindow],
     lambda: f64,
@@ -470,7 +435,14 @@ fn solve_matrix_with_backend(
 }
 
 fn solve_matrix_with_robust_svd(matrix: &DMatrix<f64>, rhs: &DVector<f64>) -> DVector<f64> {
-    let svd = matrix.clone().svd(true, true);
+    // svd() iterates without limit; same tolerance (5 eps) but a window that doesn't
+    // converge becomes NaN
+    let Some(svd) = matrix
+        .clone()
+        .try_svd(true, true, 5.0 * f64::EPSILON, 10_000)
+    else {
+        return DVector::from_element(matrix.ncols(), f64::NAN);
+    };
     let sigma_max = svd.singular_values.iter().copied().fold(0.0_f64, f64::max);
     let tolerance = (matrix.nrows().max(matrix.ncols()) as f64) * f64::EPSILON * sigma_max.max(1.0);
     svd.solve(rhs, tolerance)

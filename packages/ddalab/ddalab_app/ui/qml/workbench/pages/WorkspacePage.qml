@@ -1,5 +1,7 @@
 import QtQuick
+import QtQuick.Dialogs
 import QtQuick.Layouts
+import DDALAB.Plots
 import "../components"
 import "../.." as DDALABViews
 
@@ -57,7 +59,8 @@ Rectangle {
                 colors: root.colors
                 text: root.controller.replayActive ? "Pause" : "Replay"
                 primary: root.controller.replayActive
-                enabled: root.controller.datasetLoaded && !root.controller.busy
+                enabled: root.controller.datasetLoaded
+                    && (root.controller.replayActive || !root.controller.busy)
                 onClicked: root.controller.toggleReplay()
             }
         }
@@ -93,20 +96,55 @@ Rectangle {
                 : root.controller.workspaceMode === "openneuro" ? 2
                 : 0
 
-            Item {
-                DDALABViews.QuickWaveformSurface {
-                    anchors.fill: parent
-                    waveformBridge: root.controller.waveformBridge
-                    chromeVisible: false
+            ColumnLayout {
+                spacing: 4
+                Item {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    DDALABViews.QuickWaveformSurface {
+                        anchors.fill: parent
+                        waveformBridge: root.controller.waveformBridge
+                        chromeVisible: false
+                    }
+                    LoadingOverlay {
+                        anchors.fill: parent
+                        colors: root.colors
+                        running: !!root.controller.loadingComponents.recording
+                            || !!root.controller.loadingComponents.waveform
+                        text: root.controller.loadingComponents.recording
+                            ? "Loading recording…"
+                            : "Loading waveform…"
+                    }
                 }
-                LoadingOverlay {
-                    anchors.fill: parent
-                    colors: root.colors
-                    running: !!root.controller.loadingComponents.recording
-                        || !!root.controller.loadingComponents.waveform
-                    text: root.controller.loadingComponents.recording
-                        ? "Loading recording…"
-                        : "Loading waveform…"
+                // whole recording; the box is the current view, click or drag to move it
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 64
+                    visible: root.controller.datasetLoaded
+                    color: root.colors.surfaceAlt
+                    border.color: root.colors.border
+                    radius: 4
+                    QuickWaveformTextureItem {
+                        anchors.fill: parent
+                        anchors.margins: 1
+                        bridge: root.controller.overviewBridge
+                    }
+                    Rectangle {
+                        x: parent.width * root.controller.viewportStartFraction
+                        width: Math.max(2, parent.width * root.controller.viewportSpanFraction)
+                        height: parent.height
+                        color: root.colors.accent
+                        opacity: 0.2
+                        border.color: root.colors.accent
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        onPressed: function(mouse) { root.controller.jumpToFraction(mouse.x / width) }
+                        onPositionChanged: function(mouse) {
+                            if (pressed)
+                                root.controller.jumpToFraction(mouse.x / width)
+                        }
+                    }
                 }
             }
 
@@ -115,6 +153,23 @@ Rectangle {
                 clip: true
                 model: root.controller.annotationModel
                 spacing: 3
+                header: RowLayout {
+                    width: annotationsList.width
+                    height: 40
+                    Item { Layout.fillWidth: true }
+                    WorkbenchButton {
+                        colors: root.colors
+                        text: "Import…"
+                        enabled: root.controller.datasetLoaded
+                        onClicked: importAnnotationsDialog.open()
+                    }
+                    WorkbenchButton {
+                        colors: root.colors
+                        text: "Export…"
+                        enabled: annotationsList.count > 0
+                        onClicked: exportAnnotationsDialog.open()
+                    }
+                }
                 delegate: Rectangle {
                     required property int index
                     required property string label
@@ -137,6 +192,11 @@ Rectangle {
                             Text { Layout.fillWidth: true; text: label; color: root.colors.text; font.pixelSize: 12; font.weight: Font.Medium; elide: Text.ElideRight }
                             Text { Layout.fillWidth: true; text: channel + " · " + start.toFixed(3) + (end > start ? "–" + end.toFixed(3) : "") + " s"; color: root.colors.muted; font.pixelSize: 10; elide: Text.ElideRight }
                             Text { Layout.fillWidth: true; visible: notes.length > 0; text: notes; color: root.colors.muted; font.pixelSize: 10; elide: Text.ElideRight }
+                        }
+                        WorkbenchButton {
+                            colors: root.colors
+                            text: "Go to"
+                            onClicked: root.controller.goToAnnotation(index)
                         }
                         WorkbenchButton {
                             colors: root.colors
@@ -206,6 +266,15 @@ Rectangle {
                                     elide: Text.ElideRight
                                 }
                             }
+                            WorkbenchButton {
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                anchors.rightMargin: 8
+                                colors: root.colors
+                                quiet: true
+                                text: "Open page"
+                                onClicked: Qt.openUrlExternally("https://openneuro.org/datasets/" + id)
+                            }
                         }
                         Text {
                             anchors.centerIn: parent
@@ -225,5 +294,20 @@ Rectangle {
                 }
             }
         }
+    }
+
+    FileDialog {
+        id: importAnnotationsDialog
+        title: "Import annotations"
+        nameFilters: ["Annotation JSON (*.json)"]
+        onAccepted: root.controller.importAnnotations(selectedFile.toString())
+    }
+
+    FileDialog {
+        id: exportAnnotationsDialog
+        title: "Export annotations"
+        fileMode: FileDialog.SaveFile
+        nameFilters: ["Annotation JSON (*.json)"]
+        onAccepted: root.controller.exportAnnotations(selectedFile.toString())
     }
 }

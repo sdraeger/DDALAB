@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from collections import Counter
 from typing import List, Optional, Sequence
 
 import numpy as np
@@ -12,14 +13,15 @@ from ...domain.models import (
     WaveformWindow,
 )
 from .common import (
-    _DELIMITED_TIME_HEADERS,
     PythonDatasetReader,
     PythonDatasetReaderError,
     _build_channel_waveform,
     _build_overview_channel,
     _estimate_sample_rate,
+    _is_time_header,
     _normalized_suffix,
     _resolve_channel_indices,
+    _unique_names,
 )
 
 
@@ -39,6 +41,7 @@ class DelimitedDatasetReader(PythonDatasetReader):
             self._timestamps,
             self._notes,
             self._source_summary,
+            self._warnings,
         ) = self._load_file()
 
     def load_metadata(self) -> LoadedDataset:
@@ -65,6 +68,7 @@ class DelimitedDatasetReader(PythonDatasetReader):
                 for name in self._channel_names
             ],
             supports_windowed_access=True,
+            warnings=list(self._warnings),
         )
         return self._metadata
 
@@ -162,50 +166,58 @@ class DelimitedDatasetReader(PythonDatasetReader):
         header = first_tokens if has_header else []
         data_lines = raw_lines[1:] if has_header else raw_lines
 
-        rows: List[List[float]] = []
-        for line in data_lines:
-            tokens = splitter(line)
-            numbers = [_safe_float(token) for token in tokens]
-            if numbers and all(value is not None for value in numbers):
-                rows.append([float(value) for value in numbers if value is not None])
+        # Every numeric line is one sample. Empty or non-numeric cells become NaN
+        # gaps and rows are padded to the usual width, so no sample is dropped and
+        # the time axis stays intact.
+        parsed = [[_safe_float(token) for token in splitter(line)] for line in data_lines]
+        rows = [row for row in parsed if any(value is not None for value in row)]
         if not rows:
             raise PythonDatasetReaderError(
                 f"No numeric samples were found in {self.path_obj.name}"
             )
-
-        column_count = min(len(row) for row in rows)
-        if column_count <= 0:
-            raise PythonDatasetReaderError(
-                f"No signal columns were found in {self.path_obj.name}"
+        column_count = Counter(len(row) for row in rows).most_common(1)[0][0]
+        data = np.full((len(rows), column_count), np.nan)
+        for index, row in enumerate(rows):
+            values = [np.nan if value is None else value for value in row[:column_count]]
+            data[index, : len(values)] = values
+        warnings = []
+        if len(rows) < len(parsed):
+            warnings.append(f"{len(parsed) - len(rows)} text-only lines were skipped.")
+        ragged = sum(len(row) != column_count for row in rows)
+        if ragged:
+            warnings.append(
+                f"{ragged} rows do not have {column_count} columns; they were padded or cut."
             )
+        gaps = int(np.isnan(data).sum())
+        if gaps:
+            warnings.append(f"{gaps} empty or non-numeric cells are treated as gaps (NaN).")
         effective_header = (
             header[:column_count]
             if header and len(header) >= column_count
             else [f"Channel {index + 1}" for index in range(column_count)]
         )
-        has_explicit_time = (
-            effective_header[0].strip().lower() in _DELIMITED_TIME_HEADERS
-            if effective_header
-            else False
-        )
+        has_explicit_time = bool(effective_header) and _is_time_header(effective_header[0])
         start_column = 1 if has_explicit_time else 0
-        channel_names = [
-            name if name.strip() else f"Channel {index + 1}"
-            for index, name in enumerate(effective_header[start_column:])
-        ]
+        channel_names = _unique_names(
+            [
+                name if name.strip() else f"Channel {index + 1}"
+                for index, name in enumerate(effective_header[start_column:])
+            ]
+        )
         if not channel_names:
             raise PythonDatasetReaderError(
                 f"At least one signal channel is required in {self.path_obj.name}"
             )
 
-        data = np.asarray([row[:column_count] for row in rows], dtype=np.float64)
         timestamps = data[:, 0].copy() if has_explicit_time else None
+
         sample_rate = _estimate_sample_rate(
             timestamps.tolist() if timestamps is not None else list(range(len(rows)))
         )
+        finite_times = timestamps[np.isfinite(timestamps)] if timestamps is not None else None
         duration_seconds = (
-            max(float(timestamps[-1] - timestamps[0]), 0.0)
-            if timestamps is not None and timestamps.size > 1
+            max(float(finite_times[-1] - finite_times[0]), 0.0)
+            if finite_times is not None and finite_times.size > 1
             else len(rows) / sample_rate
         )
         notes = []
@@ -228,6 +240,7 @@ class DelimitedDatasetReader(PythonDatasetReader):
             timestamps,
             notes,
             source_summary,
+            warnings,
         )
 
     def _split_line(self, line: str) -> List[str]:

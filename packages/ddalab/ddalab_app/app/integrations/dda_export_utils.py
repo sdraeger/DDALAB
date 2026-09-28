@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
 from ...domain.models import DdaReproductionConfig, DdaResult, DdaVariantResult
 
@@ -38,9 +38,11 @@ def find_variant(
     return result.variants[0]
 
 
-def export_result_json(result: DdaResult) -> str:
+def export_result_json(result: DdaResult, annotations: Iterable[object] = ()) -> str:
+    """The result plus the recording's annotations, on the same time axis."""
     result = _materialized_result(result)
-    return json.dumps(asdict(result), indent=2)
+    payload = {**asdict(result), "annotations": [asdict(item) for item in annotations]}
+    return json.dumps(payload, indent=2)
 
 
 def export_variant_csv(result: DdaResult, variant_id: Optional[str] = None) -> str:
@@ -50,10 +52,20 @@ def export_variant_csv(result: DdaResult, variant_id: Optional[str] = None) -> s
         return ""
     lines = []
     column_count = max((len(row) for row in variant.matrix), default=0)
-    header_labels = list(variant.row_labels[:column_count])
+    # Columns are analysis windows, so they are headed by their center time in
+    # seconds. Rows carry the channel or pair label in the first column.
+    header_labels = [
+        f"{float(center):.6g}"
+        for center in result.window_centers_seconds[:column_count]
+    ]
+    corner = "Row / window center (s)"
+    if result.engine_label == "CDR batch aggregate":  # columns are noise conditions
+        from .cdr import CDR_CONDITIONS
+
+        header_labels, corner = list(CDR_CONDITIONS[:column_count]), "Row / condition"
     while len(header_labels) < column_count:
-        header_labels.append(f"Value {len(header_labels) + 1}")
-    lines.append(",".join(_csv_escape(item) for item in ["Row", *header_labels]))
+        header_labels.append(f"Window {len(header_labels) + 1}")
+    lines.append(",".join(_csv_escape(item) for item in [corner, *header_labels]))
     for row_index, row in enumerate(variant.matrix):
         row_label = (
             variant.row_labels[row_index]
@@ -76,6 +88,91 @@ def export_all_variants_csv(result: DdaResult) -> str:
         "\n".join(section for section in sections if section is not None).rstrip()
         + "\n"
     )
+
+
+def export_result_figure(
+    result: DdaResult,
+    variant: DdaVariantResult,
+    path: Path,
+    *,
+    quantity: str,
+    color_scheme: str,
+    start_fraction: float = 0.0,
+    span_fraction: float = 1.0,
+) -> None:
+    """The result view as a PDF, SVG, or PNG figure (format from the suffix), plus a
+    JSON sidecar with what reproduces it. Every window of the visible range is
+    drawn: the heatmap is embedded at full resolution and the lines are not reduced."""
+    from datetime import datetime, timezone
+
+    import numpy as np
+    from matplotlib.colors import LinearSegmentedColormap
+    from matplotlib.figure import Figure
+
+    from ...ui.plot_data_common import LINE_PLOT_COLORS, _sample_window_bounds
+    from ...ui.plot_heatmap_data import color_stops
+    from ...ui.plot_matrix_data import _variant_array, color_limits
+    from ...version import get_app_version
+
+    values = _variant_array(variant)
+    first, last = _sample_window_bounds(
+        values.shape[1], start_fraction=start_fraction, span_fraction=span_fraction
+    )
+    values = values[:, first:last]
+    centers = np.asarray(result.window_centers_seconds[first:last], dtype=float)
+    step = float(np.median(np.diff(centers))) if centers.size > 1 else 1.0
+    low, high, diverging = color_limits(variant)
+    stops = color_stops(color_scheme, diverging) / 255.0
+    title = f"{variant.label} · {quantity}"
+
+    figure = Figure(figsize=(7.2, 5.0), layout="constrained")
+    heat_axes, line_axes = figure.subplots(
+        2, 1, sharex=True, gridspec_kw={"height_ratios": [3, 1.3]}
+    )
+    image = heat_axes.imshow(
+        values,
+        aspect="auto",
+        interpolation="nearest",
+        cmap=LinearSegmentedColormap.from_list(color_scheme, stops),
+        vmin=low,
+        vmax=high,
+        extent=(centers[0] - step / 2, centers[-1] + step / 2, len(values) - 0.5, -0.5),
+    )
+    labels = variant.row_labels[: len(values)]
+    every = max(1, len(labels) // 24)
+    heat_axes.set_yticks(range(0, len(labels), every), labels[::every], fontsize=6)
+    heat_axes.set_title(f"{result.file_name}: {title}", fontsize=9)
+    figure.colorbar(image, ax=heat_axes, label=quantity)
+    for index, row in enumerate(values[:8]):
+        line_axes.plot(
+            centers,
+            row,
+            linewidth=0.8,
+            color=LINE_PLOT_COLORS[index % len(LINE_PLOT_COLORS)],
+            label=labels[index] if index < len(labels) else f"Row {index + 1}",
+        )
+    line_axes.set_xlabel("Window center (s)")
+    line_axes.set_ylabel(quantity)
+    line_axes.legend(fontsize=6, ncols=4, loc="upper right")
+    figure.savefig(path)
+
+    reproduction = result.reproduction
+    sidecar = {
+        "figure": path.name,
+        "recording": result.file_path,
+        "input_sha256": reproduction.input_sha256 if reproduction else {},
+        "result_id": result.id,
+        "variant": variant.id,
+        "quantity": quantity,
+        "rows_plotted_as_lines": labels[:8],
+        "time_range_s": [float(centers[0]), float(centers[-1])],
+        "color_limits": [low, high],
+        "color_scale": "1st-99th percentile" + (", symmetric" if diverging else ""),
+        "colormap": color_scheme,
+        "ddalab_version": get_app_version(),
+        "created_utc": datetime.now(timezone.utc).isoformat(),
+    }
+    path.with_name(path.name + ".json").write_text(json.dumps(sidecar, indent=2))
 
 
 def generate_python_script(result: DdaResult, variant_id: Optional[str] = None) -> str:
@@ -389,7 +486,7 @@ def _build_reproduction_cli_args(
             )
         pair_indices = reproduction.variant_pair_indices.get(variant_id, [])
         if pair_indices:
-            separator = ">" if variant_id == "CD" else "-"
+            separator = "<" if variant_id == "CD" else "-"
             args.extend(
                 [
                     "--variant-pairs",

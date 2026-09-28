@@ -12,6 +12,9 @@ ListView {
     clip: true
     model: controller.historyModel
     spacing: 3
+    activeFocusOnTab: true
+    Keys.onReturnPressed: root.resultRequested(currentIndex)
+    Keys.onEnterPressed: root.resultRequested(currentIndex)
 
     delegate: Rectangle {
         id: entry
@@ -25,7 +28,8 @@ ListView {
         width: root.width
         height: 62
         radius: 5
-        color: historyMouse.containsMouse ? root.colors.panelAlt : "transparent"
+        color: historyMouse.containsMouse || (root.activeFocus && entry.ListView.isCurrentItem)
+            ? root.colors.panelAlt : "transparent"
 
         Column {
             anchors.fill: parent
@@ -34,7 +38,7 @@ ListView {
 
             Text {
                 width: parent.width
-                text: entry.fileName || "DDA result"
+                text: "#" + (entry.index + 1) + "  " + (entry.fileName || "DDA result")
                 color: root.colors.text
                 font.pixelSize: 12
                 font.weight: Font.Medium

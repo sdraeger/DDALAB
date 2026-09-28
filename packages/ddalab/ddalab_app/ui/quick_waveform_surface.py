@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 from importlib.resources import files
 from pathlib import Path
 from time import perf_counter_ns
 from typing import Sequence
 
-from PySide6.QtCore import Property, QObject, QRectF, Signal, Slot
+from PySide6.QtCore import Property, QObject, QRectF, QTimer, Signal, Slot
 from PySide6.QtGui import QImage
 from PySide6.QtQml import qmlRegisterType
 from PySide6.QtQuick import QQuickItem, QSGNode, QSGSimpleTextureNode
@@ -65,8 +66,18 @@ class QuickWaveformSurfaceBridge(QObject):
             WaveformRenderKey,
             WaveformRenderArtifacts,
         ](_RENDER_CACHE_CAPACITY)
+        # the image is rendered at the item's size in device pixels, so it is never
+        # stretched; until the item reports a size, request widths are used
+        self._pixel_size = (0, 0)
+        self._pen_width = 1
+        self._last_view: tuple | None = None
+        self._resize_timer = QTimer(self)
+        self._resize_timer.setSingleShot(True)
+        self._resize_timer.setInterval(30)
+        self._resize_timer.timeout.connect(self._render_last_view)
 
     def clear(self) -> None:
+        self._last_view = None
         self._title = "DDALAB waveform"
         self._status_text = "No waveform loaded"
         self._image = QImage()
@@ -100,13 +111,13 @@ class QuickWaveformSurfaceBridge(QObject):
         *,
         title: str,
     ) -> None:
-        normalized_target_width = max(1, int(request.target_width))
-        request = WaveformViewRequest(
-            target_width=normalized_target_width,
-            channel_start=request.channel_start,
-            channel_count=request.channel_count,
-            start_fraction=request.start_fraction,
-            span_fraction=request.span_fraction,
+        self._last_view = (provider, request, title)
+        width, height = self._pixel_size
+        request = replace(
+            request,
+            target_width=max(1, int(width or request.target_width)),
+            target_height=height,
+            pen_width=self._pen_width,
         )
         render_key = provider.render_key(request)
         artifacts = self._render_cache.get(render_key)
@@ -144,6 +155,19 @@ class QuickWaveformSurfaceBridge(QObject):
             f"{self._geometry.sample_count} visible samples"
         )
         self.changed.emit()
+
+    def set_pixel_size(self, width: float, height: float, device_pixel_ratio: float) -> None:
+        size = (round(width * device_pixel_ratio), round(height * device_pixel_ratio))
+        if size == self._pixel_size or min(size) <= 0:
+            return
+        self._pixel_size = size
+        self._pen_width = max(1, round(device_pixel_ratio))
+        if self._last_view is not None:
+            self._resize_timer.start()  # coalesces a drag-resize into one render
+
+    def _render_last_view(self) -> None:
+        if self._last_view is not None:
+            self.set_waveform_provider(*self._last_view[:2], title=self._last_view[2])
 
     def waveform_geometry(self) -> WaveformGeometryView:
         return self._geometry
@@ -251,6 +275,10 @@ class QuickWaveformSurfaceBridge(QObject):
         return list(self._geometry.channel_labels)
 
     @Property("QVariantList", notify=changed)
+    def channelRanges(self) -> list[str]:
+        return list(self._geometry.channel_ranges)
+
+    @Property("QVariantList", notify=changed)
     def timeTicks(self) -> list[dict[str, object]]:
         return _time_axis_ticks(
             self._visible_start_seconds,
@@ -304,7 +332,23 @@ class QuickWaveformSurfaceBridge(QObject):
         return f"{self._geometry.channel_count} channels"
 
 
-class QuickWaveformTextureItem(QQuickItem):
+class ReportsPixelSize:
+    """QQuickItem mixin: calls _report_pixel_size() when the size or screen changes."""
+
+    def geometryChange(self, new_geometry: QRectF, old_geometry: QRectF) -> None:
+        super().geometryChange(new_geometry, old_geometry)
+        self._report_pixel_size()
+
+    def itemChange(self, change: QQuickItem.ItemChange, value) -> None:
+        super().itemChange(change, value)
+        if change in (
+            QQuickItem.ItemSceneChange,
+            QQuickItem.ItemDevicePixelRatioHasChanged,
+        ):
+            self._report_pixel_size()
+
+
+class QuickWaveformTextureItem(ReportsPixelSize, QQuickItem):
     bridgeChanged = Signal()
 
     def __init__(self, parent: QQuickItem | None = None) -> None:
@@ -329,6 +373,7 @@ class QuickWaveformTextureItem(QQuickItem):
         self._texture_revision = -1
         if self._bridge is not None:
             self._bridge.changed.connect(self._on_bridge_changed)
+            self._report_pixel_size()
         self.bridgeChanged.emit()
         self.update()
 
@@ -336,6 +381,12 @@ class QuickWaveformTextureItem(QQuickItem):
 
     def _on_bridge_changed(self) -> None:
         self.update()
+
+    def _report_pixel_size(self) -> None:
+        if self._bridge is not None and self.window() is not None:
+            self._bridge.set_pixel_size(
+                self.width(), self.height(), self.window().effectiveDevicePixelRatio()
+            )
 
     def updatePaintNode(
         self,

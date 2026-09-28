@@ -7,8 +7,7 @@ Rectangle {
 
     required property var controller
     required property var colors
-    signal exportJsonRequested()
-    signal exportCsvRequested()
+    signal exportRequested()
 
     color: colors.panel
 
@@ -81,8 +80,7 @@ Rectangle {
                     visible: root.controller.currentPage === "results"
                     controller: root.controller
                     colors: root.colors
-                    onExportJsonRequested: root.exportJsonRequested()
-                    onExportCsvRequested: root.exportCsvRequested()
+                    onExportRequested: root.exportRequested()
                 }
                 SettingsInspector {
                     Layout.fillWidth: true

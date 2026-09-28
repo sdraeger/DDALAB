@@ -26,7 +26,6 @@ from ddalab_app.ui.quick_plot_surface import (
     QuickLineTextureItem,
     QuickPlotSurfaceBridge,
     quick_plot_surface_qml_path,
-    update_quick_heatmap_bridge,
     update_quick_variant_bridge,
 )
 from ddalab_app.ui.style import theme_colors
@@ -55,10 +54,12 @@ class _RecordingMatrixRenderer:
         self.calls = 0
         self.color_schemes: list[str] = []
 
-    def render(self, view, *, color_scheme: str) -> MatrixRenderArtifacts:
+    def render(
+        self, view, *, color_scheme: str, line_size=(0, 0), lines=None
+    ) -> MatrixRenderArtifacts:
         self.calls += 1
         self.color_schemes.append(color_scheme)
-        return QtCpuMatrixPlotRenderer().render(view, color_scheme=color_scheme)
+        return QtCpuMatrixPlotRenderer().render(view, color_scheme=color_scheme, lines=lines)
 
 
 class QuickPlotSurfaceTests(unittest.TestCase):
@@ -486,14 +487,17 @@ class QuickPlotSurfaceTests(unittest.TestCase):
         bridge = QuickPlotSurfaceBridge()
         view = build_matrix_view(_variant(), target_columns=4)
 
-        bridge.set_matrix_view(
-            view,
-            title="ST heatmap",
-            renderer_name="Qt Quick scene graph texture",
-            color_scheme="cool",
-        )
+        colors = []
+        for scheme in ("viridis", "plasma"):
+            bridge.set_matrix_view(
+                view,
+                title="ST heatmap",
+                renderer_name="Qt Quick scene graph texture",
+                color_scheme=scheme,
+            )
+            colors.append(bridge.image().pixelColor(0, 0).getRgb())
 
-        self.assertEqual(bridge.image().pixelColor(0, 0).getRgb(), (0, 255, 255, 255))
+        self.assertNotEqual(colors[0], colors[1])
 
     def test_bridge_logs_slow_matrix_renderer_preparation(self) -> None:
         bridge = QuickPlotSurfaceBridge()
@@ -527,7 +531,7 @@ class QuickPlotSurfaceTests(unittest.TestCase):
     def test_update_helper_populates_bridge_from_variant(self) -> None:
         bridge = QuickPlotSurfaceBridge()
 
-        update_quick_heatmap_bridge(
+        update_quick_variant_bridge(
             bridge,
             _variant(),
             target_columns=5,
@@ -539,6 +543,29 @@ class QuickPlotSurfaceTests(unittest.TestCase):
         self.assertEqual(bridge.rendererName, "Qt Quick scene graph texture")
         self.assertEqual(bridge.rowCount, 2)
         self.assertEqual(bridge.visibleColumnCount, 5)
+
+    def test_line_plot_draws_real_rows_and_toggles_clicked_ones(self) -> None:
+        bridge = QuickPlotSurfaceBridge()
+        bridge.set_pixel_size("result_heatmap", 50, 4, 1.0)  # 20 rows into 4 px
+        labels = [f"R{index}" for index in range(20)]
+        variant = DdaVariantResult(
+            id="ST",
+            label="Single Timeseries",
+            row_labels=labels,
+            matrix=[[float(row)] * 10 for row in range(20)],
+            summary="",
+            min_value=0.0,
+            max_value=19.0,
+            column_count=10,
+        )
+
+        bridge.show_variant(variant, title="ST", color_scheme="viridis")
+        self.assertEqual([item["label"] for item in bridge.lineLegend], labels[:8])
+
+        bridge.toggleLineRowAt(0.99)
+        self.assertEqual([item["label"] for item in bridge.lineLegend], ["R19"])
+        bridge.toggleLineRowAt(0.99)
+        self.assertEqual([item["label"] for item in bridge.lineLegend], labels[:8])
 
     def test_update_variant_helper_exposes_source_column_window(self) -> None:
         bridge = QuickPlotSurfaceBridge()
@@ -609,22 +636,6 @@ class QuickPlotSurfaceTests(unittest.TestCase):
         self.assertEqual(build.call_count, 1)
         self.assertEqual(bridge.matrix_tile_cache().size, 1)
 
-    def test_update_variant_helper_accepts_visible_row_range(self) -> None:
-        bridge = QuickPlotSurfaceBridge()
-
-        update_quick_variant_bridge(
-            bridge,
-            _variant(),
-            target_columns=5,
-            row_start=1,
-            row_count=1,
-        )
-
-        self.assertEqual(bridge.rowCount, 1)
-        self.assertEqual(bridge.rowStart, 1)
-        self.assertEqual(bridge.totalRowCount, 2)
-        self.assertTrue(bridge.hasLineImage)
-
     def test_update_variant_helper_logs_slow_matrix_view_preparation(self) -> None:
         bridge = QuickPlotSurfaceBridge()
         logger = Mock()
@@ -654,8 +665,6 @@ class QuickPlotSurfaceTests(unittest.TestCase):
                 target_columns=5,
                 start_fraction=0.25,
                 span_fraction=0.5,
-                row_start=1,
-                row_count=1,
             )
 
         self.assertIn(
@@ -667,8 +676,6 @@ class QuickPlotSurfaceTests(unittest.TestCase):
             for call in logger.log_slow.call_args_list
             if call.args[1] == "qml.matrix_view.build"
         )
-        self.assertEqual(matrix_log.kwargs["rowStart"], 1)
-        self.assertEqual(matrix_log.kwargs["rowCount"], 1)
         self.assertEqual(matrix_log.kwargs["totalRows"], 2)
 
 

@@ -81,7 +81,7 @@ Rectangle {
                     anchors.fill: parent
                     colors: root.colors
                     running: !!root.controller.loadingComponents.dda
-                    text: "Loading DDA result…"
+                    text: "Running DDA…"
                 }
             }
 
@@ -94,6 +94,27 @@ Rectangle {
                     showFlavors: false
                     actionText: root.controller.busy ? "Running…" : "Run ICA"
                     onActionRequested: root.controller.runIca()
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+                    Text { text: "Components (max)"; color: root.colors.muted; font.pixelSize: 11 }
+                    WorkbenchField {
+                        Layout.preferredWidth: 72
+                        colors: root.colors
+                        value: root.controller.icaComponents.toString()
+                        validator: IntValidator { bottom: 1 }
+                        onEditingFinished: root.controller.icaComponents = Number(text)
+                    }
+                    Text { text: "Max iterations"; color: root.colors.muted; font.pixelSize: 11 }
+                    WorkbenchField {
+                        Layout.preferredWidth: 72
+                        colors: root.colors
+                        value: root.controller.icaMaxIterations.toString()
+                        validator: IntValidator { bottom: 1 }
+                        onEditingFinished: root.controller.icaMaxIterations = Number(text)
+                    }
+                    Item { Layout.fillWidth: true }
                 }
                 Rectangle { Layout.fillWidth: true; height: 1; color: root.colors.border }
                 Text {
@@ -134,7 +155,7 @@ Rectangle {
                         anchors.fill: parent
                         colors: root.colors
                         running: !!root.controller.loadingComponents.ica
-                        text: "Loading ICA result…"
+                        text: "Running ICA…"
                     }
                 }
             }

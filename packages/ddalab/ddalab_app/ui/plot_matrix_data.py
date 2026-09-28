@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import math
 from dataclasses import dataclass
 from time import perf_counter_ns
 
@@ -12,10 +11,7 @@ from ..domain.models import DdaVariantResult
 from .plot_data_common import (
     LINE_PLOT_COLORS,
     _clamp_view_window,
-    _finite_or_zero,
     _sample_window_bounds,
-    _x_fraction,
-    windowed_resample_indices,
 )
 from .render_cache import LruRenderCache
 
@@ -34,6 +30,7 @@ class MatrixView:
     row_labels: tuple[str, ...]
     row_start: int = 0
     total_row_count: int = 0
+    diverging: bool = False  # color limits are symmetric around zero
 
     @property
     def target_column_count(self) -> int:
@@ -52,6 +49,7 @@ class MatrixViewRequest:
     row_start: int = 0
     row_count: int | None = None
     max_rows: int | None = None
+    target_rows: int | None = None  # aggregate rows beyond this many pixels
 
 
 MatrixTileKey = tuple[
@@ -95,13 +93,6 @@ MatrixViewRenderKey = tuple[
 ]
 
 
-@dataclass(frozen=True)
-class LineGeometryView:
-    lines: tuple[np.ndarray, ...]
-    colors: tuple[str, ...]
-    source_row_count: int
-    source_column_count: int
-    target_column_count: int
 
 
 @dataclass(frozen=True)
@@ -124,6 +115,7 @@ class DdaVariantPlotProvider:
             row_start=request.row_start,
             row_count=request.row_count,
             max_rows=request.max_rows,
+            target_rows=request.target_rows,
         )
         if self.tile_cache is not None:
             self.tile_cache.put(tile_key, view)
@@ -140,21 +132,26 @@ def build_matrix_view(
     row_start: int = 0,
     row_count: int | None = None,
     max_rows: int | None = None,
+    target_rows: int | None = None,
 ) -> MatrixView:
-    rows = list(variant.matrix)
+    matrix = _variant_array(variant)
     labels = list(variant.row_labels)
-    start_row = max(0, min(len(rows), int(row_start)))
-    requested_row_count = len(rows) - start_row if row_count is None else int(row_count)
-    visible_row_count = max(0, min(len(rows) - start_row, requested_row_count))
+    total_rows = matrix.shape[0]
+    start_row = max(0, min(total_rows, int(row_start)))
+    requested_row_count = total_rows - start_row if row_count is None else int(row_count)
+    visible_row_count = max(0, min(total_rows - start_row, requested_row_count))
     if max_rows is not None:
         visible_row_count = min(visible_row_count, max(0, int(max_rows)))
-    selected_rows = rows[start_row : start_row + visible_row_count]
-    selected_labels = labels[start_row : start_row + visible_row_count]
     column_count = max(0, int(variant.effective_column_count))
-    display_min_value, display_max_value = variant_plot_bounds(variant)
-    value_range = max(display_max_value - display_min_value, 1e-6)
-
-    if visible_row_count <= 0 or column_count <= 0:
+    low, high, diverging = color_limits(variant)
+    source_column_start, source_column_end = _sample_window_bounds(
+        column_count,
+        start_fraction=start_fraction,
+        span_fraction=span_fraction,
+    )
+    block = matrix[start_row : start_row + visible_row_count, source_column_start:source_column_end]
+    selected_labels = labels[start_row : start_row + visible_row_count]
+    if block.size == 0:
         return MatrixView(
             values=np.zeros((0, 0), dtype=np.float32),
             sample_indices=(),
@@ -162,60 +159,94 @@ def build_matrix_view(
             source_column_count=column_count,
             source_column_start=0,
             source_column_end=0,
-            display_min_value=display_min_value,
-            display_max_value=display_max_value,
-            value_range=value_range,
+            display_min_value=low,
+            display_max_value=high,
+            value_range=max(high - low, 1e-6),
             row_labels=tuple(selected_labels),
             row_start=start_row,
-            total_row_count=len(rows),
+            total_row_count=total_rows,
+            diverging=diverging,
         )
-
-    target_count = max(1, min(column_count, int(target_columns)))
-    sample_indices = tuple(
-        windowed_resample_indices(
-            column_count,
-            target_count,
-            start_fraction=start_fraction,
-            span_fraction=span_fraction,
-        )
-    )
-    values = np.full(
-        (visible_row_count, len(sample_indices)),
-        np.nan,
-        dtype=np.float32,
-    )
-    for row_index, row in enumerate(selected_rows):
-        if not row:
-            continue
-        valid_positions: list[int] = []
-        valid_values: list[float] = []
-        row_length = len(row)
-        for position, source_index in enumerate(sample_indices):
-            if source_index < row_length:
-                valid_positions.append(position)
-                valid_values.append(float(row[source_index]))
-        if valid_positions:
-            values[row_index, valid_positions] = valid_values
-    source_column_start, source_column_end = _sample_window_bounds(
-        column_count,
-        start_fraction=start_fraction,
-        span_fraction=span_fraction,
-    )
-
+    # one value per pixel: the largest magnitude in each bucket, so a single
+    # window or row that stands out is never skipped
+    starts = _bucket_starts(block.shape[1], target_columns)
+    values = _extreme_reduce(block, starts, axis=1)
+    if target_rows is not None and values.shape[0] > max(1, int(target_rows)):
+        row_starts = _bucket_starts(values.shape[0], target_rows)
+        values = _extreme_reduce(values, row_starts, axis=0)
+        selected_labels = [selected_labels[index] for index in row_starts]
     return MatrixView(
         values=np.ascontiguousarray(values),
-        sample_indices=sample_indices,
-        source_row_count=visible_row_count,
+        sample_indices=tuple(int(source_column_start + start) for start in starts),
+        source_row_count=values.shape[0],
         source_column_count=column_count,
         source_column_start=source_column_start,
         source_column_end=source_column_end,
-        display_min_value=display_min_value,
-        display_max_value=display_max_value,
-        value_range=value_range,
+        display_min_value=low,
+        display_max_value=high,
+        value_range=max(high - low, 1e-6),
         row_labels=tuple(selected_labels),
         row_start=start_row,
-        total_row_count=len(rows),
+        total_row_count=total_rows,
+        diverging=diverging,
     )
+
+
+def variant_rows(
+    variant: DdaVariantResult,
+    rows: list[int],
+    *,
+    start_fraction: float = 0.0,
+    span_fraction: float = 1.0,
+) -> np.ndarray:
+    """Every window of the given rows inside the view's time window."""
+    start, end = _sample_window_bounds(
+        max(0, int(variant.effective_column_count)),
+        start_fraction=start_fraction,
+        span_fraction=span_fraction,
+    )
+    return _variant_array(variant)[rows, start:end]
+
+
+def _bucket_starts(length: int, target: int) -> np.ndarray:
+    target = max(1, min(length, int(target)))
+    return (np.arange(target) * length) // target
+
+
+def _extreme_reduce(values: np.ndarray, starts: np.ndarray, *, axis: int) -> np.ndarray:
+    """Per bucket, the value with the largest magnitude (NaN if the bucket is empty)."""
+    high = np.fmax.reduceat(values, starts, axis=axis)
+    low = np.fmin.reduceat(values, starts, axis=axis)
+    return np.where(np.abs(high) >= np.abs(low), high, low)
+
+
+def _variant_array(variant: DdaVariantResult) -> np.ndarray:
+    """The variant matrix as a NaN-padded float32 array, built once per matrix."""
+    cached = getattr(variant, "_plot_array", None)
+    if cached is not None and cached[0] is variant.matrix:
+        return cached[1]
+    rows = variant.matrix or []
+    array = np.full((len(rows), max(map(len, rows), default=0)), np.nan, dtype=np.float32)
+    for index, row in enumerate(rows):
+        array[index, : len(row)] = row
+    setattr(variant, "_plot_array", (variant.matrix, array))
+    return array
+
+
+def color_limits(variant: DdaVariantResult) -> tuple[float, float, bool]:
+    """Color range: the 1st to 99th percentile, so one outlier can't wash out the
+    map; symmetric around zero (diverging) when the values change sign."""
+    values = _variant_array(variant)
+    finite = values[np.isfinite(values)]
+    if finite.size == 0:
+        return 0.0, 1.0, False
+    low, high = (float(v) for v in np.percentile(finite, [1.0, 99.0]))
+    if low < 0.0 < high:
+        bound = max(-low, high)
+        return -bound, bound, True
+    if high - low < 1e-12:
+        return low - 0.5, high + 0.5, False
+    return low, high, False
 
 
 def matrix_tile_key(
@@ -229,40 +260,9 @@ def matrix_tile_key(
         max(0, int(request.row_start)),
         None if request.row_count is None else max(0, int(request.row_count)),
         None if request.max_rows is None else max(0, int(request.max_rows)),
+        request.target_rows,
     )
 
-
-def build_line_geometry_view(
-    view: MatrixView,
-    *,
-    max_rows: int = 8,
-) -> LineGeometryView:
-    if view.values.size == 0:
-        return _empty_line_geometry_view(view)
-    row_count = min(view.source_row_count, max(0, int(max_rows)))
-    line_count = min(row_count, view.values.shape[0])
-    lines: list[np.ndarray] = []
-    colors: list[str] = []
-    for row_index in range(line_count):
-        values = view.values[row_index]
-        if values.size <= 0:
-            continue
-        x = _x_fraction(len(values))
-        y = 1.0 - np.clip(
-            (np.where(np.isfinite(values), values, 0.0) - view.display_min_value)
-            / view.value_range,
-            0.0,
-            1.0,
-        )
-        lines.append(np.ascontiguousarray(np.column_stack((x, y)), dtype=np.float32))
-        colors.append(LINE_PLOT_COLORS[row_index % len(LINE_PLOT_COLORS)])
-    return LineGeometryView(
-        lines=tuple(lines),
-        colors=tuple(colors),
-        source_row_count=view.source_row_count,
-        source_column_count=view.source_column_count,
-        target_column_count=view.target_column_count,
-    )
 
 
 def matrix_view_render_key(view: MatrixView, color_scheme: str) -> MatrixViewRenderKey:
@@ -291,22 +291,7 @@ def _variant_matrix_identity(variant: DdaVariantResult) -> str:
 
 
 def variant_plot_bounds(variant: DdaVariantResult) -> tuple[float, float]:
-    min_value = _finite_or_zero(float(variant.min_value))
-    max_value = _finite_or_zero(float(variant.max_value))
-    if min_value <= 0.0 <= max_value:
-        return min_value, max_value
-    cache_key = _variant_bounds_cache_key(variant, min_value, max_value)
-    cached_key = getattr(variant, "_plot_bounds_cache_key", None)
-    cached_bounds = getattr(variant, "_plot_bounds_cache", None)
-    if cached_key == cache_key and cached_bounds is not None:
-        return cached_bounds
-    if _variant_contains_nonfinite(variant):
-        min_value = min(min_value, 0.0)
-        max_value = max(max_value, 0.0)
-    bounds = (min_value, max_value)
-    setattr(variant, "_plot_bounds_cache_key", cache_key)
-    setattr(variant, "_plot_bounds_cache", bounds)
-    return bounds
+    return color_limits(variant)[:2]
 
 
 def _log_slow_matrix_view_build(
@@ -331,32 +316,3 @@ def _log_slow_matrix_view_build(
         spanFraction=request.span_fraction,
     )
 
-
-def _variant_contains_nonfinite(variant: DdaVariantResult) -> bool:
-    return any(
-        not math.isfinite(float(value)) for row in variant.matrix for value in row
-    )
-
-
-def _empty_line_geometry_view(view: MatrixView) -> LineGeometryView:
-    return LineGeometryView(
-        lines=(),
-        colors=(),
-        source_row_count=view.source_row_count,
-        source_column_count=view.source_column_count,
-        target_column_count=view.target_column_count,
-    )
-
-
-def _variant_bounds_cache_key(
-    variant: DdaVariantResult,
-    min_value: float,
-    max_value: float,
-) -> tuple[object, ...]:
-    return (
-        id(variant.matrix),
-        len(variant.matrix),
-        tuple((id(row), len(row)) for row in variant.matrix),
-        min_value,
-        max_value,
-    )

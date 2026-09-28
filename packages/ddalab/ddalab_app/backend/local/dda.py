@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import math
 import uuid
 from dataclasses import dataclass
@@ -9,12 +10,14 @@ from time import perf_counter_ns
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional
 
 from ...app.runtime.perf_logging import perf_logger
+from ...version import get_app_version
 from ...domain.models import (
     DdaReproductionConfig,
     DdaResult,
     DdaVariantResult,
     LoadedDataset,
 )
+from ..readers.common import _start_sample
 from .results import _map_cli_result
 from .runtime import (
     _get_dda_sidecar,
@@ -47,7 +50,17 @@ def _validate_sy_selection(channel_indices: List[int]) -> None:
 
 
 def _supports_rust_direct_file_execution(file_path: str) -> bool:
-    return Path(str(file_path)).suffix.lower() in _DIRECT_FILE_RUST_EXTENSIONS
+    path = Path(str(file_path))
+    if path.suffix.lower() not in _DIRECT_FILE_RUST_EXTENSIONS:
+        return False
+    # Rust parses bare numbers only; a header row needs the Python reader
+    with path.open(encoding="utf-8", errors="replace") as handle:
+        tokens = handle.readline().replace(",", " ").replace(";", " ").split()
+    try:
+        [float(token) for token in tokens]
+    except ValueError:
+        return False
+    return True
 
 
 def _normalize_compute_device(value: str) -> str:
@@ -82,11 +95,8 @@ def _normalize_variant_channel_indices(
         ordered: List[int] = []
         seen: set[int] = set()
         for raw_index in indices or []:
-            try:
-                index = int(raw_index)
-            except (TypeError, ValueError):
-                continue
-            if index < 0 or index >= channel_count or index in seen:
+            index = _channel_index(raw_index, channel_count)
+            if index in seen:
                 continue
             seen.add(index)
             ordered.append(index)
@@ -103,6 +113,18 @@ def _normalize_variant_channel_indices(
     return normalized_variant_map
 
 
+def _channel_index(raw_index: object, channel_count: int) -> int:
+    try:
+        index = int(raw_index)
+    except (TypeError, ValueError):
+        index = -1
+    if not 0 <= index < channel_count:
+        raise _DdaInputValidationError(
+            f"Channel index {raw_index!r} is outside 0-{channel_count - 1}."
+        )
+    return index
+
+
 def _normalize_variant_pair_indices(
     *,
     selected_variants: List[str],
@@ -111,6 +133,12 @@ def _normalize_variant_pair_indices(
 ) -> Dict[str, List[tuple[int, int]]]:
     normalized: Dict[str, List[tuple[int, int]]] = {}
     provided_map = variant_pair_indices or {}
+    unsupported = sorted(v for v in provided_map if provided_map[v] and v not in {"CT", "CD", "DE"})
+    if unsupported:
+        raise _DdaInputValidationError(
+            f"Pairs can be set for CT, DE, and CD only, not {', '.join(unsupported)}; "
+            "the others use every pair of the selected channels."
+        )
     for variant_id in selected_variants:
         if variant_id not in {"CT", "CD", "DE"}:
             continue
@@ -118,19 +146,12 @@ def _normalize_variant_pair_indices(
         cleaned: List[tuple[int, int]] = []
         seen: set[tuple[int, int]] = set()
         for raw_left, raw_right in raw_pairs:
-            try:
-                left = int(raw_left)
-                right = int(raw_right)
-            except (TypeError, ValueError):
-                continue
-            if (
-                left < 0
-                or right < 0
-                or left >= channel_count
-                or right >= channel_count
-                or left == right
-            ):
-                continue
+            left = _channel_index(raw_left, channel_count)
+            right = _channel_index(raw_right, channel_count)
+            if left == right:
+                raise _DdaInputValidationError(
+                    f"{variant_id} pair {left}-{right} pairs a channel with itself."
+                )
             canonical = (
                 (min(left, right), max(left, right))
                 if variant_id in {"CT", "DE"}
@@ -306,6 +327,9 @@ def _run_rust_default_dda(
         ),
         requested_start_seconds,
     )
+    if dataset.duration_seconds > 0:
+        # an end past the data is clipped, and the result records the clipped end
+        requested_end_seconds = min(requested_end_seconds, dataset.duration_seconds)
     if (
         end_time_seconds is not None
         and requested_end_seconds <= requested_start_seconds
@@ -355,10 +379,7 @@ def _run_rust_default_dda(
     total_channels = len(selected_channel_names)
     total_samples = 0
     if direct_file_mode:
-        requested_start_sample = max(
-            int(math.floor(requested_start_seconds * sample_rate)),
-            0,
-        )
+        requested_start_sample = _start_sample(requested_start_seconds, sample_rate)
         requested_end_sample = (
             int(math.ceil(requested_end_seconds * sample_rate))
             if requested_end_seconds > requested_start_seconds
@@ -382,7 +403,7 @@ def _run_rust_default_dda(
             f"Window: {window_length_samples}/{window_step_samples} samples",
             f"Bounds: {requested_start_sample}-{safe_end_sample} samples @ {sample_rate:.3f} Hz",
             "Default backend: Rust DDA on the source ASCII/CSV input file.",
-            f"Accelerator: {compute_device.upper()}.",
+            f"Requested device: {compute_device.upper()}.",
             "All analysis runs through the bundled dda-rs backend.",
         ]
     else:
@@ -437,16 +458,18 @@ def _run_rust_default_dda(
             f"Window: {window_length_samples}/{window_step_samples} samples",
             f"Bounds: {requested_start_sample}-{safe_end_sample} samples @ {sample_rate:.3f} Hz",
             "Default backend: Rust DDA on an in-memory analysis matrix.",
-            f"Accelerator: {compute_device.upper()}.",
+            f"Requested device: {compute_device.upper()}.",
             "All analysis runs through the bundled dda-rs backend.",
         ]
 
+    base_diagnostics += [f"Warning: {warning}" for warning in dataset.warnings]
     if total_samples <= 0:
         raise _DdaInputValidationError("Analysis slice contains no samples.")
     if available_samples < int(window_length_samples):
         raise _DdaInputValidationError(
             "Insufficient data for analysis. "
             f"{available_samples} samples available, but window length is {window_length_samples}."
+            + "".join(f" {warning}" for warning in dataset.warnings)
         )
 
     def _localize_channels(indices: List[int]) -> List[int]:
@@ -527,6 +550,13 @@ def _run_rust_default_dda(
                 raise _DdaInputValidationError(
                     "DE pairs could not be resolved for DDA."
                 )
+            if "CT" in selected_variants and set(localized_de_pairs) != set(
+                localized_ct_pairs or []
+            ):
+                # the engine computes DE on the CT pair list
+                raise _DdaInputValidationError(
+                    "CT and DE share one pair list; give them the same pairs or run them separately."
+                )
 
     localized_cd_pairs: Optional[List[tuple[int, int]]] = None
     if "CD" in selected_variants:
@@ -580,7 +610,6 @@ def _run_rust_default_dda(
             delays=delays,
             requested_start_sample=requested_start_sample,
             safe_end_sample=safe_end_sample,
-            sample_rate=sample_rate,
             base_diagnostics=base_diagnostics,
             requested_start_seconds=requested_start_seconds,
             group_label="Combined",
@@ -610,6 +639,7 @@ def _run_rust_default_dda(
             window_length_samples=window_length_samples,
             window_step_samples=window_step_samples,
             delays=delays,
+            derivative_points=model_dimension,
             requested_start_seconds=requested_start_seconds,
             engine_label=f"DDA ({compute_device.upper()})",
         )
@@ -717,7 +747,22 @@ def _reproduction_config(
         compute_device=compute_device,
         start_time_seconds=float(start_time_seconds),
         end_time_seconds=float(end_time_seconds),
+        ddalab_version=get_app_version(),
+        input_sha256=_input_sha256(dataset.file_path),
     )
+
+
+def _input_sha256(file_path: str) -> Dict[str, str]:
+    """SHA-256 of the recording and its same-stem companions (.eeg, .vmrk, .fdt, ...)."""
+    path = Path(file_path)
+    if not path.is_file():
+        return {}
+    files = [path, *sorted(p for p in path.parent.glob(f"{path.stem}.*") if p != path)]
+    digests = {}
+    for item in files:
+        with item.open("rb") as handle:
+            digests[item.name] = hashlib.file_digest(handle, "sha256").hexdigest()
+    return digests
 
 
 def _execute_sidecar_dda_group(
@@ -735,7 +780,6 @@ def _execute_sidecar_dda_group(
     delays: List[int],
     requested_start_sample: int,
     safe_end_sample: int,
-    sample_rate: float,
     base_diagnostics: List[str],
     requested_start_seconds: float,
     group_label: str,
@@ -793,7 +837,6 @@ def _execute_sidecar_dda_group(
             "wl": int(window_length_samples),
             "ws": int(window_step_samples),
             "delays": [int(delay) for delay in delays],
-            "sr": float(sample_rate) if sample_rate > 1000.0 else None,
             "ct_pairs": (
                 [[int(left), int(right)] for left, right in ct_pairs]
                 if ct_pairs
@@ -820,8 +863,8 @@ def _execute_sidecar_dda_group(
             "ws": int(window_step_samples),
             "delays": [int(delay) for delay in delays],
             "start_sample": int(requested_start_sample),
-            "end_sample": int(safe_end_sample),
-            "sr": float(sample_rate) if sample_rate > 1000.0 else None,
+            # the engine's end sample is inclusive; safe_end_sample is exclusive
+            "end_sample": int(safe_end_sample) - 1,
             "ct_pairs": (
                 [[int(left), int(right)] for left, right in ct_pairs]
                 if ct_pairs
@@ -952,6 +995,7 @@ def _materialize_sidecar_dda_result(
     window_length_samples: int,
     window_step_samples: int,
     delays: List[int],
+    derivative_points: Optional[int],
     requested_start_seconds: float,
     engine_label: str,
 ) -> DdaResult:
@@ -967,11 +1011,14 @@ def _materialize_sidecar_dda_result(
                 variant_pair_indices=preview.variant_pair_indices,
                 parsed=parsed,
                 diagnostics=list(preview.diagnostics)
-                + [f"Engine: {preview.backend_label}"],
+                + [f"Engine: {preview.backend_label}"]
+                # where parts ran on the CPU instead of the requested GPU
+                + [str(note) for note in parsed.get("engine_notes") or []],
                 start_time_seconds=requested_start_seconds,
                 window_length_samples=window_length_samples,
                 window_step_samples=window_step_samples,
                 delays=delays,
+                derivative_points=derivative_points,
             )
         )
     return _merge_sidecar_dda_results(

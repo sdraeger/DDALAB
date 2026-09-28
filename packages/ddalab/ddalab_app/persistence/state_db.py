@@ -361,6 +361,22 @@ class StateDatabase:
                     (key, self._dumps(value)),
                 )
 
+    def session_value(self, key: str) -> object:
+        row = self._sql.fetchone(
+            "SELECT value_json FROM session_state WHERE key = ?", (key,)
+        )
+        return self._loads(row["value_json"]) if row else None
+
+    def set_session_value(self, key: str, value: object) -> None:
+        with self._sql.transaction():
+            self._sql.execute(
+                """
+                INSERT INTO session_state(key, value_json) VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json
+                """,
+                (key, self._dumps(value)),
+            )
+
     def load_annotations_for_file(self, file_path: str) -> List[WaveformAnnotation]:
         rows = self._sql.execute(
             """
@@ -507,8 +523,9 @@ class StateDatabase:
         ]
 
     def load_dda_history_summaries(
-        self, file_path: Optional[str] = None, limit: int = 30
+        self, file_path: Optional[str] = None, limit: int = -1
     ) -> List[DdaResultSummary]:
+        # summaries carry no matrices, so the default lists them all (-1: no limit)
         rows = self._sql.execute(
             f"""
             SELECT
@@ -781,6 +798,28 @@ class StateDatabase:
                     )
                     else None
                 ),
+                coefficient_matrices=[
+                    [
+                        [float(value) for value in row]
+                        for row in matrix
+                        if isinstance(row, list)
+                    ]
+                    for matrix in (
+                        item.get("coefficient_matrices")
+                        or item.get("coefficientMatrices")
+                        or []
+                    )
+                    if isinstance(matrix, list)
+                ],
+                fit_error_matrix=[
+                    [float(value) for value in row]
+                    for row in (
+                        item.get("fit_error_matrix")
+                        or item.get("fitErrorMatrix")
+                        or []
+                    )
+                    if isinstance(row, list)
+                ],
             )
             for item in data.get("variants", [])
             if isinstance(item, dict)

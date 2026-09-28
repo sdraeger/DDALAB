@@ -191,6 +191,66 @@ fn de_uses_explicit_pair_groups() {
     );
 }
 
+#[test]
+fn ct_exposes_all_coefficients_and_fit_errors() {
+    let samples = (0..240)
+        .map(|index| {
+            let t = index as f64 * 0.05;
+            vec![t.sin(), (t + 0.4).sin()]
+        })
+        .collect::<Vec<_>>();
+    let request = DDARequest {
+        file_path: "synthetic".to_string(),
+        channels: Some(vec![0, 1]),
+        time_range: TimeRange {
+            start: 0.0,
+            end: 239.0,
+        },
+        preprocessing_options: PreprocessingOptions {
+            highpass: None,
+            lowpass: None,
+        },
+        algorithm_selection: AlgorithmSelection {
+            enabled_variants: vec!["CT".to_string()],
+            select_mask: None,
+        },
+        window_parameters: WindowParameters {
+            window_length: 96,
+            window_step: 48,
+            ct_window_length: Some(2),
+            ct_window_step: Some(2),
+        },
+        delay_parameters: DelayParameters { delays: vec![1, 2] },
+        ct_channel_pairs: Some(vec![[0, 1]]),
+        cd_channel_pairs: None,
+        model_parameters: Some(ModelParameters {
+            dm: 4,
+            order: 4,
+            nr_tau: 2,
+        }),
+        model_terms: Some(vec![1, 2, 10]),
+        variant_configs: None,
+        sampling_rate: None,
+    };
+
+    let result = PureRustRunner::default()
+        .run_on_matrix(&request, &samples, None)
+        .expect("CT run");
+    let ct = result
+        .variant_results
+        .as_ref()
+        .and_then(|variants| variants.iter().find(|variant| variant.variant_id == "CT"))
+        .expect("CT result");
+    let coefficients = ct.coefficient_matrices.as_ref().expect("CT coefficients");
+    let errors = ct.fit_error_matrix.as_ref().expect("CT fit errors");
+
+    assert_eq!(coefficients.len(), 3);
+    assert_eq!(coefficients[0], ct.q_matrix);
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].len(), ct.q_matrix[0].len());
+    assert!(errors[0].iter().all(|value| value.is_finite()));
+}
+
 fn ccd_auto_request_with_channels(
     file_path: String,
     strategy: CcdConditioningStrategy,
@@ -339,17 +399,11 @@ fn cuda_inventory_is_empty_without_cuda_support() {
 #[cfg(not(feature = "cuda"))]
 #[test]
 fn cuda_request_without_feature_has_a_clear_error() {
-    use super::solver::{solve_regression_windows, RegressionWindow};
+    use super::regression_batch::BasicSolver;
 
-    let window = RegressionWindow {
-        rows: 3,
-        cols: 1,
-        flat_design: vec![1.0, 2.0, 3.0],
-        fit_target: vec![2.0, 4.0, 6.0],
-        residual_target: vec![2.0, 4.0, 6.0],
+    let Err(error) = BasicSolver::new(ComputeDevice::Cuda(0), SvdBackend::RobustSvd) else {
+        panic!("CUDA solver created without CUDA support");
     };
-    let error = solve_regression_windows(&[window], SvdBackend::RobustSvd, ComputeDevice::Cuda(0))
-        .unwrap_err();
     assert!(error.to_string().contains("--features cuda"));
 }
 

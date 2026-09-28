@@ -20,6 +20,7 @@ from .common import (
     _build_channel_waveform,
     _build_overview_channel,
     _nifti_browser_channel_limit,
+    _start_sample,
 )
 
 
@@ -105,7 +106,7 @@ class NiftiDatasetReader(PythonDatasetReader):
         channel_names: Sequence[str],
     ) -> WaveformWindow:
         self.load_metadata()
-        start_sample = max(int(start_time_seconds * self.sample_rate_hz), 0)
+        start_sample = _start_sample(start_time_seconds, self.sample_rate_hz)
         stop_sample = min(
             max(
                 start_sample + int(math.ceil(duration_seconds * self.sample_rate_hz)),
@@ -186,7 +187,9 @@ class NiftiDatasetReader(PythonDatasetReader):
 def _nifti_sample_rate(image) -> float:
     zooms = image.header.get_zooms()
     if len(zooms) > 3 and zooms[3] > 0:
-        return 1.0 / float(zooms[3])
+        # the TR is stored in the header's time unit
+        units = getattr(image.header, "get_xyzt_units", lambda: ("", "sec"))()[1]
+        return 1.0 / (float(zooms[3]) * {"msec": 1e-3, "usec": 1e-6}.get(units, 1.0))
     return 1.0
 
 

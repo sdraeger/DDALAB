@@ -10,6 +10,19 @@ ColumnLayout {
     Layout.margins: 12
     spacing: 12
 
+    // Interval bounds arrive as binary floats (a 419.6 s recording yields
+    // 419.60179899999997). Trim the representation for display; six decimals
+    // keep sub-microsecond precision, so editing the field back is lossless
+    // at any sampling rate the reader supports.
+    function formatSeconds(value) {
+        if (typeof value !== "number" || !isFinite(value))
+            return "0"
+        var text = value.toFixed(6)
+        if (text.indexOf(".") >= 0)
+            text = text.replace(/0+$/, "").replace(/\.$/, "")
+        return text
+    }
+
     ColumnLayout {
         visible: root.controller.analysisMode !== "ica"
         Layout.fillWidth: true
@@ -73,8 +86,9 @@ ColumnLayout {
                 WorkbenchField {
                     Layout.fillWidth: true
                     colors: root.colors
-                    text: root.controller.analysisStart.toString()
+                    value: root.formatSeconds(root.controller.analysisStart)
                     inputMethodHints: Qt.ImhFormattedNumbersOnly
+                    validator: DoubleValidator { bottom: 0 }
                     onEditingFinished: root.controller.analysisStart = Number(text)
                 }
             }
@@ -85,8 +99,9 @@ ColumnLayout {
                 WorkbenchField {
                     Layout.fillWidth: true
                     colors: root.colors
-                    text: root.controller.analysisEnd.toString()
+                    value: root.formatSeconds(root.controller.analysisEnd)
                     inputMethodHints: Qt.ImhFormattedNumbersOnly
+                    validator: DoubleValidator { bottom: 0 }
                     onEditingFinished: root.controller.analysisEnd = Number(text)
                 }
             }
@@ -100,8 +115,9 @@ ColumnLayout {
                 WorkbenchField {
                     Layout.fillWidth: true
                     colors: root.colors
-                    text: root.controller.windowLength.toString()
+                    value: root.controller.windowLength.toString()
                     inputMethodHints: Qt.ImhDigitsOnly
+                    validator: IntValidator { bottom: 1 }
                     onEditingFinished: root.controller.windowLength = Number(text)
                 }
             }
@@ -112,8 +128,9 @@ ColumnLayout {
                 WorkbenchField {
                     Layout.fillWidth: true
                     colors: root.colors
-                    text: root.controller.windowStep.toString()
+                    value: root.controller.windowStep.toString()
                     inputMethodHints: Qt.ImhDigitsOnly
+                    validator: IntValidator { bottom: 1 }
                     onEditingFinished: root.controller.windowStep = Number(text)
                 }
             }
@@ -123,7 +140,8 @@ ColumnLayout {
         WorkbenchField {
             Layout.fillWidth: true
             colors: root.colors
-            text: root.controller.delaysText
+            value: root.controller.delaysText
+            validator: RegularExpressionValidator { regularExpression: /[0-9 ,]*/ }
             onEditingFinished: root.controller.delaysText = text
         }
         Toggle {
@@ -143,8 +161,16 @@ ColumnLayout {
             visible: root.controller.expertMode
             Layout.fillWidth: true
             colors: root.colors
-            text: root.controller.modelTermsText
+            value: root.controller.modelTermsText
+            validator: RegularExpressionValidator { regularExpression: /[0-9 ,]*/ }
             onEditingFinished: root.controller.modelTermsText = text
+        }
+        Text {
+            Layout.fillWidth: true
+            text: root.controller.modelEquation
+            color: root.colors.muted
+            font.pixelSize: 11
+            wrapMode: Text.Wrap
         }
         RowLayout {
             visible: root.controller.expertMode
@@ -153,24 +179,27 @@ ColumnLayout {
                 Layout.fillWidth: true
                 colors: root.colors
                 placeholderText: "dm"
-                text: root.controller.derivativePoints.toString()
+                value: root.controller.derivativePoints.toString()
                 inputMethodHints: Qt.ImhDigitsOnly
+                validator: IntValidator { bottom: 1 }
                 onEditingFinished: root.controller.derivativePoints = Number(text)
             }
             WorkbenchField {
                 Layout.fillWidth: true
                 colors: root.colors
                 placeholderText: "order"
-                text: root.controller.polynomialOrder.toString()
+                value: root.controller.polynomialOrder.toString()
                 inputMethodHints: Qt.ImhDigitsOnly
+                validator: IntValidator { bottom: 1 }
                 onEditingFinished: root.controller.polynomialOrder = Number(text)
             }
             WorkbenchField {
                 Layout.fillWidth: true
                 colors: root.colors
                 placeholderText: "nr tau"
-                text: root.controller.nrTau.toString()
+                value: root.controller.nrTau.toString()
                 inputMethodHints: Qt.ImhDigitsOnly
+                validator: IntValidator { bottom: 1 }
                 onEditingFinished: root.controller.nrTau = Number(text)
             }
         }

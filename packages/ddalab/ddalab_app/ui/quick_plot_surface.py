@@ -6,7 +6,8 @@ from pathlib import Path
 from time import perf_counter_ns
 from typing import Sequence
 
-from PySide6.QtCore import Property, QObject, QRectF, Signal, Slot
+import numpy as np
+from PySide6.QtCore import Property, QObject, QRectF, QTimer, Signal, Slot
 from PySide6.QtGui import QImage
 from PySide6.QtQml import qmlRegisterType
 from PySide6.QtQuick import (
@@ -18,6 +19,7 @@ from PySide6.QtQuick import (
 from ..app.runtime.perf_logging import perf_logger
 from ..domain.models import DdaVariantResult, WaveformAnnotation
 from .plot_data import (
+    LINE_PLOT_COLORS,
     DdaVariantPlotProvider,
     MatrixTileCache,
     MatrixView,
@@ -26,12 +28,15 @@ from .plot_data import (
     matrix_view_render_key,
 )
 from .plot_layers import PlotLayerConfig
+from .plot_matrix_data import variant_rows
 from .qt_plot_renderer import (
     MatrixPlotRenderer,
     MatrixRenderArtifacts,
     QtCpuMatrixPlotRenderer,
 )
 from .render_cache import LruRenderCache
+from .plot_heatmap_data import color_stops
+from .quick_waveform_surface import ReportsPixelSize, _time_axis_ticks
 from .style import current_theme_colors
 
 _QML_MODULE = "DDALAB.Plots"
@@ -82,6 +87,19 @@ class QuickPlotSurfaceBridge(QObject):
             MatrixViewRenderKey,
             MatrixRenderArtifacts,
         ](_RENDER_CACHE_CAPACITY)
+        self._view_row_labels: list[str] = []
+        self._line_legend: list[dict[str, str]] = []
+        self._color_stops: list[str] = []
+        self._color_limits = (0.0, 0.0)
+        # textures are rendered at the items' device-pixel sizes, never stretched
+        self._pixel_sizes = {"result_heatmap": (0, 0), "result_line": (0, 0)}
+        self._last_variant: tuple | None = None
+        # rows clicked for the line plot; empty means the first eight
+        self._line_rows: list[int] = []
+        self._resize_timer = QTimer(self)
+        self._resize_timer.setSingleShot(True)
+        self._resize_timer.setInterval(30)
+        self._resize_timer.timeout.connect(self._show_last_variant)
 
     def clear(self) -> None:
         self._title = "DDALAB plot"
@@ -106,6 +124,10 @@ class QuickPlotSurfaceBridge(QObject):
         self._active_render_key = None
         self._matrix_tile_cache.clear()
         self._render_cache.clear()
+        self._view_row_labels = []
+        self._line_legend = []
+        self._color_stops = []
+        self._last_variant = None
         self._image_revision += 1
         self.changed.emit()
 
@@ -116,7 +138,11 @@ class QuickPlotSurfaceBridge(QObject):
         title: str,
         renderer_name: str | None = None,
         color_scheme: str = "viridis",
+        lines: np.ndarray | None = None,
+        line_labels: Sequence[str] | None = None,
     ) -> None:
+        if lines is None:
+            lines, line_labels = view.values[:8], view.row_labels[:8]
         self._title = title
         self._renderer_name = renderer_name or self._renderer.name
         self._row_start = view.row_start
@@ -136,12 +162,15 @@ class QuickPlotSurfaceBridge(QObject):
             f"{row_text}, {self._visible_column_count} visible columns "
             f"from {self._source_column_count} source columns"
         )
-        render_key = matrix_view_render_key(view, color_scheme)
+        line_size = self._pixel_sizes["result_line"]
+        render_key = (*matrix_view_render_key(view, color_scheme), line_size, tuple(line_labels))
         artifacts = self._render_cache.get(render_key)
         cache_hit = artifacts is not None
         if artifacts is None:
             render_started_ns = perf_counter_ns()
-            artifacts = self._renderer.render(view, color_scheme=color_scheme)
+            artifacts = self._renderer.render(
+                view, color_scheme=color_scheme, line_size=line_size, lines=lines
+            )
             _log_slow_plot_build("matrix_renderer", render_started_ns, view)
             self._render_cache.put(render_key, artifacts)
         _log_render_cache_lookup(
@@ -159,10 +188,88 @@ class QuickPlotSurfaceBridge(QObject):
         )
         self._image = artifacts.image
         self._line_image = artifacts.line_image
+        self._view_row_labels = list(view.row_labels)
+        self._line_legend = [
+            {"label": label, "color": LINE_PLOT_COLORS[index % len(LINE_PLOT_COLORS)]}
+            for index, label in enumerate(line_labels)
+        ]
+        self._color_stops = [
+            "#{:02x}{:02x}{:02x}".format(*(int(c) for c in rgb))
+            for rgb in color_stops(color_scheme, view.diverging)
+        ]
+        self._color_limits = (view.display_min_value, view.display_max_value)
         if render_key != self._active_render_key:
             self._active_render_key = render_key
             self._image_revision += 1
         self.changed.emit()
+
+    def show_variant(
+        self,
+        variant: DdaVariantResult,
+        *,
+        title: str,
+        color_scheme: str,
+        start_fraction: float = 0.0,
+        span_fraction: float = 1.0,
+        fallback_columns: int = 1600,
+    ) -> None:
+        """Render a variant at the heatmap's pixel size (one value per pixel)."""
+        previous = self._last_variant
+        if previous is None or list(previous[0].row_labels) != list(variant.row_labels):
+            self._line_rows = []
+        self._last_variant = (variant, title, color_scheme, start_fraction, span_fraction)
+        width, height = self._pixel_sizes["result_heatmap"]
+        request = MatrixViewRequest(
+            target_columns=width or fallback_columns,
+            target_rows=height or None,
+            start_fraction=start_fraction,
+            span_fraction=span_fraction,
+        )
+        provider = DdaVariantPlotProvider(variant, tile_cache=self._matrix_tile_cache)
+        matrix_started_ns = perf_counter_ns()
+        view = provider.matrix_view(request)
+        _log_slow_matrix_view_build(matrix_started_ns, view, request)
+        rows = self._line_rows or list(range(min(8, len(variant.row_labels))))
+        self.set_matrix_view(
+            view,
+            title=title,
+            renderer_name="Qt Quick scene graph texture",
+            color_scheme=color_scheme,
+            lines=variant_rows(
+                variant, rows, start_fraction=start_fraction, span_fraction=span_fraction
+            ),
+            line_labels=[variant.row_labels[row] for row in rows],
+        )
+
+    @Slot(float)
+    def toggleLineRowAt(self, y_fraction: float) -> None:
+        """Add the heatmap row under the pointer to the line plot, or remove it."""
+        rows = self._total_row_count - self._row_start
+        if self._last_variant is None or rows <= 0:
+            return
+        row = self._row_start + min(max(int(y_fraction * rows), 0), rows - 1)
+        if row in self._line_rows:
+            self._line_rows.remove(row)
+        else:
+            self._line_rows = [*self._line_rows, row][-8:]
+        self._show_last_variant()
+
+    def set_pixel_size(
+        self, surface: str, width: float, height: float, device_pixel_ratio: float
+    ) -> None:
+        size = (round(width * device_pixel_ratio), round(height * device_pixel_ratio))
+        if self._pixel_sizes.get(surface) == size or min(size) <= 0:
+            return
+        self._pixel_sizes[surface] = size
+        if self._last_variant is not None:
+            self._resize_timer.start()  # coalesces a drag-resize into one render
+
+    def _show_last_variant(self) -> None:
+        if self._last_variant is not None:
+            variant, title, scheme, start, span = self._last_variant
+            self.show_variant(
+                variant, title=title, color_scheme=scheme, start_fraction=start, span_fraction=span
+            )
 
     def set_cursor_fraction(self, fraction: float | None) -> bool:
         next_fraction = _normalize_cursor_fraction(fraction)
@@ -287,7 +394,19 @@ class QuickPlotSurfaceBridge(QObject):
 
     @Slot(float)
     def requestCursor(self, fraction: float) -> None:
-        self.cursor_fraction_requested.emit(max(0.0, min(1.0, float(fraction))))
+        self.set_cursor_fraction(max(0.0, min(1.0, float(fraction))))
+        self.cursor_fraction_requested.emit(self._cursor_fraction)
+
+    @Slot()
+    def clearCursor(self) -> None:
+        self.set_cursor_fraction(None)
+
+    def time_at(self, fraction: float) -> float | None:
+        """Window-center time under a horizontal position of the visible heatmap."""
+        visible = self.visible_time_range()
+        if visible is None:
+            return None
+        return visible[0] + max(0.0, min(1.0, fraction)) * (visible[1] - visible[0])
 
     @Slot(float, float)
     def requestAnnotationContext(self, x_fraction: float, y_fraction: float) -> None:
@@ -394,6 +513,36 @@ class QuickPlotSurfaceBridge(QObject):
     def annotationItems(self) -> list[dict[str, object]]:
         return self._annotation_items
 
+    @Property("QVariantList", notify=changed)
+    def rowLabels(self) -> list[str]:
+        return self._view_row_labels
+
+    @Property("QVariantList", notify=changed)
+    def lineLegend(self) -> list[dict[str, str]]:
+        return self._line_legend
+
+    @Property(str, notify=changed)
+    def cursorText(self) -> str:
+        seconds = self.time_at(self._cursor_fraction) if self._cursor_fraction >= 0 else None
+        return "" if seconds is None else f"{seconds:.2f} s"
+
+    @Property("QVariantList", notify=changed)
+    def colorStops(self) -> list[str]:
+        return self._color_stops
+
+    @Property(float, notify=changed)
+    def colorMin(self) -> float:
+        return self._color_limits[0]
+
+    @Property(float, notify=changed)
+    def colorMax(self) -> float:
+        return self._color_limits[1]
+
+    @Property("QVariantList", notify=changed)
+    def timeTicks(self) -> list[dict[str, object]]:
+        visible = self.visible_time_range()
+        return _time_axis_ticks(visible[0], visible[1] - visible[0]) if visible else []
+
     @Property("QVariantMap", notify=changed)
     def theme(self) -> dict[str, str]:
         colors = current_theme_colors()
@@ -410,7 +559,7 @@ class QuickPlotSurfaceBridge(QObject):
         }
 
 
-class _QuickBridgeTextureItem(QQuickItem):
+class _QuickBridgeTextureItem(ReportsPixelSize, QQuickItem):
     bridgeChanged = Signal()
     _log_surface = "texture"
 
@@ -436,6 +585,7 @@ class _QuickBridgeTextureItem(QQuickItem):
         self._texture_revision = -1
         if self._bridge is not None:
             self._bridge.changed.connect(self._on_bridge_changed)
+            self._report_pixel_size()
         self.bridgeChanged.emit()
         self.update()
 
@@ -443,6 +593,15 @@ class _QuickBridgeTextureItem(QQuickItem):
 
     def _on_bridge_changed(self) -> None:
         self.update()
+
+    def _report_pixel_size(self) -> None:
+        if self._bridge is not None and self.window() is not None:
+            self._bridge.set_pixel_size(
+                self._log_surface,
+                self.width(),
+                self.height(),
+                self.window().effectiveDevicePixelRatio(),
+            )
 
     def _image(self) -> QImage:
         return QImage()
@@ -536,53 +695,14 @@ def update_quick_variant_bridge(
     color_scheme: str = "viridis",
     start_fraction: float = 0.0,
     span_fraction: float = 1.0,
-    row_start: int = 0,
-    row_count: int | None = None,
 ) -> None:
-    provider = DdaVariantPlotProvider(
+    bridge.show_variant(
         variant,
-        tile_cache=bridge.matrix_tile_cache(),
-    )
-    request = MatrixViewRequest(
-        target_columns=target_columns,
-        start_fraction=start_fraction,
-        span_fraction=span_fraction,
-        row_start=row_start,
-        row_count=row_count,
-    )
-    matrix_started_ns = perf_counter_ns()
-    view = provider.matrix_view(request)
-    _log_slow_matrix_view_build(matrix_started_ns, view, request)
-    bridge.set_matrix_view(
-        view,
         title=title or variant.label,
-        renderer_name="Qt Quick scene graph texture",
-        color_scheme=color_scheme,
-    )
-
-
-def update_quick_heatmap_bridge(
-    bridge: QuickPlotSurfaceBridge,
-    variant: DdaVariantResult,
-    *,
-    target_columns: int,
-    title: str | None = None,
-    color_scheme: str = "viridis",
-    start_fraction: float = 0.0,
-    span_fraction: float = 1.0,
-    row_start: int = 0,
-    row_count: int | None = None,
-) -> None:
-    update_quick_variant_bridge(
-        bridge,
-        variant,
-        target_columns=target_columns,
-        title=title,
         color_scheme=color_scheme,
         start_fraction=start_fraction,
         span_fraction=span_fraction,
-        row_start=row_start,
-        row_count=row_count,
+        fallback_columns=target_columns,
     )
 
 

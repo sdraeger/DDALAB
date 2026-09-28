@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import platform
 import shlex
@@ -7,7 +8,6 @@ import stat
 import subprocess
 import sys
 import tempfile
-import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
@@ -34,6 +34,7 @@ class ReleaseAsset:
     name: str
     download_url: str
     size_bytes: int
+    sha256: str = ""
 
 
 @dataclass(frozen=True)
@@ -178,11 +179,13 @@ class UpdateManager:
                 response.headers.get("Content-Length") or update.asset.size_bytes or 0
             )
             downloaded_bytes = 0
+            digest = hashlib.sha256()
             with target_path.open("wb") as handle:
                 for chunk in response.iter_content(chunk_size=_DOWNLOAD_CHUNK_SIZE):
                     if not chunk:
                         continue
                     handle.write(chunk)
+                    digest.update(chunk)
                     downloaded_bytes += len(chunk)
                     if progress_callback is not None:
                         progress_callback(
@@ -191,6 +194,14 @@ class UpdateManager:
                                 total_bytes=total_bytes,
                             )
                         )
+        expected_size, expected_hash = update.asset.size_bytes, update.asset.sha256
+        if (expected_size and downloaded_bytes != expected_size) or (
+            expected_hash and digest.hexdigest() != expected_hash
+        ):
+            target_path.unlink(missing_ok=True)
+            raise RuntimeError(
+                f"The downloaded {update.asset.name} is incomplete or corrupt; try again."
+            )
         append_update_audit_event(
             "download-complete",
             tag_name=update.tag_name,
@@ -256,6 +267,7 @@ class UpdateManager:
                     name=name,
                     download_url=str(asset.get("browser_download_url") or ""),
                     size_bytes=int(asset.get("size") or 0),
+                    sha256=str(asset.get("digest") or "").removeprefix("sha256:"),
                 )
         raise RuntimeError(
             f"The latest release does not contain a compatible {self.platform_name} {self.architecture} installer."
@@ -267,7 +279,7 @@ class UpdateManager:
         if self.platform_name == "macos" and self.architecture in {"x64", "arm64"}:
             return f"-macos-{self.architecture}-app.zip"
         if self.platform_name == "linux" and self.architecture == "x64":
-            return "-linux-x64.AppImage"
+            return "-x86_64.AppImage"
         return None
 
     def _start_windows_install(self, asset_path: Path) -> str:
@@ -303,8 +315,11 @@ class UpdateManager:
         work_dir = Path(tempfile.mkdtemp(prefix="ddalab-macos-update-"))
         extract_dir = work_dir / "extracted"
         extract_dir.mkdir(parents=True, exist_ok=True)
-        with zipfile.ZipFile(asset_path) as archive:
-            archive.extractall(extract_dir)
+        # ditto keeps the bundle's exec bits and symlinks; zipfile drops both
+        subprocess.run(
+            ["/usr/bin/ditto", "-x", "-k", str(asset_path), str(extract_dir)],
+            check=True,
+        )
 
         extracted_app = next(
             (path for path in extract_dir.rglob("*.app") if path.name == "DDALAB.app"),

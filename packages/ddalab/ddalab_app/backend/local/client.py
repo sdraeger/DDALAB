@@ -194,8 +194,8 @@ class LocalBackendClient(BackendClient):
         username: str,
         password: str,
         app_key: str,
-    ) -> None:
-        self._get_nsg_manager().save_credentials(username, password, app_key)
+    ) -> bool:
+        return self._get_nsg_manager().save_credentials(username, password, app_key)
 
     def delete_nsg_credentials(self) -> None:
         self._get_nsg_manager().delete_credentials()
@@ -245,6 +245,10 @@ class LocalBackendClient(BackendClient):
 
     def download_nsg_results(self, job_id: str) -> List[str]:
         return self._get_nsg_manager().download_results(job_id)
+
+    def cancel_dda(self) -> None:
+        if self._dda_sidecar is not None:
+            self._dda_sidecar.cancel()
 
     def close(self) -> None:
         if self._dda_sidecar is not None:

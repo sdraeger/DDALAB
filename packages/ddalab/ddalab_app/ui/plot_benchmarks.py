@@ -36,9 +36,6 @@ def dense_waveform_geometry_contract(
     )
     request = WaveformViewRequest(target_width=max(1, int(target_width)))
     geometry = WaveformWindowPlotProvider(window).geometry_view(request)
-    envelope_bucket_sizes = [
-        [int(level.bucket_size) for level in channel.levels] for channel in channels
-    ]
     return {
         "surface": "waveform",
         "durationMs": _duration_ms(started_ns),
@@ -49,18 +46,6 @@ def dense_waveform_geometry_contract(
         "lines": len(geometry.lines),
         "vertices": sum(len(line) for line in geometry.lines),
         "drawModes": geometry.draw_modes,
-        "envelopeLevelsPerChannel": [
-            len(bucket_sizes) for bucket_sizes in envelope_bucket_sizes
-        ],
-        "envelopeBucketSizes": envelope_bucket_sizes,
-        "maxEnvelopeBucketSize": max(
-            (
-                max(bucket_sizes)
-                for bucket_sizes in envelope_bucket_sizes
-                if bucket_sizes
-            ),
-            default=0,
-        ),
     }
 
 
@@ -132,7 +117,6 @@ def _synthetic_channel(index: int, sample_count: int) -> ChannelWaveform:
         unit="uV",
         min_value=min(samples) if samples else 0.0,
         max_value=max(samples) if samples else 0.0,
-        levels=[],
     )
 
 

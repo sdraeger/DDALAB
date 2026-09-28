@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 import threading
 from dataclasses import dataclass, field
@@ -9,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, List, Optional
 
+import keyring
 import requests
 from defusedxml import ElementTree as DefusedElementTree
 
@@ -208,33 +208,51 @@ class NsgJobRecord:
 
 
 class NsgCredentialsStore:
-    def __init__(self, base_dir: Path) -> None:
-        self.base_dir = Path(base_dir)
-        self.base_dir.mkdir(parents=True, exist_ok=True)
-        self.path = self.base_dir / "nsg_credentials.json"
-        self._lock = threading.Lock()
+    """NSG sign-in kept in the system keychain: macOS Keychain, Windows
+    Credential Manager, or a Secret Service keyring on Linux. Without a usable
+    keychain the sign-in lasts only for the session; it never touches disk."""
 
-    def save(self, username: str, password: str, app_key: str) -> None:
-        payload = {
-            "username": username,
-            "password": password,
-            "app_key": app_key,
-        }
-        with self._lock:
-            self.path.write_text(json.dumps(payload), encoding="utf-8")
+    _SERVICE = "DDALAB NSG"
+    _ACCOUNT = "credentials"
+
+    def __init__(self, base_dir: Path) -> None:
+        self._lock = threading.Lock()
+        self._session: Optional[str] = None
+        # releases up to 1.2.11 kept the sign-in in a plain-text file
+        legacy = Path(base_dir) / "nsg_credentials.json"
+        if legacy.exists():
             try:
-                os.chmod(self.path, 0o600)
-            except OSError:
+                old = json.loads(legacy.read_text(encoding="utf-8"))
+                self.save(str(old["username"]), str(old["password"]), str(old["app_key"]))
+            except (OSError, ValueError, TypeError, KeyError):
                 pass
+            legacy.unlink(missing_ok=True)
+
+    def save(self, username: str, password: str, app_key: str) -> bool:
+        """Store the sign-in; False when it could only be kept for this session."""
+        secret = json.dumps(
+            {"username": username, "password": password, "app_key": app_key}
+        )
+        with self._lock:
+            self._session = secret
+            try:
+                keyring.set_password(self._SERVICE, self._ACCOUNT, secret)
+                return True
+            except Exception:  # any backend failure means no usable keychain
+                return False
 
     def load(self) -> Optional[dict]:
         with self._lock:
-            if not self.path.exists():
-                return None
-            try:
-                payload = json.loads(self.path.read_text(encoding="utf-8"))
-            except (OSError, ValueError, TypeError):
-                return None
+            if self._session is None:
+                try:
+                    self._session = keyring.get_password(self._SERVICE, self._ACCOUNT)
+                except Exception:
+                    pass
+            secret = self._session
+        try:
+            payload = json.loads(secret or "")
+        except ValueError:
+            return None
         if not isinstance(payload, dict):
             return None
         username = str(payload.get("username") or "").strip()
@@ -250,8 +268,11 @@ class NsgCredentialsStore:
 
     def delete(self) -> None:
         with self._lock:
-            if self.path.exists():
-                self.path.unlink()
+            self._session = None
+            try:
+                keyring.delete_password(self._SERVICE, self._ACCOUNT)
+            except Exception:
+                pass
 
     def status(self) -> Optional[NsgCredentialsStatus]:
         credentials = self.load()
@@ -476,8 +497,8 @@ class LocalNsgManager:
     def get_credentials_status(self) -> Optional[NsgCredentialsStatus]:
         return self.credentials_store.status()
 
-    def save_credentials(self, username: str, password: str, app_key: str) -> None:
-        self.credentials_store.save(username, password, app_key)
+    def save_credentials(self, username: str, password: str, app_key: str) -> bool:
+        return self.credentials_store.save(username, password, app_key)
 
     def delete_credentials(self) -> None:
         self.credentials_store.delete()
@@ -507,19 +528,19 @@ class LocalNsgManager:
                         job_url=job_url,
                     )
                 )
-            except Exception:
+            except Exception as exc:
                 snapshots.append(
                     NsgJobSnapshot(
                         job_id=f"external_{job_handle}",
                         nsg_job_id=job_handle,
                         tool="PY_EXPANSE",
-                        status="submitted",
+                        status="unknown",
                         created_at=_utcnow_iso(),
                         submitted_at=None,
                         completed_at=None,
                         input_file_path="",
                         output_files=[],
-                        error_message=None,
+                        error_message=f"Status request failed: {exc}",
                         last_polled=_utcnow_iso(),
                         progress=None,
                     )

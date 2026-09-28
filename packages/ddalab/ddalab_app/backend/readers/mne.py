@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 from typing import Optional, Sequence
 
 import numpy as np
 
+from ...domain import bids
 from ...domain.file_types import classify_path
 from ...domain.models import (
     ChannelDescriptor,
@@ -18,6 +20,7 @@ from .common import (
     _build_channel_waveform,
     _build_overview_channel,
     _resolve_channel_indices,
+    _start_sample,
 )
 
 
@@ -33,7 +36,9 @@ class MneDatasetReader(PythonDatasetReader):
         mne.set_log_level("ERROR")
         self._mne = mne
         try:
-            self.raw = mne.io.read_raw(self.path, preload=False, verbose="ERROR")
+            # read_raw dispatches on the extension and knows only ".fif"
+            read = mne.io.read_raw_fif if self.path.lower().endswith(".fiff") else mne.io.read_raw
+            self.raw = read(self.path, preload=False, verbose="ERROR")
         except Exception as exc:
             raise PythonDatasetReaderError(
                 f"Failed to open dataset with MNE: {exc}"
@@ -75,6 +80,7 @@ class MneDatasetReader(PythonDatasetReader):
             notes=[f"MNE reader: {self.raw.info.get('description') or format_label}"],
             channels=channels,
             supports_windowed_access=True,
+            warnings=_data_file_warnings(self.path, int(self.raw.n_times), sample_rate),
         )
         return self._metadata
 
@@ -86,7 +92,7 @@ class MneDatasetReader(PythonDatasetReader):
     ) -> WaveformWindow:
         metadata = self.load_metadata()
         sample_rate = metadata.dominant_sample_rate_hz
-        start_sample = max(int(start_time_seconds * sample_rate), 0)
+        start_sample = _start_sample(start_time_seconds, sample_rate)
         sample_count = max(int(math.ceil(duration_seconds * sample_rate)), 1)
         stop_sample = min(start_sample + sample_count, metadata.total_sample_count)
         picks = _resolve_channel_indices(metadata.channel_names, channel_names)
@@ -152,6 +158,80 @@ class MneDatasetReader(PythonDatasetReader):
             extra_signature=f"{self.__class__.__name__}:{metadata.total_sample_count}",
             builder=build,
         )
+
+
+_BRAINVISION_SAMPLE_BYTES = {"INT_16": 2, "UINT_16": 2, "INT_32": 4, "IEEE_FLOAT_32": 4}
+# BIDS durations are rounded; only a shortfall above this fraction is reported
+_BIDS_DURATION_TOLERANCE = 0.01
+
+
+def _data_file_warnings(path: str, sample_count: int, header_rate: float) -> list[str]:
+    """Report a data file shorter than its header or BIDS sidecar, or a mismatched BIDS rate."""
+    header = Path(path)
+    warnings = (
+        _brainvision_warnings(header, sample_count)
+        if header.suffix.lower() == ".vhdr"
+        else []
+    )
+    return warnings + _bids_warnings(header, sample_count, header_rate)
+
+
+def _brainvision_warnings(header: Path, sample_count: int) -> list[str]:
+    try:
+        fields = dict(
+            line.split("=", 1)
+            for line in header.read_text(
+                encoding="utf-8", errors="replace"
+            ).splitlines()
+            if "=" in line and not line.lstrip().startswith(";")
+        )
+        data_file = header.with_name(fields["DataFile"].strip())
+        frame = _BRAINVISION_SAMPLE_BYTES[
+            fields.get("BinaryFormat", "INT_16").strip()
+        ] * int(fields["NumberOfChannels"])
+        size = data_file.stat().st_size
+    except (KeyError, ValueError, OSError):
+        return []
+    warnings = []
+    binary = fields.get("DataFormat", "BINARY").strip().upper() == "BINARY"
+    if binary and size % frame:
+        warnings.append(
+            f"The data file {data_file.name} ends with {size % frame} bytes of an "
+            f"incomplete sample frame of {frame} bytes."
+        )
+    declared = fields.get("DataPoints", "").strip()
+    if declared.isdigit() and int(declared) > sample_count:
+        warnings.append(
+            f"The header declares {int(declared)} samples, but the data file "
+            f"{data_file.name} holds {sample_count}."
+        )
+    return warnings
+
+
+def _bids_warnings(header: Path, sample_count: int, header_rate: float) -> list[str]:
+    meta = bids.recording_json(str(header))
+    try:
+        duration = float(meta["RecordingDuration"])
+        sample_rate = float(meta["SamplingFrequency"])
+    except (KeyError, TypeError, ValueError):
+        return []
+    if sample_rate <= 0:
+        return []
+    warnings = []
+    if sample_count < duration * sample_rate * (1 - _BIDS_DURATION_TOLERANCE):
+        warnings.append(
+            f"The data file holds {sample_count} samples "
+            f"({sample_count / sample_rate:.2f} s), but the BIDS sidecar describes "
+            f"{duration:.2f} s; the file appears truncated."
+        )
+    drift = abs(sample_count / header_rate - sample_count / sample_rate)
+    if drift > 0.01:
+        warnings.append(
+            f"The file header gives {header_rate:.3f} Hz and the BIDS sidecar "
+            f"{sample_rate:.3f} Hz. DDALAB uses the header rate, so BIDS event times "
+            f"drift by up to {drift:.2f} s over the recording."
+        )
+    return warnings
 
 
 def _mne_channel_unit(raw, channel_name: str) -> str:

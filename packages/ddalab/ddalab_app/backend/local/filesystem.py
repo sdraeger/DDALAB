@@ -104,14 +104,15 @@ def _list_local_directory(path: str) -> Tuple[str, List[BrowserEntry]]:
         children = sorted(
             list(iterator),
             key=lambda item: (
-                not item.is_dir(follow_symlinks=False),
+                not item.is_dir(),
                 item.name.lower(),
             ),
         )
     for child in children:
         try:
-            is_directory = child.is_dir(follow_symlinks=False)
-            stat = child.stat(follow_symlinks=False)
+            # follow symlinks, so a linked data folder browses like a real one
+            is_directory = child.is_dir()
+            stat = child.stat()
             size_bytes = 0 if is_directory else int(stat.st_size)
             modified_at_epoch_ms = int(stat.st_mtime * 1000)
         except OSError:

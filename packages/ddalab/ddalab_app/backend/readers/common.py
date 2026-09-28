@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import threading
 from abc import ABC, abstractmethod
 from dataclasses import asdict
@@ -15,7 +16,6 @@ import numpy as np
 from ...domain.models import (
     ChannelWaveform,
     LoadedDataset,
-    WaveformEnvelopeLevel,
     WaveformOverview,
     WaveformOverviewChannel,
     WaveformWindow,
@@ -83,8 +83,13 @@ class PythonDatasetReader(ABC):
 
 
 _reader_lock = threading.Lock()
-_reader_cache: Dict[str, PythonDatasetReader] = {}
-_DELIMITED_TIME_HEADERS = {"time", "timestamp", "seconds", "sample", "samples"}
+_reader_cache: Dict[str, tuple[tuple[int, int], PythonDatasetReader]] = {}  # path -> (mtime, size), reader
+_TIME_HEADER = re.compile(r"(time|timestamp|seconds?|samples?)(?![a-z])")
+
+
+def _is_time_header(name: str) -> bool:
+    """True for time column names such as "time", "Time (s)", or "timestamp_ms"."""
+    return _TIME_HEADER.match(name.strip().lower()) is not None
 _DEFAULT_NIFTI_BROWSER_CHANNEL_LIMIT = 65_536
 
 
@@ -214,23 +219,10 @@ def _bucket_extrema(
     return np.nanmin(reshaped, axis=1), np.nanmax(reshaped, axis=1)
 
 
-def _build_envelope_levels(samples: np.ndarray) -> List[WaveformEnvelopeLevel]:
-    sample_count = int(samples.size)
-    if sample_count <= 0:
-        return []
-    levels: List[WaveformEnvelopeLevel] = []
-    for bucket_size in (8, 32, 128, 512, 2048):
-        if sample_count <= bucket_size * 2:
-            continue
-        mins, maxs = _bucket_extrema(samples, bucket_size)
-        levels.append(
-            WaveformEnvelopeLevel(
-                bucket_size=bucket_size,
-                mins=mins.astype(np.float64).tolist(),
-                maxs=maxs.astype(np.float64).tolist(),
-            )
-        )
-    return levels
+def _finite_range(values: np.ndarray) -> tuple[float, float]:
+    """Min and max of the finite samples, so one gap can't flatten a channel's scale."""
+    finite = values[np.isfinite(values)]
+    return (float(finite.min()), float(finite.max())) if finite.size else (0.0, 0.0)
 
 
 def _build_channel_waveform(
@@ -239,17 +231,16 @@ def _build_channel_waveform(
     samples: np.ndarray,
     unit: Optional[str],
 ) -> ChannelWaveform:
+    # float64 arrays: DDA reads these samples, so they keep full precision
     clean = np.asarray(samples, dtype=np.float64).reshape(-1)
-    min_value = float(np.min(clean)) if clean.size else 0.0
-    max_value = float(np.max(clean)) if clean.size else 0.0
+    min_value, max_value = _finite_range(clean)
     return ChannelWaveform(
         name=name,
         sample_rate_hz=sample_rate_hz,
-        samples=clean.tolist(),
+        samples=clean,
         unit=unit,
         min_value=min_value,
         max_value=max_value,
-        levels=_build_envelope_levels(clean),
     )
 
 
@@ -270,9 +261,28 @@ def _build_overview_channel(
         else 0.0,
         mins=mins.astype(np.float64).tolist(),
         maxs=maxs.astype(np.float64).tolist(),
-        min_value=float(np.min(clean)) if clean.size else 0.0,
-        max_value=float(np.max(clean)) if clean.size else 0.0,
+        min_value=_finite_range(clean)[0],
+        max_value=_finite_range(clean)[1],
     )
+
+
+def _start_sample(seconds: float, sample_rate: float) -> int:
+    """First sample at or after `seconds`, tolerant of float round trips (0.29 * 100)."""
+    return max(int(math.floor(seconds * sample_rate + 1e-6)), 0)
+
+
+def _unique_names(names: Sequence[str]) -> List[str]:
+    """Suffix repeated names ("A", "A-2", ...) so every channel can be found by name."""
+    seen: Dict[str, int] = {}
+    unique: List[str] = []
+    for name in names:
+        seen[name] = seen.get(name, 0) + 1
+        candidate = name if seen[name] == 1 else f"{name}-{seen[name]}"
+        while candidate in unique:
+            seen[name] += 1
+            candidate = f"{name}-{seen[name]}"
+        unique.append(candidate)
+    return unique
 
 
 def _resolve_channel_indices(

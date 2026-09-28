@@ -17,12 +17,9 @@ MNE_FILE_EXTENSIONS = {
     ".vhdr",
     ".set",
     ".cnt",
-    ".egi",
     ".gdf",
     ".con",
     ".sqd",
-    ".meg4",
-    ".kit",
 }
 DIRECTORY_DATASET_SUFFIXES = {".ds", ".mff"}
 OTHER_DIRECT_EXTENSIONS = {".xdf", ".nwb", ".nii", ".nii.gz"}
@@ -44,12 +41,9 @@ PRIMARY_OPEN_DIALOG_PATTERNS = [
     "*.fif",
     "*.fiff",
     "*.cnt",
-    "*.egi",
     "*.gdf",
     "*.con",
     "*.sqd",
-    "*.meg4",
-    "*.kit",
     "*.xdf",
     "*.nwb",
     "*.nii",
@@ -150,18 +144,12 @@ def classify_path(path: str, is_directory: bool) -> PathTypeInfo:
         return _with_bids_context(target, "FIF", True)
     if suffix == ".cnt":
         return _with_bids_context(target, "CNT", True)
-    if suffix == ".egi":
-        return _with_bids_context(target, "EGI", True)
     if suffix == ".gdf":
         return _with_bids_context(target, "GDF", True)
     if suffix == ".con":
         return _with_bids_context(target, "KIT CON", True)
     if suffix == ".sqd":
         return _with_bids_context(target, "SQD", True)
-    if suffix == ".meg4":
-        return _with_bids_context(target, "MEG4", True)
-    if suffix == ".kit":
-        return _with_bids_context(target, "KIT", True)
     if suffix == ".xdf":
         return _with_bids_context(target, "XDF", True)
     if suffix == ".nwb":

@@ -801,6 +801,19 @@ mod tests {
         let variants = result.variant_results.unwrap();
         assert_eq!(variants.len(), 1);
         assert_eq!(variants[0].variant_id, "ST");
+        let coefficients = variants[0]
+            .coefficient_matrices
+            .as_ref()
+            .expect("ST coefficient matrices");
+        assert_eq!(coefficients.len(), dda_rs::DEFAULT_MODEL_TERMS.len());
+        assert_eq!(coefficients[0], variants[0].q_matrix);
+        let fit_errors = variants[0]
+            .fit_error_matrix
+            .as_ref()
+            .expect("ST fit error matrix");
+        assert_eq!(fit_errors.len(), 2);
+        assert_eq!(fit_errors[0].len(), variants[0].q_matrix[0].len());
+        assert!(fit_errors.iter().flatten().all(|value| value.is_finite()));
     }
 
     #[tokio::test]

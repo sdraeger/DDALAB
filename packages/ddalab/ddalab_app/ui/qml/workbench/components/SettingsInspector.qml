@@ -85,22 +85,37 @@ ColumnLayout {
             id: nsgJobs
             anchors.fill: parent
             model: root.controller.nsgJobsModel
-            delegate: Column {
+            delegate: RowLayout {
+                id: job
+                required property string id
                 required property string name
                 required property string status
                 width: nsgJobs.width
                 height: 42
-                Text {
-                    width: parent.width
-                    text: name
-                    color: root.colors.text
-                    font.pixelSize: 12
-                    elide: Text.ElideRight
+                Column {
+                    Layout.fillWidth: true
+                    Text {
+                        width: parent.width
+                        text: job.name
+                        color: root.colors.text
+                        font.pixelSize: 12
+                        elide: Text.ElideRight
+                    }
+                    Text {
+                        text: job.status
+                        color: root.colors.muted
+                        font.pixelSize: 10
+                    }
                 }
-                Text {
-                    text: status
-                    color: root.colors.muted
-                    font.pixelSize: 10
+                Repeater {
+                    model: [["refresh", "Refresh"], ["download", "Download"], ["cancel", "Cancel"]]
+                    WorkbenchButton {
+                        required property var modelData
+                        colors: root.colors
+                        quiet: true
+                        text: modelData[1]
+                        onClicked: root.controller.nsgJobAction(job.id, modelData[0])
+                    }
                 }
             }
         }
@@ -130,5 +145,14 @@ ColumnLayout {
         text: "Check for updates"
         enabled: !root.controller.loadingComponents.updates
         onClicked: root.controller.checkForUpdates()
+    }
+    WorkbenchButton {
+        Layout.fillWidth: true
+        colors: root.colors
+        primary: true
+        visible: root.controller.updateAvailable
+        text: "Download and install"
+        enabled: !root.controller.loadingComponents.updates
+        onClicked: root.controller.installUpdate()
     }
 }

@@ -85,6 +85,7 @@ for package_name in (
     "pynwb",
     "hdmf",
     "lazy_loader",
+    "keyring",
 ):
     package_datas, package_binaries, package_hiddenimports = collect_all(
         package_name,

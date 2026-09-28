@@ -43,7 +43,6 @@ def _window() -> WaveformWindow:
                 unit="uV",
                 min_value=0.0,
                 max_value=1.0,
-                levels=[],
             )
         ],
         from_cache=False,
@@ -63,7 +62,6 @@ def _multi_channel_window() -> WaveformWindow:
                 unit="uV",
                 min_value=0.0,
                 max_value=1.0,
-                levels=[],
             ),
             ChannelWaveform(
                 name="Cz",
@@ -72,7 +70,6 @@ def _multi_channel_window() -> WaveformWindow:
                 unit="uV",
                 min_value=10.0,
                 max_value=11.0,
-                levels=[],
             ),
         ],
         from_cache=False,
@@ -520,7 +517,6 @@ class QuickWaveformSurfaceTests(unittest.TestCase):
                         unit="uV",
                         min_value=0.0,
                         max_value=8.0,
-                        levels=[],
                     )
                 ],
                 from_cache=False,

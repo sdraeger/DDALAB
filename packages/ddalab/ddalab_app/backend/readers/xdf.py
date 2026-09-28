@@ -16,6 +16,7 @@ from .common import (
     _build_channel_waveform,
     _build_overview_channel,
     _resolve_channel_indices,
+    _unique_names,
 )
 
 
@@ -41,8 +42,8 @@ class XdfDatasetReader(PythonDatasetReader):
         if self.samples.ndim == 1:
             self.samples = self.samples[:, np.newaxis]
         self.timestamps = np.asarray(self.stream["time_stamps"], dtype=np.float64)
-        self.channel_names = _extract_xdf_channel_names(
-            self.stream, self.samples.shape[1]
+        self.channel_names = _unique_names(
+            _extract_xdf_channel_names(self.stream, self.samples.shape[1])
         )
         self.sample_rate_hz = _xdf_sample_rate(self.stream, self.timestamps)
         self._metadata: Optional[LoadedDataset] = None

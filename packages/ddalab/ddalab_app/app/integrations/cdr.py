@@ -11,8 +11,10 @@ from typing import Iterable
 from ...domain.models import DdaResult, DdaVariantResult
 
 _SNR_PATTERN = re.compile(r"_(\d{2})dB__")
-_CD_PAIR_PATTERN = re.compile(r"(?:Channel|Ch)\s*(\d+)\s*<-\s*(?:Channel|Ch)\s*(\d+)")
-_DE_PAIR_PATTERN = re.compile(r"(?:Channel|Ch)\s*(\d+)\s*&\s*(?:Channel|Ch)\s*(\d+)")
+# "Channel N" names are 1-based; the engine's "Ch N" placeholders are 0-based.
+_CHANNEL = r"(Channel|Ch)\s*(\d+)"
+_CD_PAIR_PATTERN = re.compile(rf"{_CHANNEL}\s*<-\s*{_CHANNEL}")
+_DE_PAIR_PATTERN = re.compile(rf"{_CHANNEL}\s*&\s*{_CHANNEL}")
 _RECORDING_PATTERN = "CD_DDA_data_*__WL4000_WS2000_WN100__FirstExample.ascii"
 
 CDR_FLAVORS = ("CD", "DE")
@@ -89,19 +91,20 @@ def all_pair_indices(
 
 def aggregate_cdr_results(results: Iterable[DdaResult]) -> DdaResult | None:
     ordered = sorted(list(results), key=_condition_sort_key)
-    if not ordered:
+    conditions = [_condition_label(result.file_name) for result in ordered]
+    # a missing condition would shift every later column label
+    if sorted(conditions) != sorted(CDR_CONDITIONS):
         return None
     variants = [
         summary
         for variant_id, label in (
-            ("CD", "Causal dependence"),
+            ("CD", "Cross dynamical"),
             ("DE", "Dynamical ergodicity"),
         )
         if (summary := _aggregate_variant(ordered, variant_id, label)) is not None
     ]
     if len(variants) != 2:
         return None
-    conditions = [_condition_label(result.file_name) for result in ordered]
     return DdaResult(
         id=uuid.uuid4().hex,
         file_path=str(Path(ordered[0].file_path).parent),
@@ -260,7 +263,10 @@ def _indexed_rows(
             continue
         rows.append(
             (
-                (int(match.group(1)), int(match.group(2))),
+                (
+                    int(match.group(2)) - (match.group(1) == "Channel"),
+                    int(match.group(4)) - (match.group(3) == "Channel"),
+                ),
                 [float(value) for value in values[:column_count]],
             )
         )

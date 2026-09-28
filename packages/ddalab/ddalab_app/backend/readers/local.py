@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from ...domain.file_types import classify_path, resolve_dataset_path
@@ -28,19 +29,25 @@ __all__ = [
 
 
 def get_python_dataset_reader(path: str) -> PythonDatasetReader:
+    # The Rust sidecar runs in another working directory, so relative paths break there
+    path = os.path.abspath(os.path.expanduser(path))
     resolved_path = resolve_dataset_path(path, Path(path).is_dir())
+    stat = os.stat(resolved_path)
+    signature = (stat.st_mtime_ns, stat.st_size)
     with _reader_lock:
         cached = _reader_cache.get(resolved_path)
-        if cached is not None:
-            return cached
+        if cached is not None and cached[0] == signature:
+            return cached[1]
+        if cached is not None:  # the file changed on disk
+            cached[1].close()
         reader = _build_reader(resolved_path)
-        _reader_cache[resolved_path] = reader
+        _reader_cache[resolved_path] = (signature, reader)
         return reader
 
 
 def close_python_dataset_readers() -> None:
     with _reader_lock:
-        readers = list(_reader_cache.values())
+        readers = [reader for _, reader in _reader_cache.values()]
         _reader_cache.clear()
     for reader in readers:
         try:
@@ -77,12 +84,9 @@ def _build_reader(path: str) -> PythonDatasetReader:
         ".fiff",
         ".bdf",
         ".cnt",
-        ".egi",
         ".gdf",
         ".con",
         ".sqd",
-        ".meg4",
-        ".kit",
         ".ds",
         ".mff",
     }:

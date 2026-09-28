@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ddalab"
-version = "1.2.11"
+version = "1.2.12"
 description = "DDALAB desktop application and command-line interface"
 readme = "README.md"
 license = "MIT"
@@ -24,7 +24,11 @@ dependencies = [
   "nibabel==5.3.3",
   "pyxdf==1.16.8",
   "pynwb==2.8.3",
+  # pynwb 2.8 cannot load its schema with hdmf 4 or later
+  "hdmf>=3.14.5,<4",
   "packaging>=24,<25",
+  # NSG sign-in in the system keychain
+  "keyring>=25,<26",
 ]
 
 [project.urls]
