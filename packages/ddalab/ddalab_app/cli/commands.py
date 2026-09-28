@@ -35,6 +35,13 @@ def _handle_gui(args: argparse.Namespace) -> int:
     return gui_main(gui_args)
 
 
+def _handle_mcp(_args: argparse.Namespace) -> int:
+    from ..mcp_server import serve
+
+    serve()
+    return 0
+
+
 def _handle_health(args: argparse.Namespace) -> int:
     backend, _runtime_paths = _local_backend()
     try:
