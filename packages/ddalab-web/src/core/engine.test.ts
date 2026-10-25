@@ -328,6 +328,26 @@ test("cancel_terminates_the_dda_workers_and_deletes_the_files", async () => {
   expect(sentToIo()).not.toContain("finishResult");
 });
 
+test("a_text_recording_gets_one_worker_per_512_mib", async () => {
+  runner(() => {});
+  FakeWorker.onMessage = ((next) => (worker: FakeWorker, message: Message) => {
+    if (message.type !== "open") return next(worker, message);
+    const csv = { ...info("big.csv"), format: "CSV" };
+    worker.ok(message, { info: csv, fingerprint: "print-csv", analysis_channels: [0] });
+  })(FakeWorker.onMessage);
+  const engine = createEngine();
+  const open = (size: number) =>
+    engine.open({
+      kind: "url",
+      primary: "big.csv",
+      files: [{ name: "big.csv", url: "https://x/big.csv", size }],
+    });
+  const cores = Math.max(1, navigator.hardwareConcurrency - 1);
+  expect((await engine.plan((await open(600 * 2 ** 20)).id, REQUEST)).workers).toBe(1);
+  expect((await engine.plan((await open(200 * 2 ** 20)).id, REQUEST)).workers).toBe(Math.min(cores, 2));
+  expect((await engine.plan((await open(1000)).id, REQUEST)).workers).toBe(cores);
+});
+
 test("a_trapped_dda_worker_fails_the_run_with_its_message", async () => {
   runner((worker, message) =>
     message.block?.w0 === 10
