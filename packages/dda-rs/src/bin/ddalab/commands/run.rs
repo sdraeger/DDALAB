@@ -524,8 +524,7 @@ mod tests {
         let tmp = tempfile::Builder::new().suffix(".edf").tempfile().unwrap();
         let args = make_test_args();
 
-        let result = dda_params::validate_common_params(
-            args.channels.as_deref().unwrap(),
+        let result = dda_params::validate_params_except_channels(
             &["INVALID".to_string()],
             &args.delays,
             args.wl,
@@ -542,8 +541,7 @@ mod tests {
 
     #[test]
     fn test_validate_ct_without_pairs() {
-        let result = dda_params::validate_common_params(
-            &[0, 1, 2],
+        let result = dda_params::validate_params_except_channels(
             &["CT".to_string()],
             &[7, 10],
             200,
@@ -557,8 +555,7 @@ mod tests {
 
     #[test]
     fn test_validate_cd_without_pairs() {
-        let result = dda_params::validate_common_params(
-            &[0, 1, 2],
+        let result = dda_params::validate_params_except_channels(
             &["CD".to_string()],
             &[7, 10],
             200,
@@ -572,8 +569,7 @@ mod tests {
 
     #[test]
     fn test_validate_delay_out_of_range() {
-        let result = dda_params::validate_common_params(
-            &[0, 1, 2],
+        let result = dda_params::validate_params_except_channels(
             &["ST".to_string()],
             &[1, 200],
             200,
@@ -587,8 +583,7 @@ mod tests {
 
     #[test]
     fn test_validate_negative_delay() {
-        let result = dda_params::validate_common_params(
-            &[0, 1, 2],
+        let result = dda_params::validate_params_except_channels(
             &["ST".to_string()],
             &[-1, 10],
             200,
@@ -602,8 +597,7 @@ mod tests {
 
     #[test]
     fn test_validate_ws_greater_than_wl() {
-        let result = dda_params::validate_common_params(
-            &[0, 1, 2],
+        let result = dda_params::validate_params_except_channels(
             &["ST".to_string()],
             &[7, 10],
             100,
@@ -613,28 +607,6 @@ mod tests {
         );
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("must not exceed"));
-    }
-
-    #[test]
-    fn test_compute_bounds_sample_based() {
-        let (start, end) = dda_params::compute_bounds(None, None, Some(0), Some(6000), None);
-        assert_eq!(start, Some(0));
-        assert_eq!(end, Some(6000));
-    }
-
-    #[test]
-    fn test_compute_bounds_time_based() {
-        let (start, end) =
-            dda_params::compute_bounds(Some(0.0), Some(10.0), None, None, Some(256.0));
-        assert_eq!(start, Some(0));
-        assert_eq!(end, Some(2560));
-    }
-
-    #[test]
-    fn test_compute_bounds_none() {
-        let (start, end) = dda_params::compute_bounds(None, None, None, None, None);
-        assert_eq!(start, None);
-        assert_eq!(end, None);
     }
 
     #[test]

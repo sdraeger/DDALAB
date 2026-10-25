@@ -1,12 +1,9 @@
 use crate::engine::{run_request_on_matrix_with_progress, PureRustProgress};
 use crate::error::{DDAError, Result};
 use crate::types::{DDARequest, DDAResult};
-use rayon::prelude::*;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
-
-const PARALLEL_BATCH_MIN_LEN: usize = 4;
 
 pub fn run_request_on_ascii_file<P: AsRef<Path>>(
     request: &DDARequest,
@@ -34,21 +31,6 @@ where
         adjusted_request.time_range.end = end as f64;
     }
     run_request_on_matrix_with_progress(&adjusted_request, &samples, None, on_progress)
-}
-
-pub fn run_request_on_f64_matrix_file_with_progress<P: AsRef<Path>, F>(
-    request: &DDARequest,
-    path: P,
-    rows: usize,
-    cols: usize,
-    channel_labels: Option<&[String]>,
-    on_progress: F,
-) -> Result<DDAResult>
-where
-    F: FnMut(&PureRustProgress),
-{
-    let samples = load_f64_matrix_from_path(path, rows, cols)?;
-    run_request_on_matrix_with_progress(request, &samples, channel_labels, on_progress)
 }
 
 pub fn load_ascii_matrix_from_path<P: AsRef<Path>>(path: P) -> Result<Vec<Vec<f64>>> {
@@ -96,55 +78,6 @@ pub fn load_ascii_matrix_from_path<P: AsRef<Path>>(path: P) -> Result<Vec<Vec<f6
     }
 
     Ok(rows)
-}
-
-pub fn load_f64_matrix_from_path<P: AsRef<Path>>(
-    path: P,
-    rows: usize,
-    cols: usize,
-) -> Result<Vec<Vec<f64>>> {
-    if rows == 0 || cols == 0 {
-        return Err(DDAError::InvalidParameter(
-            "Raw matrix input requires non-zero rows and columns".to_string(),
-        ));
-    }
-    let mmap = crate::mmap_utils::mmap_file(path.as_ref())?;
-    let expected_len = rows
-        .checked_mul(cols)
-        .and_then(|value| value.checked_mul(std::mem::size_of::<f64>()))
-        .ok_or_else(|| {
-            DDAError::InvalidParameter("Raw matrix dimensions overflow usize".to_string())
-        })?;
-    if mmap.len() != expected_len {
-        return Err(DDAError::ParseError(format!(
-            "Raw matrix file has {} bytes but {} were expected for a {}x{} f64 matrix",
-            mmap.len(),
-            expected_len,
-            rows,
-            cols
-        )));
-    }
-
-    let row_byte_width = cols * std::mem::size_of::<f64>();
-    let decode_row = |row_bytes: &[u8]| -> Vec<f64> {
-        row_bytes
-            .chunks_exact(std::mem::size_of::<f64>())
-            .map(|chunk| {
-                let mut bytes = [0; std::mem::size_of::<f64>()];
-                bytes.copy_from_slice(chunk);
-                f64::from_le_bytes(bytes)
-            })
-            .collect()
-    };
-
-    let decoded_rows = if rows >= PARALLEL_BATCH_MIN_LEN {
-        mmap.par_chunks_exact(row_byte_width)
-            .map(decode_row)
-            .collect()
-    } else {
-        mmap.chunks_exact(row_byte_width).map(decode_row).collect()
-    };
-    Ok(decoded_rows)
 }
 
 fn parse_ascii_token(token: &str) -> Result<f64> {
