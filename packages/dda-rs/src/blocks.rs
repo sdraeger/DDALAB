@@ -19,38 +19,35 @@ pub struct Block {
     pub row1: u64,
 }
 
-/// The request's windows on a recording of `rows_total` rows, as the engine lays them out.
+/// The request's windows on a recording of `rows_total` rows, as the engine lays them out, in recording rows.
 struct Grid {
-    start: usize,
-    step: usize,
-    marker: usize,
+    start: u64,
+    step: u64,
+    marker: u64,
     windows: usize,
     rows_total: u64,
 }
 
 impl Grid {
     fn new(request: &DDARequest, rows_total: u64) -> Result<Self> {
-        let rows = usize::try_from(rows_total).map_err(|_| {
-            DDAError::InvalidParameter(format!("{rows_total} rows exceed this platform's usize"))
-        })?;
         let model = ModelSpec::from_request(request)?;
-        let bounds = AnalysisBounds::from_request(request, rows)?;
+        let (start, bounds) = selection(request, rows_total)?;
         Ok(Self {
-            start: bounds.start,
-            step: model.window_step,
-            marker: model.window_length + model.max_delay + 2 * model.dm,
+            start,
+            step: model.window_step as u64,
+            marker: (model.window_length + model.max_delay + 2 * model.dm) as u64,
             windows: analysis_window_count(&bounds, &model)?,
             rows_total,
         })
     }
 
     fn first_row(&self, w0: usize) -> u64 {
-        (self.start + w0 * self.step) as u64
+        self.start + w0 as u64 * self.step
     }
 
     /// One past the last row windows `..w1` read; the engine pads a last window that passes EOF.
     fn row_end(&self, w1: usize) -> u64 {
-        ((self.start + (w1 - 1) * self.step + self.marker) as u64).min(self.rows_total)
+        (self.first_row(w1 - 1) + self.marker).min(self.rows_total)
     }
 
     fn block(&self, w0: usize, w1: usize) -> Block {
@@ -61,6 +58,30 @@ impl Grid {
             row1: self.row_end(w1),
         }
     }
+}
+
+/// The first row of the request's selection on `rows_total` rows, as the engine clamps it, and the engine's
+/// `AnalysisBounds` of the selection counted from that row. The bounds see only the rows up to
+/// `min(rows_total, end + 2)`: a selection fits wasm32's usize on a recording of any length.
+pub(crate) fn selection(request: &DDARequest, rows_total: u64) -> Result<(u64, AnalysisBounds)> {
+    let range = &request.time_range;
+    let first = (range.start.max(0.0).floor() as u64).min(rows_total.saturating_sub(1));
+    let end = match range.end.is_finite() {
+        true => (range.end.max(0.0).floor() as u64).saturating_add(2),
+        false => u64::MAX,
+    };
+    let rows = rows_total.min(end.max(first + 1)) - first;
+    let rows = usize::try_from(rows).map_err(|_| {
+        DDAError::InvalidParameter(format!(
+            "a selection of {rows} rows exceeds this platform's usize"
+        ))
+    })?;
+    let mut local = request.clone();
+    local.time_range = TimeRange {
+        start: range.start - first as f64,
+        end: range.end - first as f64,
+    };
+    Ok((first, AnalysisBounds::from_request(&local, rows)?))
 }
 
 /// Refuses highpass or lowpass preprocessing, and a channel index (in `channels`, the CT and CD pairs or a variant
@@ -127,8 +148,9 @@ pub fn plan_blocks(
 ) -> Result<Vec<Block>> {
     check_block_support(request)?;
     let grid = Grid::new(request, rows_total)?;
-    let budget_rows = budget_bytes / (channels.max(1) * 8);
+    let budget_rows = budget_bytes as u64 / (channels.max(1) as u64 * 8);
     let per_block = 1 + budget_rows.saturating_sub(grid.marker) / grid.step;
+    let per_block = usize::try_from(per_block).unwrap_or(usize::MAX);
     Ok((0..grid.windows)
         .step_by(per_block)
         .map(|w0| grid.block(w0, (w0 + per_block).min(grid.windows)))
@@ -180,7 +202,7 @@ pub fn run_block(
     let mut local = request.clone();
     local.time_range = TimeRange {
         start,
-        end: start + ((block.w1 - block.w0 - 1) * grid.step + grid.marker - 2) as f64,
+        end: start + ((block.w1 - block.w0 - 1) as u64 * grid.step + grid.marker - 2) as f64,
     };
     let mut progress = progress;
     let mut result = run_request_on_matrix_with_progress(&local, &rows, Some(&labels), |p| {
