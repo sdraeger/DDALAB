@@ -7,7 +7,7 @@
 //   values    = n, the f64 count of the array
 //   identical = #{i : bits(a_i) == bits(b_i), or both NaN (wasm leaves NaN payloads unspecified)}
 //   max_rel   = max over i with bits(a_i) != bits(b_i) of |a_i - b_i| / max(|a_i|, |b_i|); 0 when all are identical
-// The test passes when identical == values, or else when max_rel <= 1e-12.
+// The test asserts identical == values for every array; max_rel is printed and recorded for the parity section.
 //
 // Build, then run from the repository root:
 //   (cd packages/dda-rs && cargo build --release --bin ddalab --example dump_tiles)
@@ -20,7 +20,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { load, unframe } from './host.mjs';
+import { decodeReply, load, unframe } from './host.mjs';
 
 const here = (p) => fileURLToPath(new URL(p, import.meta.url));
 const FIXTURES = here('../../dda-rs/tests/fixtures/');
@@ -152,6 +152,54 @@ test('open_takes_a_cache_size', () => {
   assert.throws(() => abi.open(BRAINVISION, undefined, -1), /expected u32/);
 });
 
+test('handles_are_never_reused', () => {
+  const first = abi.open(EDF).handle;
+  const pyramid = abi.pyramid(first);
+  abi.close(first);
+  assert.throws(() => pyramid.push(0, 10), /no pyramid/);
+  const second = abi.open(EDF).handle;
+  assert.notEqual(second, first);
+  assert.throws(() => abi.rawTile(first, 0, 0), /no open recording/);
+  const dropped = abi.pyramid(second);
+  dropped.drop();
+  assert.throws(() => dropped.push(0, 10), /no pyramid/);
+  abi.close(second);
+
+  const hash = abi.hash();
+  hash.update(new TextEncoder().encode('abc'));
+  assert.equal(hash.hex(), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+  assert.throws(() => hash.update(new Uint8Array(1)), /no hash/);
+  assert.throws(() => hash.hex(), /no hash/);
+});
+
+test('replies_decode_unsigned', () => {
+  // A reply at 2.25 GiB arrives from wasm as a negative i64.
+  const reply = BigInt.asIntN(64, (0x9000_0000n << 32n) | 0xffff_fff0n);
+  assert.ok(reply < 0n);
+  assert.deepEqual(decodeReply(reply), [0x9000_0000, 0xffff_fff0]);
+});
+
+test('host_errors_become_error_replies', async () => {
+  let failReads = true;
+  const flaky = await load(
+    undefined,
+    () => {
+      throw new Error('progress listener failed');
+    },
+    (...args) => {
+      if (failReads) throw new Error('NotReadableError');
+      return fs.readSync(...args);
+    },
+  );
+  assert.throws(() => flaky.open(BRAINVISION), /host read failed for fixture\.vhdr at offset 0/);
+  failReads = false;
+  const { handle, info } = flaky.open(BRAINVISION);
+  const req = request('ST', info.sample_count);
+  assert.ok(flaky.runBlock(handle, req, 0, 1).length > 0);
+  assert.equal(flaky.readRaw(handle, 0, 2).length, 8);
+  flaky.close(handle);
+});
+
 test('read_raw_is_row_major_display_channels', () => {
   const { handle, info, analysis_channels } = abi.open(EDF);
   const raw = abi.readRaw(handle, 1, 3);
@@ -220,7 +268,7 @@ test('run_blocks_match_native_bundle', (t) => {
         }
         t.diagnostic(`${variant} ${budgetMb} MiB ${a.path}: ${identical}/${n} bit-identical, max_rel ${maxRel}`);
         rows.push([variant, budgetMb, a.path, n, identical, maxRel].join(','));
-        assert.ok(identical === n || maxRel <= 1e-12, `${a.path}: max_rel ${maxRel}`);
+        assert.equal(identical, n, `${a.path}: ${identical}/${n} bit-identical, max_rel ${maxRel}`);
       });
       const input_sha256 = Object.fromEntries(
         info.input_files.map((name) => [name, abi.sha256File(path.join(FIXTURES, name))]),

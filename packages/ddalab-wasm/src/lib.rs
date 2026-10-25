@@ -7,7 +7,8 @@
 //! and start f32 samples only if the first sample is 4.5e30.
 //!
 //! Display channels are the analysis channels: the `Signal` channels at the recording rate, in recording order.
-//! Request channel indices count in this list. Host imports must not call back into the module.
+//! Request channel indices count in this list. Host imports must not throw or call back into the module: a failed
+//! read returns a nonzero status. Ids are never reused: a closed or finished id names nothing.
 
 use dda_rs::blocks::{block_of, plan_blocks, run_block};
 use dda_rs::document::{build_manifest, bundle_layout, encode_block};
@@ -27,37 +28,38 @@ extern "C" {
     fn host_progress(ptr: u32, len: u32);
 }
 
-/// Values by id. Ids start at 1: 0 never names a value.
-struct Table<T>(Vec<Option<T>>);
+/// Values by id. Ids count up from 1 and are never reused; 0 never names a value.
+struct Table<T> {
+    last: u32,
+    items: BTreeMap<u32, T>,
+}
 
 impl<T> Table<T> {
     const fn new() -> Self {
-        Table(Vec::new())
-    }
-
-    fn insert(&mut self, value: T) -> u32 {
-        match self.0.iter().position(Option::is_none) {
-            Some(i) => {
-                self.0[i] = Some(value);
-                i as u32 + 1
-            }
-            None => {
-                self.0.push(Some(value));
-                self.0.len() as u32
-            }
+        Table {
+            last: 0,
+            items: BTreeMap::new(),
         }
     }
 
+    fn insert(&mut self, value: T) -> u32 {
+        self.last += 1;
+        self.items.insert(self.last, value);
+        self.last
+    }
+
     fn get(&mut self, id: u32) -> Option<&mut T> {
-        self.0.get_mut((id as usize).checked_sub(1)?)?.as_mut()
+        self.items.get_mut(&id)
     }
 
     fn take(&mut self, id: u32) -> Option<T> {
-        self.0.get_mut((id as usize).checked_sub(1)?)?.take()
+        self.items.remove(&id)
     }
 }
 
 struct Pyramid {
+    /// The recording handle it was built from; closing the recording drops the pyramid.
+    handle: u32,
     reader: Arc<dyn Reader>,
     channels: Vec<usize>,
     builder: PyramidBuilder,
@@ -104,7 +106,7 @@ impl ByteSource for HostFile {
         match status {
             0 => Ok(()),
             _ => Err(DDAError::IoError(std::io::Error::other(format!(
-                "{}: host read failed with status {status}",
+                "host read failed for {} at offset {offset} (status {status})",
                 self.name
             )))),
         }
@@ -270,9 +272,12 @@ pub unsafe extern "C" fn ddalab_open(ptr: u32, len: u32) -> u64 {
     json_reply(open(input(ptr, len)))
 }
 
+/// Also drops the pyramids built from `handle`.
 #[no_mangle]
 pub extern "C" fn ddalab_close(handle: u32) {
     RECORDINGS.lock().unwrap().take(handle);
+    let mut pyramids = PYRAMIDS.lock().unwrap();
+    pyramids.items.retain(|_, pyramid| pyramid.handle != handle);
 }
 
 #[no_mangle]
@@ -344,7 +349,7 @@ pub unsafe extern "C" fn ddalab_plan(
 
 /// Calls `host_progress` on every `max(total_steps / 100, 1)`th step.
 fn report_progress(p: &PureRustProgress) {
-    if p.step_index % (p.total_steps / 100).max(1) == 0 {
+    if p.step_index.is_multiple_of((p.total_steps / 100).max(1)) {
         let json = serde_json::to_vec(p).unwrap_or_default();
         unsafe { host_progress(json.as_ptr() as u32, json.len() as u32) };
     }
@@ -436,15 +441,20 @@ pub extern "C" fn ddalab_sha256_new() -> u32 {
     HASHES.lock().unwrap().insert(Sha256Stream::new())
 }
 
-/// An unknown `id` is ignored here and reported by `ddalab_sha256_hex`.
+/// `{"ok":null}`, or an error for an unknown or finished `id`.
 ///
 /// # Safety
 /// `ptr` and `len` name a buffer the host wrote.
 #[no_mangle]
-pub unsafe extern "C" fn ddalab_sha256_update(id: u32, ptr: u32, len: u32) {
-    if let Some(hash) = HASHES.lock().unwrap().get(id) {
-        hash.update(input(ptr, len));
-    }
+pub unsafe extern "C" fn ddalab_sha256_update(id: u32, ptr: u32, len: u32) -> u64 {
+    let mut hashes = HASHES.lock().unwrap();
+    json_reply(match hashes.get(id) {
+        Some(hash) => {
+            hash.update(input(ptr, len));
+            Ok(Value::Null)
+        }
+        None => Err(invalid(format!("no hash {id}"))),
+    })
 }
 
 /// `{"ok":"<hex>"}`; the stream ends.
@@ -469,6 +479,7 @@ pub extern "C" fn ddalab_pyramid_new(handle: u32) -> u32 {
     }
     let builder = PyramidBuilder::new(channels.len(), reader.info().sample_count);
     PYRAMIDS.lock().unwrap().insert(Pyramid {
+        handle,
         reader,
         channels,
         builder,
@@ -476,31 +487,46 @@ pub extern "C" fn ddalab_pyramid_new(handle: u32) -> u32 {
     })
 }
 
+/// The pyramid `id` when `row0..row0 + rows` are the rows it expects next.
+fn expecting(pyramids: &mut Table<Pyramid>, id: u32, row0: u64, rows: u32) -> Result<&mut Pyramid> {
+    let pyramid = pyramids
+        .get(id)
+        .ok_or_else(|| invalid(format!("no pyramid {id}")))?;
+    let total = pyramid.reader.info().sample_count;
+    if row0 != pyramid.next_row || row0.saturating_add(rows.into()) > total {
+        return Err(invalid(format!(
+            "pyramid {id} expects rows from {} of {total}, got {row0}..{row0}+{rows}",
+            pyramid.next_row
+        )));
+    }
+    Ok(pyramid)
+}
+
 /// Reads rows `row0..row0 + rows`, which must follow the rows pushed before, and returns the tiles they completed.
 #[no_mangle]
 pub extern "C" fn ddalab_pyramid_push(id: u32, row0: f64, rows: u32) -> u64 {
     binary_reply((|| {
-        let mut pyramids = PYRAMIDS.lock().unwrap();
-        let pyramid = pyramids
-            .get(id)
-            .ok_or_else(|| invalid(format!("no pyramid {id}")))?;
         let row0 = index(row0, "row0")?;
-        let total = pyramid.reader.info().sample_count;
-        if row0 != pyramid.next_row || row0.saturating_add(rows.into()) > total {
-            return Err(invalid(format!(
-                "pyramid {id} expects rows from {} of {total}, got {row0}..{row0}+{rows}",
-                pyramid.next_row
-            )));
-        }
-        let mut raw = vec![0f32; rows as usize * pyramid.channels.len()];
-        let channels = &pyramid.channels;
-        pyramid
-            .reader
-            .read_raw_f32(channels, row0, rows as usize, &mut raw)?;
+        // The read runs outside the lock.
+        let (reader, channels) = {
+            let mut pyramids = PYRAMIDS.lock().unwrap();
+            let pyramid = expecting(&mut pyramids, id, row0, rows)?;
+            (pyramid.reader.clone(), pyramid.channels.clone())
+        };
+        let mut raw = vec![0f32; rows as usize * channels.len()];
+        reader.read_raw_f32(&channels, row0, rows as usize, &mut raw)?;
+        let mut pyramids = PYRAMIDS.lock().unwrap();
+        let pyramid = expecting(&mut pyramids, id, row0, rows)?;
         let tiles = pyramid.builder.push_rows(&raw, rows as usize);
         pyramid.next_row += u64::from(rows);
-        Ok(frame(tiles, &*pyramid.reader))
+        Ok(frame(tiles, &*reader))
     })())
+}
+
+/// Ends pyramid `id` without its last tiles.
+#[no_mangle]
+pub extern "C" fn ddalab_pyramid_drop(id: u32) {
+    PYRAMIDS.lock().unwrap().take(id);
 }
 
 /// The partial last tile of each level, once every row was pushed; the pyramid ends.
