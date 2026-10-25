@@ -178,6 +178,28 @@ fn window_centers_formula() {
 }
 
 #[test]
+fn reproduction_times_match_request() {
+    let info = Recording::new(1000.0, 200_000).info;
+    let mut request = request(&["ST"]);
+    let times = |request: &DDARequest| {
+        let layout = bundle_layout(request, &info, 1).unwrap();
+        let manifest = build_manifest(&info, request, &layout, 1, sha(), "id".into(), "t".into());
+        (
+            manifest.reproduction.start_time_seconds,
+            manifest.reproduction.end_time_seconds,
+        )
+    };
+    request.time_range = TimeRange {
+        start: 30_000.0,
+        end: 150_000.0,
+    };
+    assert_eq!(times(&request), (30.0, 150.0));
+    // An unbounded range ends at the recording's last sample.
+    request.time_range.end = f64::INFINITY;
+    assert_eq!(times(&request), (30.0, 199.999));
+}
+
+#[test]
 fn row_labels_for_pairs() {
     let recording = Recording::new(100.0, ROWS);
     let mut request = request(&["ST", "CT", "CD"]);

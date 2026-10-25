@@ -79,7 +79,7 @@ pub struct Reproduction {
     pub polynomial_order: u32,
     pub nr_tau: u32,
     pub start_time_seconds: f64,
-    /// The end of the last analyzed sample.
+    /// The request's end sample over the sample rate; the recording's last sample when the request has no end.
     pub end_time_seconds: f64,
     pub ddalab_version: String,
     pub input_sha256: BTreeMap<String, String>,
@@ -231,10 +231,10 @@ fn model_shape(request: &DDARequest) -> (u32, u32, u32) {
     )
 }
 
-/// The first row and the row count of the analyzed range, as the engine clamps them.
-fn analysis_range(request: &DDARequest, info: &RecordingInfo) -> (usize, usize) {
+/// The first analyzed row, as the engine clamps it.
+fn analysis_start(request: &DDARequest, info: &RecordingInfo) -> usize {
     let rows = usize::try_from(info.sample_count).unwrap_or(usize::MAX);
-    AnalysisBounds::from_request(request, rows).map_or((0, 0), |b| (b.start, b.len))
+    AnalysisBounds::from_request(request, rows).map_or(0, |b| b.start)
 }
 
 /// The time in seconds at the middle of each window's fitted samples, which follow `dm + max(delay)` lead-in samples:
@@ -250,7 +250,7 @@ pub fn window_centers(info: &RecordingInfo, request: &DDARequest, windows: usize
     let lead_in = f64::from(model_shape(request).0) + f64::from(max_delay);
     let offset = (lead_in + f64::from(request.window_parameters.window_length) / 2.0) / rate;
     let step = f64::from(request.window_parameters.window_step) / rate;
-    let start = analysis_range(request, info).0 as f64 / rate;
+    let start = analysis_start(request, info) as f64 / rate;
     (0..windows)
         .map(|i| start + offset + i as f64 * step)
         .collect()
@@ -286,8 +286,13 @@ fn reproduction(
         .clone()
         .unwrap_or_else(|| DEFAULT_MODEL_TERMS.to_vec());
     let delays = &request.delay_parameters.delays;
-    let (start, len) = analysis_range(request, info);
     let rate = info.sample_rate_hz;
+    let range = &request.time_range;
+    let end = if range.end.is_finite() {
+        range.end
+    } else {
+        info.sample_count.saturating_sub(1) as f64
+    };
     Reproduction {
         expert_mode: *delays != DEFAULT_DELAYS
             || model_terms != DEFAULT_MODEL_TERMS
@@ -327,8 +332,8 @@ fn reproduction(
         model_dimension: dm,
         polynomial_order: order,
         nr_tau,
-        start_time_seconds: start as f64 / rate,
-        end_time_seconds: (start + len) as f64 / rate,
+        start_time_seconds: range.start / rate,
+        end_time_seconds: end / rate,
         ddalab_version: env!("CARGO_PKG_VERSION").to_string(),
         input_sha256,
         engine_version: env!("CARGO_PKG_VERSION").to_string(),
