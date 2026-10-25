@@ -8,6 +8,8 @@ export default defineConfig({
   testDir: "e2e",
   // The CLI bundles e2e/analysis.spec.ts compares the browser's results with.
   globalSetup: "./e2e/global-setup.ts",
+  // Tests against the real OpenNeuro run only with LIVE=1.
+  grepInvert: process.env.LIVE ? undefined : /@live/,
   use: { baseURL: "http://localhost:5173" },
   webServer: perf
     ? {

@@ -107,7 +107,10 @@ export function readFileSync(file: Blob, offset: number, dst: Uint8Array): void 
   dst.set(bytes);
 }
 
-/** Fills `dst` from `offset` of the resource at `url` with a ranged GET; the server must honor `Range`. */
+/**
+ * Fills `dst` from `offset` of the resource at `url` with a ranged GET. A server that ignores `Range` answers 200
+ * with the whole resource, of which this takes the part asked for.
+ */
 export function readUrlSync(url: string, offset: number, dst: Uint8Array): void {
   if (dst.length === 0) return;
   const request = new XMLHttpRequest();
@@ -115,10 +118,14 @@ export function readUrlSync(url: string, offset: number, dst: Uint8Array): void 
   request.responseType = "arraybuffer";
   request.setRequestHeader("Range", `bytes=${offset}-${offset + dst.length - 1}`);
   request.send();
-  if (request.status !== 206 || request.response.byteLength !== dst.length) {
+  // shortcut: a 200 sends the whole file on every read, which OpenNeuro's object store does only for small unannexed
+  // files (BIDS sidecars); keep whole answers if large files ever come from a server without Range.
+  const body = new Uint8Array(request.response);
+  const part = request.status === 200 ? body.subarray(offset, offset + dst.length) : body;
+  if ((request.status !== 200 && request.status !== 206) || part.length !== dst.length) {
     throw new Error(`${url}: asked for ${dst.length} bytes at ${offset}, got status ${request.status}`);
   }
-  dst.set(new Uint8Array(request.response));
+  dst.set(part);
 }
 
 /** Where the bytes of one recording file come from. */
