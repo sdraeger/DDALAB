@@ -156,13 +156,21 @@ fn index(x: f64, what: &str) -> Result<u64> {
     }
 }
 
-/// The `rows * channels` values of a read, or an error where the count passes usize (32 bits on wasm32).
+/// The `rows * channels` values of a read, or an error where their f32 bytes pass isize::MAX (2^31 - 1 on wasm32),
+/// which no allocation holds.
 fn values(rows: u32, channels: usize) -> Result<usize> {
-    (rows as usize).checked_mul(channels).ok_or_else(|| {
-        invalid(format!(
-            "{rows} rows of {channels} channels pass this platform's usize"
-        ))
-    })
+    let fits = |n: &usize| {
+        n.checked_mul(4)
+            .is_some_and(|bytes| bytes <= isize::MAX as usize)
+    };
+    (rows as usize)
+        .checked_mul(channels)
+        .filter(fits)
+        .ok_or_else(|| {
+            invalid(format!(
+                "{rows} rows of {channels} channels pass this platform's isize::MAX bytes of f32"
+            ))
+        })
 }
 
 fn recording(handle: u32) -> Result<Arc<dyn Reader>> {

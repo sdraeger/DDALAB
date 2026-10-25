@@ -224,7 +224,7 @@ test('run_block_offsets_pass_4_gib', () => {
   assert.ok(chunks.some(({ offset }) => offset > 2 ** 32));
 });
 
-test('reads_past_usize_are_refused', () => {
+test('reads_past_isize_max_bytes_are_refused', () => {
   // fixture.bdf (two channels, 512 samples per record) declaring 2^22 records: 2^31 rows in a sparse 12 GiB file.
   const file = path.join(tmp, 'huge.bdf');
   const header = Buffer.from(fs.readFileSync(RECORDINGS[1][0]).subarray(0, 3 * 256));
@@ -233,8 +233,12 @@ test('reads_past_usize_are_refused', () => {
   fs.truncateSync(file, header.length + 2 ** 22 * 512 * 2 * 3);
   const { handle, info } = abi.open([file]);
   assert.equal(info.sample_count, 2 ** 31);
-  assert.throws(() => abi.readRaw(handle, 0, 2 ** 31), /usize/);
-  assert.throws(() => abi.pyramid(handle).push(0, 2 ** 31), /usize/);
+  // 2^29 to 2^32 values pass isize::MAX bytes as f32 on wasm32, and 2^32 passes usize: error replies, no trap.
+  for (const rows of [2 ** 28, 2 ** 30 - 1, 2 ** 31]) {
+    assert.throws(() => abi.readRaw(handle, 0, rows), /isize::MAX bytes/, `${rows} rows`);
+    assert.throws(() => abi.pyramid(handle).push(0, rows), /isize::MAX bytes/, `${rows} rows`);
+  }
+  assert.equal(abi.readRaw(handle, 0, 2).length, 4);
   abi.close(handle);
 });
 
