@@ -233,7 +233,8 @@ fn reproduction_records_the_request() {
         "t".into(),
     );
     let json = serde_json::to_value(&manifest).unwrap();
-    let rerun: DDARequest = serde_json::from_value(json["reproduction"]["request"].clone()).unwrap();
+    let rerun: DDARequest =
+        serde_json::from_value(json["reproduction"]["request"].clone()).unwrap();
     assert_eq!(
         serde_json::to_value(&rerun).unwrap(),
         serde_json::to_value(&request).unwrap()

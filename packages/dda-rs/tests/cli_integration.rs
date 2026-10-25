@@ -1175,10 +1175,7 @@ fn batch_reports_failures_and_exits_partial() {
     assert!(failure["outputPath"].is_null());
     assert!(failure.as_object().unwrap().contains_key("outputPath"));
     let error = failure["error"].as_str().unwrap();
-    assert!(
-        error.contains("Selected range has 32 samples"),
-        "{error}"
-    );
+    assert!(error.contains("Selected range has 32 samples"), "{error}");
     assert!(
         error.ends_with(" The data file holds 32 samples (1.00 s), but the BIDS sidecar describes 100.00 s; the file appears truncated."),
         "{error}"
