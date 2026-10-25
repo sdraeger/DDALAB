@@ -2,13 +2,14 @@
 // files or URLs as the IO worker, with an 8 MiB file cache; a text recording is parsed here whole, which is why the
 // engine gives a large one fewer workers. The engine starts a pool of these for one run and stops them after it.
 import { instantiateCore } from "../core/abi";
+import { compileWasm } from "../core/compileWasm";
 import wasmUrl from "../core/ddalab.wasm?url";
 import type { DdaReply, DdaRequest } from "../core/protocol";
 import { openRequestOf, type Part, partsOf, readSource } from "../core/sources";
 
 /** The files of the recording: file id `n` is `parts[n - 1]`. */
 let parts: Part[] = [];
-const core = WebAssembly.compileStreaming(fetch(wasmUrl)).then((module) =>
+const core = compileWasm(wasmUrl).then((module) =>
   instantiateCore(module, (fileId, offset, dst) => readSource(parts[fileId - 1].source, offset, dst)),
 );
 /** The recording of this worker's run, opened with its first request. */

@@ -1,5 +1,6 @@
 import "./styles/tokens.css";
 import "./styles/base.css";
+import { CSPProvider } from "@base-ui/react/csp-provider";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./app/App";
@@ -31,8 +32,11 @@ void sweepAnalyses();
 // Before React renders: the CSP allows no inline script, and the module entry is the earliest script there is.
 applyTheme(storedTheme());
 
+// The CSP allows no inline <style>, which Base UI adds to an opened Select unless told otherwise.
 createRoot(root).render(
   <StrictMode>
-    <App />
+    <CSPProvider disableStyleElements>
+      <App />
+    </CSPProvider>
   </StrictMode>,
 );

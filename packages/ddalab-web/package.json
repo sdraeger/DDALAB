@@ -6,12 +6,15 @@
   "scripts": {
     "build:wasm": "node scripts/build-wasm.mjs",
     "dev": "npm run build:wasm && vite",
-    "build": "npm run build:wasm && tsc && vite build && node scripts/check-dist.mjs",
+    "build": "npm run build:wasm && tsc && vite build && node scripts/check-dist.mjs && node scripts/check-bundle-size.mjs",
     "typecheck": "tsc",
     "check": "biome check .",
     "test": "npm run build:wasm && vitest run",
     "test:e2e": "npm run build:wasm && playwright test",
-    "test:perf": "npm run build:wasm && PERF=1 playwright test"
+    "test:perf": "npm run build:wasm && PERF=1 playwright test",
+    "test:dist": "playwright test -c playwright.dist.config.ts",
+    "deploy:userdir": "node scripts/deploy-userdir.mjs",
+    "check:live": "node scripts/check-live.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.9.0",
