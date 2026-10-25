@@ -238,6 +238,20 @@ test('reads_past_usize_are_refused', () => {
   abi.close(handle);
 });
 
+test('diagnostics_match_cli', () => {
+  const file = path.join(FIXTURES, 'fixture_truncated.edf');
+  const out = path.join(tmp, 'truncated.json');
+  execFileSync(CLI, ['run', '--file', file, '--wl', '200', '--ws', '100', '--output', out, '--quiet']);
+  const cli = JSON.parse(fs.readFileSync(out, 'utf8'));
+  const { handle, info } = abi.open([file]);
+  const req = { ...request('ST', info.sample_count), channels: [0, 1], file_path: file };
+  const { windows } = abi.plan(handle, req, 64);
+  const manifest = abi.manifest(handle, req, { id: '', created_at_iso: '', input_sha256: {}, windows });
+  abi.close(handle);
+  assert.match(cli.diagnostics.join('\n'), /declares 8 data records/);
+  assert.deepEqual(manifest.diagnostics, cli.diagnostics);
+});
+
 test('progress_every_percent', () => {
   const { handle, info } = abi.open(EDF);
   const req = { ...request('ST', info.sample_count), channels: [0, 1], file_path: EDF[0] };
