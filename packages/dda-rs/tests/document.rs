@@ -529,6 +529,7 @@ fn bundle_bytes_equal_merged_result() {
 
     let written: Value =
         serde_json::from_slice(&std::fs::read(dir.path().join("manifest.json")).unwrap()).unwrap();
+    assert!(!dir.path().join("manifest.json.tmp").exists());
     assert_eq!(written["schema"], "ddalab.result/2");
     assert_eq!(
         written["variants"][0]["arrays"],
@@ -539,6 +540,40 @@ fn bundle_bytes_equal_merged_result() {
         written["window_centers_seconds"].as_array().unwrap().len(),
         w
     );
+}
+
+#[test]
+fn finish_reports_manifest_write_errors() {
+    let recording = Recording::new(100.0, ROWS);
+    let request = request(&["ST"]);
+    let layout = bundle_layout(&request, &recording.info, 2).unwrap();
+    let manifest = build_manifest(
+        &recording.info,
+        &request,
+        &layout,
+        2,
+        sha(),
+        "id".into(),
+        "t".into(),
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let writer = BundleWriter::create(dir.path(), &layout).unwrap();
+    // A directory where the temporary manifest goes makes writing it fail.
+    std::fs::create_dir(dir.path().join("manifest.json.tmp")).unwrap();
+    assert!(writer.finish(&manifest).is_err());
+    assert!(!dir.path().join("manifest.json").exists());
+}
+
+#[test]
+fn create_removes_stale_manifest() {
+    let recording = Recording::new(100.0, ROWS);
+    let layout = bundle_layout(&request(&["ST"]), &recording.info, 2).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("manifest.json"), b"{}").unwrap();
+    let _writer = BundleWriter::create(dir.path(), &layout).unwrap();
+    assert!(!dir.path().join("manifest.json").exists());
+    // A directory that does not exist yet has no manifest to remove.
+    BundleWriter::create(&dir.path().join("new"), &layout).unwrap();
 }
 
 #[test]

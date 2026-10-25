@@ -580,7 +580,8 @@ pub fn encode_block(
 }
 
 /// Writes a bundle directory: the `.npy` files at their full size, then `manifest.json` last. A
-/// directory with a manifest is complete.
+/// directory with a manifest is complete: `create` removes the manifest of an earlier bundle and
+/// `finish` renames a finished `manifest.json.tmp` into place, so a manifest is complete or absent.
 #[cfg(not(target_arch = "wasm32"))]
 pub struct BundleWriter {
     dir: std::path::PathBuf,
@@ -591,7 +592,11 @@ pub struct BundleWriter {
 #[cfg(not(target_arch = "wasm32"))]
 impl BundleWriter {
     pub fn create(dir: &Path, layout: &BundleLayout) -> Result<Self> {
-        use std::io::Write;
+        use std::io::{ErrorKind, Write};
+        match std::fs::remove_file(dir.join("manifest.json")) {
+            Err(e) if e.kind() != ErrorKind::NotFound => return Err(e.into()),
+            _ => {}
+        }
         let files = layout
             .arrays
             .iter()
@@ -632,9 +637,13 @@ impl BundleWriter {
     }
 
     pub fn finish(self, manifest: &ResultDocument) -> Result<()> {
-        let file = std::fs::File::create(self.dir.join("manifest.json"))?;
-        serde_json::to_writer(std::io::BufWriter::new(file), manifest)
-            .map_err(std::io::Error::from)?;
+        use std::io::Write;
+        let tmp = self.dir.join("manifest.json.tmp");
+        let mut out = std::io::BufWriter::new(std::fs::File::create(&tmp)?);
+        serde_json::to_writer(&mut out, manifest).map_err(std::io::Error::from)?;
+        out.flush()?;
+        out.get_ref().sync_all()?;
+        std::fs::rename(tmp, self.dir.join("manifest.json"))?;
         Ok(())
     }
 }
