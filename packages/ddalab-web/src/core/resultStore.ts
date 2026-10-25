@@ -181,7 +181,7 @@ async function statusOf(directory: FileSystemDirectoryHandle) {
 /**
  * On startup: deletes the files of results that are not complete and returns their ids. A result whose lock is held
  * is being written (in this tab or another) and stays; under the lock the status is read again, as the run that held
- * it may have completed meanwhile.
+ * it may have completed meanwhile. A result that cannot be removed stays for the next start; the others go.
  */
 export async function sweepInterrupted(): Promise<string[]> {
   const root = await resultsDirectory();
@@ -191,11 +191,13 @@ export async function sweepInterrupted(): Promise<string[]> {
   }
   const swept: string[] = [];
   for (const [id, directory] of unfinished) {
-    await navigator.locks.request(lockOf(id), { ifAvailable: true }, async (lock) => {
-      if (!lock || (await statusOf(directory)) === "complete") return;
-      await removeResult(root, id);
-      swept.push(id);
-    });
+    await navigator.locks
+      .request(lockOf(id), { ifAvailable: true }, async (lock) => {
+        if (!lock || (await statusOf(directory)) === "complete") return;
+        await removeResult(root, id);
+        swept.push(id);
+      })
+      .catch(() => {});
   }
   return swept;
 }

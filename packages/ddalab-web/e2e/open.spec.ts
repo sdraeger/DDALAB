@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "./test";
 
 const fixturePath = (name: string) =>
   fileURLToPath(new URL(`../../dda-rs/tests/fixtures/${name}`, import.meta.url));

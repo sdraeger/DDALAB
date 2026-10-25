@@ -3,8 +3,8 @@ import { readFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
-import { expect, type Page, test } from "@playwright/test";
 import { instantiateCore } from "../src/core/abi";
+import { expect, type Page, test } from "./test";
 
 const EDF = fileURLToPath(new URL("../../dda-rs/tests/fixtures/fixture.edf", import.meta.url));
 const bytes = readFileSync(EDF);

@@ -294,18 +294,31 @@ export function createEngine(): Engine {
     for (const wait of [...hashWaits]) wait();
   }
 
-  /** The SHA-256 of each input file once all are known, the hash worker failed, or the recording closed. */
-  function inputHashes(id: string) {
-    return new Promise<Record<string, string>>((resolve) => {
+  /**
+   * The SHA-256 of each input file once all are known, the hash worker failed, or the recording closed. Rejects with
+   * the abort reason once `signal` aborts, and stops waiting.
+   */
+  function inputHashes(id: string, signal: AbortSignal) {
+    return new Promise<Record<string, string>>((resolve, reject) => {
       const entry = scans.get(id);
       const input = held.get(id);
+      if (signal.aborted) return reject(signal.reason);
       if (!entry || !input || !isScanned(input)) return resolve(entry?.sha256 ?? {});
+      const stop = () => {
+        hashWaits.delete(check);
+        signal.removeEventListener("abort", abort);
+      };
       const check = () => {
         const waiting = !entry.hashError && entry.info.input_files.some((name) => !entry.sha256[name]);
         if (waiting && scans.get(id) === entry) return;
-        hashWaits.delete(check);
+        stop();
         resolve(entry.sha256);
       };
+      const abort = () => {
+        stop();
+        reject(signal.reason);
+      };
+      signal.addEventListener("abort", abort);
       hashWaits.add(check);
       check();
     });
@@ -485,12 +498,8 @@ export function createEngine(): Engine {
         throw error;
       });
       const pool = ddaPool(input, request);
-      // Cancel also ends the wait for the input hashes, which the last block may outlast by minutes.
-      let abort = (_: Error) => {};
-      const aborted = new Promise<never>((_, reject) => {
-        abort = reject;
-      });
-      aborted.catch(() => {});
+      // Cancel also ends the wait for the input hashes, which may outlast the last block by minutes.
+      const cancelling = new AbortController();
       const scheduled = runAnalysis({
         id: resultId,
         plan,
@@ -508,7 +517,7 @@ export function createEngine(): Engine {
           const extras: ManifestExtras = {
             id: resultId,
             created_at_iso: new Date().toISOString(),
-            input_sha256: await Promise.race([inputHashes(id), aborted]),
+            input_sha256: await inputHashes(id, cancelling.signal),
             windows: plan.windows,
           };
           await call({ type: "finishResult", resultId, manifest: await pool.manifest(extras) });
@@ -525,7 +534,7 @@ export function createEngine(): Engine {
         cancel() {
           pool.stop();
           scheduled.cancel();
-          abort(cancelled());
+          cancelling.abort(cancelled());
         },
       };
     },

@@ -3,8 +3,8 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, type Page, test } from "@playwright/test";
 import { bundleDir, WIDE } from "./global-setup";
+import { expect, type Page, test } from "./test";
 
 const fixturePath = (name: string) =>
   fileURLToPath(new URL(`../../dda-rs/tests/fixtures/${name}`, import.meta.url));
@@ -132,6 +132,41 @@ const windowsDone = async (page: Page) => (await lastRun(page)).run?.progress.wi
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => Reflect.deleteProperty(window, "showOpenFilePicker"));
   await page.goto("/");
+});
+
+// Tabbing from Start commits it; the interval rests 200 ms later, which must leave the End being typed alone.
+test("typed_interval_survives_the_resting_interval", async ({ page }) => {
+  await openBrainVision(page);
+  await page.getByRole("checkbox", { name: "Select Fp1" }).check();
+  const start = runBar(page).getByLabel("Start", { exact: true });
+  const end = runBar(page).getByLabel("End", { exact: true });
+  await start.click();
+  await start.press("ControlOrMeta+a");
+  const typed = Date.now();
+  await page.keyboard.type("1");
+  await page.keyboard.press("Tab"); // keyboard focus selects the End field's text
+  await page.keyboard.type("5");
+  expect(Date.now() - typed).toBeLessThan(200);
+  await page.waitForTimeout(500);
+  await expect(end).toHaveValue("5");
+  await expect(start).toHaveValue("1");
+  if (!(await hasStorage(page))) {
+    await end.press("Enter");
+    expect(await page.evaluate(() => window.__ddalab.store.getState().selection)).toEqual({ t0: 1, t1: 5 });
+    return;
+  }
+  // Run takes the End field as it leaves it.
+  await runToCompletion(page);
+  expect((await lastRun(page)).record.request.time_range).toEqual({ start: 500, end: 2500 });
+});
+
+test("escape_puts_back_the_interval", async ({ page }) => {
+  await openBrainVision(page);
+  const end = runBar(page).getByLabel("End", { exact: true });
+  await end.fill("4");
+  await end.press("Escape");
+  await expect(end).toHaveValue("6");
+  expect(await page.evaluate(() => window.__ddalab.store.getState().selection)).toBeNull();
 });
 
 test("st_result_equals_cli_bundle", async ({ page }) => {
