@@ -74,7 +74,8 @@ fn for_each_line(source: &dyn ByteSource, mut line: impl FnMut(&str) -> Result<(
     let mut carry = Vec::new();
     let mut offset = 0;
     while offset < source.len() {
-        let n = READ_BYTES.min((source.len() - offset) as usize);
+        // The min in u64: on wasm32 the remainder past 4 GiB would truncate as usize.
+        let n = (source.len() - offset).min(READ_BYTES as u64) as usize;
         source.read_at(offset, &mut chunk[..n])?;
         offset += n as u64;
         let mut rest = &chunk[..n];
@@ -136,13 +137,13 @@ pub fn open_ascii(
     let source = files
         .source(name)
         .ok_or_else(|| DDAError::FileNotFound(name.to_string()))?;
-    // shortcut: whole-file parse, add a sparse line index if ASCII recordings above ~1 GB appear
+    // shortcut: every sample is held as f64 (about 1x the file), add a line index for text recordings past about 1 GB
     // Two passes over the file hold only the samples: the first sizes them, the second parses into them.
     let mut first_tokens: Option<Vec<String>> = None;
     let mut has_header = false;
     let mut delimiter_of_file = None;
     // Data rows (a line with a number) and how many have each width, in order of appearance; text-only lines.
-    let (mut rows, mut counts, mut skipped) = (0, Vec::<(usize, usize)>::new(), 0);
+    let (mut rows, mut counts, mut skipped) = (0u64, Vec::<(usize, u64)>::new(), 0);
     for_each_line(source.as_ref(), |line| {
         if first_tokens.is_none() {
             delimiter_of_file = delimiter(line);
@@ -178,7 +179,15 @@ pub fn open_ascii(
         .iter()
         .fold((0, 0), |best, &c| if c.1 > best.1 { c } else { best });
 
-    let mut data = vec![f64::NAN; rows * width];
+    let cells = rows
+        .checked_mul(width as u64)
+        .filter(|&n| n.checked_mul(8).is_some_and(|bytes| bytes <= isize::MAX as u64))
+        .ok_or_else(|| {
+            DDAError::ParseError(format!(
+                "{name} holds {rows} rows of {width} values, past this platform's isize::MAX bytes of f64"
+            ))
+        })?;
+    let mut data = vec![f64::NAN; cells as usize];
     let mut slots = data.chunks_exact_mut(width);
     let mut values = Vec::with_capacity(width);
     let mut header = has_header;
@@ -260,7 +269,7 @@ pub fn open_ascii(
             bids_type: None,
         })
         .collect();
-    let sample_count = rows as u64;
+    let sample_count = rows;
     Ok(Box::new(AsciiReader {
         info: RecordingInfo {
             format: if name.to_ascii_lowercase().ends_with(".csv") {

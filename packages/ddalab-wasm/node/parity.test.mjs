@@ -242,6 +242,41 @@ test('reads_past_isize_max_bytes_are_refused', () => {
   abi.close(handle);
 });
 
+/** A sparse file `name` of `length` bytes and a module instance that reads every file as `pattern` repeated. */
+async function generatedText(name, length, pattern) {
+  const file = path.join(tmp, name);
+  fs.writeFileSync(file, '');
+  fs.truncateSync(file, length);
+  const bytes = new TextEncoder().encode(pattern);
+  const read = (fd, buffer, offset, n, position) => {
+    for (let done = 0; done < n; ) {
+      const at = (position + done) % bytes.length;
+      const k = Math.min(bytes.length - at, n - done);
+      buffer.set(bytes.subarray(at, at + k), offset + done);
+      done += k;
+    }
+    return n;
+  };
+  return { file, text: await load(undefined, undefined, read) };
+}
+
+test('text_past_4_gib_opens', async () => {
+  // Each MiB holds a data line and a comment line; 4 GiB + 1.5 MiB end inside the comment of data line 4,098.
+  const pattern = `1.5,2.5\n#${'x'.repeat(2 ** 20 - 10)}\n`;
+  const { file, text } = await generatedText('huge.txt', 2 ** 32 + 3 * 2 ** 19, pattern);
+  const { handle, info } = text.open([file]);
+  assert.equal(info.sample_count, 4098);
+  assert.deepEqual([...text.readRaw(handle, 4097, 1)], [1.5, 2.5]);
+  text.close(handle);
+});
+
+test('text_samples_past_isize_max_refused', async () => {
+  // 262,144 lines of 1,025 cells: 2,149,580,800 bytes of f64, past wasm32's isize::MAX.
+  const line = `${','.repeat(1024)}1\n`;
+  const { file, text } = await generatedText('wide.csv', 262_144 * line.length, line);
+  assert.throws(() => text.open([file]), /isize::MAX bytes/);
+});
+
 test('selection_past_2_32_rows_runs', () => {
   // fixture.bdf's 8 records (512 rows of 2 channels at 512 Hz) twice: 16 s alone, and at the end of a sparse
   // 30 GB file of 9,765,625 records, 5e9 rows. ST on its last 10 s runs the same windows in both.
