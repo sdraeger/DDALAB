@@ -86,7 +86,18 @@ pub struct Reproduction {
     pub engine_version: String,
     pub git_commit: Option<String>,
     /// The request as run, which the fields above summarize in the Python keys.
+    #[serde(serialize_with = "sorted_keys")]
     pub request: DDARequest,
+}
+
+/// Serializes through `serde_json::Value`, whose maps sort their keys (serde_json without `preserve_order`):
+/// the request's `variant_configs` HashMap would otherwise follow its random iteration order.
+fn sorted_keys<S: serde::Serializer>(
+    request: &DDARequest,
+    serializer: S,
+) -> std::result::Result<S::Ok, S::Error> {
+    let value = serde_json::to_value(request).map_err(serde::ser::Error::custom)?;
+    value.serialize(serializer)
 }
 
 /// A variant the engine returns for a request, in the engine's order.
