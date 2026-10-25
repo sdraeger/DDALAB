@@ -1,3 +1,4 @@
+pub mod blocks;
 pub mod ccd_stats;
 pub mod document;
 pub mod engine;

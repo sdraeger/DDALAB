@@ -1,10 +1,10 @@
-mod dataset;
+pub(crate) mod dataset;
 #[cfg(feature = "cuda")]
 mod gpu;
-mod model;
+pub(crate) mod model;
 mod regression_batch;
 mod solver;
-mod variant_config;
+pub(crate) mod variant_config;
 mod window;
 
 #[cfg(test)]
@@ -1309,7 +1309,7 @@ fn solve_all_selected_ccd_values_with_full_model_reuse(
     )
 }
 
-fn analysis_window_count(bounds: &AnalysisBounds, model: &ModelSpec) -> Result<usize> {
+pub(crate) fn analysis_window_count(bounds: &AnalysisBounds, model: &ModelSpec) -> Result<usize> {
     let native_window_marker = model.window_length + model.max_delay + 2 * model.dm;
     let required_rows = native_window_marker.saturating_sub(1);
     if bounds.len < required_rows {
