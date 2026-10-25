@@ -28,7 +28,8 @@ export type IoRequest =
   | { type: "tile"; id: string; level: number; index: number }
   // Dev and e2e builds only:
   | { type: "trap" } // raises the error a Rust panic raises
-  | { type: "quota"; bytes: number }; // the storage fills up after this many more bytes of writes
+  | { type: "quota"; bytes: number } // the storage fills up after this many more bytes of writes
+  | { type: "memory" }; // bytes of the worker's wasm memory
 
 export interface IoResults {
   version: EngineVersion;
@@ -46,6 +47,15 @@ export interface IoResults {
   tile: Tile | null;
   trap: undefined;
   quota: undefined;
+  memory: number;
+}
+
+/** Dev and e2e builds: asks the hash or annotation worker for the bytes of its wasm memory. */
+export interface MemoryRequest {
+  type: "memory";
+}
+export interface MemoryReply {
+  wasmBytes: number;
 }
 
 export type IoReply =
@@ -63,7 +73,8 @@ export interface IoEvent {
 /** Asks the hash worker for the SHA-256 of `names`, files of `input`, which it reports one file at a time. */
 export type HashRequest =
   | { type: "hash"; id: string; input: RecordingInput; names: string[] }
-  | { type: "cancel"; id: string };
+  | { type: "cancel"; id: string }
+  | MemoryRequest;
 
 export type HashReply = { id: string; name: string; sha256: string } | { id: string; error: string };
 

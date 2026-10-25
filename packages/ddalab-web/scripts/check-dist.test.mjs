@@ -23,6 +23,7 @@ test.each([
   ["the __ddalab test hook", "window.__ddalab={engine}"],
   ["the trap hook", "new WebAssembly.Instance(m).exports.trap()"],
   ["the storage quota hook", "throw new DOMException('The quota was exceeded','QuotaExceededError')"],
+  ["the wasm memory hook", "self.postMessage({wasmBytes:c.memoryBytes()})"],
   ["the synthetic recording generator", "put(88,'Startdate 01-JAN-2020 X X X',80)"],
   ["the synthetic recording generator", "files:[{name:'synthetic.edf',size:n}]"],
   ["the synthetic recording generator", "[8,()=>'-3276.8','-1']"],

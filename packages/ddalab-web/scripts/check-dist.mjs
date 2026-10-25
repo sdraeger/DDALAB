@@ -1,5 +1,6 @@
 // Fails the build when dist holds what only dev and e2e builds may have: the `__ddalab` test hook, the IO worker's
-// trap and quota hooks, the synthetic recording generator, or a wasm module other than the engine's own .wasm asset.
+// trap and quota hooks, the workers' wasm memory hook, the synthetic recording generator, or a wasm module other than
+// the engine's own .wasm asset.
 // Usage: node scripts/check-dist.mjs [dist directory]
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -13,6 +14,7 @@ const FORBIDDEN = [
   ["the __ddalab test hook", "__ddalab"],
   ["the trap hook", "exports.trap"],
   ["the storage quota hook", "The quota was exceeded"],
+  ["the wasm memory hook", "wasmBytes"],
   ["the synthetic recording generator", "Startdate 01-JAN-2020"],
   ["the synthetic recording generator", "synthetic.edf"],
   ["the synthetic recording generator", "-3276.8"],

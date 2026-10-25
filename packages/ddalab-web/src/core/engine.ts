@@ -12,6 +12,8 @@ import type {
   IoReply,
   IoRequest,
   IoResults,
+  MemoryReply,
+  MemoryRequest,
   ScanState,
   Tile,
 } from "./protocol";
@@ -56,7 +58,12 @@ export interface Engine {
 }
 
 /** What dev and e2e builds add for tests. */
-export type DevEngine = Engine & { trap(): Promise<void>; quota(bytes: number): Promise<void> };
+export type DevEngine = Engine & {
+  trap(): Promise<void>;
+  quota(bytes: number): Promise<void>;
+  /** Bytes of wasm memory of each running worker. */
+  wasmBytes(): Promise<Record<"io" | "hash" | "annotations", number>>;
+};
 
 /** Replacements allowed in a row, none of which got a reply. */
 const MAX_REPLACEMENTS = 3;
@@ -298,6 +305,25 @@ export function createEngine(): Engine {
     ? Object.assign(engine, {
         trap: () => call({ type: "trap" }),
         quota: (bytes: number) => call({ type: "quota", bytes }),
+        async wasmBytes() {
+          const ask = (target: Worker | undefined) =>
+            new Promise<number>((resolve) => {
+              if (!target) return resolve(0);
+              const answer = ({ data }: MessageEvent) => {
+                if (!(data && typeof data === "object" && "wasmBytes" in data)) return;
+                target.removeEventListener("message", answer);
+                resolve((data as MemoryReply).wasmBytes);
+              };
+              target.addEventListener("message", answer);
+              target.postMessage({ type: "memory" } satisfies MemoryRequest);
+            });
+          const [io, hash, annotations] = await Promise.all([
+            call({ type: "memory" }),
+            ask(hasher),
+            ask(annotator),
+          ]);
+          return { io, hash, annotations };
+        },
       })
     : engine;
 }

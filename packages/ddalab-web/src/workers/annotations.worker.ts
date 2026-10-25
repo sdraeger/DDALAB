@@ -4,7 +4,7 @@
 // file cache.
 import { instantiateCore } from "../core/abi";
 import wasmUrl from "../core/ddalab.wasm?url";
-import type { AnnotationsReply, AnnotationsRequest } from "../core/protocol";
+import type { AnnotationsReply, AnnotationsRequest, MemoryReply, MemoryRequest } from "../core/protocol";
 import { openRequestOf, type Part, partsOf, readSource } from "../core/sources";
 
 /** The files of the recording being read: file id `n` is `parts[n - 1]`. A request sets it and uses it at once. */
@@ -15,7 +15,13 @@ const core = WebAssembly.compileStreaming(fetch(wasmUrl)).then((module) =>
 
 // After a trap the instance is unusable; the engine replaces this worker on the first `trapped` reply.
 let stopped = false;
-self.addEventListener("message", async ({ data }: MessageEvent<AnnotationsRequest>) => {
+self.addEventListener("message", async ({ data }: MessageEvent<AnnotationsRequest | MemoryRequest>) => {
+  if ("type" in data) {
+    if (import.meta.env.DEV || import.meta.env.MODE === "e2e") {
+      self.postMessage({ wasmBytes: (await core).memoryBytes() } satisfies MemoryReply);
+    }
+    return;
+  }
   const { n, input } = data;
   try {
     if (stopped) throw new WebAssembly.RuntimeError("The annotation reader stopped after an earlier error");
