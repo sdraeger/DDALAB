@@ -205,7 +205,7 @@ async fn analyze_open(
     let windows;
     if job.device == ComputeDevice::Cpu && check_block_support(&request).is_ok() {
         let budget = usize::try_from(job.block_mb.saturating_mul(1 << 20)).unwrap_or(usize::MAX);
-        let blocks = plan_blocks(&request, total, analysis.len(), budget).map_err(execution)?;
+        let blocks = plan_blocks(&request, info, budget).map_err(execution)?;
         windows = blocks.last().map_or(0, |block| block.w1);
         sink = Sink::new(job.bundle, &request, info, windows)?;
         for block in &blocks {
