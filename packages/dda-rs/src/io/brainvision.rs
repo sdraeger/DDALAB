@@ -6,7 +6,7 @@ use super::{ByteSource, FileSet};
 use crate::error::{DDAError, Result};
 use std::sync::Arc;
 
-/// Most bytes one `read_at` fetches, so a long request does not hold its whole span in memory.
+/// Most bytes one `read_at` fetches, which keeps a long request from holding its whole span in memory.
 const MAX_READ_BYTES: usize = 8 << 20;
 
 fn unsupported(message: String) -> DDAError {
@@ -39,7 +39,7 @@ impl Binary {
         }
     }
 
-    /// `UINT_16` reports `I32`: its values pass 32767, so an i16 store would wrap them.
+    /// `UINT_16` reports `I32`: its values pass 32767 and would wrap in an i16 store.
     fn raw_type(self) -> RawType {
         match self {
             Self::Int16 => RawType::I16,
@@ -96,7 +96,7 @@ fn get<'a>(ini: &'a [Entry], section: &str, key: &str) -> Option<&'a str> {
         .map(|(_, _, value)| value.as_str())
 }
 
-/// The file name without any directory the header gives, so a header cannot point outside its file set.
+/// The file name without any directory the header gives. This keeps a header from pointing outside its file set.
 fn base_name(path: &str) -> &str {
     path.rsplit(['/', '\\']).next().unwrap_or(path)
 }
@@ -136,13 +136,14 @@ fn read_all(source: &Arc<dyn ByteSource>) -> Result<Vec<u8>> {
 }
 
 /// `<type>,<description>,<position>,<points>,...` as an annotation, or `None` when position or points is not an integer.
+/// Positions count from 1; position 0 gives onset 0, as in MNE.
 fn marker(value: &str, rate: f64) -> Option<Annotation> {
     let mut fields = value.split(',');
     let (kind, description) = (fields.next()?, fields.next()?);
     let position: i64 = fields.next()?.trim().parse().ok()?;
     let points: i64 = fields.next()?.trim().parse().ok()?;
     Some(Annotation {
-        onset_s: (position - 1) as f64 / rate,
+        onset_s: (position - 1).max(0) as f64 / rate,
         duration_s: points as f64 / rate,
         label: name(if description.is_empty() {
             kind
@@ -277,7 +278,7 @@ pub fn open_brainvision(files: &FileSet, vhdr_name: &str) -> Result<Box<dyn Read
     let declared = get(&ini, "Common Infos", "DataPoints")
         .filter(|text| text.bytes().all(|b| b.is_ascii_digit()))
         .and_then(|text| text.parse::<u64>().ok());
-    // Channel c starts at c * points * bytes, so a VECTORIZED file of any other length has untrustworthy offsets.
+    // Channel c starts at c * points * bytes. A VECTORIZED file of any other length has untrustworthy offsets.
     let complete_blocks = match declared {
         Some(points) => points.checked_mul(frame_bytes as u64) == Some(data_bytes),
         None => data_bytes % frame_bytes as u64 == 0,

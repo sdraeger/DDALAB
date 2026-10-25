@@ -38,7 +38,7 @@ impl Samples {
         Samples { info, values }
     }
 
-    /// Seeded noise with a fraction, so min and max differ per bucket and per channel.
+    /// Seeded noise with a fraction. Min and max differ per bucket and per channel.
     fn noise(channels: usize, rows: usize) -> Self {
         let mut x = 0x9E37_79B9_7F4A_7C15u64;
         let values = (0..rows * channels)

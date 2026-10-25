@@ -171,7 +171,7 @@ fn file_set_from_path_adds_modality_json_and_needs_the_primary() {
         set.files.keys().map(String::as_str).collect::<Vec<_>>(),
         ["sub-01_task-x_eeg.edf", "sub-01_task-x_eeg.json"]
     );
-    // no `_` in the name: no modality, so just the primary
+    // no `_` in the name: no modality, only the primary
     let set = FileSet::from_path(&dir.path().join("plain.edf")).unwrap();
     assert_eq!(
         set.files.keys().map(String::as_str).collect::<Vec<_>>(),

@@ -17,9 +17,11 @@ pub struct EdfSpec {
     pub digital: (i32, i32),
     pub physical: (f64, f64),
     pub seed: u64,
-    /// (onset s, duration s, text), stored in the record that contains the onset.
+    /// (TAL onset s, duration s, text), stored in the record that contains the onset.
     pub annotations: Vec<(f64, f64, String)>,
     pub plus_d: bool,
+    /// The timekeeping onset of the first record: where sample 0 sits relative to the header start time.
+    pub first_onset_s: f64,
 }
 
 impl Default for EdfSpec {
@@ -36,6 +38,7 @@ impl Default for EdfSpec {
             seed: 1,
             annotations: vec![],
             plus_d: false,
+            first_onset_s: 0.0,
         }
     }
 }
@@ -78,10 +81,10 @@ pub fn edf_bytes(spec: &EdfSpec) -> Vec<u8> {
     // Per record: the timekeeping TAL, then the TALs of the annotations that start in it.
     let tals: Vec<Vec<u8>> = (0..spec.records)
         .map(|r| {
-            let mut tal =
-                format!("+{}\x14\x14\x00", r as f64 * spec.record_duration_s).into_bytes();
+            let start = spec.first_onset_s + r as f64 * spec.record_duration_s;
+            let mut tal = format!("+{start}\x14\x14\x00").into_bytes();
             for (onset, duration, text) in &spec.annotations {
-                let record = (*onset / spec.record_duration_s) as usize;
+                let record = ((*onset - spec.first_onset_s) / spec.record_duration_s) as usize;
                 if record.min(spec.records - 1) == r {
                     let duration = if *duration > 0.0 {
                         format!("\x15{duration}")

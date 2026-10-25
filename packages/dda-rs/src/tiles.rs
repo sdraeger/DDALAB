@@ -1,6 +1,6 @@
 //! Min/max tiles for drawing long recordings: level `L` splits the rows into buckets of
 //! `bucket_size(L) = 64 * 4^L` rows and keeps each bucket's per-channel minimum and maximum.
-//! Bucket `b` covers rows `[b*B, min((b+1)*B, rows - 1)]` inclusive, so neighbors share one row and the drawn
+//! Bucket `b` covers rows `[b*B, min((b+1)*B, rows - 1)]` inclusive. Neighbors share one row and the drawn
 //! line has no gap. A tile holds up to `TILE_BUCKETS` consecutive buckets; the top level has a single tile.
 
 use crate::error::{DDAError, Result};

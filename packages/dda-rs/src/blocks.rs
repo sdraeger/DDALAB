@@ -1,4 +1,4 @@
-//! Window blocks: a request's windows split into runs over row blocks, so a recording of any size
+//! Window blocks: a request's windows split into runs over row blocks. A recording of any size
 //! runs in bounded memory. Merged block results equal one whole run bit for bit.
 
 use crate::engine::dataset::AnalysisBounds;

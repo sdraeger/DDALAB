@@ -109,7 +109,7 @@ pub fn open_ascii(
 
     let delimiter = delimiter(first_line);
     let first_tokens = split(first_line, delimiter);
-    // An empty cell is a gap in a data row, so only a non-empty cell that is not a number makes a header.
+    // An empty cell is a gap in a data row. Only a non-empty cell that is not a number makes a header.
     let has_header = first_tokens
         .iter()
         .any(|t| !t.is_empty() && number(t).is_none());
