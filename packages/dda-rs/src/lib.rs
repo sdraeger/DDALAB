@@ -29,9 +29,9 @@ pub use input_io::{
     load_ascii_matrix_from_path, load_f64_matrix_from_path, run_request_on_ascii_file,
     run_request_on_ascii_file_with_progress, run_request_on_f64_matrix_file_with_progress,
 };
-pub use io::{BlockCache, ByteSource, FileSet, MemorySource};
 #[cfg(not(target_arch = "wasm32"))]
 pub use io::MmapSource;
+pub use io::{BlockCache, ByteSource, FileSet, MemorySource};
 pub use network_motifs::*;
 pub use types::*;
 pub use variants::*;

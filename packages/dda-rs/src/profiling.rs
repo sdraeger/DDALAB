@@ -5,7 +5,7 @@ use std::path::PathBuf;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use std::time::Instant;
 
-// shortcut: wasm32-unknown-unknown has no clock: elapsed() is always MAX and progress is never throttled; the host throttles by step count
+// shortcut: wasm32-unknown-unknown has no clock (elapsed() is always MAX, the engine never throttles progress by time and the host throttles by step count), add a host clock import when the browser needs timed progress or profiling
 #[cfg(target_arch = "wasm32")]
 pub(crate) use no_clock::Instant;
 

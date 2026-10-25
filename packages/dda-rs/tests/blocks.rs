@@ -343,7 +343,11 @@ fn blocks_equal_single_run() {
             check_block_support(&request).unwrap();
             let whole = run_request_on_matrix(&request, &signals, None).unwrap();
             let id = variant.split(' ').next().unwrap();
-            let ran = whole.variant_results.iter().flatten().find(|v| v.variant_id == id);
+            let ran = whole
+                .variant_results
+                .iter()
+                .flatten()
+                .find(|v| v.variant_id == id);
             assert!(
                 ran.is_some_and(|v| v.q_matrix.iter().flatten().any(|x| x.is_finite())),
                 "{variant} has no finite values"

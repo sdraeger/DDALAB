@@ -346,7 +346,10 @@ fn reproduction(
 
 /// The recording's warnings as diagnostics.
 fn warnings(info: &RecordingInfo) -> Vec<String> {
-    info.warnings.iter().map(|w| format!("Warning: {w}")).collect()
+    info.warnings
+        .iter()
+        .map(|w| format!("Warning: {w}"))
+        .collect()
 }
 
 /// The document without variants; its diagnostics are the recording's warnings.
@@ -593,8 +596,8 @@ pub fn encode_block(
 }
 
 /// Writes a bundle directory: the `.npy` files at their full size, then `manifest.json` last. A
-/// directory with a manifest is complete: `create` removes the manifest of an earlier bundle and
-/// `finish` renames a finished `manifest.json.tmp` into place, so a manifest is complete or absent.
+/// directory with a manifest is complete. `create` removes the manifest of an earlier bundle and
+/// `finish` renames a finished `manifest.json.tmp` into place: a manifest is complete or absent.
 #[cfg(not(target_arch = "wasm32"))]
 pub struct BundleWriter {
     dir: std::path::PathBuf,
