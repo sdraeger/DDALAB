@@ -1,8 +1,8 @@
-// The result under the waveform, on its time axis: the variant tabs, a time ruler, the heatmap of the chosen array with
-// its color bar and electrode-group tints, and the line plot of a picked row. The heatmap draws in WebGL2
+// The result under the waveform, on its time axis: the variant tabs, the heatmap of the chosen array with its color bar
+// and electrode-group tints, the line plot of a picked row and the time axis. The heatmap draws in WebGL2
 // (heatmapLayer.ts) from tiles of the array's max-magnitude pyramid, which the IO worker reads from OPFS. View, cursor
-// and selection reach the canvases through store.subscribe and the pointer through the frame loop; React renders the
-// structure only. Loaded lazily: the first result brings it.
+// and selection reach the canvases through store.subscribe, and the pointer and the focused row through the frame loop;
+// React renders the structure only. Loaded lazily: the first result brings it.
 import { Tabs } from "@base-ui/react/tabs";
 import X from "lucide-react/dist/esm/icons/x.mjs";
 import {
@@ -12,19 +12,21 @@ import {
   use,
   useEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
 } from "react";
 import { engine } from "../../app/recordings";
 import type { ResultArray } from "../../core/protocol";
 import type { ResultDocument } from "../../core/types";
-import { drawMarks, drawRuler } from "../../render/axis";
-import { gradient, LUTS, scaleOf } from "../../render/colormaps";
+import { drawMarks, drawTimeAxis } from "../../render/axis";
+import { gradient, LUTS, type MapName, mapOf, scaleOf } from "../../render/colormaps";
+import { observeDevicePixels } from "../../render/devicePixels";
 import { webgl2 } from "../../render/gl";
 import { createHeatmapLayer, type HeatmapLayer } from "../../render/heatmapLayer";
 import { FANOUT, type ResultTile } from "../../render/resultPyramid";
 import { readColors, watchTheme } from "../../render/themeColors";
-import { setShownResult, useStore } from "../../store/store";
+import { setCursor, setShownResult, setView, useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
 import { electrodeGroups } from "../inspector/groups";
 import { probing } from "../viewer/probe";
@@ -35,7 +37,7 @@ import styles from "./Results.module.css";
 import { RowPlot, type RowPlotHandle } from "./RowPlot";
 import { VariantTabs } from "./VariantTabs";
 
-const RULER_CSS = 22;
+const AXIS_CSS = 22;
 const GL_MISSING = "The heatmap is drawn with WebGL2, which this browser does not provide.";
 const GL_LOST = "The browser reset WebGL2 drawing. The heatmap returns once it restores it.";
 
@@ -43,7 +45,10 @@ export type Loaded<T> = { ok: T } | { error: string };
 
 const loads = new Map<string, Promise<Loaded<unknown>>>();
 
-/** One promise per key, for `use`: it settles once, a failure as its message. */
+/**
+ * One promise per key, for `use`: it settles once, a failure as its message. A failure stays until Try again drops
+ * it: asked again on every render, a missing file would be read again on every frame of a pan.
+ */
 function load<T>(key: string, make: () => Promise<T>): Promise<Loaded<T>> {
   let found = loads.get(key);
   if (!found) {
@@ -57,17 +62,18 @@ function load<T>(key: string, make: () => Promise<T>): Promise<Loaded<T>> {
 }
 
 const manifestOf = (id: string) => load(`${id}/manifest`, () => engine.resultManifest(id));
+const arrayKey = (id: string, variant: string, array: ResultTile["array"]) => `${id}/${variant}/${array}`;
 const arrayOf = (id: string, variant: string, array: ResultTile["array"]) =>
-  load(`${id}/${variant}/${array}`, () => engine.resultArray(id, variant, array));
+  load(arrayKey(id, variant, array), () => engine.resultArray(id, variant, array));
 
 const NAMES: Record<ResultTile["array"], string> = { q: "Q", fit_error: "Fit error" };
 const print = (value: number) => value.toPrecision(3);
 
-/** The color map and limits of an array, from the range of all its rows. */
-function scaleOfArray({ rows, rowMin, rowMax }: ResultArray) {
+/** The limits of an array in `map`, from the range of all its rows. */
+function scaleOfArray(map: MapName, { rows, rowMin, rowMax }: ResultArray) {
   let [min, max] = [Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY];
   for (let r = 0; r < rows; r++) [min, max] = [Math.min(min, rowMin[r]), Math.max(max, rowMax[r])];
-  return scaleOf(min, max);
+  return { map, ...scaleOf(map, min, max) };
 }
 
 /** The channels a row label names: "A", "A & B", "A <- B" or "A <-> B". */
@@ -105,7 +111,13 @@ function Heatmap({
   const labels = variant.row_labels;
   const rows = labels.length;
   const picked = shown?.row != null && shown.row < rows ? shown.row : null;
+  const map = mapOf(variant.id, array);
   const loading = arrayOf(resultId, variant.id, array);
+  const [, rerender] = useReducer((n: number) => n + 1, 0);
+  const retry = () => {
+    loads.delete(arrayKey(resultId, variant.id, array));
+    rerender();
+  };
   // Each row's electrode-group tint, as in the waveform's gutter; a pair across two groups gets both halves.
   const tints = useMemo(() => {
     const names = analysis?.map((c) => info.channels[c].label) ?? [];
@@ -122,24 +134,28 @@ function Heatmap({
   const plot = useRef<HTMLDivElement>(null);
   const heat = useRef<HTMLCanvasElement>(null);
   const marks = useRef<HTMLCanvasElement>(null);
-  const ruler = useRef<HTMLCanvasElement>(null);
+  const axis = useRef<HTMLCanvasElement>(null);
+  const gutter = useRef<HTMLUListElement>(null);
   const problem = useRef<HTMLParagraphElement>(null);
+  const spoken = useRef<HTMLParagraphElement>(null);
   const readout = useRef<HoverReadoutHandle>(null);
   const rowPlot = useRef<RowPlotHandle>(null);
   usePlotPointer(plot, recordingId);
 
   useEffect(() => {
-    const [plotEl, heatEl, marksEl, rulerEl, problemEl] = [
+    const [plotEl, heatEl, marksEl, axisEl, gutterEl, problemEl, spokenEl] = [
       plot.current,
       heat.current,
       marks.current,
-      ruler.current,
+      axis.current,
+      gutter.current,
       problem.current,
+      spoken.current,
     ];
     const opened = useStore.getState().recordings[recordingId];
-    if (!plotEl || !heatEl || !marksEl || !rulerEl || !problemEl || !opened) return;
+    if (!plotEl || !heatEl || !marksEl || !axisEl || !gutterEl || !problemEl || !spokenEl || !opened) return;
     const marksCtx = marksEl.getContext("2d") as CanvasRenderingContext2D;
-    const rulerCtx = rulerEl.getContext("2d") as CanvasRenderingContext2D;
+    const axisCtx = axisEl.getContext("2d") as CanvasRenderingContext2D;
     const centers = manifest.window_centers_seconds;
     const windows = centers.length;
     const c0 = centers[0];
@@ -152,11 +168,13 @@ function Heatmap({
     let raf = 0;
     let gl: WebGL2RenderingContext | null = null;
     let layer: HeatmapLayer | null = null;
-    let source: { array: ResultArray; scale: ReturnType<typeof scaleOf> } | null = null;
-    let loadError: string | null = null;
+    let source: { array: ResultArray; scale: ReturnType<typeof scaleOfArray> } | null = null;
     let shownProblem: string | null = null;
+    let said = "";
     /** The pointer over the plot, in CSS pixels. */
     let pointer: { x: number; y: number } | null = null;
+    /** The row whose button has the keyboard focus: the readout follows the cursor in it. */
+    let focused: number | null = null;
     let disposed = false;
 
     const schedule = () => {
@@ -182,12 +200,11 @@ function Heatmap({
       }
       schedule();
     };
+    // A failure shows in the plot with Try again (ArrayStatus).
     void loading.then((found) => {
-      if (disposed) return;
-      if ("error" in found) loadError = `The result could not be read: ${found.error}`;
-      else source = { array: found.ok, scale: scaleOfArray(found.ok) };
+      if (disposed || "error" in found) return;
+      source = { array: found.ok, scale: scaleOfArray(map, found.ok) };
       start();
-      schedule();
     });
 
     const paint = () => {
@@ -198,12 +215,19 @@ function Heatmap({
       if (!recording || W === 0 || H === 0) return;
       const { view } = state;
       const span = view.t1 - view.t0;
-      // The row and the window under the pointer: the window whose center is nearest, within its analysis interval.
+      const { selection, cursorS } = state;
+      // The row and the window read out: under the pointer, or at the cursor in the focused row. The window is the one
+      // whose center is nearest, within its analysis interval.
+      const at =
+        pointer ??
+        (focused !== null && cursorS !== null
+          ? { x: ((cursorS - view.t0) / span) * cssW, y: ((focused + 0.5) / rows) * cssH }
+          : null);
       let under: { row: number; window: number } | null = null;
-      if (pointer) {
-        const t = view.t0 + (pointer.x / cssW) * span;
+      if (at) {
+        const t = view.t0 + (at.x / cssW) * span;
         const window = Math.min(windows - 1, Math.max(0, Math.round((t - c0) / step)));
-        const row = Math.min(rows - 1, Math.floor((pointer.y / cssH) * rows));
+        const row = Math.min(rows - 1, Math.floor((at.y / cssH) * rows));
         if (Math.abs(t - centers[window]) <= halfS && row >= 0) under = { row, window };
       }
       const drawn = layer?.draw({
@@ -215,23 +239,28 @@ function Heatmap({
         hoverRow: under?.row ?? null,
       });
       marksCtx.clearRect(0, 0, W, H);
-      const { selection, cursorS } = state;
       drawMarks(marksCtx, { W, H, dpr, view, selection, cursorS, recording, colors, over: true });
-      if (pointer && under) {
+      let words = "";
+      if (at && under) {
         // The hovered row at full contrast, outlined; the others recede (heatmapLayer.ts).
         const line = Math.max(1, Math.round(dpr));
         const [y0, y1] = [Math.round((under.row * H) / rows), Math.round(((under.row + 1) * H) / rows)];
         marksCtx.strokeStyle = colors.ink;
         marksCtx.lineWidth = line;
         marksCtx.strokeRect(line / 2, y0 + line / 2, W - line, Math.max(line, y1 - y0 - line));
-        readout.current?.show(pointer.x, pointer.y, cssW, cssH, {
-          row: labels[under.row],
-          center: centers[under.window],
-          value: layer?.value(under.window, under.row),
-          name,
-        });
+        const value = layer?.value(under.window, under.row);
+        const center = centers[under.window];
+        readout.current?.show(at.x, at.y, cssW, cssH, { row: labels[under.row], center, value, name });
+        if (!pointer && value !== undefined) {
+          words = `${labels[under.row]}, window at ${center.toFixed(3)} s, ${name} ${value.toPrecision(4)}`;
+        }
       } else readout.current?.hide();
-      drawRuler(rulerCtx, { W, H: rulerEl.height, dpr, view, recording, colors });
+      // Screen readers hear the keyboard's readout, never the pointer's.
+      if (words !== said) {
+        said = words;
+        spokenEl.textContent = words;
+      }
+      drawTimeAxis(axisCtx, { W, H: axisEl.height, dpr, view, cursorS, colors });
       const row = state.shownResult?.row;
       let points: { t: number; v: number }[] | null = null;
       if (layer && row != null && row < rows) {
@@ -243,8 +272,7 @@ function Heatmap({
         }));
         rowPlot.current?.draw({ points, view, width: W, dpr, colors });
       }
-      const message =
-        loadError ?? (drawn?.error ? `The result could not be read: ${drawn.error}. Trying again.` : null);
+      const message = drawn?.error ? `The result could not be read: ${drawn.error}. Trying again.` : null;
       if (message !== shownProblem) {
         shownProblem = message;
         problemEl.textContent = message ?? "";
@@ -267,30 +295,16 @@ function Heatmap({
       if (drawn.complete) for (const resolve of heatmapProbe.waiters.splice(0)) resolve(frame);
     };
 
-    // Device pixels exactly, where the browser reports them (as WaveformCanvas does).
-    const resize = new ResizeObserver(([entry]) => {
-      const box = entry.devicePixelContentBoxSize?.[0];
-      const dpr = window.devicePixelRatio || 1;
-      const cssW = entry.contentRect.width;
-      const cssH = entry.contentRect.height;
-      const exact =
-        box && Math.abs(box.inlineSize - cssW * dpr) <= 1 && Math.abs(box.blockSize - cssH * dpr) <= 1;
-      const W = exact ? box.inlineSize : Math.round(cssW * dpr);
-      const H = exact ? box.blockSize : Math.round(cssH * dpr);
-      size = { cssW, cssH, dpr, W, H };
+    const stopResize = observeDevicePixels(plotEl, (next) => {
+      size = next;
       for (const canvas of [heatEl, marksEl]) {
-        canvas.width = W;
-        canvas.height = H;
+        canvas.width = next.W;
+        canvas.height = next.H;
       }
-      rulerEl.width = W;
-      rulerEl.height = Math.round(RULER_CSS * dpr);
+      axisEl.width = next.W;
+      axisEl.height = Math.round(AXIS_CSS * next.dpr);
       paint();
     });
-    try {
-      resize.observe(plotEl, { box: "device-pixel-content-box" });
-    } catch {
-      resize.observe(plotEl); // Safari has no device-pixel box: CSS size times the ratio
-    }
 
     const unsubscribe = useStore.subscribe(schedule);
     const unwatch = watchTheme(() => {
@@ -318,10 +332,10 @@ function Heatmap({
       pointer = null;
       schedule();
     };
-    // A click (not the end of a drag) plots the row under it.
+    // A click (not the end of a drag, nor one on Try again) plots the row under it.
     let downAt: { x: number; y: number } | null = null;
     const down = (event: PointerEvent) => {
-      downAt = at(event);
+      downAt = (event.target as Element).closest("button") ? null : at(event);
     };
     const clicked = (event: MouseEvent) => {
       const { x, y } = at(event);
@@ -332,6 +346,17 @@ function Heatmap({
     plotEl.addEventListener("pointerleave", left);
     plotEl.addEventListener("pointerdown", down);
     plotEl.addEventListener("click", clicked);
+    const focusIn = (event: FocusEvent) => {
+      const row = (event.target as HTMLElement).dataset.row;
+      focused = row === undefined ? null : Number(row);
+      schedule();
+    };
+    const focusOut = () => {
+      focused = null;
+      schedule();
+    };
+    gutterEl.addEventListener("focusin", focusIn);
+    gutterEl.addEventListener("focusout", focusOut);
 
     if (probing) {
       heatmapProbe.redraw = schedule;
@@ -348,7 +373,7 @@ function Heatmap({
     return () => {
       disposed = true;
       cancelAnimationFrame(raf);
-      resize.disconnect();
+      stopResize();
       unsubscribe();
       unwatch();
       heatEl.removeEventListener("webglcontextlost", lost);
@@ -357,6 +382,8 @@ function Heatmap({
       plotEl.removeEventListener("pointerleave", left);
       plotEl.removeEventListener("pointerdown", down);
       plotEl.removeEventListener("click", clicked);
+      gutterEl.removeEventListener("focusin", focusIn);
+      gutterEl.removeEventListener("focusout", focusOut);
       layer?.dispose();
       if (probing && heatmapProbe.redraw === schedule) {
         heatmapProbe.redraw = undefined;
@@ -365,12 +392,30 @@ function Heatmap({
         heatmapProbe.rowPlot = null;
       }
     };
-  }, [recordingId, resultId, manifest, variant, array, labels, rows, loading]);
+  }, [recordingId, resultId, manifest, variant, array, map, labels, rows, loading]);
 
   const centers = manifest.window_centers_seconds;
   const focusable = Math.min(focusRow, rows - 1);
-  /** The arrow keys, Home and End move between the row buttons; Tab leaves the list. */
+  /**
+   * Up, Down, Home and End move between the row buttons (Tab leaves the list); Left and Right step the cursor one
+   * window, from the window nearest the middle of the view when the cursor is elsewhere.
+   */
   const rove = (event: KeyboardEvent<HTMLUListElement>) => {
+    const by = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
+    if (by !== undefined) {
+      event.preventDefault();
+      const { cursorS, view } = useStore.getState();
+      const last = centers.length - 1;
+      const step = last > 0 ? (centers[last] - centers[0]) / last : 1;
+      const on = cursorS !== null && cursorS >= view.t0 && cursorS <= view.t1;
+      const k = ((on ? cursorS : (view.t0 + view.t1) / 2) - centers[0]) / step;
+      const next = on ? (by > 0 ? Math.floor(k + 1e-6) + 1 : Math.ceil(k - 1e-6) - 1) : Math.round(k);
+      const t = centers[Math.max(0, Math.min(last, next))];
+      setCursor(t);
+      if (t < view.t0 || t > view.t1)
+        setView((v) => ({ t0: t - (v.t1 - v.t0) / 2, t1: t + (v.t1 - v.t0) / 2 }));
+      return;
+    }
     const next = { ArrowDown: focusable + 1, ArrowUp: focusable - 1, Home: 0, End: rows - 1 }[event.key];
     if (next === undefined) return;
     event.preventDefault();
@@ -399,7 +444,7 @@ function Heatmap({
           </span>
         </span>
         <Suspense fallback={null}>
-          <ColorBar loading={loading} name={NAMES[array]} />
+          <ColorBar loading={loading} name={NAMES[array]} map={map} />
         </Suspense>
         <button
           type="button"
@@ -412,11 +457,7 @@ function Heatmap({
         </button>
       </div>
       <Tabs.Panel value={variant.id} className={styles.panel} style={{ "--rows": rows } as CSSProperties}>
-        <span className={styles.unit} aria-hidden>
-          s
-        </span>
-        <canvas ref={ruler} className={styles.ruler} aria-hidden />
-        <ul className={styles.gutter} aria-label="Result rows" onKeyDown={rove} data-own-keys>
+        <ul ref={gutter} className={styles.gutter} aria-label="Result rows" onKeyDown={rove} data-own-keys>
           {labels.map((label, r) => (
             <li
               key={label}
@@ -426,6 +467,7 @@ function Heatmap({
               <button
                 type="button"
                 className={styles.rowButton}
+                data-row={r}
                 aria-pressed={picked === r}
                 tabIndex={r === focusable ? 0 : -1}
                 onFocus={() => setFocusRow(r)}
@@ -441,7 +483,17 @@ function Heatmap({
           <canvas ref={heat} className={styles.layer} aria-hidden data-heatmap />
           <canvas ref={marks} className={styles.layer} aria-hidden />
           {glProblem && <p className={styles.message}>{glProblem}</p>}
+          <Suspense
+            fallback={
+              <p role="status" className={styles.message}>
+                Building the zoomed-out levels of {NAMES[array]}
+              </p>
+            }
+          >
+            <ArrayStatus loading={loading} onRetry={retry} />
+          </Suspense>
           <p ref={problem} className={styles.problem} role="alert" hidden />
+          <p ref={spoken} className={styles.spoken} role="status" />
           <HoverReadout ref={readout} />
         </div>
         {picked !== null && (
@@ -449,16 +501,34 @@ function Heatmap({
             <RowPlot ref={rowPlot} loading={loading} row={picked} label={labels[picked]} />
           </Suspense>
         )}
+        <span className={styles.unit} aria-hidden>
+          s
+        </span>
+        <canvas ref={axis} className={styles.axis} aria-hidden />
       </Tabs.Panel>
     </Tabs.Root>
   );
 }
 
+/** Why an array could not be read, with Try again; nothing once it is read. */
+function ArrayStatus(props: { loading: Promise<Loaded<ResultArray>>; onRetry(): void }) {
+  const loaded = use(props.loading);
+  if (!("error" in loaded)) return null;
+  return (
+    <p role="alert" className={styles.problem}>
+      The result could not be read: {loaded.error}.{" "}
+      <button type="button" className={controls.quiet} onClick={props.onRetry}>
+        Try again
+      </button>
+    </p>
+  );
+}
+
 /** The color bar: the array's name, its map from the lower to the upper limit, both printed. */
-function ColorBar(props: { loading: Promise<Loaded<ResultArray>>; name: string }) {
+function ColorBar(props: { loading: Promise<Loaded<ResultArray>>; name: string; map: MapName }) {
   const loaded = use(props.loading);
   if ("error" in loaded) return null;
-  const { map, lo, hi } = scaleOfArray(loaded.ok);
+  const { map, lo, hi } = scaleOfArray(props.map, loaded.ok);
   return (
     <span
       className={styles.colorBar}

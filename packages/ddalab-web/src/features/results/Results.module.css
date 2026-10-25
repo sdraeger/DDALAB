@@ -2,7 +2,7 @@
    gutter and plot columns, which reserves the waveform scroller's scrollbar gutter: both time axes align. */
 .result {
   --gutter: 76px;
-  --ruler: 22px;
+  --axis: 22px;
   display: flex;
   flex: none;
   flex-direction: column;
@@ -337,22 +337,32 @@
   width: 100%;
 }
 
-/* The time ruler above the heatmap, drawn as the waveform's (axis.ts). */
+/* The time axis under the heatmap and the row plot (axis.ts drawTimeAxis): its hairline on top, as in the sketch. */
 .unit {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   padding-right: var(--space-2);
+  border-top: var(--hairline-width) solid var(--hairline);
   border-right: var(--hairline-width) solid var(--hairline);
-  border-bottom: var(--hairline-width) solid var(--hairline);
   color: var(--muted);
   font-size: var(--text-small);
 }
 
-.ruler {
+.axis {
   display: block;
   width: 100%;
-  height: var(--ruler);
+  height: var(--axis);
+}
+
+/* Read by screen readers only: the keyboard readout. */
+.spoken {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .failed {

@@ -47,3 +47,18 @@ test("respects_byte_budget", () => {
   expect(cache.get("b")?.index).toBe(1);
   expect(cache.get("c")?.index).toBe(3);
 });
+
+// The heatmap's result tiles: counted by their values, the newest kept while older ones make room.
+test("counts_any_tile_by_its_size", () => {
+  const cache = new TileCache<{ values: Float32Array }>(100, (tile) => tile.values.byteLength);
+  const cells = (n: number) => ({ values: new Float32Array(n) });
+  cache.set("a", cells(10));
+  cache.set("b", cells(10));
+  cache.set("c", cells(20)); // 160 bytes counted: a and b go
+  expect(cache.get("a")).toBeUndefined();
+  expect(cache.get("b")).toBeUndefined();
+  expect(cache.get("c")?.values).toHaveLength(20);
+  cache.set("d", cells(25)); // exactly the budget: everything older goes, d stays
+  expect(cache.get("c")).toBeUndefined();
+  expect(cache.get("d")?.values).toHaveLength(25);
+});

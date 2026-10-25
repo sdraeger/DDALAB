@@ -207,3 +207,47 @@ export function drawRuler(ctx: CanvasRenderingContext2D, scene: RulerScene) {
     ctx.fillText(text, left + 4 * dpr, H / 2);
   }
 }
+
+export interface AxisScene {
+  W: number;
+  H: number;
+  dpr: number;
+  view: { t0: number; t1: number };
+  cursorS: number | null;
+  colors: Colors;
+}
+
+/**
+ * The time axis under a plot (the heatmap's, as in the approved sketch): a hairline on top with the ticks hanging
+ * from it and their labels, and the cursor's time on a tag at the cursor. The events keep their flags on the
+ * waveform's ruler.
+ */
+export function drawTimeAxis(ctx: CanvasRenderingContext2D, scene: AxisScene) {
+  const { W, H, dpr, view, colors } = scene;
+  const x = (t: number) => ((t - view.t0) / (view.t1 - view.t0)) * W;
+  const line = Math.max(1, Math.round(dpr));
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = colors.hairline;
+  ctx.fillRect(0, 0, W, line);
+  ctx.font = `${11 * dpr}px ${colors.font}`;
+  ctx.textBaseline = "middle";
+  const { step, at } = ticks(view.t0, view.t1, W / dpr, 96);
+  for (const t of at) {
+    const px = Math.round(x(t));
+    ctx.fillStyle = colors.hairline;
+    ctx.fillRect(px, 0, line, 5 * dpr);
+    ctx.fillStyle = colors.muted;
+    ctx.fillText(tickLabel(t, step), px + 3 * dpr, H / 2 + dpr);
+  }
+  const { cursorS } = scene;
+  if (cursorS === null || cursorS < view.t0 || cursorS > view.t1) return;
+  // One decimal more than the ticks, at least two.
+  const text = `${cursorS.toFixed(Math.max(2, 1 - Math.floor(Math.log10(step) + 1e-9)))} s`;
+  ctx.font = `600 ${11 * dpr}px ${colors.font}`;
+  const w = ctx.measureText(text).width + 8 * dpr;
+  const left = Math.max(0, Math.min(Math.round(x(cursorS)), W - w));
+  ctx.fillStyle = colors.primary;
+  ctx.fillRect(left, 3 * dpr, w, H - 6 * dpr);
+  ctx.fillStyle = colors.primaryInk;
+  ctx.fillText(text, left + 4 * dpr, H / 2 + dpr);
+}

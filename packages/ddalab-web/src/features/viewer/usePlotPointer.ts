@@ -27,7 +27,8 @@ export function usePlotPointer(plot: RefObject<HTMLElement | null>, recordingId:
     let drag: { x: number; t0: number; t1: number; anchor: number; select: boolean; moved: boolean } | null =
       null;
     const down = (event: PointerEvent) => {
-      if (event.button !== 0) return;
+      // A button over the plot (Try again) keeps its own click: capturing the pointer would take it.
+      if (event.button !== 0 || (event.target as Element).closest("button")) return;
       plotEl.setPointerCapture(event.pointerId);
       const { view } = useStore.getState();
       const anchor = timeAt(event.clientX);

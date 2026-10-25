@@ -33,6 +33,7 @@ export interface Colors {
   event: string;
   eventInk: string;
   primary: string;
+  primaryInk: string;
   wash: string;
   font: string;
 }
@@ -49,6 +50,7 @@ export function readColors(element: Element): Colors {
     event: color("var(--event)"),
     eventInk: color("var(--event-ink)"),
     primary: color("var(--primary)"),
+    primaryInk: color("var(--primary-ink)"),
     wash: color("var(--primary-wash)"),
     font: getComputedStyle(element).fontFamily,
   };

@@ -9,11 +9,11 @@
 // (consecutive raw chunks, or consecutive tiles of the planned level) to layers. A slot whose own data has not
 // arrived draws from the finest loaded coarser tile over it: every frame asks for a few tiles covering the whole
 // view and for the top tile, which stay loaded, so the plot never blanks once a region is scanned.
-import { EngineStopped } from "../core/engine";
 import { bucketSize, levelCount, tileRows } from "../core/opfs";
 import type { Tile } from "../core/protocol";
 import { program } from "./gl";
 import { type DrawPlan, drawPlan, tileIndices } from "./levels";
+import { type Failure, nextFailure } from "./retry";
 
 /** Raw rows per raw layer; a tile layer holds 1,024 minima then 1,024 maxima. */
 const LAYER_ROWS = 2048;
@@ -324,7 +324,7 @@ export function createWaveformLayer(
   /** Tiles the engine had no data for yet, by key: asked again once the scan has passed their last row. */
   const unavailable = new Map<string, number>();
   /** Requests that failed: when to ask again, and the reason the user sees (none while the engine restarts). */
-  const failures = new Map<string, { retryAt: number; attempts: number; reason: string | null }>();
+  const failures = new Map<string, Failure>();
   /** Tiles kept whatever their age: the view's cover and the top tile. */
   const pinned = new Set<string>();
   /** The raw chunks of the last frame and their channel window, put into layers as they arrive. */
@@ -413,19 +413,13 @@ export function createWaveformLayer(
     return values;
   }
 
-  /**
-   * A failed request is asked again after a growing pause. An engine that restarted is asked again at once, and
-   * says nothing to the user unless that fails too.
-   */
+  /** A failed request is asked again as retry.ts says. */
   function failed(keys: string[], error: unknown) {
-    const restarted = error instanceof EngineStopped;
     let pause = 0;
     for (const key of keys) {
-      const attempts = (failures.get(key)?.attempts ?? 0) + 1;
-      pause = restarted && attempts === 1 ? 0 : Math.min(30_000, 500 * 2 ** (attempts - 1));
-      const reason =
-        restarted && attempts === 1 ? null : error instanceof Error ? error.message : String(error);
-      failures.set(key, { retryAt: performance.now() + pause, attempts, reason });
+      const failure = nextFailure(failures.get(key), error);
+      failures.set(key, failure);
+      pause = failure.pause;
     }
     setTimeout(() => !disposed && onData(), pause + 10); // the retry comes even when nothing else redraws
   }
