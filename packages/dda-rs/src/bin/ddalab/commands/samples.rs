@@ -38,7 +38,15 @@ pub fn execute(args: SamplesArgs) -> i32 {
         return exit_codes::INPUT_ERROR;
     }
 
-    if let Err(error) = write_npy(&*reader, &channels, &args) {
+    // A failure removes the output only once this command has created it.
+    let file = match std::fs::File::create(&args.output) {
+        Ok(file) => file,
+        Err(error) => {
+            eprintln!("Error: {}: {error}", args.output);
+            return exit_codes::EXECUTION_ERROR;
+        }
+    };
+    if let Err(error) = write_npy(file, &*reader, &channels, &args) {
         eprintln!("Error: {}: {error}", args.output);
         let _ = std::fs::remove_file(&args.output);
         return exit_codes::EXECUTION_ERROR;
@@ -48,11 +56,12 @@ pub fn execute(args: SamplesArgs) -> i32 {
 
 /// `args.count` rows from `args.start_sample` of `channels` (indices into the reader's channels) as an `(count, channels)` array.
 fn write_npy(
+    file: std::fs::File,
     reader: &dyn Reader,
     channels: &[usize],
     args: &SamplesArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut out = std::io::BufWriter::new(std::fs::File::create(&args.output)?);
+    let mut out = std::io::BufWriter::new(file);
     out.write_all(&npy_header(&[args.count, channels.len()]))?;
     let chunk_rows = (CHUNK_BYTES / (8 * channels.len())).max(1);
     let mut done = 0;

@@ -569,6 +569,26 @@ fn samples_refuses_bad_channels_and_ranges() {
     assert!(!out.exists());
 }
 
+#[test]
+fn samples_keeps_an_output_it_cannot_create() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_bids_edf(dir.path());
+    let out = dir.path().join("x.npy");
+    std::fs::write(&out, b"keep").unwrap();
+    let mut permissions = std::fs::metadata(&out).unwrap().permissions();
+    permissions.set_readonly(true);
+    std::fs::set_permissions(&out, permissions).unwrap();
+    ddalab()
+        .args(["samples", "--channels", "0", "--count", "5", "--file"])
+        .arg(&path)
+        .arg("--output")
+        .arg(&out)
+        .assert()
+        .failure()
+        .code(3);
+    assert_eq!(std::fs::read(&out).unwrap(), b"keep");
+}
+
 // =============================================================================
 // RUN AND BATCH OVER READERS, BLOCKS AND OUTPUTS
 // =============================================================================
