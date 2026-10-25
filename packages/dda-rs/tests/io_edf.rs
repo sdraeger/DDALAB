@@ -1,7 +1,7 @@
 mod support;
 
 use dda_rs::io::{open_edf, Annotation, ChannelKind, RawType, Reader};
-use support::{digital_value, edf_bytes, memory_file_set, EdfSpec};
+use support::{counting_file_set, digital_value, edf_bytes, memory_file_set, EdfSpec};
 
 fn open_bytes(bytes: Vec<u8>) -> Box<dyn Reader> {
     open_edf(&memory_file_set("rec.edf", bytes), "rec.edf").unwrap()
@@ -20,6 +20,13 @@ fn open_error(bytes: Vec<u8>) -> String {
 
 fn names(labels: &[&str]) -> Vec<String> {
     labels.iter().map(|s| s.to_string()).collect()
+}
+
+/// Replaces the first occurrence of `from` in `bytes` with `to`, which has the same length.
+fn patch(bytes: &mut [u8], from: &[u8], to: &[u8]) {
+    assert_eq!(from.len(), to.len());
+    let at = bytes.windows(from.len()).position(|w| w == from).unwrap();
+    bytes[at..at + to.len()].copy_from_slice(to);
 }
 
 /// Header offset of the "number of data records" field.
@@ -147,22 +154,47 @@ fn edf_plus_annotations_parsed() {
     let reader = open_bytes(bytes);
     let info = reader.info();
     assert_eq!(info.format, "EDF+");
+    assert!(info.annotations.is_empty());
     let annotation = |onset_s, duration_s, label: &str| Annotation {
         onset_s,
         duration_s,
         label: label.into(),
         source: "EDF Annotations".into(),
     };
+    let (annotations, warnings) = reader.scan_annotations().unwrap();
     assert_eq!(
-        info.annotations,
+        annotations,
         [
             annotation(1.5, 2.0, "spike"),
             annotation(3.0, 0.0, "marker")
         ]
     );
+    assert!(warnings.is_empty());
     assert_eq!(info.channels.len(), 3);
     assert_eq!(info.channels[2].kind, ChannelKind::Annotation);
     assert_eq!(info.sample_rate_hz, 16.0);
+}
+
+#[test]
+fn scan_counts_malformed_entries() {
+    let spec = EdfSpec {
+        rates_per_record: vec![64, 64],
+        record_duration_s: 4.0,
+        records: 2,
+        annotations: vec![(1.5, 2.0, "spike".into()), (3.0, 0.0, "marker".into())],
+        ..EdfSpec::default()
+    };
+    let mut bytes = edf_bytes(&spec);
+    // Record 0: an onset that is not a number. Record 1: text where the timekeeping TAL belongs.
+    patch(&mut bytes, b"+1.5\x15", b"+z.5\x15");
+    patch(&mut bytes, b"+4\x14\x14\x00", b"+4\x14z\x14");
+    let (annotations, warnings) = open_bytes(bytes).scan_annotations().unwrap();
+    let labels: Vec<&str> = annotations.iter().map(|a| a.label.as_str()).collect();
+    assert_eq!(labels, ["marker", "z"]);
+    assert_eq!(
+        warnings,
+        ["2 malformed annotation entries, first in record 0"]
+    );
 }
 
 #[test]
@@ -175,7 +207,8 @@ fn bdf_plus_annotations_parsed() {
     let reader = open(&spec);
     assert_eq!(reader.info().format, "BDF+");
     assert_eq!(reader.info().channels[2].label, "BDF Annotations");
-    let annotations = &reader.info().annotations;
+    let (annotations, warnings) = reader.scan_annotations().unwrap();
+    assert!(warnings.is_empty());
     assert_eq!(annotations.len(), 1);
     assert_eq!(
         (
@@ -249,13 +282,10 @@ fn edf_plus_d_gap_refused() {
     };
     let bytes = edf_bytes(&spec);
     assert_eq!(open_bytes(bytes.clone()).info().format, "EDF+");
-    // Record 2 starts at 4 s instead of 2 s: a 2 s gap after record 1.
+    // Records 2 and 3 start at 4 s and 5 s instead of 2 s and 3 s: a 2 s gap after record 1.
     let mut gapped = bytes;
-    let at = gapped
-        .windows(5)
-        .position(|w| w == b"+2\x14\x14\x00")
-        .unwrap();
-    gapped[at + 1] = b'4';
+    patch(&mut gapped, b"+2\x14\x14\x00", b"+4\x14\x14\x00");
+    patch(&mut gapped, b"+3\x14\x14\x00", b"+5\x14\x14\x00");
     assert_eq!(
         open_error(gapped),
         "Unsupported file type: discontinuous EDF+D recording: gap of 2 s after record 1"
@@ -397,4 +427,22 @@ fn edf_read_spans_read_chunks() {
         .map(|row| digital_value(&spec, 0, row0 + row) as f64)
         .sum();
     assert_eq!(out.iter().map(|&v| v as f64).sum::<f64>(), want);
+}
+
+#[test]
+fn open_reads_do_not_grow_with_records() {
+    let reads = |records, plus_d| {
+        let spec = EdfSpec {
+            records,
+            plus_d,
+            annotations: vec![(0.5, 0.0, "x".into())],
+            ..EdfSpec::default()
+        };
+        let (files, reads) = counting_file_set("rec.edf", edf_bytes(&spec));
+        open_edf(&files, "rec.edf").unwrap();
+        reads.load(std::sync::atomic::Ordering::SeqCst)
+    };
+    for plus_d in [false, true] {
+        assert_eq!(reads(10, plus_d), reads(1000, plus_d));
+    }
 }
