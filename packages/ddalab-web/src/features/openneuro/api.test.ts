@@ -1,7 +1,7 @@
 // The OpenNeuro client against GraphQL answers recorded from https://openneuro.org/crn/graphql on 2026-10-25
 // (ds003029 at 1.0.7; the search answer keeps its first three hits).
 import { afterEach, expect, test, vi } from "vitest";
-import { listFiles, type RemoteFile, recordingInput, searchDatasets } from "./api";
+import { listFiles, type RemoteFile, recordingFiles, recordingInput, searchDatasets } from "./api";
 import { DEMO, parseDeepLink } from "./deepLink";
 import ieeg from "./recorded/files-ieeg.json";
 import session from "./recorded/files-ses-presurgery.json";
@@ -109,7 +109,7 @@ test("recording_input_holds_one_recording", async () => {
   });
 });
 
-test("recording_input_without_bids_names_keeps_the_stem", () => {
+test("recording_files_match_names_exactly", () => {
   const file = (filename: string): RemoteFile => ({
     id: filename,
     filename,
@@ -117,8 +117,27 @@ test("recording_input_without_bids_names_keeps_the_stem", () => {
     url: `u/${filename}`,
     directory: false,
   });
-  const input = recordingInput(["a.vhdr", "a.eeg", "a.vmrk", "b.edf"].map(file), "a.vhdr");
-  expect(input.kind === "url" && input.files.map((f) => f.name)).toEqual(["a.vhdr", "a.eeg", "a.vmrk"]);
+  const names = (primary: string, ...listing: string[]) =>
+    recordingFiles(listing.map(file), primary).map((f) => f.filename);
+  // A longer BIDS name is another recording.
+  const bids = [
+    "sub-01_task-rest_eeg.edf",
+    "sub-01_task-rest_eeg.json",
+    "sub-01_task-rest_events.tsv",
+    "sub-01_task-rest_acq-x_eeg.edf",
+    "sub-01_task-rest_acq-x_events.tsv",
+  ];
+  expect(names("sub-01_task-rest_eeg.edf", ...bids)).toEqual(bids.slice(0, 3));
+  // Without BIDS sidecars, the files of the same stem.
+  expect(names("a.vhdr", "a.vhdr", "a.eeg", "a.vmrk", "b.edf")).toEqual(["a.vhdr", "a.eeg", "a.vmrk"]);
+  expect(names("EEG_1.edf", "EEG_1.edf", "EEG_2.edf", "EEG_10.edf")).toEqual(["EEG_1.edf"]);
+});
+
+test("an_answer_that_is_not_json_reads_as_a_sentence", async () => {
+  vi.stubGlobal("fetch", async () => new Response("<html>Sign in to this network</html>"));
+  await expect(listFiles("ds003029", "1.0.7")).rejects.toThrow(
+    "OpenNeuro sent an answer DDALAB cannot read. Try again later.",
+  );
 });
 
 test("deep_link_parses", () => {
