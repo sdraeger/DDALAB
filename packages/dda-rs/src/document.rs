@@ -85,6 +85,8 @@ pub struct Reproduction {
     pub input_sha256: BTreeMap<String, String>,
     pub engine_version: String,
     pub git_commit: Option<String>,
+    /// The request as run, which the fields above summarize in the Python keys.
+    pub request: DDARequest,
 }
 
 /// A variant the engine returns for a request, in the engine's order.
@@ -338,6 +340,7 @@ fn reproduction(
         input_sha256,
         engine_version: env!("CARGO_PKG_VERSION").to_string(),
         git_commit: option_env!("DDALAB_GIT_COMMIT").map(str::to_string),
+        request: request.clone(),
     }
 }
 

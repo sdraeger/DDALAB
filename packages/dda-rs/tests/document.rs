@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use dda_rs::blocks::{merge_blocks, plan_blocks, run_block, Block};
 use dda_rs::document::{
@@ -8,7 +8,8 @@ use dda_rs::document::{
 use dda_rs::io::{ChannelInfo, ChannelKind, RawType, Reader, RecordingInfo};
 use dda_rs::{
     run_request_on_matrix, AlgorithmSelection, DDARequest, DDAResult, DelayParameters,
-    ModelParameters, PreprocessingOptions, Result, TimeRange, VariantResult, WindowParameters,
+    ModelParameters, PreprocessingOptions, Result, TimeRange, VariantChannelConfig, VariantResult,
+    WindowParameters,
 };
 use serde_json::Value;
 
@@ -200,6 +201,46 @@ fn reproduction_times_match_request() {
 }
 
 #[test]
+fn reproduction_records_the_request() {
+    let recording = Recording::new(100.0, ROWS);
+    let mut request = request(&["DE"]);
+    request.time_range.end = (ROWS - 1) as f64;
+    request.window_parameters.ct_window_length = Some(2);
+    request.window_parameters.ct_window_step = Some(1);
+    request.sampling_rate = Some(100.0);
+    request.variant_configs = Some(HashMap::from([(
+        "dynamical_ergodicity".to_string(),
+        VariantChannelConfig {
+            selected_channels: Some(vec![0, 2, 3]),
+            ct_channel_pairs: None,
+            cd_channel_pairs: None,
+            conditioning_channels: None,
+            conditioning_strategy: None,
+            surrogate_shifts: None,
+            temporal_lambda: None,
+            max_active_sources: None,
+        },
+    )]));
+    let w = windows(&request, ROWS);
+    let layout = bundle_layout(&request, &recording.info, w).unwrap();
+    let manifest = build_manifest(
+        &recording.info,
+        &request,
+        &layout,
+        w,
+        sha(),
+        "id".into(),
+        "t".into(),
+    );
+    let json = serde_json::to_value(&manifest).unwrap();
+    let rerun: DDARequest = serde_json::from_value(json["reproduction"]["request"].clone()).unwrap();
+    assert_eq!(
+        serde_json::to_value(&rerun).unwrap(),
+        serde_json::to_value(&request).unwrap()
+    );
+}
+
+#[test]
 fn row_labels_for_pairs() {
     let recording = Recording::new(100.0, ROWS);
     let mut request = request(&["ST", "CT", "CD"]);
@@ -244,18 +285,19 @@ fn row_labels_for_pairs() {
     );
 }
 
-/// The key paths of `value`; arrays contribute their elements' paths under `[]`, and the maps
-/// whose keys are data (variant ids, file names) are leaves.
+/// The key paths of `value`; arrays contribute their elements' paths under `[]`. The maps whose keys
+/// are data (variant ids, file names) and the request, a `DDARequest`, are leaves.
 fn key_paths(value: &Value, path: &str, out: &mut BTreeSet<String>) {
-    const DATA_KEYED: [&str; 5] = [
+    const LEAVES: [&str; 6] = [
         "variant_channel_indices",
         "variant_channel_names",
         "variant_pair_indices",
         "variant_pair_names",
         "input_sha256",
+        "reproduction.request",
     ];
     match value {
-        Value::Object(map) if !DATA_KEYED.iter().any(|key| path.ends_with(key)) => {
+        Value::Object(map) if !LEAVES.iter().any(|key| path.ends_with(key)) => {
             for (key, value) in map {
                 let path = format!("{path}.{key}");
                 out.insert(path.clone());
@@ -293,6 +335,7 @@ fn document_matches_reference_keys() {
             ".schema",
             ".reproduction.engine_version",
             ".reproduction.git_commit",
+            ".reproduction.request",
         ]
         .map(String::from),
     );
