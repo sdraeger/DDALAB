@@ -100,8 +100,21 @@ async function runToCompletion(page: Page) {
   return record.id;
 }
 
+/**
+ * Reloads the page with a pool of `workers` DDA workers whatever the machine: block counts stay fixed, and the long
+ * runs of tests in parallel do not starve each other's pages.
+ */
+async function withWorkers(page: Page, workers: number) {
+  await page.addInitScript(
+    (n) => Object.defineProperty(navigator, "hardwareConcurrency", { get: () => n }),
+    workers + 1,
+  );
+  await page.reload();
+}
+
 /** Starts the long run and waits until its files exist and the history holds it as running; the result id. */
 async function startLongRun(page: Page) {
+  await withWorkers(page, 4);
   await page.evaluate((spec) => window.__ddalab.openSynthetic(spec), LONG);
   await page.getByRole("checkbox", { name: "Select group CH" }).check();
   await settings(page).getByLabel("Window", { exact: true }).fill("4000");
@@ -109,7 +122,7 @@ async function startLongRun(page: Page) {
   await interval(page, "0", String(LONG.durationS));
   await expect(runBar(page).getByText(/windows, [\d,]+ blocks?, \d+ workers?/)).toBeVisible();
   await runBar(page).getByRole("button", { name: "Run DDA" }).click();
-  await expect.poll(async () => (await lastRun(page)).record?.status).toBe("running");
+  await expect.poll(async () => (await lastRun(page)).record?.status, { timeout: 30_000 }).toBe("running");
   return (await lastRun(page)).record.id;
 }
 
@@ -160,10 +173,10 @@ test("ct_cd_de_sy_equal_cli", async ({ page }) => {
 
 // Blocks of the browser's own size: the arrays they write at their offsets equal the CLI's, which writes one block.
 test("multi_block_result_equals_cli_bundle", async ({ page }) => {
+  test.setTimeout(120_000);
   test.skip(!(await hasStorage(page)), NO_STORAGE);
-  // Eight workers on any machine: 0 to 30 s plan five blocks at the 1 MiB floor.
-  await page.addInitScript(() => Object.defineProperty(navigator, "hardwareConcurrency", { get: () => 9 }));
-  await page.reload();
+  // With eight workers, 0 to 30 s plan five blocks at the 1 MiB floor.
+  await withWorkers(page, 8);
   await page.evaluate((spec) => window.__ddalab.openSynthetic(spec), WIDE);
   await page.getByRole("checkbox", { name: "Select group CH" }).check();
   await interval(page, "0", "30");
@@ -185,7 +198,14 @@ test("a_result_another_tab_writes_survives_the_sweep", async ({ page, context })
         () => false,
       );
     });
+  // The lock first, as the IO worker takes it: this page's own startup sweep may still be on its way.
   await page.evaluate(async () => {
+    await new Promise<void>((held) =>
+      navigator.locks.request("ddalab-result:elsewhere", () => {
+        held();
+        return new Promise(() => {}); // held while this tab is open
+      }),
+    );
     const results = await (await navigator.storage.getDirectory()).getDirectoryHandle("results", {
       create: true,
     });
@@ -193,12 +213,6 @@ test("a_result_another_tab_writes_survives_the_sweep", async ({ page, context })
     const status = await (await directory.getFileHandle("status", { create: true })).createWritable();
     await status.write("running");
     await status.close();
-    await new Promise<void>((held) =>
-      navigator.locks.request("ddalab-result:elsewhere", () => {
-        held();
-        return new Promise(() => {}); // held while this tab is open
-      }),
-    );
   });
   const other = await context.newPage();
   await other.goto("/");
@@ -216,7 +230,7 @@ test("cancel_mid_run", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
   const id = await startLongRun(page);
   await runBar(page).getByRole("button", { name: "Cancel run" }).click();
-  await expect(runBar(page).getByText("Cancelled", { exact: true })).toBeVisible();
+  await expect(runBar(page).getByText("Cancelled", { exact: true })).toBeVisible({ timeout: 30_000 });
   const stopped = await windowsDone(page);
   await page.waitForTimeout(1000);
   expect(await windowsDone(page)).toBe(stopped);
@@ -259,6 +273,7 @@ test("command_bar_run_speaks_while_the_inspector_is_hidden", async ({ page }) =>
   test.skip(!(await hasStorage(page)), NO_STORAGE);
   const banner = page.getByRole("banner");
   const inspector = page.getByRole("button", { name: "Inspector" });
+  await withWorkers(page, 4);
   await page.evaluate((spec) => window.__ddalab.openSynthetic(spec), LONG);
   await inspector.click();
   await expect(banner.getByText("Choose at least one channel")).toBeVisible();
