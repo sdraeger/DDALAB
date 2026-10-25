@@ -242,6 +242,54 @@ fn reproduction_records_the_request() {
 }
 
 #[test]
+fn request_serializes_deterministically() {
+    let recording = Recording::new(100.0, ROWS);
+    let config = |channels: Vec<usize>| VariantChannelConfig {
+        selected_channels: Some(channels),
+        ct_channel_pairs: None,
+        cd_channel_pairs: None,
+        conditioning_channels: None,
+        conditioning_strategy: None,
+        surrogate_shifts: None,
+        temporal_lambda: None,
+        max_active_sources: None,
+    };
+    let keys = [
+        "single_timeseries",
+        "dynamical_ergodicity",
+        "synchronization",
+    ];
+    // Each build gets a new HashMap (a new random hasher), filled in a rotating key order.
+    let bytes = |build: usize| {
+        let mut configs = HashMap::new();
+        for k in 0..keys.len() {
+            let key = keys[(build + k) % keys.len()];
+            configs.insert(key.to_string(), config(vec![0, 1]));
+        }
+        let mut request = request(&["ST", "DE", "SY"]);
+        request.variant_configs = Some(configs);
+        let layout = bundle_layout(&request, &recording.info, 1).unwrap();
+        let manifest = build_manifest(
+            &recording.info,
+            &request,
+            &layout,
+            1,
+            sha(),
+            "id".into(),
+            "t".into(),
+        );
+        serde_json::to_vec(&manifest).unwrap()
+    };
+    let first = bytes(0);
+    for build in 1..64 {
+        assert!(
+            bytes(build) == first,
+            "build {build} serializes differently"
+        );
+    }
+}
+
+#[test]
 fn row_labels_for_pairs() {
     let recording = Recording::new(100.0, ROWS);
     let mut request = request(&["ST", "CT", "CD"]);
