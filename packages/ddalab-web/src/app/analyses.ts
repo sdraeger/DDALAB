@@ -1,12 +1,15 @@
 // Running DDA: the run of a request on an open recording, its progress in the store and its history record.
 import { deleteAnalysis, listAnalyses, saveAnalysis } from "../core/history";
 import type { AnalysisHandle } from "../core/scheduler";
-import type { DDARequest } from "../core/types";
+import type { DDARequest, VariantInfo } from "../core/types";
 import { type RunState, showResult, useStore } from "../store/store";
 import { engine } from "./recordings";
 
-/** The variants the core offers, from its metadata. */
-export const variants = engine.version().then((version) => version.variants);
+/** The variants the core offers, from its metadata; none when the engine did not start (the library says why). */
+export const variants = engine.version().then(
+  (version) => version.variants,
+  (): VariantInfo[] => [],
+);
 
 /** The run in progress; one at a time, as each takes every core but one. */
 let current: AnalysisHandle | undefined;
@@ -46,13 +49,14 @@ export async function sweepAnalyses() {
 }
 
 /**
- * The page is going away: a run that ends now was interrupted, which the next start records. Firefox stops the
- * workers of a reloading page before `pagehide`, so `beforeunload` counts too.
+ * The page is going away: a run that ends now was interrupted, which the next start records. `beforeunload` counts
+ * too, as Firefox stops the workers of a reloading page before `pagehide`. A page restored from the back-forward
+ * cache is back.
  */
 let leaving = false;
-for (const type of ["beforeunload", "pagehide"]) {
+for (const type of ["beforeunload", "pagehide", "pageshow"]) {
   addEventListener(type, () => {
-    leaving = true;
+    leaving = type !== "pageshow";
   });
 }
 

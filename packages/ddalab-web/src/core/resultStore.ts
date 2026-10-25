@@ -1,15 +1,20 @@
 // Results in the origin private file system, written by the IO worker: /results/<id>/<path> holds the arrays of a
 // bundle (window-major f64 `.npy` files, as `ddalab run --bundle` writes them), then `manifest.json`. The `status` file
 // says "running" from before the first array exists until every array is flushed and the manifest written, then
-// "complete": a directory that is not complete is a run that a reload or a crash cut short. Complete results are read
+// "complete": a directory that is not complete is a run that a reload or a crash cut short. The worker writing a
+// result holds the Web Lock `ddalab-result:<id>` from before its status is written until it is complete or deleted; a
+// lock dies with its worker, and a result whose lock is held is being written in some tab. Complete results are read
 // back for the heatmap: their manifest, and tiles of each array's max-magnitude pyramid (render/resultPyramid.ts).
 import { buildPyramid, FANOUT, type Pyramid, type ResultTile, TILE_CELLS } from "../render/resultPyramid";
 import { put } from "./opfs";
 import type { ResultArray } from "./protocol";
 import type { BlockChunks, BundleLayout, ResultDocument } from "./types";
 
-/** The open array files of each result being written, and the bytes of all of them. */
-const writing = new Map<string, { files: FileSystemSyncAccessHandle[]; bytes: number }>();
+/** The open array files of each result being written, the bytes of all of them and the release of its lock. */
+const writing = new Map<
+  string,
+  { files: FileSystemSyncAccessHandle[]; bytes: number; release: () => void }
+>();
 
 const resultsDirectory = async () =>
   (await navigator.storage.getDirectory()).getDirectoryHandle("results", { create: true });
@@ -17,20 +22,15 @@ const resultsDirectory = async () =>
 const arrayBytes = ({ header, shape }: BundleLayout["arrays"][number]) =>
   header.length + 8 * shape.reduce((n, d) => n * d, 1);
 
-/**
- * Runs `task` again while a file it touches is held by a sync access handle, for up to a second: the page that was
- * just reloaded lets go within moments, a run in another tab does not.
- */
-async function whenFree<T>(task: () => Promise<T>): Promise<T> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return await task();
-    } catch (error) {
-      const busy = error instanceof DOMException && error.name === "NoModificationAllowedError";
-      if (!busy || attempt === 40) throw error;
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
-  }
+const lockOf = (resultId: string) => `ddalab-result:${resultId}`;
+
+/** Takes the lock of a result and keeps it until the returned function is called. */
+function hold(resultId: string): Promise<() => void> {
+  return new Promise((held, refused) => {
+    navigator.locks
+      .request(lockOf(resultId), () => new Promise<void>((release) => held(release)))
+      .catch(refused);
+  });
 }
 
 async function writeText(directory: FileSystemDirectoryHandle, name: string, text: string) {
@@ -54,11 +54,13 @@ function quota(error: unknown, bytes: number): unknown {
   );
 }
 
+/** A failed create keeps its lock until `discardResult` deletes what it wrote. */
 export async function createResultFiles(resultId: string, layout: BundleLayout): Promise<void> {
-  const directory = await (await resultsDirectory()).getDirectoryHandle(resultId, { create: true });
   const bytes = layout.arrays.reduce((sum, array) => sum + arrayBytes(array), 0);
-  const files: FileSystemSyncAccessHandle[] = [];
+  const result = { files: [] as FileSystemSyncAccessHandle[], bytes, release: await hold(resultId) };
+  writing.set(resultId, result);
   try {
+    const directory = await (await resultsDirectory()).getDirectoryHandle(resultId, { create: true });
     await writeText(directory, "status", "running");
     for (const array of layout.arrays) {
       const path = array.path.split("/");
@@ -66,15 +68,13 @@ export async function createResultFiles(resultId: string, layout: BundleLayout):
       for (const name of path.slice(0, -1)) folder = await folder.getDirectoryHandle(name, { create: true });
       const handle = await folder.getFileHandle(path[path.length - 1], { create: true });
       const file = await handle.createSyncAccessHandle();
-      files.push(file);
+      result.files.push(file);
       file.truncate(arrayBytes(array));
       put(file, Uint8Array.from(array.header), 0);
     }
   } catch (error) {
-    for (const file of files) file.close();
     throw quota(error, bytes);
   }
-  writing.set(resultId, { files, bytes });
 }
 
 export async function writeChunks(resultId: string, { chunks }: BlockChunks): Promise<void> {
@@ -87,10 +87,10 @@ export async function writeChunks(resultId: string, { chunks }: BlockChunks): Pr
   }
 }
 
+/** A failed finish keeps the lock until `discardResult`. */
 export async function finishResult(resultId: string, manifest: ResultDocument): Promise<void> {
   const result = writing.get(resultId);
   if (!result) throw new Error(`no result ${resultId} is being written`);
-  writing.delete(resultId);
   try {
     try {
       for (const file of result.files) file.flush();
@@ -103,15 +103,25 @@ export async function finishResult(resultId: string, manifest: ResultDocument): 
   } catch (error) {
     throw quota(error, result.bytes);
   }
+  writing.delete(resultId);
+  result.release();
 }
+
+const removeResult = (root: FileSystemDirectoryHandle, resultId: string) =>
+  root.removeEntry(resultId, { recursive: true }).catch((error) => {
+    if (!(error instanceof DOMException && error.name === "NotFoundError")) throw error;
+  });
 
 /** Deletes the files of a result that will not complete (it failed or was cancelled). */
 export async function discardResult(resultId: string): Promise<void> {
-  for (const file of writing.get(resultId)?.files ?? []) file.close();
+  const result = writing.get(resultId);
   writing.delete(resultId);
-  await (await resultsDirectory()).removeEntry(resultId, { recursive: true }).catch((error) => {
-    if (!(error instanceof DOMException && error.name === "NotFoundError")) throw error;
-  });
+  try {
+    for (const file of result?.files ?? []) file.close();
+    await removeResult(await resultsDirectory(), resultId);
+  } finally {
+    result?.release();
+  }
 }
 
 async function statusOf(directory: FileSystemDirectoryHandle) {
@@ -122,22 +132,24 @@ async function statusOf(directory: FileSystemDirectoryHandle) {
   }
 }
 
-/** On startup: deletes the files of results that are not complete and returns their ids. */
+/**
+ * On startup: deletes the files of results that are not complete and returns their ids. A result whose lock is held
+ * is being written (in this tab or another) and stays; under the lock the status is read again, as the run that held
+ * it may have completed meanwhile.
+ */
 export async function sweepInterrupted(): Promise<string[]> {
   const root = await resultsDirectory();
-  const unfinished: string[] = [];
+  const unfinished: [string, FileSystemDirectoryHandle][] = [];
   for await (const [id, entry] of root.entries()) {
-    if (entry.kind === "directory" && !writing.has(id) && (await statusOf(entry)) !== "complete") {
-      unfinished.push(id);
-    }
+    if (entry.kind === "directory" && (await statusOf(entry)) !== "complete") unfinished.push([id, entry]);
   }
   const swept: string[] = [];
-  for (const id of unfinished) {
-    // A run in another tab holds its files open: it is not interrupted, and its directory cannot be removed.
-    await whenFree(() => root.removeEntry(id, { recursive: true })).then(
-      () => swept.push(id),
-      () => {},
-    );
+  for (const [id, directory] of unfinished) {
+    await navigator.locks.request(lockOf(id), { ifAvailable: true }, async (lock) => {
+      if (!lock || (await statusOf(directory)) === "complete") return;
+      await removeResult(root, id);
+      swept.push(id);
+    });
   }
   return swept;
 }

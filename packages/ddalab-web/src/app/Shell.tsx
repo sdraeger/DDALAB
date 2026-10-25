@@ -74,7 +74,7 @@ export function Shell() {
           <span className={styles.grow} />
           {id && (
             <Suspense fallback={null}>
-              <RunButton recordingId={id} />
+              <RunButton recordingId={id} status={!inspector} />
             </Suspense>
           )}
           <DisplaySettings />

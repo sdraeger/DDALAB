@@ -26,7 +26,7 @@ export interface AnalysisHandle {
 export const MAX_BLOCK_MB = 16;
 
 /**
- * MiB per block, `min(16, needed / (2 x workers))`, so that blocks outnumber workers. `needed` is estimated from the
+ * MiB per block, `min(16, needed / (2 x workers))`: blocks outnumber workers. `needed` is estimated from the
  * plan at 16 MiB (its first block's windows fill 16 MiB). At least 1: the core takes whole MiB, and 0 would make every
  * window a block of its own.
  */

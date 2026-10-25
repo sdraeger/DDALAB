@@ -142,6 +142,20 @@
   font-weight: var(--weight-medium);
 }
 
+/* Next to the command bar's Run while the inspector is hidden: why it cannot run, or how far the run is. */
+.barStatus {
+  overflow: hidden;
+  max-width: 280px;
+  color: var(--muted);
+  font-size: var(--text-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.barStatus[data-refused] {
+  color: var(--event);
+}
+
 /* The foot of the inspector: it stays in view while the settings above it scroll. */
 .runBar {
   position: sticky;

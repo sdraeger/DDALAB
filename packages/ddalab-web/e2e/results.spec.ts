@@ -8,7 +8,7 @@ import { expect, type Page, test } from "@playwright/test";
 import type { ResultDocument } from "../src/core/types";
 import { colorIndex, LUTS, type MapName } from "../src/render/colormaps";
 import type { View } from "../src/store/store";
-import { bundleDir, type CASES } from "./global-setup";
+import { type Bundle, bundleDir } from "./global-setup";
 
 const fixturePath = (name: string) =>
   fileURLToPath(new URL(`../../dda-rs/tests/fixtures/${name}`, import.meta.url));
@@ -50,7 +50,7 @@ async function runFixture(page: Page, variants: string[]) {
 }
 
 /** A `.npy` file of the CLI bundle: window-major f64 of shape (windows, rows). */
-function npy(bundle: keyof typeof CASES, path: string) {
+function npy(bundle: Bundle, path: string) {
   const bytes = readFileSync(join(bundleDir(bundle), path));
   const start = 10 + bytes.readUInt16LE(8);
   const shape = /'shape': \((\d+), (\d+)\)/.exec(bytes.toString("latin1", 10, start));
@@ -62,7 +62,7 @@ function npy(bundle: keyof typeof CASES, path: string) {
   return { windows, rows, values, at: (w: number, r: number) => values[w * rows + r] };
 }
 
-const manifest = (bundle: keyof typeof CASES): ResultDocument =>
+const manifest = (bundle: Bundle): ResultDocument =>
   JSON.parse(readFileSync(join(bundleDir(bundle), "manifest.json"), "utf8"));
 
 /** The window whose center is nearest `t`. */

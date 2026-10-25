@@ -44,7 +44,11 @@ export function DdaSettings({ recordingId }: { recordingId: string }) {
             </label>
           ))}
         </div>
-        {errors.variants && <p className={styles.fieldError}>{errors.variants}</p>}
+        {metadata.length === 0 ? (
+          <p className={styles.fieldError}>No variants: the engine did not start.</p>
+        ) : (
+          errors.variants && <p className={styles.fieldError}>{errors.variants}</p>
+        )}
       </fieldset>
       <fieldset className={styles.group}>
         <legend>Windowing</legend>
