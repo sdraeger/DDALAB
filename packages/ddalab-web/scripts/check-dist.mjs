@@ -2,7 +2,7 @@
 // trap and quota hooks, the workers' wasm memory hook, the synthetic recording generator, or a wasm module other than
 // the engine's own .wasm asset.
 // Usage: node scripts/check-dist.mjs [dist directory]
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -50,7 +50,7 @@ export function findLeaks(dir) {
   return found;
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+if (realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
   const dir = process.argv[2] ?? fileURLToPath(new URL("../dist", import.meta.url));
   const found = findLeaks(dir);
   for (const line of found) console.error(line);

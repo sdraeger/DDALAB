@@ -15,7 +15,8 @@ const HTACCESS = readFileSync(new URL("../public/.htaccess", import.meta.url), "
 
 // Header lines of recorded responses (`curl -I`). The live-* files are the userdir host on 2026-10-25, before any publish:
 // its own defaults only. The apache-* files are an Apache 2.4.67 with those same defaults (mod_expires for HTML and
-// CSS, three security headers) and public/.htaccess applied, recorded with `curl -I -H 'Accept-Encoding: gzip'`.
+// CSS, three security headers) and public/.htaccess applied, recorded with `curl -I -H 'Accept-Encoding: gzip'`;
+// apache-folder is the folder URL (Apache answers it with index.html).
 const lines = (name) =>
   readFileSync(new URL(`fixtures/headers/${name}.txt`, import.meta.url), "utf8")
     .split("\n")
@@ -33,7 +34,9 @@ const CSP =
 
 test.each([
   ["html", "apache-index"],
+  ["html", "apache-folder"],
   ["js", "apache-js"],
+  ["css", "apache-css"],
   ["wasm", "apache-wasm"],
 ])("a_host_with_the_htaccess_applied_passes (%s)", (kind, fixture) => {
   expect(headerProblems(kind, recorded(fixture), CSP)).toEqual([]);
@@ -110,6 +113,7 @@ beforeEach(() => {
     '<!doctype html><script type="module" src="./assets/app.js"></script><div id="root"></div>',
   );
   writeFileSync(join(dist, "assets", "app.js"), "export {};");
+  writeFileSync(join(dist, "assets", "app.css"), "body {}");
   writeFileSync(join(dist, "assets", "engine.wasm"), Buffer.from([0, 97, 115, 109, 1, 0, 0, 0]));
   writeFileSync(join(dist, ".htaccess"), `Header always set Content-Security-Policy "${CSP}"\n`);
 });
@@ -118,8 +122,8 @@ afterEach(() => {
   rmSync(dist, { recursive: true });
 });
 
-/** Starts a server whose HTML, script and wasm answers are the recorded `html`, `js` and `wasm` fixtures. */
-async function serving({ html, js, wasm }) {
+/** Starts a server that answers with the recorded fixture of each kind; the folder and index.html get `html`. */
+async function serving({ html, js, css, wasm }) {
   const skip = new Set([
     "date",
     "server",
@@ -129,7 +133,8 @@ async function serving({ html, js, wasm }) {
     "connection",
   ]);
   server = createServer((request, response) => {
-    const name = request.url.endsWith(".wasm") ? wasm : request.url.endsWith(".js") ? js : html;
+    const kind = { wasm, js, css }[request.url.split(".").pop()];
+    const name = kind ?? html;
     response.writeHead(
       200,
       lines(name).filter(([key]) => !skip.has(key.toLowerCase())),
@@ -142,17 +147,40 @@ async function serving({ html, js, wasm }) {
 const check = (site) => run("node", [SCRIPT, site, dist]).catch((error) => error);
 
 test("the_script_passes_a_host_that_sends_the_policy", async () => {
-  const site = await serving({ html: "apache-index", js: "apache-js", wasm: "apache-wasm" });
+  const site = await serving({
+    html: "apache-index",
+    js: "apache-js",
+    css: "apache-css",
+    wasm: "apache-wasm",
+  });
   const { stdout } = await run("node", [SCRIPT, site, dist]);
   expect(stdout).toContain("sends the headers of public/.htaccess");
 });
 
 test("the_script_exits_non_zero_with_a_clear_message_on_the_hosts_defaults", async () => {
-  const site = await serving({ html: "live-index", js: "live-script-js", wasm: "live-script-js" });
+  // The live host serves no style sheet of the app yet; it sets the same expiry for CSS as for HTML.
+  const site = await serving({
+    html: "live-index",
+    js: "live-script-js",
+    css: "live-index",
+    wasm: "live-script-js",
+  });
   const error = await check(site);
   expect(error.code).toBe(1);
+  expect(error.stderr).toContain(`${site}/: Cache-Control is "max-age=300"`);
+  expect(error.stderr).toContain(`${site}/assets/app.css: Cache-Control is "max-age=300"`);
   expect(error.stderr).toContain(`${site}/index.html: Cache-Control is "max-age=300"`);
   expect(error.stderr).toContain(`${site}/assets/app.js: Content-Security-Policy is missing`);
   expect(error.stderr).toContain(`${site}/assets/engine.wasm: Content-Type is "application/javascript"`);
   expect(error.stderr).toContain("AllowOverride FileInfo");
+});
+
+test("the_script_reports_a_host_that_does_not_answer", async () => {
+  const closed = createServer();
+  await new Promise((resolve) => closed.listen(0, "127.0.0.1", resolve));
+  const site = `http://127.0.0.1:${closed.address().port}/~user/ddalab`;
+  await new Promise((resolve) => closed.close(resolve));
+  const error = await check(site);
+  expect(error.code).toBe(1);
+  expect(error.stderr).toContain(`${site}/index.html: no answer (`);
 });

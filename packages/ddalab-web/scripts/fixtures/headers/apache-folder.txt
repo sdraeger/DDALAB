@@ -1,0 +1,16 @@
+HTTP/1.1 200 OK
+Date: Sun, 25 Oct 2026 22:40:40 GMT
+Server: Apache/2.4.67 (Unix)
+X-Frame-Options: SAMEORIGIN
+X-Content-Type-Options: nosniff
+X-XSS-Protection: 1; mode=block
+Content-Security-Policy: default-src 'self';     script-src 'self' 'wasm-unsafe-eval';     connect-src 'self' https://openneuro.org https://s3.amazonaws.com;     worker-src 'self'; img-src 'self' blob: data:; style-src 'self';     base-uri 'none'; form-action 'none'
+Last-Modified: Sun, 25 Oct 2026 22:40:26 GMT
+ETag: "266-65eb1e6488a80-gzip"
+Accept-Ranges: bytes
+Cache-Control: no-cache
+Vary: Accept-Encoding
+Content-Encoding: gzip
+Content-Length: 338
+Content-Type: text/html
+

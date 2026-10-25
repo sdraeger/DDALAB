@@ -1,6 +1,8 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { findLeaks } from "./check-dist.mjs";
 
@@ -45,4 +47,17 @@ test("wasm_bytes_outside_the_wasm_asset_are_found", () => {
 test("a_wasm_asset_must_be_a_module", () => {
   writeFileSync(join(dir, "assets", "engine.wasm"), "<html>not found</html>");
   expect(findLeaks(dir)).toEqual([expect.stringContaining("not a wasm module")]);
+});
+
+// Started through a symlink (an npm bin link, a checkout reached by a link) the script must still run its check.
+test("a_symlinked_script_path_still_gates", () => {
+  const bin = mkdtempSync(join(tmpdir(), "check-dist-bin-"));
+  const link = join(bin, "linked-check-dist.mjs");
+  symlinkSync(fileURLToPath(new URL("check-dist.mjs", import.meta.url)), link);
+  writeFileSync(join(dir, "assets", "worker.js"), "window.__ddalab={engine}");
+  try {
+    expect(spawnSync(process.execPath, [link, dir]).status).toBe(1);
+  } finally {
+    rmSync(bin, { recursive: true });
+  }
 });
