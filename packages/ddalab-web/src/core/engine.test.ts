@@ -284,23 +284,59 @@ const PLAN = {
   windows: 30,
 };
 const REQUEST = { channels: [0] } as unknown as DDARequest;
-/** `answer` decides what each DDA worker replies; the hash worker reports a.edf at once. */
-function runner(answer: (worker: FakeWorker, message: { block?: { w0: number } }) => void) {
+/** The hash worker reports a.edf at once. */
+const hashAtOnce = (worker: FakeWorker, message: unknown) =>
+  worker.send({ id: (message as { id: string }).id, name: "a.edf", sha256: "00" });
+/** `answer` decides what each DDA worker replies, `hashed` what the hash worker does. */
+function runner(
+  answer: (worker: FakeWorker, message: { block?: { w0: number } }) => void,
+  hashed: (worker: FakeWorker, message: unknown) => void = hashAtOnce,
+) {
   FakeWorker.onMessage = (worker, message) => {
     if (FakeWorker.dda.includes(worker)) answer(worker, message as { block?: { w0: number } });
-    else if (FakeWorker.hashers.includes(worker)) {
-      const { id } = message as unknown as { id: string };
-      worker.send({ id, name: "a.edf", sha256: "00" });
-    } else if (message.type === "plan") worker.ok(message, PLAN);
+    else if (FakeWorker.hashers.includes(worker)) hashed(worker, message);
+    else if (message.type === "plan") worker.ok(message, PLAN);
     else healthy(worker, message);
   };
 }
+/** Every block is computed; the manifest asked for last is a stub. */
+const computes = (worker: FakeWorker, message: { block?: { w0: number } }) =>
+  worker.send({ ok: message.block ? { chunks: [] } : { schema: "ddalab.result/2" } });
 const sentToIo = () => FakeWorker.io[0].received.map((m) => m.type);
 
-test("a_run_writes_every_block_and_the_manifest_of_a_dda_worker", async () => {
-  runner((worker, message) =>
-    worker.send({ ok: message.block ? { chunks: [] } : { schema: "ddalab.result/2" } }),
+test("cancel_ends_a_run_that_waits_for_the_input_hashes", async () => {
+  runner(computes, () => {}); // the hashes never come
+  const engine = createEngine();
+  const { id } = await engine.open(input("a.edf"));
+  const run = await engine.run(id, REQUEST);
+  const written = () => sentToIo().filter((type) => type === "writeChunks").length;
+  await until(() => written() === 3);
+  run.cancel();
+  await expect(run.done).rejects.toMatchObject({ name: "AbortError" });
+  expect(sentToIo()).toContain("discardResult");
+  expect(sentToIo()).not.toContain("finishResult");
+  expect(FakeWorker.dda.every((w) => w.terminated)).toBe(true);
+});
+
+test("a_failed_hash_worker_lets_the_run_finish_and_says_so", async () => {
+  runner(computes, (worker) => worker.fail("the hash worker crashed"));
+  const engine = createEngine();
+  const { id } = await engine.open(input("a.edf"));
+  const seen = states(engine, id);
+  const run = await engine.run(id, REQUEST);
+  await expect(run.done).resolves.toEqual({ resultId: run.id });
+  expect(seen.at(-1)?.error).toBe("The hash could not be computed: the hash worker crashed");
+  expect(FakeWorker.hashers[0].terminated).toBe(true);
+  expect(FakeWorker.dda.flatMap((w) => w.received)).toContainEqual(
+    expect.objectContaining({ extras: expect.objectContaining({ input_sha256: {} }) }),
   );
+  // The next recording gets a hash worker of its own.
+  await engine.open(input("b.edf"));
+  expect(FakeWorker.hashers).toHaveLength(2);
+});
+
+test("a_run_writes_every_block_and_the_manifest_of_a_dda_worker", async () => {
+  runner(computes);
   const engine = createEngine();
   const { id } = await engine.open(input("a.edf"));
   const run = await engine.run(id, REQUEST);

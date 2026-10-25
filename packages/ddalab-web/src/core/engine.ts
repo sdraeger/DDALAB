@@ -308,13 +308,28 @@ export function createEngine(): Engine {
   /** Started with the first recording: it loads a second copy of the wasm. */
   function hash(request: HashRequest) {
     if (!hasher) {
-      hasher = new Worker(new URL("../workers/hash.worker.ts", import.meta.url), { type: "module" });
-      hasher.onmessage = ({ data }: MessageEvent<HashReply>) => {
+      const started = new Worker(new URL("../workers/hash.worker.ts", import.meta.url), { type: "module" });
+      hasher = started;
+      started.onmessage = ({ data }: MessageEvent<HashReply>) => {
         const entry = scans.get(data.id);
         if (!entry) return;
         if ("error" in data) entry.hashError = `The hash could not be computed: ${data.error}`;
         else entry.sha256 = { ...entry.sha256, [data.name]: data.sha256 };
         publish(data.id);
+      };
+      // A worker that failed answers nothing more: every recording it was hashing says so, and the next open
+      // starts another.
+      started.onerror = (event) => {
+        if (hasher !== started) return;
+        hasher = undefined;
+        started.terminate();
+        for (const [id, entry] of scans) {
+          const input = held.get(id);
+          if (!input || !isScanned(input) || entry.info.input_files.every((name) => entry.sha256[name]))
+            continue;
+          entry.hashError = `The hash could not be computed: ${event.message || "the hash worker stopped"}`;
+          publish(id);
+        }
       };
     }
     hasher.postMessage(request);
@@ -453,6 +468,12 @@ export function createEngine(): Engine {
         throw error;
       });
       const pool = ddaPool(input, request);
+      // Cancel also ends the wait for the input hashes, which the last block may outlast by minutes.
+      let abort = (_: Error) => {};
+      const aborted = new Promise<never>((_, reject) => {
+        abort = reject;
+      });
+      aborted.catch(() => {});
       const scheduled = runAnalysis({
         id: resultId,
         plan,
@@ -470,7 +491,7 @@ export function createEngine(): Engine {
           const extras: ManifestExtras = {
             id: resultId,
             created_at_iso: new Date().toISOString(),
-            input_sha256: await inputHashes(id),
+            input_sha256: await Promise.race([inputHashes(id), aborted]),
             windows: plan.windows,
           };
           await call({ type: "finishResult", resultId, manifest: await pool.manifest(extras) });
@@ -487,6 +508,7 @@ export function createEngine(): Engine {
         cancel() {
           pool.stop();
           scheduled.cancel();
+          abort(cancelled());
         },
       };
     },

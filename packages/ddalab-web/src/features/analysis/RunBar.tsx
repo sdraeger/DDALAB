@@ -142,20 +142,50 @@ export function RunBar({ recordingId }: { recordingId: string }) {
 }
 
 /** The command bar's Run: the run bar's request, without its plan. */
-export function RunButton({ recordingId }: { recordingId: string }) {
-  const { request, now } = useRunRequest(recordingId);
-  const busy = useStore((s) => s.run?.status === "running");
-  return (
-    <button
-      type="button"
-      className={controls.primary}
-      disabled={!request || busy}
-      onClick={() => runNow(recordingId, now)}
-    >
-      <Play aria-hidden />
-      Run
-    </button>
+export function RunButton({ recordingId, status }: { recordingId: string; status: boolean }) {
+  const { request, errors, now } = useRunRequest(recordingId);
+  // With the inspector hidden, the run bar is too: this button says why it cannot run and how the run goes.
+  const plan = usePlan(recordingId, status ? request : undefined);
+  const run = useStore((s) => s.run);
+  const ours = run?.recordingId === recordingId ? run : null;
+  const busy = run?.status === "running";
+  const [text, refused] = barStatus(
+    ours,
+    Object.values(errors)[0] ?? (plan?.refused ? plan.text : undefined),
   );
+  return (
+    <>
+      {status && (
+        <span
+          className={styles.barStatus}
+          data-refused={refused || undefined}
+          title={text}
+          aria-live="polite"
+        >
+          {text}
+        </span>
+      )}
+      <button
+        type="button"
+        className={controls.primary}
+        disabled={!request || busy || (status && plan?.refused)}
+        onClick={() => runNow(recordingId, now)}
+      >
+        <Play aria-hidden />
+        Run
+      </button>
+    </>
+  );
+}
+
+/** The command bar's status: the run's progress, else why it cannot run, else how the last run failed. */
+function barStatus(run: RunState | null, refusal: string | undefined): [text: string, refused: boolean] {
+  if (run?.status === "running") {
+    const { windowsDone, windows } = run.progress;
+    return [windows === 0 ? "Starting" : `Running, ${Math.floor((100 * windowsDone) / windows)}%`, false];
+  }
+  if (refusal) return [refusal, true];
+  return run?.status === "failed" ? [`The run failed: ${run.error}`, true] : ["", false];
 }
 
 const seconds = (t: number) => String(Number(t.toFixed(3)));

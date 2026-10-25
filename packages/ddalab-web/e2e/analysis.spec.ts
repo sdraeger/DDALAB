@@ -4,7 +4,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "@playwright/test";
-import { bundleDir } from "./global-setup";
+import { bundleDir, WIDE } from "./global-setup";
 
 const fixturePath = (name: string) =>
   fileURLToPath(new URL(`../../dda-rs/tests/fixtures/${name}`, import.meta.url));
@@ -70,6 +70,12 @@ const storedDigests = (page: Page, id: string) =>
     return found;
   }, id);
 
+/** SHA-256 of each `.npy` file of a result in OPFS, by path. */
+const storedArrays = async (page: Page, id: string) =>
+  Object.fromEntries(
+    Object.entries((await storedDigests(page, id)) ?? {}).filter(([path]) => path.endsWith(".npy")),
+  );
+
 /** SHA-256 of each `.npy` file of a CLI bundle, by path. */
 function cliDigests(dir: string) {
   const found: Record<string, string> = {};
@@ -127,7 +133,7 @@ test("st_result_equals_cli_bundle", async ({ page }) => {
   const id = await runToCompletion(page);
   const expected = cliDigests(bundleDir("st"));
   expect(Object.keys(expected).sort()).toEqual(["ST/coefficients.npy", "ST/fit_error.npy", "ST/q.npy"]);
-  expect(await storedDigests(page, id)).toMatchObject(expected);
+  expect(await storedArrays(page, id)).toEqual(expected);
   // The chosen channels stand out in the waveform gutter.
   const gutter = page.getByRole("list", { name: "Channel rows" });
   await expect(gutter.getByText("Fp1, chosen")).toBeAttached();
@@ -149,7 +155,60 @@ test("ct_cd_de_sy_equal_cli", async ({ page }) => {
   for (const variant of ["CT", "CD", "DE", "SY"]) {
     expect(Object.keys(expected).some((path) => path.startsWith(`${variant}/`))).toBe(true);
   }
-  expect(await storedDigests(page, id)).toMatchObject(expected);
+  expect(await storedArrays(page, id)).toEqual(expected);
+});
+
+// Blocks of the browser's own size: the arrays they write at their offsets equal the CLI's, which writes one block.
+test("multi_block_result_equals_cli_bundle", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  // Eight workers on any machine: 0 to 30 s plan five blocks at the 1 MiB floor.
+  await page.addInitScript(() => Object.defineProperty(navigator, "hardwareConcurrency", { get: () => 9 }));
+  await page.reload();
+  await page.evaluate((spec) => window.__ddalab.openSynthetic(spec), WIDE);
+  await page.getByRole("checkbox", { name: "Select group CH" }).check();
+  await interval(page, "0", "30");
+  const id = await runToCompletion(page);
+  expect((await lastRun(page)).run?.progress.blocks).toBeGreaterThanOrEqual(3);
+  const expected = cliDigests(bundleDir("multi_block"));
+  expect(Object.keys(expected)).toHaveLength(3);
+  expect(await storedArrays(page, id)).toEqual(expected);
+});
+
+// The lock of a result another tab writes keeps the sweep away, also while none of its files is open.
+test("a_result_another_tab_writes_survives_the_sweep", async ({ page, context }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  const exists = (on: Page) =>
+    on.evaluate(async () => {
+      const results = await (await navigator.storage.getDirectory()).getDirectoryHandle("results");
+      return results.getDirectoryHandle("elsewhere").then(
+        () => true,
+        () => false,
+      );
+    });
+  await page.evaluate(async () => {
+    const results = await (await navigator.storage.getDirectory()).getDirectoryHandle("results", {
+      create: true,
+    });
+    const directory = await results.getDirectoryHandle("elsewhere", { create: true });
+    const status = await (await directory.getFileHandle("status", { create: true })).createWritable();
+    await status.write("running");
+    await status.close();
+    await new Promise<void>((held) =>
+      navigator.locks.request("ddalab-result:elsewhere", () => {
+        held();
+        return new Promise(() => {}); // held while this tab is open
+      }),
+    );
+  });
+  const other = await context.newPage();
+  await other.goto("/");
+  expect(await other.evaluate(() => window.__ddalab.engine.sweepInterrupted())).toEqual([]);
+  expect(await exists(other)).toBe(true);
+  await page.close(); // its lock goes with it
+  await expect
+    .poll(() => other.evaluate(() => window.__ddalab.engine.sweepInterrupted()))
+    .toEqual(["elsewhere"]);
+  expect(await exists(other)).toBe(false);
 });
 
 test("cancel_mid_run", async ({ page }) => {
@@ -193,6 +252,25 @@ test("hidden_tab_keeps_running", async ({ page }) => {
   const later = await windowsDone(page);
   await expect.poll(() => windowsDone(page), { timeout: 120_000 }).toBeGreaterThan(later);
   expect(await page.evaluate(() => document.visibilityState)).toBe("hidden");
+});
+
+test("command_bar_run_speaks_while_the_inspector_is_hidden", async ({ page }) => {
+  test.setTimeout(150_000);
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  const banner = page.getByRole("banner");
+  const inspector = page.getByRole("button", { name: "Inspector" });
+  await page.evaluate((spec) => window.__ddalab.openSynthetic(spec), LONG);
+  await inspector.click();
+  await expect(banner.getByText("Choose at least one channel")).toBeVisible();
+  await inspector.click();
+  await page.getByRole("checkbox", { name: "Select group CH" }).check();
+  await settings(page).getByLabel("Window", { exact: true }).fill("4000");
+  await settings(page).getByLabel("Step", { exact: true }).fill("10");
+  await interval(page, "0", String(LONG.durationS));
+  await inspector.click();
+  await banner.getByRole("button", { name: "Run", exact: true }).click();
+  await expect(banner.getByText(/^(Starting|Running, \d+%)$/)).toBeVisible();
+  await expect(banner.getByText(/^Running, [1-9]\d?%$/)).toBeVisible({ timeout: 120_000 });
 });
 
 test("run_with_512_channels", async ({ page }) => {
