@@ -1,7 +1,10 @@
 // The workspace shell and the waveform viewer: pixel-exact drawing in every mode, paging, sensitivity, the channel
 // list at 512 channels, keyboard-only use and the states of the plot area.
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "@playwright/test";
+import { readSynthetic, type SyntheticSpec, syntheticEdfSize } from "../src/core/synthetic";
 import type { View } from "../src/store/store";
 
 const EDF = fileURLToPath(new URL("../../dda-rs/tests/fixtures/fixture.edf", import.meta.url));
@@ -12,63 +15,88 @@ async function openFixture(page: Page) {
   await expect(channels(page)).toHaveCount(2);
 }
 
-const openSynthetic = (
-  page: Page,
-  spec: { channels: number; rateHz: number; durationS: number; seed: number },
-) => page.evaluate((s) => window.__ddalab.openSynthetic(s), spec);
+const openSynthetic = (page: Page, spec: SyntheticSpec) =>
+  page.evaluate((s) => window.__ddalab.openSynthetic(s), spec);
 
 const view = (page: Page) => page.evaluate(() => window.__ddalab.store.getState().view);
 const setView = (page: Page, change: Partial<View>) =>
   page.evaluate((c) => window.__ddalab.store.setState((s) => ({ view: { ...s.view, ...c } })), change);
-
-/** Shows one channel at `samplesPerPixel` from `t0`, at 100 µV/mm. */
-async function zoom(page: Page, samplesPerPixel: number, t0: number, channel: number) {
-  const { width } = await page.evaluate(() => window.__ddalab.viewer.settled());
-  const rate = await page.evaluate(() => {
+/** The scan is over: complete, or not run (no storage in this window). */
+const scanDone = (page: Page) =>
+  page.evaluate(() => {
     const s = window.__ddalab.store.getState();
-    return s.recordings[s.activeRecordingId as string].info.sample_rate_hz;
+    const { scan } = s.recordings[s.activeRecordingId as string];
+    return scan.scannedRows === scan.totalRows || Boolean(scan.notice);
+  });
+// Playwright's WebKit has no OPFS (getDirectory throws UnknownError); Safari itself has.
+const hasStorage = (page: Page) =>
+  page.evaluate(() =>
+    navigator.storage.getDirectory().then(
+      () => true,
+      () => false,
+    ),
+  );
+
+/** Shows `rows` channels from `channel` at `samplesPerPixel` from `t0`, at 100 µV/mm. */
+async function zoom(page: Page, samplesPerPixel: number, t0: number, channel: number, rows = 1) {
+  // A frame of the active recording first: its canvas has its size.
+  const { width, rate } = await page.evaluate(async () => {
+    await window.__ddalab.viewer.settled();
+    const s = window.__ddalab.store.getState();
+    const canvas = document.querySelector("canvas[data-traces]") as HTMLCanvasElement;
+    return { width: canvas.width, rate: s.recordings[s.activeRecordingId as string].info.sample_rate_hz };
   });
   await setView(page, {
     t0,
     t1: t0 + (samplesPerPixel * width) / rate,
     firstChannel: channel,
-    rowCount: 1,
+    rowCount: rows,
     sensitivityUvPerMm: 100,
   });
 }
 
 /**
- * Compares every column of the drawn traces with the full polyline through the raw samples. In column c (sample
- * positions p0 = s0 + c * spp to p1 = p0 + spp) the polyline spans the samples strictly inside and its values at p0
- * and p1. The drawn span must contain that span and lie within the union of the spans of columns c - 1 to c + 1.
- * A value within TOLERANCE px of a pixel edge may fall on either side (float32 in the shader, float64 here).
+ * Compares every column of every row of the drawn traces with the full polyline through the raw samples. The
+ * mapping from samples to pixels comes from the store, the recording's channel list and the canvas size, as the
+ * spec states it, not from the renderer. In column c (sample positions p0 = s0 + c * spp to p1 = p0 + spp) the
+ * polyline spans the samples strictly inside and its values at p0 and p1. The drawn span must contain that span and
+ * lie within the union of the spans of columns c - 1 to c + 1. Each row's trace must stay inside its band of pixel
+ * rows (the scenes are chosen so), which tells the rows' pixels apart. A value within TOLERANCE px of a pixel edge
+ * may fall on either side (float32 in the shader, float64 here).
  */
 const checkPixels = (page: Page) =>
   page.evaluate(async () => {
     const TOLERANCE = 1e-3;
     const { engine, store, viewer } = window.__ddalab;
     const frame = await viewer.settled();
-    const { width: W, height: H, s0, spp, firstChannel, rowCount, rowHeight, pxPerUnit, params } = frame;
-    const state = store.getState();
-    const id = state.activeRecordingId as string;
-    const N = state.recordings[id].info.sample_count;
-    const C = state.recordings[id].analysis_channels.length;
+    const { view, recordings, activeRecordingId } = store.getState();
+    const id = activeRecordingId as string;
+    const { info, analysis_channels } = recordings[id];
+    const rate = info.sample_rate_hz;
+    const N = info.sample_count;
+    const C = analysis_channels.length;
+    const { width: W, height: H, data } = viewer.pixels();
+    const s0 = view.t0 * rate;
+    const spp = ((view.t1 - view.t0) * rate) / W;
+    const pxPerUnit = ((96 / 25.4 / view.mmPerCssMm) * devicePixelRatio) / view.sensitivityUvPerMm;
+    const rowHeight = H / view.rowCount;
     const first = Math.max(0, Math.floor(s0) - 1);
     const last = Math.min(N - 1, Math.ceil(s0 + W * spp) + 1);
     const raw = await engine.raw(id, first, last - first + 1);
-    const { data } = viewer.pixels();
     const failures: string[] = [];
     let inked = 0;
-    for (let r = 0; r < rowCount; r++) {
-      const ch = firstChannel + r;
-      const [gain, offset] = params[ch];
-      const center = (r + 0.5) * rowHeight;
-      const v = (i: number) => raw[(i - first) * C + ch] * gain + offset;
+    for (let r = 0; r < Math.min(view.rowCount, C - view.firstChannel); r++) {
+      const ch = view.firstChannel + r;
+      const { unit, gain, offset } = info.channels[analysis_channels[ch]];
+      const scale = unit === "V" ? 1e6 : 1;
+      const v = (i: number) => raw[(i - first) * C + ch] * gain * scale + offset * scale;
       const at = (p: number) => {
         const i = Math.floor(p);
         return i + 1 > N - 1 ? v(i) : v(i) + (v(i + 1) - v(i)) * (p - i);
       };
+      const center = (r + 0.5) * rowHeight;
       const y = (value: number) => center - value * pxPerUnit;
+      const band = [Math.floor(r * rowHeight), Math.floor((r + 1) * rowHeight) - 1];
       // The polyline's [top, bottom] in fractional pixel rows, per column; null where the recording has no rows.
       // Columns -1 and W lie just past the edges: a bucket or sample at an edge belongs to them.
       const reference = Array.from({ length: W + 2 }, (_, k) => {
@@ -80,11 +108,15 @@ const checkPixels = (page: Page) =>
         for (let i = Math.floor(p0) + 1; i < p1; i++) values.push(v(i));
         return [y(Math.max(...values)), y(Math.min(...values))];
       });
+      if (reference.some((s) => s && (Math.floor(s[0]) < band[0] || Math.floor(s[1]) > band[1]))) {
+        failures.push(`row ${r}: the trace leaves its band, choose another scene`);
+        continue;
+      }
       for (let c = 0; c < W; c++) {
         let top = -1;
         let bottom = -1;
         let gaps = 0;
-        for (let row = 0; row < H; row++) {
+        for (let row = band[0]; row <= band[1]; row++) {
           const ink = data[((H - 1 - row) * W + c) * 4 + 3] > 0;
           if (ink && top < 0) top = row;
           if (ink) {
@@ -94,24 +126,22 @@ const checkPixels = (page: Page) =>
         }
         const ref = reference[c + 1];
         if (!ref) {
-          if (top >= 0) failures.push(`column ${c}: ink where the recording has no rows`);
+          if (top >= 0) failures.push(`row ${r} column ${c}: ink where the recording has no rows`);
           continue;
         }
-        if (Math.floor(ref[1]) < 0 || Math.floor(ref[0]) > H - 1) continue; // off the canvas
-        const clamp = (row: number) => Math.min(H - 1, Math.max(0, row));
-        const need = [clamp(Math.floor(ref[0] + TOLERANCE)), clamp(Math.floor(ref[1] - TOLERANCE))];
+        const need = [Math.floor(ref[0] + TOLERANCE), Math.floor(ref[1] - TOLERANCE)];
         const near = [c, c + 1, c + 2].flatMap((k) => (reference[k] ? [reference[k]] : []));
         const allow = [
-          clamp(Math.floor(Math.min(...near.map((s) => s[0])) - TOLERANCE)),
-          clamp(Math.floor(Math.max(...near.map((s) => s[1])) + TOLERANCE)),
+          Math.floor(Math.min(...near.map((s) => s[0])) - TOLERANCE),
+          Math.floor(Math.max(...near.map((s) => s[1])) + TOLERANCE),
         ];
         inked++;
-        if (top < 0) failures.push(`column ${c}: no ink, expected rows ${need}`);
-        else if (gaps > 0) failures.push(`column ${c}: the span has gaps`);
+        if (top < 0) failures.push(`row ${r} column ${c}: no ink, expected rows ${need}`);
+        else if (gaps > 0) failures.push(`row ${r} column ${c}: the span has gaps`);
         else if (top > need[0] || bottom < need[1])
-          failures.push(`column ${c}: ${top}..${bottom} misses ${need}`);
+          failures.push(`row ${r} column ${c}: ${top}..${bottom} misses ${need}`);
         else if (top < allow[0] || bottom > allow[1])
-          failures.push(`column ${c}: ${top}..${bottom} past ${allow}`);
+          failures.push(`row ${r} column ${c}: ${top}..${bottom} past ${allow}`);
       }
     }
     return { mode: frame.mode, inked, failures: failures.slice(0, 10) };
@@ -149,6 +179,21 @@ test("waveform_is_pixel_exact", async ({ page }) => {
   }
 });
 
+// A 30 s epoch at 2 kHz on a wide plot of a 512-channel recording, six rows from channel 500: below 64 samples per
+// pixel the spans come from raw samples of the rows on screen, however many channels the recording has.
+test("waveform_is_pixel_exact_with_many_rows", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await page.getByRole("button", { name: "Library" }).click();
+  await page.getByRole("button", { name: "Inspector" }).click();
+  await openSynthetic(page, { channels: 512, rateHz: 2000, durationS: 120, seed: 6 });
+  // 1 to 31 s: no spike (they come every 97 s), so every trace stays within its row at 100 µV/mm.
+  await setView(page, { t0: 1, t1: 31, epochS: 30, firstChannel: 500, rowCount: 6, sensitivityUvPerMm: 100 });
+  const result = await checkPixels(page);
+  expect(result).toMatchObject({ mode: "rawSpan", failures: [] });
+  expect(result.inked).toBeGreaterThan(6 * 1000);
+});
+
 // The synthetic recording has a +30000 spike (3000 µV) on its first channel every 97 s; the traces stay under
 // 1050 µV. At every zoom from the whole recording to one epoch the column of every spike in view reaches its
 // height, and no other column comes near it.
@@ -160,10 +205,14 @@ test("spike_survives_every_zoom", async ({ page }) => {
     const t0 = Math.min(7200 - span, Math.max(0, spikeS - span / 3));
     await setView(page, { t0, t1: t0 + span, firstChannel: 0, rowCount: 1, sensitivityUvPerMm: 100 });
     const seen = await page.evaluate(async (every) => {
-      const { viewer } = window.__ddalab;
+      const { store, viewer } = window.__ddalab;
       const frame = await viewer.settled();
-      const { data } = viewer.pixels();
-      const { width: W, height: H, s0, spp, rowHeight, pxPerUnit } = frame;
+      const { width: W, height: H, data } = viewer.pixels();
+      const { view, recordings, activeRecordingId } = store.getState();
+      const rate = recordings[activeRecordingId as string].info.sample_rate_hz;
+      const s0 = view.t0 * rate;
+      const spp = ((view.t1 - view.t0) * rate) / W;
+      const pxPerUnit = ((96 / 25.4 / view.mmPerCssMm) * devicePixelRatio) / view.sensitivityUvPerMm;
       const top = (c: number) => {
         for (let row = 0; row < H; row++) if (data[((H - 1 - row) * W + c) * 4 + 3] > 0) return row;
         return H;
@@ -178,7 +227,7 @@ test("spike_survives_every_zoom", async ({ page }) => {
       for (let c = 0; c < W; c++) {
         if (spikes.every((x) => Math.abs(c - x) > 3)) elsewhere = Math.min(elsewhere, top(c));
       }
-      return { mode: frame.mode, spikeTops, elsewhere, expected: rowHeight / 2 - 3000 * pxPerUnit };
+      return { mode: frame.mode, spikeTops, elsewhere, expected: H / 2 - 3000 * pxPerUnit };
     }, spikeS * 256);
     expect(seen.spikeTops.length, `${span} s`).toBeGreaterThan(0);
     for (const spikeTop of seen.spikeTops) {
@@ -193,11 +242,85 @@ test("unscanned_region_is_hatched", async ({ page }) => {
   await openSynthetic(page, { channels: 64, rateHz: 1000, durationS: 86_400, seed: 2 });
   await setView(page, { t0: 60_000, t1: 60_000 + 6 * 3600 });
   await expect
-    .poll(() => page.evaluate(() => window.__ddalab.viewer.frame?.missing ?? []))
-    .toEqual([[0, expect.any(Number)]]);
+    .poll(() => page.evaluate(() => window.__ddalab.viewer.frame?.gaps ?? []))
+    .toEqual([{ x0: 0, x1: expect.any(Number), reason: "unscanned" }]);
   const frame = await page.evaluate(() => window.__ddalab.viewer.frame);
-  expect(frame?.missing[0][1]).toBe(frame?.width);
+  expect(frame?.gaps[0].x1).toBe(frame?.width);
   expect(frame?.mode).toBe("tile");
+});
+
+// Once the scan has stored the pyramid, jumps and pages into rows not read yet draw coarser tiles until the raw rows
+// arrive: no frame has a column without data.
+test("paging_never_blanks", async ({ page }) => {
+  test.setTimeout(120_000);
+  test.skip(!(await hasStorage(page)), "the stored pyramid needs OPFS");
+  await openSynthetic(page, { channels: 64, rateHz: 1000, durationS: 1800, seed: 8 });
+  await expect.poll(() => scanDone(page), { timeout: 60_000 }).toBe(true);
+  // The first jump after the scan asks for the stored top tile, after the jump's own rows. The engine answers in
+  // order: once the second jump has its rows, the top tile, which covers every later jump, is loaded.
+  for (const key of ["End", "Home"]) {
+    await page.keyboard.press(key);
+    await page.evaluate(() => window.__ddalab.viewer.settled());
+  }
+  await page.evaluate(() => {
+    window.__ddalab.viewer.frames = [];
+  });
+  for (const step of ["PageDown", "PageDown", "middle", "End", "PageUp", "Home"]) {
+    if (step === "middle") await setView(page, { t0: 900, t1: 910 });
+    else await page.keyboard.press(step);
+    await page.evaluate(() => window.__ddalab.viewer.settled());
+  }
+  const frames = await page.evaluate(() => {
+    const { viewer } = window.__ddalab;
+    const recorded = viewer.frames ?? [];
+    viewer.frames = null;
+    return recorded;
+  });
+  // Some frames waited for raw rows: the cover drew them.
+  expect(frames.filter((f) => !f.complete).length).toBeGreaterThan(0);
+  expect(frames.filter((f) => f.blank > 0)).toEqual([]);
+});
+
+// A read that fails is reported in the plot and tried again; the plot recovers once reads work.
+test("read_failure_is_reported", async ({ page }) => {
+  test.setTimeout(120_000);
+  // About 200 MB: more than the engine's file cache, so rows in the middle are read again after the scan.
+  const spec = { channels: 64, rateHz: 256, durationS: 6000, seed: 12 };
+  const size = syntheticEdfSize(spec);
+  let failing = false;
+  const server = createServer((req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Headers", "Range");
+    const range = /^bytes=(\d+)-(\d+)$/.exec(req.headers.range ?? "");
+    if (req.method === "OPTIONS") return void res.writeHead(204).end();
+    if (failing) return void res.writeHead(503).end();
+    if (!range) return void res.writeHead(416).end();
+    const [from, to] = [Number(range[1]), Math.min(Number(range[2]), size - 1)];
+    const body = Buffer.alloc(to - from + 1);
+    readSynthetic(spec, from, body);
+    res
+      .writeHead(206, { "Content-Range": `bytes ${from}-${to}/${size}`, "Content-Length": body.length })
+      .end(body);
+  });
+  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  try {
+    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/remote.edf`;
+    await page.evaluate(
+      (remote) => window.__ddalab.open({ kind: "url", files: [remote], primary: remote.name }),
+      { name: "remote.edf", url, size },
+    );
+    await expect.poll(() => scanDone(page), { timeout: 60_000 }).toBe(true);
+    await page.evaluate(() => window.__ddalab.viewer.settled());
+    failing = true;
+    await setView(page, { t0: 3000, t1: 3010 });
+    const problem = page.getByRole("region", { name: "Waveforms" }).getByRole("alert");
+    await expect(problem).toContainText("The recording could not be read");
+    failing = false;
+    await expect(problem).toBeHidden({ timeout: 15_000 });
+    await page.evaluate(() => window.__ddalab.viewer.settled());
+  } finally {
+    server.close();
+  }
 });
 
 test("paging_keys", async ({ page }) => {
@@ -221,6 +344,11 @@ test("paging_keys", async ({ page }) => {
   expect(await view(page)).toMatchObject({ t0: 0, t1: 10 });
   await page.getByRole("button", { name: "Next page" }).click();
   expect(await view(page)).toMatchObject({ t0: 10, t1: 20 });
+  // At 20 s epochs the 30 s recording has two pages; its end is on the second.
+  await page.getByRole("combobox", { name: "Epoch" }).click();
+  await page.getByRole("option", { name: "20 s" }).click();
+  await page.keyboard.press("End");
+  await expect(page.getByText("Page 2 of 2")).toBeVisible();
 });
 
 test("sensitivity_steps", async ({ page }) => {
@@ -329,4 +457,37 @@ test("theme_toggle_remembers_the_pick", async ({ page }) => {
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   await expect(toggle).toHaveAttribute("aria-pressed", "false");
+});
+
+test("webgl_context_loss_and_restore", async ({ page }) => {
+  await openFixture(page);
+  await zoom(page, 5, 3.1, 0);
+  expect((await checkPixels(page)).failures).toEqual([]);
+  await page.evaluate(() => {
+    const canvas = document.querySelector("canvas[data-traces]") as HTMLCanvasElement;
+    const lose = (canvas.getContext("webgl2") as WebGL2RenderingContext).getExtension("WEBGL_lose_context");
+    Object.assign(window, { lose });
+    lose?.loseContext();
+  });
+  const pane = page.getByRole("region", { name: "Waveforms" });
+  await expect(pane).toContainText("The browser reset WebGL2 drawing");
+  await page.evaluate(() => (window as unknown as { lose: WEBGL_lose_context }).lose.restoreContext());
+  await expect(pane).not.toContainText("The browser reset WebGL2 drawing");
+  expect(await checkPixels(page)).toMatchObject({ mode: "rawSpan", failures: [] });
+});
+
+// A program that does not link shows its reason in the pane; the rest of the workspace stays.
+test("webgl_program_failure_message", async ({ page }) => {
+  await page.addInitScript(() => {
+    const parameter = WebGL2RenderingContext.prototype.getProgramParameter;
+    WebGL2RenderingContext.prototype.getProgramParameter = function (this: WebGL2RenderingContext, p, name) {
+      return name === this.LINK_STATUS ? false : parameter.call(this, p, name);
+    };
+  });
+  await page.reload();
+  await openFixture(page);
+  await expect(page.getByRole("region", { name: "Waveforms" })).toContainText(
+    "DDALAB could not set up WebGL2 drawing",
+  );
+  await expect(page.getByRole("heading", { name: "fixture.edf" })).toBeVisible();
 });

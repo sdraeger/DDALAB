@@ -6,6 +6,7 @@
 
 /* The overview reserves the scrollbar gutter of the waveform scroller below it: both time axes align. */
 .overview {
+  position: relative;
   display: grid;
   flex: none;
   grid-template-columns: var(--gutter) minmax(0, 1fr);
@@ -252,4 +253,25 @@
 .scale dd {
   font-weight: var(--weight-medium);
   white-space: nowrap;
+}
+
+/* Why data could not be read, over the top left of the plot or the strip, until a read succeeds. */
+.problem {
+  position: absolute;
+  z-index: 1;
+  top: var(--space-2);
+  left: calc(var(--gutter) + var(--space-2));
+  max-width: 60ch;
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  border: var(--hairline-width) solid var(--event);
+  border-radius: var(--radius);
+  background: var(--ground);
+  color: var(--event);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+.plot .problem {
+  left: var(--space-2);
 }

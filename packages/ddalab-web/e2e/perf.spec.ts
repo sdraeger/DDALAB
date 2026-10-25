@@ -76,17 +76,11 @@ test("scan_throughput_over_500mb_s", async ({ page }) => {
   expect(mbPerS).toBeGreaterThan(500);
 });
 
-test("pan_p95_under_16ms", async ({ page }) => {
-  test.setTimeout(300_000);
-  // A plot 1920 CSS px wide at device pixel ratio 2: 3,840 device px.
-  await page.getByRole("button", { name: "Library" }).click();
-  await page.getByRole("button", { name: "Inspector" }).click();
-  await openDay(page);
-  const plotWidth = await page.evaluate(async () => (await window.__ddalab.viewer.settled()).cssWidth);
-  const viewport = page.viewportSize() as { width: number; height: number };
-  await page.setViewportSize({ width: viewport.width + 1920 - plotWidth, height: viewport.height });
-  const spanS = 300;
-  const steps = 300;
+/**
+ * Pans `steps` frames of `spanS` seconds by 1% of the span each after every frame of the range is cached; returns
+ * the whole-frame times (paint start to GPU done) and the frames that lacked planned data or drew blank columns.
+ */
+async function pan(page: Page, spanS: number, steps: number) {
   const stepS = spanS / 100;
   const frame = await page.evaluate(async (span) => {
     window.__ddalab.store.setState((s) => ({ view: { ...s.view, t0: 0, t1: span, rowCount: 64 } }));
@@ -94,7 +88,7 @@ test("pan_p95_under_16ms", async ({ page }) => {
   }, spanS);
   expect(frame.width).toBeGreaterThanOrEqual(3840);
   expect(frame.rowCount).toBe(64);
-  // Every tile of the panned range is cached first.
+  // Every frame of the range is cached first.
   for (let t0 = 0; t0 <= steps * stepS + spanS; t0 += spanS / 2) {
     await page.evaluate(
       async ([t, span]) => {
@@ -106,19 +100,16 @@ test("pan_p95_under_16ms", async ({ page }) => {
   }
   const frames = await page.evaluate(
     ([span, n, step]) =>
-      new Promise<{ ms: number[]; incomplete: number }>((done) => {
+      new Promise<{ ms: number; complete: boolean; blank: number }[]>((done) => {
         const { store, viewer } = window.__ddalab;
         store.setState((s) => ({ view: { ...s.view, t0: 0, t1: span } }));
-        viewer.timing = [];
+        viewer.frames = [];
         let i = 0;
         const tick = () => {
           if (i++ === n) {
-            const timing = viewer.timing ?? [];
-            viewer.timing = null;
-            return done({
-              ms: timing.map((t) => t.ms),
-              incomplete: timing.filter((t) => !t.complete).length,
-            });
+            const recorded = viewer.frames ?? [];
+            viewer.frames = null;
+            return done(recorded);
           }
           store.setState((s) => ({ view: { ...s.view, t0: s.view.t0 + step, t1: s.view.t1 + step } }));
           requestAnimationFrame(tick);
@@ -127,36 +118,112 @@ test("pan_p95_under_16ms", async ({ page }) => {
       }),
     [spanS, steps, stepS],
   );
-  const sorted = [...frames.ms].sort((a, b) => a - b);
-  const p95 = sorted[Math.floor(0.95 * (sorted.length - 1))];
-  report(
-    "pan",
-    `p95 ${p95.toFixed(2)} ms, median ${sorted[sorted.length >> 1].toFixed(2)} ms over ${sorted.length} frames`,
-  );
-  expect(sorted.length).toBeGreaterThanOrEqual(steps - 1);
-  expect(frames.incomplete).toBe(0);
-  expect(p95).toBeLessThan(16);
+  const sorted = frames.map((f) => f.ms).sort((a, b) => a - b);
+  return {
+    mode: frame.mode,
+    count: sorted.length,
+    p95: sorted[Math.floor(0.95 * (sorted.length - 1))],
+    median: sorted[sorted.length >> 1],
+    incomplete: frames.filter((f) => !f.complete).length,
+    blank: frames.filter((f) => f.blank > 0).length,
+  };
+}
+
+test("pan_p95_under_16ms", async ({ page }) => {
+  test.setTimeout(600_000);
+  // A plot 1920 CSS px wide at device pixel ratio 2: 3,840 device px.
+  await page.getByRole("button", { name: "Library" }).click();
+  await page.getByRole("button", { name: "Inspector" }).click();
+  await openDay(page);
+  const plotWidth = await page.evaluate(async () => (await window.__ddalab.viewer.settled()).cssWidth);
+  const viewport = page.viewportSize() as { width: number; height: number };
+  await page.setViewportSize({ width: viewport.width + 1920 - plotWidth, height: viewport.height });
+  // 300 s spans draw level 0 tiles; 20 s spans (10.4 samples per pixel) draw raw spans.
+  for (const [spanS, mode] of [
+    [300, "tile"],
+    [20, "rawSpan"],
+  ] as const) {
+    const result = await pan(page, spanS, 300);
+    report(
+      `pan ${mode}`,
+      `p95 ${result.p95.toFixed(2)} ms, median ${result.median.toFixed(2)} ms over ${result.count} frames`,
+    );
+    expect(result.mode).toBe(mode);
+    expect(result.count).toBeGreaterThanOrEqual(299);
+    expect(result).toMatchObject({ incomplete: 0, blank: 0 });
+    expect(result.p95).toBeLessThan(16);
+  }
 });
 
-test("memory_under_1_5gb", async ({ page }) => {
-  test.setTimeout(1_200_000);
-  expect(await page.evaluate(() => crossOriginIsolated)).toBe(true);
-  await openDay(page);
-  await page.waitForFunction(
-    () => {
-      const s = window.__ddalab.store.getState();
-      const { scan } = s.recordings[s.activeRecordingId as string];
-      return scan.scannedRows === scan.totalRows || scan.error;
-    },
-    null,
-    { timeout: 1_150_000, polling: 1000 },
-  );
-  const bytes = await page.evaluate(async () => {
+/** JS heaps of the page and its workers, plus every worker's wasm memory, in bytes. */
+const memory = (page: Page) =>
+  page.evaluate(async () => {
     const measure = (
       performance as unknown as { measureUserAgentSpecificMemory(): Promise<{ bytes: number }> }
     ).measureUserAgentSpecificMemory();
-    return (await measure).bytes;
+    const [js, wasm] = await Promise.all([measure, window.__ddalab.engine.wasmBytes()]);
+    return { js: js.bytes, wasm: wasm.io + wasm.hash + wasm.annotations };
   });
-  report("memory after the 24 h scan", `${(bytes / 1e9).toFixed(2)} GB`);
-  expect(bytes).toBeLessThan(1.5e9);
+const gb = (sample: { js: number; wasm: number }) =>
+  `${((sample.js + sample.wasm) / 1e9).toFixed(2)} GB (JS ${(sample.js / 1e9).toFixed(2)}, wasm ${(sample.wasm / 1e9).toFixed(2)})`;
+
+/** The scanned part of the active recording; 0 before it is open, -1 when the scan failed. */
+const scanned = (page: Page) =>
+  page.evaluate(() => {
+    const s = window.__ddalab.store.getState();
+    const scan = s.recordings[s.activeRecordingId as string]?.scan;
+    return !scan ? 0 : scan.error ? -1 : scan.scannedRows / scan.totalRows;
+  });
+
+test("memory_under_1_5gb", async ({ page }) => {
+  test.setTimeout(300_000);
+  expect(await page.evaluate(() => crossOriginIsolated)).toBe(true);
+  // The 2 GiB file on disk: its reads go through the engine's file cache. Sampled mid-scan, with the pyramid
+  // builder busy and the plot drawing raw rows, and once the scan is over.
+  await page.getByLabel("Recording files").setInputFiles(LARGE_PATH);
+  await expect.poll(() => scanned(page), { timeout: 60_000, intervals: [20] }).toBeGreaterThan(0.05);
+  // The plot reads raw rows of 64 channels while the measurement is taken (wasm memory only grows: the sample at
+  // the end holds the scan's high-water mark too).
+  await page.evaluate(() =>
+    window.__ddalab.store.setState((s) => ({ view: { ...s.view, t0: 8000, t1: 8030, rowCount: 64 } })),
+  );
+  const midScan = await scanned(page);
+  const peak = await memory(page);
+  await expect.poll(() => scanned(page), { timeout: 120_000 }).toBe(1);
+  const end = await memory(page);
+  report("memory, 2 GiB file mid-scan", `${gb(peak)}, asked at ${(100 * midScan).toFixed(0)}% scanned`);
+  report("memory, 2 GiB file scanned", gb(end));
+  expect(midScan).toBeLessThan(1);
+  for (const sample of [peak, end]) expect(sample.js + sample.wasm).toBeLessThan(1.5e9);
+});
+
+// The 24 h synthetic recording, 88 GB, in a context of its own. A Playwright context stores less than its 3.7 GB
+// pyramid: the scan stops with the quota message part way, which is reported, and memory is sampled there.
+test("memory_after_the_24h_scan_under_1_5gb", async ({ page }) => {
+  test.setTimeout(1_200_000);
+  expect(await page.evaluate(() => crossOriginIsolated)).toBe(true);
+  await openDay(page);
+  const progress = () =>
+    page.evaluate(() => {
+      const s = window.__ddalab.store.getState();
+      const scan = s.recordings[s.activeRecordingId as string]?.scan;
+      return scan ? { part: scan.scannedRows / scan.totalRows, error: scan.error ?? null } : null;
+    });
+  await expect
+    .poll(
+      async () => {
+        const now = await progress();
+        return now !== null && (now.part === 1 || now.error !== null);
+      },
+      { timeout: 1_100_000, intervals: [1000] },
+    )
+    .toBe(true);
+  const stopped = await progress();
+  const day = await memory(page);
+  const where = stopped?.error
+    ? `scan stopped at ${(100 * stopped.part).toFixed(0)}%: ${stopped.error}`
+    : "scanned";
+  report("memory, 24 h recording", `${gb(day)}, ${where}`);
+  expect(stopped?.part).toBeGreaterThan(0.25);
+  expect(day.js + day.wasm).toBeLessThan(1.5e9);
 });

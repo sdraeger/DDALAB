@@ -3,25 +3,37 @@
 // pixel-exact") and emits a quad over exactly those pixel rows. Below one sample per pixel it folds the polyline
 // through the raw samples instead, interpolated at the column edges, which is the polyline's own raster.
 //
-// Data sits in one R32F texture array whose layers hold either 2,048 raw rows of every display channel or one
-// pyramid tile (1,024 minima rows, then 1,024 maxima rows). A small slot texture maps the slots of the current frame
-// (consecutive raw chunks, or consecutive tiles of the planned level) to layers; a slot whose own data is not loaded
-// yet points at a coarser tile that covers it: the plot never blanks once a region has any data.
+// Two R32F texture arrays hold the data. A tile layer holds one pyramid tile of every display channel (1,024 minima
+// rows, then 1,024 maxima rows). A raw layer holds 2,048 raw rows of a window of channels around those on screen,
+// so raw layers cost what the rows shown need, whatever the channel count. A slot texture maps the slots of a frame
+// (consecutive raw chunks, or consecutive tiles of the planned level) to layers. A slot whose own data has not
+// arrived draws from the finest loaded coarser tile over it: every frame asks for a few tiles covering the whole
+// view and for the top tile, which stay loaded, so the plot never blanks once a region is scanned.
+import { EngineStopped } from "../core/engine";
 import { bucketSize, levelCount, tileRows } from "../core/opfs";
 import type { Tile } from "../core/protocol";
 import { program } from "./gl";
 import { type DrawPlan, drawPlan, tileIndices } from "./levels";
 
-/** Raw rows per layer; a tile layer holds 1,024 minima then 1,024 maxima. */
+/** Raw rows per raw layer; a tile layer holds 1,024 minima then 1,024 maxima. */
 const LAYER_ROWS = 2048;
 const TILE_BUCKETS = 1024;
-/** GPU bytes the layers may take; at least MIN_LAYERS layers whatever the channel count. */
-const GPU_BUDGET = 128 * 2 ** 20;
-const MIN_LAYERS = 40;
+/** GPU bytes each texture array may take, and the fewest layers each gets whatever the channel count. */
+const TILE_BUDGET = 128 * 2 ** 20;
+const RAW_BUDGET = 128 * 2 ** 20;
+const MIN_LAYERS = 32;
+/** Channels a raw layer holds at least: rows can be added on screen without uploading again. */
+const MIN_RAW_CHANNELS = 16;
+/** Raw chunks kept on the CPU (every display channel), for scrolling rows and for the epochs either side. */
+const RAW_CACHE = 128 * 2 ** 20;
+/** Bytes per raw request. */
+const RUN_BYTES = 32 * 2 ** 20;
 /** Requests to the engine in flight at once: a fast pan should not queue stale work. */
 const MAX_IN_FLIGHT = 6;
-/** Raw chunks per raw request. */
-const RUN_CHUNKS = 16;
+/** Raw chunks put into layers from the CPU cache within one frame. */
+const UPLOADS_PER_FRAME = 32;
+/** The view is covered by at most this many tiles of the cover level. */
+const COVER_TILES = 4;
 
 export interface DataSource {
   tile(level: number, index: number): Promise<Tile | null>;
@@ -50,14 +62,24 @@ export interface Frame {
   pxPerUnit: number;
   pointSize: number;
   ink: [number, number, number, number];
+  /** Rows either side of the view whose raw samples are read ahead (an epoch), for paging. */
+  aheadRows: number;
+}
+
+/** Device-pixel columns that drew no data: rows on their way, or rows the scan has not reached. */
+export interface Gap {
+  x0: number;
+  x1: number;
+  reason: "loading" | "unscanned";
 }
 
 export interface Drawn {
   plan: DrawPlan;
   /** Every slot drew from its planned data. */
   complete: boolean;
-  /** Device-pixel ranges the scan has not reached, with no data at any level yet. */
-  missing: [number, number][];
+  gaps: Gap[];
+  /** Why data on screen could not be read, while that lasts. */
+  error: string | null;
 }
 
 const COMMON = /* glsl */ `#version 300 es
@@ -65,10 +87,12 @@ precision highp float;
 precision highp int;
 precision highp sampler2D;
 precision highp sampler2DArray;
-uniform sampler2DArray u_data;
+uniform sampler2DArray u_tiles;
+uniform sampler2DArray u_raw;
 uniform sampler2D u_slots;
 uniform sampler2D u_params;
 uniform int u_channel;
+uniform int u_rawFirst;
 uniform int u_slotCount;
 uniform float u_slotRows;
 uniform float u_s0;
@@ -82,8 +106,10 @@ const int STEPS = 160;
 const int BUCKETS = ${TILE_BUCKETS};
 
 // x: layer (-1 when nothing covers the slot), y: rows per bucket (1 for raw rows), z: bucket offset of the slot's
-// first row within the layer's tile, w: 1 for raw rows.
+// first row within the layer's tile, w: 1 for a raw layer.
 vec4 slotOf(int s) { return texelFetch(u_slots, ivec2(s, 0), 0); }
+
+float rawAt(int y, int layer) { return texelFetch(u_raw, ivec3(u_channel - u_rawFirst, y, layer), 0).r; }
 
 // Row r (relative to slot 0) as a raw value; ok is false when its slot holds no raw rows.
 float sampleAt(float r, out bool ok) {
@@ -91,7 +117,7 @@ float sampleAt(float r, out bool ok) {
   vec4 slot = slotOf(s);
   ok = slot.x >= 0.0 && slot.w > 0.5;
   if (!ok) return 0.0;
-  return texelFetch(u_data, ivec3(u_channel, int(r - float(s) * u_slotRows), int(slot.x)), 0).r;
+  return rawAt(int(r - float(s) * u_slotRows), int(slot.x));
 }
 
 vec2 toPixels(float x, float y) { return vec2(2.0 * x / u_width - 1.0, 1.0 - 2.0 * y / u_height); }
@@ -117,7 +143,7 @@ bool fold(float lo, float hi, inout float mn, inout float mx) {
       for (int i = 0; i < STEPS; i++) {
         int y = int(a) + i;
         if (y > y1) break;
-        float v = texelFetch(u_data, ivec3(u_channel, y, layer), 0).r;
+        float v = rawAt(y, layer);
         mn = min(mn, v);
         mx = max(mx, v);
         any = true;
@@ -129,8 +155,8 @@ bool fold(float lo, float hi, inout float mn, inout float mx) {
       for (int i = 0; i < STEPS; i++) {
         int k = k0 + i;
         if (k > k1) break;
-        mn = min(mn, texelFetch(u_data, ivec3(u_channel, k, layer), 0).r);
-        mx = max(mx, texelFetch(u_data, ivec3(u_channel, BUCKETS + k, layer), 0).r);
+        mn = min(mn, texelFetch(u_tiles, ivec3(u_channel, k, layer), 0).r);
+        mx = max(mx, texelFetch(u_tiles, ivec3(u_channel, BUCKETS + k, layer), 0).r);
         any = true;
       }
     }
@@ -217,11 +243,6 @@ void main() {
 }
 `;
 
-interface Resident {
-  layer: number;
-  used: number;
-}
-
 /** Decodes an encoded `DDT1` tile to float32 minima then maxima, `[buckets][channels]` each. */
 export function decodeTile(bytes: ArrayBuffer): { channels: number; buckets: number; values: Float32Array } {
   const header = new DataView(bytes);
@@ -240,6 +261,16 @@ export function decodeTile(bytes: ArrayBuffer): { channels: number; buckets: num
   return { channels, buckets, values };
 }
 
+/** Layers of one texture array, least recently drawn out first. */
+interface Pool {
+  texture: WebGLTexture;
+  /** Channels per layer. */
+  width: number;
+  layers: number;
+  resident: Map<string, { layer: number; used: number }>;
+  free: number[];
+}
+
 export type WaveformLayer = ReturnType<typeof createWaveformLayer>;
 
 export function createWaveformLayer(
@@ -250,22 +281,30 @@ export function createWaveformLayer(
 ) {
   const { channels, rows } = trace;
   const levels = levelCount(rows);
+  const top = levels - 1;
   const spans = program(gl, SPANS, INK);
   const dots = program(gl, DOTS, INK);
-  const layerBytes = channels * LAYER_ROWS * 4;
   const maxLayers = Math.min(256, gl.getParameter(gl.MAX_ARRAY_TEXTURE_LAYERS) as number);
-  const layerCount = Math.max(
-    Math.min(MIN_LAYERS, maxLayers),
-    Math.min(maxLayers, Math.floor(GPU_BUDGET / layerBytes)),
-  );
+  const layersFor = (width: number, budget: number) =>
+    Math.max(
+      Math.min(MIN_LAYERS, maxLayers),
+      Math.min(maxLayers, Math.floor(budget / (width * LAYER_ROWS * 4))),
+    );
 
-  const data = gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D_ARRAY, data);
-  gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.R32F, channels, LAYER_ROWS, layerCount);
-  nearest(gl, gl.TEXTURE_2D_ARRAY);
+  function createPool(width: number, budget: number): Pool {
+    const layers = layersFor(width, budget);
+    const texture = gl.createTexture() as WebGLTexture;
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, texture);
+    gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.R32F, width, LAYER_ROWS, layers);
+    nearest(gl, gl.TEXTURE_2D_ARRAY);
+    const free = Array.from({ length: layers }, (_, i) => layers - 1 - i);
+    return { texture, width, layers, resident: new Map(), free };
+  }
+  const tiles = createPool(channels, TILE_BUDGET);
+  let raws = createPool(Math.min(channels, MIN_RAW_CHANNELS), RAW_BUDGET);
   const slots = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, slots);
-  gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, layerCount, 1);
+  gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, maxLayers, 1);
   nearest(gl, gl.TEXTURE_2D);
   const params = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, params);
@@ -274,66 +313,138 @@ export function createWaveformLayer(
   gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, channels, 1, gl.RG, gl.FLOAT, trace.params);
   const vertices = gl.createVertexArray();
 
-  const resident = new Map<string, Resident>();
-  const free = Array.from({ length: layerCount }, (_, i) => layerCount - 1 - i);
+  const chunkBytes = channels * LAYER_ROWS * 4;
+  const runChunks = Math.max(1, Math.min(16, Math.floor(RUN_BYTES / chunkBytes)));
+  /** Raw chunks of every display channel, least recently used first. */
+  const cache = new Map<number, Float32Array>();
+  let cacheBytes = 0;
+  /** Requests in flight by key: tiles `level/index`, raw chunks `r<chunk>`. */
   const inFlight = new Set<string>();
+  let tilesInFlight = 0;
   /** Tiles the engine had no data for yet, by key: asked again once the scan has passed their last row. */
   const unavailable = new Map<string, number>();
+  /** Requests that failed: when to ask again, and the reason the user sees (none while the engine restarts). */
+  const failures = new Map<string, { retryAt: number; attempts: number; reason: string | null }>();
+  /** Tiles kept whatever their age: the view's cover and the top tile. */
+  const pinned = new Set<string>();
+  /** The raw chunks of the last frame and their channel window, put into layers as they arrive. */
+  let wanted = { chunks: new Set<number>(), first: 0 };
+  /** Rows the scan has stored tiles for: covers are read from storage, never built from the file. */
+  let scannedRows = 0;
   let frameNumber = 0;
   let disposed = false;
 
-  /** A free layer, or the least recently used one not drawn in this frame; `undefined` when every layer is. */
-  function acquire(): number | undefined {
-    const layer = free.pop();
+  const usable = () => !disposed && !gl.isContextLost();
+  const waiting = (key: string) => (failures.get(key)?.retryAt ?? 0) > performance.now();
+
+  /** A free layer, or the least recently drawn one that this frame does not use and nothing pins. */
+  function acquire(pool: Pool): number | undefined {
+    const layer = pool.free.pop();
     if (layer !== undefined) return layer;
-    let oldest: [string, Resident] | undefined;
-    for (const entry of resident) if (!oldest || entry[1].used < oldest[1].used) oldest = entry;
+    let oldest: [string, { layer: number; used: number }] | undefined;
+    for (const entry of pool.resident) {
+      if (!pinned.has(entry[0]) && (!oldest || entry[1].used < oldest[1].used)) oldest = entry;
+    }
     if (!oldest || oldest[1].used >= frameNumber) return undefined;
-    resident.delete(oldest[0]);
+    pool.resident.delete(oldest[0]);
     return oldest[1].layer;
   }
 
-  /** Puts `rowsOf` rows of minima (and maxima at row 1,024) or raw rows into a layer under `key`. */
-  function upload(key: string, values: Float32Array, rowsOf: number, tile: boolean) {
-    if (disposed || gl.isContextLost() || resident.has(key)) return;
-    const layer = acquire();
+  function uploadTile(key: string, tile: ArrayBuffer) {
+    if (!usable() || tiles.resident.has(key)) return;
+    const layer = acquire(tiles);
     if (layer === undefined) return; // every layer is on screen: the next frame asks again
-    gl.bindTexture(gl.TEXTURE_2D_ARRAY, data);
-    const n = rowsOf * channels;
-    gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, layer, channels, rowsOf, 1, gl.RED, gl.FLOAT, values, 0);
-    if (tile) {
-      gl.texSubImage3D(
-        gl.TEXTURE_2D_ARRAY,
-        0,
-        0,
-        TILE_BUCKETS,
-        layer,
-        channels,
-        rowsOf,
-        1,
-        gl.RED,
-        gl.FLOAT,
-        values,
-        n,
-      );
-    }
+    const { buckets, values } = decodeTile(tile);
+    const n = buckets * channels;
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, tiles.texture);
+    gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, layer, channels, buckets, 1, gl.RED, gl.FLOAT, values, 0);
+    gl.texSubImage3D(
+      gl.TEXTURE_2D_ARRAY,
+      0,
+      0,
+      TILE_BUCKETS,
+      layer,
+      channels,
+      buckets,
+      1,
+      gl.RED,
+      gl.FLOAT,
+      values,
+      n,
+    );
     // Counted as drawn in the last frame: later uploads before the next frame do not push it out.
-    resident.set(key, { layer, used: frameNumber });
+    tiles.resident.set(key, { layer, used: frameNumber });
+  }
+
+  /** Puts the channels `first..first + width` of a raw chunk (rows of every channel) into a raw layer. */
+  function uploadRaw(chunk: number, values: Float32Array, first: number) {
+    const key = `${chunk}@${first}`;
+    if (!usable() || raws.resident.has(key)) return;
+    const layer = acquire(raws);
+    if (layer === undefined) return;
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, raws.texture);
+    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, channels);
+    gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, first);
+    const n = values.length / channels;
+    gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, layer, raws.width, n, 1, gl.RED, gl.FLOAT, values, 0);
+    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
+    gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
+    raws.resident.set(key, { layer, used: frameNumber });
+  }
+
+  function remember(chunk: number, values: Float32Array) {
+    cacheBytes -= cache.get(chunk)?.byteLength ?? 0;
+    cache.delete(chunk);
+    cache.set(chunk, values);
+    cacheBytes += values.byteLength;
+    for (const [old, kept] of cache) {
+      if (cacheBytes <= RAW_CACHE) break;
+      cache.delete(old);
+      cacheBytes -= kept.byteLength;
+    }
+  }
+
+  function cached(chunk: number): Float32Array | undefined {
+    const values = cache.get(chunk);
+    if (values) {
+      cache.delete(chunk);
+      cache.set(chunk, values);
+    }
+    return values;
+  }
+
+  /**
+   * A failed request is asked again after a growing pause. An engine that restarted is asked again at once, and
+   * says nothing to the user unless that fails too.
+   */
+  function failed(keys: string[], error: unknown) {
+    const restarted = error instanceof EngineStopped;
+    let pause = 0;
+    for (const key of keys) {
+      const attempts = (failures.get(key)?.attempts ?? 0) + 1;
+      pause = restarted && attempts === 1 ? 0 : Math.min(30_000, 500 * 2 ** (attempts - 1));
+      const reason =
+        restarted && attempts === 1 ? null : error instanceof Error ? error.message : String(error);
+      failures.set(key, { retryAt: performance.now() + pause, attempts, reason });
+    }
+    setTimeout(() => !disposed && onData(), pause + 10); // the retry comes even when nothing else redraws
   }
 
   function requestTile(level: number, index: number) {
     const key = `${level}/${index}`;
     inFlight.add(key);
+    tilesInFlight++;
     source
       .tile(level, index)
       .then((found) => {
-        if (!found) return void unavailable.set(key, Math.min(rows, (index + 1) * tileRows(level)));
-        const { buckets, values } = decodeTile(found.bytes);
-        upload(key, values, buckets, true);
+        failures.delete(key);
+        if (found) uploadTile(key, found.bytes);
+        else unavailable.set(key, Math.min(rows, (index + 1) * tileRows(level)));
       })
-      .catch(() => unavailable.set(key, 0)) // asked again when the scan next reports
+      .catch((error) => failed([key], error))
       .finally(() => {
         inFlight.delete(key);
+        tilesInFlight--;
         if (!disposed) onData();
       });
   }
@@ -346,24 +457,56 @@ export function createWaveformLayer(
       .raw(row0, Math.min(rows, (first + count) * LAYER_ROWS) - row0)
       .then((values) => {
         keys.forEach((key, i) => {
+          failures.delete(key);
           const start = i * LAYER_ROWS;
           const n = Math.min(LAYER_ROWS, values.length / channels - start);
-          if (n > 0) upload(key, values.subarray(start * channels, (start + n) * channels), n, false);
+          if (n <= 0) return;
+          const chunk = values.subarray(start * channels, (start + n) * channels);
+          remember(first + i, chunk);
+          if (wanted.chunks.has(first + i)) uploadRaw(first + i, chunk, wanted.first);
         });
       })
-      .catch(() => {})
+      .catch((error) => failed(keys, error))
       .finally(() => {
         for (const key of keys) inFlight.delete(key);
         if (!disposed) onData();
       });
   }
 
-  /** The finest loaded tile above `from` covering rows from `row`: its key, level and index. */
-  function coarser(from: number, row: number): { key: string; level: number; index: number } | undefined {
+  /** Asks for the chunks of `want` in runs of consecutive chunks, nearest first, while requests may be added. */
+  function requestRuns(want: number[]) {
+    const left = want.filter((k) => !inFlight.has(`r${k}`) && !waiting(`r${k}`));
+    while (left.length > 0 && inFlight.size - tilesInFlight < MAX_IN_FLIGHT * runChunks) {
+      const run = [left.shift() as number];
+      for (let grown = true; grown && run.length < runChunks; ) {
+        grown = false;
+        for (const next of [run[0] - 1, (run.at(-1) as number) + 1]) {
+          const at = left.indexOf(next);
+          if (at >= 0 && run.length < runChunks) {
+            left.splice(at, 1);
+            if (next < run[0]) run.unshift(next);
+            else run.push(next);
+            grown = true;
+          }
+        }
+      }
+      requestRaw(run[0], run.length);
+    }
+  }
+
+  const askTile = (level: number, index: number) => {
+    const key = `${level}/${index}`;
+    if (tilesInFlight < MAX_IN_FLIGHT && !inFlight.has(key) && !unavailable.has(key) && !waiting(key)) {
+      requestTile(level, index);
+    }
+  };
+
+  /** The finest loaded tile at `from` or above covering rows from `row`: its key, level and index. */
+  function coarser(from: number, row: number) {
     for (let level = from; level < levels; level++) {
       const index = Math.floor(row / tileRows(level));
-      const key = `${level}/${index}`;
-      if (resident.has(key)) return { key, level, index };
+      const entry = tiles.resident.get(`${level}/${index}`);
+      if (entry) return { entry, level, index };
     }
     return undefined;
   }
@@ -377,103 +520,148 @@ export function createWaveformLayer(
     let plan = drawPlan(spp, levels);
     const firstRow = Math.max(0, Math.floor(s0) - 1);
     const lastRow = Math.min(rows - 1, Math.ceil(s0 + width * spp) + 1);
-    if (lastRow < firstRow || disposed) return { plan, complete: true, missing: [] };
-    // shortcut: raw rows of a very wide view of many channels would not fit the layers and level 0 tiles stand in,
-    // whose 64-row buckets can widen a span past its neighbours; upload only the rows on screen if this shows.
-    if (
-      plan.mode !== "tile" &&
-      (Math.floor(lastRow / LAYER_ROWS) - Math.floor(firstRow / LAYER_ROWS) + 1) * 2 > layerCount
-    ) {
-      plan = { mode: "tile", level: 0 };
+    if (lastRow < firstRow || disposed) return { plan, complete: true, gaps: [], error: null };
+
+    // Raw layers hold a window of channels around the rows on screen.
+    const rawWidth = Math.min(channels, Math.max(frame.rowCount, MIN_RAW_CHANNELS));
+    if (rawWidth > raws.width) {
+      gl.deleteTexture(raws.texture);
+      raws = createPool(rawWidth, RAW_BUDGET);
     }
+    const rawFirst = Math.min(frame.firstChannel, channels - raws.width);
+    // shortcut: raw rows of a view wider than half the raw layers draw from level 0 tiles, whose 64-row buckets can
+    // widen a span past its neighbours; split such a view into passes if screens that wide appear.
+    const rawChunks = Math.floor(lastRow / LAYER_ROWS) - Math.floor(firstRow / LAYER_ROWS) + 1;
+    if (plan.mode !== "tile" && rawChunks * 2 > raws.layers) plan = { mode: "tile", level: 0 };
     const raw = plan.mode !== "tile";
     let level = plan.mode === "tile" ? plan.level : -1;
+    const span = (at: number) => {
+      const [a, b] = tileIndices(firstRow, lastRow + 1, at);
+      return { a, b, count: b - a + 1 };
+    };
     // A view far wider than a screen would need more tiles than there are layers: a coarser level draws it.
-    const tiles = (at: number) => tileIndices(firstRow, lastRow + 1, at);
-    while (!raw && level < levels - 1 && tiles(level)[1] - tiles(level)[0] + 1 > layerCount) level++;
+    while (!raw && level < top && span(level).count > tiles.layers / 2) level++;
     if (!raw) plan = { mode: "tile", level };
     const slotRows = raw ? LAYER_ROWS : tileRows(level);
     const first = Math.floor(firstRow / slotRows);
     const count = Math.floor(lastRow / slotRows) - first + 1;
     const base = first * slotRows;
 
+    // The cover: the view's few tiles at the finest level above the plan that has at most COVER_TILES of them
+    // (coarser while those are not scanned yet), and the top tile. They are asked for after the view's own data,
+    // and only once the scan has stored them: building them from the file would delay what they stand in for.
+    pinned.clear();
+    let cover = Math.min(top, raw ? 0 : level + 1);
+    const scanned = (at: number) => {
+      const { a, b } = span(at);
+      for (let i = a; i <= b; i++) if (unavailable.has(`${at}/${i}`)) return false;
+      return true;
+    };
+    while (cover < top && (span(cover).count > COVER_TILES || !scanned(cover))) cover++;
+    const covering: [number, number][] = [[top, 0]];
+    for (let i = span(cover).a; i <= span(cover).b; i++) covering.push([cover, i]);
+    for (const [at, index] of covering) {
+      const key = `${at}/${index}`;
+      pinned.add(key);
+      const entry = tiles.resident.get(key);
+      if (entry) entry.used = frameNumber;
+    }
+
     const table = new Float32Array(4 * count);
-    const missing: [number, number][] = [];
+    const gaps: Gap[] = [];
     const wantRaw: number[] = [];
     const wantTiles: number[] = [];
+    const needed: string[] = covering.map(([at, index]) => `${at}/${index}`);
     let complete = true;
+    let uploads = 0;
+    let deferred = false;
+    wanted = { chunks: new Set(), first: rawFirst };
     for (let s = 0; s < count; s++) {
       const k = first + s;
-      const own = resident.get(raw ? `r${k}` : `${level}/${k}`);
+      const key = raw ? `${k}@${rawFirst}` : `${level}/${k}`;
+      needed.push(raw ? `r${k}` : key);
+      if (raw) {
+        wanted.chunks.add(k);
+        const values = !raws.resident.has(key) && uploads < UPLOADS_PER_FRAME ? cached(k) : undefined;
+        if (values) {
+          uploadRaw(k, values, rawFirst);
+          uploads++;
+        }
+      }
+      const own = (raw ? raws : tiles).resident.get(key);
       if (own) {
         own.used = frameNumber;
         table.set([own.layer, raw ? 1 : bucketSize(level), 0, raw ? 1 : 0], 4 * s);
         continue;
       }
       complete = false;
-      if (raw) wantRaw.push(k);
+      if (raw && cache.has(k)) deferred = true;
+      else if (raw) wantRaw.push(k);
       else wantTiles.push(k);
       const start = k * slotRows;
-      const cover = coarser(raw ? 0 : level + 1, start);
-      if (cover) {
-        const entry = resident.get(cover.key) as Resident;
-        entry.used = frameNumber;
-        const size = bucketSize(cover.level);
-        table.set([entry.layer, size, (start - cover.index * tileRows(cover.level)) / size, 0], 4 * s);
-      } else {
-        table.set([-1, 1, 0, 0], 4 * s);
-        // Rows still on their way leave a blank; rows the scan has not reached are marked.
-        if (raw || !unavailable.has(`${level}/${k}`)) continue;
-        const x0 = Math.max(0, (start - s0) / spp);
-        const x1 = Math.min(width, (start + slotRows - s0) / spp);
-        const last = missing.at(-1);
-        if (last && last[1] >= x0) last[1] = x1;
-        else missing.push([x0, x1]);
+      const found = coarser(raw ? 0 : level + 1, start);
+      if (found) {
+        found.entry.used = frameNumber;
+        const size = bucketSize(found.level);
+        table.set([found.entry.layer, size, (start - found.index * tileRows(found.level)) / size, 0], 4 * s);
+        continue;
       }
+      table.set([-1, 1, 0, 0], 4 * s);
+      const x0 = Math.max(0, (start - s0) / spp);
+      const x1 = Math.min(width, (start + slotRows - s0) / spp);
+      const reason = !raw && unavailable.has(key) ? "unscanned" : "loading";
+      const last = gaps.at(-1);
+      if (last && last.reason === reason && last.x1 >= x0) last.x1 = x1;
+      else gaps.push({ x0, x1, reason });
     }
-    // Requests for what this frame lacks, nearest the middle of the view first.
+
+    // Own data nearest the middle of the view first; then, in raw views, the epochs either side for paging.
     const middle = (s0 + (width * spp) / 2) / slotRows;
     const byDistance = (a: number, b: number) => Math.abs(a - middle) - Math.abs(b - middle);
-    for (const k of wantTiles.sort(byDistance)) {
-      const key = `${level}/${k}`;
-      if (inFlight.size >= MAX_IN_FLIGHT) break;
-      if (!inFlight.has(key) && !unavailable.has(key)) requestTile(level, k);
+    for (const k of wantTiles.sort(byDistance)) askTile(level, k);
+    requestRuns(wantRaw.sort(byDistance));
+    for (const [at, index] of covering) {
+      const stored = Math.min(rows, (index + 1) * tileRows(at)) <= scannedRows;
+      if (stored && !tiles.resident.has(`${at}/${index}`)) askTile(at, index);
     }
-    const runs = wantRaw.filter((k) => !inFlight.has(`r${k}`)).sort(byDistance);
-    while (runs.length > 0 && inFlight.size < MAX_IN_FLIGHT * RUN_CHUNKS) {
-      // A run of consecutive chunks around the first one wanted.
-      const run = [runs.shift() as number];
-      for (let more = true; more && run.length < RUN_CHUNKS; ) {
-        more = false;
-        for (const next of [run[0] - 1, (run.at(-1) as number) + 1]) {
-          const at = runs.indexOf(next);
-          if (at >= 0 && run.length < RUN_CHUNKS) {
-            runs.splice(at, 1);
-            if (next < run[0]) run.unshift(next);
-            else run.push(next);
-            more = true;
+    if (raw) {
+      const ahead = Math.ceil(frame.aheadRows / LAYER_ROWS);
+      const firstChunk = Math.floor(firstRow / LAYER_ROWS);
+      const lastChunk = Math.floor(lastRow / LAYER_ROWS);
+      if ((rawChunks + 2 * ahead) * chunkBytes <= RAW_CACHE) {
+        const around: number[] = [];
+        for (let i = 1; i <= ahead; i++) {
+          for (const k of [lastChunk + i, firstChunk - i]) {
+            const loaded = cache.has(k) || raws.resident.has(`${k}@${rawFirst}`);
+            if (k >= 0 && k * LAYER_ROWS < rows && !loaded) around.push(k);
           }
         }
+        requestRuns(around);
       }
-      requestRaw(run[0], run.length);
     }
+    const error = needed.map((key) => failures.get(key)?.reason).find((reason) => reason) ?? null;
+    if (deferred) onData();
 
     gl.bindTexture(gl.TEXTURE_2D, slots);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, count, 1, gl.RGBA, gl.FLOAT, table);
     gl.bindVertexArray(vertices);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D_ARRAY, data);
-    gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, slots);
-    gl.activeTexture(gl.TEXTURE2);
-    gl.bindTexture(gl.TEXTURE_2D, params);
+    const bind = (unit: number, target: number, texture: WebGLTexture | null) => {
+      gl.activeTexture(gl.TEXTURE0 + unit);
+      gl.bindTexture(target, texture);
+    };
+    bind(0, gl.TEXTURE_2D_ARRAY, tiles.texture);
+    bind(1, gl.TEXTURE_2D_ARRAY, raws.texture);
+    bind(2, gl.TEXTURE_2D, slots);
+    bind(3, gl.TEXTURE_2D, params);
     const rowsShown = Math.min(frame.rowCount, channels - frame.firstChannel);
     const common = (p: ReturnType<typeof program>) => {
       // biome-ignore lint/correctness/useHookAtTopLevel: WebGL's useProgram, not a React hook
       gl.useProgram(p.program);
-      gl.uniform1i(p.uniform("u_data"), 0);
-      gl.uniform1i(p.uniform("u_slots"), 1);
-      gl.uniform1i(p.uniform("u_params"), 2);
+      gl.uniform1i(p.uniform("u_tiles"), 0);
+      gl.uniform1i(p.uniform("u_raw"), 1);
+      gl.uniform1i(p.uniform("u_slots"), 2);
+      gl.uniform1i(p.uniform("u_params"), 3);
+      gl.uniform1i(p.uniform("u_rawFirst"), rawFirst);
       gl.uniform1i(p.uniform("u_slotCount"), count);
       gl.uniform1f(p.uniform("u_slotRows"), slotRows);
       gl.uniform1f(p.uniform("u_s0"), s0 - base);
@@ -506,19 +694,20 @@ export function createWaveformLayer(
         gl.drawArraysInstanced(gl.POINTS, 0, 1, samples);
       }
     }
-    return { plan, complete, missing };
+    return { plan, complete, gaps, error };
   }
 
   return {
     draw,
     /** The scan has stored the tiles up to `scannedRows`: those the engine did not have before exist now. */
-    scanAdvanced(scannedRows: number) {
+    scanAdvanced(rowsScanned: number) {
+      scannedRows = rowsScanned;
       for (const [key, end] of unavailable) if (scannedRows >= end) unavailable.delete(key);
     },
     dispose() {
       disposed = true;
       if (gl.isContextLost()) return;
-      for (const texture of [data, slots, params]) gl.deleteTexture(texture);
+      for (const texture of [tiles.texture, raws.texture, slots, params]) gl.deleteTexture(texture);
       gl.deleteVertexArray(vertices);
       gl.deleteProgram(spans.program);
       gl.deleteProgram(dots.program);
