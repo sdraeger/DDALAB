@@ -129,10 +129,10 @@
   "logical_cores": 18,
   "total_memory_gb": 24,
   "node_version": "v26.12.1",
-  "commit": "dd6c9251f9e1f69559becab0afb82590cceb38f2",
+  "commit": "86b4e82ff96d79eb24f1f19ea9de819dcc5fe4a9",
   "worktree_dirty": false,
-  "wasm_sha256": "fd7f07c370fd25d20ab141bd2641c2e21cddab209eb583b36a8c7b7e8ba49391",
-  "cli_sha256": "69e2d6ab0d2467f7673d092f3d2f026e9a1e6cf71f1f78379862918e01dd99f8",
+  "wasm_sha256": "c7c67d984334538b4a3749a34ee9e3917386e12db14815ba83248401976e8924",
+  "cli_sha256": "32e8c598bc08c0982dedd1117a97d92245d19eb3dc46b5821244e91792b955fd",
   "input_sha256": {
     "large_32ch.edf": "bf2f629bc6e7f5a9c087e22d95c24beabb9217da71c9e5441b5e781f0a1573ca",
     "large_128ch.edf": "0b9f775d4afbc17ccaa19b60e53b24df28207b92c8323ea4820e500b7f172b77",
