@@ -1,5 +1,19 @@
 /* The OpenNeuro section of the library rail; its lists and notes use the rail's own classes. */
 
+/* Browsers without the search element would set it inline. */
+.search {
+  display: block;
+}
+
+/* The status lines under the field take no room while empty. */
+.status {
+  overflow-wrap: anywhere;
+}
+
+.status:not(:empty) {
+  margin-top: var(--space-2);
+}
+
 .field {
   width: 100%;
   height: 28px;

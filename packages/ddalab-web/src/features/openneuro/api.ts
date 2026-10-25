@@ -5,6 +5,7 @@ import type { RecordingInput } from "../../core/engine";
 
 const ENDPOINT = "https://openneuro.org/crn/graphql";
 const UNREACHABLE = "OpenNeuro could not be reached. Recordings on this computer still open.";
+const UNREADABLE = "OpenNeuro sent an answer DDALAB cannot read. Try again later.";
 
 export interface DatasetHit {
   id: string;
@@ -38,13 +39,18 @@ async function graphql<T>(query: string, variables: object, signal?: AbortSignal
     throw error.name === "AbortError" ? error : new Error(UNREACHABLE);
   });
   if (!response.ok) throw new Error(`OpenNeuro answered ${response.status}`);
-  const { data, errors } = await response.json();
+  // A proxy or sign-in portal can answer in OpenNeuro's place with a page.
+  const { data, errors } = await response.json().catch((error: Error) => {
+    throw error.name === "SyntaxError" ? new Error(UNREADABLE) : error;
+  });
   if (errors?.length) throw new Error(`OpenNeuro: ${errors[0].message}`);
   return data;
 }
 
+/** The most hits a search shows. */
+export const SEARCH_LIMIT = 25;
 const SEARCH = `query Search($query: DatasetSearchInput!) {
-  advancedSearch(query: $query, first: 25) {
+  advancedSearch(query: $query, first: ${SEARCH_LIMIT}) {
     edges { node { id latestSnapshot { tag description { Name } summary { modalities subjects size } } } }
   }
 }`;
@@ -97,14 +103,23 @@ export async function listFiles(datasetId: string, tag: string, tree?: string): 
   }));
 }
 
+/** `name` without its extension. */
+const stem = (name: string) => name.replace(/\.[^.]*$/, "");
+
 /**
- * The files of recording `primary` in `files`, the listing of its directory: those that share its BIDS prefix
- * (`<prefix>_<suffix>`), which hold its data, markers and sidecars, or its stem without one. Other runs in the
- * directory stay out: they would count toward the size above which remote recordings are not scanned.
+ * The files of recording `primary` in `files`, the listing of its directory, by the names the core looks for: the
+ * files of its stem (data, markers, `<prefix>_<modality>.json`) and, for a BIDS name `<prefix>_<modality>`,
+ * `<prefix>_channels.tsv` and `<prefix>_events.tsv`. Other recordings in the directory stay out: they would count
+ * toward the size above which remote recordings are not scanned.
  */
 export function recordingFiles(files: RemoteFile[], primary: string): RemoteFile[] {
-  const prefix = primary.slice(0, primary.lastIndexOf("_") + 1) || primary.slice(0, primary.indexOf(".") + 1);
-  return files.filter((file) => !file.directory && file.filename.startsWith(prefix));
+  const own = stem(primary);
+  const cut = own.lastIndexOf("_");
+  const sidecars =
+    cut > 0 ? ["channels.tsv", "events.tsv"].map((name) => `${own.slice(0, cut)}_${name}`) : [];
+  return files.filter(
+    (file) => !file.directory && (stem(file.filename) === own || sidecars.includes(file.filename)),
+  );
 }
 
 /** The input that streams `primary` and the rest of its recording's files from their URLs. */
