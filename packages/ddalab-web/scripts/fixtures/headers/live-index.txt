@@ -1,0 +1,15 @@
+HTTP/1.1 200 OK
+Date: Sun, 25 Oct 2026 21:53:51 GMT
+Server: Apache
+Last-Modified: Wed, 30 Jul 2025 21:55:15 GMT
+ETag: "801ff0a600933b48-3b86-63b2c946c76c0"
+Accept-Ranges: bytes
+Content-Length: 15238
+Cache-Control: max-age=300
+Expires: Sun, 25 Oct 2026 21:58:51 GMT
+Vary: Accept-Encoding
+X-Frame-Options: SAMEORIGIN
+X-Content-Type-Options: nosniff
+X-XSS-Protection: 1; mode=block
+Content-Type: text/html
+

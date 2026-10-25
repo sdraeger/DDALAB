@@ -10,6 +10,12 @@ on:
   push:
     branches: ["main"]
     tags: ["v*"]
+    # GitHub does not evaluate path filters for pushes of tags.
+    paths:
+      - "packages/ddalab-web/**"
+      - "packages/ddalab-wasm/**"
+      - "packages/dda-rs/**"
+      - ".github/workflows/web.yml"
   workflow_dispatch:
 
 permissions:
@@ -75,6 +81,11 @@ jobs:
 
       - name: Self-hosting smoke test
         run: npm run test:dist
+
+      - name: Self-hosting smoke test with the wasm served without its MIME type
+        run: npm run test:dist
+        env:
+          DIST_WASM_TYPE: application/octet-stream
 
       - name: Zip the bundle
         if: startsWith(github.ref, 'refs/tags/v')

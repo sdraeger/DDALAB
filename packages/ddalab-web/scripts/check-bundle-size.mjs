@@ -1,8 +1,9 @@
-// Fails the build when the JavaScript the entry HTML loads (module scripts and modulepreload links, so the entry
-// chunk and the chunks it imports statically) exceeds 200 kB gzipped; kB is 1000 bytes, as Vite prints it. Lazy
-// chunks and the workers load later and are not counted. The engine's wasm module is not limited: it is reported.
+// Fails the build when the JavaScript the entry HTML loads exceeds 200 kB gzipped. That is the module scripts and
+// modulepreload links of index.html: the entry chunk and the chunks it imports statically. kB is 1000 bytes, as Vite
+// prints it. Lazy chunks and workers load later and are not counted. The engine's wasm module has no limit; the
+// script reports its size.
 // Usage: node scripts/check-bundle-size.mjs [dist directory]
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
@@ -34,7 +35,7 @@ export function bundleSizes(dir) {
 
 const kB = (bytes) => `${(bytes / 1000).toFixed(2)} kB`;
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+if (realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
   const dir = process.argv[2] ?? fileURLToPath(new URL("../dist", import.meta.url));
   const { initial, wasm } = bundleSizes(dir);
   if (initial.length === 0) {

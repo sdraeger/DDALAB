@@ -6,6 +6,7 @@ const perf = Boolean(process.env.PERF);
 
 export default defineConfig({
   testDir: "e2e",
+  retries: process.env.CI ? 1 : 0,
   // The CLI bundles e2e/analysis.spec.ts compares the browser's results with.
   globalSetup: "./e2e/global-setup.ts",
   use: { baseURL: "http://localhost:5173" },

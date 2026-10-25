@@ -1,18 +1,31 @@
-# For Apache userdir hosting (mod_mime, mod_headers); Vite copies this file to dist/.htaccess.
-# A host that ignores it still runs the app: the engine loader compiles the wasm from its bytes when the MIME type
-# is wrong, and no header is required.
+# For Apache userdir hosting; Vite copies this file to dist/.htaccess.
+# The folder needs AllowOverride FileInfo (or All). With AllowOverride None Apache ignores this file and the app still
+# runs: the engine loader compiles the wasm from its bytes when the MIME type is wrong, and no header is required.
 
-AddType application/wasm .wasm
+<IfModule mod_mime.c>
+  AddType application/wasm .wasm
+</IfModule>
+
+# The wasm module is 1.1 MB and compresses to a third. SetOutputFilter in a FilesMatch leaves the host's own
+# compression of text types alone; a folder-level AddOutputFilterByType would replace the host's list for the folder.
+<IfModule mod_deflate.c>
+  <FilesMatch "\.wasm$">
+    SetOutputFilter DEFLATE
+  </FilesMatch>
+</IfModule>
 
 <IfModule mod_headers.c>
-  # The Content-Security-Policy. Hosts the app may fetch from are the connect-src line: change it here when the app
-  # reaches a new host (OpenNeuro: its GraphQL API on openneuro.org, dataset files on s3.amazonaws.com).
+  # The Content-Security-Policy. The connect-src line lists the hosts the app may fetch from. Change it here when the
+  # app reaches a new host (OpenNeuro: its GraphQL API on openneuro.org, dataset files on s3.amazonaws.com).
   Header always set Content-Security-Policy "default-src 'self'; \
     script-src 'self' 'wasm-unsafe-eval'; \
     connect-src 'self' https://openneuro.org https://s3.amazonaws.com; \
     worker-src 'self'; img-src 'self' blob: data:; style-src 'self'; \
-    base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    base-uri 'none'; form-action 'none'"
 
+  # Each response carries one Cache-Control and no Expires. A server-wide expiry (mod_expires) would add its own
+  # Expires date and a short max-age for HTML and CSS.
+  Header unset Expires
   # Every script, style sheet and wasm module carries a content hash in its name; only index.html does not.
   <FilesMatch "\.(js|css|wasm)$">
     Header set Cache-Control "public, max-age=31536000, immutable"
