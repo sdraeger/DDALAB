@@ -2,6 +2,8 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 export default defineConfig({
+  // Relative URLs: dist works from any path (a userdir such as /~name/ddalab/) without a rebuild.
+  base: "./",
   plugins: [
     react(),
     {
