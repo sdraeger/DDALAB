@@ -1,7 +1,37 @@
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
-use std::time::Instant;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use std::time::Instant;
+
+// shortcut: wasm32-unknown-unknown has no clock, so elapsed() is always MAX and progress is never throttled; the host throttles by step count
+#[cfg(target_arch = "wasm32")]
+pub(crate) use no_clock::Instant;
+
+#[cfg(target_arch = "wasm32")]
+mod no_clock {
+    use std::time::Duration;
+
+    #[derive(Clone, Copy)]
+    pub struct Instant;
+
+    impl Instant {
+        pub fn now() -> Self {
+            Self
+        }
+        pub fn elapsed(&self) -> Duration {
+            Duration::MAX
+        }
+    }
+
+    impl std::ops::Sub<Duration> for Instant {
+        type Output = Self;
+        fn sub(self, _: Duration) -> Self {
+            self
+        }
+    }
+}
 
 /// Profiling/benchmarking infrastructure for performance measurement
 pub struct ProfileScope {
@@ -51,7 +81,10 @@ fn write_profile_log(label: &str, duration_ms: f64) -> std::io::Result<()> {
         .append(true)
         .open(log_path)?;
 
+    #[cfg(not(target_arch = "wasm32"))]
     let timestamp = chrono::Utc::now().to_rfc3339();
+    #[cfg(target_arch = "wasm32")]
+    let timestamp = String::new();
     writeln!(file, "{} | {} | {:.3}ms", timestamp, label, duration_ms)?;
 
     Ok(())
