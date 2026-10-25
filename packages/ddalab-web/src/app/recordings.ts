@@ -34,7 +34,7 @@ function adopt(opened: Awaited<ReturnType<typeof engine.open>>, source: "files" 
   follow(id);
 }
 
-/** Opens an input as the UI opens chosen files; dev and e2e builds only (for synthetic and test-served inputs). */
+/** Opens an input as the UI opens files: an OpenNeuro recording, or a synthetic one in dev and e2e builds. */
 export async function openInput(input: RecordingInput) {
   const opened = await engine.open(input);
   adopt(opened, input.kind);
