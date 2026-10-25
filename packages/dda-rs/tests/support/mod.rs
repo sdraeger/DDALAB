@@ -210,3 +210,151 @@ pub fn memory_file_set(name: &str, bytes: Vec<u8>) -> FileSet {
         )]),
     }
 }
+
+pub struct BrainVisionSpec {
+    /// The `.vhdr`, `.eeg` and `.vmrk` are named `<stem>.<ext>`.
+    pub stem: String,
+    pub labels: Vec<String>,
+    /// `INT_16`, `UINT_16`, `INT_32` or `IEEE_FLOAT_32`.
+    pub binary_format: &'static str,
+    pub vectorized: bool,
+    pub rate_hz: f64,
+    pub samples: usize,
+    /// The resolution text and unit bytes written for every channel.
+    pub resolution: String,
+    pub unit: Vec<u8>,
+    /// `Mk2` onward, each as `<type>,<description>,<position>,<points>,<channel>`; `Mk1` is a `New Segment`.
+    pub markers: Vec<String>,
+    pub crlf: bool,
+    /// Zero bytes after the last complete frame.
+    pub tail_bytes: usize,
+    pub data_points: Option<usize>,
+    pub ascii: bool,
+}
+
+impl Default for BrainVisionSpec {
+    fn default() -> Self {
+        BrainVisionSpec {
+            stem: "sub-01_ieeg".into(),
+            labels: vec!["Fp1".into(), "Fp2".into(), "Cz".into()],
+            binary_format: "INT_16",
+            vectorized: false,
+            rate_hz: 500.0,
+            samples: 600,
+            resolution: "0.1".into(),
+            unit: "\u{b5}V".as_bytes().to_vec(),
+            markers: vec![],
+            crlf: false,
+            tail_bytes: 0,
+            data_points: None,
+            ascii: false,
+        }
+    }
+}
+
+/// The value stored for `channel` at `sample`: a ramp in `-1000..=1000`, shifted by 33000 for `UINT_16`
+/// (so values pass 32767), times 1000 for `INT_32` and times 0.25 for `IEEE_FLOAT_32`.
+pub fn brainvision_stored(spec: &BrainVisionSpec, channel: usize, sample: usize) -> f64 {
+    let ramp = ((sample * 37 + channel * 1001) % 2001) as f64 - 1000.0;
+    match spec.binary_format {
+        "INT_16" => ramp,
+        "UINT_16" => ramp + 33000.0,
+        "INT_32" => ramp * 1000.0,
+        "IEEE_FLOAT_32" => ramp * 0.25,
+        other => panic!("unknown BinaryFormat {other}"),
+    }
+}
+
+/// The `.vhdr`, `.eeg` and `.vmrk` of a recording, as `(name, bytes)`.
+pub fn brainvision_files(spec: &BrainVisionSpec) -> Vec<(String, Vec<u8>)> {
+    let eol: &[u8] = if spec.crlf { b"\r\n" } else { b"\n" };
+    let join = |lines: Vec<Vec<u8>>| -> Vec<u8> {
+        lines
+            .into_iter()
+            .flat_map(|line| line.into_iter().chain(eol.iter().copied()))
+            .collect()
+    };
+    let text = |lines: Vec<String>| -> Vec<Vec<u8>> {
+        lines.into_iter().map(String::into_bytes).collect()
+    };
+
+    let mut head: Vec<String> = vec![
+        "Brain Vision Data Exchange Header File Version 1.0".into(),
+        "; comment".into(),
+        "[Common Infos]".into(),
+        "Codepage=UTF-8".into(),
+        format!("DataFile={}.eeg", spec.stem),
+        format!("MarkerFile={}.vmrk", spec.stem),
+        format!("DataFormat={}", if spec.ascii { "ASCII" } else { "BINARY" }),
+        format!(
+            "DataOrientation={}",
+            if spec.vectorized {
+                "VECTORIZED"
+            } else {
+                "MULTIPLEXED"
+            }
+        ),
+        format!("NumberOfChannels={}", spec.labels.len()),
+        format!("SamplingInterval={}", 1e6 / spec.rate_hz),
+    ];
+    head.extend(spec.data_points.map(|n| format!("DataPoints={n}")));
+    if !spec.ascii {
+        head.extend([
+            "".into(),
+            "[Binary Infos]".into(),
+            format!("BinaryFormat={}", spec.binary_format),
+        ]);
+    }
+    head.extend(["".into(), "[Channel Infos]".into()]);
+    let mut vhdr = text(head);
+    for (i, label) in spec.labels.iter().enumerate() {
+        let prefix = format!("Ch{}={label},,{},", i + 1, spec.resolution);
+        vhdr.push([prefix.as_bytes(), &spec.unit].concat());
+    }
+
+    let mut vmrk = vec![
+        "Brain Vision Data Exchange Marker File, Version 1.0".to_string(),
+        "[Common Infos]".into(),
+        format!("DataFile={}.eeg", spec.stem),
+        "[Marker Infos]".into(),
+        "Mk1=New Segment,,1,1,0,20200101120000000000".into(),
+    ];
+    vmrk.extend(
+        spec.markers
+            .iter()
+            .enumerate()
+            .map(|(i, marker)| format!("Mk{}={marker}", i + 2)),
+    );
+
+    let width = spec.labels.len();
+    let stored_bytes = |channel, sample| {
+        let value = brainvision_stored(spec, channel, sample);
+        match spec.binary_format {
+            "INT_16" => (value as i16).to_le_bytes().to_vec(),
+            "UINT_16" => (value as u16).to_le_bytes().to_vec(),
+            "INT_32" => (value as i32).to_le_bytes().to_vec(),
+            _ => (value as f32).to_le_bytes().to_vec(),
+        }
+    };
+    // (channel, sample) in file order.
+    let order: Vec<(usize, usize)> = if spec.vectorized {
+        (0..width)
+            .flat_map(|c| (0..spec.samples).map(move |s| (c, s)))
+            .collect()
+    } else {
+        (0..spec.samples)
+            .flat_map(|s| (0..width).map(move |c| (c, s)))
+            .collect()
+    };
+    let mut eeg: Vec<u8> = order
+        .into_iter()
+        .flat_map(|(c, s)| stored_bytes(c, s))
+        .collect();
+    eeg.resize(eeg.len() + spec.tail_bytes, 0);
+
+    vec![
+        (format!("{}.vhdr", spec.stem), join(vhdr)),
+        (format!("{}.eeg", spec.stem), eeg),
+        (format!("{}.vmrk", spec.stem), join(text(vmrk))),
+    ]
+}
