@@ -786,7 +786,7 @@ fn run_progress_counts_the_windows_of_the_whole_run() {
     let dir = tempfile::tempdir().unwrap();
     let path = write_edf(dir.path());
     let w = windows(1024);
-    // Every window is its own block, so a block-local count would end at 1/1.
+    // Every window is its own block; a count local to the block would end at 1/1.
     let run = |extra: &[&str]| {
         let output = ddalab()
             .arg("run")
@@ -935,6 +935,38 @@ fn run_whole_request_for_variants_blocks_refuse() {
     );
 }
 
+#[test]
+fn run_whole_request_reads_the_row_after_the_end() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_edf(dir.path());
+    // Samples 0 to 392 are 393 = 73 + 10 * 32: the last window reads sample 393, the row after the end.
+    let run = |variants: &str, name: &str| {
+        let out = dir.path().join(name);
+        ddalab()
+            .arg("run")
+            .arg("--file")
+            .arg(&path)
+            .args(FAST)
+            .args(["--variants", variants, "--cd-pairs", "1,0"])
+            .args(["--end-sample", "392", "--output"])
+            .arg(&out)
+            .assert()
+            .success();
+        let doc = read_json(&out);
+        let ccd = doc["variants"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|v| v["id"] == "CCD")
+            .unwrap()["matrix"]
+            .clone();
+        assert_eq!(ccd[0].as_array().unwrap().len(), 11);
+        ccd
+    };
+    // CCD runs in blocks; TRCCD runs the recording whole and returns the CCD it regularizes.
+    assert_eq!(run("CCD", "blocks.json"), run("TRCCD", "whole.json"));
+}
+
 /// A BIDS recording `<root>/<subject>/eeg/<subject>_task-a_eeg.edf` of the default `EdfSpec`
 /// whose modality JSON describes `seconds` seconds at 256 Hz.
 fn write_bids_recording(root: &Path, subject: &str, seconds: u32) {
@@ -996,7 +1028,7 @@ fn batch_bids_manifest_schema() {
 
     let results = manifest["results"].as_array().unwrap();
     for (result, subject) in results.iter().zip(["sub-01", "sub-02"]) {
-        let relative = format!("{subject}/eeg/{subject}_task-a_eeg.edf");
+        let relative = format!("bids/{subject}/eeg/{subject}_task-a_eeg.edf");
         assert_eq!(result["inputPath"], relative.as_str());
         assert_eq!(result["resolvedDatasetPath"], relative.as_str());
         assert_eq!(result["status"], "ok");
@@ -1042,7 +1074,7 @@ fn batch_skips_code_derivatives_and_sourcedata() {
     assert_eq!(manifest["matchedFiles"], 1);
     assert_eq!(
         manifest["results"][0]["inputPath"],
-        "sub-01/eeg/sub-01_task-a_eeg.edf"
+        "bids/sub-01/eeg/sub-01_task-a_eeg.edf"
     );
 }
 
@@ -1050,7 +1082,8 @@ fn batch_skips_code_derivatives_and_sourcedata() {
 fn batch_reports_failures_and_exits_partial() {
     let dir = tempfile::tempdir().unwrap();
     let good = write_edf(dir.path());
-    let bad = dir.path().join("short.edf");
+    // 32 samples are too few for a window, and the sidecar describes 100 s of them.
+    let bad = dir.path().join("sub-01_task-a_eeg.edf");
     std::fs::write(
         &bad,
         edf_bytes(&EdfSpec {
@@ -1058,6 +1091,11 @@ fn batch_reports_failures_and_exits_partial() {
             records: 1,
             ..EdfSpec::default()
         }),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("sub-01_task-a_eeg.json"),
+        r#"{"SamplingFrequency": 32, "RecordingDuration": 100}"#,
     )
     .unwrap();
     let output = ddalab()
@@ -1070,8 +1108,21 @@ fn batch_reports_failures_and_exits_partial() {
     let manifest: Value = serde_json::from_slice(&output.get_output().stdout).unwrap();
     assert_eq!(manifest["succeeded"], 1);
     assert_eq!(manifest["failed"], 1);
-    assert_eq!(manifest["results"][0]["status"], "error");
-    assert!(manifest["results"][0]["error"].is_string());
+    // As in the reference manifest: no warnings list, the recording's warnings at the end of the error, a null output path.
+    let failure = &manifest["results"][0];
+    assert_eq!(failure["status"], "error");
+    assert_eq!(failure["warnings"], serde_json::json!([]));
+    assert!(failure["outputPath"].is_null());
+    assert!(failure.as_object().unwrap().contains_key("outputPath"));
+    let error = failure["error"].as_str().unwrap();
+    assert!(
+        error.contains("Selected range has 32 samples"),
+        "{error}"
+    );
+    assert!(
+        error.ends_with(" The data file holds 32 samples (1.00 s), but the BIDS sidecar describes 100.00 s; the file appears truncated."),
+        "{error}"
+    );
     // Without --output-dir the document itself is in the manifest.
     assert_eq!(
         manifest["results"][1]["result"]["schema"],

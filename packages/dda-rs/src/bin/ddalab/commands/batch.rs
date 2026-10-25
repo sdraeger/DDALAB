@@ -5,7 +5,7 @@ use crate::exit_codes;
 use crate::output;
 use dda_rs::io::discover_bids_recordings;
 use serde_json::{json, Value};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 pub async fn execute(args: BatchArgs) -> i32 {
@@ -76,8 +76,19 @@ pub async fn execute(args: BatchArgs) -> i32 {
         }
     }
 
-    // Recording paths in the manifest are relative to the BIDS directory.
+    // Recording paths in the manifest start with the BIDS directory's own name, as `ds003029/sub-01/...`.
     let root = args.bids_dir.as_deref().map(Path::new);
+    let dataset_name = root.and_then(|root| {
+        let resolved = std::fs::canonicalize(root).ok()?;
+        resolved.file_name().map(PathBuf::from)
+    });
+    let in_dataset = |path: &str| match (
+        &dataset_name,
+        root.and_then(|root| Path::new(path).strip_prefix(root).ok()),
+    ) {
+        (Some(name), Some(rest)) => name.join(rest).display().to_string(),
+        _ => path.to_string(),
+    };
     let total = files.len();
     let mut results: Vec<Value> = Vec::new();
     let mut succeeded = 0usize;
@@ -155,7 +166,7 @@ pub async fn execute(args: BatchArgs) -> i32 {
         }
         .await;
 
-        let input_path = relative_to(file_path, root);
+        let input_path = in_dataset(file_path);
         let resolved = match root {
             Some(_) => input_path.clone(),
             None => canonical(file_path),
@@ -181,6 +192,7 @@ pub async fn execute(args: BatchArgs) -> i32 {
                     "status": "error",
                     "warnings": [],
                     "error": error,
+                    "outputPath": null,
                 }));
                 if !args.continue_on_error {
                     break;
@@ -226,12 +238,6 @@ pub async fn execute(args: BatchArgs) -> i32 {
     } else {
         exit_codes::EXECUTION_ERROR
     }
-}
-
-/// `path` below `root` when it is, else as given.
-fn relative_to(path: &str, root: Option<&Path>) -> String {
-    root.and_then(|root| Path::new(path).strip_prefix(root).ok())
-        .map_or_else(|| path.to_string(), |rest| rest.display().to_string())
 }
 
 /// The absolute path with links resolved, as Python's `Path.resolve()`; `path` itself when it cannot be resolved.
