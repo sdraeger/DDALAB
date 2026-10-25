@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { buildFileSet, type FileSet } from "./sources";
+import { buildFileSet, type FileSet, isScanned } from "./sources";
 
 /** A file; `path` is what `<input webkitdirectory>` reports as `webkitRelativePath`. */
 function file(path: string): File {
@@ -57,4 +57,15 @@ test("unsupported_formats_say_why", () => {
     error: `notes.pdf is not a format DDALAB reads; ${FORMATS}`,
   });
   expect(buildFileSet([])).toEqual({ error: "No file was chosen" });
+});
+
+test("remote_files_above_1_gib_are_not_scanned", () => {
+  const url = (...sizes: number[]) => ({
+    kind: "url" as const,
+    primary: "a.vhdr",
+    files: sizes.map((size, i) => ({ name: `a${i}`, url: `https://example.org/a${i}`, size })),
+  });
+  expect(isScanned(url(2 ** 30))).toBe(true);
+  expect(isScanned(url(2 ** 30, 1))).toBe(false);
+  expect(isScanned({ kind: "files", files: [], primary: "a.edf" })).toBe(true);
 });
