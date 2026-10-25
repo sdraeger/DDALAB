@@ -461,12 +461,11 @@ fn read_spans_the_read_size_limit() {
     }
 }
 
-#[test]
-fn open_reads_no_samples() {
-    let spec = BrainVisionSpec::default();
+/// `spec`'s recording with its `.eeg` reads counted.
+fn open_counting(spec: &BrainVisionSpec) -> (Box<dyn Reader>, Arc<AtomicUsize>) {
     let reads = Arc::new(AtomicUsize::new(0));
     let mut files = BTreeMap::new();
-    for (name, bytes) in brainvision_files(&spec) {
+    for (name, bytes) in brainvision_files(spec) {
         let source: Arc<dyn ByteSource> = if name.ends_with(".eeg") {
             Arc::new(CountingSource(MemorySource(bytes), reads.clone()))
         } else {
@@ -475,10 +474,43 @@ fn open_reads_no_samples() {
         files.insert(name, source);
     }
     let set = FileSet {
-        primary: vhdr(&spec),
+        primary: vhdr(spec),
         files,
     };
-    let reader = open_brainvision(&set, &vhdr(&spec)).unwrap();
+    (open_brainvision(&set, &vhdr(spec)).unwrap(), reads)
+}
+
+#[test]
+fn vectorized_reads_channel_by_channel() {
+    // A read takes up to 8 MiB of one channel: 4,194,304 INT_16 samples.
+    for (channels, samples, reads_per_channel) in [(64, 70_000, 1), (2, 4_194_310, 2)] {
+        let spec = BrainVisionSpec {
+            labels: (0..channels).map(|c| format!("c{c}")).collect(),
+            vectorized: true,
+            samples,
+            ..BrainVisionSpec::default()
+        };
+        let (reader, reads) = open_counting(&spec);
+        let picked: Vec<usize> = (0..channels).rev().collect();
+        let mut out = vec![0f32; samples * channels];
+        reader.read_raw_f32(&picked, 0, samples, &mut out).unwrap();
+        assert_eq!(
+            reads.load(Ordering::SeqCst),
+            channels * reads_per_channel,
+            "{channels} channels"
+        );
+        for row in [0, 1, samples / 2, 4_194_303, 4_194_304, samples - 1] {
+            for (k, &c) in picked.iter().enumerate().filter(|_| row < samples) {
+                let want = brainvision_stored(&spec, c, row) as f32;
+                assert_eq!(out[row * channels + k], want, "row {row} channel {c}");
+            }
+        }
+    }
+}
+
+#[test]
+fn open_reads_no_samples() {
+    let (reader, reads) = open_counting(&BrainVisionSpec::default());
     assert_eq!(reads.load(Ordering::SeqCst), 0);
     reader.read_rows(&[0], 0, 1).unwrap();
     assert_eq!(reads.load(Ordering::SeqCst), 1);
