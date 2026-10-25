@@ -1,6 +1,6 @@
 //! The metadata every recording format reports and the trait every format reader implements.
 
-use crate::error::Result;
+use crate::error::{DDAError, Result};
 use serde::{Deserialize, Serialize};
 
 /// How the file stores its samples.
@@ -67,6 +67,28 @@ impl RecordingInfo {
                 channel.kind == ChannelKind::Signal && channel.sample_rate_hz == self.sample_rate_hz
             })
             .collect()
+    }
+
+    /// Refuses an empty or out-of-range channel list and rows outside the recording.
+    pub(crate) fn check_read(&self, channels: &[usize], row0: u64, rows: usize) -> Result<()> {
+        if channels.is_empty() {
+            return Err(DDAError::InvalidParameter(
+                "no channels requested".to_string(),
+            ));
+        }
+        if let Some(c) = channels.iter().find(|&&c| c >= self.channels.len()) {
+            return Err(DDAError::InvalidParameter(format!(
+                "channel {c} is out of range for {} channels",
+                self.channels.len()
+            )));
+        }
+        let total = self.sample_count;
+        if row0.checked_add(rows as u64).is_none_or(|end| end > total) {
+            return Err(DDAError::InvalidParameter(format!(
+                "rows {row0}..{row0}+{rows} pass the {total} rows of the recording"
+            )));
+        }
+        Ok(())
     }
 }
 
