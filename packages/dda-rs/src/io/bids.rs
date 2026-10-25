@@ -89,15 +89,15 @@ fn is_clock_stamp(label: &str) -> bool {
         .is_some_and(|(whole, fraction)| digits(whole) && digits(fraction))
 }
 
-/// The annotation of an events.tsv row; none without a numeric onset or a label, or for a clock stamp.
-/// A missing, non-numeric or non-positive duration is 0.
+/// The annotation of an events.tsv row; none without a numeric onset, or for a clock stamp. A missing, empty or
+/// `n/a` trial_type is the label `n/a`. A missing, non-numeric or non-positive duration is 0.
 fn event(row: &HashMap<&str, &str>) -> Option<Annotation> {
     let number = |key: &str| {
         row.get(key)
             .and_then(|cell| cell.parse::<f64>().ok())
             .filter(|value| value.is_finite())
     };
-    let label = *row.get("trial_type")?;
+    let label = row.get("trial_type").copied().unwrap_or("n/a");
     (!is_clock_stamp(label)).then_some(Annotation {
         onset_s: number("onset")?,
         duration_s: number("duration").filter(|d| *d > 0.0).unwrap_or(0.0),
