@@ -8,7 +8,9 @@ const fixture = (name: string) => readFileSync(fixturePath(name));
 const upload = (name: string, buffer: Buffer) => ({ name, mimeType: "application/octet-stream", buffer });
 
 const files = (page: Page) => page.getByLabel("Recording files");
-const channels = (page: Page) => page.getByRole("list", { name: "Channels" }).getByRole("listitem");
+// Each row's label holds the channel name; kind and BIDS status follow it.
+const channels = (page: Page) =>
+  page.getByRole("list", { name: "Channels" }).getByRole("listitem").locator("label");
 const recentButton = (page: Page, name: string) => page.getByRole("button", { name });
 
 test.beforeEach(async ({ page }) => {
@@ -124,6 +126,7 @@ test("several_recordings_ask", async ({ page }) => {
 test("reopen_requires_repick_without_handle", async ({ page }) => {
   await files(page).setInputFiles(fixturePath("fixture.edf"));
   await expect(channels(page)).toHaveCount(2);
+  await expect(recentButton(page, "Forget fixture.edf")).toBeVisible(); // stored before the reload
   await page.reload();
   await expect(channels(page)).toHaveCount(0);
   await expect(page.getByText("Select the file again to reopen it.")).toBeVisible();
@@ -139,6 +142,7 @@ test("reopen_requires_repick_without_handle", async ({ page }) => {
 test("wrong_file_on_repick_warns", async ({ page }) => {
   await files(page).setInputFiles(fixturePath("fixture.edf"));
   await expect(channels(page)).toHaveCount(2);
+  await expect(recentButton(page, "Forget fixture.edf")).toBeVisible(); // stored before the reload
   await page.reload();
   const [chooser] = await Promise.all([
     page.waitForEvent("filechooser"),

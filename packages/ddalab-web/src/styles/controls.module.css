@@ -1,0 +1,208 @@
+/* Controls shared by the shell, the library and the inspector: buttons, fields, selects, tooltips, popovers. */
+
+.iconButton {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition:
+    background-color var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out);
+}
+
+.iconButton svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.75;
+}
+
+.iconButton:hover:not(:disabled) {
+  background: var(--chrome-hover);
+  color: var(--ink);
+}
+
+.iconButton[aria-pressed="true"] {
+  color: var(--ink);
+}
+
+.iconButton:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.button {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-content: center;
+  align-items: baseline;
+  gap: var(--space-2);
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: var(--hairline-width) solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--ground);
+  color: var(--ink);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition: background-color var(--motion-fast) var(--ease-out);
+}
+
+.button svg {
+  block-size: 1cap;
+  inline-size: auto;
+  stroke-width: 2;
+}
+
+.button:hover:not(:disabled) {
+  background: var(--chrome-hover);
+}
+
+.primary {
+  composes: button;
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-ink);
+}
+
+.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--primary) 88%, var(--ink));
+}
+
+.quiet {
+  composes: button;
+  border-color: transparent;
+  background: transparent;
+  color: var(--primary);
+  padding: 0 var(--space-2);
+}
+
+/* A label set before its control on one line. */
+.field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+.label {
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
+  height: 26px;
+  min-width: 84px;
+  padding: 0 var(--space-1) 0 var(--space-2);
+  border: var(--hairline-width) solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--ground);
+  color: var(--ink);
+  cursor: pointer;
+  user-select: none;
+}
+
+.trigger:hover:not([data-disabled]) {
+  border-color: color-mix(in srgb, var(--hairline) 60%, var(--muted));
+}
+
+.trigger[data-disabled] {
+  color: var(--muted);
+  cursor: default;
+}
+
+.trigger svg {
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+}
+
+.popup {
+  min-width: var(--anchor-width);
+  padding: var(--space-1) 0;
+  border: var(--hairline-width) solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--ground);
+  color: var(--ink);
+  box-shadow: 0 6px 20px rgb(15 25 35 / 0.14);
+  transform-origin: var(--transform-origin);
+  transition:
+    opacity var(--motion-fast) var(--ease-out),
+    transform var(--motion-fast) var(--ease-out);
+}
+
+.popup[data-starting-style],
+.popup[data-ending-style] {
+  opacity: 0;
+  transform: scale(0.98);
+}
+
+.list {
+  max-height: var(--available-height);
+  overflow-y: auto;
+}
+
+.item {
+  display: grid;
+  grid-template-columns: 14px 1fr;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 3px var(--space-3) 3px var(--space-2);
+  cursor: default;
+  user-select: none;
+  outline: 0;
+}
+
+.item[data-highlighted] {
+  background: var(--primary);
+  color: var(--primary-ink);
+}
+
+.item svg {
+  width: 12px;
+  height: 12px;
+  grid-column: 1;
+}
+
+.itemText {
+  grid-column: 2;
+}
+
+.tooltip {
+  padding: 3px var(--space-2);
+  border-radius: var(--radius-small);
+  background: var(--ink);
+  color: var(--ground);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+  transition: opacity var(--motion-fast) var(--ease-out);
+}
+
+.tooltip[data-starting-style],
+.tooltip[data-ending-style] {
+  opacity: 0;
+}
+
+.panel {
+  composes: popup;
+  width: 340px;
+  padding: var(--space-4);
+}
+
+/* A thin vertical rule between groups of controls. */
+.rule {
+  flex: none;
+  width: var(--hairline-width);
+  height: 20px;
+  background: var(--hairline);
+}
