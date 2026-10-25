@@ -18,7 +18,7 @@ const STEP: u32 = 10;
 /// `WINDOW_LENGTH + max(delays) + 2*dm`.
 const MARKER: usize = WINDOW_LENGTH as usize + 10 + 2 * 4;
 
-/// Signals A to D at recording indices 0, 2, 3, 4 and a status channel at index 1, so analysis
+/// Signals A to D at recording indices 0, 2, 3, 4 and a status channel at index 1. Analysis
 /// channel `i` is not recording channel `i`.
 struct Recording {
     info: RecordingInfo,
@@ -365,7 +365,7 @@ fn summaries_use_finite_values_only() {
 
 #[test]
 fn layout_matches_engine_variants() {
-    // Short, so the slow CCD variants stay quick in debug builds.
+    // Short to keep the slow CCD variants quick in debug builds.
     let rows = 300;
     let recording = Recording::new(100.0, rows);
     let matrix = recording.matrix();

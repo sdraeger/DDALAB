@@ -79,7 +79,7 @@ fn edf_physical_scaling_matches_formula() {
 
 #[test]
 fn edf_unit_prefixes_scale_to_volts() {
-    // physical == digital makes the scale 1, so the gain is the unit factor.
+    // physical == digital makes the scale 1; the gain is the unit factor.
     let spec = EdfSpec {
         labels: names(&["a", "b", "c", "d", "e"]),
         units: names(&["uV", "mV", "nV", "V", "degC"]),
@@ -173,6 +173,35 @@ fn edf_plus_annotations_parsed() {
     assert_eq!(info.channels.len(), 3);
     assert_eq!(info.channels[2].kind, ChannelKind::Annotation);
     assert_eq!(info.sample_rate_hz, 16.0);
+}
+
+#[test]
+fn annotation_onsets_relative_to_first_record() {
+    let spec = EdfSpec {
+        annotations: vec![(1.0, 0.0, "marker".into())],
+        first_onset_s: 0.25,
+        ..EdfSpec::default()
+    };
+    let (annotations, warnings) = open(&spec).scan_annotations().unwrap();
+    assert!(warnings.is_empty());
+    assert_eq!(annotations.len(), 1);
+    assert_eq!(annotations[0].onset_s, 0.75);
+}
+
+#[test]
+fn annotation_only_edf_refused() {
+    let spec = EdfSpec {
+        labels: vec![],
+        units: vec![],
+        rates_per_record: vec![],
+        record_duration_s: 0.0,
+        annotations: vec![(0.0, 30.0, "Sleep stage W".into())],
+        ..EdfSpec::default()
+    };
+    assert_eq!(
+        open_error(edf_bytes(&spec)),
+        "Unsupported file type: annotation-only EDF+ files (no signal channels) are not supported yet"
+    );
 }
 
 #[test]

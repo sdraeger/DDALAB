@@ -18,7 +18,7 @@ const DIGITAL_MIN: usize = 5;
 const DIGITAL_MAX: usize = 6;
 const SAMPLES_PER_RECORD: usize = 8;
 
-/// Most bytes one `read_at` fetches, so a long request does not hold its whole span in memory.
+/// Most bytes one `read_at` fetches, which keeps a long request from holding its whole span in memory.
 const MAX_READ_BYTES: usize = 8 << 20;
 /// An EDF+D recording is contiguous when its last onset minus its first matches `(records - 1) * record_duration_s` within this.
 const SPAN_TOLERANCE_S: f64 = 1e-9;
@@ -57,6 +57,10 @@ fn float(what: &str, raw: &[u8]) -> Result<f64> {
                 text(raw)
             ))
         })
+}
+
+fn annotation_label(label: &str) -> bool {
+    matches!(label, "EDF Annotations" | "BDF Annotations")
 }
 
 /// The SI unit and the factor from a physical dimension to it.
@@ -142,11 +146,6 @@ pub fn open_edf(files: &FileSet, name: &str) -> Result<Box<dyn Reader>> {
             "header field 'number of signals' is {signals}"
         )));
     }
-    if record_duration_s <= 0.0 {
-        return Err(unsupported(format!(
-            "header field 'data record duration' is {record_duration_s}"
-        )));
-    }
     let signals = signals as usize;
     let header_len = FIXED_HEADER * (1 + signals);
     if len < header_len as u64 {
@@ -166,6 +165,17 @@ pub fn open_edf(files: &FileSet, name: &str) -> Result<Box<dyn Reader>> {
         let start = signals * WIDTHS[..column].iter().sum::<usize>() + signal * WIDTHS[column];
         &signal_header[start..start + WIDTHS[column]]
     };
+    // Checked before the record duration: a hypnogram often stores 0 there.
+    if (0..signals).all(|i| annotation_label(&text(cell(LABEL, i)))) {
+        return Err(unsupported(
+            "annotation-only EDF+ files (no signal channels) are not supported yet".to_string(),
+        ));
+    }
+    if record_duration_s <= 0.0 {
+        return Err(unsupported(format!(
+            "header field 'data record duration' is {record_duration_s}"
+        )));
+    }
 
     let bytes_per_sample = if bdf { 3 } else { 2 };
     let mut channels = Vec::new();
@@ -182,10 +192,12 @@ pub fn open_edf(files: &FileSet, name: &str) -> Result<Box<dyn Reader>> {
             )));
         }
         let samples = samples as usize;
-        let kind = match label.as_str() {
-            "EDF Annotations" | "BDF Annotations" => ChannelKind::Annotation,
-            "Status" if bdf => ChannelKind::Status,
-            _ => ChannelKind::Signal,
+        let kind = if annotation_label(&label) {
+            ChannelKind::Annotation
+        } else if bdf && label == "Status" {
+            ChannelKind::Status
+        } else {
+            ChannelKind::Signal
         };
         let dimension = text(cell(DIMENSION, i));
         let (unit, gain, offset) = if kind == ChannelKind::Signal {
@@ -467,14 +479,19 @@ impl Reader for EdfReader {
         Ok(out)
     }
 
+    /// Onsets are seconds from sample 0: each TAL onset minus the first record's timekeeping onset.
     fn scan_annotations(&self) -> Result<(Vec<Annotation>, Vec<String>)> {
         let mut annotations = Vec::new();
+        let mut sample0_s = 0.0;
         let (mut malformed, mut first_bad) = (0, None);
         for record in 0..self.records {
             for (n, c) in self.annotation_channels().enumerate() {
                 let (tals, unparsed) = self.record_tals(record, c)?;
                 // The first annotation channel opens every record with the timekeeping TAL.
                 let missing = n == 0 && timekeeping(&tals).is_none();
+                if record == 0 && n == 0 {
+                    sample0_s = timekeeping(&tals).unwrap_or(0.0);
+                }
                 if unparsed > 0 || missing {
                     malformed += unparsed + missing as usize;
                     first_bad.get_or_insert(record);
@@ -482,7 +499,7 @@ impl Reader for EdfReader {
                 let source = &self.info.channels[c].label;
                 for (onset_s, duration_s, texts) in tals {
                     annotations.extend(texts.into_iter().map(|label| Annotation {
-                        onset_s,
+                        onset_s: onset_s - sample0_s,
                         duration_s,
                         label,
                         source: source.clone(),

@@ -127,7 +127,7 @@ fn scan_annotations_appends_events_to_the_file_annotations() {
         ),
     ]);
     let reader = open_recording(&files, None).unwrap();
-    // The EDF+ TALs are read lazily, so open holds only the event.
+    // The EDF+ TALs are read lazily; open holds only the event.
     assert_eq!(reader.info().annotations.len(), 1);
     let (annotations, warnings) = reader.scan_annotations().unwrap();
     let got: Vec<_> = annotations

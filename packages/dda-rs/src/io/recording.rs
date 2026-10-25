@@ -97,7 +97,7 @@ pub trait Reader: Send + Sync {
     fn info(&self) -> &RecordingInfo;
 
     /// All annotations and the warnings raised finding them. `RecordingInfo::annotations` holds only
-    /// what opening the file finds cheaply, so a format whose annotations cost a pass over the file overrides this.
+    /// what opening the file finds cheaply. A format whose annotations cost a pass over the file overrides this.
     fn scan_annotations(&self) -> Result<(Vec<Annotation>, Vec<String>)> {
         Ok((self.info().annotations.clone(), Vec::new()))
     }

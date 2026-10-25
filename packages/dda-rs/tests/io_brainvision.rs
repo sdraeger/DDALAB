@@ -238,6 +238,17 @@ fn markers_to_annotations() {
 }
 
 #[test]
+fn marker_position_zero_clamps_to_zero() {
+    let spec = BrainVisionSpec {
+        markers: vec!["Stimulus,S  1,0,1,0".into()],
+        ..BrainVisionSpec::default()
+    };
+    let annotations = open(&spec).info().annotations.clone();
+    assert_eq!(annotations[1].label, "S  1");
+    assert_eq!(annotations[1].onset_s, 0.0);
+}
+
+#[test]
 fn comma_escape_in_names() {
     let spec = BrainVisionSpec {
         labels: names(&["F\\1p1"]),
@@ -426,7 +437,7 @@ fn invalid_reads_refused() {
 
 #[test]
 fn read_spans_the_read_size_limit() {
-    // 16-byte frames, so one 8 MiB read holds 524288 rows; the request straddles that row.
+    // 16-byte frames: one 8 MiB read holds 524288 rows; the request straddles that row.
     for vectorized in [false, true] {
         let spec = BrainVisionSpec {
             labels: names(&["a", "b", "c", "d"]),

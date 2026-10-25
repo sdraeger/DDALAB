@@ -61,7 +61,7 @@ pub struct VariantDocument {
 #[derive(Debug, Clone, Serialize)]
 pub struct Reproduction {
     pub expert_mode: bool,
-    /// "cpu"; the request does not say, so a caller that ran elsewhere sets it.
+    /// "cpu"; the request does not say. A caller that ran elsewhere sets it.
     pub compute_device: String,
     pub variant_ids: Vec<String>,
     pub selected_channel_indices: Vec<usize>,
@@ -579,7 +579,7 @@ pub fn encode_block(
     chunks
 }
 
-/// Writes a bundle directory: the `.npy` files at their full size, then `manifest.json` last, so a
+/// Writes a bundle directory: the `.npy` files at their full size, then `manifest.json` last. A
 /// directory with a manifest is complete.
 #[cfg(not(target_arch = "wasm32"))]
 pub struct BundleWriter {

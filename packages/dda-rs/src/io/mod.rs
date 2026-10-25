@@ -31,7 +31,7 @@ impl Reader for WithSidecars {
 
     fn scan_annotations(&self) -> Result<(Vec<Annotation>, Vec<String>)> {
         let (mut annotations, warnings) = self.reader.scan_annotations()?;
-        // `apply_bids_sidecars` only appends, so the events follow what the reader's own info holds.
+        // `apply_bids_sidecars` only appends. The events follow what the reader's own info holds.
         annotations
             .extend_from_slice(&self.info.annotations[self.reader.info().annotations.len()..]);
         Ok((annotations, warnings))
