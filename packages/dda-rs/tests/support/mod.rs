@@ -361,3 +361,63 @@ pub fn brainvision_files(spec: &BrainVisionSpec) -> Vec<(String, Vec<u8>)> {
         (format!("{}.vmrk", spec.stem), join(text(vmrk))),
     ]
 }
+
+/// The files of `tests/fixtures`, as `examples/make_fixtures.rs` writes them: an EDF+ with two annotations and a
+/// channel at a quarter of the rate, a BDF, a BrainVision triple and a CSV whose time column sets the rate.
+pub fn fixture_files() -> Vec<(String, Vec<u8>)> {
+    let edf = EdfSpec {
+        labels: vec!["Fp1".into(), "Fp2".into(), "Resp".into()],
+        units: vec!["uV".into(), "uV".into(), "mV".into()],
+        rates_per_record: vec![256, 256, 64],
+        records: 30,
+        seed: 12,
+        annotations: vec![
+            (2.5, 1.0, "eyes closed".into()),
+            (20.0, 0.0, "spike".into()),
+        ],
+        ..EdfSpec::default()
+    };
+    let bdf = EdfSpec {
+        bdf: true,
+        labels: vec!["A1".into(), "A2".into()],
+        rates_per_record: vec![512, 512],
+        records: 8,
+        digital: (-8388608, 8388607),
+        physical: (-262144.0, 262143.0),
+        seed: 34,
+        ..EdfSpec::default()
+    };
+    let brainvision = BrainVisionSpec {
+        stem: "fixture".into(),
+        labels: vec!["Fp1".into(), "Fp2".into(), "Cz".into(), "Pz".into()],
+        samples: 3000,
+        markers: vec!["Stimulus,S  1,1001,1,0".into()],
+        ..BrainVisionSpec::default()
+    };
+    let noise = EdfSpec {
+        seed: 56,
+        ..EdfSpec::default()
+    };
+    let mut csv = "time,C3,C4,O1\n".to_string();
+    for i in 0..500u64 {
+        let values: Vec<String> = (0..3)
+            .map(|c| format!("{:.1}", f64::from(digital_value(&noise, c, i)) * 0.1))
+            .collect();
+        csv += &format!("{:.3},{}\n", i as f64 / 250.0, values.join(","));
+    }
+
+    let mut files = vec![
+        ("fixture.edf".to_string(), edf_bytes(&edf)),
+        ("fixture.bdf".to_string(), edf_bytes(&bdf)),
+    ];
+    files.extend(brainvision_files(&brainvision));
+    files.push(("fixture.csv".to_string(), csv.into_bytes()));
+    files
+}
+
+pub fn write_fixtures(dir: &std::path::Path) -> std::io::Result<()> {
+    for (name, bytes) in fixture_files() {
+        std::fs::write(dir.join(name), bytes)?;
+    }
+    Ok(())
+}

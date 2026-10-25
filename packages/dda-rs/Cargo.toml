@@ -18,6 +18,7 @@ include = [
 	"src/**/*.rs",
 	"src/bin/**/*.rs",
 	"tests/**/*.rs",
+	"tests/fixtures/**",
 ]
 
 [features]

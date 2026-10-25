@@ -1,0 +1,19 @@
+Brain Vision Data Exchange Header File Version 1.0
+; comment
+[Common Infos]
+Codepage=UTF-8
+DataFile=fixture.eeg
+MarkerFile=fixture.vmrk
+DataFormat=BINARY
+DataOrientation=MULTIPLEXED
+NumberOfChannels=4
+SamplingInterval=2000
+
+[Binary Infos]
+BinaryFormat=INT_16
+
+[Channel Infos]
+Ch1=Fp1,,0.1,µV
+Ch2=Fp2,,0.1,µV
+Ch3=Cz,,0.1,µV
+Ch4=Pz,,0.1,µV

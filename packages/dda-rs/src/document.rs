@@ -490,12 +490,12 @@ pub fn build_manifest(
 }
 
 /// The `.npy` files of a bundle.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct BundleLayout {
     pub arrays: Vec<ArraySpec>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ArraySpec {
     /// Relative to the bundle directory.
     pub path: String,

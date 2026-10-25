@@ -1,0 +1,20 @@
+{
+  "fixtures_dir": "/private/tmp/claude-501/-Users-simon--claude-spares-spare-IbrYhW/b48c7e55-2fcf-4587-a109-f875976af92c/scratchpad/pool-bench",
+  "output_dir": "/private/tmp/claude-501/-Users-simon--claude-spares-spare-IbrYhW/b48c7e55-2fcf-4587-a109-f875976af92c/scratchpad/pool-bench/out",
+  "spare_cores": 1,
+  "max_case_seconds": 120,
+  "window_length": 1000,
+  "window_step": 200,
+  "delays": [7, 10],
+  "dm": 4,
+  "order": 4,
+  "nr_tau": 2,
+  "cases": [
+    { "name": "ST_32ch_64MiB", "file": "large_32ch.edf", "variant": "ST", "channels": 32, "ct_pairs": [], "budget_mb": 64 },
+    { "name": "ST_128ch_64MiB", "file": "large_128ch.edf", "variant": "ST", "channels": 128, "ct_pairs": [], "budget_mb": 64 },
+    { "name": "CT_16ch_64MiB", "file": "large_16ch.edf", "variant": "CT", "channels": 16, "ct_pairs": "all", "budget_mb": 64 },
+    { "name": "ST_32ch_16MiB", "file": "large_32ch.edf", "variant": "ST", "channels": 32, "ct_pairs": [], "budget_mb": 16 },
+    { "name": "ST_128ch_16MiB", "file": "large_128ch.edf", "variant": "ST", "channels": 128, "ct_pairs": [], "budget_mb": 16 },
+    { "name": "CT_16ch_16MiB", "file": "large_16ch.edf", "variant": "CT", "channels": 16, "ct_pairs": "all", "budget_mb": 16 }
+  ]
+}
