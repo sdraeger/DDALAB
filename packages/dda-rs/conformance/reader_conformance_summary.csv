@@ -1,0 +1,5 @@
+corpus,files,gate_pass,max_max_rel,max_max_rel_channel,channels_compared,n_zero_ref_channels,onsets_ok,onsets_ok_wo_first_new_segment,files_single_rate,files_edf_d,n_mne_warnings
+ds003029,106,106,0.0,0.0,11845,33,0,102,106,0,4
+mgh,10,10,1.9913563728821073e-16,4.128939593468359e-16,2313,11,10,10,10,0,2
+cdr,1,1,2.191267716685381e-16,3.9165573095957e-16,156,0,1,1,1,0,0
+mne_testing,24,23,2.7107122453012956e-16,3.123863404214286e-16,1434,0,11,22,22,0,11
