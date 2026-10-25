@@ -1,5 +1,5 @@
 // Opening recordings: the app's engine, and what happens between a chosen file and an open recording.
-import { createEngine } from "../core/engine";
+import { createEngine, type RecordingInput } from "../core/engine";
 import { buildFileSet } from "../core/sources";
 import type { SyntheticSpec } from "../core/synthetic";
 import { forgetRecent, listRecent, type RecentEntry, rememberRecent } from "../store/recent";
@@ -34,12 +34,14 @@ function adopt(opened: Awaited<ReturnType<typeof engine.open>>, source: "files" 
   follow(id);
 }
 
-/** Opens a synthetic recording like a chosen file; dev and e2e builds only. */
-export async function openSynthetic(spec: SyntheticSpec) {
-  const opened = await engine.open({ kind: "synthetic", spec });
-  adopt(opened, "synthetic");
+/** Opens an input as the UI opens chosen files; dev and e2e builds only (for synthetic and test-served inputs). */
+export async function openInput(input: RecordingInput) {
+  const opened = await engine.open(input);
+  adopt(opened, input.kind);
   return opened.id;
 }
+
+export const openSynthetic = (spec: SyntheticSpec) => openInput({ kind: "synthetic", spec });
 
 /** What the UI tells the user after an attempt to open. */
 export type Outcome =

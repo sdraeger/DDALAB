@@ -69,7 +69,7 @@ export type DevEngine = Engine & {
 const MAX_REPLACEMENTS = 3;
 
 /** The engine, not the request, failed: the request may be sent again once the engine has a worker. */
-class EngineStopped extends Error {}
+export class EngineStopped extends Error {}
 
 interface Tracked {
   fingerprint: string;

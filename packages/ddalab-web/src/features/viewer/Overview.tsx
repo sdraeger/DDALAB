@@ -2,16 +2,19 @@
 // Paging glides the outline to its new place (the one authored motion); dragging and wheel moves follow at once.
 import { useEffect, useRef } from "react";
 import { engine } from "../../app/recordings";
+import { EngineStopped } from "../../core/engine";
 import { tileCount, tileRows } from "../../core/opfs";
 import type { ScanState } from "../../core/protocol";
-import { cssColor } from "../../render/gl";
+import { paramsOf } from "../../render/display";
 import { drawOverview, envelope, overviewLevel } from "../../render/overviewLayer";
+import { readColors, watchTheme } from "../../render/themeColors";
 import { setView, useStore } from "../../store/store";
 import styles from "./Viewer.module.css";
-import { paramsOf } from "./WaveformCanvas";
 
 /** View changes closer together than this are a continuous move: the outline follows without gliding. */
 const CONTINUOUS_MS = 150;
+/** A tile that failed to read is asked for again after this pause. */
+const RETRY_MS = 5000;
 
 const compact = (s: number) => Number(s.toFixed(2)).toString();
 
@@ -21,16 +24,18 @@ export function Overview({ recordingId }: { recordingId: string }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const outline = useRef<HTMLDivElement>(null);
   const tab = useRef<HTMLSpanElement>(null);
+  const problem = useRef<HTMLParagraphElement>(null);
 
   useEffect(() => {
-    const [stripEl, canvasEl, outlineEl, tabEl] = [
+    const [stripEl, canvasEl, outlineEl, tabEl, problemEl] = [
       strip.current,
       canvas.current,
       outline.current,
       tab.current,
+      problem.current,
     ];
     const opened = useStore.getState().recordings[recordingId];
-    if (!stripEl || !canvasEl || !outlineEl || !tabEl || !opened) return;
+    if (!stripEl || !canvasEl || !outlineEl || !tabEl || !problemEl || !opened) return;
     const ctx = canvasEl.getContext("2d") as CanvasRenderingContext2D;
     const rows = opened.info.sample_count;
     const rate = opened.info.sample_rate_hz;
@@ -40,25 +45,20 @@ export function Overview({ recordingId }: { recordingId: string }) {
     const params = paramsOf(opened);
     const tiles = new Map<number, Float32Array>();
     /** Why each tile was last asked for; a tile asked for before the scan reached it is asked again after. */
-    const asked = new Map<number, "scanned" | "idle">();
+    const asked = new Map<number, "scanned" | "idle" | "failed">();
     const pending = new Set<number>();
     let size = { cssW: 0, W: 0, H: 0, dpr: 1 };
     let raf = 0;
     let last = { t0: Number.NaN, t1: Number.NaN, at: 0 };
-    const color = (value: string) => cssColor(stripEl, value).css;
-    const readColors = () => ({
-      trace: color("var(--muted)"),
-      muted: color("var(--muted)"),
-      event: color("var(--event)"),
-      wash: color("var(--primary-wash)"),
-      grid: color("var(--grid)"),
-    });
-    let colors = readColors();
-    const fontFamily = getComputedStyle(stripEl).fontFamily;
+    let colors = readColors(stripEl);
     /** What the canvas last showed: it is redrawn when that changes, not on every move of the view. */
     let drawnScene: unknown[] = [];
     const schedule = () => {
       if (!raf) raf = requestAnimationFrame(paint);
+    };
+    const report = (message: string | null) => {
+      problemEl.textContent = message ?? "";
+      problemEl.hidden = message === null;
     };
 
     // While the scan runs, a tile is asked for once the scan has stored it: building it from the file as well
@@ -69,15 +69,25 @@ export function Overview({ recordingId }: { recordingId: string }) {
         const end = Math.min(rows, (i + 1) * tileRows(level));
         if (tiles.has(i) || pending.has(i) || (running && scan.scannedRows < end)) continue;
         const reason = scan.scannedRows >= end ? "scanned" : "idle";
-        if (asked.get(i) === reason) continue;
+        if (asked.get(i) === reason || asked.get(i) === "failed") continue;
         asked.set(i, reason);
         pending.add(i);
         engine
           .tile(recordingId, level, i)
           .then((found) => {
             if (found) tiles.set(i, envelope(found.bytes, params));
+            report(null);
           })
-          .catch(() => {})
+          .catch((error: Error) => {
+            // An engine that restarted is asked again at once; another failure is shown and asked again later.
+            if (error instanceof EngineStopped) return void asked.delete(i);
+            asked.set(i, "failed");
+            report(`The overview could not be read: ${error.message}`);
+            setTimeout(() => {
+              asked.delete(i);
+              schedule();
+            }, RETRY_MS);
+          })
           .finally(() => {
             pending.delete(i);
             schedule();
@@ -111,7 +121,6 @@ export function Overview({ recordingId }: { recordingId: string }) {
           selection,
           annotations: annotations.map((a) => a.onset_s),
           colors,
-          font: `${11 * size.dpr}px ${fontFamily}`,
         });
       }
       const { t0, t1 } = state.view;
@@ -141,11 +150,10 @@ export function Overview({ recordingId }: { recordingId: string }) {
     });
     resize.observe(canvasEl);
     const unsubscribe = useStore.subscribe(schedule);
-    const theme = new MutationObserver(() => {
-      colors = readColors();
+    const unwatch = watchTheme(() => {
+      colors = readColors(stripEl);
       schedule();
     });
-    theme.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
     // Pointing at the strip centres the view there; dragging moves it along.
     const centre = (clientX: number) => {
@@ -175,7 +183,7 @@ export function Overview({ recordingId }: { recordingId: string }) {
       cancelAnimationFrame(raf);
       resize.disconnect();
       unsubscribe();
-      theme.disconnect();
+      unwatch();
       stripEl.removeEventListener("pointerdown", down);
       stripEl.removeEventListener("pointermove", move);
       stripEl.removeEventListener("pointerup", up);
@@ -200,6 +208,7 @@ export function Overview({ recordingId }: { recordingId: string }) {
           <span ref={tab} className={styles.tab} />
         </div>
       </div>
+      <p ref={problem} className={styles.problem} role="alert" hidden />
     </div>
   );
 }

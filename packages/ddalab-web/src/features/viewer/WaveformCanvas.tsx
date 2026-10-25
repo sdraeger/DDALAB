@@ -1,106 +1,26 @@
 // The waveform pane: the label gutter with electrode-group tints, the time ruler, the traces (WebGL2) over a 2D
-// underlay of grid, selection, events, cursor and regions without data, and the printed scale. View changes reach
-// the canvases through store.subscribe; React renders the structure and the visible gutter rows only.
+// underlay, the printed scale and the channel scroller. View changes reach the canvases through store.subscribe;
+// React renders the structure and the visible gutter rows only.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { engine } from "../../app/recordings";
-import { cssColor, webgl2 } from "../../render/gl";
-import { hatch, minorStep, tickLabel, ticks } from "../../render/overviewLayer";
+import { drawRuler, drawUnderlay } from "../../render/axis";
+import { paramsOf } from "../../render/display";
+import { webgl2 } from "../../render/gl";
+import { readColors, watchTheme } from "../../render/themeColors";
 import { createWaveformLayer, type Drawn, type Frame, type WaveformLayer } from "../../render/waveformLayer";
-import {
-  CSS_PX_PER_MM,
-  type OpenRecording,
-  setCursor,
-  setPlotWidth,
-  setSelection,
-  setView,
-  useStore,
-  zoomBy,
-} from "../../store/store";
+import { CSS_PX_PER_MM, setPlotWidth, setView, useStore } from "../../store/store";
 import { electrodeGroups } from "../inspector/groups";
+import { type ProbeFrame, probing, viewerProbe } from "./probe";
 import { Readouts, type ReadoutsHandle } from "./Readouts";
+import { usePlotPointer } from "./usePlotPointer";
 import styles from "./Viewer.module.css";
 
-/** What dev and e2e builds let tests see of the last frame. */
-export interface ProbeFrame extends Omit<Frame, "ink" | "pointSize"> {
-  recordingId: string;
-  cssWidth: number;
-  /** Per display channel: display units per raw unit, offset in display units. */
-  params: [number, number][];
-  mode: Drawn["plan"]["mode"];
-  level: number | null;
-  complete: boolean;
-  /** Device-pixel ranges drawn hatched: the scan has not reached them. */
-  missing: [number, number][];
-}
-
-/** The e2e probe (`window.__ddalab.viewer`); inert in production, where nothing reads it. */
-export const viewerProbe = {
-  frame: null as ProbeFrame | null,
-  waiters: [] as ((frame: ProbeFrame) => void)[],
-  /** Frame times in ms (drawing plus a GPU sync) while an array; `null` turns the probe off. */
-  timing: null as { ms: number; complete: boolean }[] | null,
-  redraw: undefined as (() => void) | undefined,
-  read: undefined as (() => { width: number; height: number; data: Uint8Array }) | undefined,
-  /** Resolves with the next frame of the active recording that has all its planned data. */
-  settled(): Promise<ProbeFrame> {
-    return new Promise((resolve) => {
-      viewerProbe.waiters.push(resolve);
-      viewerProbe.redraw?.();
-    });
-  },
-  /** Draws now and reads the trace canvas back: RGBA, bottom row first. */
-  pixels() {
-    if (!viewerProbe.read) throw new Error("no waveform canvas");
-    return viewerProbe.read();
-  },
-};
-const probing = import.meta.env.DEV || import.meta.env.MODE === "e2e";
-
-/**
- * Per display channel, display units per raw unit and the offset: µV for voltage channels (SI volts).
- * shortcut: other units draw in their SI unit at the µV/mm sensitivity; give them a scale of their own when
- * recordings mix in non-voltage channels that matter.
- */
-export function paramsOf(recording: OpenRecording): Float32Array {
-  const params = new Float32Array(2 * recording.analysis_channels.length);
-  recording.analysis_channels.forEach((index, c) => {
-    const { unit, gain, offset } = recording.info.channels[index];
-    const scale = unit === "V" ? 1e6 : 1;
-    params[2 * c] = gain * scale;
-    params[2 * c + 1] = offset * scale;
-  });
-  return params;
-}
-
-interface Colors {
-  trace: [number, number, number, number];
-  grid: string;
-  hairline: string;
-  muted: string;
-  event: string;
-  eventInk: string;
-  primary: string;
-  wash: string;
-  font: string;
-}
-
-function readColors(element: Element): Colors {
-  const style = getComputedStyle(element);
-  const color = (value: string) => cssColor(element, value).css;
-  return {
-    trace: cssColor(element, "var(--trace)").rgba,
-    grid: color("var(--grid)"),
-    hairline: color("var(--hairline)"),
-    muted: color("var(--muted)"),
-    event: color("var(--event)"),
-    eventInk: color("var(--event-ink)"),
-    primary: color("var(--primary)"),
-    wash: color("var(--primary-wash)"),
-    font: style.fontFamily,
-  };
-}
-
 const RULER_CSS = 22;
+
+const GL_MISSING =
+  "DDALAB draws recordings with WebGL2, which this browser does not provide. Use a current Chrome, Edge, " +
+  "Firefox or Safari with hardware acceleration turned on.";
+const GL_LOST = "The browser reset WebGL2 drawing. The traces return once it restores it.";
 
 export function WaveformCanvas({ recordingId }: { recordingId: string }) {
   const info = useStore((s) => s.recordings[recordingId]?.info);
@@ -109,26 +29,31 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
   const rowCount = useStore((s) => s.view.rowCount);
   const labels = useMemo(() => analysis?.map((i) => info.channels[i].label) ?? [], [analysis, info]);
   const { groups, groupOf } = useMemo(() => electrodeGroups(labels), [labels]);
-  const [glMissing, setGlMissing] = useState(false);
+  /** Why the traces cannot be drawn, when they cannot. */
+  const [glProblem, setGlProblem] = useState<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const spacer = useRef<HTMLDivElement>(null);
   const plot = useRef<HTMLDivElement>(null);
   const under = useRef<HTMLCanvasElement>(null);
   const traces = useRef<HTMLCanvasElement>(null);
   const ruler = useRef<HTMLCanvasElement>(null);
+  const problem = useRef<HTMLParagraphElement>(null);
   const readouts = useRef<ReadoutsHandle>(null);
+  usePlotPointer(plot, recordingId);
 
   useEffect(() => {
-    const [plotEl, underEl, tracesEl, rulerEl, scrollerEl, spacerEl] = [
+    const [plotEl, underEl, tracesEl, rulerEl, scrollerEl, spacerEl, problemEl] = [
       plot.current,
       under.current,
       traces.current,
       ruler.current,
       scroller.current,
       spacer.current,
+      problem.current,
     ];
     const opened = useStore.getState().recordings[recordingId];
-    if (!plotEl || !underEl || !tracesEl || !rulerEl || !scrollerEl || !spacerEl || !opened) return;
+    if (!plotEl || !underEl || !tracesEl || !rulerEl || !scrollerEl || !spacerEl || !problemEl || !opened)
+      return;
     const underCtx = underEl.getContext("2d") as CanvasRenderingContext2D;
     const rulerCtx = rulerEl.getContext("2d") as CanvasRenderingContext2D;
     const params = paramsOf(opened);
@@ -139,31 +64,40 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
     let layer: WaveformLayer | null = null;
     let gl: WebGL2RenderingContext | null = null;
     let lastScanned = -1;
+    /** The scroller position last set for `firstChannel`, and the spacer's height. */
+    let scrolledTo = { first: -1, rowH: 0 };
+    let shownProblem: string | null = null;
 
     const schedule = () => {
       if (!raf) raf = requestAnimationFrame(paint);
     };
-    function start() {
-      gl = webgl2(tracesEl as HTMLCanvasElement);
-      setGlMissing(!gl);
-      layer = gl
-        ? createWaveformLayer(
-            gl,
-            {
-              tile: (level, index) => engine.tile(recordingId, level, index),
-              raw: (row0, rows) => engine.raw(recordingId, row0, rows),
-            },
-            { channels, rows: opened.info.sample_count, params },
-            schedule,
-          )
-        : null;
-    }
+    // A context or program that cannot be had shows its reason in the pane instead of taking the shell down.
+    const start = () => {
+      try {
+        gl = webgl2(tracesEl);
+        if (!gl) return setGlProblem(GL_MISSING);
+        layer = createWaveformLayer(
+          gl,
+          {
+            tile: (level, index) => engine.tile(recordingId, level, index),
+            raw: (row0, rows) => engine.raw(recordingId, row0, rows),
+          },
+          { channels, rows: opened.info.sample_count, params },
+          schedule,
+        );
+        setGlProblem(null);
+      } catch (error) {
+        layer = null;
+        setGlProblem(`DDALAB could not set up WebGL2 drawing: ${(error as Error).message}`);
+      }
+    };
     start();
 
     const rowHeightCss = () => size.cssH / useStore.getState().view.rowCount;
 
     const paint = () => {
       raf = 0;
+      const begun = performance.now();
       const state = useStore.getState();
       const recording = state.recordings[recordingId];
       const { W, H, dpr, cssW } = size;
@@ -186,43 +120,66 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
         pxPerUnit: pxPerMm / view.sensitivityUvPerMm,
         pointSize: Math.max(3, Math.round(3 * dpr)),
         ink: colors.trace,
+        aheadRows: view.epochS * rate,
       };
-      const begun = performance.now();
       const drawn: Drawn = layer
         ? layer.draw(frame)
-        : { plan: { mode: "rawSpan" }, complete: false, missing: [] };
-      if (probing && viewerProbe.timing && gl) {
-        gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); // waits for the GPU
-        viewerProbe.timing.push({ ms: performance.now() - begun, complete: drawn.complete });
-      }
+        : { plan: { mode: "rawSpan" }, complete: false, gaps: [], error: null };
+      const scan = recording.scan;
       const scanPercent =
-        recording.scan.scannedRows < recording.scan.totalRows && !recording.scan.notice
-          ? Math.floor((100 * recording.scan.scannedRows) / recording.scan.totalRows)
+        scan.scannedRows < scan.totalRows && !scan.notice
+          ? Math.floor((100 * scan.scannedRows) / scan.totalRows)
           : null;
-      drawUnderlay(underCtx, { W, H, dpr, view, state, recording, drawn, colors, scanPercent });
+      drawUnderlay(underCtx, {
+        W,
+        H,
+        dpr,
+        view,
+        selection: state.selection,
+        cursorS: state.cursorS,
+        recording,
+        gaps: drawn.gaps,
+        colors,
+        scanPercent,
+      });
       drawRuler(rulerCtx, { W, H: rulerEl.height, dpr, view, recording, colors });
       readouts.current?.update(view, cssW);
-      // The channel scroller follows the view.
-      const rowH = rowHeightCss();
-      spacerEl.style.height = `${Math.max(0, channels - view.rowCount) * rowH}px`;
-      if (rowH > 0 && Math.round(scrollerEl.scrollTop / rowH) !== view.firstChannel) {
-        scrollerEl.scrollTop = view.firstChannel * rowH;
+      const message = drawn.error && `The recording could not be read: ${drawn.error}. Trying again.`;
+      if (message !== shownProblem) {
+        shownProblem = message;
+        problemEl.textContent = message ?? "";
+        problemEl.hidden = message === null;
       }
-      if (probing) {
-        const shown: ProbeFrame = {
-          ...frame,
-          recordingId,
-          cssWidth: cssW,
-          params: Array.from({ length: channels }, (_, c) => [params[2 * c], params[2 * c + 1]]),
-          mode: drawn.plan.mode,
-          level: drawn.plan.mode === "tile" ? drawn.plan.level : null,
-          complete: drawn.complete,
-          missing: drawn.missing,
-        };
-        viewerProbe.frame = shown;
-        if (drawn.complete && state.activeRecordingId === recordingId) {
-          for (const resolve of viewerProbe.waiters.splice(0)) resolve(shown);
+      // The channel scroller follows the view; its position is read and written only when the rows move.
+      const rowH = rowHeightCss();
+      if (view.firstChannel !== scrolledTo.first || rowH !== scrolledTo.rowH) {
+        spacerEl.style.height = `${Math.max(0, channels - view.rowCount) * rowH}px`;
+        if (rowH > 0 && Math.round(scrollerEl.scrollTop / rowH) !== view.firstChannel) {
+          scrollerEl.scrollTop = view.firstChannel * rowH;
         }
+        scrolledTo = { first: view.firstChannel, rowH };
+      }
+      if (!probing) return;
+      if (viewerProbe.frames && gl) {
+        gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); // waits for the GPU
+        const blank = drawn.gaps.reduce((sum, gap) => sum + gap.x1 - gap.x0, 0);
+        viewerProbe.frames.push({ ms: performance.now() - begun, complete: drawn.complete, blank });
+      }
+      const shown: ProbeFrame = {
+        recordingId,
+        width: W,
+        height: H,
+        cssWidth: cssW,
+        rowCount: view.rowCount,
+        mode: drawn.plan.mode,
+        level: drawn.plan.mode === "tile" ? drawn.plan.level : null,
+        complete: drawn.complete,
+        gaps: drawn.gaps,
+        error: drawn.error,
+      };
+      viewerProbe.frame = shown;
+      if (drawn.complete && state.activeRecordingId === recordingId) {
+        for (const resolve of viewerProbe.waiters.splice(0)) resolve(shown);
       }
     };
 
@@ -254,22 +211,16 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
     }
 
     const unsubscribe = useStore.subscribe(schedule);
-    const theme = new MutationObserver(() => {
+    const unwatch = watchTheme(() => {
       colors = readColors(plotEl);
       schedule();
     });
-    theme.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-    const scheme = matchMedia("(prefers-color-scheme: dark)");
-    const schemeChanged = () => {
-      colors = readColors(plotEl);
-      schedule();
-    };
-    scheme.addEventListener("change", schemeChanged);
 
     const lost = (event: Event) => {
       event.preventDefault();
       layer?.dispose();
       layer = null;
+      setGlProblem(GL_LOST);
     };
     const restored = () => {
       start();
@@ -278,67 +229,11 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
     tracesEl.addEventListener("webglcontextlost", lost);
     tracesEl.addEventListener("webglcontextrestored", restored);
 
-    // Wheel zooms about the pointer (sideways scrolling pans), drag pans, Shift-drag selects, a click sets the cursor.
-    const timeAt = (clientX: number) => {
-      const { view } = useStore.getState();
-      const box = plotEl.getBoundingClientRect();
-      return view.t0 + ((clientX - box.left) / box.width) * (view.t1 - view.t0);
-    };
-    const wheel = (event: WheelEvent) => {
-      event.preventDefault();
-      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? size.cssH : 1;
-      const [dx, dy] = [event.deltaX * unit, event.deltaY * unit];
-      if (Math.abs(dx) > Math.abs(dy)) {
-        setView((v) => {
-          const shift = (dx / size.cssW) * (v.t1 - v.t0);
-          return { t0: v.t0 + shift, t1: v.t1 + shift };
-        });
-      } else zoomBy(Math.exp(dy * 0.002), timeAt(event.clientX));
-    };
-    let drag: { x: number; t0: number; t1: number; anchor: number; select: boolean; moved: boolean } | null =
-      null;
-    const down = (event: PointerEvent) => {
-      if (event.button !== 0) return;
-      plotEl.setPointerCapture(event.pointerId);
-      const { view } = useStore.getState();
-      drag = {
-        x: event.clientX,
-        t0: view.t0,
-        t1: view.t1,
-        anchor: timeAt(event.clientX),
-        select: event.shiftKey,
-        moved: false,
-      };
-    };
-    const move = (event: PointerEvent) => {
-      if (!drag) return;
-      const dx = event.clientX - drag.x;
-      drag.moved ||= Math.abs(dx) > 3;
-      if (!drag.moved) return;
-      plotEl.dataset.dragging = drag.select ? "select" : "pan";
-      if (drag.select) {
-        const duration = useStore.getState().recordings[recordingId]?.info.duration_s ?? 0;
-        const t = Math.min(duration, Math.max(0, timeAt(event.clientX)));
-        setSelection({ t0: Math.min(drag.anchor, t), t1: Math.max(drag.anchor, t) });
-      } else {
-        const shift = (-dx / size.cssW) * (drag.t1 - drag.t0);
-        setView({ t0: drag.t0 + shift, t1: drag.t1 + shift });
-      }
-    };
-    const up = (event: PointerEvent) => {
-      if (drag && !drag.moved) setCursor(timeAt(event.clientX));
-      drag = null;
-      delete plotEl.dataset.dragging;
-    };
     const scrolled = () => {
       const rowH = rowHeightCss();
-      if (rowH > 0) setView({ firstChannel: Math.round(scrollerEl.scrollTop / rowH) });
+      const first = rowH > 0 ? Math.round(scrollerEl.scrollTop / rowH) : 0;
+      if (first !== useStore.getState().view.firstChannel) setView({ firstChannel: first });
     };
-    plotEl.addEventListener("wheel", wheel, { passive: false });
-    plotEl.addEventListener("pointerdown", down);
-    plotEl.addEventListener("pointermove", move);
-    plotEl.addEventListener("pointerup", up);
-    plotEl.addEventListener("pointercancel", up);
     scrollerEl.addEventListener("scroll", scrolled, { passive: true });
 
     if (probing) {
@@ -356,15 +251,9 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
       cancelAnimationFrame(raf);
       resize.disconnect();
       unsubscribe();
-      theme.disconnect();
-      scheme.removeEventListener("change", schemeChanged);
+      unwatch();
       tracesEl.removeEventListener("webglcontextlost", lost);
       tracesEl.removeEventListener("webglcontextrestored", restored);
-      plotEl.removeEventListener("wheel", wheel);
-      plotEl.removeEventListener("pointerdown", down);
-      plotEl.removeEventListener("pointermove", move);
-      plotEl.removeEventListener("pointerup", up);
-      plotEl.removeEventListener("pointercancel", up);
       scrollerEl.removeEventListener("scroll", scrolled);
       layer?.dispose();
       if (probing && viewerProbe.redraw === schedule) {
@@ -403,13 +292,9 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
           </ul>
           <div className={styles.plot} ref={plot}>
             <canvas ref={under} className={styles.layer} aria-hidden />
-            <canvas ref={traces} className={styles.layer} aria-hidden />
-            {glMissing && (
-              <p className={styles.glMissing}>
-                DDALAB draws recordings with WebGL2, which this browser does not provide. Use a current
-                Chrome, Edge, Firefox or Safari with hardware acceleration turned on.
-              </p>
-            )}
+            <canvas ref={traces} className={styles.layer} aria-hidden data-traces />
+            {glProblem && <p className={styles.glMissing}>{glProblem}</p>}
+            <p ref={problem} className={styles.problem} role="alert" hidden />
             <Readouts ref={readouts} />
           </div>
         </div>
@@ -417,102 +302,4 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
       </div>
     </section>
   );
-}
-
-interface UnderlayScene {
-  W: number;
-  H: number;
-  dpr: number;
-  view: { t0: number; t1: number };
-  state: { selection: { t0: number; t1: number } | null; cursorS: number | null };
-  recording: OpenRecording;
-  drawn: Drawn;
-  colors: Colors;
-  scanPercent: number | null;
-}
-
-/** Under the traces: the time grid, the selection, events, the cursor and the regions with no data yet. */
-function drawUnderlay(ctx: CanvasRenderingContext2D, scene: UnderlayScene) {
-  const { W, H, dpr, view, state, recording, drawn, colors } = scene;
-  const x = (t: number) => ((t - view.t0) / (view.t1 - view.t0)) * W;
-  const line = Math.max(1, Math.round(dpr));
-  ctx.clearRect(0, 0, W, H);
-  const { step, at } = ticks(view.t0, view.t1, W / dpr, 96);
-  const minor = minorStep(step);
-  ctx.fillStyle = colors.grid;
-  for (let k = Math.ceil(view.t0 / minor); k * minor <= view.t1; k++) {
-    ctx.fillRect(Math.round(x(k * minor)), 0, line, H);
-  }
-  ctx.fillStyle = colors.hairline;
-  for (const t of at) ctx.fillRect(Math.round(x(t)), 0, line, H);
-  if (state.selection) {
-    ctx.fillStyle = colors.wash;
-    ctx.fillRect(x(state.selection.t0), 0, x(state.selection.t1) - x(state.selection.t0), H);
-  }
-  ctx.fillStyle = colors.event;
-  for (const a of recording.info.annotations) {
-    if (a.onset_s + a.duration_s < view.t0 || a.onset_s > view.t1) continue;
-    if (a.duration_s > 0) {
-      ctx.globalAlpha = 0.08;
-      ctx.fillRect(x(a.onset_s), 0, x(a.onset_s + a.duration_s) - x(a.onset_s), H);
-      ctx.globalAlpha = 1;
-    }
-    ctx.fillRect(Math.round(x(a.onset_s)), 0, line, H);
-  }
-  if (state.cursorS !== null && state.cursorS >= view.t0 && state.cursorS <= view.t1) {
-    ctx.fillStyle = colors.primary;
-    ctx.fillRect(Math.round(x(state.cursorS)), 0, line, H);
-  }
-  for (const [x0, x1] of drawn.missing) {
-    hatch(ctx, x0, 0, x1 - x0, H, colors.muted, dpr);
-    if (scene.scanPercent !== null && x1 - x0 > 160 * dpr) {
-      ctx.font = `${12 * dpr}px ${colors.font}`;
-      ctx.textBaseline = "middle";
-      const label = `Scanning overview ${scene.scanPercent}%`;
-      const w = ctx.measureText(label).width;
-      ctx.clearRect(x0 + 8 * dpr, H / 2 - 10 * dpr, w + 12 * dpr, 20 * dpr);
-      ctx.fillStyle = colors.muted;
-      ctx.fillText(label, x0 + 14 * dpr, H / 2);
-    }
-  }
-}
-
-/** The time ruler: labeled ticks and the event flags of the view. */
-function drawRuler(
-  ctx: CanvasRenderingContext2D,
-  scene: {
-    W: number;
-    H: number;
-    dpr: number;
-    view: { t0: number; t1: number };
-    recording: OpenRecording;
-    colors: Colors;
-  },
-) {
-  const { W, H, dpr, view, recording, colors } = scene;
-  const x = (t: number) => ((t - view.t0) / (view.t1 - view.t0)) * W;
-  ctx.clearRect(0, 0, W, H);
-  ctx.fillStyle = colors.hairline;
-  ctx.fillRect(0, H - Math.max(1, Math.round(dpr)), W, Math.max(1, Math.round(dpr)));
-  ctx.font = `${11 * dpr}px ${colors.font}`;
-  ctx.textBaseline = "middle";
-  const { step, at } = ticks(view.t0, view.t1, W / dpr, 96);
-  for (const t of at) {
-    const px = Math.round(x(t));
-    ctx.fillStyle = colors.hairline;
-    ctx.fillRect(px, H - 5 * dpr, Math.max(1, Math.round(dpr)), 5 * dpr);
-    ctx.fillStyle = colors.muted;
-    ctx.fillText(tickLabel(t, step), px + 3 * dpr, H / 2 - dpr);
-  }
-  ctx.font = `600 ${11 * dpr}px ${colors.font}`;
-  for (const a of recording.info.annotations) {
-    if (a.onset_s < view.t0 || a.onset_s > view.t1) continue;
-    const label = a.label || "event";
-    const w = ctx.measureText(label).width + 8 * dpr;
-    const left = Math.min(Math.round(x(a.onset_s)), W - w);
-    ctx.fillStyle = colors.event;
-    ctx.fillRect(left, 2 * dpr, w, H - 4 * dpr);
-    ctx.fillStyle = colors.eventInk;
-    ctx.fillText(label, left + 4 * dpr, H / 2);
-  }
 }

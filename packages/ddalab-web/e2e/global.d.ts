@@ -1,6 +1,6 @@
-import type { DevEngine } from "../src/core/engine";
+import type { DevEngine, RecordingInput } from "../src/core/engine";
 import type { SyntheticSpec } from "../src/core/synthetic";
-import type { viewerProbe } from "../src/features/viewer/WaveformCanvas";
+import type { viewerProbe } from "../src/features/viewer/probe";
 import type { useStore } from "../src/store/store";
 
 declare global {
@@ -11,6 +11,8 @@ declare global {
       store: typeof useStore;
       /** Opens a synthetic recording as the UI opens files; resolves with its id. */
       openSynthetic(spec: SyntheticSpec): Promise<string>;
+      /** Opens any input (a URL a test serves, say) as the UI opens files; resolves with its id. */
+      open(input: RecordingInput): Promise<string>;
       /** The waveform's last frame, its pixels and frame times. */
       viewer: typeof viewerProbe;
     };
