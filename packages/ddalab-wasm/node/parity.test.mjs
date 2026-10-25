@@ -145,6 +145,13 @@ test('pyramid_matches_raw_tiles', () => {
   }
 });
 
+test('open_takes_a_cache_size', () => {
+  const [small, standard] = [4, undefined].map((cacheMb) => abi.open(BRAINVISION, undefined, cacheMb).handle);
+  assert.deepEqual(abi.readRaw(small, 0, 3000), abi.readRaw(standard, 0, 3000));
+  [small, standard].forEach((handle) => abi.close(handle));
+  assert.throws(() => abi.open(BRAINVISION, undefined, -1), /expected u32/);
+});
+
 test('read_raw_is_row_major_display_channels', () => {
   const { handle, info, analysis_channels } = abi.open(EDF);
   const raw = abi.readRaw(handle, 1, 3);
