@@ -178,11 +178,8 @@ pub fn plan_blocks(
 ) -> Result<Vec<Block>> {
     check_block_support(request)?;
     let grid = Grid::new(request, info.sample_count)?;
-    let row = localize(request, info.analysis_channels().len())
-        .0
-        .len()
-        .max(1) as u64
-        * 8;
+    let (used, _) = localize(request, info.analysis_channels().len());
+    let row = used.len().max(1) as u64 * 8;
     // A window's results sit in the engine's matrices, their encoded copy and the ABI frame at once.
     let result = 3 * bundle_layout(request, info, 0)?.window_bytes();
     let first = grid.marker * row + result;
