@@ -1,0 +1,116 @@
+name: DDALAB Web
+
+on:
+  pull_request:
+    paths:
+      - "packages/ddalab-web/**"
+      - "packages/ddalab-wasm/**"
+      - "packages/dda-rs/**"
+      - ".github/workflows/web.yml"
+  push:
+    branches: ["main"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    name: Web app (lint, unit tests, e2e on three browsers, build)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: packages/ddalab-web
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Rust artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            packages/dda-rs -> target
+            packages/ddalab-wasm -> target
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "26"
+          cache: npm
+          cache-dependency-path: packages/ddalab-web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the wasm core
+        run: npm run build:wasm
+
+      # The e2e tests compare the browser's results with this binary's bundles.
+      - name: Build the native CLI
+        working-directory: packages/dda-rs
+        run: cargo build --release --locked
+
+      - name: Biome
+        run: npm run check
+
+      - name: Unit tests
+        run: npx vitest run
+
+      - name: Install browsers
+        run: npx playwright install --with-deps chromium firefox webkit
+
+      - name: End-to-end tests
+        run: npx playwright test
+
+      # Type check, vite build, then the dist check (no test hooks) and the bundle size check.
+      - name: Production build
+        run: npm run build
+
+      - name: Self-hosting smoke test
+        run: npm run test:dist
+
+      - name: Zip the bundle
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          (cd dist && zip -qr "../ddalab-web-${GITHUB_REF_NAME#v}.zip" .)
+          unzip -l "ddalab-web-${GITHUB_REF_NAME#v}.zip"
+
+      - name: Keep the bundle for the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v7
+        with:
+          name: web-bundle
+          path: packages/ddalab-web/ddalab-web-*.zip
+          if-no-files-found: error
+
+  release:
+    name: Attach the bundle to the release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: web
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Download the bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: web-bundle
+
+      # The desktop release workflow creates the same release; whichever runs first creates it.
+      - name: Attach the bundle
+        run: |
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --title "DDALAB ${GITHUB_REF_NAME#v}" --generate-notes
+          fi
+          gh release upload "$GITHUB_REF_NAME" ddalab-web-*.zip --clobber

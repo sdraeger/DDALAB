@@ -2,6 +2,7 @@
 // time. Every open reads the files again: a stored digest would stand on the fingerprint, which does not pin the
 // middle of a file, and these digests go into result manifests as provenance.
 import { instantiateCore } from "../core/abi";
+import { compileWasm } from "../core/compileWasm";
 import wasmUrl from "../core/ddalab.wasm?url";
 import type { HashReply, HashRequest, MemoryReply } from "../core/protocol";
 import { type Part, partsOf, readSource } from "../core/sources";
@@ -9,7 +10,7 @@ import { yieldToLoop } from "./scan";
 
 const SLICE_BYTES = 4 * 2 ** 20;
 
-const core = WebAssembly.compileStreaming(fetch(wasmUrl)).then((module) =>
+const core = compileWasm(wasmUrl).then((module) =>
   instantiateCore(module, () => {
     throw new Error("the hash worker opens no recordings");
   }),

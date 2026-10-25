@@ -2,6 +2,7 @@
 // rows and tiles and scans each recording in the background. Requests run one at a time in the order they arrive;
 // the scan runs between them. Whole-file passes it must not make (annotations, hashes) have workers of their own.
 import { type HostRead, instantiateCore } from "../core/abi";
+import { compileWasm } from "../core/compileWasm";
 import wasmUrl from "../core/ddalab.wasm?url";
 import type { RecordingInput } from "../core/engine";
 import { fingerprintOf, sha256Hex } from "../core/fingerprint";
@@ -52,7 +53,7 @@ const read: HostRead = (fileId, offset, dst) => {
   if (!source) throw new Error(`no file ${fileId}`);
   readSource(source, offset, dst);
 };
-const core = WebAssembly.compileStreaming(fetch(wasmUrl)).then((module) => instantiateCore(module, read));
+const core = compileWasm(wasmUrl).then((module) => instantiateCore(module, read));
 
 const recording = (id: string) => {
   const found = recordings.get(id);
