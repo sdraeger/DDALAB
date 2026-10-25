@@ -54,6 +54,10 @@ interface State {
   recent: RecentEntry[];
   /** The analysis history, newest first. */
   analyses: AnalysisRecord[];
+  /** The result the provenance and the result views show; it need not belong to an open recording. */
+  activeResultId: string | null;
+  /** The side panels: open or collapsed. */
+  panels: { library: boolean; inspector: boolean };
   run: RunState | null;
   /** The DDA settings as the user typed them; the request takes the channels and interval from the recording. */
   ddaForm: DdaForm;
@@ -84,6 +88,8 @@ export const useStore = create<State>()(() => ({
   activeRecordingId: null,
   recent: [],
   analyses: [],
+  activeResultId: null,
+  panels: { library: true, inspector: true },
   run: null,
   ddaForm: DEFAULT_FORM,
   view: {
@@ -258,6 +264,11 @@ export function setCalibration(mmPerCssMm: number) {
 
 export const setDdaForm = (change: Partial<DdaForm>) =>
   useStore.setState((s) => ({ ddaForm: { ...s.ddaForm, ...change } }));
+
+export const openResult = (activeResultId: string | null) => useStore.setState({ activeResultId });
+
+export const togglePanel = (panel: keyof State["panels"]) =>
+  useStore.setState((s) => ({ panels: { ...s.panels, [panel]: !s.panels[panel] } }));
 
 export const setSelection = (selection: State["selection"]) => useStore.setState({ selection });
 export const setCursor = (cursorS: number | null) => useStore.setState({ cursorS });

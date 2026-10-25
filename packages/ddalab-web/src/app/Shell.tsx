@@ -12,14 +12,7 @@ import Moon from "lucide-react/dist/esm/icons/moon.mjs";
 import PanelLeft from "lucide-react/dist/esm/icons/panel-left.mjs";
 import PanelRight from "lucide-react/dist/esm/icons/panel-right.mjs";
 import Ruler from "lucide-react/dist/esm/icons/ruler.mjs";
-import {
-  type ButtonHTMLAttributes,
-  lazy,
-  type ReactElement,
-  Suspense,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { type ButtonHTMLAttributes, lazy, type ReactElement, Suspense, useSyncExternalStore } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { RunButton } from "../features/analysis/RunBar";
 import { Inspector } from "../features/inspector/Inspector";
@@ -41,6 +34,7 @@ import {
   setTimebase,
   setView,
   timebaseOf,
+  togglePanel,
   useStore,
 } from "../store/store";
 import controls from "../styles/controls.module.css";
@@ -51,8 +45,7 @@ const Calibration = lazy(() => import("../features/settings/Calibration"));
 const TIMEBASES = [10, 15, 20, 30, 60, 120];
 
 export function Shell() {
-  const [library, setLibrary] = useState(true);
-  const [inspector, setInspector] = useState(true);
+  const { library, inspector } = useStore((s) => s.panels);
   const id = useStore((s) => s.activeRecordingId);
   useViewerKeys();
   return (
@@ -63,7 +56,7 @@ export function Shell() {
         data-inspector={inspector ? "open" : "closed"}
       >
         <header className={styles.bar}>
-          <IconButton label="Library" aria-pressed={library} onClick={() => setLibrary(!library)}>
+          <IconButton label="Library" aria-pressed={library} onClick={() => togglePanel("library")}>
             <PanelLeft aria-hidden />
           </IconButton>
           <span className={styles.wordmark}>DDALAB</span>
@@ -77,7 +70,7 @@ export function Shell() {
             </Suspense>
           )}
           <DisplaySettings />
-          <IconButton label="Inspector" aria-pressed={inspector} onClick={() => setInspector(!inspector)}>
+          <IconButton label="Inspector" aria-pressed={inspector} onClick={() => togglePanel("inspector")}>
             <PanelRight aria-hidden />
           </IconButton>
           <ThemeToggle />

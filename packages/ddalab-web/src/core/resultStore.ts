@@ -8,8 +8,14 @@ import type { BlockChunks, BundleLayout, ResultDocument } from "./types";
 /** The open array files of each result being written, and the bytes of all of them. */
 const writing = new Map<string, { files: FileSystemSyncAccessHandle[]; bytes: number }>();
 
-const resultsDirectory = async () =>
+export const resultsDirectory = async () =>
   (await navigator.storage.getDirectory()).getDirectoryHandle("results", { create: true });
+
+/** The manifest of a complete result; on the main thread too. */
+export async function readManifest(resultId: string): Promise<ResultDocument> {
+  const directory = await (await resultsDirectory()).getDirectoryHandle(resultId);
+  return JSON.parse(await (await (await directory.getFileHandle("manifest.json")).getFile()).text());
+}
 
 const arrayBytes = ({ header, shape }: BundleLayout["arrays"][number]) =>
   header.length + 8 * shape.reduce((n, d) => n * d, 1);
@@ -43,7 +49,7 @@ async function writeText(directory: FileSystemDirectoryHandle, name: string, tex
 }
 
 /** A full storage, as a message naming the size of the whole result; any other error as it is. */
-function quota(error: unknown, bytes: number): unknown {
+export function quota(error: unknown, bytes: number): unknown {
   if (!(error instanceof DOMException && error.name === "QuotaExceededError")) return error;
   const mb = (bytes / 1e6).toLocaleString("en", { maximumSignificantDigits: 2 });
   return new Error(
