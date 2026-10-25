@@ -1,6 +1,7 @@
 // The messages between engine.ts (main thread) and the IO worker. Every request carries a serial `n` the reply echoes.
 import type { ResultTile } from "../render/resultPyramid";
 import type { RecordingInput } from "./engine";
+import type { FolderFile } from "./imports";
 import type {
   Annotation,
   Block,
@@ -20,6 +21,8 @@ export interface ScanState {
   totalRows: number;
   /** Hex SHA-256 by input file name, filled in as each file finishes. */
   sha256?: Record<string, string>;
+  /** The fraction of each input file hashed so far, by name. */
+  hashed?: Record<string, number>;
   /** Why no overview is built, when that is by design. */
   notice?: string;
   error?: string;
@@ -55,7 +58,7 @@ export type IoRequest =
   | { type: "finishResult"; resultId: string; manifest: ResultDocument }
   | { type: "discardResult"; resultId: string }
   | { type: "sweepResults" }
-  // Complete results, for the heatmap.
+  // Complete results: the heatmap reads them, the history deletes them.
   | { type: "resultManifest"; resultId: string }
   | { type: "resultArray"; resultId: string; variant: string; array: ResultTile["array"] }
   | {
@@ -66,6 +69,11 @@ export type IoRequest =
       level: number;
       index: number;
     }
+  | { type: "deleteResult"; resultId: string }
+  // Exports and imports of results (exporters.ts, imports.ts); they run beside the other requests.
+  | { type: "exportDocument"; resultId: string }
+  | { type: "exportCsv"; resultId: string; variant: string }
+  | { type: "importResult"; input: File | FolderFile[] }
   // Dev and e2e builds only:
   | { type: "trap" } // raises the error a Rust panic raises
   | { type: "quota"; bytes: number } // the storage fills up after this many more bytes of writes
@@ -96,6 +104,11 @@ export interface IoResults {
   /** The first request for an array builds its pyramid. */
   resultArray: ResultArray;
   resultTile: ResultTile;
+  deleteResult: undefined;
+  exportDocument: Blob;
+  exportCsv: Blob;
+  /** The id of the imported result. */
+  importResult: string;
   trap: undefined;
   quota: undefined;
   memory: number;
@@ -127,7 +140,11 @@ export type HashRequest =
   | { type: "cancel"; id: string }
   | MemoryRequest;
 
-export type HashReply = { id: string; name: string; sha256: string } | { id: string; error: string };
+/** A file's digest, an error, or how many of a file's `bytes` are hashed so far (at each whole percent). */
+export type HashReply =
+  | { id: string; name: string; sha256: string }
+  | { id: string; error: string }
+  | { id: string; name: string; hashedBytes: number; bytes: number };
 
 /** Asks the annotation worker, which opens `input` itself, for the full annotation list. */
 export interface AnnotationsRequest {

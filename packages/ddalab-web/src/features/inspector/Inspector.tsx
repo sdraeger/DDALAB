@@ -1,5 +1,6 @@
-// The inspector: the active recording's facts and scan, and its channels by electrode group, chosen for analysis.
-import { memo, Suspense, useCallback, useMemo, useState, useTransition } from "react";
+// The inspector: the active result's provenance, the active recording's facts and scan, and its channels by electrode
+// group, chosen for analysis.
+import { lazy, memo, Suspense, useCallback, useMemo, useState, useTransition } from "react";
 import { closeRecording } from "../../app/recordings";
 import type { ScanState } from "../../core/protocol";
 import type { RecordingInfo } from "../../core/types";
@@ -10,6 +11,8 @@ import { RunBar } from "../analysis/RunBar";
 import { electrodeGroups, type Group } from "./groups";
 import styles from "./Inspector.module.css";
 
+const Provenance = lazy(() => import("../history/Provenance"));
+
 /** The height of a channel row in CSS px; the list renders only the rows in view. */
 const ROW = 28;
 /** Rows rendered above and below the visible ones. */
@@ -18,9 +21,17 @@ const OVERSCAN = 6;
 export function Inspector() {
   const id = useStore((s) => s.activeRecordingId);
   const recording = useStore(activeRecording);
+  const result = useStore((s) => s.activeResultId);
+  // The active result's provenance comes first; the result need not be of the open recording.
+  const provenance = result && (
+    <Suspense fallback={null}>
+      <Provenance />
+    </Suspense>
+  );
   if (!id || !recording) {
     return (
       <section aria-label="Inspector" className={styles.inspector}>
+        {provenance}
         <p className={styles.empty}>Open a recording to see its channels.</p>
       </section>
     );
@@ -28,6 +39,7 @@ export function Inspector() {
   const { info, scan, analysis_channels } = recording;
   return (
     <section aria-label="Inspector" className={styles.inspector}>
+      {provenance}
       <header className={styles.header}>
         <h2 className={styles.title}>{info.input_files[0]}</h2>
         <dl className={styles.facts}>

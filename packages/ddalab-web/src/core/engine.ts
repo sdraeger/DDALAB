@@ -4,6 +4,7 @@
 // that never get a reply (the worker script does not load) stop after a few, with the engine unavailable.
 // A DDA run gets a pool of workers of its own, which end with it: a trap or a failed worker fails the run.
 import type { ResultTile } from "../render/resultPyramid";
+import type { FolderFile } from "./imports";
 import type {
   Annotations,
   AnnotationsReply,
@@ -93,6 +94,14 @@ export interface Engine {
     level: number,
     index: number,
   ): Promise<ResultTile>;
+  /** Deletes the files of a result once no tab builds its pyramids or writes it (resultStore.ts). */
+  deleteResult(resultId: string): Promise<void>;
+  /** The JSON result document of a stored result (exporters.ts), built in the IO worker. */
+  exportDocument(resultId: string): Promise<Blob>;
+  /** One variant's Q values as CSV (exporters.ts), built in the IO worker. */
+  exportCsv(resultId: string, variant: string): Promise<Blob>;
+  /** Stores and records a result the CLI wrote (imports.ts); its id. */
+  importResult(input: File | FolderFile[]): Promise<string>;
 }
 
 /** What dev and e2e builds add for tests. */
@@ -172,12 +181,14 @@ interface Tracked {
   info: RecordingInfo;
   scan: ScanState;
   sha256: Record<string, string>;
+  hashed: Record<string, number>;
   hashError?: string;
 }
 
-const stateOf = ({ scan, sha256, hashError }: Tracked): ScanState => ({
+const stateOf = ({ scan, sha256, hashed, hashError }: Tracked): ScanState => ({
   ...scan,
   sha256,
+  hashed,
   error: scan.error ?? hashError,
 });
 
@@ -314,6 +325,8 @@ export function createEngine(): Engine {
         const entry = scans.get(data.id);
         if (!entry) return;
         if ("error" in data) entry.hashError = `The hash could not be computed: ${data.error}`;
+        else if ("bytes" in data)
+          entry.hashed = { ...entry.hashed, [data.name]: data.hashedBytes / data.bytes };
         else entry.sha256 = { ...entry.sha256, [data.name]: data.sha256 };
         publish(data.id);
       };
@@ -403,6 +416,7 @@ export function createEngine(): Engine {
         info,
         scan: { scannedRows: 0, totalRows: info.sample_count },
         sha256: {},
+        hashed: {},
       });
       if (isScanned(input)) hash({ type: "hash", id, input, names: info.input_files });
       return { id, ...opened };
@@ -517,6 +531,10 @@ export function createEngine(): Engine {
     resultArray: (resultId, variant, array) => call({ type: "resultArray", resultId, variant, array }),
     resultTile: (resultId, variant, array, level, index) =>
       call({ type: "resultTile", resultId, variant, array, level, index }),
+    deleteResult: (resultId) => call({ type: "deleteResult", resultId }),
+    exportDocument: (resultId) => call({ type: "exportDocument", resultId }),
+    exportCsv: (resultId, variant) => call({ type: "exportCsv", resultId, variant }),
+    importResult: (input) => call({ type: "importResult", input }),
   };
   return import.meta.env.DEV || import.meta.env.MODE === "e2e"
     ? Object.assign(engine, {

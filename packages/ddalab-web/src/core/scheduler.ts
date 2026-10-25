@@ -14,6 +14,8 @@ export interface RunProgress {
 
 export interface AnalysisHandle {
   id: string;
+  /** The windows and blocks of the plan and the workers it runs on. */
+  plan: { windows: number; blocks: number; workers: number };
   /** Calls `listener` after every block that is written. */
   progress(listener: (p: RunProgress) => void): () => void;
   /** Rejects with the first error, or with an `AbortError` after `cancel`. */
@@ -93,6 +95,7 @@ export function runAnalysis(deps: {
 
   return {
     id,
+    plan: { windows: plan.windows, blocks: plan.blocks.length, workers: deps.workers },
     progress(listener) {
       listeners.add(listener);
       return () => void listeners.delete(listener);

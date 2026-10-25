@@ -22,10 +22,16 @@ const reply = (message: HashReply) => self.postMessage(message);
 async function digest(part: Part, id: string): Promise<string | undefined> {
   const stream = (await core).sha256();
   const buffer = new Uint8Array(Math.min(SLICE_BYTES, part.size));
+  let percent = 0;
   for (let at = 0; at < part.size; at += SLICE_BYTES) {
     const slice = buffer.subarray(0, Math.min(SLICE_BYTES, part.size - at));
     readSource(part.source, at, slice);
     stream.update(slice);
+    const hashedBytes = at + slice.length;
+    if (Math.floor((100 * hashedBytes) / part.size) > percent) {
+      percent = Math.floor((100 * hashedBytes) / part.size);
+      reply({ id, name: part.name, hashedBytes, bytes: part.size });
+    }
     await yieldToLoop();
     if (cancelled.has(id)) return undefined;
   }

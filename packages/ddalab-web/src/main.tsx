@@ -8,6 +8,7 @@ import { sweepAnalyses } from "./app/analyses";
 import { engine, openInput, openSynthetic, refreshRecent } from "./app/recordings";
 import { heatmapProbe } from "./features/results/probe";
 import { viewerProbe } from "./features/viewer/probe";
+import { restoreSession } from "./store/session";
 import { useStore } from "./store/store";
 import { applyTheme, storedTheme } from "./styles/theme";
 
@@ -28,7 +29,7 @@ if (import.meta.env.DEV || import.meta.env.MODE === "e2e") {
   });
 }
 void refreshRecent();
-void sweepAnalyses();
+restoreSession(sweepAnalyses());
 // Before React renders: the CSP allows no inline script, and the module entry is the earliest script there is.
 applyTheme(storedTheme());
 

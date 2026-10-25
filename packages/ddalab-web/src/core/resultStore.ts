@@ -18,7 +18,7 @@ const writing = new Map<
   { files: FileSystemSyncAccessHandle[]; bytes: number; release: () => void }
 >();
 
-const resultsDirectory = async () =>
+export const resultsDirectory = async () =>
   (await navigator.storage.getDirectory()).getDirectoryHandle("results", { create: true });
 
 const arrayBytes = ({ header, shape }: BundleLayout["arrays"][number]) =>
@@ -114,6 +114,36 @@ const removeResult = (root: FileSystemDirectoryHandle, resultId: string) =>
     if (!(error instanceof DOMException && error.name === "NotFoundError")) throw error;
   });
 
+/** Bytes copied into a stored result at a time. */
+const STORE_SLICE_BYTES = 4 * 2 ** 20;
+
+/**
+ * Writes a result that was made elsewhere (an import) under `resultId`, with the protocol of a run: the files of
+ * `layout`, the values of each array from `values` (its bytes after the header) a slice at a time, then the manifest.
+ * A result that cannot be written leaves no files.
+ */
+export async function storeResult(
+  resultId: string,
+  layout: BundleLayout,
+  values: Blob[],
+  manifest: ResultDocument,
+): Promise<void> {
+  try {
+    await createResultFiles(resultId, layout);
+    for (const [array, blob] of values.entries()) {
+      const offset = layout.arrays[array].header.length;
+      for (let at = 0; at < blob.size; at += STORE_SLICE_BYTES) {
+        const bytes = await blob.slice(at, at + STORE_SLICE_BYTES).arrayBuffer();
+        await writeChunks(resultId, { chunks: [{ array, offset: offset + at, bytes }] });
+      }
+    }
+    await finishResult(resultId, manifest);
+  } catch (error) {
+    await discardResult(resultId);
+    throw error;
+  }
+}
+
 /** Deletes the files of a result that will not complete (it failed or was cancelled). */
 export async function discardResult(resultId: string): Promise<void> {
   const result = writing.get(resultId);
@@ -124,6 +154,19 @@ export async function discardResult(resultId: string): Promise<void> {
   } finally {
     result?.release();
   }
+}
+
+/**
+ * Deletes a result, its pyramid levels with it. It waits for the pyramid builds of every tab
+ * (`ddalab-pyramid:<id>`, which they hold shared) and for a tab still writing it (`ddalab-result:<id>`).
+ */
+export async function deleteResult(resultId: string): Promise<void> {
+  await navigator.locks.request(`ddalab-pyramid:${resultId}`, () =>
+    navigator.locks.request(lockOf(resultId), async () => {
+      for (const path of shown.keys()) if (path.startsWith(`${resultId}/`)) shown.delete(path);
+      await removeResult(await resultsDirectory(), resultId);
+    }),
+  );
 }
 
 async function statusOf(directory: FileSystemDirectoryHandle) {
@@ -182,9 +225,16 @@ interface PyramidRecord {
 /**
  * The pyramid of an array lives beside it: `<array>.L<level>.f32` holds the cells of each level from 1 up (f32,
  * window-major) and `<array>.pyramid.json`, written last, its level count and row ranges. A pyramid without the
- * record is built again. The Web Lock `ddalab-pyramid:<id>/<path>` keeps two tabs from building one at once.
+ * record is built again. The Web Lock `ddalab-pyramid:<path>` keeps two tabs from building one at once, and the
+ * shared lock `ddalab-pyramid:<id>` keeps the result from being deleted meanwhile.
  */
-async function pyramidOf(folder: FileSystemDirectoryHandle, array: string, path: string, source: File) {
+async function pyramidOf(
+  folder: FileSystemDirectoryHandle,
+  array: string,
+  resultId: string,
+  path: string,
+  source: File,
+) {
   const { windows, rows, read } = await npy(source, path);
   const levels = resultLevels(windows);
   const name = (level: number) => `${array}.L${level}.f32`;
@@ -224,13 +274,15 @@ async function pyramidOf(folder: FileSystemDirectoryHandle, array: string, path:
     await writeText(folder, `${array}.pyramid.json`, JSON.stringify(record));
     return record;
   }
-  const record = await navigator.locks.request(`ddalab-pyramid:${path}`, async () => {
-    const stored = await folder
-      .getFileHandle(`${array}.pyramid.json`)
-      .then(async (handle) => JSON.parse(await (await handle.getFile()).text()) as PyramidRecord)
-      .catch(() => null);
-    return stored?.levels === levels ? stored : build();
-  });
+  const record = await navigator.locks.request(`ddalab-pyramid:${resultId}`, { mode: "shared" }, () =>
+    navigator.locks.request(`ddalab-pyramid:${path}`, async () => {
+      const stored = await folder
+        .getFileHandle(`${array}.pyramid.json`)
+        .then(async (handle) => JSON.parse(await (await handle.getFile()).text()) as PyramidRecord)
+        .catch(() => null);
+      return stored?.levels === levels ? stored : build();
+    }),
+  );
   const files = await Promise.all(
     Array.from({ length: levels - 1 }, async (_, i) => (await folder.getFileHandle(name(i + 1))).getFile()),
   );
@@ -258,7 +310,7 @@ function shownArray(resultId: string, variant: string, array: ResultTile["array"
         variant,
       );
       const source = await (await folder.getFileHandle(`${array}.npy`)).getFile();
-      return pyramidOf(folder, array, path, source);
+      return pyramidOf(folder, array, resultId, path, source);
     })();
     found.catch(() => shown.delete(path)); // asked again, it is read again
     shown.set(path, found);

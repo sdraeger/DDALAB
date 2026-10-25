@@ -96,7 +96,8 @@ export interface MarksScene {
   view: { t0: number; t1: number };
   selection: { t0: number; t1: number } | null;
   cursorS: number | null;
-  recording: OpenRecording;
+  /** Its events are marked; a result shown without its recording has none. */
+  recording: OpenRecording | undefined;
   colors: Colors;
   /** Over opaque data (the heatmap): lines get a halo of the ground color, and the selection its edges. */
   over?: boolean;
@@ -123,7 +124,7 @@ export function drawMarks(ctx: CanvasRenderingContext2D, scene: MarksScene) {
     ctx.fillRect(x(scene.selection.t0), 0, x(scene.selection.t1) - x(scene.selection.t0), H);
     if (over) for (const t of [scene.selection.t0, scene.selection.t1]) mark(t, colors.primary);
   }
-  for (const a of recording.info.annotations) {
+  for (const a of recording?.info.annotations ?? []) {
     if (a.onset_s + a.duration_s < view.t0 || a.onset_s > view.t1) continue;
     if (a.duration_s > 0) {
       ctx.fillStyle = colors.event;

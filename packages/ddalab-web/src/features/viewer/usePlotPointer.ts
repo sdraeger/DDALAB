@@ -3,7 +3,8 @@
 import { type RefObject, useEffect } from "react";
 import { setCursor, setSelection, setView, useStore, zoomBy } from "../../store/store";
 
-export function usePlotPointer(plot: RefObject<HTMLElement | null>, recordingId: string) {
+/** `recordingId` is null for a result shown without its recording. */
+export function usePlotPointer(plot: RefObject<HTMLElement | null>, recordingId: string | null) {
   useEffect(() => {
     const plotEl = plot.current;
     if (!plotEl) return;
@@ -41,7 +42,8 @@ export function usePlotPointer(plot: RefObject<HTMLElement | null>, recordingId:
       if (!drag.moved) return;
       plotEl.dataset.dragging = drag.select ? "select" : "pan";
       if (drag.select) {
-        const duration = useStore.getState().recordings[recordingId]?.info.duration_s ?? 0;
+        const duration =
+          recordingId === null ? 0 : (useStore.getState().recordings[recordingId]?.info.duration_s ?? 0);
         const t = Math.min(duration, Math.max(0, timeAt(event.clientX)));
         setSelection({ t0: Math.min(drag.anchor, t), t1: Math.max(drag.anchor, t) });
       } else {
