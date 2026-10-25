@@ -339,30 +339,8 @@ pub fn open_brainvision(files: &FileSet, vhdr_name: &str) -> Result<Box<dyn Read
 }
 
 impl BrainVisionReader {
-    /// Refuses an empty or out-of-range channel list and rows outside the recording.
-    fn check(&self, channels: &[usize], row0: u64, rows: usize) -> Result<()> {
-        if channels.is_empty() {
-            return Err(DDAError::InvalidParameter(
-                "no channels requested".to_string(),
-            ));
-        }
-        if let Some(c) = channels.iter().find(|&&c| c >= self.info.channels.len()) {
-            return Err(DDAError::InvalidParameter(format!(
-                "channel {c} is out of range for {} channels",
-                self.info.channels.len()
-            )));
-        }
-        let total = self.info.sample_count;
-        if row0.checked_add(rows as u64).is_none_or(|end| end > total) {
-            return Err(DDAError::InvalidParameter(format!(
-                "rows {row0}..{row0}+{rows} pass the {total} rows of the recording"
-            )));
-        }
-        Ok(())
-    }
-
     /// Calls `emit(row - row0, k, raw)` for the stored sample of `channels[k]` in each row of `row0..row0 + rows`.
-    /// The caller has run `check`.
+    /// The caller has run `check_read`.
     fn decode(
         &self,
         channels: &[usize],
@@ -407,7 +385,7 @@ impl Reader for BrainVisionReader {
     }
 
     fn read_rows(&self, channels: &[usize], row0: u64, rows: usize) -> Result<Vec<Vec<f64>>> {
-        self.check(channels, row0, rows)?;
+        self.info.check_read(channels, row0, rows)?;
         let mut out = vec![vec![0.0; channels.len()]; rows];
         self.decode(channels, row0, rows, |row, k, raw| {
             let channel = &self.info.channels[channels[k]];
@@ -431,7 +409,7 @@ impl Reader for BrainVisionReader {
                 rows * channels.len()
             )));
         }
-        self.check(channels, row0, rows)?;
+        self.info.check_read(channels, row0, rows)?;
         self.decode(channels, row0, rows, |row, k, raw| {
             out[row * channels.len() + k] = raw as f32
         })

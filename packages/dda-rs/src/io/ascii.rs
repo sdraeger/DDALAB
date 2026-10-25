@@ -231,28 +231,6 @@ pub fn open_ascii(
 }
 
 impl AsciiReader {
-    /// Refuses an empty or out-of-range channel list and rows outside the recording.
-    fn check(&self, channels: &[usize], row0: u64, rows: usize) -> Result<()> {
-        if channels.is_empty() {
-            return Err(DDAError::InvalidParameter(
-                "no channels requested".to_string(),
-            ));
-        }
-        if let Some(c) = channels.iter().find(|&&c| c >= self.info.channels.len()) {
-            return Err(DDAError::InvalidParameter(format!(
-                "channel {c} is out of range for {} channels",
-                self.info.channels.len()
-            )));
-        }
-        let total = self.info.sample_count;
-        if row0.checked_add(rows as u64).is_none_or(|end| end > total) {
-            return Err(DDAError::InvalidParameter(format!(
-                "rows {row0}..{row0}+{rows} pass the {total} rows of the recording"
-            )));
-        }
-        Ok(())
-    }
-
     fn value(&self, row: usize, channel: usize) -> f64 {
         self.data[row * self.width + self.first + channel]
     }
@@ -264,7 +242,7 @@ impl Reader for AsciiReader {
     }
 
     fn read_rows(&self, channels: &[usize], row0: u64, rows: usize) -> Result<Vec<Vec<f64>>> {
-        self.check(channels, row0, rows)?;
+        self.info.check_read(channels, row0, rows)?;
         let row0 = row0 as usize;
         Ok((row0..row0 + rows)
             .map(|row| channels.iter().map(|&c| self.value(row, c)).collect())
@@ -278,7 +256,7 @@ impl Reader for AsciiReader {
         rows: usize,
         out: &mut [f32],
     ) -> Result<()> {
-        self.check(channels, row0, rows)?;
+        self.info.check_read(channels, row0, rows)?;
         if out.len() != rows * channels.len() {
             return Err(DDAError::InvalidParameter(format!(
                 "output holds {} values, but {rows} rows of {} channels need {}",
