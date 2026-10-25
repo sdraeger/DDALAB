@@ -8,7 +8,6 @@ use serde::Serialize;
 struct InfoOutput {
     cli_version: String,
     built_in_backend: &'static str,
-    built_in_backend_inputs: Vec<&'static str>,
     native_binary_enabled: bool,
     rayon_default_mode_cli: &'static str,
     rayon_override_env_vars: Vec<&'static str>,
@@ -27,7 +26,6 @@ pub fn execute(args: InfoArgs) -> i32 {
     let info = InfoOutput {
         cli_version: env!("CARGO_PKG_VERSION").to_string(),
         built_in_backend: "pure-rust",
-        built_in_backend_inputs: vec!["ascii", "txt", "csv"],
         native_binary_enabled: false,
         rayon_default_mode_cli: "throughput",
         rayon_override_env_vars: vec!["DDALAB_RAYON_MODE", "DDALAB_RAYON_THREADS"],
@@ -54,10 +52,6 @@ pub fn execute(args: InfoArgs) -> i32 {
         println!("Platform: {} ({})", info.platform, info.arch);
         println!();
         println!("Built-in backend: {}", info.built_in_backend);
-        println!(
-            "Built-in inputs: {}",
-            info.built_in_backend_inputs.join(", ")
-        );
         println!(
             "Native binary enabled: {}",
             if info.native_binary_enabled {

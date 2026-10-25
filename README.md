@@ -14,12 +14,12 @@ To host it yourself, serve the built `dist/` folder of `packages/ddalab-web` fro
 
 ```bash
 uv tool install ddalab        # or: pip install ddalab
-ddalab inspect recording.edf
+ddalab inspect --file recording.edf
 ddalab run --file recording.edf --variants ST --wl 1000 --ws 200 --delays 7 10 --bundle out
 ddalab batch --help
 ```
 
-Archives for Linux x64, Windows x64, macOS Intel, and macOS Apple silicon, each with a SHA-256 file, are on [GitHub Releases](https://github.com/sdraeger/DDALAB/releases). The Linux build adds `--device cuda` for NVIDIA GPUs; it loads the CUDA driver at run time, so the default CPU device works without one. The CLI also runs the CCD family (TRCCD, CCDSTAB, and auto-conditioned CCD), which the web app does not.
+Archives for Linux x64, Windows x64, macOS Intel, and macOS Apple silicon, each with a SHA-256 file, are on [GitHub Releases](https://github.com/sdraeger/DDALAB/releases). The Linux build adds `--device cuda` for NVIDIA GPUs; it loads the CUDA driver at run time and the default CPU device works without one. The CLI also runs the CCD family (TRCCD, CCDSTAB, and auto-conditioned CCD), which the web app does not.
 
 ## Repository layout
 
