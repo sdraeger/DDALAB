@@ -23,26 +23,47 @@ export function unframe(bytes) {
   return items;
 }
 
-/** Instantiates `module` (a .wasm path or a compiled WebAssembly.Module); `onProgress` gets each progress object. */
-export async function load(module = WASM, onProgress = () => {}) {
+/** `[ptr, len]` of a reply `(ptr << 32) | len`, which arrives as a signed i64. */
+export function decodeReply(reply) {
+  const bits = BigInt.asUintN(64, reply);
+  return [Number(bits >> 32n), Number(bits & 0xffffffffn)];
+}
+
+/**
+ * Instantiates `module` (a .wasm path or a compiled WebAssembly.Module); `onProgress` gets each progress object
+ * and `readSync` reads the files (fs.readSync's signature).
+ */
+export async function load(module = WASM, onProgress = () => {}, readSync = fs.readSync) {
   const fds = new Map(); // file_id -> fd
   const handleFiles = new Map(); // handle -> file_ids
   let nextFileId = 1;
   let abi;
   const memory = () => new Uint8Array(abi.memory.buffer);
+  // An exception must not unwind through the module's frames: the imports return a status or swallow it.
+  // wasm hands u32 values over as signed i32; `>>> 0` makes them unsigned again.
   const host = {
     host_read(fileId, offset, ptr, len) {
-      const fd = fds.get(fileId);
-      if (fd === undefined) return 1;
-      for (let done = 0; done < len; ) {
-        const n = fs.readSync(fd, memory(), ptr + done, len - done, offset + done);
-        if (n === 0) return 2;
-        done += n;
+      [fileId, ptr, len] = [fileId >>> 0, ptr >>> 0, len >>> 0];
+      try {
+        const fd = fds.get(fileId);
+        if (fd === undefined) return 1;
+        for (let done = 0; done < len; ) {
+          const n = readSync(fd, memory(), ptr + done, len - done, offset + done);
+          if (n === 0) return 2;
+          done += n;
+        }
+        return 0;
+      } catch {
+        return 3;
       }
-      return 0;
     },
     host_progress(ptr, len) {
-      onProgress(JSON.parse(decoder.decode(memory().subarray(ptr, ptr + len))));
+      [ptr, len] = [ptr >>> 0, len >>> 0];
+      try {
+        onProgress(JSON.parse(decoder.decode(memory().subarray(ptr, ptr + len))));
+      } catch {
+        // Progress is advisory.
+      }
     },
   };
   const source = typeof module === 'string' ? fs.readFileSync(module) : module;
@@ -51,8 +72,7 @@ export async function load(module = WASM, onProgress = () => {}) {
 
   /** The reply buffer, copied out of wasm memory and freed. */
   const take = (reply) => {
-    const ptr = Number(reply >> 32n);
-    const len = Number(reply & 0xffffffffn);
+    const [ptr, len] = decodeReply(reply);
     const bytes = memory().slice(ptr, ptr + len);
     abi.ddalab_free(ptr, len);
     return bytes;
@@ -71,7 +91,7 @@ export async function load(module = WASM, onProgress = () => {}) {
   /** Calls `call(ptr, len)` with `value` (bytes, or JSON for anything else) in wasm memory. */
   const withInput = (value, call) => {
     const bytes = value instanceof Uint8Array ? value : encoder.encode(JSON.stringify(value));
-    const ptr = abi.ddalab_alloc(bytes.length);
+    const ptr = abi.ddalab_alloc(bytes.length) >>> 0;
     memory().set(bytes, ptr);
     try {
       return call(ptr, bytes.length);
@@ -80,8 +100,18 @@ export async function load(module = WASM, onProgress = () => {}) {
     }
   };
 
+  /** A SHA-256 stream: `update(bytes)`, then `hex()`, which ends it. */
+  const hash = () => {
+    const id = abi.ddalab_sha256_new() >>> 0;
+    return {
+      update: (bytes) => withInput(bytes, (p, m) => json(abi.ddalab_sha256_update(id, p, m))),
+      hex: () => json(abi.ddalab_sha256_hex(id)),
+    };
+  };
+
   return {
     exports: abi,
+    hash,
     version: () => json(abi.ddalab_version()),
 
     /**
@@ -135,26 +165,25 @@ export async function load(module = WASM, onProgress = () => {}) {
 
     /** The SHA-256 of a file, hex, hashed in 4 MiB slices. */
     sha256File(file) {
-      const id = abi.ddalab_sha256_new();
+      const stream = hash();
       const fd = fs.openSync(file, 'r');
       const slice = new Uint8Array(4 << 20);
       try {
-        for (let n; (n = fs.readSync(fd, slice)) > 0; ) {
-          withInput(slice.subarray(0, n), (p, m) => abi.ddalab_sha256_update(id, p, m));
-        }
+        for (let n; (n = fs.readSync(fd, slice)) > 0; ) stream.update(slice.subarray(0, n));
       } finally {
         fs.closeSync(fd);
       }
-      return json(abi.ddalab_sha256_hex(id));
+      return stream.hex();
     },
 
-    /** A pyramid over the display channels; `push` and `finish` return the encoded tiles that completed. */
+    /** A pyramid over the display channels; `push` and `finish` return the encoded tiles that completed, `drop` ends it. */
     pyramid(handle) {
-      const id = abi.ddalab_pyramid_new(handle);
+      const id = abi.ddalab_pyramid_new(handle) >>> 0;
       if (id === 0) throw new Error(`no pyramid for recording ${handle}`);
       return {
         push: (row0, rows) => unframe(binary(abi.ddalab_pyramid_push(id, row0, rows))),
         finish: () => unframe(binary(abi.ddalab_pyramid_finish(id))),
+        drop: () => abi.ddalab_pyramid_drop(id),
       };
     },
   };
