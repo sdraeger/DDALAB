@@ -196,7 +196,8 @@ async function main(configFile) {
     total_memory_gb: os.totalmem() / 2 ** 30,
     node_version: process.version,
     commit: git('rev-parse', 'HEAD'),
-    worktree_dirty: git('status', '--porcelain') !== '',
+    // Untracked files (notes beside the code) do not enter the builds.
+    worktree_dirty: git('status', '--porcelain', '--untracked-files=no') !== '',
     wasm_sha256: sha256(WASM),
     cli_sha256: sha256(CLI),
     input_sha256: inputs,
