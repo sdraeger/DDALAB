@@ -15,6 +15,22 @@ test("evicts_least_recent", () => {
   expect(cache.get("c")?.index).toBe(2);
 });
 
+// A consumer that transfers a tile's buffer leaves it empty; the cache still frees what it counted.
+test("detached_tile_frees_its_counted_bytes", () => {
+  const cache = new TileCache(100);
+  const first = tile(0, 40);
+  cache.set("a", first);
+  structuredClone(first.bytes, { transfer: [first.bytes] });
+  expect(first.bytes.byteLength).toBe(0);
+  cache.set("b", tile(1, 40));
+  cache.set("c", tile(2, 40)); // 120 counted: a goes, 80 remain
+  expect(cache.get("a")).toBeUndefined();
+  cache.set("d", tile(3, 20));
+  expect(cache.get("b")).toBeDefined();
+  expect(cache.get("c")).toBeDefined();
+  expect(cache.get("d")).toBeDefined();
+});
+
 test("respects_byte_budget", () => {
   const cache = new TileCache(100);
   // Setting a key again replaces its tile: the old bytes do not count twice.

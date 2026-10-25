@@ -1,6 +1,7 @@
 // Where recording bytes come from: files the user chose and URLs, as synchronous reads for the workers.
 import type { RecordingInput } from "./engine";
 import { readSynthetic, type SyntheticSpec, syntheticEdfSize } from "./synthetic";
+import type { OpenRequest } from "./types";
 
 declare const FileReaderSync: new () => { readAsArrayBuffer(blob: Blob): ArrayBuffer };
 
@@ -140,6 +141,12 @@ export function partsOf(input: RecordingInput): Part[] {
   return [{ name: "synthetic.edf", size: syntheticEdfSize(input.spec), source: { spec: input.spec } }];
 }
 
+/** What the core opens: the primary file and every file of `parts` under the id `fileIds` has for it. */
+export const openRequestOf = (input: RecordingInput, parts: Part[], fileIds: number[]): OpenRequest => ({
+  primary: "primary" in input ? input.primary : parts[0].name,
+  files: parts.map(({ name, size }, i) => ({ name, file_id: fileIds[i], len: size })),
+});
+
 /** Fills `dst` from `offset` of `source`. */
 export function readSource(source: Source, offset: number, dst: Uint8Array): void {
   if ("file" in source) readFileSync(source.file, offset, dst);
@@ -151,6 +158,6 @@ export function readSource(source: Source, offset: number, dst: Uint8Array): voi
 // shortcut: remote files above 1 GiB get on-demand tiles only, revisit if remote viewing of large files matters.
 const REMOTE_SCAN_LIMIT = 2 ** 30;
 
-/** Whether the scan builds the overview of `input` and the hash worker reads it whole. */
+/** Whether the scan builds the overview of `input` and the hash and annotation workers read it whole. */
 export const isScanned = (input: RecordingInput) =>
   input.kind !== "url" || input.files.reduce((sum, { size }) => sum + size, 0) <= REMOTE_SCAN_LIMIT;
