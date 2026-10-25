@@ -10,7 +10,7 @@ Install it as a Python tool (the wheel carries the `ddalab` executable only) or 
 
 ```bash
 uv tool install ddalab
-ddalab inspect recording.edf
+ddalab inspect --file recording.edf
 ddalab run --file recording.edf --variants ST --wl 1000 --ws 200 --delays 7 10 --bundle out
 ```
 
@@ -105,7 +105,7 @@ CPU execution remains the default. Build the optional CUDA backend and select a 
 cargo run --release --features cuda -- run --file data.csv --channels 0 1 --device cuda
 ```
 
-`--device cuda:N` selects device `N`. The CUDA build dynamically loads the NVIDIA driver and cuBLAS, so compilation does not require a local CUDA toolkit; execution requires a working NVIDIA CUDA installation. The implementation batches same-shaped `f64` regressions and computes predictions and residual norms on the GPU. Rank-deficient regressions fall back to the CPU SVD solver. Rust-only CCD extensions continue to use their existing CPU implementations.
+`--device cuda:N` selects device `N`. The CUDA build dynamically loads the NVIDIA driver and cuBLAS. Compilation does not require a local CUDA toolkit; execution requires a working NVIDIA CUDA installation. The implementation batches same-shaped `f64` regressions and computes predictions and residual norms on the GPU. Rank-deficient regressions fall back to the CPU SVD solver. Rust-only CCD extensions continue to use their existing CPU implementations.
 
 Library users configure the same backend through `PureRustOptions`:
 

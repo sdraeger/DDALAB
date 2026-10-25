@@ -297,7 +297,7 @@ pub fn prepare_selection(
 
 /// Validates the DDA parameters that do not depend on the recording; an empty channel selection is filled in
 /// once the recording is open.
-pub fn validate_params_except_channels(
+pub fn validate_params(
     variants: &[String],
     delays: &[i32],
     wl: u32,
@@ -493,39 +493,34 @@ mod tests {
 
     #[test]
     fn test_validate_params_valid() {
-        let result =
-            validate_params_except_channels(&["ST".to_string()], &[7, 10], 200, 100, &None, &None);
+        let result = validate_params(&["ST".to_string()], &[7, 10], 200, 100, &None, &None);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_validate_params_invalid_variant() {
-        let result =
-            validate_params_except_channels(&["INVALID".to_string()], &[7], 200, 100, &None, &None);
+        let result = validate_params(&["INVALID".to_string()], &[7], 200, 100, &None, &None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Unknown variant"));
     }
 
     #[test]
     fn test_validate_params_delay_out_of_range() {
-        let result =
-            validate_params_except_channels(&["ST".to_string()], &[200], 200, 100, &None, &None);
+        let result = validate_params(&["ST".to_string()], &[200], 200, 100, &None, &None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("out of range"));
     }
 
     #[test]
     fn test_validate_params_negative_delay_is_rejected() {
-        let result =
-            validate_params_except_channels(&["ST".to_string()], &[-7, 10], 200, 100, &None, &None);
+        let result = validate_params(&["ST".to_string()], &[-7, 10], 200, 100, &None, &None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("non-negative"));
     }
 
     #[test]
     fn test_validate_params_ws_exceeds_wl() {
-        let result =
-            validate_params_except_channels(&["ST".to_string()], &[7], 100, 200, &None, &None);
+        let result = validate_params(&["ST".to_string()], &[7], 100, 200, &None, &None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("must not exceed"));
     }
