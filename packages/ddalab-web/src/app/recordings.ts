@@ -58,6 +58,9 @@ const picker = () =>
   (window as { showOpenFilePicker?: (options: { multiple: boolean }) => Promise<FileHandle[]> })
     .showOpenFilePicker;
 
+/** Whether the browser has its own file picker, which gives handles (Chromium). */
+export const canPickFiles = () => picker() !== undefined;
+
 export async function refreshRecent() {
   // The list is a convenience: without IndexedDB (some private windows) it stays empty.
   useStore.setState({ recent: await listRecent().catch(() => []) });

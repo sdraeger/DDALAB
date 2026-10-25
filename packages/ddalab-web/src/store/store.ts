@@ -2,6 +2,7 @@
 import { create } from "zustand";
 import type { ScanState } from "../core/protocol";
 import type { Annotation, RecordingInfo } from "../core/types";
+import { saveTheme, storedTheme, type Theme } from "../styles/theme";
 import type { RecentEntry } from "./recent";
 
 export interface OpenRecording {
@@ -11,37 +12,129 @@ export interface OpenRecording {
   fingerprint: string;
   scan: ScanState;
   source: "files" | "url" | "synthetic";
+  /** Display channels chosen for analysis, as indices into `analysis_channels`, ascending. */
+  selectedChannels: number[];
+}
+
+export type Epoch = 10 | 20 | 30;
+export const EPOCHS: Epoch[] = [10, 20, 30];
+/** The sensitivity steps of the `[` and `]` keys, in µV/mm. */
+export const SENSITIVITIES = [1, 2, 3, 5, 7, 10, 15, 20, 30, 50, 70, 100];
+/** CSS pixels in a CSS millimetre. */
+export const CSS_PX_PER_MM = 96 / 25.4;
+
+/** What the waveform shows: seconds from the recording start, display channel rows and the physical scale. */
+export interface View {
+  t0: number;
+  t1: number;
+  firstChannel: number;
+  rowCount: number;
+  epochS: Epoch;
+  sensitivityUvPerMm: number;
+  /** Physical millimetres in one CSS millimetre on this display (the calibration setting). */
+  mmPerCssMm: number;
 }
 
 interface State {
   recordings: Record<string, OpenRecording>;
   activeRecordingId: string | null;
   recent: RecentEntry[];
+  view: View;
+  selection: { t0: number; t1: number } | null;
+  cursorS: number | null;
+  /** The width of the waveform plot in CSS pixels, which the timebase depends on. */
+  plotCssWidth: number;
+  /** The theme the user picked; `null` follows the system. */
+  theme: Theme | null;
 }
 
-export const useStore = create<State>()(() => ({ recordings: {}, activeRecordingId: null, recent: [] }));
+const CALIBRATION_KEY = "ddalab.mmPerCssMm";
+function storedCalibration(): number {
+  try {
+    const value = Number(localStorage.getItem(CALIBRATION_KEY));
+    return value > 0.25 && value < 4 ? value : 1;
+  } catch {
+    return 1;
+  }
+}
+
+/** Rows shown at once when a recording opens. */
+const DEFAULT_ROWS = 16;
+
+export const useStore = create<State>()(() => ({
+  recordings: {},
+  activeRecordingId: null,
+  recent: [],
+  view: {
+    t0: 0,
+    t1: 10,
+    firstChannel: 0,
+    rowCount: DEFAULT_ROWS,
+    epochS: 10,
+    sensitivityUvPerMm: 70,
+    mmPerCssMm: storedCalibration(),
+  },
+  selection: null,
+  cursorS: null,
+  plotCssWidth: 0,
+  theme: storedTheme(),
+}));
+
+export const activeRecording = (s: State) =>
+  s.activeRecordingId ? s.recordings[s.activeRecordingId] : undefined;
+
+/** `view` moved inside the recording: whole span in range, at least 8 samples, rows within the channels. */
+function clamp(view: View, recording: OpenRecording | undefined): View {
+  if (!recording) return view;
+  const { duration_s: duration, sample_rate_hz: rate } = recording.info;
+  const channels = recording.analysis_channels.length;
+  const span = Math.min(duration, Math.max(8 / rate, view.t1 - view.t0));
+  const t0 = Math.min(duration - span, Math.max(0, view.t0));
+  const rowCount = Math.max(1, Math.min(channels, Math.round(view.rowCount)));
+  const firstChannel = Math.max(0, Math.min(channels - rowCount, Math.round(view.firstChannel)));
+  return { ...view, t0, t1: t0 + span, rowCount, firstChannel };
+}
+
+/** The first epoch and the first rows of `recording`; scale settings carry over. */
+function freshView(
+  view: View,
+  recording: OpenRecording | undefined,
+): Pick<State, "view" | "selection" | "cursorS"> {
+  const next = { ...view, t0: 0, t1: view.epochS, firstChannel: 0, rowCount: DEFAULT_ROWS };
+  return { view: clamp(next, recording), selection: null, cursorS: null };
+}
 
 /** Adds a freshly opened recording, which nothing has scanned yet, and makes it the active one. */
-export function addRecording(id: string, recording: Omit<OpenRecording, "scan">) {
+export function addRecording(id: string, recording: Omit<OpenRecording, "scan" | "selectedChannels">) {
   const scan: ScanState = { scannedRows: 0, totalRows: recording.info.sample_count };
+  const added: OpenRecording = { ...recording, scan, selectedChannels: [] };
   useStore.setState((s) => ({
-    recordings: { ...s.recordings, [id]: { ...recording, scan } },
+    recordings: { ...s.recordings, [id]: added },
     activeRecordingId: id,
+    ...freshView(s.view, added),
   }));
 }
 
 /** Makes an open recording the active one. */
 export function activateRecording(id: string) {
-  useStore.setState((s) => (s.recordings[id] ? { activeRecordingId: id } : s));
+  useStore.setState((s) =>
+    s.recordings[id] && s.activeRecordingId !== id
+      ? { activeRecordingId: id, ...freshView(s.view, s.recordings[id]) }
+      : s,
+  );
 }
 
 /** Drops a recording; the most recently added of the rest becomes the active one. */
 export function removeRecording(id: string) {
   useStore.setState((s) => {
     const { [id]: _, ...recordings } = s.recordings;
-    const active =
-      s.activeRecordingId === id ? (Object.keys(recordings).at(-1) ?? null) : s.activeRecordingId;
-    return { recordings, activeRecordingId: active };
+    if (s.activeRecordingId !== id) return { recordings };
+    const active = Object.keys(recordings).at(-1) ?? null;
+    return {
+      recordings,
+      activeRecordingId: active,
+      ...freshView(s.view, active ? recordings[active] : undefined),
+    };
   });
 }
 
@@ -62,4 +155,84 @@ export function setAnnotations(id: string, found: { annotations: Annotation[]; w
     const info = { ...recording.info, annotations: found.annotations, warnings };
     return { recordings: { ...s.recordings, [id]: { ...recording, info } } };
   });
+}
+
+/** Adds (`on`) or removes display channels from the active recording's analysis choice. */
+export function selectChannels(channels: number[], on: boolean) {
+  useStore.setState((s) => {
+    const recording = activeRecording(s);
+    if (!recording || !s.activeRecordingId) return s;
+    const chosen = new Set(recording.selectedChannels);
+    for (const c of channels) {
+      if (on) chosen.add(c);
+      else chosen.delete(c);
+    }
+    const selectedChannels = [...chosen].sort((a, b) => a - b);
+    return { recordings: { ...s.recordings, [s.activeRecordingId]: { ...recording, selectedChannels } } };
+  });
+}
+
+/** Changes the view; it stays inside the active recording. */
+export function setView(change: Partial<View> | ((view: View) => Partial<View>)) {
+  useStore.setState((s) => {
+    const next = { ...s.view, ...(typeof change === "function" ? change(s.view) : change) };
+    return { view: clamp(next, activeRecording(s)) };
+  });
+}
+
+/** Moves the view by `epochs` epochs; the last page ends at the end of the recording. */
+export const pageBy = (epochs: number) =>
+  setView((v) => ({ t0: v.t0 + epochs * v.epochS, t1: v.t1 + epochs * v.epochS }));
+
+export const pageToStart = () => setView((v) => ({ t0: 0, t1: v.t1 - v.t0 }));
+export function pageToEnd() {
+  const end = activeRecording(useStore.getState())?.info.duration_s;
+  if (end !== undefined) setView((v) => ({ t0: end - (v.t1 - v.t0), t1: end }));
+}
+
+/** Scales the span by `factor` about `atS`, which keeps its place on screen. */
+export const zoomBy = (factor: number, atS: number) =>
+  setView((v) => ({ t0: atS - (atS - v.t0) * factor, t1: atS + (v.t1 - atS) * factor }));
+
+/** One step along `SENSITIVITIES` from the step nearest the current value. */
+export function stepSensitivity(steps: number) {
+  setView((v) => {
+    const nearest = SENSITIVITIES.reduce(
+      (best, s, i) =>
+        Math.abs(s - v.sensitivityUvPerMm) < Math.abs(SENSITIVITIES[best] - v.sensitivityUvPerMm) ? i : best,
+      0,
+    );
+    const i = Math.max(0, Math.min(SENSITIVITIES.length - 1, nearest + steps));
+    return { sensitivityUvPerMm: SENSITIVITIES[i] };
+  });
+}
+
+/** The epoch becomes the span from the current start. */
+export const setEpoch = (epochS: Epoch) => setView((v) => ({ epochS, t1: v.t0 + epochS }));
+
+/** Physical millimetres per second across the plot. */
+export const timebaseOf = (view: View, plotCssWidth: number) =>
+  ((plotCssWidth / CSS_PX_PER_MM) * view.mmPerCssMm) / (view.t1 - view.t0);
+
+/** Sets the span that gives `mmPerS` across the current plot width. */
+export function setTimebase(mmPerS: number) {
+  const { plotCssWidth } = useStore.getState();
+  if (plotCssWidth > 0)
+    setView((v) => ({ t1: v.t0 + ((plotCssWidth / CSS_PX_PER_MM) * v.mmPerCssMm) / mmPerS }));
+}
+
+export function setCalibration(mmPerCssMm: number) {
+  try {
+    localStorage.setItem(CALIBRATION_KEY, String(mmPerCssMm));
+  } catch {}
+  setView({ mmPerCssMm });
+}
+
+export const setSelection = (selection: State["selection"]) => useStore.setState({ selection });
+export const setCursor = (cursorS: number | null) => useStore.setState({ cursorS });
+export const setPlotWidth = (plotCssWidth: number) => useStore.setState({ plotCssWidth });
+
+export function setTheme(theme: Theme) {
+  saveTheme(theme);
+  useStore.setState({ theme });
 }

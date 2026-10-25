@@ -16,4 +16,13 @@ export default defineConfig({
     },
   ],
   worker: { format: "es" },
+  // The perf tests measure memory with performance.measureUserAgentSpecificMemory, which needs isolation.
+  server: process.env.DDALAB_ISOLATE
+    ? {
+        headers: {
+          "Cross-Origin-Opener-Policy": "same-origin",
+          "Cross-Origin-Embedder-Policy": "require-corp",
+        },
+      }
+    : {},
 });

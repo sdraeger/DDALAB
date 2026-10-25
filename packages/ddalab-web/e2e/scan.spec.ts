@@ -109,11 +109,28 @@ test("scan_progress_and_resume", async ({ page }) => {
 
 test("visible_tile_before_scan", async ({ page }) => {
   test.setTimeout(120_000);
-  const id = await open(page);
-  expect(await tileDigest(page, id, 2, 0)).toBeNull();
-  // A fine tile is built from the file at once, long before the sequential pass reaches it.
-  expect(await tileDigest(page, id, 0, 12)).toBe(await expectedTile(0, 12));
-  expect((await scanOf(page, id)).scannedRows).toBeLessThan(ROWS);
+  // Eight hours, opened by the engine alone: the pass takes seconds, and no plot adds requests or redraws.
+  const spec = { ...SPEC, durationS: 8 * 3600 };
+  const seen = await page.evaluate(async (s) => {
+    const { engine } = window.__ddalab;
+    const { id } = await engine.open({ kind: "synthetic", spec: s });
+    let scanned = 0;
+    engine.onScan(id, (state) => {
+      scanned = state.scannedRows;
+    });
+    const coarse = await engine.tile(id, 2, 0);
+    // A fine tile is built from the file at once, long before the sequential pass reaches it.
+    const fine = await engine.tile(id, 0, 12);
+    const digest = fine && new Uint8Array(await crypto.subtle.digest("SHA-256", fine.bytes));
+    return {
+      coarse,
+      scanned,
+      digest: digest && Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join(""),
+    };
+  }, spec);
+  expect(seen.coarse).toBeNull();
+  expect(seen.digest).toBe(await expectedTile(0, 12, spec));
+  expect(seen.scanned).toBeLessThan(spec.rateHz * spec.durationS);
 });
 
 // Stored tiles are served only when their header names this recording's level, index and channel count.

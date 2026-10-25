@@ -10,12 +10,14 @@
     "typecheck": "tsc",
     "check": "biome check .",
     "test": "npm run build:wasm && vitest run",
-    "test:e2e": "npm run build:wasm && playwright test"
+    "test:e2e": "npm run build:wasm && playwright test",
+    "test:perf": "npm run build:wasm && PERF=1 playwright test"
   },
   "dependencies": {
     "@base-ui/react": "1.9.0",
     "client-zip": "2.5.1",
     "idb": "8.0.4",
+    "lucide-react": "1.53.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "zustand": "5.0.16"

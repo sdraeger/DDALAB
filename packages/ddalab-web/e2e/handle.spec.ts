@@ -22,11 +22,12 @@ test("reopen_through_a_stored_handle", async ({ page }) => {
       },
     });
   }, readFileSync(EDF).toString("base64"));
-  const channels = page.getByRole("list", { name: "Channels" }).getByRole("listitem");
+  const channels = page.getByRole("list", { name: "Channels" }).getByRole("listitem").locator("label");
 
   await page.goto("/");
   await page.getByRole("button", { name: "Open files" }).click();
   await expect(channels).toHaveText(["Fp1", "Fp2"]);
+  await expect(page.getByRole("button", { name: "Forget fixture.edf" })).toBeVisible(); // stored before the reload
 
   await page.reload();
   await expect(channels).toHaveCount(0);

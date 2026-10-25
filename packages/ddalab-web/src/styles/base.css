@@ -1,0 +1,63 @@
+/* Element defaults on the tokens: the parts of the page no component draws still carry the design. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--chrome);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: var(--numerals);
+  accent-color: var(--primary);
+  caret-color: var(--primary);
+  scrollbar-color: var(--hairline) transparent;
+}
+
+::selection {
+  background: var(--primary);
+  color: var(--primary-ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+h1,
+h2,
+h3,
+p,
+ul,
+dl,
+dd {
+  margin: 0;
+}
+
+ul {
+  padding: 0;
+  list-style: none;
+}
+
+a {
+  color: var(--primary);
+  text-underline-offset: 2px;
+}

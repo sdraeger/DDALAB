@@ -1,0 +1,127 @@
+.shell {
+  --library-width: 248px;
+  --inspector-width: 304px;
+  display: grid;
+  height: 100%;
+  grid-template-rows: 44px minmax(0, 1fr);
+  grid-template-columns: var(--library-width) minmax(0, 1fr) var(--inspector-width);
+  grid-template-areas:
+    "bar bar bar"
+    "library center inspector";
+}
+
+.shell[data-library="closed"] {
+  --library-width: 0px;
+}
+
+.shell[data-inspector="closed"] {
+  --inspector-width: 0px;
+}
+
+.bar {
+  grid-area: bar;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 0 var(--space-2);
+  border-bottom: var(--hairline-width) solid var(--hairline);
+  background: var(--chrome);
+}
+
+.wordmark {
+  font-weight: var(--weight-strong);
+  letter-spacing: 0.02em;
+}
+
+.name {
+  min-width: 0;
+  max-width: 32ch;
+  overflow: hidden;
+  padding-left: var(--space-3);
+  border-left: var(--hairline-width) solid var(--hairline);
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.grow {
+  flex: 1 1 0;
+}
+
+.view {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.paging {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.page {
+  margin-left: var(--space-2);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.library {
+  grid-area: library;
+  min-height: 0;
+  overflow-y: auto;
+  border-right: var(--hairline-width) solid var(--hairline);
+  background: var(--chrome);
+}
+
+.center {
+  grid-area: center;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--ground);
+}
+
+.inspector {
+  grid-area: inspector;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-left: var(--hairline-width) solid var(--hairline);
+  background: var(--chrome);
+}
+
+/* A closed panel stays mounted (the library keeps listening for dropped files) but leaves the layout. */
+.shell[data-library="closed"] .library,
+.shell[data-inspector="closed"] .inspector {
+  display: none;
+}
+
+.empty {
+  margin: auto;
+  max-width: 44ch;
+  padding: var(--space-6);
+  color: var(--muted);
+  text-align: center;
+}
+
+.narrow {
+  display: none;
+}
+
+@media (width < 768px) {
+  .shell {
+    display: none;
+  }
+
+  .narrow {
+    display: block;
+    max-width: 36ch;
+    margin: 0 auto;
+    padding: var(--space-6) var(--space-4);
+    font-size: var(--text-section);
+    line-height: 1.5;
+  }
+}
