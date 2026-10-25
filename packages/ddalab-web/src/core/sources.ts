@@ -144,7 +144,8 @@ export function partsOf(input: RecordingInput): Part[] {
 export function readSource(source: Source, offset: number, dst: Uint8Array): void {
   if ("file" in source) readFileSync(source.file, offset, dst);
   else if ("url" in source) readUrlSync(source.url, offset, dst);
-  else readSynthetic(source.spec, offset, dst);
+  else if (import.meta.env.DEV || import.meta.env.MODE === "e2e") readSynthetic(source.spec, offset, dst);
+  else throw new Error("Synthetic recordings are not available");
 }
 
 // shortcut: remote files above 1 GiB get on-demand tiles only, revisit if remote viewing of large files matters.

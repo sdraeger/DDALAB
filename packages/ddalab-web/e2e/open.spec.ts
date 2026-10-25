@@ -20,11 +20,47 @@ test.beforeEach(async ({ page }) => {
 
 test("open_edf_by_picker", async ({ page }) => {
   await files(page).setInputFiles(fixturePath("fixture.edf"));
-  await expect(channels(page)).toHaveText(["Fp1", "Fp2", "Resp"]);
+  await expect(channels(page)).toHaveText(["Fp1", "Fp2"]);
   await expect(
     page.getByRole("region", { name: "Inspector" }).getByText("30 s", { exact: true }),
   ).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+// The core lists the channels at the recording's rate as display channels; Resp (64 Hz) is not one of them.
+test("analysis_channels_carry_through", async ({ page }) => {
+  await files(page).setInputFiles(fixturePath("fixture.edf"));
+  await expect(channels(page)).toHaveText(["Fp1", "Fp2"]);
+  await expect(page.getByRole("list", { name: "Not analyzed" }).getByRole("listitem")).toHaveText([
+    "Resp (64 Hz)",
+  ]);
+  const golden = JSON.parse(
+    readFileSync(new URL("../src/core/golden/inspect-fixture-edf.json", import.meta.url), "utf8"),
+  );
+  const stored = await page.evaluate(() => {
+    const { recordings, activeRecordingId } = window.__ddalab.store.getState();
+    return recordings[activeRecordingId as string].analysis_channels;
+  });
+  expect(golden.analysis_channels).toEqual([0, 1]);
+  expect(stored).toEqual(golden.analysis_channels);
+});
+
+// Tiles and hashes are kept per fingerprint: a second engine recording of the same content would only compete.
+test("the_same_recording_opens_once", async ({ page }) => {
+  const state = () =>
+    page.evaluate(() => {
+      const { recordings, activeRecordingId } = window.__ddalab.store.getState();
+      return { open: Object.keys(recordings).length, active: activeRecordingId };
+    });
+  await files(page).setInputFiles(fixturePath("fixture.edf"));
+  await expect(channels(page)).toHaveCount(2);
+  const edf = await state();
+  await page.getByLabel("Recording folder").setInputFiles(fixturePath(""));
+  await expect(channels(page)).toHaveCount(4);
+  expect(await state()).toMatchObject({ open: 2 });
+  await files(page).setInputFiles(fixturePath("fixture.edf"));
+  await expect(channels(page)).toHaveCount(2);
+  expect(await state()).toEqual({ open: 2, active: edf.active });
 });
 
 test("drop_brainvision_folder", async ({ page }) => {
@@ -80,14 +116,14 @@ test("several_recordings_ask", async ({ page }) => {
   await files(page).setInputFiles([upload("a.edf", edf), upload("b.edf", edf)]);
   const choice = page.getByRole("group", { name: "Several recordings found" });
   await choice.getByRole("button", { name: "b.edf" }).click();
-  await expect(channels(page)).toHaveText(["Fp1", "Fp2", "Resp"]);
+  await expect(channels(page)).toHaveText(["Fp1", "Fp2"]);
   await expect(page.getByRole("heading", { name: "b.edf" })).toBeVisible();
 });
 
 // Files opened through an <input> have no FileSystemHandle in any browser: every project re-picks.
 test("reopen_requires_repick_without_handle", async ({ page }) => {
   await files(page).setInputFiles(fixturePath("fixture.edf"));
-  await expect(channels(page)).toHaveCount(3);
+  await expect(channels(page)).toHaveCount(2);
   await page.reload();
   await expect(channels(page)).toHaveCount(0);
   await expect(page.getByText("Select the file again to reopen it.")).toBeVisible();
@@ -96,13 +132,13 @@ test("reopen_requires_repick_without_handle", async ({ page }) => {
     recentButton(page, "Locate fixture.edf").click(),
   ]);
   await chooser.setFiles(fixturePath("fixture.edf"));
-  await expect(channels(page)).toHaveText(["Fp1", "Fp2", "Resp"]);
+  await expect(channels(page)).toHaveText(["Fp1", "Fp2"]);
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
 test("wrong_file_on_repick_warns", async ({ page }) => {
   await files(page).setInputFiles(fixturePath("fixture.edf"));
-  await expect(channels(page)).toHaveCount(3);
+  await expect(channels(page)).toHaveCount(2);
   await page.reload();
   const [chooser] = await Promise.all([
     page.waitForEvent("filechooser"),

@@ -1,5 +1,6 @@
 import "fake-indexeddb/auto";
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { openDB } from "idb";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { forgetRecent, listRecent, rememberRecent } from "./recent";
 
 // A stand-in for a FileSystemFileHandle: plain data survives IndexedDB's structured clone.
@@ -41,4 +42,26 @@ test("newest_first_one_entry_per_fingerprint_capped", async () => {
   // The 20 newest are f5 to f24; f10 moved to the front.
   const rest = Array.from({ length: 20 }, (_, i) => `f${24 - i}`).filter((f) => f !== "f10");
   expect(list.slice(1).map((e) => e.fingerprint)).toEqual(rest);
+});
+
+test("one_connection_serves_every_call", async () => {
+  await listRecent();
+  const open = vi.spyOn(indexedDB, "open");
+  await rememberRecent(entry("a"));
+  await rememberRecent(entry("b"));
+  await listRecent();
+  await forgetRecent("a");
+  expect(open).not.toHaveBeenCalled();
+  open.mockRestore();
+});
+
+// Another tab running newer code raises the database version. Our open connection must not hold that up.
+test("a_version_upgrade_in_another_tab_is_not_blocked", async () => {
+  await listRecent();
+  const upgraded = openDB("ddalab", 2, { upgrade: (db) => void db.createObjectStore("history") });
+  const timeout = new Promise<string>((done) => setTimeout(() => done("blocked"), 1000));
+  const outcome = await Promise.race([upgraded.then(() => "upgraded"), timeout]);
+  expect(outcome).toBe("upgraded");
+  // The old code cannot open version 1 any more; it fails instead of hanging.
+  await expect(listRecent()).rejects.toThrow();
 });

@@ -1,6 +1,7 @@
 // The engine as UI code sees it: the only module UI code imports for engine access. Workers do the work; this
 // module owns them. A wasm instance that trapped (a Rust panic) is unusable: the engine replaces its worker and
-// opens the recordings it held again, and the request that trapped fails with the trap's message.
+// opens the recordings it held again, and the request that trapped fails with the trap's message. Replacements
+// that never get a reply (the worker script does not load) stop after a few, with the engine unavailable.
 import type {
   HashReply,
   HashRequest,
@@ -23,7 +24,16 @@ export type RecordingInput =
 
 export interface Engine {
   version(): Promise<EngineVersion>;
-  open(input: RecordingInput): Promise<{ id: string; info: RecordingInfo; fingerprint: string }>;
+  /**
+   * `analysis_channels` are the indices into `info.channels` of the display channels: `raw` returns these and DDA
+   * requests index this list. A recording already open (same fingerprint) is not opened again: its id comes back.
+   */
+  open(input: RecordingInput): Promise<{
+    id: string;
+    info: RecordingInfo;
+    fingerprint: string;
+    analysis_channels: number[];
+  }>;
   close(id: string): void;
   /**
    * Tile `index` of pyramid `level`, or `null` while the scan has not reached it and building it from the file
@@ -42,6 +52,12 @@ export interface Engine {
 /** What dev and e2e builds add for tests. */
 export type DevEngine = Engine & { trap(): Promise<void>; quota(bytes: number): Promise<void> };
 
+/** Replacements allowed in a row, none of which got a reply. */
+const MAX_REPLACEMENTS = 3;
+
+/** The engine, not the request, failed: the request may be sent again once the engine has a worker. */
+class EngineStopped extends Error {}
+
 interface Tracked {
   fingerprint: string;
   scan: ScanState;
@@ -58,7 +74,10 @@ const stateOf = ({ scan, sha256, hashError }: Tracked): ScanState => ({
 export function createEngine(): Engine {
   /** What a replacement worker opens again, under the ids the UI already holds. */
   const held = new Map<string, RecordingInput>();
-  const pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>();
+  const pending = new Map<
+    number,
+    { resolve(value: unknown): void; reject(error: Error): void; request: IoRequest }
+  >();
   const listeners = new Map<string, Set<(state: ScanState) => void>>();
   /** The scan as the IO worker reports it and the hashes the hash worker has finished, by recording. */
   const scans = new Map<string, Tracked>();
@@ -68,30 +87,63 @@ export function createEngine(): Engine {
   let worker: Worker;
   let hasher: Worker | undefined;
   let serial = 0;
+  /** Workers that have sent a message: their script loaded. */
+  const loaded = new WeakSet<Worker>();
+  /** Replacements since a worker last answered a request. */
+  let failures = 0;
+  /** Set when the engine gave up: every request fails with it. */
+  let unavailable: Error | undefined;
 
   /** The worker answers in the order it was asked. */
   const call = <T extends IoRequest["type"]>(request: Extract<IoRequest, { type: T }>) =>
     new Promise<IoResults[T]>((resolve, reject) => {
-      pending.set(++serial, { resolve: resolve as (value: unknown) => void, reject });
+      if (unavailable) return reject(unavailable);
+      pending.set(++serial, { resolve: resolve as (value: unknown) => void, reject, request });
       worker.postMessage({ n: serial, ...request });
     });
 
   function replace(failed: Worker, message: string, culprit?: number) {
     if (failed !== worker) return;
     failed.terminate();
-    for (const [n, { reject }] of pending) {
-      reject(
-        new Error(
-          n === culprit || culprit === undefined
-            ? `The engine stopped unexpectedly: ${message}`
-            : "The engine restarted; try again",
-        ),
-      );
-    }
+    const waiting = [...pending];
     pending.clear();
+    if (++failures > MAX_REPLACEMENTS) {
+      unavailable = new EngineStopped(`The engine could not start: ${message}`);
+      for (const [, { reject }] of waiting) reject(unavailable);
+      return;
+    }
     start();
-    // These come before any later request. One that fails (its file is gone) is forgotten.
-    for (const [id, input] of held) call({ type: "open", id, input }).catch(() => held.delete(id));
+    // These come before any later request. One that fails for its own reason (its file is gone) is forgotten and
+    // reported; one cut short by another restart is opened again by that restart.
+    for (const [id, input] of held) {
+      call({ type: "open", id, input }).catch((error: Error) => {
+        if (error instanceof EngineStopped) return;
+        held.delete(id);
+        const entry = scans.get(id);
+        if (!entry) return;
+        entry.scan = {
+          ...entry.scan,
+          error: `The recording could not be opened again after the engine restarted: ${error.message}`,
+        };
+        publish(id);
+      });
+    }
+    // Answers from the replacement are what end the count of failed replacements.
+    call({ type: "version" }).catch(() => {});
+    for (const [n, entry] of waiting) {
+      if (!loaded.has(failed)) {
+        // The worker never ran it: the replacement does.
+        pending.set(n, entry);
+        worker.postMessage({ n, ...entry.request });
+      } else {
+        const own = n === culprit || culprit === undefined;
+        entry.reject(
+          new EngineStopped(
+            own ? `The engine stopped unexpectedly: ${message}` : "The engine restarted; try again",
+          ),
+        );
+      }
+    }
   }
 
   function publish(id: string) {
@@ -118,6 +170,7 @@ export function createEngine(): Engine {
     const started = new Worker(new URL("../workers/io.worker.ts", import.meta.url), { type: "module" });
     worker = started;
     started.onmessage = ({ data }: MessageEvent<IoReply | IoEvent>) => {
+      loaded.add(started);
       if ("event" in data) {
         const entry = scans.get(data.id);
         if (entry) entry.scan = data.state;
@@ -129,7 +182,10 @@ export function createEngine(): Engine {
       pending.delete(data.n);
       if (!request) return;
       if ("error" in data) request.reject(new Error(data.error));
-      else request.resolve(data.ok);
+      else {
+        failures = 0;
+        request.resolve(data.ok);
+      }
     };
     started.onerror = (event) => replace(started, event.message || "The engine stopped");
   }
@@ -139,7 +195,8 @@ export function createEngine(): Engine {
     version: () => call({ type: "version" }),
     async open(input) {
       const id = crypto.randomUUID();
-      const opened = await call({ type: "open", id, input });
+      const { duplicateOf, ...opened } = await call({ type: "open", id, input });
+      if (duplicateOf) return { id: duplicateOf, ...opened };
       held.set(id, input);
       const { info, fingerprint } = opened;
       scans.set(id, { fingerprint, scan: { scannedRows: 0, totalRows: info.sample_count }, sha256: {} });
