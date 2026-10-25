@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "@playwright/test";
 import type { ResultDocument } from "../src/core/types";
 import { colorIndex, LUTS, type MapName } from "../src/render/colormaps";
+import { FANOUT, resultLevels } from "../src/render/resultPyramid";
 import type { View } from "../src/store/store";
 import { type Bundle, bundleDir } from "./global-setup";
 import { type Fixture, showFixture } from "./resultFixture";
@@ -346,11 +347,21 @@ test("keyboard_reads_window_values", async ({ page }) => {
   await expect(readout).toContainText(`${centers[w].toFixed(3)} s`);
   await expect(readout).toContainText(q.at(w, 1).toPrecision(4));
   // Screen readers hear it; the focus stays, and the view did not page.
-  await expect(result(page).getByRole("status").filter({ hasText: "window at" })).toHaveText(
-    `Fp2, window at ${centers[w].toFixed(3)} s, Q ${q.at(w, 1).toPrecision(4)}`,
-  );
+  const spoken = `Fp2, window at ${centers[w].toFixed(3)} s, Q ${q.at(w, 1).toPrecision(4)}`;
+  const status = result(page).getByRole("status").filter({ hasText: "window at" });
+  await expect(status).toHaveText(spoken);
   await expect(row).toBeFocused();
   expect(await page.evaluate(() => window.__ddalab.store.getState().view.t0)).toBe(t0);
+  // The pointer resting on the plot shows its own cell, and screen readers still hear the keyboard's.
+  const box = await page.locator("canvas[data-heatmap]").boundingBox();
+  if (!box) throw new Error("no heatmap canvas");
+  const hovered = w + 3;
+  await page.mouse.move(box.x + ((centers[hovered] - t0) / (t1 - t0)) * box.width, box.y + box.height / 4);
+  await expect(readout).toContainText("Fp1");
+  // The frame that moved the readout to the pointer's cell also set what is spoken.
+  await expect(readout).toContainText(`${centers[hovered].toFixed(3)} s`);
+  await expect(status).toHaveText(spoken);
+  await page.mouse.move(0, 0);
   await row.blur();
   await expect(readout).toBeHidden();
 });
@@ -368,3 +379,70 @@ test("array_read_failure_offers_try_again", async ({ page }) => {
   await expect(alert).toBeHidden();
   expect((await heatmapRows(page)).frame).toMatchObject({ resultId: "fixture-late", rows: 2 });
 });
+
+test("manifest_read_failure_offers_try_again", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  await openTwoHours(page);
+  // Shown before its files exist: the manifest cannot be read.
+  await page.evaluate(() => {
+    const { store } = window.__ddalab;
+    const { recordings, activeRecordingId } = store.getState();
+    const { fingerprint } = recordings[activeRecordingId as string];
+    store.setState({
+      shownResult: { id: "fixture-unread", fingerprint, variant: null, array: "q", row: null },
+    });
+  });
+  const alert = result(page).getByRole("alert").filter({ hasText: "could not be read" });
+  await expect(alert).toBeVisible();
+  // Once the files are there, Try again reads them.
+  await showFixture(page, {
+    id: "fixture-unread",
+    windows: 400,
+    rows: 2,
+    first: 10,
+    step: 0.125,
+    values: [],
+  });
+  await alert.getByRole("button", { name: "Try again" }).click();
+  await expect(alert).toBeHidden();
+  expect((await heatmapRows(page)).frame).toMatchObject({ resultId: "fixture-unread", rows: 2 });
+});
+
+// 57,000 windows of 4 rows: the storage takes all of the levels' files but the record, or half of the files.
+for (const [what, part] of [
+  ["record", 1],
+  ["levels", 0.5],
+] as const) {
+  test(`full_storage_for_the_pyramid_${what}_leaves_no_partial_files`, async ({ page }) => {
+    test.skip(!(await hasStorage(page)), NO_STORAGE);
+    await openTwoHours(page);
+    // The scan writes through the same storage: it is over before the quota starts counting.
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const s = window.__ddalab.store.getState();
+          const { scannedRows, totalRows } = s.recordings[s.activeRecordingId as string].scan;
+          return scannedRows === totalRows;
+        }),
+      )
+      .toBe(true);
+    const [windows, rows] = [57_000, 4];
+    let levelBytes = 0;
+    for (let level = 1; level < resultLevels(windows); level++) {
+      levelBytes += Math.ceil(windows / FANOUT ** level) * rows * 4;
+    }
+    await page.evaluate((bytes) => window.__ddalab.engine.quota(bytes), Math.floor(part * levelBytes));
+    await showFixture(page, { id: "fixture-full", windows, rows, first: 0.5, step: 0.125, values: [] });
+    await expect(
+      result(page).getByRole("alert").filter({ hasText: "Zooming out on this result needs about" }),
+    ).toBeVisible();
+    const left = await page.evaluate(async () => {
+      const results = await (await navigator.storage.getDirectory()).getDirectoryHandle("results");
+      const st = await (await results.getDirectoryHandle("fixture-full")).getDirectoryHandle("ST");
+      const names: string[] = [];
+      for await (const [name] of st.entries()) names.push(name);
+      return names;
+    });
+    expect(left).toEqual(["q.npy"]);
+  });
+}

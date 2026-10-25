@@ -29,7 +29,9 @@
   background: var(--chrome);
 }
 
+/* The page's one heading, set as the bar's other text. */
 .wordmark {
+  font-size: inherit;
   font-weight: var(--weight-strong);
   letter-spacing: 0.02em;
 }

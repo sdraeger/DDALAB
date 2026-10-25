@@ -8,6 +8,7 @@ import ChevronFirst from "lucide-react/dist/esm/icons/chevron-first.mjs";
 import ChevronLast from "lucide-react/dist/esm/icons/chevron-last.mjs";
 import ChevronLeft from "lucide-react/dist/esm/icons/chevron-left.mjs";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right.mjs";
+import Info from "lucide-react/dist/esm/icons/info.mjs";
 import Moon from "lucide-react/dist/esm/icons/moon.mjs";
 import PanelLeft from "lucide-react/dist/esm/icons/panel-left.mjs";
 import PanelRight from "lucide-react/dist/esm/icons/panel-right.mjs";
@@ -41,6 +42,7 @@ import controls from "../styles/controls.module.css";
 import styles from "./Shell.module.css";
 
 const Calibration = lazy(() => import("../features/settings/Calibration"));
+const About = lazy(() => import("../features/settings/About"));
 const ResultPanel = lazy(() => import("../features/results/ResultPanel"));
 
 const TIMEBASES = [10, 15, 20, 30, 60, 120];
@@ -61,7 +63,7 @@ export function Shell() {
           <IconButton label="Library" aria-pressed={library} onClick={() => togglePanel("library")}>
             <PanelLeft aria-hidden />
           </IconButton>
-          <span className={styles.wordmark}>DDALAB</span>
+          <h1 className={styles.wordmark}>DDALAB</h1>
           <RecordingName />
           <span className={styles.grow} />
           {id && <ViewControls />}
@@ -71,11 +73,16 @@ export function Shell() {
               <RunButton recordingId={id} status={!inspector} />
             </Suspense>
           )}
-          <DisplaySettings />
+          <PanelButton label="Display calibration" icon={<Ruler aria-hidden />}>
+            <Calibration />
+          </PanelButton>
           <IconButton label="Inspector" aria-pressed={inspector} onClick={() => togglePanel("inspector")}>
             <PanelRight aria-hidden />
           </IconButton>
           <ThemeToggle />
+          <PanelButton label="About DDALAB" icon={<Info aria-hidden />}>
+            <About />
+          </PanelButton>
         </header>
         <aside className={styles.library} aria-label="Library">
           <LibraryRail />
@@ -245,18 +252,17 @@ function Choice(props: {
   );
 }
 
-function DisplaySettings() {
+/** An icon button of the command bar that opens a panel of its own. */
+function PanelButton(props: { label: string; icon: ReactElement; children: ReactElement }) {
   return (
     <Popover.Root>
-      <IconButton label="Display calibration" render={<Popover.Trigger />}>
-        <Ruler aria-hidden />
+      <IconButton label={props.label} render={<Popover.Trigger />}>
+        {props.icon}
       </IconButton>
       <Popover.Portal>
         <Popover.Positioner sideOffset={6} align="end">
           <Popover.Popup className={controls.panel}>
-            <Suspense fallback={null}>
-              <Calibration />
-            </Suspense>
+            <Suspense fallback={null}>{props.children}</Suspense>
           </Popover.Popup>
         </Popover.Positioner>
       </Popover.Portal>
