@@ -39,11 +39,11 @@ impl Binary {
         }
     }
 
-    /// shortcut: `UINT_16` reports `I16`, so an i16 store of raw values wraps above 32767 (`read_raw_f32` is exact); add `RawType::U16` if a store needs the raw type.
+    /// `UINT_16` reports `I32`: its values pass 32767, so an i16 store would wrap them.
     fn raw_type(self) -> RawType {
         match self {
-            Self::Int16 | Self::Uint16 => RawType::I16,
-            Self::Int32 => RawType::I32,
+            Self::Int16 => RawType::I16,
+            Self::Uint16 | Self::Int32 => RawType::I32,
             Self::Float32 => RawType::F32,
         }
     }
@@ -274,6 +274,19 @@ pub fn open_brainvision(files: &FileSet, vhdr_name: &str) -> Result<Box<dyn Read
     let frame_bytes = channel_count * binary.bytes();
     let data_bytes = source.len();
     let sample_count = data_bytes / frame_bytes as u64;
+    let declared = get(&ini, "Common Infos", "DataPoints")
+        .filter(|text| text.bytes().all(|b| b.is_ascii_digit()))
+        .and_then(|text| text.parse::<u64>().ok());
+    // Channel c starts at c * points * bytes, so a VECTORIZED file of any other length has untrustworthy offsets.
+    let complete_blocks = match declared {
+        Some(points) => points.checked_mul(frame_bytes as u64) == Some(data_bytes),
+        None => data_bytes % frame_bytes as u64 == 0,
+    };
+    if vectorized && !complete_blocks {
+        return Err(unsupported(format!(
+            "truncated VECTORIZED BrainVision data: {data_bytes} bytes do not hold {channel_count} complete channel blocks"
+        )));
+    }
     let mut warnings = Vec::new();
     if data_bytes % frame_bytes as u64 != 0 {
         warnings.push(format!(
@@ -281,11 +294,7 @@ pub fn open_brainvision(files: &FileSet, vhdr_name: &str) -> Result<Box<dyn Read
             data_bytes % frame_bytes as u64
         ));
     }
-    let declared = get(&ini, "Common Infos", "DataPoints")
-        .filter(|text| text.bytes().all(|b| b.is_ascii_digit()))
-        .and_then(|text| text.parse::<u64>().ok())
-        .filter(|&declared| declared > sample_count);
-    if let Some(declared) = declared {
+    if let Some(declared) = declared.filter(|&declared| declared > sample_count) {
         warnings.push(format!(
             "The header declares {declared} samples, but the data file {data_name} holds {sample_count}."
         ));

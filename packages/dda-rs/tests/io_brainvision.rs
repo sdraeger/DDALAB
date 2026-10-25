@@ -111,9 +111,9 @@ fn every_binary_format_reads_raw_samples() {
             };
             let reader = open(&spec);
             let raw_type = match binary_format {
-                "INT_32" => RawType::I32,
+                "INT_16" => RawType::I16,
                 "IEEE_FLOAT_32" => RawType::F32,
-                _ => RawType::I16,
+                _ => RawType::I32,
             };
             assert_eq!(reader.info().raw_type, raw_type);
             assert_eq!(reader.info().sample_count, 600);
@@ -125,6 +125,23 @@ fn every_binary_format_reads_raw_samples() {
             }
         }
     }
+}
+
+#[test]
+fn uint16_raw_type_is_i32() {
+    let spec = BrainVisionSpec {
+        binary_format: "UINT_16",
+        ..BrainVisionSpec::default()
+    };
+    let mut files = brainvision_files(&spec);
+    // Sample 3 of channel 1 sits at frame 3, slot 1 of 3 channels, 2 bytes each.
+    files[1].1[(3 * 3 + 1) * 2..][..2].copy_from_slice(&60000u16.to_le_bytes());
+    let reader = open_brainvision(&file_set(files), &vhdr(&spec)).unwrap();
+    assert_eq!(reader.info().raw_type, RawType::I32);
+    let mut out = [0f32];
+    reader.read_raw_f32(&[1], 3, 1, &mut out).unwrap();
+    assert_eq!(out, [60000.0]);
+    assert_eq!(reader.read_rows(&[1], 3, 1).unwrap()[0][0], 60000.0 * 1e-7);
 }
 
 #[test]
@@ -284,6 +301,40 @@ fn datapoints_warning_text() {
         ..BrainVisionSpec::default()
     };
     assert!(open(&spec).info().warnings.is_empty());
+}
+
+#[test]
+fn truncated_vectorized_refused() {
+    // 600 samples of 3 channels at 2 bytes each hold 3600 bytes.
+    let vectorized = |tail_bytes, data_points| BrainVisionSpec {
+        vectorized: true,
+        tail_bytes,
+        data_points,
+        ..BrainVisionSpec::default()
+    };
+    let refused = |spec: BrainVisionSpec, bytes: usize| {
+        let error = open_error(brainvision_files(&spec), &vhdr(&spec));
+        assert!(
+            error.contains(&format!(
+                "truncated VECTORIZED BrainVision data: {bytes} bytes do not hold 3 complete channel blocks"
+            )),
+            "{error}"
+        );
+    };
+    // Without DataPoints the size must divide into whole frames.
+    refused(vectorized(3, None), 3603);
+    // With DataPoints the size must be exactly channels * points * bytes, short or long.
+    refused(vectorized(0, Some(1000)), 3600);
+    refused(vectorized(0, Some(500)), 3600);
+    let exact = open(&vectorized(0, Some(600)));
+    assert_eq!(exact.info().sample_count, 600);
+    assert!(exact.info().warnings.is_empty());
+    // MULTIPLEXED keeps opening with the incomplete-frame warning.
+    let multiplexed = BrainVisionSpec {
+        tail_bytes: 3,
+        ..BrainVisionSpec::default()
+    };
+    assert_eq!(open(&multiplexed).info().warnings.len(), 1);
 }
 
 #[test]
