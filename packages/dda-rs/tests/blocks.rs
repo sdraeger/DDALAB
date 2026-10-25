@@ -438,6 +438,29 @@ fn auto_conditioning_refused() {
 }
 
 #[test]
+fn plan_and_run_refuse_unsupported() {
+    let signals = rossler(0x5EED_0001, 1_000);
+    let recording = Recording::new(&signals);
+    let request = ccd_request("TRCCD", CcdConditioningStrategy::AllSelected);
+    let planned = plan_blocks(&request, 1_000, CHANNELS, 1 << 20)
+        .unwrap_err()
+        .to_string();
+    let block = plan_blocks(
+        &ccd_request("CCD", CcdConditioningStrategy::AllSelected),
+        1_000,
+        CHANNELS,
+        1 << 20,
+    )
+    .unwrap()
+    .remove(0);
+    let ran = run_block(&recording, &request, &block, None)
+        .unwrap_err()
+        .to_string();
+    assert!(planned.contains("TRCCD"), "{planned}");
+    assert_eq!(ran, planned);
+}
+
+#[test]
 fn block_outside_the_grid_refused() {
     let signals = rossler(0x5EED_0001, 1_000);
     let recording = Recording::new(&signals);

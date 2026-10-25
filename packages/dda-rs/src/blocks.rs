@@ -86,6 +86,7 @@ pub fn plan_blocks(
     channels: usize,
     budget_bytes: usize,
 ) -> Result<Vec<Block>> {
+    check_block_support(request)?;
     let grid = Grid::new(request, rows_total)?;
     let budget_rows = budget_bytes / (channels.max(1) * 8);
     let per_block = 1 + budget_rows.saturating_sub(grid.marker) / grid.step;
@@ -105,6 +106,7 @@ pub fn plan_blocks(
 
 /// Runs the request's windows `block.w0..block.w1` on the analysis channels' rows `block.row0..block.row1`;
 /// `error_values` hold recording rows, as in a whole run.
+/// The progress callback numbers windows within the block.
 pub fn run_block(
     reader: &dyn Reader,
     request: &DDARequest,
@@ -112,6 +114,7 @@ pub fn run_block(
     progress: Option<&mut dyn FnMut(&PureRustProgress)>,
 ) -> Result<DDAResult> {
     let info = reader.info();
+    check_block_support(request)?;
     let grid = Grid::new(request, info.sample_count)?;
     let fits = block.w0 < block.w1
         && block.w1 <= grid.windows
