@@ -7,6 +7,14 @@ import type { RecordingInput } from "../core/engine";
 import { fingerprintOf, sha256Hex } from "../core/fingerprint";
 import { levelCount, loadTile, saveTiles, tileCount, tileRows, tileSlot } from "../core/opfs";
 import type { IoEvent, IoReply, IoRequest, IoResults, ScanState } from "../core/protocol";
+import {
+  createResultFiles,
+  discardResult,
+  finishResult,
+  sweepInterrupted,
+  writeChunks,
+} from "../core/resultStore";
+import { blockBudgetMb, MAX_BLOCK_MB } from "../core/scheduler";
 import { isScanned, openRequestOf, partsOf, readSource, type Source } from "../core/sources";
 import type { RecordingInfo } from "../core/types";
 import { scan, yieldToLoop } from "./scan";
@@ -173,6 +181,23 @@ async function handle(request: IoRequest): Promise<unknown> {
       return (await core).readRaw(recording(request.id).handle, request.row0, request.rows);
     case "tile":
       return tile(request.id, request.level, request.index);
+    case "plan": {
+      const c = await core;
+      const { handle } = recording(request.id);
+      const plan16 = c.plan(handle, request.request, MAX_BLOCK_MB);
+      const budget = blockBudgetMb(plan16, request.workers);
+      return budget === MAX_BLOCK_MB ? plan16 : c.plan(handle, request.request, budget);
+    }
+    case "createResult":
+      return createResultFiles(request.resultId, request.layout);
+    case "writeChunks":
+      return writeChunks(request.resultId, request.chunks);
+    case "finishResult":
+      return finishResult(request.resultId, request.manifest);
+    case "discardResult":
+      return discardResult(request.resultId);
+    case "sweepResults":
+      return sweepInterrupted();
     case "trap": {
       if (!(import.meta.env.DEV || import.meta.env.MODE === "e2e")) throw new Error("unknown request");
       // A module whose export runs `unreachable`, the instruction a Rust panic compiles to.

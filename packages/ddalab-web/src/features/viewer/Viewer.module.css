@@ -153,6 +153,22 @@
   white-space: nowrap;
 }
 
+/* A channel chosen for analysis: primary and heavier, the weight carrying it where colour cannot. */
+.gutterLabel[data-chosen] {
+  color: var(--primary);
+  font-weight: var(--weight-strong);
+}
+
+/* Read by screen readers only. */
+.spoken {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* The electrode group's tint, a 4 px bar beside its rows. */
 .tint {
   flex: none;

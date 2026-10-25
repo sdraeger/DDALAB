@@ -1,10 +1,12 @@
 // The inspector: the active recording's facts and scan, and its channels by electrode group, chosen for analysis.
-import { memo, useCallback, useMemo, useState, useTransition } from "react";
+import { memo, Suspense, useCallback, useMemo, useState, useTransition } from "react";
 import { closeRecording } from "../../app/recordings";
 import type { ScanState } from "../../core/protocol";
 import type { RecordingInfo } from "../../core/types";
 import { activeRecording, selectChannels, useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
+import { DdaSettings } from "../analysis/DdaSettings";
+import { RunBar } from "../analysis/RunBar";
 import { electrodeGroups, type Group } from "./groups";
 import styles from "./Inspector.module.css";
 
@@ -52,11 +54,17 @@ export function Inspector() {
         )}
       </header>
       <Channels key={id} info={info} analysis={analysis_channels} selected={recording.selectedChannels} />
+      <Suspense fallback={null}>
+        <DdaSettings recordingId={id} />
+      </Suspense>
       <footer className={styles.footer}>
         <button type="button" className={controls.button} onClick={() => closeRecording(id)}>
           Close recording
         </button>
       </footer>
+      <Suspense fallback={null}>
+        <RunBar recordingId={id} />
+      </Suspense>
     </section>
   );
 }

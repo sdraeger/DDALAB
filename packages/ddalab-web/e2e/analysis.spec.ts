@@ -1,0 +1,235 @@
+// DDA runs in the browser: settings to request, the worker pool, results streamed to OPFS and equal to the CLI's.
+import { createHash } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
+import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
+import { expect, type Page, test } from "@playwright/test";
+import { bundleDir } from "./global-setup";
+
+const fixturePath = (name: string) =>
+  fileURLToPath(new URL(`../../dda-rs/tests/fixtures/${name}`, import.meta.url));
+const BRAINVISION = ["fixture.vhdr", "fixture.eeg", "fixture.vmrk"].map(fixturePath);
+/**
+ * Eight channels for two hours with 4,000-sample windows every 10 samples: a run of many seconds, whose blocks of
+ * thousands of windows take seconds each.
+ */
+const LONG = { channels: 8, rateHz: 256, durationS: 2 * 3600, seed: 5 };
+
+// Playwright's WebKit has no OPFS (getDirectory throws UnknownError); Safari itself has.
+const hasStorage = (page: Page) =>
+  page.evaluate(() =>
+    navigator.storage.getDirectory().then(
+      () => true,
+      () => false,
+    ),
+  );
+const NO_STORAGE = "this browser window has no OPFS";
+
+const settings = (page: Page) => page.getByRole("region", { name: "DDA settings" });
+const runBar = (page: Page) => page.getByRole("region", { name: "Run" });
+const history = (page: Page) => page.getByRole("region", { name: "History" });
+
+async function openBrainVision(page: Page) {
+  await page.getByLabel("Recording files").setInputFiles(BRAINVISION);
+  await expect(page.getByRole("heading", { name: "fixture.vhdr" })).toBeVisible();
+}
+
+/** Types the run interval into the run bar, as a keyboard user does. */
+async function interval(page: Page, start: string, end: string) {
+  await runBar(page).getByLabel("Start", { exact: true }).fill(start);
+  await runBar(page).getByLabel("End", { exact: true }).fill(end);
+  await runBar(page).getByLabel("End", { exact: true }).press("Enter");
+}
+
+const lastRun = (page: Page) =>
+  page.evaluate(() => {
+    const { analyses, run } = window.__ddalab.store.getState();
+    return { record: analyses[0], run };
+  });
+
+/** SHA-256 of each file under `/results/<id>` in OPFS, by path; `null` when the directory is gone. */
+const storedDigests = (page: Page, id: string) =>
+  page.evaluate(async (id) => {
+    const results = await (await navigator.storage.getDirectory()).getDirectoryHandle("results", {
+      create: true,
+    });
+    const root = await results.getDirectoryHandle(id).catch(() => null);
+    if (!root) return null;
+    const found: Record<string, string> = {};
+    async function walk(directory: FileSystemDirectoryHandle, prefix: string) {
+      for await (const [name, entry] of directory.entries()) {
+        if (entry.kind === "directory") await walk(entry as FileSystemDirectoryHandle, `${prefix}${name}/`);
+        else {
+          const bytes = await (await (entry as FileSystemFileHandle).getFile()).arrayBuffer();
+          const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+          found[prefix + name] = Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("");
+        }
+      }
+    }
+    await walk(root, "");
+    return found;
+  }, id);
+
+/** SHA-256 of each `.npy` file of a CLI bundle, by path. */
+function cliDigests(dir: string) {
+  const found: Record<string, string> = {};
+  const walk = (at: string) => {
+    for (const entry of readdirSync(at, { withFileTypes: true })) {
+      const path = join(at, entry.name);
+      if (entry.isDirectory()) walk(path);
+      else if (entry.name.endsWith(".npy"))
+        found[relative(dir, path)] = createHash("sha256").update(readFileSync(path)).digest("hex");
+    }
+  };
+  walk(dir);
+  return found;
+}
+
+/** Runs the chosen request and waits for it to complete; the result id. */
+async function runToCompletion(page: Page) {
+  await runBar(page).getByRole("button", { name: "Run DDA" }).click();
+  await expect(runBar(page).getByText("Complete", { exact: true })).toBeVisible({ timeout: 60_000 });
+  const { record } = await lastRun(page);
+  expect(record.status).toBe("complete");
+  return record.id;
+}
+
+/** Starts the long run and waits until its files exist and the history holds it as running; the result id. */
+async function startLongRun(page: Page) {
+  await page.evaluate((spec) => window.__ddalab.openSynthetic(spec), LONG);
+  await page.getByRole("checkbox", { name: "Select group CH" }).check();
+  await settings(page).getByLabel("Window", { exact: true }).fill("4000");
+  await settings(page).getByLabel("Step", { exact: true }).fill("10");
+  await interval(page, "0", String(LONG.durationS));
+  await expect(runBar(page).getByText(/windows, [\d,]+ blocks?, \d+ workers?/)).toBeVisible();
+  await runBar(page).getByRole("button", { name: "Run DDA" }).click();
+  await expect.poll(async () => (await lastRun(page)).record?.status).toBe("running");
+  return (await lastRun(page)).record.id;
+}
+
+/** Windows done so far by the run of the page. */
+const windowsDone = async (page: Page) => (await lastRun(page)).run?.progress.windowsDone ?? 0;
+
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => Reflect.deleteProperty(window, "showOpenFilePicker"));
+  await page.goto("/");
+});
+
+test("st_result_equals_cli_bundle", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  await openBrainVision(page);
+  await page.getByRole("checkbox", { name: "Select Fp1" }).check();
+  await page.getByRole("checkbox", { name: "Select Fp2" }).check();
+  await expect(settings(page).getByRole("checkbox", { name: "ST", exact: true })).toBeChecked();
+  await interval(page, "1", "5");
+  // The plan is shown before the run starts.
+  await expect(runBar(page).getByText(/^Plan [\d,]+ windows, [\d,]+ blocks?, \d+ workers?$/)).toBeVisible();
+  const id = await runToCompletion(page);
+  const expected = cliDigests(bundleDir("st"));
+  expect(Object.keys(expected).sort()).toEqual(["ST/coefficients.npy", "ST/fit_error.npy", "ST/q.npy"]);
+  expect(await storedDigests(page, id)).toMatchObject(expected);
+  // The chosen channels stand out in the waveform gutter.
+  const gutter = page.getByRole("list", { name: "Channel rows" });
+  await expect(gutter.getByText("Fp1, chosen")).toBeAttached();
+  await expect(gutter.getByText("Cz, chosen")).toHaveCount(0);
+});
+
+test("ct_cd_de_sy_equal_cli", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  await openBrainVision(page);
+  await page.getByRole("checkbox", { name: "Select Fp1" }).check();
+  await page.getByRole("checkbox", { name: "Select Fp2" }).check();
+  await settings(page).getByRole("checkbox", { name: "ST", exact: true }).uncheck();
+  for (const variant of ["CT", "CD", "DE", "SY"]) {
+    await settings(page).getByRole("checkbox", { name: variant, exact: true }).check();
+  }
+  await interval(page, "1", "5");
+  const id = await runToCompletion(page);
+  const expected = cliDigests(bundleDir("ct_cd_de_sy"));
+  for (const variant of ["CT", "CD", "DE", "SY"]) {
+    expect(Object.keys(expected).some((path) => path.startsWith(`${variant}/`))).toBe(true);
+  }
+  expect(await storedDigests(page, id)).toMatchObject(expected);
+});
+
+test("cancel_mid_run", async ({ page }) => {
+  test.setTimeout(120_000);
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  const id = await startLongRun(page);
+  await runBar(page).getByRole("button", { name: "Cancel run" }).click();
+  await expect(runBar(page).getByText("Cancelled", { exact: true })).toBeVisible();
+  const stopped = await windowsDone(page);
+  await page.waitForTimeout(1000);
+  expect(await windowsDone(page)).toBe(stopped);
+  expect(await storedDigests(page, id)).toBeNull();
+  expect(
+    await page.evaluate(() => window.__ddalab.store.getState().analyses.map((a) => a.status)),
+  ).not.toContain("complete");
+});
+
+test("reload_mid_run_marks_interrupted", async ({ page }) => {
+  test.setTimeout(120_000);
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  const id = await startLongRun(page);
+  await page.reload();
+  await expect(history(page).getByRole("listitem").filter({ hasText: "Interrupted" })).toHaveCount(1);
+  expect((await lastRun(page)).record).toMatchObject({ id, status: "interrupted" });
+  await expect.poll(() => storedDigests(page, id)).toBeNull();
+});
+
+test("hidden_tab_keeps_running", async ({ page }) => {
+  test.setTimeout(180_000);
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  await startLongRun(page);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  const before = await windowsDone(page);
+  await page.waitForTimeout(5000);
+  // Progress counts whole blocks, which take seconds each here: they go on finishing while the page stays hidden.
+  await expect.poll(() => windowsDone(page), { timeout: 120_000 }).toBeGreaterThan(before);
+  const later = await windowsDone(page);
+  await expect.poll(() => windowsDone(page), { timeout: 120_000 }).toBeGreaterThan(later);
+  expect(await page.evaluate(() => document.visibilityState)).toBe("hidden");
+});
+
+test("run_with_512_channels", async ({ page }) => {
+  test.setTimeout(120_000);
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  await page.evaluate((spec) => window.__ddalab.openSynthetic(spec), {
+    channels: 512,
+    rateHz: 256,
+    durationS: 60,
+    seed: 2,
+  });
+  await page.getByRole("checkbox", { name: "Select group CH" }).check();
+  await interval(page, "0", "30");
+  const id = await runToCompletion(page);
+  const { record } = await lastRun(page);
+  expect(record.request.channels).toHaveLength(512);
+  const shape = await page.evaluate(async (id) => {
+    const results = await (await navigator.storage.getDirectory()).getDirectoryHandle("results");
+    const st = await (await results.getDirectoryHandle(id)).getDirectoryHandle("ST");
+    const head = await (await (await st.getFileHandle("q.npy")).getFile()).slice(0, 128).text();
+    return /'shape': \((\d+), (\d+)\)/.exec(head)?.slice(1).map(Number);
+  }, id);
+  expect(shape?.[1]).toBe(512);
+});
+
+test("quota_during_result_write", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  await openBrainVision(page);
+  await expect(page.getByText("Overview 100%")).toBeVisible();
+  await page.getByRole("checkbox", { name: "Select Fp1" }).check();
+  await interval(page, "0", "6");
+  // The headers and the status file fit; the first block's arrays do not.
+  await page.evaluate(() => window.__ddalab.engine.quota(600));
+  await runBar(page).getByRole("button", { name: "Run DDA" }).click();
+  await expect(runBar(page).getByRole("alert")).toContainText("browser storage");
+  const { record } = await lastRun(page);
+  expect(record.status).toBe("failed");
+  expect(record.error).toMatch(/browser storage/);
+  expect(await storedDigests(page, record.id)).toBeNull();
+});

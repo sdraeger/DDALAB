@@ -1,6 +1,17 @@
 // The messages between engine.ts (main thread) and the IO worker. Every request carries a serial `n` the reply echoes.
 import type { RecordingInput } from "./engine";
-import type { Annotation, EngineVersion, RecordingInfo } from "./types";
+import type {
+  Annotation,
+  Block,
+  BlockChunks,
+  BundleLayout,
+  DDARequest,
+  EngineVersion,
+  ManifestExtras,
+  Plan,
+  RecordingInfo,
+  ResultDocument,
+} from "./types";
 
 /** How far the background scan of a recording has come. */
 export interface ScanState {
@@ -26,6 +37,14 @@ export type IoRequest =
   | { type: "close"; id: string }
   | { type: "raw"; id: string; row0: number; rows: number }
   | { type: "tile"; id: string; level: number; index: number }
+  /** The blocks of a run of `request` on `workers` workers (see `blockBudgetMb`). */
+  | { type: "plan"; id: string; request: DDARequest; workers: number }
+  // The result files of a run (resultStore.ts).
+  | { type: "createResult"; resultId: string; layout: BundleLayout }
+  | { type: "writeChunks"; resultId: string; chunks: BlockChunks }
+  | { type: "finishResult"; resultId: string; manifest: ResultDocument }
+  | { type: "discardResult"; resultId: string }
+  | { type: "sweepResults" }
   // Dev and e2e builds only:
   | { type: "trap" } // raises the error a Rust panic raises
   | { type: "quota"; bytes: number } // the storage fills up after this many more bytes of writes
@@ -45,6 +64,13 @@ export interface IoResults {
   raw: Float32Array;
   /** `null` while the scan has not reached the tile and reading it from the file would take too long. */
   tile: Tile | null;
+  plan: Plan;
+  createResult: undefined;
+  writeChunks: undefined;
+  finishResult: undefined;
+  discardResult: undefined;
+  /** The ids of the results whose files were deleted. */
+  sweepResults: string[];
   trap: undefined;
   quota: undefined;
   memory: number;
@@ -85,6 +111,14 @@ export interface AnnotationsRequest {
 }
 
 export type Annotations = { annotations: Annotation[]; warnings: string[] };
+
+/** Asks a DDA worker, which opens `input` itself, for a block of a run or, with `extras`, for its manifest. */
+export type DdaRequest =
+  | { input: RecordingInput; request: DDARequest; block: Block }
+  | { input: RecordingInput; request: DDARequest; extras: ManifestExtras };
+
+/** A DDA worker has one request at a time. `trapped`: the wasm instance trapped and is unusable. */
+export type DdaReply = { ok: BlockChunks | ResultDocument } | { error: string; trapped: boolean };
 
 export type AnnotationsReply =
   | { n: number; ok: Annotations }

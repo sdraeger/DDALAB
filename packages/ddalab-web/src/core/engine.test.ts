@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { createEngine, type Engine } from "./engine";
 import type { IoRequest, ScanState } from "./protocol";
+import type { DDARequest } from "./types";
 
 type Message = IoRequest & { n: number };
 type OpenMessage = Extract<Message, { type: "open" }>;
@@ -11,6 +12,9 @@ class FakeWorker {
   static io: FakeWorker[] = [];
   /** The annotation workers created so far, in order. */
   static annotators: FakeWorker[] = [];
+  /** The DDA workers and hash workers created so far, in order. */
+  static dda: FakeWorker[] = [];
+  static hashers: FakeWorker[] = [];
   /** Decides what a new worker does; runs before the engine attaches its handlers. */
   static onCreate: (worker: FakeWorker) => void = () => {};
   /** Decides what a worker answers to a message. */
@@ -28,6 +32,8 @@ class FakeWorker {
   constructor(url: URL) {
     if (url.pathname.includes("io.worker")) FakeWorker.io.push(this);
     if (url.pathname.includes("annotations.worker")) FakeWorker.annotators.push(this);
+    if (url.pathname.includes("dda.worker")) FakeWorker.dda.push(this);
+    if (url.pathname.includes("hash.worker")) FakeWorker.hashers.push(this);
     FakeWorker.onCreate(this);
   }
   postMessage(message: Message) {
@@ -80,6 +86,8 @@ const healthy = (worker: FakeWorker, message: Message) => {
 beforeEach(() => {
   FakeWorker.io = [];
   FakeWorker.annotators = [];
+  FakeWorker.dda = [];
+  FakeWorker.hashers = [];
   FakeWorker.onCreate = () => {};
   FakeWorker.onMessage = healthy;
   vi.stubGlobal("Worker", FakeWorker);
@@ -267,4 +275,70 @@ test("a_replacement_that_never_loads_does_not_open_held_recordings_twice", async
   await until(() => FakeWorker.io.length === 4);
   expect(FakeWorker.io[3].opens().map((m) => m.id)).toEqual([a.id]);
   expect(seen.every((s) => s.error === undefined)).toBe(true);
+});
+
+/** Three blocks of ten windows; the IO worker plans them and stores what it is given. */
+const PLAN = {
+  blocks: [0, 10, 20].map((w0) => ({ w0, w1: w0 + 10, row0: 0, row1: 0 })),
+  layout: { arrays: [] },
+  windows: 30,
+};
+const REQUEST = { channels: [0] } as unknown as DDARequest;
+/** `answer` decides what each DDA worker replies; the hash worker reports a.edf at once. */
+function runner(answer: (worker: FakeWorker, message: { block?: { w0: number } }) => void) {
+  FakeWorker.onMessage = (worker, message) => {
+    if (FakeWorker.dda.includes(worker)) answer(worker, message as { block?: { w0: number } });
+    else if (FakeWorker.hashers.includes(worker)) {
+      const { id } = message as unknown as { id: string };
+      worker.send({ id, name: "a.edf", sha256: "00" });
+    } else if (message.type === "plan") worker.ok(message, PLAN);
+    else healthy(worker, message);
+  };
+}
+const sentToIo = () => FakeWorker.io[0].received.map((m) => m.type);
+
+test("a_run_writes_every_block_and_the_manifest_of_a_dda_worker", async () => {
+  runner((worker, message) =>
+    worker.send({ ok: message.block ? { chunks: [] } : { schema: "ddalab.result/2" } }),
+  );
+  const engine = createEngine();
+  const { id } = await engine.open(input("a.edf"));
+  const run = await engine.run(id, REQUEST);
+  await expect(run.done).resolves.toEqual({ resultId: run.id });
+  expect(sentToIo().filter((type) => type === "writeChunks")).toHaveLength(3);
+  const finish = FakeWorker.io[0].received.find((m) => m.type === "finishResult");
+  expect(finish).toMatchObject({ resultId: run.id, manifest: { schema: "ddalab.result/2" } });
+  // The manifest was asked for with the input hashes; the pool ends with the run.
+  expect(FakeWorker.dda.flatMap((w) => w.received)).toContainEqual(
+    expect.objectContaining({ extras: expect.objectContaining({ input_sha256: { "a.edf": "00" } }) }),
+  );
+  expect(FakeWorker.dda.every((w) => w.terminated)).toBe(true);
+});
+
+test("cancel_terminates_the_dda_workers_and_deletes_the_files", async () => {
+  runner(() => {}); // the blocks never finish
+  const engine = createEngine();
+  const { id } = await engine.open(input("a.edf"));
+  const run = await engine.run(id, REQUEST);
+  await until(() => FakeWorker.dda.length > 0);
+  run.cancel();
+  await expect(run.done).rejects.toMatchObject({ name: "AbortError" });
+  expect(FakeWorker.dda.every((w) => w.terminated)).toBe(true);
+  expect(sentToIo()).toContain("discardResult");
+  expect(sentToIo()).not.toContain("finishResult");
+});
+
+test("a_trapped_dda_worker_fails_the_run_with_its_message", async () => {
+  runner((worker, message) =>
+    message.block?.w0 === 10
+      ? worker.send({ error: "unreachable", trapped: true })
+      : worker.send({ ok: { chunks: [] } }),
+  );
+  const engine = createEngine();
+  const { id } = await engine.open(input("a.edf"));
+  const run = await engine.run(id, REQUEST);
+  await expect(run.done).rejects.toThrow("unreachable");
+  expect(FakeWorker.dda.every((w) => w.terminated)).toBe(true);
+  expect(sentToIo()).toContain("discardResult");
+  expect(sentToIo()).not.toContain("finishResult");
 });

@@ -29,6 +29,8 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
   const rowCount = useStore((s) => s.view.rowCount);
   const labels = useMemo(() => analysis?.map((i) => info.channels[i].label) ?? [], [analysis, info]);
   const { groups, groupOf } = useMemo(() => electrodeGroups(labels), [labels]);
+  const selected = useStore((s) => s.recordings[recordingId]?.selectedChannels);
+  const chosen = useMemo(() => new Set(selected), [selected]);
   /** Why the traces cannot be drawn, when they cannot. */
   const [glProblem, setGlProblem] = useState<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -285,7 +287,10 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
                   height: `${100 / rowCount}%`,
                 }}
               >
-                <span className={styles.gutterLabel}>{labels[channel]}</span>
+                <span className={styles.gutterLabel} data-chosen={chosen.has(channel) || undefined}>
+                  {labels[channel]}
+                  {chosen.has(channel) && <span className={styles.spoken}>, chosen</span>}
+                </span>
                 <span className={styles.tint} style={{ background: groups[groupOf[channel]]?.tint }} />
               </li>
             ))}
