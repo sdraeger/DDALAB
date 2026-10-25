@@ -1,0 +1,229 @@
+{
+  "data": {
+    "snapshot": {
+      "files": [
+        {
+          "id": "1d8016f1421a1d059f28b14f1e002e29f57ea0f3",
+          "filename": "sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-01_channels.tsv",
+          "size": 5994,
+          "directory": false,
+          "urls": [
+            "https://openneuro.org/crn/datasets/ds003029/objects/1d8016f1421a1d059f28b14f1e002e29f57ea0f3?filename=sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-01_channels.tsv"
+          ]
+        },
+        {
+          "id": "9f946a9f2ca1fd4699d843ddba10c0a6ff2a649e",
+          "filename": "sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-01_events.tsv",
+          "size": 885,
+          "directory": false,
+          "urls": [
+            "https://openneuro.org/crn/datasets/ds003029/objects/9f946a9f2ca1fd4699d843ddba10c0a6ff2a649e?filename=sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-01_events.tsv"
+          ]
+        },
+        {
+          "id": "MD5E-s105479360--3750534ed82d568b57e2542762f08b82.eeg",
+          "filename": "sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-01_ieeg.eeg",
+          "size": 105479360,
+          "directory": false,
+          "urls": [
+            "https://s3.amazonaws.com/openneuro.org/ds003029/sub-pt1/ses-presurgery/ieeg/sub-pt1_ses-presurgery_task-ictal_acq-ecog_run-01_ieeg.eeg?versionId=SEZcDPr9i2C2tZTbXTOdweF3kj7vVSIK"
+          ]
+        },
+        {
+          "id": "70edf08e4f111935d05e87881b5d2e2a9431a034",
+          "filename": "sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-01_ieeg.json",
+          "size": 461,
+          "directory": false,
+          "urls": [
+            "https://openneuro.org/crn/datasets/ds003029/objects/70edf08e4f111935d05e87881b5d2e2a9431a034?filename=sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-01_ieeg.json"
+          ]
+        },
+        {
+          "id": "MD5E-s2620--bc4e8865f3f1b01bc891bae2f222f406.vhdr",
+          "filename": "sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-01_ieeg.vhdr",
+          "size": 2620,
+          "directory": false,
+          "urls": [
+            "https://s3.amazonaws.com/openneuro.org/ds003029/sub-pt01/ses-presurgery/ieeg/sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-01_ieeg.vhdr?versionId=oRVgWbi8HTSsaGb_vVwMGGZMiF9Lljhi"
+          ]
+        },
+        {
+          "id": "MD5E-s1410--dc52472086046b3270f4a01a9b888841.vmrk",
+          "filename": "sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-01_ieeg.vmrk",
+          "size": 1410,
+          "directory": false,
+          "urls": [
+            "https://s3.amazonaws.com/openneuro.org/ds003029/sub-pt01/ses-presurgery/ieeg/sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-01_ieeg.vmrk?versionId=PCLfJQK8dU1fmQbmf8iYtVKHlJfaOPjj"
+          ]
+        },
+        {
+          "id": "1d8016f1421a1d059f28b14f1e002e29f57ea0f3",
+          "filename": "sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-02_channels.tsv",
+          "size": 5994,
+          "directory": false,
+          "urls": [
+            "https://openneuro.org/crn/datasets/ds003029/objects/1d8016f1421a1d059f28b14f1e002e29f57ea0f3?filename=sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-02_channels.tsv"
+          ]
+        },
+        {
+          "id": "acda051ea5f66872d0c21d2611e94551a317cd30",
+          "filename": "sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-02_events.tsv",
+          "size": 519,
+          "directory": false,
+          "urls": [
+            "https://openneuro.org/crn/datasets/ds003029/objects/acda051ea5f66872d0c21d2611e94551a317cd30?filename=sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-02_events.tsv"
+          ]
+        },
+        {
+          "id": "MD5E-s139261920--560f181d6d648c458235d83810eae572.eeg",
+          "filename": "sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-02_ieeg.eeg",
+          "size": 139261920,
+          "directory": false,
+          "urls": [
+            "https://s3.amazonaws.com/openneuro.org/ds003029/sub-pt1/ses-presurgery/ieeg/sub-pt1_ses-presurgery_task-ictal_acq-ecog_run-02_ieeg.eeg?versionId=ZYXxb8nOI13J7KIMli_XgNKoEcZB0FH6"
+          ]
+        },
+        {
+          "id": "d40a050cee735d044a1df2fb40bae6f673ab25fa",
+          "filename": "sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-02_ieeg.json",
+          "size": 461,
+          "directory": false,
+          "urls": [
+            "https://openneuro.org/crn/datasets/ds003029/objects/d40a050cee735d044a1df2fb40bae6f673ab25fa?filename=sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-02_ieeg.json"
+          ]
+        },
+        {
+          "id": "MD5E-s2620--bef319be5610fe11eaaa998440413e3c.vhdr",
+          "filename": "sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-02_ieeg.vhdr",
+          "size": 2620,
+          "directory": false,
+          "urls": [
+            "https://s3.amazonaws.com/openneuro.org/ds003029/sub-pt01/ses-presurgery/ieeg/sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-02_ieeg.vhdr?versionId=ozAZCeDL4VmNMvsZoYLMV09fCYmQati_"
+          ]
+        },
+        {
+          "id": "MD5E-s1008--4f250de89d0fd83d15f36d88dd9e948b.vmrk",
+          "filename": "sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-02_ieeg.vmrk",
+          "size": 1008,
+          "directory": false,
+          "urls": [
+            "https://s3.amazonaws.com/openneuro.org/ds003029/sub-pt01/ses-presurgery/ieeg/sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-02_ieeg.vmrk?versionId=Y3ywvTf6.KNay_oBhVfg4KhkRrjBGThd"
+          ]
+        },
+        {
+          "id": "1d8016f1421a1d059f28b14f1e002e29f57ea0f3",
+          "filename": "sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-03_channels.tsv",
+          "size": 5994,
+          "directory": false,
+          "urls": [
+            "https://openneuro.org/crn/datasets/ds003029/objects/1d8016f1421a1d059f28b14f1e002e29f57ea0f3?filename=sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-03_channels.tsv"
+          ]
+        },
+        {
+          "id": "e75a838856414fa944e35efefa68e2cbe4abad3e",
+          "filename": "sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-03_events.tsv",
+          "size": 442,
+          "directory": false,
+          "urls": [
+            "https://openneuro.org/crn/datasets/ds003029/objects/e75a838856414fa944e35efefa68e2cbe4abad3e?filename=sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-03_events.tsv"
+          ]
+        },
+        {
+          "id": "MD5E-s145459440--02fd57f3e0eb60539035618663a74c9a.eeg",
+          "filename": "sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-03_ieeg.eeg",
+          "size": 145459440,
+          "directory": false,
+          "urls": [
+            "https://s3.amazonaws.com/openneuro.org/ds003029/sub-pt1/ses-presurgery/ieeg/sub-pt1_ses-presurgery_task-ictal_acq-ecog_run-03_ieeg.eeg?versionId=4e.C03WmhqOZthz1cqwD8D6RRLn8tDal"
+          ]
+        },
+        {
+          "id": "8c1a30d795703803549a13ffffaf1a8ce87dcc89",
+          "filename": "sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-03_ieeg.json",
+          "size": 461,
+          "directory": false,
+          "urls": [
+            "https://openneuro.org/crn/datasets/ds003029/objects/8c1a30d795703803549a13ffffaf1a8ce87dcc89?filename=sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-03_ieeg.json"
+          ]
+        },
+        {
+          "id": "MD5E-s2620--c28e5c46f26db4d6f8d1216082592ec2.vhdr",
+          "filename": "sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-03_ieeg.vhdr",
+          "size": 2620,
+          "directory": false,
+          "urls": [
+            "https://s3.amazonaws.com/openneuro.org/ds003029/sub-pt01/ses-presurgery/ieeg/sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-03_ieeg.vhdr?versionId=RsUIwk8y46AxXC5y53kKBrvD3lRUvCHN"
+          ]
+        },
+        {
+          "id": "MD5E-s952--44dacefb06a64598f29d881e8c243ab4.vmrk",
+          "filename": "sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-03_ieeg.vmrk",
+          "size": 952,
+          "directory": false,
+          "urls": [
+            "https://s3.amazonaws.com/openneuro.org/ds003029/sub-pt01/ses-presurgery/ieeg/sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-03_ieeg.vmrk?versionId=U5bl89tRGvD1e_VoYpOShbX03D.Qj75J"
+          ]
+        },
+        {
+          "id": "1d8016f1421a1d059f28b14f1e002e29f57ea0f3",
+          "filename": "sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-04_channels.tsv",
+          "size": 5994,
+          "directory": false,
+          "urls": [
+            "https://openneuro.org/crn/datasets/ds003029/objects/1d8016f1421a1d059f28b14f1e002e29f57ea0f3?filename=sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-04_channels.tsv"
+          ]
+        },
+        {
+          "id": "9e4aacfc64a2b744708139dd00e71910db8b996c",
+          "filename": "sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-04_events.tsv",
+          "size": 844,
+          "directory": false,
+          "urls": [
+            "https://openneuro.org/crn/datasets/ds003029/objects/9e4aacfc64a2b744708139dd00e71910db8b996c?filename=sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-04_events.tsv"
+          ]
+        },
+        {
+          "id": "MD5E-s122006080--d4275ece4b40bfe22ccdd4b12d6431ff.eeg",
+          "filename": "sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-04_ieeg.eeg",
+          "size": 122006080,
+          "directory": false,
+          "urls": [
+            "https://s3.amazonaws.com/openneuro.org/ds003029/sub-pt1/ses-presurgery/ieeg/sub-pt1_ses-presurgery_task-ictal_acq-ecog_run-04_ieeg.eeg?versionId=VRe1FUf4R4jYJN7cvUeMA3UEyBwk8DZg"
+          ]
+        },
+        {
+          "id": "bcce7a516a9cc2c4ae6389b69b2b1244739b4442",
+          "filename": "sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-04_ieeg.json",
+          "size": 461,
+          "directory": false,
+          "urls": [
+            "https://openneuro.org/crn/datasets/ds003029/objects/bcce7a516a9cc2c4ae6389b69b2b1244739b4442?filename=sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-04_ieeg.json"
+          ]
+        },
+        {
+          "id": "MD5E-s2620--b85ebcc0ddd749b5e825187ac5ea4e48.vhdr",
+          "filename": "sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-04_ieeg.vhdr",
+          "size": 2620,
+          "directory": false,
+          "urls": [
+            "https://s3.amazonaws.com/openneuro.org/ds003029/sub-pt01/ses-presurgery/ieeg/sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-04_ieeg.vhdr?versionId=95gJiq1ekvZgH7Eui36ZvHa9ZLQVMYsQ"
+          ]
+        },
+        {
+          "id": "MD5E-s1282--50bdb0f81874cf4bb28c5bcd3a981341.vmrk",
+          "filename": "sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-04_ieeg.vmrk",
+          "size": 1282,
+          "directory": false,
+          "urls": [
+            "https://s3.amazonaws.com/openneuro.org/ds003029/sub-pt01/ses-presurgery/ieeg/sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-04_ieeg.vmrk?versionId=DEeM5hbBJFfCwID1kkcN1WnwTiaMibto"
+          ]
+        }
+      ]
+    }
+  },
+  "extensions": {
+    "openneuro": {
+      "version": "5.10.1"
+    }
+  }
+}
