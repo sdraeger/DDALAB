@@ -197,6 +197,22 @@ fn variants() -> Vec<(&'static str, DDARequest)> {
             "CCD AllSelected",
             ccd_request("CCD", CcdConditioningStrategy::AllSelected),
         ),
+        (
+            "CCDLOG AllSelected",
+            ccd_request("CCDLOG", CcdConditioningStrategy::AllSelected),
+        ),
+        (
+            "CCDPR2 AllSelected",
+            ccd_request("CCDPR2", CcdConditioningStrategy::AllSelected),
+        ),
+        (
+            "CCDSIG AllSelected",
+            ccd_request("CCDSIG", CcdConditioningStrategy::AllSelected),
+        ),
+        (
+            "MVCCD AllSelected",
+            ccd_request("MVCCD", CcdConditioningStrategy::AllSelected),
+        ),
     ]
 }
 
@@ -326,7 +342,12 @@ fn blocks_equal_single_run() {
             request.window_parameters.window_step = grid.step;
             check_block_support(&request).unwrap();
             let whole = run_request_on_matrix(&request, &signals, None).unwrap();
-            assert!(whole.q_matrix.iter().flatten().any(|v| v.is_finite()));
+            let id = variant.split(' ').next().unwrap();
+            let ran = whole.variant_results.iter().flatten().find(|v| v.variant_id == id);
+            assert!(
+                ran.is_some_and(|v| v.q_matrix.iter().flatten().any(|x| x.is_finite())),
+                "{variant} has no finite values"
+            );
             let markers = whole.error_values.as_ref().unwrap();
             let windows = markers.len();
             if let Some(last) = grid.last_marker {
