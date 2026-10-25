@@ -7,7 +7,7 @@ use dda_rs::document::{
     build_document, build_manifest, bundle_layout, encode_block, BundleLayout, BundleWriter,
     ResultDocument,
 };
-use dda_rs::io::{open_recording, ByteSource, ChannelInfo, FileSet, RecordingInfo};
+use dda_rs::io::{open_recording, ByteSource, ChannelInfo, FileSet, Reader, RecordingInfo};
 use dda_rs::tiles::Sha256Stream;
 use dda_rs::{ComputeDevice, DDARequest, DDAResult, PureRustProgress, TimeRange};
 use std::collections::BTreeMap;
@@ -113,7 +113,8 @@ impl Sink {
 
 /// Opens `job.file` and runs the request on it: block by block when `check_block_support` allows and the device is
 /// the CPU, otherwise over the whole recording in memory. A recording that fails to open or a selection that does not fit it
-/// is an input error; a failed run or write an execution error.
+/// is an input error; a failed run or write an execution error. A failure after the file opened ends with the recording's
+/// warnings, each after a space, as the Python batch words it (a truncated file explains a short one).
 pub async fn analyze(job: Job<'_>) -> Result<Analysis, Failure> {
     let file = job.file;
     if !Path::new(file).exists() {
@@ -122,6 +123,23 @@ pub async fn analyze(job: Job<'_>) -> Result<Analysis, Failure> {
     let files = FileSet::from_path(Path::new(file)).map_err(|e| input(format!("{file}: {e}")))?;
     let reader =
         open_recording(&files, job.sample_rate_hz).map_err(|e| input(format!("{file}: {e}")))?;
+    let warnings = reader.info().warnings.clone();
+    analyze_open(job, &files, &*reader)
+        .await
+        .map_err(|(code, message)| {
+            let message = warnings
+                .iter()
+                .fold(message, |text, w| format!("{text} {w}"));
+            (code, message)
+        })
+}
+
+async fn analyze_open(
+    job: Job<'_>,
+    files: &FileSet,
+    reader: &dyn Reader,
+) -> Result<Analysis, Failure> {
+    let file = job.file;
     let info = reader.info();
     let analysis = info.analysis_channels();
     let mut request = job.request;
@@ -202,13 +220,15 @@ pub async fn analyze(job: Job<'_>) -> Result<Analysis, Failure> {
         for block in &blocks {
             let mut on_progress = |p: &PureRustProgress| report(block.w0 + p.window_index, windows);
             let part =
-                run_block(&*reader, &request, block, Some(&mut on_progress)).map_err(execution)?;
+                run_block(reader, &request, block, Some(&mut on_progress)).map_err(execution)?;
             sink.add(block, part)?;
         }
     } else {
-        // shortcut: reads rows 0 to the end, not from the start, so a late start costs memory; upgrade if whole runs of long recordings need it.
+        // A window may read the row after `last`, a real one when the file has it, as `run_block` reads it.
+        // shortcut: reads from row 0, which costs memory for the rows before a late start; upgrade if whole runs of long recordings need it.
+        let end = (last + 2).min(total);
         let rows = reader
-            .read_rows(&analysis, 0, last as usize + 1)
+            .read_rows(&analysis, 0, end as usize)
             .map_err(execution)?;
         let labels: Vec<String> = analysis
             .iter()
@@ -236,7 +256,7 @@ pub async fn analyze(job: Job<'_>) -> Result<Analysis, Failure> {
             w0: 0,
             w1: windows,
             row0: 0,
-            row1: last + 1,
+            row1: end,
         };
         sink.add(&whole, result)?;
     }
