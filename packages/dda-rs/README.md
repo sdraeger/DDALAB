@@ -1,8 +1,20 @@
 # dda-rs
 
-Pure Rust Delay Differential Analysis (DDA) engine.
+Pure Rust Delay Differential Analysis (DDA) engine and the `ddalab` command-line tool. The same crate runs in the browser as WebAssembly in the [DDALAB web application](https://example.org/ddalab).
 
-`dda-rs` no longer shells out to the legacy `run_DDA_AsciiEdf` binary. All analysis runs through the Rust engine directly.
+All analysis runs through the Rust engine directly; nothing shells out to a native DDA binary.
+
+## Command-line tool
+
+Install it as a Python tool (the wheel carries the `ddalab` executable only) or download an archive and its `.sha256` file from [GitHub Releases](https://github.com/sdraeger/DDALAB/releases):
+
+```bash
+uv tool install ddalab
+ddalab inspect recording.edf
+ddalab run --file recording.edf --variants ST --wl 1000 --ws 200 --delays 7 10 --bundle out
+```
+
+It reads EDF, BDF, BrainVision and delimited text. `ddalab --help` lists the other commands (`batch`, `variants`, `validate`, `samples`, `info`).
 
 ## Features
 
@@ -14,11 +26,11 @@ Pure Rust Delay Differential Analysis (DDA) engine.
   - `NativeCompatSvd` for the native-compatible SVD path
 - Optional batched CUDA acceleration for ST, CT, CD, DE, and SY
 
-## Installation
+## Rust library
 
 ```toml
 [dependencies]
-dda-rs = "0.2.0"
+dda-rs = "2.0.0"
 ```
 
 ## Quick Start

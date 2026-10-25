@@ -1,0 +1,150 @@
+name: Release
+
+# A v* tag builds the CLI archives and the PyPI wheels, then publishes both.
+# A manual run builds and uploads the artifacts only.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Compiled into every result document as reproduction.git_commit.
+  DDALAB_GIT_COMMIT: ${{ github.sha }}
+
+jobs:
+  build:
+    name: Build (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # cudarc loads the CUDA driver at run time, so the Linux build needs no CUDA toolkit.
+          - { name: linux-x64, runner: ubuntu-22.04, features: "--features cuda", macos_target: "" }
+          - { name: windows-x64, runner: windows-2022, features: "", macos_target: "" }
+          - { name: macos-x64, runner: macos-15-intel, features: "", macos_target: "11.0" }
+          - { name: macos-arm64, runner: macos-14, features: "", macos_target: "11.0" }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    env:
+      MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos_target }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: packages/dda-rs
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Read the version and check it against the tag
+        run: |
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match Cargo.toml version $version" >&2
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build the CLI
+        run: cargo build --release --locked ${{ matrix.features }}
+
+      - name: Archive the CLI with its SHA-256 file
+        run: |
+          stem="ddalab-${VERSION}-${{ matrix.name }}"
+          out="$GITHUB_WORKSPACE/release-assets"
+          mkdir -p "$out" "$RUNNER_TEMP/$stem"
+          exe="target/release/ddalab"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then exe="$exe.exe"; fi
+          cp "$exe" LICENSE README.md "$RUNNER_TEMP/$stem/"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            archive="$stem.zip"
+            (cd "$RUNNER_TEMP" && 7z a -tzip "$out/$archive" "$stem")
+          else
+            archive="$stem.tar.gz"
+            tar -C "$RUNNER_TEMP" -czf "$out/$archive" "$stem"
+          fi
+          (cd "$out" && if command -v sha256sum >/dev/null; then sha256sum "$archive"; else shasum -a 256 "$archive"; fi > "$archive.sha256")
+
+      - name: Smoke test the CLI
+        run: |
+          test "$(target/release/ddalab --version | tr -d '\r')" = "ddalab ${VERSION}"
+          target/release/ddalab run --file tests/fixtures/fixture.edf --quiet --compact -o "$RUNNER_TEMP/smoke.json"
+          test -s "$RUNNER_TEMP/smoke.json"
+
+      - name: Build the wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: packages/dda-rs
+          command: build
+          args: --release --locked --out dist ${{ matrix.features }}
+          manylinux: auto
+          # The manylinux container does not inherit the runner's environment.
+          docker-options: -e DDALAB_GIT_COMMIT
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Smoke test the wheel
+        run: |
+          python -m pip install --no-index --find-links dist "ddalab==${VERSION}"
+          test "$(ddalab --version | tr -d '\r')" = "ddalab ${VERSION}"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cli-${{ matrix.name }}
+          path: release-assets/*
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wheel-${{ matrix.name }}
+          path: packages/dda-rs/dist/*.whl
+          if-no-files-found: error
+
+  github-release:
+    name: GitHub release
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: cli-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release-assets/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "DDALAB ${GITHUB_REF_NAME#v}" \
+            --generate-notes
+
+  pypi:
+    name: PyPI
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/p/ddalab
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
+
+      - uses: pypa/gh-action-pypi-publish@release/v1

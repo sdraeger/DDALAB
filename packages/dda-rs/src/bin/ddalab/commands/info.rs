@@ -11,7 +11,6 @@ struct InfoOutput {
     built_in_backend_inputs: Vec<&'static str>,
     native_binary_enabled: bool,
     rayon_default_mode_cli: &'static str,
-    rayon_default_mode_sidecar: &'static str,
     rayon_override_env_vars: Vec<&'static str>,
     platform: String,
     arch: String,
@@ -31,7 +30,6 @@ pub fn execute(args: InfoArgs) -> i32 {
         built_in_backend_inputs: vec!["ascii", "txt", "csv"],
         native_binary_enabled: false,
         rayon_default_mode_cli: "throughput",
-        rayon_default_mode_sidecar: "desktop",
         rayon_override_env_vars: vec!["DDALAB_RAYON_MODE", "DDALAB_RAYON_THREADS"],
         platform: std::env::consts::OS.to_string(),
         arch: std::env::consts::ARCH.to_string(),
@@ -71,10 +69,6 @@ pub fn execute(args: InfoArgs) -> i32 {
         println!(
             "Rayon default mode (CLI runs): {}",
             info.rayon_default_mode_cli
-        );
-        println!(
-            "Rayon default mode (sidecar / GUI): {}",
-            info.rayon_default_mode_sidecar
         );
         println!(
             "Rayon overrides: {}",

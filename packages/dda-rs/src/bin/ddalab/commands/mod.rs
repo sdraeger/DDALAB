@@ -3,7 +3,6 @@ pub mod info;
 pub mod inspect;
 pub mod run;
 pub mod samples;
-pub mod serve;
 pub mod validate;
 pub mod variants;
 
