@@ -19,6 +19,8 @@ export interface ScanState {
   totalRows: number;
   /** Hex SHA-256 by input file name, filled in as each file finishes. */
   sha256?: Record<string, string>;
+  /** The fraction of each input file hashed so far, by name. */
+  hashed?: Record<string, number>;
   /** Why no overview is built, when that is by design. */
   notice?: string;
   error?: string;
@@ -102,7 +104,11 @@ export type HashRequest =
   | { type: "cancel"; id: string }
   | MemoryRequest;
 
-export type HashReply = { id: string; name: string; sha256: string } | { id: string; error: string };
+/** A file's digest, an error, or how many of a file's `bytes` are hashed so far (at each whole percent). */
+export type HashReply =
+  | { id: string; name: string; sha256: string }
+  | { id: string; error: string }
+  | { id: string; name: string; hashedBytes: number; bytes: number };
 
 /** Asks the annotation worker, which opens `input` itself, for the full annotation list. */
 export interface AnnotationsRequest {

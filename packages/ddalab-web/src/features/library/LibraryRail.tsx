@@ -1,7 +1,8 @@
-// The library rail: opening recordings (picker, folder, drop anywhere in the window), the open ones, the recent ones.
+// The library rail: opening recordings (picker, folder, drop anywhere in the window), the open ones, the recent ones
+// and the history of results.
 import FilePlus from "lucide-react/dist/esm/icons/file-plus.mjs";
 import FolderOpen from "lucide-react/dist/esm/icons/folder-open.mjs";
-import { type ChangeEvent, Suspense, use, useEffect, useEffectEvent, useRef, useState } from "react";
+import { type ChangeEvent, lazy, Suspense, use, useEffect, useEffectEvent, useRef, useState } from "react";
 import {
   canPickFiles,
   engine,
@@ -11,12 +12,13 @@ import {
   pickFiles,
   reopen,
 } from "../../app/recordings";
-import type { AnalysisRecord } from "../../core/history";
 import { droppedFiles } from "../../core/sources";
 import type { RecentEntry } from "../../store/recent";
 import { activateRecording, useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
 import styles from "./LibraryRail.module.css";
+
+const HistoryRail = lazy(() => import("../history/HistoryRail"));
 
 const version = engine.version().then(
   (v) => v.engine_version,
@@ -127,7 +129,9 @@ export function LibraryRail() {
       </section>
       <OpenRecordings />
       <Recent entries={recent} onOpen={open} />
-      <History />
+      <Suspense fallback={null}>
+        <HistoryRail />
+      </Suspense>
       <p className={styles.footer}>
         Engine{" "}
         <Suspense fallback={<output>loading</output>}>
@@ -213,40 +217,6 @@ function OpenRecordings() {
                 {recordings[id].analysis_channels.length} channels
               </span>
             </button>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-const STATUS: Record<AnalysisRecord["status"], string> = {
-  running: "Running",
-  complete: "Complete",
-  interrupted: "Interrupted",
-  failed: "Failed",
-};
-
-/** The runs of this browser and how each ended. */
-function History() {
-  const analyses = useStore((s) => s.analyses);
-  if (analyses.length === 0) return null;
-  return (
-    <section className={styles.section} aria-label="History">
-      <h2 className={styles.heading}>
-        History <span className={styles.count}>{analyses.length}</span>
-      </h2>
-      <ul className={styles.entries}>
-        {analyses.map((analysis) => (
-          <li key={analysis.id} className={styles.recent} title={analysis.error}>
-            <span className={styles.entryName}>
-              {analysis.request.algorithm_selection.enabled_variants.join(" ")} on {analysis.fileName}
-            </span>
-            <span className={styles.entryMeta}>
-              {STATUS[analysis.status]}
-              <span className={styles.thin} aria-hidden />
-              {analysis.request.channels?.length ?? 0} channels
-            </span>
           </li>
         ))}
       </ul>

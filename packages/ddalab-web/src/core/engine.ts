@@ -159,12 +159,14 @@ interface Tracked {
   info: RecordingInfo;
   scan: ScanState;
   sha256: Record<string, string>;
+  hashed: Record<string, number>;
   hashError?: string;
 }
 
-const stateOf = ({ scan, sha256, hashError }: Tracked): ScanState => ({
+const stateOf = ({ scan, sha256, hashed, hashError }: Tracked): ScanState => ({
   ...scan,
   sha256,
+  hashed,
   error: scan.error ?? hashError,
 });
 
@@ -300,6 +302,8 @@ export function createEngine(): Engine {
         const entry = scans.get(data.id);
         if (!entry) return;
         if ("error" in data) entry.hashError = `The hash could not be computed: ${data.error}`;
+        else if ("bytes" in data)
+          entry.hashed = { ...entry.hashed, [data.name]: data.hashedBytes / data.bytes };
         else entry.sha256 = { ...entry.sha256, [data.name]: data.sha256 };
         publish(data.id);
       };
@@ -375,6 +379,7 @@ export function createEngine(): Engine {
         info,
         scan: { scannedRows: 0, totalRows: info.sample_count },
         sha256: {},
+        hashed: {},
       });
       if (isScanned(input)) hash({ type: "hash", id, input, names: info.input_files });
       return { id, ...opened };
