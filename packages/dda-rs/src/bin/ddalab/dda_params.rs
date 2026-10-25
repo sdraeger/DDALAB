@@ -1,4 +1,5 @@
 use crate::cli;
+use dda_rs::io::{open_recording, FileSet};
 use dda_rs::{
     format_select_mask, generate_select_mask, load_ascii_matrix_from_path,
     load_f64_matrix_from_path, AlgorithmSelection, ComputeDevice, DDARequest, DDAResult,
@@ -42,30 +43,33 @@ fn pure_rust_common_support_reason(request: &DDARequest) -> Result<(), String> {
     Ok(())
 }
 
-pub fn pure_rust_support_reason(request: &DDARequest) -> Result<(), String> {
-    let ext = Path::new(&request.file_path)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("");
-
-    if FileType::from_extension(ext) != Some(FileType::ASCII) {
-        return Err("pure Rust DDA currently supports ASCII/TXT/CSV inputs only".to_string());
-    }
-
-    pure_rust_common_support_reason(request)
-}
-
 pub fn pure_rust_matrix_support_reason(request: &DDARequest) -> Result<(), String> {
     pure_rust_common_support_reason(request)
 }
 
-pub async fn execute_request_on_device(
-    request: &DDARequest,
-    start_bound: Option<u64>,
-    end_bound: Option<u64>,
-    device: ComputeDevice,
-) -> Result<DDAResult, String> {
-    execute_request_with_progress_on_device(request, start_bound, end_bound, device, |_| {}).await
+/// The samples and labels of the analysis channels of the file `request` names. ASCII files keep the loader
+/// the `serve` protocol relies on; every other format goes through its reader.
+fn load_samples(request: &DDARequest) -> Result<(Vec<Vec<f64>>, Option<Vec<String>>), String> {
+    let path = Path::new(&request.file_path);
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    if FileType::from_extension(ext) == Some(FileType::ASCII) {
+        let samples =
+            load_ascii_matrix_from_path(&request.file_path).map_err(|error| error.to_string())?;
+        return Ok((samples, None));
+    }
+    let reader = FileSet::from_path(path)
+        .and_then(|files| open_recording(&files, request.sampling_rate))
+        .map_err(|error| error.to_string())?;
+    let info = reader.info();
+    let channels = info.analysis_channels();
+    let samples = reader
+        .read_rows(&channels, 0, info.sample_count as usize)
+        .map_err(|error| error.to_string())?;
+    let labels = channels
+        .iter()
+        .map(|&c| info.channels[c].label.clone())
+        .collect();
+    Ok((samples, Some(labels)))
 }
 
 pub async fn execute_request_with_progress_on_device<F>(
@@ -78,17 +82,17 @@ pub async fn execute_request_with_progress_on_device<F>(
 where
     F: FnMut(&PureRustProgress),
 {
-    pure_rust_support_reason(request)
+    pure_rust_matrix_support_reason(request)
         .map_err(|reason| format!("Pure Rust DDA cannot execute this request: {}", reason))?;
-    let samples = load_ascii_matrix_from_path(&request.file_path)
-        .map_err(|error| format!("Pure Rust DDA failed: {}", error))?;
+    let (samples, labels) =
+        load_samples(request).map_err(|error| format!("Pure Rust DDA failed: {}", error))?;
     let mut adjusted_request = request.clone();
     if let (Some(start), Some(end)) = (start_bound, end_bound) {
         adjusted_request.time_range.start = start as f64;
         adjusted_request.time_range.end = end as f64;
     }
     runner(device)
-        .run_on_matrix_with_progress(&adjusted_request, &samples, None, on_progress)
+        .run_on_matrix_with_progress(&adjusted_request, &samples, labels.as_deref(), on_progress)
         .map_err(|error| format!("Pure Rust DDA failed: {}", error))
 }
 
@@ -401,6 +405,21 @@ pub fn validate_common_params(
         );
     }
 
+    validate_params_except_channels(variants, delays, wl, ws, ct_pairs, cd_pairs)
+}
+
+/// `validate_common_params` without the check that ST, DE and SY have channels, for callers that
+/// fill an empty selection in once the recording is open.
+pub fn validate_params_except_channels(
+    variants: &[String],
+    delays: &[i32],
+    wl: u32,
+    ws: u32,
+    ct_pairs: &Option<Vec<[usize; 2]>>,
+    cd_pairs: &Option<Vec<[usize; 2]>>,
+) -> Result<(), String> {
+    let normalized_variants = normalize_variants(variants)?;
+
     // CT requires pairs
     if normalized_variants.iter().any(|v| v == "CT")
         && !matches!(ct_pairs, Some(pairs) if !pairs.is_empty())
@@ -588,7 +607,12 @@ pub fn is_supported_extension(path: &Path) -> bool {
 }
 
 #[cfg(test)]
+#[path = "../../../tests/support/mod.rs"]
+mod support;
+
+#[cfg(test)]
 mod tests {
+    use super::support::{edf_bytes, EdfSpec};
     use super::*;
     use tempfile::NamedTempFile;
 
@@ -795,9 +819,15 @@ mod tests {
         ))
         .unwrap();
 
-        let result = execute_request_on_device(&request, None, None, ComputeDevice::Cpu)
-            .await
-            .unwrap();
+        let result = execute_request_with_progress_on_device(
+            &request,
+            None,
+            None,
+            ComputeDevice::Cpu,
+            |_| {},
+        )
+        .await
+        .unwrap();
         let variants = result.variant_results.unwrap();
         assert_eq!(variants.len(), 1);
         assert_eq!(variants[0].variant_id, "ST");
@@ -817,11 +847,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_execute_request_rejects_edf_without_native_backend() {
-        let edf = tempfile::Builder::new().suffix(".edf").tempfile().unwrap();
+    async fn test_execute_request_accepts_edf() {
+        let mut edf = tempfile::Builder::new().suffix(".edf").tempfile().unwrap();
+        std::io::Write::write_all(&mut edf, &edf_bytes(&EdfSpec::default())).unwrap();
         let request = build_dda_request(test_request_config(
             edf.path().to_str().unwrap(),
-            &[0],
+            &[0, 1],
             &["ST".to_string()],
             64,
             32,
@@ -829,11 +860,21 @@ mod tests {
         ))
         .unwrap();
 
-        let error = execute_request_on_device(&request, None, None, ComputeDevice::Cpu)
-            .await
-            .unwrap_err();
-        assert!(error.contains("Pure Rust DDA cannot execute this request"));
-        assert!(error.contains("ASCII/TXT/CSV"));
+        let result = execute_request_with_progress_on_device(
+            &request,
+            None,
+            None,
+            ComputeDevice::Cpu,
+            |_| {},
+        )
+        .await
+        .unwrap();
+        let variants = result.variant_results.unwrap();
+        assert_eq!(variants[0].variant_id, "ST");
+        assert_eq!(
+            variants[0].channel_labels.as_deref(),
+            Some(&["Fp1".to_string(), "Fp2".to_string()][..])
+        );
     }
 
     #[tokio::test]
