@@ -1,4 +1,5 @@
 // The messages between engine.ts (main thread) and the IO worker. Every request carries a serial `n` the reply echoes.
+import type { ResultTile } from "../render/resultPyramid";
 import type { RecordingInput } from "./engine";
 import type {
   Annotation,
@@ -24,6 +25,15 @@ export interface ScanState {
   error?: string;
 }
 
+/** One array of a complete result: its size, its pyramid's levels and the finite range of each row. */
+export interface ResultArray {
+  windows: number;
+  rows: number;
+  levels: number;
+  rowMin: Float64Array;
+  rowMax: Float64Array;
+}
+
 /** An encoded extrema tile (`DDT1`, see dda-rs `tiles.rs`) of the pyramid. */
 export interface Tile {
   level: number;
@@ -45,6 +55,17 @@ export type IoRequest =
   | { type: "finishResult"; resultId: string; manifest: ResultDocument }
   | { type: "discardResult"; resultId: string }
   | { type: "sweepResults" }
+  // Complete results, for the heatmap.
+  | { type: "resultManifest"; resultId: string }
+  | { type: "resultArray"; resultId: string; variant: string; array: ResultTile["array"] }
+  | {
+      type: "resultTile";
+      resultId: string;
+      variant: string;
+      array: ResultTile["array"];
+      level: number;
+      index: number;
+    }
   // Dev and e2e builds only:
   | { type: "trap" } // raises the error a Rust panic raises
   | { type: "quota"; bytes: number } // the storage fills up after this many more bytes of writes
@@ -71,6 +92,10 @@ export interface IoResults {
   discardResult: undefined;
   /** The ids of the results whose files were deleted. */
   sweepResults: string[];
+  resultManifest: ResultDocument;
+  /** The first request for an array builds its pyramid. */
+  resultArray: ResultArray;
+  resultTile: ResultTile;
   trap: undefined;
   quota: undefined;
   memory: number;

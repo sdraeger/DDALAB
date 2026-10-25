@@ -88,7 +88,7 @@ function label(
   ctx.fillText(text, x, y);
 }
 
-export interface UnderlayScene {
+export interface MarksScene {
   /** Device pixels. */
   W: number;
   H: number;
@@ -97,14 +97,55 @@ export interface UnderlayScene {
   selection: { t0: number; t1: number } | null;
   cursorS: number | null;
   recording: OpenRecording;
-  gaps: Gap[];
   colors: Colors;
+  /** Over opaque data (the heatmap): lines get a halo of the ground color, and the selection its edges. */
+  over?: boolean;
+}
+
+/** The selection, the events and the cursor, which every plot on the time axis shares. */
+export function drawMarks(ctx: CanvasRenderingContext2D, scene: MarksScene) {
+  const { W, H, dpr, view, recording, colors, over } = scene;
+  const x = (t: number) => ((t - view.t0) / (view.t1 - view.t0)) * W;
+  const line = Math.max(1, Math.round(dpr));
+  const mark = (t: number, color: string) => {
+    const px = Math.round(x(t));
+    if (over) {
+      ctx.globalAlpha = 0.6;
+      ctx.fillStyle = colors.ground;
+      ctx.fillRect(px - line, 0, 3 * line, H);
+      ctx.globalAlpha = 1;
+    }
+    ctx.fillStyle = color;
+    ctx.fillRect(px, 0, line, H);
+  };
+  if (scene.selection) {
+    ctx.fillStyle = colors.wash;
+    ctx.fillRect(x(scene.selection.t0), 0, x(scene.selection.t1) - x(scene.selection.t0), H);
+    if (over) for (const t of [scene.selection.t0, scene.selection.t1]) mark(t, colors.primary);
+  }
+  for (const a of recording.info.annotations) {
+    if (a.onset_s + a.duration_s < view.t0 || a.onset_s > view.t1) continue;
+    if (a.duration_s > 0) {
+      ctx.fillStyle = colors.event;
+      ctx.globalAlpha = 0.08;
+      ctx.fillRect(x(a.onset_s), 0, x(a.onset_s + a.duration_s) - x(a.onset_s), H);
+      ctx.globalAlpha = 1;
+    }
+    mark(a.onset_s, colors.event);
+  }
+  if (scene.cursorS !== null && scene.cursorS >= view.t0 && scene.cursorS <= view.t1) {
+    mark(scene.cursorS, colors.primary);
+  }
+}
+
+export interface UnderlayScene extends MarksScene {
+  gaps: Gap[];
   scanPercent: number | null;
 }
 
 /** Under the traces: the time grid, the selection, events, the cursor and the regions with no data yet. */
 export function drawUnderlay(ctx: CanvasRenderingContext2D, scene: UnderlayScene) {
-  const { W, H, dpr, view, recording, colors } = scene;
+  const { W, H, dpr, view, colors } = scene;
   const x = (t: number) => ((t - view.t0) / (view.t1 - view.t0)) * W;
   const line = Math.max(1, Math.round(dpr));
   ctx.clearRect(0, 0, W, H);
@@ -116,24 +157,7 @@ export function drawUnderlay(ctx: CanvasRenderingContext2D, scene: UnderlayScene
   }
   ctx.fillStyle = colors.hairline;
   for (const t of at) ctx.fillRect(Math.round(x(t)), 0, line, H);
-  if (scene.selection) {
-    ctx.fillStyle = colors.wash;
-    ctx.fillRect(x(scene.selection.t0), 0, x(scene.selection.t1) - x(scene.selection.t0), H);
-  }
-  ctx.fillStyle = colors.event;
-  for (const a of recording.info.annotations) {
-    if (a.onset_s + a.duration_s < view.t0 || a.onset_s > view.t1) continue;
-    if (a.duration_s > 0) {
-      ctx.globalAlpha = 0.08;
-      ctx.fillRect(x(a.onset_s), 0, x(a.onset_s + a.duration_s) - x(a.onset_s), H);
-      ctx.globalAlpha = 1;
-    }
-    ctx.fillRect(Math.round(x(a.onset_s)), 0, line, H);
-  }
-  if (scene.cursorS !== null && scene.cursorS >= view.t0 && scene.cursorS <= view.t1) {
-    ctx.fillStyle = colors.primary;
-    ctx.fillRect(Math.round(x(scene.cursorS)), 0, line, H);
-  }
+  drawMarks(ctx, scene);
   for (const gap of scene.gaps) {
     const wide = gap.x1 - gap.x0 > 160 * dpr;
     if (gap.reason === "unscanned") {

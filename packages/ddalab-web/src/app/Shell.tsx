@@ -47,6 +47,7 @@ import controls from "../styles/controls.module.css";
 import styles from "./Shell.module.css";
 
 const Calibration = lazy(() => import("../features/settings/Calibration"));
+const ResultPanel = lazy(() => import("../features/results/ResultPanel"));
 
 const TIMEBASES = [10, 15, 20, 30, 60, 120];
 
@@ -90,6 +91,7 @@ export function Shell() {
             <>
               <Overview key={`overview-${id}`} recordingId={id} />
               <WaveformCanvas key={id} recordingId={id} />
+              <ShownResult recordingId={id} />
             </>
           ) : (
             <p className={styles.empty}>
@@ -103,6 +105,21 @@ export function Shell() {
       </div>
       <p className={styles.narrow}>DDALAB needs a window at least 768 pixels wide.</p>
     </Tooltip.Provider>
+  );
+}
+
+/**
+ * The shown result under the waveform, when it came from the active recording: it shares its time axis. One panel
+ * shows each result in turn, so its canvas and WebGL context are reused.
+ */
+function ShownResult({ recordingId }: { recordingId: string }) {
+  const id = useStore((s) => s.shownResult?.id);
+  const ours = useStore((s) => s.shownResult?.fingerprint === s.recordings[recordingId]?.fingerprint);
+  if (!id || !ours) return null;
+  return (
+    <Suspense fallback={null}>
+      <ResultPanel recordingId={recordingId} resultId={id} />
+    </Suspense>
   );
 }
 

@@ -1,5 +1,6 @@
 import type { DevEngine, RecordingInput } from "../src/core/engine";
 import type { SyntheticSpec } from "../src/core/synthetic";
+import type { heatmapProbe } from "../src/features/results/probe";
 import type { viewerProbe } from "../src/features/viewer/probe";
 import type { useStore } from "../src/store/store";
 
@@ -15,6 +16,8 @@ declare global {
       open(input: RecordingInput): Promise<string>;
       /** The waveform's last frame, its pixels and frame times. */
       viewer: typeof viewerProbe;
+      /** The result heatmap's last frame and pixels, and the row plot's points. */
+      results: typeof heatmapProbe;
     };
   }
 }

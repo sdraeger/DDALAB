@@ -2,7 +2,7 @@
 import { deleteAnalysis, listAnalyses, saveAnalysis } from "../core/history";
 import type { AnalysisHandle } from "../core/scheduler";
 import type { DDARequest } from "../core/types";
-import { type RunState, useStore } from "../store/store";
+import { type RunState, showResult, useStore } from "../store/store";
 import { engine } from "./recordings";
 
 /** The variants the core offers, from its metadata. */
@@ -93,6 +93,7 @@ export async function startRun(recordingId: string, request: DDARequest) {
   if (error === undefined) {
     await saveAnalysis({ ...record, status: "complete" }).catch(() => {});
     setRun({ status: "complete" });
+    showResult(record.id, record.fingerprint);
   } else if (error instanceof DOMException && error.name === "AbortError") {
     await deleteAnalysis(record.id).catch(() => {});
     setRun({ status: "cancelled" });
