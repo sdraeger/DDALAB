@@ -2,10 +2,13 @@
 // module owns them. A wasm instance that trapped (a Rust panic) is unusable: the engine replaces its worker and
 // opens the recordings it held again, and the request that trapped fails with the trap's message. Replacements
 // that never get a reply (the worker script does not load) stop after a few, with the engine unavailable.
+// A DDA run gets a pool of workers of its own, which end with it: a trap or a failed worker fails the run.
 import type {
   Annotations,
   AnnotationsReply,
   AnnotationsRequest,
+  DdaReply,
+  DdaRequest,
   HashReply,
   HashRequest,
   IoEvent,
@@ -17,10 +20,19 @@ import type {
   ScanState,
   Tile,
 } from "./protocol";
+import { type AnalysisHandle, runAnalysis } from "./scheduler";
 import { isScanned } from "./sources";
 import type { SyntheticSpec } from "./synthetic";
 import { TileCache } from "./tileCache";
-import type { EngineVersion, RecordingInfo } from "./types";
+import type {
+  Block,
+  BlockChunks,
+  DDARequest,
+  EngineVersion,
+  ManifestExtras,
+  RecordingInfo,
+  ResultDocument,
+} from "./types";
 
 export type RecordingInput =
   | { kind: "files"; files: File[]; primary: string }
@@ -54,7 +66,20 @@ export interface Engine {
   annotations(id: string): Promise<Annotations>;
   /** Calls `listener` with the current scan state at once and with every change after. */
   onScan(id: string, listener: (state: ScanState) => void): () => void;
-  // `run` and `resultTile` arrive with the DDA worker pool (Tasks 6 and 7).
+  /**
+   * What a run of `request` takes: its windows, its blocks and the workers it runs on. Rejects with the core's
+   * message when the core refuses the request.
+   */
+  plan(id: string, request: DDARequest): Promise<{ windows: number; blocks: number; workers: number }>;
+  /**
+   * Runs `request` on a pool of DDA workers; each block's arrays are written to OPFS as it finishes (resultStore.ts).
+   * `done` resolves once the manifest is written and the result is complete; a failed or cancelled run leaves no
+   * files. The result id is the handle's id.
+   */
+  run(id: string, request: DDARequest): Promise<AnalysisHandle>;
+  /** Deletes the files of results a reload or a crash left unfinished; their ids. */
+  sweepInterrupted(): Promise<string[]>;
+  // `resultTile` arrives with the result views (Task 7).
 }
 
 /** What dev and e2e builds add for tests. */
@@ -71,8 +96,67 @@ const MAX_REPLACEMENTS = 3;
 /** The engine, not the request, failed: the request may be sent again once the engine has a worker. */
 export class EngineStopped extends Error {}
 
+const cancelled = () => new DOMException("The run was cancelled", "AbortError");
+
+/** Bytes of a text recording per DDA worker: each parses the whole file. */
+const TEXT_BYTES_PER_WORKER = 512 * 2 ** 20;
+
+/** The workers of a run: every core but one, and one per 512 MiB of a text recording. */
+function poolSize(input: RecordingInput, info: RecordingInfo): number {
+  const cores = Math.max(1, navigator.hardwareConcurrency - 1);
+  if (input.kind === "synthetic" || (info.format !== "CSV" && info.format !== "ASCII")) return cores;
+  const bytes = input.files.find((file) => file.name === input.primary)?.size ?? 0;
+  return Math.min(cores, Math.max(1, Math.floor(TEXT_BYTES_PER_WORKER / bytes)));
+}
+
+/** The DDA workers of one run, started as blocks need them; `stop` ends them and what they were asked. */
+function ddaPool(input: RecordingInput, request: DDARequest) {
+  const idle: Worker[] = [];
+  const asked = new Map<Worker, (error: Error) => void>();
+  let stopped = false;
+  const drop = (worker: Worker) => {
+    worker.terminate();
+    asked.delete(worker);
+  };
+  const ask = <T>(task: { block: Block } | { extras: ManifestExtras }) =>
+    new Promise<T>((resolve, reject) => {
+      if (stopped) return reject(cancelled());
+      const worker =
+        idle.pop() ?? new Worker(new URL("../workers/dda.worker.ts", import.meta.url), { type: "module" });
+      asked.set(worker, reject);
+      worker.onmessage = ({ data }: MessageEvent<DdaReply>) => {
+        if ("error" in data) {
+          reject(new Error(data.error));
+          if (data.trapped) return drop(worker);
+        } else resolve(data.ok as T);
+        asked.delete(worker);
+        idle.push(worker);
+      };
+      worker.onerror = (event) => {
+        reject(new Error(event.message || "A DDA worker stopped"));
+        drop(worker);
+      };
+      worker.postMessage({ input, request, ...task } satisfies DdaRequest);
+    });
+  return {
+    block: (block: Block) => ask<BlockChunks>({ block }),
+    manifest: (extras: ManifestExtras) => ask<ResultDocument>({ extras }),
+    stop() {
+      stopped = true;
+      for (const [worker, reject] of asked) {
+        reject(cancelled());
+        worker.terminate();
+      }
+      for (const worker of idle) worker.terminate();
+      asked.clear();
+      idle.length = 0;
+    },
+  };
+}
+
 interface Tracked {
   fingerprint: string;
+  info: RecordingInfo;
   scan: ScanState;
   sha256: Record<string, string>;
   hashError?: string;
@@ -115,12 +199,19 @@ export function createEngine(): Engine {
   /** Set when the engine gave up: every request fails with it. */
   let unavailable: Error | undefined;
 
-  /** The worker answers in the order it was asked. */
-  const call = <T extends IoRequest["type"]>(request: Extract<IoRequest, { type: T }>, restoring = false) =>
+  /** Called when a recording's hashes change or it closes. */
+  const hashWaits = new Set<() => void>();
+
+  /** The worker answers in the order it was asked. `transfer` moves buffers of the request to it. */
+  const call = <T extends IoRequest["type"]>(
+    request: Extract<IoRequest, { type: T }>,
+    restoring = false,
+    transfer: Transferable[] = [],
+  ) =>
     new Promise<IoResults[T]>((resolve, reject) => {
       if (unavailable) return reject(unavailable);
       pending.set(++serial, { resolve: resolve as (value: unknown) => void, reject, request, restoring });
-      worker.postMessage({ n: serial, ...request });
+      worker.postMessage({ n: serial, ...request }, transfer);
     });
 
   function replace(failed: Worker, message: string, culprit?: number) {
@@ -173,6 +264,32 @@ export function createEngine(): Engine {
   function publish(id: string) {
     const entry = scans.get(id);
     if (entry) for (const listener of listeners.get(id) ?? []) listener(stateOf(entry));
+    for (const wait of [...hashWaits]) wait();
+  }
+
+  /** The SHA-256 of each input file once all are known, the hash worker failed, or the recording closed. */
+  function inputHashes(id: string) {
+    return new Promise<Record<string, string>>((resolve) => {
+      const entry = scans.get(id);
+      const input = held.get(id);
+      if (!entry || !input || !isScanned(input)) return resolve(entry?.sha256 ?? {});
+      const check = () => {
+        const waiting = !entry.hashError && entry.info.input_files.some((name) => !entry.sha256[name]);
+        if (waiting && scans.get(id) === entry) return;
+        hashWaits.delete(check);
+        resolve(entry.sha256);
+      };
+      hashWaits.add(check);
+      check();
+    });
+  }
+
+  /** The recording `id` as it was opened. */
+  function opened(id: string) {
+    const input = held.get(id);
+    const entry = scans.get(id);
+    if (!input || !entry) throw new Error(`no open recording ${id}`);
+    return { input, info: entry.info };
   }
 
   /** Started with the first recording: it loads a second copy of the wasm. */
@@ -253,7 +370,12 @@ export function createEngine(): Engine {
       if (duplicateOf) return { id: duplicateOf, ...opened };
       held.set(id, input);
       const { info, fingerprint } = opened;
-      scans.set(id, { fingerprint, scan: { scannedRows: 0, totalRows: info.sample_count }, sha256: {} });
+      scans.set(id, {
+        fingerprint,
+        info,
+        scan: { scannedRows: 0, totalRows: info.sample_count },
+        sha256: {},
+      });
       if (isScanned(input)) hash({ type: "hash", id, input, names: info.input_files });
       return { id, ...opened };
     },
@@ -261,6 +383,7 @@ export function createEngine(): Engine {
       held.delete(id);
       listeners.delete(id);
       scans.delete(id);
+      for (const wait of [...hashWaits]) wait();
       hasher?.postMessage({ type: "cancel", id } satisfies HashRequest);
       call({ type: "close", id }).catch(() => {});
     },
@@ -300,6 +423,61 @@ export function createEngine(): Engine {
       if (entry) listener(stateOf(entry));
       return () => void set.delete(listener);
     },
+    async plan(id, request) {
+      const { input, info } = opened(id);
+      const workers = poolSize(input, info);
+      const plan = await call({ type: "plan", id, request, workers });
+      return { windows: plan.windows, blocks: plan.blocks.length, workers };
+    },
+    async run(id, request) {
+      const { input, info } = opened(id);
+      const workers = poolSize(input, info);
+      const plan = await call({ type: "plan", id, request, workers });
+      const resultId = crypto.randomUUID();
+      const discard = () => call({ type: "discardResult", resultId }).catch(() => {});
+      await call({ type: "createResult", resultId, layout: plan.layout }).catch(async (error) => {
+        await discard();
+        throw error;
+      });
+      const pool = ddaPool(input, request);
+      const scheduled = runAnalysis({
+        id: resultId,
+        plan,
+        workers,
+        dispatch: pool.block,
+        write: (chunks) =>
+          call(
+            { type: "writeChunks", resultId, chunks },
+            false,
+            chunks.chunks.map((chunk) => chunk.bytes),
+          ),
+      });
+      const done = scheduled.done
+        .then(async () => {
+          const extras: ManifestExtras = {
+            id: resultId,
+            created_at_iso: new Date().toISOString(),
+            input_sha256: await inputHashes(id),
+            windows: plan.windows,
+          };
+          await call({ type: "finishResult", resultId, manifest: await pool.manifest(extras) });
+          return { resultId };
+        })
+        .catch(async (error: Error) => {
+          await discard();
+          throw error;
+        })
+        .finally(() => pool.stop());
+      return {
+        ...scheduled,
+        done,
+        cancel() {
+          pool.stop();
+          scheduled.cancel();
+        },
+      };
+    },
+    sweepInterrupted: () => call({ type: "sweepResults" }),
   };
   return import.meta.env.DEV || import.meta.env.MODE === "e2e"
     ? Object.assign(engine, {

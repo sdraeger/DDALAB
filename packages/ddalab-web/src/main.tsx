@@ -3,6 +3,7 @@ import "./styles/base.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./app/App";
+import { sweepAnalyses } from "./app/analyses";
 import { engine, openInput, openSynthetic, refreshRecent } from "./app/recordings";
 import { viewerProbe } from "./features/viewer/probe";
 import { useStore } from "./store/store";
@@ -18,6 +19,7 @@ if (import.meta.env.DEV || import.meta.env.MODE === "e2e") {
   });
 }
 void refreshRecent();
+void sweepAnalyses();
 // Before React renders: the CSP allows no inline script, and the module entry is the earliest script there is.
 applyTheme(storedTheme());
 

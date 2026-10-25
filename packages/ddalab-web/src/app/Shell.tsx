@@ -21,6 +21,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { useShallow } from "zustand/react/shallow";
+import { RunButton } from "../features/analysis/RunBar";
 import { Inspector } from "../features/inspector/Inspector";
 import { LibraryRail } from "../features/library/LibraryRail";
 import { Overview } from "../features/viewer/Overview";
@@ -70,6 +71,11 @@ export function Shell() {
           <span className={styles.grow} />
           {id && <ViewControls />}
           <span className={styles.grow} />
+          {id && (
+            <Suspense fallback={null}>
+              <RunButton recordingId={id} />
+            </Suspense>
+          )}
           <DisplaySettings />
           <IconButton label="Inspector" aria-pressed={inspector} onClick={() => setInspector(!inspector)}>
             <PanelRight aria-hidden />

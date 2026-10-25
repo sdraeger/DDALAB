@@ -1,7 +1,10 @@
 // The one store. Sample, tile and result arrays never enter it; they live in workers.
 import { create } from "zustand";
+import type { AnalysisRecord } from "../core/history";
 import type { ScanState } from "../core/protocol";
+import type { RunProgress } from "../core/scheduler";
 import type { Annotation, RecordingInfo } from "../core/types";
+import { type DdaForm, DEFAULT_FORM } from "../features/analysis/validate";
 import { saveTheme, storedTheme, type Theme } from "../styles/theme";
 import type { RecentEntry } from "./recent";
 
@@ -35,10 +38,25 @@ export interface View {
   mmPerCssMm: number;
 }
 
+/** The latest DDA run: its progress while it runs, how it ended after. */
+export interface RunState {
+  /** The result id; empty until the engine has planned the run. */
+  id: string;
+  recordingId: string;
+  status: "running" | "complete" | "failed" | "cancelled";
+  progress: RunProgress;
+  error?: string;
+}
+
 interface State {
   recordings: Record<string, OpenRecording>;
   activeRecordingId: string | null;
   recent: RecentEntry[];
+  /** The analysis history, newest first. */
+  analyses: AnalysisRecord[];
+  run: RunState | null;
+  /** The DDA settings as the user typed them; the request takes the channels and interval from the recording. */
+  ddaForm: DdaForm;
   view: View;
   selection: { t0: number; t1: number } | null;
   cursorS: number | null;
@@ -65,6 +83,9 @@ export const useStore = create<State>()(() => ({
   recordings: {},
   activeRecordingId: null,
   recent: [],
+  analyses: [],
+  run: null,
+  ddaForm: DEFAULT_FORM,
   view: {
     t0: 0,
     t1: 10,
@@ -234,6 +255,9 @@ export function setCalibration(mmPerCssMm: number) {
   } catch {}
   setView({ mmPerCssMm });
 }
+
+export const setDdaForm = (change: Partial<DdaForm>) =>
+  useStore.setState((s) => ({ ddaForm: { ...s.ddaForm, ...change } }));
 
 export const setSelection = (selection: State["selection"]) => useStore.setState({ selection });
 export const setCursor = (cursorS: number | null) => useStore.setState({ cursorS });

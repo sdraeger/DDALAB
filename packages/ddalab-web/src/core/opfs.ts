@@ -127,7 +127,7 @@ export function readTile(file: FileSystemSyncAccessHandle, want: TileId): ArrayB
 }
 
 /** Writes all of `bytes` at `at`; the storage taking fewer is a full storage. */
-function put(file: FileSystemSyncAccessHandle, bytes: Uint8Array, at: number) {
+export function put(file: FileSystemSyncAccessHandle, bytes: Uint8Array, at: number) {
   const wrote = file.write(bytes, { at });
   if (wrote !== bytes.length) {
     throw new DOMException(`The storage took ${wrote} of ${bytes.length} bytes`, "QuotaExceededError");
