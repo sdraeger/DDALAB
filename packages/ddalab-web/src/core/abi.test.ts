@@ -1,5 +1,6 @@
 // The wasm core through src/core/abi.ts, in Node. The Node reference host of the ABI (host.mjs) runs the same
 // calls on the same fixtures; every byte abi.ts returns must equal the reference's.
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 // @ts-expect-error The reference host is plain JavaScript without declarations.
@@ -49,6 +50,12 @@ test("version_reports_variants", () => {
   expect(engine_version).toMatch(/^\d+\.\d+\.\d+/);
   const ids = variants.map((v) => v.abbreviation);
   for (const id of ["ST", "CT", "CD", "DE", "SY"]) expect(ids).toContain(id);
+});
+
+// build-wasm.mjs passes `git rev-parse HEAD`: after a commit, run `npm run build:wasm` before this test.
+const head = spawnSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" });
+test.skipIf(head.status !== 0)("version_carries_the_build_commit", () => {
+  expect(core.version().git_commit).toBe(head.stdout.trim());
 });
 
 test("open_fixture_edf", () => {
