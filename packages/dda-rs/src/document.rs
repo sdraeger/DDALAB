@@ -519,6 +519,15 @@ pub struct BundleLayout {
     pub arrays: Vec<ArraySpec>,
 }
 
+impl BundleLayout {
+    /// The bytes one window adds to the bundle: 8 times the product of `shape[1..]`, summed over the arrays.
+    /// For ST and CT that is `rows_out * (K + 2) * 8`.
+    pub fn window_bytes(&self) -> u64 {
+        let window = |a: &ArraySpec| a.shape[1..].iter().map(|&n| n as u64).product::<u64>();
+        self.arrays.iter().map(|a| window(a) * 8).sum()
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ArraySpec {
     /// Relative to the bundle directory.

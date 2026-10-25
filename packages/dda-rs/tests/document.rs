@@ -551,11 +551,12 @@ fn bundle_bytes_equal_merged_result() {
     request.cd_channel_pairs = Some(vec![[1, 0], [3, 2], [2, 0]]);
     let w = windows(&request, ROWS);
     let per_block = w.div_ceil(3);
-    let budget = ((per_block - 1) * STEP as usize + MARKER) * 4 * 8;
-    let blocks = plan_blocks(&request, ROWS as u64, 4, budget).unwrap();
+    let layout = bundle_layout(&request, &recording.info, w).unwrap();
+    let results = per_block * 3 * layout.window_bytes() as usize;
+    let budget = ((per_block - 1) * STEP as usize + MARKER) * 4 * 8 + results;
+    let blocks = plan_blocks(&request, &recording.info, budget).unwrap();
     assert_eq!(blocks.len(), 3);
 
-    let layout = bundle_layout(&request, &recording.info, w).unwrap();
     let dir = tempfile::tempdir().unwrap();
     let mut writer = BundleWriter::create(dir.path(), &layout).unwrap();
     let mut parts = Vec::new();

@@ -315,7 +315,7 @@ fn plan(handle: u32, request_json: &[u8], budget_mb: u32) -> Result<Value> {
     let n = info.analysis_channels().len();
     let request = request(request_json, n)?;
     let budget = usize::try_from(u64::from(budget_mb) << 20).unwrap_or(usize::MAX);
-    let blocks = plan_blocks(&request, info.sample_count, n, budget)?;
+    let blocks = plan_blocks(&request, info, budget)?;
     let windows = blocks.last().map_or(0, |block| block.w1);
     let layout = bundle_layout(&request, info, windows)?;
     Ok(json!({ "blocks": blocks, "layout": layout, "windows": windows }))
@@ -347,7 +347,7 @@ fn run(handle: u32, request_json: &[u8], w0: u32, w1: u32) -> Result<Vec<u8>> {
     let n = info.analysis_channels().len();
     let request = request(request_json, n)?;
     // The last block of any plan ends at the request's window count.
-    let windows = plan_blocks(&request, info.sample_count, n, usize::MAX)?
+    let windows = plan_blocks(&request, info, usize::MAX)?
         .last()
         .map_or(0, |block| block.w1);
     let block = block_of(&request, info.sample_count, w0 as usize, w1 as usize)?;

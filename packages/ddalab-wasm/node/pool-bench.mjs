@@ -8,7 +8,9 @@
 //                       every instance opens the file with a BlockCache of cache_mb MiB
 //   blocks            = number of blocks in the plan
 //   wall_s            = seconds from ddalab_plan to manifest.json written
-//   peak_rss_mb       = process.resourceUsage().maxRSS / 1024 of the process that ran the pool
+//   peak_rss_mb       = process.resourceUsage().maxRSS / 1024 of the process that ran the pool; the spec's contract is
+//                       1536 at the browser's budget_mb 16 and cache_mb 8, also for the cases whose blocks hold more
+//                       result bytes than rows (window_step 1, CT on every pair of 128 channels)
 //   worker_wasm_mb    = max over workers of the worker's wasm memory at its end (memory.buffer.byteLength / 2^20),
 //                       the high-water mark of its heap: wasm memory never shrinks
 //   native_cli_wall_s = seconds of `ddalab run --bundle --block-mb budget_mb` with DDALAB_RAYON_THREADS = workers
@@ -33,9 +35,9 @@ const SCRIPT = fileURLToPath(import.meta.url);
 const here = (p) => fileURLToPath(new URL(p, import.meta.url));
 const CLI = here('../../dda-rs/target/release/ddalab');
 const RESULTS = here('../results/');
-const KEYS = ['fixtures_dir', 'output_dir', 'spare_cores', 'max_case_seconds', 'window_length', 'window_step',
-  'delays', 'dm', 'order', 'nr_tau', 'cases'];
-const CASE_KEYS = ['name', 'file', 'variant', 'channels', 'ct_pairs', 'budget_mb', 'cache_mb'];
+const KEYS = ['fixtures_dir', 'output_dir', 'spare_cores', 'max_case_seconds', 'window_length', 'delays', 'dm',
+  'order', 'nr_tau', 'cases'];
+const CASE_KEYS = ['name', 'file', 'variant', 'channels', 'ct_pairs', 'window_step', 'budget_mb', 'cache_mb'];
 const MASKS = { ST: '1 0 0 0 0 0', CT: '0 1 0 0 0 0' };
 
 const range = (n) => [...Array(n).keys()];
@@ -71,7 +73,7 @@ function request(config, c, rows) {
     time_range: { start: 0, end: rows - 1 },
     preprocessing_options: { highpass: null, lowpass: null },
     algorithm_selection: { enabled_variants: [c.variant], select_mask: MASKS[c.variant] },
-    window_parameters: { window_length: config.window_length, window_step: config.window_step },
+    window_parameters: { window_length: config.window_length, window_step: c.window_step },
     delay_parameters: { delays: config.delays },
     ...(ct ? { ct_channel_pairs: pairsOf(c) } : {}),
     model_parameters: { dm: config.dm, order: config.order, nr_tau: config.nr_tau },
@@ -145,7 +147,7 @@ function runCli(config, c, threads) {
   fs.rmSync(dir, { recursive: true, force: true });
   const ctArgs = c.variant === 'CT' ? ['--ct-pairs', ...pairsOf(c).map((p) => p.join(','))] : [];
   const args = ['run', '--file', benchPath(config.fixtures_dir, c.file), '--channels', ...range(c.channels).map(String),
-    '--variants', c.variant, '--wl', `${config.window_length}`, '--ws', `${config.window_step}`,
+    '--variants', c.variant, '--wl', `${config.window_length}`, '--ws', `${c.window_step}`,
     '--delays', ...config.delays.map(String), '--dm', `${config.dm}`, '--order', `${config.order}`,
     '--nr-tau', `${config.nr_tau}`, ...ctArgs, '--block-mb', `${c.budget_mb}`, '--bundle', dir, '--quiet'];
   const start = performance.now();
@@ -169,8 +171,8 @@ function sameBundles(config, c) {
 async function main(configFile) {
   const config = readConfig(configFile);
   fs.mkdirSync(benchPath(config.output_dir), { recursive: true });
-  const rows = ['case,variant,channels,budget_mb,cache_mb,blocks,workers,wall_s,peak_rss_mb,worker_wasm_mb,' +
-    'native_cli_wall_s,outputs_identical'];
+  const rows = ['case,variant,channels,window_step,budget_mb,cache_mb,blocks,workers,wall_s,peak_rss_mb,' +
+    'worker_wasm_mb,native_cli_wall_s,outputs_identical'];
   const inputs = {};
   for (const [i, c] of config.cases.entries()) {
     const child = spawnSync(process.execPath, [SCRIPT, configFile, `${i}`], {
@@ -180,7 +182,7 @@ async function main(configFile) {
     if (child.status !== 0) throw new Error(`${c.name}: ${child.stderr || child.error}`);
     const pool = JSON.parse(child.stdout);
     const native = runCli(config, c, pool.workers);
-    rows.push([c.name, c.variant, c.channels, c.budget_mb, c.cache_mb, pool.blocks, pool.workers,
+    rows.push([c.name, c.variant, c.channels, c.window_step, c.budget_mb, c.cache_mb, pool.blocks, pool.workers,
       pool.wall_s.toFixed(2), pool.peak_rss_mb.toFixed(0), pool.worker_wasm_mb.toFixed(0), native.toFixed(2),
       sameBundles(config, c)].join(','));
     inputs[c.file] = JSON.parse(fs.readFileSync(benchPath(config.output_dir, `cli-${c.name}`, 'manifest.json'), 'utf8'))

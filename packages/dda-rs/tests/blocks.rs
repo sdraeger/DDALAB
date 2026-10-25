@@ -4,6 +4,7 @@ use std::sync::Mutex;
 use dda_rs::blocks::{
     block_of, check_block_support, merge_blocks, plan_blocks, run_block, validate_request, Block,
 };
+use dda_rs::document::bundle_layout;
 use dda_rs::io::{ChannelInfo, ChannelKind, RawType, Reader, RecordingInfo};
 use dda_rs::{
     run_request_on_matrix, AlgorithmSelection, CcdConditioningStrategy, DDARequest, DDAResult,
@@ -330,9 +331,19 @@ fn assert_results_bitwise(what: &str, whole: &DDAResult, merged: &DDAResult) {
     }
 }
 
-/// Budget in bytes for blocks of `k` windows.
-fn budget(k: usize, step: usize) -> usize {
-    ((k - 1) * step + MARKER) * CHANNELS * 8
+/// A recording of `rows` zero rows of the fixture's channels.
+fn info(rows: usize) -> RecordingInfo {
+    Recording::new(&vec![vec![0.0; CHANNELS]; rows]).info
+}
+
+/// The block bytes of one window's results: engine matrices, encoded copy and ABI frame, each the window's bundle bytes.
+fn result_bytes(request: &DDARequest) -> usize {
+    3 * bundle_layout(request, &info(1), 0).unwrap().window_bytes() as usize
+}
+
+/// Budget in bytes for blocks of `k` windows of `request`, which reads every fixture channel.
+fn budget(k: usize, step: usize, request: &DDARequest) -> usize {
+    ((k - 1) * step + MARKER) * CHANNELS * 8 + k * result_bytes(request)
 }
 
 #[test]
@@ -367,13 +378,8 @@ fn blocks_equal_single_run() {
             for blocks in [1, 3, 17] {
                 let expected = blocks.min(windows);
                 let k = windows.div_ceil(expected);
-                let plan = plan_blocks(
-                    &request,
-                    ROWS as u64,
-                    CHANNELS,
-                    budget(k, grid.step as usize),
-                )
-                .unwrap();
+                let budget = budget(k, grid.step as usize, &request);
+                let plan = plan_blocks(&request, &recording.info, budget).unwrap();
                 assert_eq!(plan.len(), expected, "{variant}, {}", grid.name);
                 let mut reports = 0;
                 let parts = plan
@@ -441,7 +447,7 @@ fn blocks_read_only_used_channels() {
             end: 4_321.0,
         };
         let whole = run_request_on_matrix(&request, &signals, Some(&labels)).unwrap();
-        let plan = plan_blocks(&request, ROWS as u64, 32, 0).unwrap();
+        let plan = plan_blocks(&request, &recording.info, 0).unwrap();
         recording.reads.lock().unwrap().clear();
         let parts = plan
             .iter()
@@ -470,11 +476,23 @@ fn plan_respects_budget() {
         start: 333.0,
         end: (ROWS - 1) as f64,
     };
+    let info = info(ROWS);
+    let result = result_bytes(&request);
+    // Input rows and results of windows w0..w1.
+    let bytes = |w0: usize, w1: usize, step: usize| {
+        ((w1 - w0 - 1) * step + MARKER) * CHANNELS * 8 + (w1 - w0) * result
+    };
     for step in [1usize, 7, 50, 1_500] {
         request.window_parameters.window_step = step as u32;
         let windows = 1 + (ROWS - 333 - (MARKER - 1)) / step;
-        for budget_bytes in [budget(1, step), budget(2, step) - 1, 1 << 20, 1 << 24] {
-            let plan = plan_blocks(&request, ROWS as u64, CHANNELS, budget_bytes).unwrap();
+        let budgets = [
+            budget(1, step, &request),
+            budget(2, step, &request) - 1,
+            1 << 20,
+            1 << 24,
+        ];
+        for budget_bytes in budgets {
+            let plan = plan_blocks(&request, &info, budget_bytes).unwrap();
             assert_eq!(plan.first().unwrap().w0, 0);
             assert_eq!(plan.last().unwrap().w1, windows);
             for (i, block) in plan.iter().enumerate() {
@@ -488,13 +506,19 @@ fn plan_respects_budget() {
                     ((333 + (block.w1 - 1) * step + MARKER) as u64).min(ROWS as u64)
                 );
                 assert!(
-                    (block.row1 - block.row0) as usize * CHANNELS * 8 <= budget_bytes,
+                    bytes(block.w0, block.w1, step) <= budget_bytes,
                     "{block:?} exceeds {budget_bytes} bytes"
                 );
+                if i + 1 < plan.len() {
+                    assert!(
+                        bytes(block.w0, block.w1 + 1, step) > budget_bytes,
+                        "{block:?} has room for another window in {budget_bytes} bytes"
+                    );
+                }
             }
         }
         // A budget below one window still plans one window per block
-        let plan = plan_blocks(&request, ROWS as u64, CHANNELS, 8).unwrap();
+        let plan = plan_blocks(&request, &info, 8).unwrap();
         assert_eq!(plan.len(), windows);
         assert!(plan.iter().all(|block| block.w1 == block.w0 + 1));
     }
@@ -511,7 +535,7 @@ fn too_short_range_error() {
     let engine = run_request_on_matrix(&request, &signals, None)
         .unwrap_err()
         .to_string();
-    let planner = plan_blocks(&request, 1_000, CHANNELS, 1 << 20)
+    let planner = plan_blocks(&request, &info(1_000), 1 << 20)
         .unwrap_err()
         .to_string();
     assert!(engine.contains("Selected range has"), "{engine}");
@@ -546,17 +570,13 @@ fn plan_and_run_refuse_unsupported() {
     let signals = rossler(0x5EED_0001, 1_000);
     let recording = Recording::new(&signals);
     let request = ccd_request("TRCCD", CcdConditioningStrategy::AllSelected);
-    let planned = plan_blocks(&request, 1_000, CHANNELS, 1 << 20)
+    let planned = plan_blocks(&request, &recording.info, 1 << 20)
         .unwrap_err()
         .to_string();
-    let block = plan_blocks(
-        &ccd_request("CCD", CcdConditioningStrategy::AllSelected),
-        1_000,
-        CHANNELS,
-        1 << 20,
-    )
-    .unwrap()
-    .remove(0);
+    let ccd = ccd_request("CCD", CcdConditioningStrategy::AllSelected);
+    let block = plan_blocks(&ccd, &recording.info, 1 << 20)
+        .unwrap()
+        .remove(0);
     let ran = run_block(&recording, &request, &block, None)
         .unwrap_err()
         .to_string();
@@ -569,7 +589,7 @@ fn block_outside_the_grid_refused() {
     let signals = rossler(0x5EED_0001, 1_000);
     let recording = Recording::new(&signals);
     let request = request("ST");
-    let plan = plan_blocks(&request, 1_000, CHANNELS, budget(4, 50)).unwrap();
+    let plan = plan_blocks(&request, &recording.info, budget(4, 50, &request)).unwrap();
     let short = Block {
         row1: plan[0].row1 - 1,
         ..plan[0].clone()
@@ -581,7 +601,7 @@ fn block_outside_the_grid_refused() {
 fn block_of_matches_the_plan() {
     let mut request = request("ST");
     request.time_range.start = 333.0;
-    let plan = plan_blocks(&request, ROWS as u64, CHANNELS, budget(3, 50)).unwrap();
+    let plan = plan_blocks(&request, &info(ROWS), budget(3, 50, &request)).unwrap();
     for block in &plan {
         assert_eq!(
             &block_of(&request, ROWS as u64, block.w0, block.w1).unwrap(),

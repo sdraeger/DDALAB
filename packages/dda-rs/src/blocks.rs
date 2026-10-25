@@ -1,12 +1,13 @@
 //! Window blocks: a request's windows split into runs over row blocks. A recording of any size
 //! runs in bounded memory. Merged block results equal one whole run bit for bit.
 
+use crate::document::bundle_layout;
 use crate::engine::dataset::AnalysisBounds;
 use crate::engine::model::ModelSpec;
 use crate::engine::variant_config::{resolve_ccd_conditioning_strategy, VariantMode};
 use crate::engine::{analysis_window_count, run_request_on_matrix_with_progress, PureRustProgress};
 use crate::error::{DDAError, Result};
-use crate::io::Reader;
+use crate::io::{Reader, RecordingInfo};
 use crate::types::{CcdConditioningStrategy, DDARequest, DDAResult, TimeRange};
 use serde::Serialize;
 use std::collections::BTreeSet;
@@ -167,18 +168,26 @@ pub fn check_block_support(request: &DDARequest) -> Result<()> {
     }
 }
 
-/// Consecutive blocks of the request's windows, each as many windows as `budget_bytes` holds at
-/// `(row1 - row0) * channels * 8` bytes and at least one.
+/// Consecutive blocks of the request's windows on `info`'s recording, each as many windows as `budget_bytes` holds
+/// and at least one. A block of n windows holds `((n - 1) * step + marker) * channels * 8` bytes of rows of the
+/// channels it reads and `n * 3 * window_bytes` of results.
 pub fn plan_blocks(
     request: &DDARequest,
-    rows_total: u64,
-    channels: usize,
+    info: &RecordingInfo,
     budget_bytes: usize,
 ) -> Result<Vec<Block>> {
     check_block_support(request)?;
-    let grid = Grid::new(request, rows_total)?;
-    let budget_rows = budget_bytes as u64 / (channels.max(1) as u64 * 8);
-    let per_block = 1 + budget_rows.saturating_sub(grid.marker) / grid.step;
+    let grid = Grid::new(request, info.sample_count)?;
+    let row = localize(request, info.analysis_channels().len())
+        .0
+        .len()
+        .max(1) as u64
+        * 8;
+    // A window's results sit in the engine's matrices, their encoded copy and the ABI frame at once.
+    let result = 3 * bundle_layout(request, info, 0)?.window_bytes();
+    let first = grid.marker * row + result;
+    let more = grid.step * row + result;
+    let per_block = 1 + (budget_bytes as u64).saturating_sub(first) / more;
     let per_block = usize::try_from(per_block).unwrap_or(usize::MAX);
     Ok((0..grid.windows)
         .step_by(per_block)
