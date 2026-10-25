@@ -10,11 +10,17 @@
   "order": 4,
   "nr_tau": 2,
   "cases": [
-    { "name": "ST_32ch_64MiB", "file": "large_32ch.edf", "variant": "ST", "channels": 32, "ct_pairs": [], "budget_mb": 64 },
-    { "name": "ST_128ch_64MiB", "file": "large_128ch.edf", "variant": "ST", "channels": 128, "ct_pairs": [], "budget_mb": 64 },
-    { "name": "CT_16ch_64MiB", "file": "large_16ch.edf", "variant": "CT", "channels": 16, "ct_pairs": "all", "budget_mb": 64 },
-    { "name": "ST_32ch_16MiB", "file": "large_32ch.edf", "variant": "ST", "channels": 32, "ct_pairs": [], "budget_mb": 16 },
-    { "name": "ST_128ch_16MiB", "file": "large_128ch.edf", "variant": "ST", "channels": 128, "ct_pairs": [], "budget_mb": 16 },
-    { "name": "CT_16ch_16MiB", "file": "large_16ch.edf", "variant": "CT", "channels": 16, "ct_pairs": "all", "budget_mb": 16 }
+    { "name": "ST_32ch_64MiB_cache64", "file": "large_32ch.edf", "variant": "ST", "channels": 32, "ct_pairs": [], "budget_mb": 64, "cache_mb": 64 },
+    { "name": "ST_128ch_64MiB_cache64", "file": "large_128ch.edf", "variant": "ST", "channels": 128, "ct_pairs": [], "budget_mb": 64, "cache_mb": 64 },
+    { "name": "CT_16ch_64MiB_cache64", "file": "large_16ch.edf", "variant": "CT", "channels": 16, "ct_pairs": "all", "budget_mb": 64, "cache_mb": 64 },
+    { "name": "ST_32ch_16MiB_cache64", "file": "large_32ch.edf", "variant": "ST", "channels": 32, "ct_pairs": [], "budget_mb": 16, "cache_mb": 64 },
+    { "name": "ST_128ch_16MiB_cache64", "file": "large_128ch.edf", "variant": "ST", "channels": 128, "ct_pairs": [], "budget_mb": 16, "cache_mb": 64 },
+    { "name": "CT_16ch_16MiB_cache64", "file": "large_16ch.edf", "variant": "CT", "channels": 16, "ct_pairs": "all", "budget_mb": 16, "cache_mb": 64 },
+    { "name": "ST_32ch_64MiB_cache8", "file": "large_32ch.edf", "variant": "ST", "channels": 32, "ct_pairs": [], "budget_mb": 64, "cache_mb": 8 },
+    { "name": "ST_128ch_64MiB_cache8", "file": "large_128ch.edf", "variant": "ST", "channels": 128, "ct_pairs": [], "budget_mb": 64, "cache_mb": 8 },
+    { "name": "CT_16ch_64MiB_cache8", "file": "large_16ch.edf", "variant": "CT", "channels": 16, "ct_pairs": "all", "budget_mb": 64, "cache_mb": 8 },
+    { "name": "ST_32ch_16MiB_cache8", "file": "large_32ch.edf", "variant": "ST", "channels": 32, "ct_pairs": [], "budget_mb": 16, "cache_mb": 8 },
+    { "name": "ST_128ch_16MiB_cache8", "file": "large_128ch.edf", "variant": "ST", "channels": 128, "ct_pairs": [], "budget_mb": 16, "cache_mb": 8 },
+    { "name": "CT_16ch_16MiB_cache8", "file": "large_16ch.edf", "variant": "CT", "channels": 16, "ct_pairs": "all", "budget_mb": 16, "cache_mb": 8 }
   ]
 }

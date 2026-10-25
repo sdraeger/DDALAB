@@ -84,8 +84,11 @@ export async function load(module = WASM, onProgress = () => {}) {
     exports: abi,
     version: () => json(abi.ddalab_version()),
 
-    /** Opens the recording whose files are `paths`, the primary first: `{handle, info, analysis_channels}`. */
-    open(paths, sampleRateHz) {
+    /**
+     * Opens the recording whose files are `paths`, the primary first, each read through a `cacheMb` MiB cache
+     * (64 when undefined): `{handle, info, analysis_channels}`.
+     */
+    open(paths, sampleRateHz, cacheMb) {
       const files = paths.map((p) => {
         const fd = fs.openSync(p, 'r');
         const fileId = nextFileId++;
@@ -94,7 +97,7 @@ export async function load(module = WASM, onProgress = () => {}) {
       });
       const closeFiles = () => files.forEach((f) => (fs.closeSync(fds.get(f.file_id)), fds.delete(f.file_id)));
       try {
-        const request = { primary: files[0].name, files, sample_rate_hz: sampleRateHz };
+        const request = { primary: files[0].name, files, sample_rate_hz: sampleRateHz, cache_mb: cacheMb };
         const opened = withInput(request, (p, n) => json(abi.ddalab_open(p, n)));
         handleFiles.set(opened.handle, closeFiles);
         return opened;

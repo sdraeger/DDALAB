@@ -31,6 +31,7 @@ deployments/*/
 *.db-wal
 *.edf
 *.npy
+!/packages/dda-rs/tests/fixtures/**
 *.pem
 
 .coverage
@@ -121,7 +122,9 @@ DDA_Intro
 # External package repositories kept as local checkouts only.
 /packages/dda-py/
 /packages/DelayDifferentialAnalysis.jl/
-/packages/dda-rs/examples/
+/packages/dda-rs/examples/*
+!/packages/dda-rs/examples/make_fixtures.rs
+!/packages/dda-rs/examples/dump_tiles.rs
 
 # Local paper/research artifacts kept out of the DDALAB application repo.
 /ccd_paper/

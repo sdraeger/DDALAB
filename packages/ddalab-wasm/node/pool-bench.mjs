@@ -4,10 +4,13 @@
 // Per case of the config (each case runs the pool in its own Node process, then the CLI):
 //   workers           = os.availableParallelism() - spare_cores worker threads, each with its own module instance
 //                       and file descriptor, taking blocks (plan_blocks at budget_mb) from one shared atomic counter;
-//                       the main thread writes their chunks into the bundle files and hashes the input meanwhile
+//                       the main thread writes their chunks into the bundle files and hashes the input meanwhile;
+//                       every instance opens the file with a BlockCache of cache_mb MiB
 //   blocks            = number of blocks in the plan
 //   wall_s            = seconds from ddalab_plan to manifest.json written
 //   peak_rss_mb       = process.resourceUsage().maxRSS / 1024 of the process that ran the pool
+//   worker_wasm_mb    = max over workers of the worker's wasm memory at its end (memory.buffer.byteLength / 2^20),
+//                       the high-water mark of its heap: wasm memory never shrinks
 //   native_cli_wall_s = seconds of `ddalab run --bundle --block-mb budget_mb` with DDALAB_RAYON_THREADS = workers
 //   outputs_identical = every .npy of the two bundles is byte-equal and the manifests equal apart from id and time
 //
@@ -31,7 +34,7 @@ const CLI = here('../../dda-rs/target/release/ddalab');
 const RESULTS = here('../results/');
 const KEYS = ['fixtures_dir', 'output_dir', 'spare_cores', 'max_case_seconds', 'window_length', 'window_step',
   'delays', 'dm', 'order', 'nr_tau', 'cases'];
-const CASE_KEYS = ['name', 'file', 'variant', 'channels', 'ct_pairs', 'budget_mb'];
+const CASE_KEYS = ['name', 'file', 'variant', 'channels', 'ct_pairs', 'budget_mb', 'cache_mb'];
 const MASKS = { ST: '1 0 0 0 0 0', CT: '0 1 0 0 0 0' };
 
 const range = (n) => [...Array(n).keys()];
@@ -71,16 +74,17 @@ function request(config, c, rows) {
   };
 }
 
-/** One worker thread: runs blocks from the shared counter and posts their chunks. */
-async function work({ module, file, req, blocks, counter }) {
+/** One worker thread: runs blocks from the shared counter, posts their chunks, then its wasm memory in MiB. */
+async function work({ module, file, cacheMb, req, blocks, counter }) {
   const abi = await load(module);
-  const { handle } = abi.open([file]);
+  const { handle } = abi.open([file], undefined, cacheMb);
   const next = new Int32Array(counter);
   for (let i; (i = Atomics.add(next, 0, 1)) < blocks.length; ) {
     const chunks = abi.runBlock(handle, req, blocks[i].w0, blocks[i].w1);
     parentPort.postMessage(chunks, chunks.length ? [chunks[0].bytes.buffer] : []);
   }
   abi.close(handle);
+  parentPort.postMessage(abi.exports.memory.buffer.byteLength / 2 ** 20);
 }
 
 /** Runs case `c` on the worker pool into `<output_dir>/wasm-<name>`. */
@@ -91,7 +95,7 @@ async function runPool(config, c) {
   const workers = os.availableParallelism() - config.spare_cores;
   const module = await WebAssembly.compile(fs.readFileSync(WASM));
   const abi = await load(module);
-  const { handle, info } = abi.open([file]);
+  const { handle, info } = abi.open([file], undefined, c.cache_mb);
   const req = request(config, c, info.sample_count);
 
   const start = performance.now();
@@ -105,13 +109,18 @@ async function runPool(config, c) {
   });
   const counter = new SharedArrayBuffer(4);
   let written = 0;
+  const wasmMb = [];
   const done = new Promise((resolve, reject) => {
     for (let w = 0; w < workers; w++) {
-      const worker = new Worker(SCRIPT, { workerData: { module, file, req, blocks, counter } });
+      const worker = new Worker(SCRIPT, { workerData: { module, file, cacheMb: c.cache_mb, req, blocks, counter } });
       worker.on('error', reject);
-      worker.on('message', (chunks) => {
-        for (const { array, offset, bytes } of chunks) fs.writeSync(fds[array], bytes, 0, bytes.length, offset);
-        if (++written === blocks.length) resolve();
+      worker.on('message', (message) => {
+        if (typeof message === 'number') wasmMb.push(message);
+        else {
+          for (const { array, offset, bytes } of message) fs.writeSync(fds[array], bytes, 0, bytes.length, offset);
+          written++;
+        }
+        if (written === blocks.length && wasmMb.length === workers) resolve();
       });
     }
   });
@@ -122,7 +131,8 @@ async function runPool(config, c) {
   fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(manifest));
   const wall_s = (performance.now() - start) / 1000;
   fds.forEach((fd) => fs.closeSync(fd));
-  return { workers, blocks: blocks.length, wall_s, peak_rss_mb: process.resourceUsage().maxRSS / 1024 };
+  const peak_rss_mb = process.resourceUsage().maxRSS / 1024;
+  return { workers, blocks: blocks.length, wall_s, peak_rss_mb, worker_wasm_mb: Math.max(...wasmMb) };
 }
 
 /** The same request through the CLI into `<output_dir>/cli-<name>`: seconds. */
@@ -155,7 +165,8 @@ function sameBundles(config, c) {
 async function main(configFile) {
   const config = readConfig(configFile);
   fs.mkdirSync(config.output_dir, { recursive: true });
-  const rows = ['case,variant,channels,budget_mb,blocks,workers,wall_s,peak_rss_mb,native_cli_wall_s,outputs_identical'];
+  const rows = ['case,variant,channels,budget_mb,cache_mb,blocks,workers,wall_s,peak_rss_mb,worker_wasm_mb,' +
+    'native_cli_wall_s,outputs_identical'];
   const inputs = {};
   for (const [i, c] of config.cases.entries()) {
     const child = spawnSync(process.execPath, [SCRIPT, configFile, `${i}`], {
@@ -165,8 +176,9 @@ async function main(configFile) {
     if (child.status !== 0) throw new Error(`${c.name}: ${child.stderr || child.error}`);
     const pool = JSON.parse(child.stdout);
     const native = runCli(config, c, pool.workers);
-    rows.push([c.name, c.variant, c.channels, c.budget_mb, pool.blocks, pool.workers, pool.wall_s.toFixed(2),
-      pool.peak_rss_mb.toFixed(0), native.toFixed(2), sameBundles(config, c)].join(','));
+    rows.push([c.name, c.variant, c.channels, c.budget_mb, c.cache_mb, pool.blocks, pool.workers,
+      pool.wall_s.toFixed(2), pool.peak_rss_mb.toFixed(0), pool.worker_wasm_mb.toFixed(0), native.toFixed(2),
+      sameBundles(config, c)].join(','));
     inputs[c.file] = JSON.parse(fs.readFileSync(path.join(config.output_dir, `cli-${c.name}`, 'manifest.json'), 'utf8'))
       .reproduction.input_sha256[c.file];
     console.log(rows.at(-1));

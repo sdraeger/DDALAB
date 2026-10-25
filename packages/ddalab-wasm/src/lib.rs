@@ -229,6 +229,8 @@ struct OpenRequest {
     primary: String,
     files: Vec<OpenFile>,
     sample_rate_hz: Option<f64>,
+    /// MiB of 4 MiB blocks cached per file: 64 when absent, at least one block.
+    cache_mb: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -240,13 +242,14 @@ struct OpenFile {
 
 fn open(bytes: &[u8]) -> Result<Value> {
     let opened: OpenRequest = parse(bytes, "open")?;
+    let blocks = (opened.cache_mb.unwrap_or(64) / 4).max(1) as usize;
     let files = opened.files.into_iter().map(|f| {
         let source = HostFile {
             file_id: f.file_id,
             len: f.len,
             name: f.name.clone(),
         };
-        let cached: Arc<dyn ByteSource> = Arc::new(BlockCache::new(source, 4 << 20, 16));
+        let cached: Arc<dyn ByteSource> = Arc::new(BlockCache::new(source, 4 << 20, blocks));
         (f.name, cached)
     });
     let files = FileSet {
