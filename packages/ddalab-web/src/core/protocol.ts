@@ -1,5 +1,6 @@
 // The messages between engine.ts (main thread) and the IO worker. Every request carries a serial `n` the reply echoes.
 import type { RecordingInput } from "./engine";
+import type { FolderFile } from "./imports";
 import type {
   Annotation,
   Block,
@@ -47,6 +48,10 @@ export type IoRequest =
   | { type: "finishResult"; resultId: string; manifest: ResultDocument }
   | { type: "discardResult"; resultId: string }
   | { type: "sweepResults" }
+  // Exports and imports of results (exporters.ts, imports.ts); they run beside the other requests.
+  | { type: "exportDocument"; resultId: string }
+  | { type: "exportCsv"; resultId: string; variant: string }
+  | { type: "importResult"; input: File | FolderFile[] }
   // Dev and e2e builds only:
   | { type: "trap" } // raises the error a Rust panic raises
   | { type: "quota"; bytes: number } // the storage fills up after this many more bytes of writes
@@ -73,6 +78,10 @@ export interface IoResults {
   discardResult: undefined;
   /** The ids of the results whose files were deleted. */
   sweepResults: string[];
+  exportDocument: Blob;
+  exportCsv: Blob;
+  /** The id of the imported result. */
+  importResult: string;
   trap: undefined;
   quota: undefined;
   memory: number;

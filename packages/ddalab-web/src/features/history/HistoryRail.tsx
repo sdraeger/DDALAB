@@ -6,6 +6,7 @@ import { type AnalysisRecord, resultName } from "../../core/history";
 import { openResult, useStore } from "../../store/store";
 import rail from "../library/LibraryRail.module.css";
 import styles from "./History.module.css";
+import { ResultBoundary } from "./ResultBoundary";
 
 const ImportDrop = lazy(() => import("./ImportDrop"));
 
@@ -28,6 +29,14 @@ function when(time: number) {
 }
 
 export default function HistoryRail() {
+  return (
+    <ResultBoundary what="The history">
+      <Results />
+    </ResultBoundary>
+  );
+}
+
+function Results() {
   const analyses = useStore((s) => s.analyses);
   const active = useStore((s) => s.activeResultId);
   const [query, setQuery] = useState("");
@@ -39,7 +48,7 @@ export default function HistoryRail() {
   }, [analyses, filter]);
   return (
     <section className={rail.section} aria-label="History">
-      <h2 className={rail.heading}>
+      <h2 id="history-heading" className={rail.heading} tabIndex={-1}>
         History <span className={rail.count}>{analyses.length}</span>
       </h2>
       {analyses.length >= SEARCH_FROM && (
@@ -64,6 +73,7 @@ export default function HistoryRail() {
               <button
                 type="button"
                 className={rail.entry}
+                data-result={analysis.id}
                 aria-current={analysis.id === active ? "true" : undefined}
                 onClick={() => openResult(analysis.id)}
               >

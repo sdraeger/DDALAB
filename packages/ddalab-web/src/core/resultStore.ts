@@ -108,6 +108,36 @@ export async function finishResult(resultId: string, manifest: ResultDocument): 
   }
 }
 
+/** Bytes copied into a stored result at a time. */
+const STORE_SLICE_BYTES = 4 * 2 ** 20;
+
+/**
+ * Writes a result that was made elsewhere (an import) under `resultId`, with the protocol of a run: the files of
+ * `layout`, the values of each array from `values` (its bytes after the header) a slice at a time, then the manifest.
+ * A result that cannot be written leaves no files.
+ */
+export async function storeResult(
+  resultId: string,
+  layout: BundleLayout,
+  values: Blob[],
+  manifest: ResultDocument,
+): Promise<void> {
+  try {
+    await createResultFiles(resultId, layout);
+    for (const [array, blob] of values.entries()) {
+      const offset = layout.arrays[array].header.length;
+      for (let at = 0; at < blob.size; at += STORE_SLICE_BYTES) {
+        const bytes = await blob.slice(at, at + STORE_SLICE_BYTES).arrayBuffer();
+        await writeChunks(resultId, { chunks: [{ array, offset: offset + at, bytes }] });
+      }
+    }
+    await finishResult(resultId, manifest);
+  } catch (error) {
+    await discardResult(resultId);
+    throw error;
+  }
+}
+
 /** Deletes the files of a result that will not complete (it failed or was cancelled). */
 export async function discardResult(resultId: string): Promise<void> {
   for (const file of writing.get(resultId)?.files ?? []) file.close();
