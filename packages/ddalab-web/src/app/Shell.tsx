@@ -20,6 +20,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { Inspector } from "../features/inspector/Inspector";
 import { LibraryRail } from "../features/library/LibraryRail";
 import { Overview } from "../features/viewer/Overview";
@@ -30,6 +31,7 @@ import {
   EPOCHS,
   type Epoch,
   pageBy,
+  pageOf,
   pageToEnd,
   pageToStart,
   SENSITIVITIES,
@@ -129,9 +131,8 @@ function RecordingName() {
 function ViewControls() {
   const duration = useStore((s) => activeRecording(s)?.info.duration_s ?? 0);
   const epochS = useStore((s) => s.view.epochS);
-  // Whole epochs only: these change on paging, not on every pan frame.
-  const page = useStore((s) => Math.floor(s.view.t0 / s.view.epochS + 1e-6) + 1);
-  const pages = Math.max(1, Math.ceil(duration / epochS - 1e-6));
+  // Whole pages only: they change on paging, not on every pan frame.
+  const [page, pages] = useStore(useShallow((s) => pageOf(s.view, duration)));
   const sensitivity = useStore((s) => s.view.sensitivityUvPerMm);
   // Three significant digits: it changes on zoom, not on every pan frame.
   const timebase = useStore((s) => Number(timebaseOf(s.view, s.plotCssWidth).toPrecision(3)));
@@ -151,7 +152,7 @@ function ViewControls() {
           <ChevronLast aria-hidden />
         </IconButton>
         <span className={styles.page}>
-          Page {Math.min(page, pages)} of {pages}
+          Page {page} of {pages}
         </span>
       </div>
       <span className={controls.rule} />
