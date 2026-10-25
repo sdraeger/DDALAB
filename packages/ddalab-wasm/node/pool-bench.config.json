@@ -1,6 +1,6 @@
 {
-  "fixtures_dir": "/private/tmp/claude-501/-Users-simon--claude-spares-spare-IbrYhW/b48c7e55-2fcf-4587-a109-f875976af92c/scratchpad/pool-bench",
-  "output_dir": "/private/tmp/claude-501/-Users-simon--claude-spares-spare-IbrYhW/b48c7e55-2fcf-4587-a109-f875976af92c/scratchpad/pool-bench/out",
+  "fixtures_dir": "pool-bench",
+  "output_dir": "pool-bench/out",
   "spare_cores": 1,
   "max_case_seconds": 120,
   "window_length": 1000,
