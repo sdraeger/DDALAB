@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { engine } from "../../app/recordings";
 import { drawRuler, drawUnderlay } from "../../render/axis";
+import { observeDevicePixels } from "../../render/devicePixels";
 import { paramsOf } from "../../render/display";
 import { webgl2 } from "../../render/gl";
 import { readColors, watchTheme } from "../../render/themeColors";
@@ -185,32 +186,17 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
       }
     };
 
-    // Device pixels exactly, where the browser reports them.
-    const resize = new ResizeObserver(([entry]) => {
-      const box = entry.devicePixelContentBoxSize?.[0];
-      const dpr = window.devicePixelRatio || 1;
-      const cssW = entry.contentRect.width;
-      const cssH = entry.contentRect.height;
-      // The box is exact on real displays; under an emulated pixel ratio Chromium reports CSS pixels in it.
-      const exact =
-        box && Math.abs(box.inlineSize - cssW * dpr) <= 1 && Math.abs(box.blockSize - cssH * dpr) <= 1;
-      const W = exact ? box.inlineSize : Math.round(cssW * dpr);
-      const H = exact ? box.blockSize : Math.round(cssH * dpr);
-      size = { cssW, cssH, dpr, W, H };
+    const stopResize = observeDevicePixels(plotEl, (next) => {
+      size = next;
       for (const canvas of [underEl, tracesEl]) {
-        canvas.width = W;
-        canvas.height = H;
+        canvas.width = next.W;
+        canvas.height = next.H;
       }
-      rulerEl.width = W;
-      rulerEl.height = Math.round(RULER_CSS * dpr);
-      setPlotWidth(cssW);
+      rulerEl.width = next.W;
+      rulerEl.height = Math.round(RULER_CSS * next.dpr);
+      setPlotWidth(next.cssW);
       paint();
     });
-    try {
-      resize.observe(plotEl, { box: "device-pixel-content-box" });
-    } catch {
-      resize.observe(plotEl); // Safari has no device-pixel box: CSS size times the ratio
-    }
 
     const unsubscribe = useStore.subscribe(schedule);
     const unwatch = watchTheme(() => {
@@ -251,7 +237,7 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
 
     return () => {
       cancelAnimationFrame(raf);
-      resize.disconnect();
+      stopResize();
       unsubscribe();
       unwatch();
       tracesEl.removeEventListener("webglcontextlost", lost);

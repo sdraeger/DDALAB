@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { readSynthetic, syntheticEdfSize } from "../src/core/synthetic";
+import { showFixture } from "./resultFixture";
 
 /** 24 h of 256 channels at 2 kHz: an 88 GB EDF that is computed, never stored. */
 const DAY = { channels: 256, rateHz: 2000, durationS: 86_400, seed: 1 };
@@ -226,4 +227,67 @@ test("memory_after_the_24h_scan_under_1_5gb", async ({ page }) => {
   report("memory, 24 h recording", `${gb(day)}, ${where}`);
   expect(stopped?.part).toBeGreaterThan(0.25);
   expect(day.js + day.wasm).toBeLessThan(1.5e9);
+});
+
+// A day-long result of 86,400 windows of 1,200 rows: 0.83 GB of f64, as much as a Playwright context stores beside its
+// pyramid (it keeps OPFS in memory and refuses a file past about 1.28 GiB). The pyramid, 138 MB as f32, is built into
+// OPFS files beside the array; viewing it at every zoom adds only the heatmap's tile cache (64 MiB at most) and
+// transient buffers to memory, where holding the pyramid would add all of it.
+test("result_memory_bounded", async ({ page }) => {
+  test.setTimeout(900_000);
+  expect(await page.evaluate(() => crossOriginIsolated)).toBe(true);
+  await page.evaluate(() =>
+    window.__ddalab.openSynthetic({ channels: 2, rateHz: 100, durationS: 86_400, seed: 3 }),
+  );
+  await expect.poll(() => scanned(page), { timeout: 120_000 }).toBe(1);
+  const before = await memory(page);
+  const [windows, rows] = [86_400, 1200];
+  const labels = Array.from({ length: rows }, (_, r) => `P${Math.floor(r / 60) + 1} & Q${(r % 60) + 1}`);
+  const values: [number, number, number][] = [[43_210, 1000, -50]];
+  const started = Date.now();
+  await showFixture(page, { id: "large", windows, rows, first: 0.5, step: 1, values, labels });
+  const written = Date.now();
+  await expect(
+    page.getByRole("status").filter({ hasText: "Building the zoomed-out levels of Q" }),
+  ).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Building the zoomed-out levels" })).toHaveCount(
+    0,
+    {
+      timeout: 600_000,
+    },
+  );
+  report(
+    "result fixture",
+    `written in ${(written - started) / 1000} s, pyramid built in ${(Date.now() - written) / 1000} s`,
+  );
+  const samples: { js: number; wasm: number }[] = [];
+  for (const [t0, t1] of [
+    [0, 86_400],
+    [20_000, 40_000],
+    [30_000, 31_000],
+    [43_180, 43_240],
+  ]) {
+    await page.evaluate((v) => window.__ddalab.store.setState((s) => ({ view: { ...s.view, ...v } })), {
+      t0,
+      t1,
+    });
+    await page.evaluate(() => window.__ddalab.results.settled());
+    samples.push(await memory(page));
+  }
+  const total = (sample: { js: number; wasm: number }) => sample.js + sample.wasm;
+  const peak = samples.reduce((a, b) => (total(b) > total(a) ? b : a));
+  const stored = await page.evaluate(async () => {
+    const results = await (await navigator.storage.getDirectory()).getDirectoryHandle("results");
+    const st = await (await results.getDirectoryHandle("large")).getDirectoryHandle("ST");
+    let bytes = 0;
+    for await (const [name, entry] of st.entries()) {
+      if (name.endsWith(".f32")) bytes += (await (entry as FileSystemFileHandle).getFile()).size;
+    }
+    return bytes;
+  });
+  report("memory, before the result", gb(before));
+  report("memory, viewing the result", `${gb(peak)}, pyramid files ${(stored / 1e6).toFixed(0)} MB in OPFS`);
+  expect(stored).toBeGreaterThan(130e6);
+  expect(total(peak) - total(before)).toBeLessThan(128e6);
+  expect(total(peak)).toBeLessThan(1.5e9);
 });

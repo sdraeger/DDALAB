@@ -4,8 +4,10 @@
 // "complete": a directory that is not complete is a run that a reload or a crash cut short. The worker writing a
 // result holds the Web Lock `ddalab-result:<id>` from before its status is written until it is complete or deleted; a
 // lock dies with its worker, and a result whose lock is held is being written in some tab. Complete results are read
-// back for the heatmap: their manifest, and tiles of each array's max-magnitude pyramid (render/resultPyramid.ts).
-import { buildPyramid, FANOUT, type Pyramid, type ResultTile, TILE_CELLS } from "../render/resultPyramid";
+// back for the heatmap: their manifest, and tiles of each array's max-magnitude pyramid (render/resultPyramid.ts),
+// whose levels the first view writes beside the array (`<array>.L<level>.f32`, `<array>.pyramid.json`); an export
+// of the bundle leaves them out.
+import { buildPyramid, FANOUT, type ResultTile, resultLevels, TILE_CELLS } from "../render/resultPyramid";
 import { put } from "./opfs";
 import type { ResultArray } from "./protocol";
 import type { BlockChunks, BundleLayout, ResultDocument } from "./types";
@@ -160,11 +162,7 @@ export async function resultManifest(resultId: string): Promise<ResultDocument> 
 }
 
 /** An array file of a complete result: its windows, its rows and a reader of windows `w0..w1` as f64. */
-async function npy(resultId: string, path: string) {
-  const names = path.split("/");
-  let folder = await (await resultsDirectory()).getDirectoryHandle(resultId);
-  for (const name of names.slice(0, -1)) folder = await folder.getDirectoryHandle(name);
-  const file = await (await folder.getFileHandle(names[names.length - 1])).getFile();
+async function npy(file: File, path: string) {
   const start = 10 + new DataView(await file.slice(0, 10).arrayBuffer()).getUint16(8, true); // npy format 1.0
   const shape = /'shape': \((\d+), (\d+)\)/.exec(await file.slice(10, start).text());
   if (!shape) throw new Error(`${path} does not hold windows of rows`);
@@ -174,23 +172,96 @@ async function npy(resultId: string, path: string) {
   return { windows, rows, read };
 }
 
+/** What `<array>.pyramid.json` holds; a row without a finite value has `null` ranges. */
+interface PyramidRecord {
+  levels: number;
+  rowMin: (number | null)[];
+  rowMax: (number | null)[];
+}
+
 /**
- * The arrays shown so far with their pyramids, built in one pass on first use.
- * shortcut: pyramids stay in this worker for the session (a third of the array's windows as f32, about a sixth of
- * its file); drop the least recently shown once sessions view many large results.
+ * The pyramid of an array lives beside it: `<array>.L<level>.f32` holds the cells of each level from 1 up (f32,
+ * window-major) and `<array>.pyramid.json`, written last, its level count and row ranges. A pyramid without the
+ * record is built again. The Web Lock `ddalab-pyramid:<id>/<path>` keeps two tabs from building one at once.
  */
-const shown = new Map<string, Promise<Awaited<ReturnType<typeof npy>> & { pyramid: Pyramid }>>();
+async function pyramidOf(folder: FileSystemDirectoryHandle, array: string, path: string, source: File) {
+  const { windows, rows, read } = await npy(source, path);
+  const levels = resultLevels(windows);
+  const name = (level: number) => `${array}.L${level}.f32`;
+  /** Writes every level's file, then the record. */
+  async function build(): Promise<PyramidRecord> {
+    const files: FileSystemSyncAccessHandle[] = [];
+    let bytes = 0;
+    let record: PyramidRecord;
+    try {
+      for (let level = 1; level < levels; level++) {
+        const file = await (
+          await folder.getFileHandle(name(level), { create: true })
+        ).createSyncAccessHandle();
+        files.push(file);
+        file.truncate(0);
+        bytes += Math.ceil(windows / FANOUT ** level) * rows * 4;
+      }
+      const ranges = await buildPyramid(read, windows, rows, (level, cell, values) =>
+        put(
+          files[level - 1],
+          new Uint8Array(values.buffer, values.byteOffset, values.byteLength),
+          cell * rows * 4,
+        ),
+      );
+      for (const file of files) file.flush();
+      const toJson = (values: Float64Array) => Array.from(values, (v) => (Number.isFinite(v) ? v : null));
+      record = { levels, rowMin: toJson(ranges.rowMin), rowMax: toJson(ranges.rowMax) };
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "QuotaExceededError")) throw error;
+      const mb = (bytes / 1e6).toLocaleString("en", { maximumSignificantDigits: 2 });
+      throw new Error(
+        `Zooming out on this result needs about ${mb} MB of browser storage, more than is available. Free up space and show it again.`,
+      );
+    } finally {
+      for (const file of files) file.close();
+    }
+    await writeText(folder, `${array}.pyramid.json`, JSON.stringify(record));
+    return record;
+  }
+  const record = await navigator.locks.request(`ddalab-pyramid:${path}`, async () => {
+    const stored = await folder
+      .getFileHandle(`${array}.pyramid.json`)
+      .then(async (handle) => JSON.parse(await (await handle.getFile()).text()) as PyramidRecord)
+      .catch(() => null);
+    return stored?.levels === levels ? stored : build();
+  });
+  const files = await Promise.all(
+    Array.from({ length: levels - 1 }, async (_, i) => (await folder.getFileHandle(name(i + 1))).getFile()),
+  );
+  const ranges = (values: (number | null)[], none: number) => Float64Array.from(values, (v) => v ?? none);
+  return {
+    windows,
+    rows,
+    levels,
+    read,
+    files,
+    rowMin: ranges(record.rowMin, Number.POSITIVE_INFINITY),
+    rowMax: ranges(record.rowMax, Number.NEGATIVE_INFINITY),
+  };
+}
+
+/** The arrays shown so far: their sizes, row ranges and files. Tiles are read from the files on each request. */
+const shown = new Map<string, Promise<Awaited<ReturnType<typeof pyramidOf>>>>();
 
 function shownArray(resultId: string, variant: string, array: ResultTile["array"]) {
-  const key = `${resultId}/${variant}/${array}`;
-  let found = shown.get(key);
+  const path = `${resultId}/${variant}/${array}`;
+  let found = shown.get(path);
   if (!found) {
-    found = npy(resultId, `${variant}/${array}.npy`).then(async (file) => ({
-      ...file,
-      pyramid: await buildPyramid(file.read, file.windows, file.rows),
-    }));
-    found.catch(() => shown.delete(key)); // asked again, it is read again
-    shown.set(key, found);
+    found = (async () => {
+      const folder = await (await (await resultsDirectory()).getDirectoryHandle(resultId)).getDirectoryHandle(
+        variant,
+      );
+      const source = await (await folder.getFileHandle(`${array}.npy`)).getFile();
+      return pyramidOf(folder, array, path, source);
+    })();
+    found.catch(() => shown.delete(path)); // asked again, it is read again
+    shown.set(path, found);
   }
   return found;
 }
@@ -200,12 +271,11 @@ export async function resultArray(
   variant: string,
   array: ResultTile["array"],
 ): Promise<ResultArray> {
-  const { windows, rows, pyramid } = await shownArray(resultId, variant, array);
-  const { levels, rowMin, rowMax } = pyramid;
-  return { windows, rows, levels: levels.length + 1, rowMin, rowMax };
+  const { windows, rows, levels, rowMin, rowMax } = await shownArray(resultId, variant, array);
+  return { windows, rows, levels, rowMin, rowMax };
 }
 
-/** Tile `index` of `level`: level 0 from the file, the others from the pyramid. */
+/** Tile `index` of `level`, read from the array's file at level 0 and from the level's file above. */
 export async function resultTile(
   resultId: string,
   variant: string,
@@ -213,16 +283,15 @@ export async function resultTile(
   level: number,
   index: number,
 ): Promise<ResultTile> {
-  const { windows, rows, read, pyramid } = await shownArray(resultId, variant, array);
+  const { windows, rows, levels, read, files } = await shownArray(resultId, variant, array);
   const cells = Math.ceil(windows / FANOUT ** level);
-  if (level > pyramid.levels.length || index * TILE_CELLS >= cells) {
+  if (level >= levels || index * TILE_CELLS >= cells) {
     throw new Error(`tile ${index} of level ${level} does not exist for ${windows} windows`);
   }
   const [c0, c1] = [index * TILE_CELLS, Math.min(cells, (index + 1) * TILE_CELLS)];
-  // A copy of the pyramid's cells: the reply transfers it.
   const values =
     level === 0
       ? new Float32Array(await read(c0, c1))
-      : pyramid.levels[level - 1].slice(c0 * rows, c1 * rows);
+      : new Float32Array(await files[level - 1].slice(c0 * rows * 4, c1 * rows * 4).arrayBuffer());
   return { variant, array, level, index, rows, windows: c1 - c0, values };
 }

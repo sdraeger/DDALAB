@@ -8,9 +8,10 @@
 // An R32F texture array holds one tile per layer (`rows` texels wide, 1,024 cells high). A slot texture maps the tiles
 // of a frame to layers; a tile still on its way draws from the finest loaded coarser tile over it, and the top tile,
 // which covers every window, stays loaded.
-import { EngineStopped } from "../core/engine";
+import { TileCache } from "../core/tileCache";
 import { program } from "./gl";
 import { FANOUT, type ResultTile, TILE_CELLS } from "./resultPyramid";
+import { type Failure, nextFailure } from "./retry";
 
 /** GPU bytes the tiles may take, and the fewest layers whatever the row count. */
 const BUDGET = 64 * 2 ** 20;
@@ -160,38 +161,18 @@ export function createHeatmapLayer(
   const vertices = gl.createVertexArray();
 
   /** Tiles by `level/index`: on the CPU (least recently used first) and in layers. */
-  const cpu = new Map<string, ResultTile>();
-  let cpuBytes = 0;
+  const cpu = new TileCache<ResultTile>(CPU_BUDGET, (found) => found.values.byteLength);
   const resident = new Map<string, { layer: number; used: number }>();
   const free = Array.from({ length: layers }, (_, i) => layers - 1 - i);
   const inFlight = new Set<string>();
-  /** Requests that failed: when to ask again, and the reason the user sees (none while the engine restarts). */
-  const failures = new Map<string, { retryAt: number; attempts: number; reason: string | null }>();
+  /** Requests that failed: when to ask again, and the reason the user sees (retry.ts). */
+  const failures = new Map<string, Failure>();
   const topKey = `${top}/0`;
   let frameNumber = 0;
   let last = { level: 0, wa: 0, wb: -1 };
   let disposed = false;
 
   const tileWindows = (level: number) => TILE_CELLS * FANOUT ** level;
-
-  function cached(key: string): ResultTile | undefined {
-    const found = cpu.get(key);
-    if (found) {
-      cpu.delete(key);
-      cpu.set(key, found);
-    }
-    return found;
-  }
-
-  function remember(key: string, found: ResultTile) {
-    cpu.set(key, found);
-    cpuBytes += found.values.byteLength;
-    for (const [old, kept] of cpu) {
-      if (cpuBytes <= CPU_BUDGET) break;
-      cpu.delete(old);
-      cpuBytes -= kept.values.byteLength;
-    }
-  }
 
   function request(level: number, index: number) {
     const key = `${level}/${index}`;
@@ -201,16 +182,12 @@ export function createHeatmapLayer(
     tile(level, index)
       .then((found) => {
         failures.delete(key);
-        remember(key, found);
+        cpu.set(key, found);
       })
       .catch((error) => {
-        // An engine that restarted is asked again at once and says nothing unless that fails too.
-        const attempts = (failures.get(key)?.attempts ?? 0) + 1;
-        const quiet = error instanceof EngineStopped && attempts === 1;
-        const pause = quiet ? 0 : Math.min(30_000, 500 * 2 ** (attempts - 1));
-        const reason = quiet ? null : error instanceof Error ? error.message : String(error);
-        failures.set(key, { retryAt: performance.now() + pause, attempts, reason });
-        setTimeout(() => !disposed && onData(), pause + 10);
+        const failure = nextFailure(failures.get(key), error);
+        failures.set(key, failure);
+        setTimeout(() => !disposed && onData(), failure.pause + 10);
       })
       .finally(() => {
         inFlight.delete(key);
@@ -225,7 +202,7 @@ export function createHeatmapLayer(
       entry.used = frameNumber;
       return entry.layer;
     }
-    const found = cached(key);
+    const found = cpu.get(key);
     if (!found || gl.isContextLost()) return undefined;
     let layer = free.pop();
     if (layer === undefined) {
@@ -263,8 +240,10 @@ export function createHeatmapLayer(
     gl.clear(gl.COLOR_BUFFER_BIT);
     let level = 0;
     while (level < top && FANOUT ** (level + 1) <= ppx) level++;
-    const wa = Math.max(0, Math.floor(p0 - 0.5));
-    const wb = Math.min(windows - 1, Math.ceil(p0 + width * ppx + 0.5));
+    // The first and last window reach half a window from their centers, the others half a step.
+    const reach = Math.max(0.5, frame.half);
+    const wa = Math.max(0, Math.floor(p0 - reach));
+    const wb = Math.min(windows - 1, Math.ceil(p0 + width * ppx + reach));
     const span = (at: number) => Math.floor(wb / tileWindows(at)) - Math.floor(wa / tileWindows(at)) + 1;
     // A view wider than the layers hold draws from a coarser level.
     while (level < top && span(level) > layers / 2) level++;
@@ -336,19 +315,20 @@ export function createHeatmapLayer(
     /** Window `w` of `row` as stored (float32), or `undefined` while its tile is on its way. */
     value(w: number, row: number): number | undefined {
       const index = Math.floor(w / TILE_CELLS);
-      const found = cached(`0/${index}`);
+      const found = cpu.get(`0/${index}`);
       if (!found) request(0, index);
       return found?.values[(w - index * TILE_CELLS) * rows + row];
     },
-    /** The cells of `row` the last frame drew at its level, as [first window, value]; loading tiles leave gaps. */
+    /** The cells of `row` the last frame drew at its level, as [first window, value]; loading tiles give NaN. */
     row(row: number): { level: number; cells: [number, number][] } {
       const { level, wa, wb } = last;
       const f = FANOUT ** level;
       const out: [number, number][] = [];
+      let found: ResultTile | undefined;
       for (let k = Math.floor(wa / f); k <= Math.floor(wb / f); k++) {
         const index = Math.floor(k / TILE_CELLS);
-        const found = cpu.get(`${level}/${index}`);
-        if (found) out.push([k * f, found.values[(k - index * TILE_CELLS) * rows + row]]);
+        if (k === Math.floor(wa / f) || k % TILE_CELLS === 0) found = cpu.get(`${level}/${index}`);
+        out.push([k * f, found ? found.values[(k - index * TILE_CELLS) * rows + row] : Number.NaN]);
       }
       return { level, cells: out };
     },

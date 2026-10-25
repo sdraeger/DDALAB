@@ -1,41 +1,49 @@
-// Heatmap color maps as 256-entry RGBA tables: Crameri's batlow (sequential) and vik (diverging, centered at zero).
+// Heatmap color maps as 256-entry RGBA tables: Crameri's batlow (sequential) and vik (diverging, centered at zero),
+// from cmcrameri 1.10, each entry rounded to sRGB bytes (colormaps.test.ts checks them against fixtures/).
 // Crameri, F. (2018). Scientific colour maps. Zenodo. doi:10.5281/zenodo.1243862
-// shortcut: each table is interpolated in sRGB between nine stops of the published map; replace the stops with the
-// published 256-entry tables once downloading them is approved.
+// The tables are under the MIT License, Copyright (c) 2020 Fabio Crameri (fixtures/CRAMERI-LICENSE.txt).
 
 export type MapName = "batlow" | "vik";
 
-const STOPS: Record<MapName, string[]> = {
-  batlow: ["#011959", "#0e3a62", "#1f5c67", "#42785b", "#7b8738", "#b98b35", "#e58a58", "#fb9ca0", "#faccfa"],
-  vik: ["#001261", "#033e7d", "#1e6ea6", "#7aa9cb", "#ece5e0", "#d9a888", "#c06d3a", "#8e2c10", "#590008"],
+/** 256 rows of r, g, b bytes, base64. */
+const TABLES: Record<MapName, string> = {
+  batlow:
+    "ARlZAhtZAxxaBB5aBR9aBiFbByJbByRbCCVbCSdcCihcCipcCytcCy1dDC5dDC9dDTFdDTJeDTNeDjVeDjZeDjdeDzhfDzlfDztfDzxfED1fED5fED9gEEBgEUFgEUJgEUNgEURgEkVhEkZhEkdhEkhhE0lhE0phE0thFExiFE1iFE5iFU9iFU9iFlBiFlFiF1JiF1NiGFRiGFViGVZiGVdiGldiG1hiG1liHFpiHVtiHlxiHl1iH11hIF5hIV9hImBhI2BgJGFgJWJgJmNfJ2NfKGRfKmVeK2VeLGZdLWddL2dcMGhcMWlbM2laNGpaNWpZN2tYOGxYOmxXO21WPG1WPm5VP25UQW9TQm9SRHBSRXBRR3FQSHFPSnJOTHJNTXNNT3NMUHRLUnRKU3VJVXVIV3ZHWHZGWndFW3dFXXhEX3hDYHlCYnlBY3pAZXo/Z3s+aHs+ans9bHw8bXw7b306cX05c344dH44dn83eH82eYA1e4A0fYE0f4EzgYIygoIxhIMxhoMwiIQvioQvjIUujoUuj4YtkYYtk4cslYcsl4gsmYgsm4krnYkrn4kroYoro4ospYssp4ssqYwsq4wtrYwtr40usY0vs44vtY4wt44xuY8yu48zvY80vpA1wJA2wpA3xJE4xpE6yJE7ypI8y5I+zZI/z5NA0ZNC0pND1JRF1pRG2JRI2ZVK25VL3ZVN3pZP4JZR4ZdS45dU5JdW5phY55ha6Zlc6ple65pg7Zpi7ptk75tn8Jxp8Z1r8p1t855w9J9y9Z909qB396F5+KF7+KJ++aOA+aOC+qSF+qWH+6aJ+6aM/KeO/KiQ/KmT/KmV/aqX/aua/ayc/aye/a2g/a6i/a+l/a+n/bCp/bGr/bKt/bKv/bOx/bS0/bS2/bW4/ba6/be8/be+/bjA/bnC/brE/brH/bvJ/bzL/bzN/L3P/L7R/L/T/L/W/MDY/MHa/MLc/MPf/MPh/MTj/MXl+8bo+8bq+8fs+8jv+8nx+8rz+8r2+sv4+sz6",
+  vik: "ABJhARRiARVjARdkARhlARpmAhxnAh1oAh9pAiBqAiJrAiNsAiVtAiduAihvAipwAitxAi1yAi5zAjB0AjF1AjN2AjR3AjZ4Ajd5Ajl6Ajp7Azx8Az59Az9+A0F/A0KAA0SBA0WCA0eDA0mEA0qFBEyGBE2HBE+IBVGJBVKKBlSLBlaMB1eNCFmPCVuQC12RDF6SDmCTEGKUEWSWE2aXFWeYF2mZGWuaHG2cHm+dIHGeI3OgJXWhKHeiK3mkLXulMH2mM3+oNoGpOYOrPIWsP4etQomvRYuwSI2yS5CzTpK0UZS2VJa3V5i5Wpq6XZy7YZ69ZKC+Z6LAaqTBbabCcajEdKrFd6zGeq7IfbDJgLLKhLTMh7bNirjOjbrQkLzRlL7Sl8DUmsLVncTWoMXYo8fZp8naqsvcrc3dsM/es9HfttPhutXivdbjwNjkw9rlxtvmyd3nzN/oz+Do0uHp1ePp2OTp2+Xp3ubp4Obp4ufo5efo5+fn6Ofl6ubk6+bi7OXg7eTe7uPc7uHa7uDY7t7V7t3T7tvQ7tnN7dfL7dXI7NPF7NHD69DA6s696cy66cq46Mi158ay5sSw5cGt5L+q5L6o47yl4rqi4big4Lad37Sa37KY3rCV3a6T3KyQ26qN26iL2qaI2aSG2KKD16CB1p9+1p181Zt51Jl305d005Vy0pRw0ZJt0JBrz45oz4xmzotkzYlhzIdfzIVdy4NayoJYyYBWyX5TyHxRx3tPxnlMxndKxXVIxHRFw3JDwnBBwm4/wW08wGs6v2k4vmc2vmUzvWQxvGIvu2Atul4quFwot1omtlgktVUhs1MfslEdsE8br0wYrUoWq0gUqUUSp0MQpUAPoz4NoTwLnzkKnDcJmjUImDMHljEHlC8GkS0GjysGjSkGiycGiSYGhyQGhSIGgyEGgR8Gfx4Gfh0GfBsGehoGeBgGdhcGdBUGcxQGcRMHbxEHbRAHbA4Hag0HaAwHZwoHZQkHYwcHYgYHYAQIXgMIXQIIWwEIWQAI",
 };
 
-function table(stops: string[]): Uint8Array {
-  const rgb = stops.map((hex) => [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16)));
+function table(base64: string): Uint8Array {
+  const rgb = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
   const lut = new Uint8Array(256 * 4);
   for (let i = 0; i < 256; i++) {
-    const at = (i / 255) * (stops.length - 1);
-    const k = Math.min(stops.length - 2, Math.floor(at));
-    for (let c = 0; c < 3; c++)
-      lut[4 * i + c] = Math.round(rgb[k][c] + (rgb[k + 1][c] - rgb[k][c]) * (at - k));
+    lut.set(rgb.subarray(3 * i, 3 * i + 3), 4 * i);
     lut[4 * i + 3] = 255;
   }
   return lut;
 }
 
-export const LUTS: Record<MapName, Uint8Array> = { batlow: table(STOPS.batlow), vik: table(STOPS.vik) };
+export const LUTS: Record<MapName, Uint8Array> = { batlow: table(TABLES.batlow), vik: table(TABLES.vik) };
 
 /**
- * The map and limits of an array whose finite values run from `min` to `max`: with a negative value among them it is
- * signed (vik, limits symmetric about zero), else sequential (batlow from `min` to `max`).
+ * The map of an array by its kind. Q of ST and CT is the a1 coefficient, of CD a gain in RMSE and of SY a difference
+ * of RMSE ratios: signed, with zero meaning none (vik). Q of DE is an absolute value and a fit error an RMSE:
+ * sequential (batlow).
  */
-export function scaleOf(min: number, max: number): { map: MapName; lo: number; hi: number } {
-  if (!(min <= max)) return { map: "batlow", lo: 0, hi: 1 }; // no finite value
-  if (min < 0) {
-    const m = Math.max(-min, Math.abs(max));
-    return { map: "vik", lo: -m, hi: m };
+const SIGNED = new Set(["ST/q", "CT/q", "CD/q", "SY/q"]);
+export const mapOf = (variant: string, array: "q" | "fit_error"): MapName =>
+  SIGNED.has(`${variant}/${array}`) ? "vik" : "batlow";
+
+/**
+ * The limits of a map over finite values from `min` to `max`: vik symmetric about zero, batlow from `min` to `max`.
+ * Without a finite value (`min > max`) or without a spread, the limits widen by one.
+ */
+export function scaleOf(map: MapName, min: number, max: number): { lo: number; hi: number } {
+  if (!(min <= max)) return { lo: -1, hi: 1 };
+  if (map === "vik") {
+    const m = Math.max(Math.abs(min), Math.abs(max));
+    return m > 0 ? { lo: -m, hi: m } : { lo: -1, hi: 1 };
   }
-  return max > min ? { map: "batlow", lo: min, hi: max } : { map: "batlow", lo: min - 1, hi: max + 1 };
+  return max > min ? { lo: min, hi: max } : { lo: min - 1, hi: max + 1 };
 }
 
 /** The entry `value` draws as between the limits, as the heatmap shader picks it. */

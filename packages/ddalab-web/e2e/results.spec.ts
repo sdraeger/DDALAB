@@ -9,6 +9,7 @@ import type { ResultDocument } from "../src/core/types";
 import { colorIndex, LUTS, type MapName } from "../src/render/colormaps";
 import type { View } from "../src/store/store";
 import { type Bundle, bundleDir } from "./global-setup";
+import { type Fixture, showFixture } from "./resultFixture";
 
 const fixturePath = (name: string) =>
   fileURLToPath(new URL(`../../dda-rs/tests/fixtures/${name}`, import.meta.url));
@@ -93,6 +94,9 @@ const heatmapRows = (page: Page) =>
 
 const pixelAt = (line: number[], x: number) => line.slice(4 * x, 4 * x + 4);
 
+const openTwoHours = (page: Page) =>
+  page.evaluate(() => window.__ddalab.openSynthetic({ channels: 4, rateHz: 256, durationS: 7200, seed: 9 }));
+
 test.beforeEach(async ({ page }) => {
   test.setTimeout(90_000); // a run of the fixture is part of each test, and may take up to a minute on a busy machine
   await page.addInitScript(() => Reflect.deleteProperty(window, "showOpenFilePicker"));
@@ -157,62 +161,22 @@ test("outlier_window_survives_zoom_out", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
   // Two hours of four channels and a result of 57,000 windows every 0.125 s: one window of row 2 is -10, the rest
   // lie between 0.2 and 0.6. Vik with symmetric limits draws the outlier as its first entry.
-  await page.evaluate(() =>
-    window.__ddalab.openSynthetic({ channels: 4, rateHz: 256, durationS: 7200, seed: 9 }),
-  );
+  await openTwoHours(page);
   const fixture = {
     id: "fixture-outlier",
     windows: 57_000,
     rows: 4,
+    first: 0.5,
+    step: 0.125,
     outlier: 31_415,
     row: 2,
-    step: 0.125,
     missing: 31_400,
+    values: [
+      [31_415, 2, -10],
+      [31_400, 0, Number.NaN],
+    ] as [number, number, number][],
   };
-  await page.evaluate(async (f) => {
-    const { store } = window.__ddalab;
-    const recording = store.getState().recordings[store.getState().activeRecordingId as string];
-    const labels = recording.analysis_channels.map((c) => recording.info.channels[c].label);
-    const values = new Float64Array(f.windows * f.rows);
-    let seed = 11;
-    for (let i = 0; i < values.length; i++) {
-      seed = (seed * 1_103_515_245 + 12_345) % 2 ** 31;
-      values[i] = 0.2 + (0.4 * seed) / 2 ** 31;
-    }
-    values[f.outlier * f.rows + f.row] = -10;
-    values[f.missing * f.rows] = Number.NaN;
-    // The 128-byte header dda-rs writes: magic, version 1.0, the dict's length (118) and the dict padded to it.
-    const dict = `{'descr': '<f8', 'fortran_order': False, 'shape': (${f.windows}, ${f.rows}), }`;
-    const header = new Uint8Array(128);
-    header.set([0x93, 78, 85, 77, 80, 89, 1, 0, 118, 0]);
-    header.set(new TextEncoder().encode(`${dict.padEnd(117)}\n`), 10);
-    const centers = Array.from({ length: f.windows }, (_, i) => 0.5 + i * f.step);
-    const manifest = {
-      schema: "ddalab.result/2",
-      id: f.id,
-      file_name: "synthetic.edf",
-      created_at_iso: new Date().toISOString(),
-      diagnostics: [],
-      window_centers_seconds: centers,
-      variants: [{ id: "ST", label: "Single Timeseries (ST)", row_labels: labels, arrays: ["ST/q.npy"] }],
-      reproduction: { window_length_samples: 256, window_step_samples: 32 },
-    };
-    const results = await (await navigator.storage.getDirectory()).getDirectoryHandle("results", {
-      create: true,
-    });
-    const directory = await results.getDirectoryHandle(f.id, { create: true });
-    const write = async (folder: FileSystemDirectoryHandle, name: string, parts: BlobPart[]) => {
-      const file = await (await folder.getFileHandle(name, { create: true })).createWritable();
-      await file.write(new Blob(parts));
-      await file.close();
-    };
-    await write(await directory.getDirectoryHandle("ST", { create: true }), "q.npy", [header, values]);
-    await write(directory, "manifest.json", [JSON.stringify(manifest)]);
-    await write(directory, "status", ["complete"]);
-    store.setState({
-      shownResult: { id: f.id, fingerprint: recording.fingerprint, variant: null, array: "q", row: null },
-    });
-  }, fixture);
+  await showFixture(page, fixture);
   await expect(result(page)).toBeVisible();
 
   const center = 0.5 + fixture.outlier * fixture.step;
@@ -317,11 +281,90 @@ test("variant_tabs_switch", async ({ page }) => {
   await result(page).getByRole("tab", { name: "DE" }).press("ArrowLeft");
   await expect(result(page).getByRole("tab", { name: "CD" })).toHaveAttribute("aria-selected", "true");
   await expect(result(page).getByRole("button", { name: "Fp2 <- Fp1" })).toBeVisible();
-  expect((await heatmapRows(page)).frame).toMatchObject({ variant: "CD", rows: 2 });
+  expect((await heatmapRows(page)).frame).toMatchObject({ variant: "CD", rows: 2, map: "vik" });
+  // DE is an absolute value: batlow, from its smallest to its largest value.
+  await result(page).getByRole("tab", { name: "DE" }).click();
+  const de = npy("ct_cd_de_sy", "DE/q.npy");
+  expect((await heatmapRows(page)).frame).toMatchObject({
+    variant: "DE",
+    map: "batlow",
+    lo: Math.min(...de.values),
+    hi: Math.max(...de.values),
+  });
 
   // CT keeps a fit error per window: its own toggle shows it, a sequential quantity in batlow.
   await expect(result(page).getByRole("button", { name: "Fit error" })).toHaveCount(0);
   await result(page).getByRole("tab", { name: "CT" }).click();
+  expect((await heatmapRows(page)).frame).toMatchObject({ variant: "CT", array: "q", map: "vik" });
   await result(page).getByRole("button", { name: "Fit error" }).click();
   expect((await heatmapRows(page)).frame).toMatchObject({ variant: "CT", array: "fit_error", map: "batlow" });
+});
+
+test("short_result_outlier_visible_far_out", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  // 1,000 windows (125 s) of a two-hour recording, seen whole: a few pixels hold all of them, about 90 windows a
+  // pixel. The outlier must still draw, from a coarse level of the pyramid.
+  await openTwoHours(page);
+  await showFixture(page, {
+    id: "fixture-short",
+    windows: 1000,
+    rows: 2,
+    first: 3000,
+    step: 0.125,
+    values: [[517, 1, -10]],
+  });
+  await expect(result(page)).toBeVisible();
+  await setView(page, { t0: 0, t1: 7200 });
+  const { frame, lines } = await heatmapRows(page);
+  expect(frame.level).toBeGreaterThanOrEqual(3);
+  const dt = 7200 / frame.width;
+  const x = Math.floor((3000 + 517 * 0.125 - 0) / dt);
+  const outlier = (r: number, at: number) => shows(pixelAt(lines[r], at), "vik", -10, -10, 10);
+  expect(outlier(1, x), `column ${x} at level ${frame.level}`).toBe(true);
+  expect([x - 1, x, x + 1].some((at) => outlier(0, at))).toBe(false);
+});
+
+test("keyboard_reads_window_values", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  await runFixture(page, ["ST"]);
+  const q = npy("st", "ST/q.npy");
+  const centers = manifest("st").window_centers_seconds;
+  const { t0, t1 } = await page.evaluate(() => window.__ddalab.store.getState().view);
+  const row = result(page).getByRole("button", { name: "Fp2", exact: true });
+  await row.focus();
+  // Right puts the cursor on the window nearest the middle of the view; Left steps back one window.
+  await row.press("ArrowRight");
+  const middle = nearest(centers, (t0 + t1) / 2);
+  await expect
+    .poll(() => page.evaluate(() => window.__ddalab.store.getState().cursorS))
+    .toBe(centers[middle]);
+  await row.press("ArrowLeft");
+  const w = middle - 1;
+  await expect.poll(() => page.evaluate(() => window.__ddalab.store.getState().cursorS)).toBe(centers[w]);
+  const readout = result(page).getByRole("tooltip");
+  await expect(readout).toContainText("Fp2");
+  await expect(readout).toContainText(`${centers[w].toFixed(3)} s`);
+  await expect(readout).toContainText(q.at(w, 1).toPrecision(4));
+  // Screen readers hear it; the focus stays, and the view did not page.
+  await expect(result(page).getByRole("status").filter({ hasText: "window at" })).toHaveText(
+    `Fp2, window at ${centers[w].toFixed(3)} s, Q ${q.at(w, 1).toPrecision(4)}`,
+  );
+  await expect(row).toBeFocused();
+  expect(await page.evaluate(() => window.__ddalab.store.getState().view.t0)).toBe(t0);
+  await row.blur();
+  await expect(readout).toBeHidden();
+});
+
+test("array_read_failure_offers_try_again", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  await openTwoHours(page);
+  const fixture: Fixture = { id: "fixture-late", windows: 400, rows: 2, first: 10, step: 0.125, values: [] };
+  await showFixture(page, { ...fixture, noArray: true });
+  const alert = result(page).getByRole("alert").filter({ hasText: "could not be read" });
+  await expect(alert).toBeVisible();
+  // Once the file is there, Try again reads it.
+  await showFixture(page, fixture);
+  await alert.getByRole("button", { name: "Try again" }).click();
+  await expect(alert).toBeHidden();
+  expect((await heatmapRows(page)).frame).toMatchObject({ resultId: "fixture-late", rows: 2 });
 });
