@@ -139,7 +139,8 @@ export async function storeResult(
     }
     await finishResult(resultId, manifest);
   } catch (error) {
-    await discardResult(resultId);
+    // The error that stopped the import is the one reported, whatever the clean-up does.
+    await discardResult(resultId).catch(() => {});
     throw error;
   }
 }

@@ -196,5 +196,10 @@ test("refuses_a_document_that_is_not_one", async () => {
   await expect(importResult(new File(["{"], "broken.json"))).rejects.toThrow(
     /broken\.json is neither a bundle zip nor a JSON result document/,
   );
+  // Its size alone refuses a large document: no bytes past the first four are read.
+  const large = Object.defineProperty(new File(["{}"], "large.json"), "size", { value: 256 * 2 ** 20 + 1 });
+  await expect(importResult(large)).rejects.toThrow(
+    /large\.json is above 256 MiB; import the result's bundle folder/,
+  );
   expect(await listAnalyses()).toEqual([]);
 });

@@ -13,8 +13,11 @@ export interface FolderFile {
   file: Blob;
 }
 
-/** A JSON document above this size is refused: parsing it whole would take several times its size. */
-const DOCUMENT_LIMIT = 512 * 2 ** 20;
+/**
+ * A JSON document above this size is refused: parsing it whole takes several times its size, and this cap keeps the
+ * worker's estimated peak near 0.5 GB.
+ */
+const DOCUMENT_LIMIT = 256 * 2 ** 20;
 
 /** A result to import: its manifest and each array's `.npy` bytes by bundle path. */
 type Incoming = { manifest: ResultDocument; arrays: Map<string, Blob> };
@@ -261,7 +264,7 @@ export async function importResult(input: File | FolderFile[]): Promise<string> 
   } else {
     source = input.name;
     if (input.size > DOCUMENT_LIMIT) {
-      throw new Error(`${source} is above 512 MiB; import the bundle of the result instead`);
+      throw new Error(`${source} is above 256 MiB; import the result's bundle folder instead`);
     }
     let document: ResultDocument;
     try {

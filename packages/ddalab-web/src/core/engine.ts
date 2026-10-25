@@ -226,7 +226,10 @@ export function createEngine(): Engine {
   /** Called when a recording's hashes change or it closes. */
   const hashWaits = new Set<() => void>();
 
-  /** The worker answers in the order it was asked. `transfer` moves buffers of the request to it. */
+  /**
+   * A reply finds its request by the serial `n`: the worker answers queued requests in order, and the ones it runs
+   * beside the queue (exports, imports, deletes) when they end. `transfer` moves buffers of the request to it.
+   */
   const call = <T extends IoRequest["type"]>(
     request: Extract<IoRequest, { type: T }>,
     restoring = false,
