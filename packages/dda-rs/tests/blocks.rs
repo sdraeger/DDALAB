@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use dda_rs::blocks::{block_of, check_block_support, merge_blocks, plan_blocks, run_block, Block};
+use dda_rs::blocks::{
+    block_of, check_block_support, merge_blocks, plan_blocks, run_block, validate_request, Block,
+};
 use dda_rs::io::{ChannelInfo, ChannelKind, RawType, Reader, RecordingInfo};
 use dda_rs::{
     run_request_on_matrix, AlgorithmSelection, CcdConditioningStrategy, DDARequest, DDAResult,
@@ -500,4 +502,37 @@ fn block_of_matches_the_plan() {
     }
     let trccd = ccd_request("TRCCD", CcdConditioningStrategy::AllSelected);
     assert!(block_of(&trccd, ROWS as u64, 0, 1).is_err());
+}
+
+#[test]
+fn validate_request_checks_every_channel_index() {
+    let ccd = ccd_request("CCD", CcdConditioningStrategy::AllSelected);
+    assert!(validate_request(&ccd, 4).is_ok());
+    let config = |edit: fn(&mut VariantChannelConfig)| {
+        let mut request = ccd.clone();
+        let configs = request.variant_configs.as_mut().unwrap();
+        edit(configs.get_mut("conditional_cross_dynamical").unwrap());
+        request
+    };
+    let mut channels = request("ST");
+    channels.channels = Some(vec![0, 4]);
+    let mut ct = request("CT");
+    ct.ct_channel_pairs = Some(vec![[4, 0]]);
+    let mut cd = request("CD");
+    cd.cd_channel_pairs = Some(vec![[0, 4]]);
+    for request in [
+        channels,
+        ct,
+        cd,
+        config(|c| c.selected_channels = Some(vec![4])),
+        config(|c| c.conditioning_channels = Some(vec![4])),
+        config(|c| c.cd_channel_pairs = Some(vec![[0, 4]])),
+        config(|c| c.ct_channel_pairs = Some(vec![[4, 0]])),
+    ] {
+        let error = validate_request(&request, 4).unwrap_err().to_string();
+        assert!(error.contains("channel 4 is out of range"), "{error}");
+    }
+    let mut filtered = request("ST");
+    filtered.preprocessing_options.lowpass = Some(40.0);
+    assert!(validate_request(&filtered, 4).is_err());
 }

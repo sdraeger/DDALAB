@@ -888,6 +888,24 @@ fn run_de_on_brainvision_with_default_flags() {
 }
 
 #[test]
+fn run_refuses_variant_config_channels_outside_the_recording() {
+    let vhdr = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fixture.vhdr");
+    let dir = tempfile::tempdir().unwrap();
+    let configs = dir.path().join("configs.json");
+    std::fs::write(&configs, r#"{"CCD":{"cdChannelPairs":[[0,9]]}}"#).unwrap();
+    ddalab()
+        .arg("run")
+        .arg("--file")
+        .arg(&vhdr)
+        .args(["--variants", "CCD", "--variant-configs"])
+        .arg(&configs)
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(predicate::str::contains("channel 9 is out of range"));
+}
+
+#[test]
 fn run_refuses_channels_and_bounds_outside_the_recording() {
     let dir = tempfile::tempdir().unwrap();
     let path = write_edf(dir.path());

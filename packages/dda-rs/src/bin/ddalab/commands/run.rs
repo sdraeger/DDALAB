@@ -2,7 +2,9 @@ use crate::cli::RunArgs;
 use crate::dda_params;
 use crate::exit_codes;
 use crate::output;
-use dda_rs::blocks::{check_block_support, merge_blocks, plan_blocks, run_block, Block};
+use dda_rs::blocks::{
+    check_block_support, merge_blocks, plan_blocks, run_block, validate_request, Block,
+};
 use dda_rs::document::{
     build_document, build_manifest, bundle_layout, encode_block, BundleLayout, BundleWriter,
     ResultDocument,
@@ -154,19 +156,8 @@ async fn analyze_open(
     if channels.is_empty() {
         return Err(input(format!("{file} has no analysis channel to run on")));
     }
-    let pairs = request
-        .ct_channel_pairs
-        .iter()
-        .chain(&request.cd_channel_pairs)
-        .flatten()
-        .flatten();
-    if let Some(c) = channels.iter().chain(pairs).find(|&&c| c >= analysis.len()) {
-        return Err(input(format!(
-            "channel {c} is out of range: {file} has {} analysis channels",
-            analysis.len()
-        )));
-    }
     request.channels = Some(channels);
+    validate_request(&request, analysis.len()).map_err(|e| input(format!("{file}: {e}")))?;
 
     // Seconds become samples as `_start_sample` of the Python readers does.
     let total = info.sample_count;

@@ -1,4 +1,5 @@
 use crate::cli;
+use dda_rs::blocks::validate_request;
 use dda_rs::io::{open_recording, FileSet};
 use dda_rs::{
     format_select_mask, generate_select_mask, load_ascii_matrix_from_path,
@@ -11,13 +12,6 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 
 fn pure_rust_common_support_reason(request: &DDARequest) -> Result<(), String> {
-    if request.preprocessing_options.highpass.is_some()
-        || request.preprocessing_options.lowpass.is_some()
-    {
-        return Err(
-            "pure Rust DDA does not yet implement highpass/lowpass preprocessing".to_string(),
-        );
-    }
     if request
         .delay_parameters
         .delays
@@ -91,9 +85,13 @@ where
         adjusted_request.time_range.start = start as f64;
         adjusted_request.time_range.end = end as f64;
     }
-    runner(device)
-        .run_on_matrix_with_progress(&adjusted_request, &samples, labels.as_deref(), on_progress)
-        .map_err(|error| format!("Pure Rust DDA failed: {}", error))
+    run_on_samples(
+        &adjusted_request,
+        &samples,
+        labels.as_deref(),
+        device,
+        on_progress,
+    )
 }
 
 pub async fn execute_request_on_matrix_with_progress_on_device<F>(
@@ -108,9 +106,7 @@ where
 {
     pure_rust_matrix_support_reason(request)
         .map_err(|reason| format!("Pure Rust DDA cannot execute this request: {}", reason))?;
-    runner(device)
-        .run_on_matrix_with_progress(request, samples, channel_labels, on_progress)
-        .map_err(|error| format!("Pure Rust DDA failed: {}", error))
+    run_on_samples(request, samples, channel_labels, device, on_progress)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -130,16 +126,28 @@ where
         .map_err(|reason| format!("Pure Rust DDA cannot execute this request: {}", reason))?;
     let samples = load_f64_matrix_from_path(matrix_path, rows, cols)
         .map_err(|error| format!("Pure Rust DDA failed: {}", error))?;
-    runner(device)
-        .run_on_matrix_with_progress(request, &samples, channel_labels, on_progress)
-        .map_err(|error| format!("Pure Rust DDA failed: {}", error))
+    run_on_samples(request, &samples, channel_labels, device, on_progress)
 }
 
-fn runner(device: ComputeDevice) -> PureRustRunner {
+/// Runs `request` on `samples` (rows of channels) once `validate_request` accepts it for their columns.
+fn run_on_samples<F>(
+    request: &DDARequest,
+    samples: &[Vec<f64>],
+    channel_labels: Option<&[String]>,
+    device: ComputeDevice,
+    on_progress: F,
+) -> Result<DDAResult, String>
+where
+    F: FnMut(&PureRustProgress),
+{
+    validate_request(request, samples.first().map_or(0, Vec::len))
+        .map_err(|error| format!("Pure Rust DDA cannot execute this request: {error}"))?;
     PureRustRunner::new(PureRustOptions {
         compute_device: device,
         ..PureRustOptions::default()
     })
+    .run_on_matrix_with_progress(request, samples, channel_labels, on_progress)
+    .map_err(|error| format!("Pure Rust DDA failed: {}", error))
 }
 
 /// Validate a single file path: existence and supported extension.
@@ -889,6 +897,41 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(result.file_path, "/tmp/test.edf");
+    }
+
+    #[tokio::test]
+    async fn test_execute_request_on_matrix_refuses_out_of_range_variant_configs() {
+        let variants = ["CCD".to_string()];
+        let mut config = test_request_config("/tmp/test.edf", &[], &variants, 32, 16, &[1, 2]);
+        config.end = Some(63.0);
+        config.variant_configs = Some(HashMap::from([(
+            "conditional_cross_dynamical".to_string(),
+            VariantChannelConfig {
+                selected_channels: None,
+                ct_channel_pairs: None,
+                cd_channel_pairs: Some(vec![[0, 9]]),
+                conditioning_channels: None,
+                conditioning_strategy: None,
+                surrogate_shifts: None,
+                temporal_lambda: None,
+                max_active_sources: None,
+            },
+        )]));
+        let request = build_dda_request(config).unwrap();
+        let samples = (0..64)
+            .map(|index| vec![(index as f64 * 0.05).sin(), (index as f64 * 0.09).cos()])
+            .collect::<Vec<_>>();
+
+        let error = execute_request_on_matrix_with_progress_on_device(
+            &request,
+            &samples,
+            None,
+            ComputeDevice::Cpu,
+            |_| {},
+        )
+        .await
+        .unwrap_err();
+        assert!(error.contains("channel 9 is out of range"), "{error}");
     }
 
     #[tokio::test]
