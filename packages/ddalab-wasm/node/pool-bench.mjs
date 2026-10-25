@@ -158,12 +158,27 @@ function runCli(config, c, threads) {
   return (performance.now() - start) / 1000;
 }
 
+/** The two files hold the same bytes, compared 64 MiB at a time: readFileSync refuses files past 2 GiB. */
+function sameFile(a, b) {
+  if (fs.statSync(a).size !== fs.statSync(b).size) return false;
+  const fds = [a, b].map((f) => fs.openSync(f, 'r'));
+  const [x, y] = [Buffer.alloc(64 << 20), Buffer.alloc(64 << 20)];
+  try {
+    for (let at = 0, n; (n = fs.readSync(fds[0], x, 0, x.length, at)) > 0; at += n) {
+      if (fs.readSync(fds[1], y, 0, n, at) !== n || !x.subarray(0, n).equals(y.subarray(0, n))) return false;
+    }
+    return true;
+  } finally {
+    fds.forEach((fd) => fs.closeSync(fd));
+  }
+}
+
 /** Both bundles hold the same bytes, and the same manifest apart from id and creation time. */
 function sameBundles(config, c) {
   const dirs = ['wasm', 'cli'].map((side) => benchPath(config.output_dir, `${side}-${c.name}`));
   const [a, b] = dirs.map((d) => JSON.parse(fs.readFileSync(path.join(d, 'manifest.json'), 'utf8')));
   const arrays = a.variants.flatMap((v) => v.arrays);
-  const sameArrays = arrays.every((p) => fs.readFileSync(path.join(dirs[0], p)).equals(fs.readFileSync(path.join(dirs[1], p))));
+  const sameArrays = arrays.every((p) => sameFile(path.join(dirs[0], p), path.join(dirs[1], p)));
   const strip = ({ id, created_at_iso, ...rest }) => rest;
   return sameArrays && isDeepStrictEqual(strip(a), strip(b));
 }
