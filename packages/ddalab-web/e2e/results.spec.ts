@@ -368,3 +368,17 @@ test("array_read_failure_offers_try_again", async ({ page }) => {
   await expect(alert).toBeHidden();
   expect((await heatmapRows(page)).frame).toMatchObject({ resultId: "fixture-late", rows: 2 });
 });
+
+test("a_result_chunk_that_does_not_load_offers_reload", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  // A tab opened before a deploy asks for a chunk the host no longer has.
+  await page.route(/\/ResultPanel\.tsx/, (route) => route.fulfill({ status: 404, body: "" }));
+  await openTwoHours(page);
+  await showFixture(page, { id: "fixture-gone", windows: 40, rows: 2, first: 10, step: 0.125, values: [] });
+  const alert = page.getByRole("alert").filter({ hasText: "This result could not be shown" });
+  await expect(alert).toBeVisible();
+  await expect(page.getByRole("button", { name: "Reload" })).toBeVisible();
+  await page.getByRole("button", { name: "Close the result" }).click();
+  await expect(alert).toHaveCount(0);
+  expect(await page.evaluate(() => window.__ddalab.store.getState().shownResult)).toBeNull();
+});
