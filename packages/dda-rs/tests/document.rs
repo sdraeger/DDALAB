@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use dda_rs::blocks::{merge_blocks, plan_blocks, run_block};
+use dda_rs::blocks::{merge_blocks, plan_blocks, run_block, Block};
 use dda_rs::document::{
     build_document, build_manifest, bundle_layout, encode_block, npy_header, window_centers,
-    BundleWriter,
+    ArraySpec, BundleLayout, BundleWriter,
 };
 use dda_rs::io::{ChannelInfo, ChannelKind, RawType, Reader, RecordingInfo};
 use dda_rs::{
@@ -589,6 +589,49 @@ fn writer_refuses_chunks_outside_the_array() {
     assert!(writer
         .write(vec![(layout.arrays.len(), 0, vec![0; 8])])
         .is_err());
+}
+
+#[test]
+fn chunk_offsets_count_in_u64() {
+    // ST on 512 channels with 3 terms: window 349,526 starts past 4 GiB, where a 32-bit usize wraps.
+    let (w0, rows, terms) = (349_526_usize, 512, 3);
+    let shape = vec![w0 + 1, rows, terms];
+    let layout = BundleLayout {
+        arrays: vec![ArraySpec {
+            path: "ST/coefficients.npy".into(),
+            header: npy_header(&shape),
+            shape,
+        }],
+    };
+    let mut result = DDAResult::new(
+        "id".into(),
+        "f".into(),
+        vec![],
+        vec![],
+        request(&["ST"]).window_parameters,
+        DelayParameters { delays: vec![7] },
+    );
+    result.variant_results = Some(vec![VariantResult {
+        variant_id: "ST".into(),
+        variant_name: "Single Timeseries (ST)".into(),
+        q_matrix: vec![vec![0.0]; rows],
+        coefficient_matrices: Some(vec![vec![vec![0.0]; rows]; terms]),
+        fit_error_matrix: None,
+        channel_labels: None,
+        error_values: None,
+    }]);
+    let block = Block {
+        w0,
+        w1: w0 + 1,
+        row0: 0,
+        row1: 0,
+    };
+    let chunks = encode_block(&layout, &block, &result);
+    let header = layout.arrays[0].header.len() as u64;
+    let expected = header + w0 as u64 * (rows * terms) as u64 * 8;
+    assert!(expected > u64::from(u32::MAX));
+    assert_eq!(chunks.len(), 1);
+    assert_eq!(chunks[0].1, expected);
 }
 
 #[test]
