@@ -1,6 +1,11 @@
+mod support;
+
 use assert_cmd::Command;
+use dda_rs::io::{open_recording, FileSet};
 use predicates::prelude::*;
 use std::io::Write;
+use std::path::{Path, PathBuf};
+use support::{edf_bytes, EdfSpec};
 
 fn ddalab() -> Command {
     assert_cmd::cargo::cargo_bin_cmd!("ddalab")
@@ -342,4 +347,140 @@ fn test_run_unsupported_file_extension() {
         .failure()
         .code(1)
         .stderr(predicate::str::contains("Unsupported"));
+}
+
+// =============================================================================
+// INSPECT AND SAMPLES SUBCOMMANDS
+// =============================================================================
+
+/// An EDF+ named like a BIDS recording with a 128 Hz channel between two 256 Hz ones, an annotation
+/// and a `channels.tsv` marking `Fp2` bad. The analysis channels are the file's channels 0 and 2.
+fn write_bids_edf(dir: &Path) -> PathBuf {
+    let edf = edf_bytes(&EdfSpec {
+        labels: vec!["Fp1".into(), "Slow".into(), "Fp2".into()],
+        units: vec!["uV".into(); 3],
+        rates_per_record: vec![256, 128, 256],
+        annotations: vec![(0.5, 0.0, "note".into())],
+        ..EdfSpec::default()
+    });
+    let path = dir.join("sub-01_task-x_eeg.edf");
+    std::fs::write(&path, edf).unwrap();
+    std::fs::write(
+        dir.join("sub-01_task-x_channels.tsv"),
+        "name\tstatus\nFp2\tbad\n",
+    )
+    .unwrap();
+    path
+}
+
+#[test]
+fn inspect_json_lists_channels() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_bids_edf(dir.path());
+    let output = ddalab()
+        .args(["inspect", "--json", "--file"])
+        .arg(&path)
+        .assert()
+        .success();
+    let parsed: serde_json::Value = serde_json::from_slice(&output.get_output().stdout).unwrap();
+    let labels: Vec<&str> = parsed["channels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["label"].as_str().unwrap())
+        .collect();
+    assert_eq!(labels, ["Fp1", "Slow", "Fp2", "EDF Annotations"]);
+    assert_eq!(parsed["analysis_channels"], serde_json::json!([0, 2]));
+    assert_eq!(parsed["channels"][2]["bids_status"], "bad");
+    assert_eq!(parsed["sample_rate_hz"], 256.0);
+    // The annotation list is the scanned one; opening alone leaves EDF+ annotations unread.
+    assert_eq!(parsed["annotations"][0]["label"], "note");
+}
+
+#[test]
+fn inspect_prints_a_channel_table() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_bids_edf(dir.path());
+    ddalab()
+        .args(["inspect", "--file"])
+        .arg(&path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("EDF+"))
+        .stdout(predicate::str::contains("Slow"))
+        .stdout(predicate::str::contains("bad"))
+        .stdout(predicate::str::contains("annotations: 1"));
+}
+
+#[test]
+fn inspect_missing_file_fails() {
+    ddalab()
+        .args(["inspect", "--file", "/nonexistent/sub-01_eeg.edf"])
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(predicate::str::contains("Error"));
+}
+
+#[test]
+fn samples_npy_header_and_values() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_bids_edf(dir.path());
+    let out = dir.path().join("x.npy");
+    ddalab()
+        .args(["samples", "--channels", "0", "1"])
+        .args(["--start-sample", "3", "--count", "5", "--file"])
+        .arg(&path)
+        .arg("--output")
+        .arg(&out)
+        .assert()
+        .success();
+
+    let bytes = std::fs::read(&out).unwrap();
+    assert_eq!(&bytes[..8], b"\x93NUMPY\x01\x00");
+    let header_len = u16::from_le_bytes([bytes[8], bytes[9]]) as usize;
+    assert_eq!((10 + header_len) % 64, 0);
+    let header = std::str::from_utf8(&bytes[10..10 + header_len]).unwrap();
+    let dict = "{'descr': '<f8', 'fortran_order': False, 'shape': (5, 2), }";
+    assert!(header.starts_with(dict), "{header:?}");
+    assert!(header[dict.len()..header.len() - 1]
+        .bytes()
+        .all(|b| b == b' '));
+    assert!(header.ends_with('\n'));
+
+    // Analysis channels 0 and 1 are the file's channels 0 and 2.
+    let reader = open_recording(&FileSet::from_path(&path).unwrap(), None).unwrap();
+    let want = reader.read_rows(&[0, 2], 3, 5).unwrap();
+    let data = &bytes[10 + header_len..];
+    assert_eq!(data.len(), 5 * 2 * 8);
+    let got: Vec<f64> = data
+        .chunks_exact(8)
+        .map(|b| f64::from_le_bytes(b.try_into().unwrap()))
+        .collect();
+    assert_eq!(got, want.concat());
+}
+
+#[test]
+fn samples_refuses_bad_channels_and_ranges() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_bids_edf(dir.path());
+    let out = dir.path().join("x.npy");
+    // Two analysis channels (0 and 1); 1024 samples.
+    for (channel, start, message) in [
+        ("2", "0", "channel 2"),
+        ("0", "1020", "exceeds"),
+        ("0", "18446744073709551615", "exceeds"),
+    ] {
+        ddalab()
+            .args(["samples", "--channels", channel, "--count", "5"])
+            .args(["--start-sample", start, "--file"])
+            .arg(&path)
+            .arg("--output")
+            .arg(&out)
+            .assert()
+            .failure()
+            .code(1)
+            .stderr(predicate::str::contains(message));
+    }
+    assert!(!out.exists());
 }

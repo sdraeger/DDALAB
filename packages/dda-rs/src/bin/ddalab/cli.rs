@@ -29,6 +29,10 @@ pub enum Command {
     Validate(ValidateArgs),
     /// Run batch DDA analysis across multiple files
     Batch(BatchArgs),
+    /// Show a recording's channels, annotations and warnings
+    Inspect(InspectArgs),
+    /// Write physical samples of a recording to a .npy file
+    Samples(SamplesArgs),
     #[command(hide = true)]
     Serve(ServeArgs),
 }
@@ -184,6 +188,48 @@ pub struct ValidateArgs {
     /// Output as JSON
     #[arg(long, default_value_t = false)]
     pub json: bool,
+}
+
+#[derive(Args)]
+pub struct InspectArgs {
+    /// Recording path (EDF, BDF, BrainVision .vhdr, ASCII/CSV)
+    #[arg(long)]
+    pub file: String,
+
+    /// Sampling rate in Hz for text files, which store none
+    #[arg(long)]
+    pub sr: Option<f64>,
+
+    /// Output as JSON
+    #[arg(long, default_value_t = false)]
+    pub json: bool,
+}
+
+#[derive(Args)]
+pub struct SamplesArgs {
+    /// Recording path (EDF, BDF, BrainVision .vhdr, ASCII/CSV)
+    #[arg(long)]
+    pub file: String,
+
+    /// 0-based channel indices in the analysis channel list (`ddalab inspect` shows it)
+    #[arg(long, num_args = 1.., required = true)]
+    pub channels: Vec<usize>,
+
+    /// First sample to write
+    #[arg(long, default_value_t = 0)]
+    pub start_sample: u64,
+
+    /// Number of samples to write per channel
+    #[arg(long)]
+    pub count: usize,
+
+    /// Sampling rate in Hz for text files, which store none
+    #[arg(long)]
+    pub sr: Option<f64>,
+
+    /// Output .npy file: little-endian f64, shape (count, channels), SI units
+    #[arg(short, long)]
+    pub output: String,
 }
 
 #[derive(Args)]

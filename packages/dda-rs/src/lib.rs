@@ -1,4 +1,5 @@
 pub mod ccd_stats;
+pub mod document;
 pub mod engine;
 pub mod error;
 pub mod input_io;

@@ -38,6 +38,8 @@ async fn main() {
         cli::Command::Variants(args) => commands::variants::execute(args),
         cli::Command::Validate(args) => commands::validate::execute(args),
         cli::Command::Batch(args) => commands::batch::execute(args).await,
+        cli::Command::Inspect(args) => commands::inspect::execute(args),
+        cli::Command::Samples(args) => commands::samples::execute(args),
         cli::Command::Serve(args) => commands::serve::execute(args).await,
     };
 
