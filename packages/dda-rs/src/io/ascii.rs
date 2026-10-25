@@ -6,9 +6,6 @@ use super::FileSet;
 use crate::error::{DDAError, Result};
 use std::collections::HashMap;
 
-/// How far a step may stray from the mean step, relative to it, for a headerless column to count as time.
-const STEP_TOLERANCE: f64 = 0.01;
-
 fn number(token: &str) -> Option<f64> {
     token.parse().ok()
 }
@@ -42,16 +39,6 @@ fn is_time_header(label: &str) -> bool {
             .strip_prefix(word)
             .is_some_and(|rest| !rest.starts_with(|c: char| c.is_ascii_lowercase()))
     })
-}
-
-/// Whether `t` rises with a near-constant step.
-fn steady(t: &[f64]) -> bool {
-    t.len() >= 3 && {
-        let step = (t[t.len() - 1] - t[0]) / (t.len() - 1) as f64;
-        step > 0.0
-            && t.windows(2)
-                .all(|w| (w[1] - w[0] - step).abs() <= STEP_TOLERANCE * step)
-    }
 }
 
 /// 1 / the mean of the positive steps between consecutive times, or `None` without such a step.
@@ -114,7 +101,7 @@ pub fn open_ascii(
     let lines: Vec<&str> = text
         .split(['\r', '\n'])
         .map(|line| line.trim().trim_start_matches('\u{feff}').trim())
-        .filter(|line| !line.is_empty())
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
         .collect();
     let first_line = *lines
         .first()
@@ -181,8 +168,7 @@ pub fn open_ascii(
     let labels = has_header
         .then_some(&first_tokens)
         .filter(|header| header.len() >= width);
-    let times: Vec<f64> = data.iter().step_by(width).copied().collect();
-    let has_time = labels.is_some_and(|l| is_time_header(l[0])) || (width >= 2 && steady(&times));
+    let has_time = labels.is_some_and(|l| is_time_header(l[0]));
     let first = has_time as usize;
     if width == first {
         return Err(DDAError::ParseError(format!(
@@ -197,6 +183,7 @@ pub fn open_ascii(
     };
     let names = unique_names((0..width - first).map(label).collect());
 
+    let times: Vec<f64> = data.iter().step_by(width).copied().collect();
     let estimated = if has_time { rate_from(&times) } else { None };
     let rate = sample_rate_hz.or(estimated).unwrap_or_else(|| {
         warnings.push(

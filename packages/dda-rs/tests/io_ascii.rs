@@ -2,15 +2,16 @@
 //!
 //! - delimiter: `.csv` splits on commas, other files on whitespace. This reader also detects tab, semicolon and
 //!   comma from the first line (`comma_with_header`, `tab_headerless`, `whitespace_headerless`, `semicolon_with_header`)
-//! - blank lines, a byte order mark and CRLF are dropped (`bom_crlf_and_blank_lines`)
+//! - blank lines, `#` lines (as `input_io` skips them), a byte order mark and CRLF are dropped
+//!   (`bom_crlf_and_blank_lines`, `headerless_matches_input_io`)
 //! - the first line is a header when a cell is not a number (`comma_with_header`; `empty_cell_in_first_row_is_data`
 //!   differs from Python, which reads an empty cell as text)
 //! - a header with fewer labels than columns gives default names (`short_header_gives_default_names`);
 //!   empty and repeated labels are named and suffixed (`empty_and_repeated_labels`)
 //! - lines without a number are skipped; rows are cut or padded to the most common width; empty or
 //!   non-numeric cells are NaN, each with a warning (`ragged_rows_and_gaps_warn`)
-//! - a first column named like time is the time axis (`time_header_names_the_time_column`, `timeline_is_not_a_time_header`);
-//!   this reader also takes a headerless column with a near-constant rising step (`leading_time_column_sets_rate`)
+//! - a first column named like time is the time axis, and only the header names it (`leading_time_column_sets_rate`,
+//!   `time_header_names_the_time_column`, `timeline_is_not_a_time_header`, `headerless_ramp_is_kept`)
 //! - the rate is 1 / the mean positive time step; Python's 1 Hz fallback is a warning here, and a given rate
 //!   wins (`argument_rate_wins_over_time_column`, `no_rate_warns`)
 //! - an empty file, no numeric line, or no channel besides time is an error (`bad_input_is_refused`)
@@ -109,11 +110,15 @@ fn semicolon_with_header() {
 
 #[test]
 fn leading_time_column_sets_rate() {
-    let reader = open("a.txt", "0 10 11\n0.002 12 13\n0.004 14 15\n", None);
+    let reader = open(
+        "a.txt",
+        "time a b\n0 10 11\n0.002 12 13\n0.004 14 15\n",
+        None,
+    );
     let info = reader.info();
     assert!((info.sample_rate_hz - 500.0).abs() < 1e-9);
     assert!((info.duration_s - 3.0 / 500.0).abs() < 1e-12);
-    assert_eq!(labels(&*reader), ["Channel 1", "Channel 2"]);
+    assert_eq!(labels(&*reader), ["a", "b"]);
     assert_eq!(
         all_rows(&*reader),
         [[10.0, 11.0], [12.0, 13.0], [14.0, 15.0]]
@@ -122,8 +127,18 @@ fn leading_time_column_sets_rate() {
 }
 
 #[test]
+fn headerless_ramp_is_kept() {
+    let reader = open("a.txt", "0 10\n0.002 12\n0.004 14\n", Some(500.0));
+    assert_eq!(labels(&*reader), ["Channel 1", "Channel 2"]);
+    assert_eq!(
+        all_rows(&*reader),
+        [[0.0, 10.0], [0.002, 12.0], [0.004, 14.0]]
+    );
+}
+
+#[test]
 fn time_header_names_the_time_column() {
-    // Steps of 4.1, 3.8 and 4.1 ms are too uneven to detect, but the header names the column.
+    // Steps of 4.1, 3.8 and 4.1 ms: the rate is 1 / their mean.
     let reader = open(
         "a.csv",
         "Time (s),Fp1\n0,1\n0.0041,2\n0.0079,5\n0.012,3\n",
@@ -142,9 +157,9 @@ fn timeline_is_not_a_time_header() {
 
 #[test]
 fn argument_rate_wins_over_time_column() {
-    let reader = open("a.txt", "0 10\n0.002 12\n0.004 14\n", Some(1000.0));
+    let reader = open("a.txt", "time a\n0 10\n0.002 12\n0.004 14\n", Some(1000.0));
     assert_eq!(reader.info().sample_rate_hz, 1000.0);
-    assert_eq!(labels(&*reader), ["Channel 1"]);
+    assert_eq!(labels(&*reader), ["a"]);
     assert!(reader.info().warnings.is_empty());
 }
 
@@ -160,7 +175,7 @@ fn no_rate_warns() {
 
 #[test]
 fn headerless_matches_input_io() {
-    let text = "0.5 -1.5 1e-3\n2.5 3 4.25\n7 100 -8\n";
+    let text = "# recorded 2026\n0.5 -1.5 1e-3\n 2.5 3 4.25\n\n  # gap\n7 100 -8\n";
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("a.txt");
     std::fs::write(&path, text).unwrap();
