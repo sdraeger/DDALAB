@@ -10,7 +10,7 @@
 //! Request channel indices count in this list. Host imports must not throw or call back into the module: a failed
 //! read returns a nonzero status. Ids are never reused: a closed or finished id names nothing.
 
-use dda_rs::blocks::{block_of, plan_blocks, run_block};
+use dda_rs::blocks::{block_of, plan_blocks, run_block, validate_request};
 use dda_rs::document::{build_manifest, bundle_layout, encode_block};
 use dda_rs::io::{open_recording, BlockCache, ByteSource, FileSet, Reader};
 use dda_rs::tiles::{encode_tile, raw_tile, PyramidBuilder, Sha256Stream, Tile};
@@ -170,34 +170,11 @@ fn recording(handle: u32) -> Result<Arc<dyn Reader>> {
     reader.ok_or_else(|| invalid(format!("no open recording {handle}")))
 }
 
-/// The request in `bytes`, with every channel index checked against the `n` display channels.
+/// The request in `bytes`, checked by `validate_request` against the `n` display channels.
 fn request(bytes: &[u8], n: usize) -> Result<DDARequest> {
     let request: DDARequest = parse(bytes, "request")?;
-    let options = &request.preprocessing_options;
-    if options.highpass.is_some() || options.lowpass.is_some() {
-        return Err(invalid(
-            "pure Rust DDA does not yet implement highpass/lowpass preprocessing".to_string(),
-        ));
-    }
-    let pairs = |pairs: &Option<Vec<[usize; 2]>>| -> Vec<usize> {
-        pairs.iter().flatten().flatten().copied().collect()
-    };
-    let configs = request.variant_configs.iter().flat_map(|c| c.values());
-    let mut channels: Vec<usize> = request.channels.iter().flatten().copied().collect();
-    channels.extend(pairs(&request.ct_channel_pairs));
-    channels.extend(pairs(&request.cd_channel_pairs));
-    for config in configs {
-        channels.extend(config.selected_channels.iter().flatten());
-        channels.extend(config.conditioning_channels.iter().flatten());
-        channels.extend(pairs(&config.ct_channel_pairs));
-        channels.extend(pairs(&config.cd_channel_pairs));
-    }
-    match channels.into_iter().find(|&c| c >= n) {
-        Some(c) => Err(invalid(format!(
-            "channel {c} is out of range for {n} display channels"
-        ))),
-        None => Ok(request),
-    }
+    validate_request(&request, n)?;
+    Ok(request)
 }
 
 /// `[u32 count]([u32 len][encode_tile bytes])*`.

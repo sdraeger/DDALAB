@@ -63,6 +63,35 @@ impl Grid {
     }
 }
 
+/// Refuses highpass or lowpass preprocessing, and a channel index (in `channels`, the CT and CD pairs or a variant
+/// config) outside the `analysis_channels` analysis channels, which the engine would index out of bounds.
+pub fn validate_request(request: &DDARequest, analysis_channels: usize) -> Result<()> {
+    let options = &request.preprocessing_options;
+    if options.highpass.is_some() || options.lowpass.is_some() {
+        return Err(DDAError::InvalidParameter(
+            "pure Rust DDA does not yet implement highpass/lowpass preprocessing".to_string(),
+        ));
+    }
+    let pairs = |pairs: &Option<Vec<[usize; 2]>>| -> Vec<usize> {
+        pairs.iter().flatten().flatten().copied().collect()
+    };
+    let mut channels: Vec<usize> = request.channels.iter().flatten().copied().collect();
+    channels.extend(pairs(&request.ct_channel_pairs));
+    channels.extend(pairs(&request.cd_channel_pairs));
+    for config in request.variant_configs.iter().flat_map(|c| c.values()) {
+        channels.extend(config.selected_channels.iter().flatten());
+        channels.extend(config.conditioning_channels.iter().flatten());
+        channels.extend(pairs(&config.ct_channel_pairs));
+        channels.extend(pairs(&config.cd_channel_pairs));
+    }
+    match channels.into_iter().find(|&c| c >= analysis_channels) {
+        Some(c) => Err(DDAError::InvalidParameter(format!(
+            "channel {c} is out of range for {analysis_channels} analysis channels"
+        ))),
+        None => Ok(()),
+    }
+}
+
 /// Refuses requests with a variant that reads every window at once.
 pub fn check_block_support(request: &DDARequest) -> Result<()> {
     let mode = VariantMode::from_request(request);
