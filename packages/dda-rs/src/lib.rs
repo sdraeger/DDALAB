@@ -7,6 +7,7 @@ pub mod io;
 pub mod mmap_utils;
 pub mod network_motifs;
 pub mod profiling;
+pub mod tiles;
 pub mod types;
 pub mod variants;
 
