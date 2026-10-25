@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "./app/App";
 import { sweepAnalyses } from "./app/analyses";
 import { engine, openInput, openSynthetic, refreshRecent } from "./app/recordings";
+import { heatmapProbe } from "./features/results/probe";
 import { viewerProbe } from "./features/viewer/probe";
 import { useStore } from "./store/store";
 import { applyTheme, storedTheme } from "./styles/theme";
@@ -15,7 +16,14 @@ if (!root) throw new Error("index.html has no #root");
 // Dev and e2e builds let tests reach the engine and the store.
 if (import.meta.env.DEV || import.meta.env.MODE === "e2e") {
   Object.assign(window, {
-    __ddalab: { engine, store: useStore, open: openInput, openSynthetic, viewer: viewerProbe },
+    __ddalab: {
+      engine,
+      store: useStore,
+      open: openInput,
+      openSynthetic,
+      viewer: viewerProbe,
+      results: heatmapProbe,
+    },
   });
 }
 void refreshRecent();

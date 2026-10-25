@@ -48,6 +48,17 @@ export interface RunState {
   error?: string;
 }
 
+/** The result shown under the waveform: the recording it came from, its variant, array and plotted row. */
+export interface ShownResult {
+  id: string;
+  fingerprint: string;
+  /** `null`: the result's first variant. */
+  variant: string | null;
+  array: "q" | "fit_error";
+  /** The row whose line plot is drawn. */
+  row: number | null;
+}
+
 interface State {
   recordings: Record<string, OpenRecording>;
   activeRecordingId: string | null;
@@ -55,6 +66,7 @@ interface State {
   /** The analysis history, newest first. */
   analyses: AnalysisRecord[];
   run: RunState | null;
+  shownResult: ShownResult | null;
   /** The DDA settings as the user typed them; the request takes the channels and interval from the recording. */
   ddaForm: DdaForm;
   view: View;
@@ -85,6 +97,7 @@ export const useStore = create<State>()(() => ({
   recent: [],
   analyses: [],
   run: null,
+  shownResult: null,
   ddaForm: DEFAULT_FORM,
   view: {
     t0: 0,
@@ -258,6 +271,13 @@ export function setCalibration(mmPerCssMm: number) {
 
 export const setDdaForm = (change: Partial<DdaForm>) =>
   useStore.setState((s) => ({ ddaForm: { ...s.ddaForm, ...change } }));
+
+/** Shows the result `id` of the recording `fingerprint` from its first variant. */
+export const showResult = (id: string, fingerprint: string) =>
+  useStore.setState({ shownResult: { id, fingerprint, variant: null, array: "q", row: null } });
+
+export const setShownResult = (change: Partial<ShownResult> | null) =>
+  useStore.setState((s) => ({ shownResult: change && s.shownResult && { ...s.shownResult, ...change } }));
 
 export const setSelection = (selection: State["selection"]) => useStore.setState({ selection });
 export const setCursor = (cursorS: number | null) => useStore.setState({ cursorS });

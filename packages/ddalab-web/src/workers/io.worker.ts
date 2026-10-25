@@ -11,6 +11,9 @@ import {
   createResultFiles,
   discardResult,
   finishResult,
+  resultArray,
+  resultManifest,
+  resultTile,
   sweepInterrupted,
   writeChunks,
 } from "../core/resultStore";
@@ -198,6 +201,12 @@ async function handle(request: IoRequest): Promise<unknown> {
       return discardResult(request.resultId);
     case "sweepResults":
       return sweepInterrupted();
+    case "resultManifest":
+      return resultManifest(request.resultId);
+    case "resultArray":
+      return resultArray(request.resultId, request.variant, request.array);
+    case "resultTile":
+      return resultTile(request.resultId, request.variant, request.array, request.level, request.index);
     case "trap": {
       if (!(import.meta.env.DEV || import.meta.env.MODE === "e2e")) throw new Error("unknown request");
       // A module whose export runs `unreachable`, the instruction a Rust panic compiles to.
@@ -225,13 +234,15 @@ async function handle(request: IoRequest): Promise<unknown> {
   }
 }
 
-/** The buffers a reply hands over instead of copying. */
+/** The buffers a reply hands over instead of copying: raw rows, tiles and result tiles. */
 const transfers = (ok: unknown): ArrayBuffer[] =>
   ok instanceof Float32Array
     ? [ok.buffer as ArrayBuffer]
     : ok && typeof ok === "object" && "bytes" in ok
       ? [ok.bytes as ArrayBuffer]
-      : [];
+      : ok && typeof ok === "object" && "values" in ok && ok.values instanceof Float32Array
+        ? [ok.values.buffer as ArrayBuffer]
+        : [];
 
 // After a trap the instance is unusable (a panic leaves its locks and allocator in an unknown state): requests
 // queued behind the one that trapped fail at once, until the engine replaces this worker.

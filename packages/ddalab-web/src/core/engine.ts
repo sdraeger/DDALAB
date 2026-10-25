@@ -3,6 +3,7 @@
 // opens the recordings it held again, and the request that trapped fails with the trap's message. Replacements
 // that never get a reply (the worker script does not load) stop after a few, with the engine unavailable.
 // A DDA run gets a pool of workers of its own, which end with it: a trap or a failed worker fails the run.
+import type { ResultTile } from "../render/resultPyramid";
 import type {
   Annotations,
   AnnotationsReply,
@@ -17,6 +18,7 @@ import type {
   IoResults,
   MemoryReply,
   MemoryRequest,
+  ResultArray,
   ScanState,
   Tile,
 } from "./protocol";
@@ -79,7 +81,18 @@ export interface Engine {
   run(id: string, request: DDARequest): Promise<AnalysisHandle>;
   /** Deletes the files of results a reload or a crash left unfinished; their ids. */
   sweepInterrupted(): Promise<string[]>;
-  // `resultTile` arrives with the result views (Task 7).
+  /** The manifest of a complete result. */
+  resultManifest(resultId: string): Promise<ResultDocument>;
+  /** The size and row ranges of one array of a complete result; the first request builds its pyramid. */
+  resultArray(resultId: string, variant: string, array: ResultTile["array"]): Promise<ResultArray>;
+  /** Tile `index` of pyramid `level` of one array of a complete result. */
+  resultTile(
+    resultId: string,
+    variant: string,
+    array: ResultTile["array"],
+    level: number,
+    index: number,
+  ): Promise<ResultTile>;
 }
 
 /** What dev and e2e builds add for tests. */
@@ -478,6 +491,10 @@ export function createEngine(): Engine {
       };
     },
     sweepInterrupted: () => call({ type: "sweepResults" }),
+    resultManifest: (resultId) => call({ type: "resultManifest", resultId }),
+    resultArray: (resultId, variant, array) => call({ type: "resultArray", resultId, variant, array }),
+    resultTile: (resultId, variant, array, level, index) =>
+      call({ type: "resultTile", resultId, variant, array, level, index }),
   };
   return import.meta.env.DEV || import.meta.env.MODE === "e2e"
     ? Object.assign(engine, {

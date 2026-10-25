@@ -25,6 +25,8 @@ export function cssColor(
 
 export interface Colors {
   trace: [number, number, number, number];
+  ground: string;
+  ink: string;
   grid: string;
   hairline: string;
   muted: string;
@@ -39,6 +41,8 @@ export function readColors(element: Element): Colors {
   const color = (value: string) => cssColor(element, value).css;
   return {
     trace: cssColor(element, "var(--trace)").rgba,
+    ground: color("var(--ground)"),
+    ink: color("var(--ink)"),
     grid: color("var(--grid)"),
     hairline: color("var(--hairline)"),
     muted: color("var(--muted)"),
