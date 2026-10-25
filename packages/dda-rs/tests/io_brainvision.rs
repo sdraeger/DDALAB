@@ -200,6 +200,15 @@ fn crlf_header() {
     };
     assert_eq!(labels(&*crlf), names(&["Fp1", "Fp2", "Cz"]));
     assert_eq!(labels(&*crlf), labels(&*lf));
+    // A trailing \r would land on the last field of a Ch line, the unit.
+    let units = |r: &dyn Reader| -> Vec<(String, f64)> {
+        r.info()
+            .channels
+            .iter()
+            .map(|c| (c.unit.clone(), c.gain))
+            .collect()
+    };
+    assert_eq!(units(&*crlf), units(&*lf));
     assert_eq!(crlf.info().annotations, lf.info().annotations);
     assert_eq!(crlf.info().annotations.len(), 2);
     assert_eq!(crlf.info().sample_count, 600);
