@@ -1,12 +1,13 @@
 {
   "config": {
-    "ddalab": "/snl/scratch25/simon/ddalab_conformance_20261024/repo/packages/dda-rs/target/release/ddalab",
-    "ddalab_commit": "06ee19dc",
+    "ddalab": "/snl/scratch25/simon/ddalab_conformance_20261024/repo_cf1c5e20/packages/dda-rs/target/release/ddalab",
+    "ddalab_commit": "cf1c5e208283b08049f334abab4c2b16c07f6cdb",
     "scratch_dir": "/snl/scratch25/simon/ddalab_conformance_20261024/tmp",
     "workers": 16,
     "segment_s": 10,
     "n_segments": 3,
     "tol_rel": 1e-12,
+    "mne_log_level": "WARNING",
     "tol_onset_s": 1e-09,
     "ds003029_glob": "/snl/scratch25/simon/ddalab_ds003029_batch_20260927/data/ds003029/**/*.vhdr",
     "mgh_patient_glob": "/snl/scratch25/MGH_copy/MG*_EDFs",
@@ -23,14 +24,14 @@
       ".vhdr"
     ]
   },
-  "config_sha256": "44c1aac48ffc6ed74ffddde00c872486339a562b476ff53815a3018afbb07083",
+  "config_sha256": "2a13bc5366977290ccb41243d06e301cae9f561321f09507f84130bf8215a692",
   "command": [
     "reader_conformance.py",
     "reader_conformance_config.json",
-    "../out/reader_conformance.csv"
+    "../out_cf1c5e20/reader_conformance.csv"
   ],
-  "ddalab_commit": "06ee19dc",
-  "ddalab_sha256": "8052e10f0e0f23c3f6b825fcfbb42c197522ac6e4f3317c89c778963b93368fb",
+  "ddalab_commit": "cf1c5e208283b08049f334abab4c2b16c07f6cdb",
+  "ddalab_sha256": "36488132d9870f493c4adede16f295b69f773b967b0fc71cabfc0c041dae2fc5",
   "mne": "1.13.2",
   "numpy": "2.4.6",
   "python": "3.11.2",
