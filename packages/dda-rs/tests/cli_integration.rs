@@ -866,6 +866,28 @@ fn run_start_and_end_seconds_map_to_samples() {
 }
 
 #[test]
+fn run_de_on_brainvision_with_default_flags() {
+    // --wl is a time window; without --ct-wl DE takes every selected channel as one group.
+    let vhdr = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fixture.vhdr");
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("de.json");
+    ddalab()
+        .arg("run")
+        .arg("--file")
+        .arg(&vhdr)
+        .args(["--variants", "DE", "--wl", "200", "--ws", "100", "--output"])
+        .arg(&out)
+        .assert()
+        .success();
+    let doc = read_json(&out);
+    assert_eq!(doc["variants"][0]["id"], "DE");
+    assert_eq!(
+        doc["variants"][0]["row_labels"],
+        serde_json::json!(["Fp1 & Fp2 & Cz & Pz"])
+    );
+}
+
+#[test]
 fn run_refuses_channels_and_bounds_outside_the_recording() {
     let dir = tempfile::tempdir().unwrap();
     let path = write_edf(dir.path());

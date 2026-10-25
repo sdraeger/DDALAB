@@ -515,22 +515,6 @@ pub fn build_dda_request(config: RequestConfig<'_>) -> Result<DDARequest, String
     let mask = generate_select_mask(&variant_refs);
     let mask_str = format_select_mask(&mask);
 
-    // Determine CT window params: use explicit values, or fall back to WL/WS
-    // whenever CT/CD/DE-specific windowing is required.
-    let needs_ct_params = normalized_variants
-        .iter()
-        .any(|v| v == "CT" || v == "CD" || v == "DE");
-    let ct_window_length = config.ct_window_length.or(if needs_ct_params {
-        Some(config.window_length)
-    } else {
-        None
-    });
-    let ct_window_step = config.ct_window_step.or(if needs_ct_params {
-        Some(config.window_step)
-    } else {
-        None
-    });
-
     let channels = if config.channels.is_empty() {
         None
     } else {
@@ -555,8 +539,9 @@ pub fn build_dda_request(config: RequestConfig<'_>) -> Result<DDARequest, String
         window_parameters: WindowParameters {
             window_length: config.window_length,
             window_step: config.window_step,
-            ct_window_length,
-            ct_window_step,
+            // The CT and DE channel-group size and stride; the engine groups every channel when absent.
+            ct_window_length: config.ct_window_length,
+            ct_window_step: config.ct_window_step,
         },
         delay_parameters: DelayParameters {
             delays: config.delays.to_vec(),
@@ -780,8 +765,9 @@ mod tests {
         let mut config = test_request_config("/tmp/test.edf", &[0, 1], &variants, 200, 100, &[7]);
         config.ct_channel_pairs = Some(vec![[0, 1]]);
         let request = build_dda_request(config).unwrap();
-        assert_eq!(request.window_parameters.ct_window_length, Some(200));
-        assert_eq!(request.window_parameters.ct_window_step, Some(100));
+        // WL and WS are no group size.
+        assert_eq!(request.window_parameters.ct_window_length, None);
+        assert_eq!(request.window_parameters.ct_window_step, None);
         assert_eq!(request.ct_channel_pairs.unwrap(), vec![[0, 1]]);
     }
 

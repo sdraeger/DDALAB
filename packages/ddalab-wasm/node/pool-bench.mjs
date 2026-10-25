@@ -63,11 +63,7 @@ function request(config, c, rows) {
     time_range: { start: 0, end: rows - 1 },
     preprocessing_options: { highpass: null, lowpass: null },
     algorithm_selection: { enabled_variants: [c.variant], select_mask: MASKS[c.variant] },
-    window_parameters: {
-      window_length: config.window_length,
-      window_step: config.window_step,
-      ...(ct ? { ct_window_length: config.window_length, ct_window_step: config.window_step } : {}),
-    },
+    window_parameters: { window_length: config.window_length, window_step: config.window_step },
     delay_parameters: { delays: config.delays },
     ...(ct ? { ct_channel_pairs: pairsOf(c) } : {}),
     model_parameters: { dm: config.dm, order: config.order, nr_tau: config.nr_tau },
