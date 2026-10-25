@@ -4,12 +4,12 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, type Page, test } from "@playwright/test";
 import type { ResultDocument } from "../src/core/types";
 import { colorIndex, LUTS, type MapName } from "../src/render/colormaps";
 import type { View } from "../src/store/store";
 import { type Bundle, bundleDir } from "./global-setup";
 import { type Fixture, showFixture } from "./resultFixture";
+import { expect, type Page, test } from "./test";
 
 const fixturePath = (name: string) =>
   fileURLToPath(new URL(`../../dda-rs/tests/fixtures/${name}`, import.meta.url));

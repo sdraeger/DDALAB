@@ -3,9 +3,9 @@
 import { closeSync, existsSync, openSync, statSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, type Page, test } from "@playwright/test";
 import { readSynthetic, syntheticEdfSize } from "../src/core/synthetic";
 import { showFixture } from "./resultFixture";
+import { expect, type Page, test } from "./test";
 
 /** 24 h of 256 channels at 2 kHz: an 88 GB EDF that is computed, never stored. */
 const DAY = { channels: 256, rateHz: 2000, durationS: 86_400, seed: 1 };

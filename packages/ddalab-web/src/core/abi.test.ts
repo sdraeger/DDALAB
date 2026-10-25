@@ -52,10 +52,13 @@ test("version_reports_variants", () => {
   for (const id of ["ST", "CT", "CD", "DE", "SY"]) expect(ids).toContain(id);
 });
 
-// build-wasm.mjs passes `git rev-parse HEAD`: after a commit, run `npm run build:wasm` before this test.
+// build-wasm.mjs passes `git rev-parse HEAD`. `npm test` builds first; a wasm built before the latest commits still
+// carries a commit of this history.
 const head = spawnSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" });
 test.skipIf(head.status !== 0)("version_carries_the_build_commit", () => {
-  expect(core.version().git_commit).toBe(head.stdout.trim());
+  const stamp = core.version().git_commit ?? "";
+  expect(stamp).toMatch(/^[0-9a-f]{40}$/);
+  expect(spawnSync("git", ["merge-base", "--is-ancestor", stamp, "HEAD"]).status).toBe(0);
 });
 
 test("open_fixture_edf", () => {

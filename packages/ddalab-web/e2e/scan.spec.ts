@@ -5,11 +5,11 @@ import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
-import { expect, type Page, test } from "@playwright/test";
 import { instantiateCore } from "../src/core/abi";
 import { pyramidBytes, tileSlot } from "../src/core/opfs";
 import type { ScanState } from "../src/core/protocol";
 import { readSynthetic, type SyntheticSpec, syntheticEdfSize } from "../src/core/synthetic";
+import { expect, type Page, test } from "./test";
 
 const SPEC = { channels: 64, rateHz: 128, durationS: 2 * 3600, seed: 11 };
 const ROWS = SPEC.rateHz * SPEC.durationS;

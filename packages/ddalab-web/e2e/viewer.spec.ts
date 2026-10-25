@@ -3,9 +3,9 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
-import { expect, type Page, test } from "@playwright/test";
 import { readSynthetic, type SyntheticSpec, syntheticEdfSize } from "../src/core/synthetic";
 import type { View } from "../src/store/store";
+import { expect, type Page, test } from "./test";
 
 const EDF = fileURLToPath(new URL("../../dda-rs/tests/fixtures/fixture.edf", import.meta.url));
 const channels = (page: Page) => page.getByRole("list", { name: "Channels" }).getByRole("listitem");

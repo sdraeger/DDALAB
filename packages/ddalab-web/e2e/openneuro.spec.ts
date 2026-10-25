@@ -5,8 +5,8 @@ import { readFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
-import { expect, type Page, test } from "@playwright/test";
 import { DEMO } from "../src/features/openneuro/deepLink";
+import { expect, type Page, test } from "./test";
 
 const fixturePath = (name: string) =>
   fileURLToPath(new URL(`../../dda-rs/tests/fixtures/${name}`, import.meta.url));
@@ -61,16 +61,10 @@ test.beforeAll(async () => {
 });
 test.afterAll(() => server.close());
 
-/** React's warning for a state update during another component's render: any in this spec fails its test. */
-let renderWarnings: string[] = [];
-test.beforeEach(({ page }) => {
+// React's warning for a state update during another component's render fails any test (e2e/test.ts).
+test.beforeEach(() => {
   requests = [];
-  renderWarnings = [];
-  page.on("console", (message) => {
-    if (message.text().includes("Cannot update a component")) renderWarnings.push(message.text());
-  });
 });
-test.afterEach(() => expect(renderWarnings).toEqual([]));
 
 const directory = (filename: string) => ({
   id: `tree-${filename}`,
