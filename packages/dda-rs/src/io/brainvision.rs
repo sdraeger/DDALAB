@@ -350,22 +350,29 @@ impl BrainVisionReader {
         mut emit: impl FnMut(usize, usize, f64),
     ) -> Result<()> {
         let width = self.binary.bytes();
-        let per_read = (MAX_READ_BYTES / self.frame_bytes).max(1);
         let mut buf = Vec::new();
-        for first in (0..rows).step_by(per_read) {
-            let n = per_read.min(rows - first);
-            let row = row0 + first as u64;
-            if self.vectorized {
-                buf.resize(n * width, 0);
-                for (k, &c) in channels.iter().enumerate() {
+        if self.vectorized {
+            // Channel by channel: a channel's rows are contiguous, and a cache serves its consecutive reads from
+            // one block instead of refetching the block once per other channel.
+            let per_read = MAX_READ_BYTES / width;
+            for (k, &c) in channels.iter().enumerate() {
+                for first in (0..rows).step_by(per_read) {
+                    let n = per_read.min(rows - first);
+                    buf.resize(n * width, 0);
+                    let row = row0 + first as u64;
                     let at = (c as u64 * self.info.sample_count + row) * width as u64;
                     self.source.read_at(at, &mut buf)?;
                     for i in 0..n {
                         emit(first + i, k, self.binary.decode(&buf[i * width..]));
                     }
                 }
-            } else {
+            }
+        } else {
+            let per_read = (MAX_READ_BYTES / self.frame_bytes).max(1);
+            for first in (0..rows).step_by(per_read) {
+                let n = per_read.min(rows - first);
                 buf.resize(n * self.frame_bytes, 0);
+                let row = row0 + first as u64;
                 self.source
                     .read_at(row * self.frame_bytes as u64, &mut buf)?;
                 for (k, &c) in channels.iter().enumerate() {
