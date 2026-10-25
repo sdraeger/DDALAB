@@ -1,8 +1,14 @@
 // Running DDA: the run of a request on an open recording, its progress in the store and its history record.
-import { deleteAnalysis, listAnalyses, saveAnalysis } from "../core/history";
+import {
+  type AnalysisRecord,
+  deleteAnalysis,
+  listAnalyses,
+  recordedManifest,
+  saveAnalysis,
+} from "../core/history";
 import type { AnalysisHandle } from "../core/scheduler";
 import type { DDARequest, VariantInfo } from "../core/types";
-import { type RunState, showResult, useStore } from "../store/store";
+import { openResult, type RunState, showResult, useStore } from "../store/store";
 import { engine } from "./recordings";
 
 /** The variants the core offers, from its metadata; none when the engine did not start (the library says why). */
@@ -81,13 +87,14 @@ export async function startRun(recordingId: string, request: DDARequest) {
   if (cancelling) handle.cancel();
   setRun({ id: handle.id });
   handle.progress((p) => setRun({ progress: p }));
-  const record = {
+  const record: AnalysisRecord = {
     id: handle.id,
     fingerprint: recording.fingerprint,
     fileName: recording.info.input_files[0],
     request,
+    plan: handle.plan,
     createdAt: Date.now(),
-    status: "running" as const,
+    status: "running",
   };
   await saveAnalysis(record).catch(() => {});
   await refreshAnalyses();
@@ -95,9 +102,10 @@ export async function startRun(recordingId: string, request: DDARequest) {
   current = undefined;
   if (leaving) return;
   if (error === undefined) {
-    await saveAnalysis({ ...record, status: "complete" }).catch(() => {});
+    const finishedAt = Date.now();
+    const manifest = await engine.resultManifest(record.id).then(recordedManifest, () => undefined);
+    await saveAnalysis({ ...record, status: "complete", manifest, finishedAt }).catch(() => {});
     setRun({ status: "complete" });
-    showResult(record.id, record.fingerprint);
   } else if (error instanceof DOMException && error.name === "AbortError") {
     await deleteAnalysis(record.id).catch(() => {});
     setRun({ status: "cancelled" });
@@ -105,6 +113,15 @@ export async function startRun(recordingId: string, request: DDARequest) {
     await saveAnalysis({ ...record, status: "failed", error: messageOf(error) }).catch(() => {});
     setRun({ status: "failed", error: messageOf(error) });
   }
+  await refreshAnalyses();
+  if (error === undefined) showResult(record.id, record.fingerprint);
+}
+
+/** Deletes a result that is not running: its files, then its record. */
+export async function deleteResult(id: string) {
+  await engine.deleteResult(id);
+  await deleteAnalysis(id);
+  if (useStore.getState().activeResultId === id) openResult(null);
   await refreshAnalyses();
 }
 

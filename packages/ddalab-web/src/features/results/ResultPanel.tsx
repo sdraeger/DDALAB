@@ -2,7 +2,8 @@
 // and electrode-group tints, the line plot of a picked row and the time axis. The heatmap draws in WebGL2
 // (heatmapLayer.ts) from tiles of the array's max-magnitude pyramid, which the IO worker reads from OPFS. View, cursor
 // and selection reach the canvases through store.subscribe, and the pointer and the focused row through the frame loop;
-// React renders the structure only. Loaded lazily: the first result brings it.
+// React renders the structure only. Loaded lazily: the first result brings it. With no recording open (an imported
+// result, say) the panel shows alone on the result's own interval, without the recording's events.
 import { Tabs } from "@base-ui/react/tabs";
 import X from "lucide-react/dist/esm/icons/x.mjs";
 import {
@@ -26,8 +27,9 @@ import { webgl2 } from "../../render/gl";
 import { createHeatmapLayer, type HeatmapLayer } from "../../render/heatmapLayer";
 import { FANOUT, type ResultTile } from "../../render/resultPyramid";
 import { readColors, watchTheme } from "../../render/themeColors";
-import { setCursor, setShownResult, setView, useStore } from "../../store/store";
+import { openResult, setCursor, setShownResult, setView, useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
+import { ResultBoundary } from "../history/ResultBoundary";
 import { electrodeGroups } from "../inspector/groups";
 import { probing } from "../viewer/probe";
 import { usePlotPointer } from "../viewer/usePlotPointer";
@@ -79,7 +81,16 @@ function scaleOfArray(map: MapName, { rows, rowMin, rowMax }: ResultArray) {
 /** The channels a row label names: "A", "A & B", "A <- B" or "A <-> B". */
 const channelsOf = (label: string) => label.split(/ (?:<->|<-|&) /);
 
-export default function ResultPanel(props: { recordingId: string; resultId: string }) {
+/** A view that throws gives way to the reason instead of unmounting the app. */
+export default function ResultPanel(props: { recordingId: string | null; resultId: string }) {
+  return (
+    <ResultBoundary key={props.resultId} what="This result">
+      <Result {...props} />
+    </ResultBoundary>
+  );
+}
+
+function Result(props: { recordingId: string | null; resultId: string }) {
   const loaded = use(manifestOf(props.resultId));
   if ("error" in loaded) {
     return (
@@ -98,13 +109,15 @@ function Heatmap({
   resultId,
   manifest,
 }: {
-  recordingId: string;
+  recordingId: string | null;
   resultId: string;
   manifest: ResultDocument;
 }) {
   const shown = useStore((s) => s.shownResult);
-  const info = useStore((s) => s.recordings[recordingId]?.info);
-  const analysis = useStore((s) => s.recordings[recordingId]?.analysis_channels);
+  const info = useStore((s) => (recordingId === null ? undefined : s.recordings[recordingId]?.info));
+  const analysis = useStore((s) =>
+    recordingId === null ? undefined : s.recordings[recordingId]?.analysis_channels,
+  );
   const variant = manifest.variants.find((v) => v.id === shown?.variant) ?? manifest.variants[0];
   const hasFitError = variant.arrays?.includes(`${variant.id}/fit_error.npy`) ?? false;
   const array: ResultTile["array"] = shown?.array === "fit_error" && hasFitError ? "fit_error" : "q";
@@ -120,7 +133,7 @@ function Heatmap({
   };
   // Each row's electrode-group tint, as in the waveform's gutter; a pair across two groups gets both halves.
   const tints = useMemo(() => {
-    const names = analysis?.map((c) => info.channels[c].label) ?? [];
+    const names = (info && analysis?.map((c) => info.channels[c].label)) ?? [];
     const { groups, groupOf } = electrodeGroups(names);
     const tintOf = new Map(names.map((name, c) => [name, groups[groupOf[c]].tint]));
     return labels.map((label) => {
@@ -142,6 +155,12 @@ function Heatmap({
   const rowPlot = useRef<RowPlotHandle>(null);
   usePlotPointer(plot, recordingId);
 
+  // Alone, the result fills the time axis with its analysis interval.
+  useEffect(() => {
+    const { start_time_seconds: t0, end_time_seconds: t1 } = manifest.reproduction;
+    if (recordingId === null) setView({ t0, t1 });
+  }, [recordingId, manifest]);
+
   useEffect(() => {
     const [plotEl, heatEl, marksEl, axisEl, gutterEl, problemEl, spokenEl] = [
       plot.current,
@@ -152,8 +171,8 @@ function Heatmap({
       problem.current,
       spoken.current,
     ];
-    const opened = useStore.getState().recordings[recordingId];
-    if (!plotEl || !heatEl || !marksEl || !axisEl || !gutterEl || !problemEl || !spokenEl || !opened) return;
+    const opened = recordingId === null ? undefined : useStore.getState().recordings[recordingId];
+    if (!plotEl || !heatEl || !marksEl || !axisEl || !gutterEl || !problemEl || !spokenEl) return;
     const marksCtx = marksEl.getContext("2d") as CanvasRenderingContext2D;
     const axisCtx = axisEl.getContext("2d") as CanvasRenderingContext2D;
     const centers = manifest.window_centers_seconds;
@@ -161,7 +180,13 @@ function Heatmap({
     const c0 = centers[0];
     // Centers lie one window step apart: positions count steps from the first center.
     const step = windows > 1 ? (centers[windows - 1] - c0) / (windows - 1) : 1;
-    const halfS = manifest.reproduction.window_length_samples / opened.info.sample_rate_hz / 2;
+    const { window_length_samples: length, window_step_samples: stepSamples } = manifest.reproduction;
+    // Without the recording its rate follows from the step between windows; one window spans the whole interval.
+    const halfS = opened
+      ? length / opened.info.sample_rate_hz / 2
+      : windows > 1
+        ? ((length / stepSamples) * step) / 2
+        : (manifest.reproduction.end_time_seconds - manifest.reproduction.start_time_seconds) / 2;
     const name = NAMES[array];
     let colors = readColors(plotEl);
     let size = { cssW: 0, cssH: 0, dpr: 1, W: 0, H: 0 };
@@ -210,9 +235,9 @@ function Heatmap({
     const paint = () => {
       raf = 0;
       const state = useStore.getState();
-      const recording = state.recordings[recordingId];
+      const recording = recordingId === null ? undefined : state.recordings[recordingId];
       const { W, H, dpr, cssW, cssH } = size;
-      if (!recording || W === 0 || H === 0) return;
+      if ((recordingId !== null && !recording) || W === 0 || H === 0) return;
       const { view } = state;
       const span = view.t1 - view.t0;
       const { selection, cursorS } = state;
@@ -451,7 +476,7 @@ function Heatmap({
           className={controls.iconButton}
           aria-label="Close result"
           title="Close result"
-          onClick={() => setShownResult(null)}
+          onClick={() => openResult(null)}
         >
           <X aria-hidden />
         </button>

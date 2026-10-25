@@ -12,14 +12,7 @@ import Moon from "lucide-react/dist/esm/icons/moon.mjs";
 import PanelLeft from "lucide-react/dist/esm/icons/panel-left.mjs";
 import PanelRight from "lucide-react/dist/esm/icons/panel-right.mjs";
 import Ruler from "lucide-react/dist/esm/icons/ruler.mjs";
-import {
-  type ButtonHTMLAttributes,
-  lazy,
-  type ReactElement,
-  Suspense,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { type ButtonHTMLAttributes, lazy, type ReactElement, Suspense, useSyncExternalStore } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { RunButton } from "../features/analysis/RunBar";
 import { Inspector } from "../features/inspector/Inspector";
@@ -41,6 +34,7 @@ import {
   setTimebase,
   setView,
   timebaseOf,
+  togglePanel,
   useStore,
 } from "../store/store";
 import controls from "../styles/controls.module.css";
@@ -52,9 +46,9 @@ const ResultPanel = lazy(() => import("../features/results/ResultPanel"));
 const TIMEBASES = [10, 15, 20, 30, 60, 120];
 
 export function Shell() {
-  const [library, setLibrary] = useState(true);
-  const [inspector, setInspector] = useState(true);
+  const { library, inspector } = useStore((s) => s.panels);
   const id = useStore((s) => s.activeRecordingId);
+  const resultShown = useStore((s) => s.shownResult !== null);
   useViewerKeys();
   return (
     <Tooltip.Provider delay={400}>
@@ -64,7 +58,7 @@ export function Shell() {
         data-inspector={inspector ? "open" : "closed"}
       >
         <header className={styles.bar}>
-          <IconButton label="Library" aria-pressed={library} onClick={() => setLibrary(!library)}>
+          <IconButton label="Library" aria-pressed={library} onClick={() => togglePanel("library")}>
             <PanelLeft aria-hidden />
           </IconButton>
           <span className={styles.wordmark}>DDALAB</span>
@@ -78,7 +72,7 @@ export function Shell() {
             </Suspense>
           )}
           <DisplaySettings />
-          <IconButton label="Inspector" aria-pressed={inspector} onClick={() => setInspector(!inspector)}>
+          <IconButton label="Inspector" aria-pressed={inspector} onClick={() => togglePanel("inspector")}>
             <PanelRight aria-hidden />
           </IconButton>
           <ThemeToggle />
@@ -93,6 +87,8 @@ export function Shell() {
               <WaveformCanvas key={id} recordingId={id} />
               <ShownResult recordingId={id} />
             </>
+          ) : resultShown ? (
+            <ShownResult recordingId={null} />
           ) : (
             <p className={styles.empty}>
               Open a recording from the library, or drop its files or folder anywhere in this window.
@@ -109,12 +105,15 @@ export function Shell() {
 }
 
 /**
- * The shown result under the waveform, when it came from the active recording: it shares its time axis. One panel
- * shows each result in turn, so its canvas and WebGL context are reused.
+ * The shown result under the waveform, when it came from the active recording: it shares its time axis. With no
+ * recording open (`recordingId` null) it shows alone. One panel shows each result in turn, so its canvas and WebGL
+ * context are reused.
  */
-function ShownResult({ recordingId }: { recordingId: string }) {
+function ShownResult({ recordingId }: { recordingId: string | null }) {
   const id = useStore((s) => s.shownResult?.id);
-  const ours = useStore((s) => s.shownResult?.fingerprint === s.recordings[recordingId]?.fingerprint);
+  const ours = useStore(
+    (s) => recordingId === null || s.shownResult?.fingerprint === s.recordings[recordingId]?.fingerprint,
+  );
   if (!id || !ours) return null;
   return (
     <Suspense fallback={null}>

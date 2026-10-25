@@ -65,6 +65,10 @@ interface State {
   recent: RecentEntry[];
   /** The analysis history, newest first. */
   analyses: AnalysisRecord[];
+  /** The result the provenance and the result views show; it need not belong to an open recording. */
+  activeResultId: string | null;
+  /** The side panels: open or collapsed. */
+  panels: { library: boolean; inspector: boolean };
   run: RunState | null;
   shownResult: ShownResult | null;
   /** The DDA settings as the user typed them; the request takes the channels and interval from the recording. */
@@ -96,6 +100,8 @@ export const useStore = create<State>()(() => ({
   activeRecordingId: null,
   recent: [],
   analyses: [],
+  activeResultId: null,
+  panels: { library: true, inspector: true },
   run: null,
   shownResult: null,
   ddaForm: DEFAULT_FORM,
@@ -272,12 +278,34 @@ export function setCalibration(mmPerCssMm: number) {
 export const setDdaForm = (change: Partial<DdaForm>) =>
   useStore.setState((s) => ({ ddaForm: { ...s.ddaForm, ...change } }));
 
-/** Shows the result `id` of the recording `fingerprint` from its first variant. */
-export const showResult = (id: string, fingerprint: string) =>
-  useStore.setState({ shownResult: { id, fingerprint, variant: null, array: "q", row: null } });
+/**
+ * Opens the result `id` (`null` closes it): its provenance, and its views once its record says it is complete. The
+ * views start from its first variant.
+ */
+export const openResult = (id: string | null) =>
+  useStore.setState((s) => {
+    const record = s.analyses.find((a) => a.id === id);
+    const complete = id !== null && record?.status === "complete";
+    return {
+      activeResultId: id,
+      shownResult: complete
+        ? { id, fingerprint: record.fingerprint, variant: null, array: "q", row: null }
+        : null,
+    };
+  });
 
-export const setShownResult = (change: Partial<ShownResult> | null) =>
-  useStore.setState((s) => ({ shownResult: change && s.shownResult && { ...s.shownResult, ...change } }));
+/** Opens the result `id` of the recording `fingerprint` that has just completed, with or without a history. */
+export const showResult = (id: string, fingerprint: string) =>
+  useStore.setState({
+    activeResultId: id,
+    shownResult: { id, fingerprint, variant: null, array: "q", row: null },
+  });
+
+export const setShownResult = (change: Partial<ShownResult>) =>
+  useStore.setState((s) => ({ shownResult: s.shownResult && { ...s.shownResult, ...change } }));
+
+export const togglePanel = (panel: keyof State["panels"]) =>
+  useStore.setState((s) => ({ panels: { ...s.panels, [panel]: !s.panels[panel] } }));
 
 export const setSelection = (selection: State["selection"]) => useStore.setState({ selection });
 export const setCursor = (cursorS: number | null) => useStore.setState({ cursorS });
