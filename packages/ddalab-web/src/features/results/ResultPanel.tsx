@@ -48,8 +48,8 @@ export type Loaded<T> = { ok: T } | { error: string };
 const loads = new Map<string, Promise<Loaded<unknown>>>();
 
 /**
- * One promise per key, for `use`: it settles once, a failure as its message. A failure stays until Try again drops
- * it: asked again on every render, a missing file would be read again on every frame of a pan.
+ * One promise per key, for `use`, which needs the same promise on every render: a new one would suspend the view
+ * again. It settles once, a failure as its message, and a failure stays until Try again drops it.
  */
 function load<T>(key: string, make: () => Promise<T>): Promise<Loaded<T>> {
   let found = loads.get(key);
@@ -63,7 +63,8 @@ function load<T>(key: string, make: () => Promise<T>): Promise<Loaded<T>> {
   return found as Promise<Loaded<T>>;
 }
 
-const manifestOf = (id: string) => load(`${id}/manifest`, () => engine.resultManifest(id));
+const manifestKey = (id: string) => `${id}/manifest`;
+const manifestOf = (id: string) => load(manifestKey(id), () => engine.resultManifest(id));
 const arrayKey = (id: string, variant: string, array: ResultTile["array"]) => `${id}/${variant}/${array}`;
 const arrayOf = (id: string, variant: string, array: ResultTile["array"]) =>
   load(arrayKey(id, variant, array), () => engine.resultArray(id, variant, array));
@@ -92,11 +93,20 @@ export default function ResultPanel(props: { recordingId: string | null; resultI
 
 function Result(props: { recordingId: string | null; resultId: string }) {
   const loaded = use(manifestOf(props.resultId));
+  const [, rerender] = useReducer((n: number) => n + 1, 0);
   if ("error" in loaded) {
+    const retry = () => {
+      loads.delete(manifestKey(props.resultId));
+      rerender();
+    };
     return (
       <section className={styles.result} aria-label="Result">
         <p role="alert" className={styles.failed}>
-          The result could not be read: {loaded.error}. Run the analysis again to recreate it.
+          The result could not be read: {loaded.error}. If it stays unreadable, run the analysis again to
+          recreate it.{" "}
+          <button type="button" className={controls.quiet} onClick={retry}>
+            Try again
+          </button>
         </p>
       </section>
     );
@@ -241,20 +251,22 @@ function Heatmap({
       const { view } = state;
       const span = view.t1 - view.t0;
       const { selection, cursorS } = state;
-      // The row and the window read out: under the pointer, or at the cursor in the focused row. The window is the one
-      // whose center is nearest, within its analysis interval.
-      const at =
-        pointer ??
-        (focused !== null && cursorS !== null
-          ? { x: ((cursorS - view.t0) / span) * cssW, y: ((focused + 0.5) / rows) * cssH }
-          : null);
-      let under: { row: number; window: number } | null = null;
-      if (at) {
+      // The row and the window at a point: the window is the one whose center is nearest, within its analysis interval.
+      const cellAt = (at: { x: number; y: number } | null) => {
+        if (!at) return null;
         const t = view.t0 + (at.x / cssW) * span;
         const window = Math.min(windows - 1, Math.max(0, Math.round((t - c0) / step)));
         const row = Math.min(rows - 1, Math.floor((at.y / cssH) * rows));
-        if (Math.abs(t - centers[window]) <= halfS && row >= 0) under = { row, window };
-      }
+        return Math.abs(t - centers[window]) <= halfS && row >= 0 ? { row, window } : null;
+      };
+      // The keyboard's point: the cursor in the focused row.
+      const key =
+        focused !== null && cursorS !== null
+          ? { x: ((cursorS - view.t0) / span) * cssW, y: ((focused + 0.5) / rows) * cssH }
+          : null;
+      // The readout shows the cell under the pointer, else the keyboard's.
+      const at = pointer ?? key;
+      const under = cellAt(at);
       const drawn = layer?.draw({
         width: W,
         height: H,
@@ -265,7 +277,6 @@ function Heatmap({
       });
       marksCtx.clearRect(0, 0, W, H);
       drawMarks(marksCtx, { W, H, dpr, view, selection, cursorS, recording, colors, over: true });
-      let words = "";
       if (at && under) {
         // The hovered row at full contrast, outlined; the others recede (heatmapLayer.ts).
         const line = Math.max(1, Math.round(dpr));
@@ -276,11 +287,14 @@ function Heatmap({
         const value = layer?.value(under.window, under.row);
         const center = centers[under.window];
         readout.current?.show(at.x, at.y, cssW, cssH, { row: labels[under.row], center, value, name });
-        if (!pointer && value !== undefined) {
-          words = `${labels[under.row]}, window at ${center.toFixed(3)} s, ${name} ${value.toPrecision(4)}`;
-        }
       } else readout.current?.hide();
-      // Screen readers hear the keyboard's readout, never the pointer's.
+      // Screen readers hear the keyboard's cell, also while the pointer rests on the plot; the pointer's is shown only.
+      const heard = cellAt(key);
+      const heardValue = heard ? layer?.value(heard.window, heard.row) : undefined;
+      const words =
+        heard && heardValue !== undefined
+          ? `${labels[heard.row]}, window at ${centers[heard.window].toFixed(3)} s, ${name} ${heardValue.toPrecision(4)}`
+          : "";
       if (words !== said) {
         said = words;
         spokenEl.textContent = words;

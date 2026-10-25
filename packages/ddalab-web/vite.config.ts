@@ -17,6 +17,8 @@ export default defineConfig({
       },
     },
   ],
+  // Minified builds drop legal comments (`/*!`, `@license`) unless asked: the color maps' MIT notice must stay.
+  build: { rolldownOptions: { output: { comments: { legal: true } } } },
   worker: { format: "es" },
   // The perf tests measure memory with performance.measureUserAgentSpecificMemory, which needs isolation.
   server: process.env.DDALAB_ISOLATE
