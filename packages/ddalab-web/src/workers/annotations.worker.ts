@@ -3,13 +3,14 @@
 // make between a tile request and its answer. The recording is opened here from the same sources, with a small
 // file cache.
 import { instantiateCore } from "../core/abi";
+import { compileWasm } from "../core/compileWasm";
 import wasmUrl from "../core/ddalab.wasm?url";
 import type { AnnotationsReply, AnnotationsRequest, MemoryReply, MemoryRequest } from "../core/protocol";
 import { openRequestOf, type Part, partsOf, readSource } from "../core/sources";
 
 /** The files of the recording being read: file id `n` is `parts[n - 1]`. A request sets it and uses it at once. */
 let parts: Part[] = [];
-const core = WebAssembly.compileStreaming(fetch(wasmUrl)).then((module) =>
+const core = compileWasm(wasmUrl).then((module) =>
   instantiateCore(module, (fileId, offset, dst) => readSource(parts[fileId - 1].source, offset, dst)),
 );
 
