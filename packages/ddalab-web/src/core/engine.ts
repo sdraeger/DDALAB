@@ -82,7 +82,13 @@ export function createEngine(): Engine {
   const held = new Map<string, RecordingInput>();
   const pending = new Map<
     number,
-    { resolve(value: unknown): void; reject(error: Error): void; request: IoRequest }
+    {
+      resolve(value: unknown): void;
+      reject(error: Error): void;
+      request: IoRequest;
+      /** Sent by `replace` itself (reopening and the probe): the next `replace` sends its own again. */
+      restoring: boolean;
+    }
   >();
   const listeners = new Map<string, Set<(state: ScanState) => void>>();
   /** The scan as the IO worker reports it and the hashes the hash worker has finished, by recording. */
@@ -103,10 +109,10 @@ export function createEngine(): Engine {
   let unavailable: Error | undefined;
 
   /** The worker answers in the order it was asked. */
-  const call = <T extends IoRequest["type"]>(request: Extract<IoRequest, { type: T }>) =>
+  const call = <T extends IoRequest["type"]>(request: Extract<IoRequest, { type: T }>, restoring = false) =>
     new Promise<IoResults[T]>((resolve, reject) => {
       if (unavailable) return reject(unavailable);
-      pending.set(++serial, { resolve: resolve as (value: unknown) => void, reject, request });
+      pending.set(++serial, { resolve: resolve as (value: unknown) => void, reject, request, restoring });
       worker.postMessage({ n: serial, ...request });
     });
 
@@ -124,7 +130,7 @@ export function createEngine(): Engine {
     // These come before any later request. One that fails for its own reason (its file is gone) is forgotten and
     // reported; one cut short by another restart is opened again by that restart.
     for (const [id, input] of held) {
-      call({ type: "open", id, input }).catch((error: Error) => {
+      call({ type: "open", id, input }, true).catch((error: Error) => {
         if (error instanceof EngineStopped) return;
         held.delete(id);
         const entry = scans.get(id);
@@ -137,9 +143,12 @@ export function createEngine(): Engine {
       });
     }
     // Answers from the replacement are what end the count of failed replacements.
-    call({ type: "version" }).catch(() => {});
+    call({ type: "version" }, true).catch(() => {});
     for (const [n, entry] of waiting) {
-      if (!loaded.has(failed)) {
+      if (entry.restoring) {
+        // The calls above reopen every held recording once: these would open them a second time.
+        entry.reject(new EngineStopped("The engine restarted; try again"));
+      } else if (!loaded.has(failed)) {
         // The worker never ran it: the replacement does.
         pending.set(n, entry);
         worker.postMessage({ n, ...entry.request });

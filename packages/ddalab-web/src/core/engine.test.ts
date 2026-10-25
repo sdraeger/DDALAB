@@ -22,6 +22,8 @@ class FakeWorker {
   terminated = false;
   /** A worker that failed answers nothing. */
   dead = false;
+  /** The recordings this worker has open, as the real one keeps them. */
+  openIds = new Set<string>();
 
   constructor(url: URL) {
     if (url.pathname.includes("io.worker")) FakeWorker.io.push(this);
@@ -57,9 +59,16 @@ class FakeWorker {
 const info = (name: string) => ({ sample_count: 100, input_files: [name], channels: [] });
 const file = (name: string) => new File(["x"], name);
 const input = (name: string) => ({ kind: "files" as const, files: [file(name)], primary: name });
-/** Every request succeeds; `open` answers with a recording named after its primary file. */
+/**
+ * Every request succeeds; `open` answers with a recording named after its primary file, and refuses an id the
+ * worker already has open, as the real worker does.
+ */
 const healthy = (worker: FakeWorker, message: Message) => {
   if (message.type === "open" && message.input.kind === "files") {
+    if (worker.openIds.has(message.id)) {
+      return worker.send({ n: message.n, error: `recording ${message.id} is already open`, trapped: false });
+    }
+    worker.openIds.add(message.id);
     worker.ok(message, {
       info: info(message.input.primary),
       fingerprint: `print-${message.input.primary}`,
@@ -233,4 +242,29 @@ test("remote_recordings_above_1_gib_are_not_read_for_annotations", async () => {
   expect(found.annotations).toEqual([]);
   expect(found.warnings[0]).toContain("above 1 GiB");
   expect(FakeWorker.annotators).toHaveLength(0);
+});
+
+test("a_replacement_that_never_loads_does_not_open_held_recordings_twice", async () => {
+  const engine = createEngine();
+  const a = await engine.open(input("a.edf"));
+  const seen = states(engine, a.id);
+  // W2 never sends a message; W3 loads.
+  FakeWorker.onCreate = (worker) => {
+    if (FakeWorker.io.length === 2) worker.fail("the worker script did not load");
+  };
+  FakeWorker.onMessage = (worker, message) => {
+    if (message.type === "raw" && worker === FakeWorker.io[0]) worker.trap(message);
+    else healthy(worker, message);
+  };
+  await expect(engine.raw(a.id, 0, 1)).rejects.toThrow("unreachable");
+  await until(() => FakeWorker.io.length === 3);
+  await engine.version();
+  // One open for the recording, no error about it, and it is still held.
+  expect(FakeWorker.io[2].opens().map((m) => m.id)).toEqual([a.id]);
+  expect(seen.every((s) => s.error === undefined)).toBe(true);
+  await engine.raw(a.id, 0, 1);
+  FakeWorker.io[2].fail("lost");
+  await until(() => FakeWorker.io.length === 4);
+  expect(FakeWorker.io[3].opens().map((m) => m.id)).toEqual([a.id]);
+  expect(seen.every((s) => s.error === undefined)).toBe(true);
 });
