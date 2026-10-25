@@ -238,6 +238,43 @@ test('reads_past_usize_are_refused', () => {
   abi.close(handle);
 });
 
+test('selection_past_2_32_rows_runs', () => {
+  // fixture.bdf's 8 records (512 rows of 2 channels at 512 Hz) twice: 16 s alone, and at the end of a sparse
+  // 30 GB file of 9,765,625 records, 5e9 rows. ST on its last 10 s runs the same windows in both.
+  const fixture = fs.readFileSync(RECORDINGS[1][0]);
+  const records = fixture.subarray(3 * 256);
+  const header = (count) => {
+    const bytes = Buffer.from(fixture.subarray(0, 3 * 256));
+    bytes.write(`${count}`.padEnd(8), 236, 'latin1');
+    return bytes;
+  };
+  const [small, huge] = ['small.bdf', 'huge-5e9.bdf'].map((name) => path.join(tmp, name));
+  fs.writeFileSync(small, Buffer.concat([header(16), records, records]));
+  const total = 9_765_625;
+  fs.writeFileSync(huge, header(total));
+  fs.truncateSync(huge, 3 * 256 + total * records.length / 8);
+  const fd = fs.openSync(huge, 'r+');
+  fs.writeSync(fd, Buffer.concat([records, records]), 0, 2 * records.length, 3 * 256 + (total - 16) * records.length / 8);
+  fs.closeSync(fd);
+  const runs = [small, huge].map((file) => {
+    const { handle, info } = abi.open([file]);
+    const req = { ...request('ST', info.sample_count), channels: [0, 1], file_path: file };
+    req.time_range = { start: info.sample_count - 5120, end: info.sample_count - 1 };
+    const { blocks, windows } = abi.plan(handle, req, 0);
+    const chunks = blocks.flatMap((b) => abi.runBlock(handle, req, b.w0, b.w1));
+    const extras = { id: '', created_at_iso: '', input_sha256: {}, windows };
+    const centers = abi.manifest(handle, req, extras).window_centers_seconds;
+    abi.close(handle);
+    return { rows: info.sample_count, blocks, chunks: chunks.map((c) => [c.array, c.offset, Buffer.from(c.bytes)]), centers };
+  });
+  assert.equal(runs[1].rows, 5e9);
+  assert.ok(runs[1].blocks[0].row0 > 2 ** 32, `${runs[1].blocks[0].row0}`);
+  assert.equal(runs[1].blocks.length, runs[0].blocks.length);
+  assert.deepEqual(runs[1].chunks, runs[0].chunks);
+  const shift = (5e9 - 16 * 512) / 512;
+  runs[1].centers.forEach((c, i) => assert.ok(Math.abs(c - runs[0].centers[i] - shift) < 1e-6, `center ${i}: ${c}`));
+});
+
 test('diagnostics_match_cli', () => {
   const file = path.join(FIXTURES, 'fixture_truncated.edf');
   const out = path.join(tmp, 'truncated.json');

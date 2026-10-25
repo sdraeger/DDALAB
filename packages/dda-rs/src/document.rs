@@ -5,8 +5,7 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use crate::blocks::Block;
-use crate::engine::dataset::AnalysisBounds;
+use crate::blocks::{selection, Block};
 use crate::engine::model::ModelSpec;
 use crate::engine::variant_config::{
     labels_for_channels, labels_for_groups, resolve_ccd_pairs, resolve_cd_pairs, resolve_ct_groups,
@@ -245,9 +244,8 @@ fn model_shape(request: &DDARequest) -> (u32, u32, u32) {
 }
 
 /// The first analyzed row, as the engine clamps it.
-fn analysis_start(request: &DDARequest, info: &RecordingInfo) -> usize {
-    let rows = usize::try_from(info.sample_count).unwrap_or(usize::MAX);
-    AnalysisBounds::from_request(request, rows).map_or(0, |b| b.start)
+fn analysis_start(request: &DDARequest, info: &RecordingInfo) -> u64 {
+    selection(request, info.sample_count).map_or(0, |(first, _)| first)
 }
 
 /// The time in seconds at the middle of each window's fitted samples, which follow `dm + max(delay)` lead-in samples:
