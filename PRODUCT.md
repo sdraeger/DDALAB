@@ -1,9 +1,5 @@
 # DDALAB Product
 
-## Register
-
-product
-
 ## Users
 
 DDALAB is an integrated workbench for clinicians and physiological-data
@@ -34,7 +30,7 @@ instrument rather than a generic desktop form or a web dashboard.
 
 1. Keep data and results visually dominant.
 2. Reveal advanced controls when they are relevant.
-3. Preserve one authoritative Python state model.
+3. Preserve one authoritative state model.
 4. Keep interactions predictable, keyboard-accessible, and reversible.
 5. Make performance and analysis provenance visible without adding clutter.
 
