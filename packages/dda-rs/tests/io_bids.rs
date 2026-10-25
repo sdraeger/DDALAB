@@ -295,3 +295,28 @@ fn discover_skips_hidden_deep_and_unreadable_entries() {
     std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
     assert_eq!(found.unwrap(), [dir.path().join(kept)]);
 }
+
+#[test]
+fn discover_skips_code_derivatives_and_sourcedata_at_any_depth() {
+    let dir = tempfile::tempdir().unwrap();
+    let found = [
+        "sub-01/eeg/sub-01_task-a_eeg.edf",
+        "sub-02/eeg/sub-02_task-a_eeg.edf",
+        // Only a whole name is skipped.
+        "sub-03/eeg/derivatives-notes_eeg.edf",
+    ];
+    let skipped = [
+        "code/sub-01_task-a_eeg.edf",
+        "derivatives/pipe/sub-01/eeg/sub-01_task-a_eeg.edf",
+        "sourcedata/sub-01/eeg/sub-01_task-a_eeg.edf",
+        "sub-02/ses-1/derivatives/eeg/sub-02_task-a_eeg.edf",
+        "sub-02/code/eeg/sub-02_task-b_eeg.vhdr",
+    ];
+    for name in found.iter().chain(&skipped) {
+        let path = dir.path().join(name);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, "x").unwrap();
+    }
+    let want: Vec<PathBuf> = found.iter().map(|name| dir.path().join(name)).collect();
+    assert_eq!(discover_bids_recordings(dir.path()).unwrap(), want);
+}

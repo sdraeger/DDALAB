@@ -147,9 +147,13 @@ fn json_warnings(text: &str, sample_count: u64, header_rate: f64) -> Vec<String>
 #[cfg(not(target_arch = "wasm32"))]
 const MAX_DEPTH: usize = 6;
 
+/// Entries the Python batch (`_resolve_batch_input_paths`) skips at any depth: they hold no recordings of the dataset.
+#[cfg(not(target_arch = "wasm32"))]
+const SKIPPED: [&str; 3] = ["code", "derivatives", "sourcedata"];
+
 /// The `*_ieeg` and `*_eeg` recordings (`.edf`, `.bdf`, `.vhdr`) under `root`, sorted by path.
-/// Entries whose name starts with `.` and directories deeper than `MAX_DEPTH` are skipped, and so is
-/// every directory that cannot be read; only `root` itself must be readable.
+/// Entries whose name starts with `.` or is one of `SKIPPED` and directories deeper than `MAX_DEPTH` are skipped,
+/// and so is every directory that cannot be read; only `root` itself must be readable.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn discover_bids_recordings(root: &Path) -> Result<Vec<PathBuf>> {
     fn walk(dir: &Path, depth: usize, found: &mut Vec<PathBuf>) -> Result<()> {
@@ -161,7 +165,8 @@ pub fn discover_bids_recordings(root: &Path) -> Result<Vec<PathBuf>> {
             let Ok(kind) = entry.file_type() else {
                 continue;
             };
-            if entry.file_name().to_string_lossy().starts_with('.') {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with('.') || SKIPPED.contains(&name.as_str()) {
                 continue;
             }
             // A symlinked directory is not followed (loops); a symlinked file counts (git-annex).

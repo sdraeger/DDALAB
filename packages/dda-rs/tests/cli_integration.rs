@@ -168,37 +168,40 @@ fn test_validate_unsupported_extension() {
 
 #[test]
 fn test_validate_valid_edf_file() {
-    let tmp = tempfile::Builder::new().suffix(".edf").tempfile().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_edf(dir.path());
 
     ddalab()
         .arg("validate")
         .arg("--file")
-        .arg(tmp.path().to_str().unwrap())
+        .arg(&path)
         .assert()
         .success()
-        .stdout(predicate::str::contains("valid"));
+        .stdout(predicate::str::contains("valid (EDF,"));
 }
 
 #[test]
 fn test_validate_valid_ascii_file() {
-    let tmp = tempfile::Builder::new().suffix(".txt").tempfile().unwrap();
+    let ascii = write_ascii_fixture();
 
     ddalab()
         .arg("validate")
         .arg("--file")
-        .arg(tmp.path().to_str().unwrap())
+        .arg(ascii.path())
         .assert()
-        .success();
+        .success()
+        .stdout(predicate::str::contains("valid (ASCII,"));
 }
 
 #[test]
 fn test_validate_json_output() {
-    let tmp = tempfile::Builder::new().suffix(".edf").tempfile().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_edf(dir.path());
 
     let output = ddalab()
         .arg("validate")
         .arg("--file")
-        .arg(tmp.path().to_str().unwrap())
+        .arg(&path)
         .arg("--json")
         .assert()
         .success();
@@ -206,7 +209,80 @@ fn test_validate_json_output() {
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(parsed.get("exists").unwrap(), true);
+    assert_eq!(parsed.get("readable").unwrap(), true);
     assert_eq!(parsed.get("supported").unwrap(), true);
+    assert_eq!(parsed.get("file_type").unwrap(), "EDF");
+    assert_eq!(
+        parsed.get("size_bytes").unwrap().as_u64(),
+        Some(std::fs::metadata(&path).unwrap().len())
+    );
+    assert!(parsed.get("error").unwrap().is_null());
+}
+
+#[test]
+fn test_validate_opens_every_format_run_reads() {
+    let dir = tempfile::tempdir().unwrap();
+    let bdf = dir.path().join("rec.bdf");
+    std::fs::write(
+        &bdf,
+        edf_bytes(&EdfSpec {
+            bdf: true,
+            ..EdfSpec::default()
+        }),
+    )
+    .unwrap();
+    for (name, bytes) in brainvision_files(&BrainVisionSpec::default()) {
+        std::fs::write(dir.path().join(name), bytes).unwrap();
+    }
+    for (path, format) in [
+        (bdf, "BDF"),
+        (dir.path().join("sub-01_ieeg.vhdr"), "BrainVision"),
+    ] {
+        let output = ddalab()
+            .args(["validate", "--json", "--file"])
+            .arg(&path)
+            .assert()
+            .success();
+        let parsed: Value = serde_json::from_slice(&output.get_output().stdout).unwrap();
+        assert_eq!(parsed["supported"], true);
+        assert_eq!(parsed["file_type"], format);
+    }
+}
+
+#[test]
+fn test_validate_refuses_a_file_that_does_not_open() {
+    // Empty files have a supported extension and no header.
+    for suffix in [".edf", ".vhdr", ".txt"] {
+        let tmp = tempfile::Builder::new().suffix(suffix).tempfile().unwrap();
+        let output = ddalab()
+            .args(["validate", "--json", "--file"])
+            .arg(tmp.path())
+            .assert()
+            .failure()
+            .code(1);
+        let parsed: Value = serde_json::from_slice(&output.get_output().stdout).unwrap();
+        assert_eq!(parsed["supported"], true, "{suffix}");
+        assert!(parsed["file_type"].is_null(), "{suffix}");
+        let error = parsed["error"].as_str().unwrap();
+        assert!(error.starts_with("Could not open"), "{suffix}: {error}");
+    }
+}
+
+#[test]
+fn test_validate_reports_support_by_extension() {
+    for (file, supported) in [
+        ("/nonexistent/rec.vhdr", true),
+        ("/nonexistent/rec.xyz", false),
+    ] {
+        let output = ddalab()
+            .args(["validate", "--json", "--file", file])
+            .assert()
+            .failure()
+            .code(1);
+        let parsed: Value = serde_json::from_slice(&output.get_output().stdout).unwrap();
+        assert_eq!(parsed["exists"], false);
+        assert_eq!(parsed["supported"], supported, "{file}");
+    }
 }
 
 // =============================================================================
@@ -943,6 +1019,30 @@ fn batch_bids_manifest_schema() {
     assert_eq!(
         results[1]["warnings"],
         serde_json::json!(["The data file holds 1024 samples (4.00 s), but the BIDS sidecar describes 100.00 s; the file appears truncated."])
+    );
+}
+
+#[test]
+fn batch_skips_code_derivatives_and_sourcedata() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("bids");
+    write_bids_recording(&root, "sub-01", 4);
+    for skipped in ["code", "derivatives", "sourcedata"] {
+        write_bids_recording(&root.join(skipped), "sub-01", 4);
+    }
+    // The same at depth, as the Python batch skips them at any depth.
+    write_bids_recording(&root.join("sub-02/derivatives"), "sub-02", 4);
+    let output = ddalab()
+        .args(["batch", "--compact", "--bids-dir"])
+        .arg(&root)
+        .args(FAST)
+        .assert()
+        .success();
+    let manifest: Value = serde_json::from_slice(&output.get_output().stdout).unwrap();
+    assert_eq!(manifest["matchedFiles"], 1);
+    assert_eq!(
+        manifest["results"][0]["inputPath"],
+        "sub-01/eeg/sub-01_task-a_eeg.edf"
     );
 }
 
