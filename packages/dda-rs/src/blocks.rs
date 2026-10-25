@@ -8,9 +8,10 @@ use crate::engine::{analysis_window_count, run_request_on_matrix_with_progress, 
 use crate::error::{DDAError, Result};
 use crate::io::Reader;
 use crate::types::{CcdConditioningStrategy, DDARequest, DDAResult, TimeRange};
+use serde::Serialize;
 
 /// Windows `w0..w1` of a request and the recording rows `row0..row1` they read.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Block {
     pub w0: usize,
     pub w1: usize,
@@ -50,6 +51,15 @@ impl Grid {
     /// One past the last row windows `..w1` read; the engine pads a last window that passes EOF.
     fn row_end(&self, w1: usize) -> u64 {
         ((self.start + (w1 - 1) * self.step + self.marker) as u64).min(self.rows_total)
+    }
+
+    fn block(&self, w0: usize, w1: usize) -> Block {
+        Block {
+            w0,
+            w1,
+            row0: self.first_row(w0),
+            row1: self.row_end(w1),
+        }
     }
 }
 
@@ -92,16 +102,21 @@ pub fn plan_blocks(
     let per_block = 1 + budget_rows.saturating_sub(grid.marker) / grid.step;
     Ok((0..grid.windows)
         .step_by(per_block)
-        .map(|w0| {
-            let w1 = (w0 + per_block).min(grid.windows);
-            Block {
-                w0,
-                w1,
-                row0: grid.first_row(w0),
-                row1: grid.row_end(w1),
-            }
-        })
+        .map(|w0| grid.block(w0, (w0 + per_block).min(grid.windows)))
         .collect())
+}
+
+/// The block of windows `w0..w1`, whatever the budget, with the rows `plan_blocks` gives it.
+pub fn block_of(request: &DDARequest, rows_total: u64, w0: usize, w1: usize) -> Result<Block> {
+    check_block_support(request)?;
+    let grid = Grid::new(request, rows_total)?;
+    if w0 >= w1 || w1 > grid.windows {
+        return Err(DDAError::InvalidParameter(format!(
+            "windows {w0}..{w1} are not a block of this request's {} windows",
+            grid.windows
+        )));
+    }
+    Ok(grid.block(w0, w1))
 }
 
 /// Runs the request's windows `block.w0..block.w1` on the analysis channels' rows `block.row0..block.row1`;

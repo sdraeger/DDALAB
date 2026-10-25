@@ -1,0 +1,81 @@
+{
+  "config_file": "pool-bench.config.json",
+  "config": {
+    "fixtures_dir": "/private/tmp/claude-501/-Users-simon--claude-spares-spare-IbrYhW/b48c7e55-2fcf-4587-a109-f875976af92c/scratchpad/pool-bench",
+    "output_dir": "/private/tmp/claude-501/-Users-simon--claude-spares-spare-IbrYhW/b48c7e55-2fcf-4587-a109-f875976af92c/scratchpad/pool-bench/out",
+    "spare_cores": 1,
+    "max_case_seconds": 120,
+    "window_length": 1000,
+    "window_step": 200,
+    "delays": [
+      7,
+      10
+    ],
+    "dm": 4,
+    "order": 4,
+    "nr_tau": 2,
+    "cases": [
+      {
+        "name": "ST_32ch_64MiB",
+        "file": "large_32ch.edf",
+        "variant": "ST",
+        "channels": 32,
+        "ct_pairs": [],
+        "budget_mb": 64
+      },
+      {
+        "name": "ST_128ch_64MiB",
+        "file": "large_128ch.edf",
+        "variant": "ST",
+        "channels": 128,
+        "ct_pairs": [],
+        "budget_mb": 64
+      },
+      {
+        "name": "CT_16ch_64MiB",
+        "file": "large_16ch.edf",
+        "variant": "CT",
+        "channels": 16,
+        "ct_pairs": "all",
+        "budget_mb": 64
+      },
+      {
+        "name": "ST_32ch_16MiB",
+        "file": "large_32ch.edf",
+        "variant": "ST",
+        "channels": 32,
+        "ct_pairs": [],
+        "budget_mb": 16
+      },
+      {
+        "name": "ST_128ch_16MiB",
+        "file": "large_128ch.edf",
+        "variant": "ST",
+        "channels": 128,
+        "ct_pairs": [],
+        "budget_mb": 16
+      },
+      {
+        "name": "CT_16ch_16MiB",
+        "file": "large_16ch.edf",
+        "variant": "CT",
+        "channels": 16,
+        "ct_pairs": "all",
+        "budget_mb": 16
+      }
+    ]
+  },
+  "cpu_model": "Apple M5 Pro",
+  "logical_cores": 18,
+  "total_memory_gb": 24,
+  "node_version": "v26.12.1",
+  "commit": "0241ca2e913e4ec34f0de3d05912bb89ed114a71",
+  "worktree_dirty": true,
+  "wasm_sha256": "b0dd0be93e667dab38ee71ae899afa1e8c476f7559cae64edc00cdf5e4a63ee1",
+  "cli_sha256": "e3b0b868d077a3fc95b67c4118ed4121c94aed56559040924885dc9e725aad65",
+  "input_sha256": {
+    "large_32ch.edf": "bf2f629bc6e7f5a9c087e22d95c24beabb9217da71c9e5441b5e781f0a1573ca",
+    "large_128ch.edf": "0b9f775d4afbc17ccaa19b60e53b24df28207b92c8323ea4820e500b7f172b77",
+    "large_16ch.edf": "0bd301aa765c7803943cded89ba35752921c5e1316942389de09ffdfb7002067"
+  }
+}

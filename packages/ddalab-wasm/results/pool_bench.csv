@@ -1,0 +1,7 @@
+case,variant,channels,budget_mb,blocks,workers,wall_s,peak_rss_mb,native_cli_wall_s,outputs_identical
+ST_32ch_64MiB,ST,32,64,14,17,2.55,1664,2.86,true
+ST_128ch_64MiB,ST,128,64,56,17,9.52,2847,11.40,true
+CT_16ch_64MiB,CT,16,64,7,17,15.94,1012,12.70,true
+ST_32ch_16MiB,ST,32,16,56,17,1.92,1207,3.02,true
+ST_128ch_16MiB,ST,128,16,234,17,7.04,2239,12.33,true
+CT_16ch_16MiB,CT,16,16,28,17,8.58,989,12.54,true

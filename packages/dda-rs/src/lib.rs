@@ -12,6 +12,9 @@ pub mod tiles;
 pub mod types;
 pub mod variants;
 
+/// The dda-rs version, as result documents record it.
+pub const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 pub use ccd_stats::*;
 pub use engine::{
     available_cuda_devices, inspect_ccd_conditioning_sets_on_matrix,

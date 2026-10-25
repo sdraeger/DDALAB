@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use dda_rs::blocks::{check_block_support, merge_blocks, plan_blocks, run_block, Block};
+use dda_rs::blocks::{block_of, check_block_support, merge_blocks, plan_blocks, run_block, Block};
 use dda_rs::io::{ChannelInfo, ChannelKind, RawType, Reader, RecordingInfo};
 use dda_rs::{
     run_request_on_matrix, AlgorithmSelection, CcdConditioningStrategy, DDARequest, DDAResult,
@@ -471,4 +471,33 @@ fn block_outside_the_grid_refused() {
         ..plan[0].clone()
     };
     assert!(run_block(&recording, &request, &short, None).is_err());
+}
+
+#[test]
+fn block_of_matches_the_plan() {
+    let mut request = request("ST");
+    request.time_range.start = 333.0;
+    let plan = plan_blocks(&request, ROWS as u64, CHANNELS, budget(3, 50)).unwrap();
+    for block in &plan {
+        assert_eq!(
+            &block_of(&request, ROWS as u64, block.w0, block.w1).unwrap(),
+            block
+        );
+    }
+    let last = plan.last().unwrap();
+    let all = Block {
+        w0: 0,
+        w1: last.w1,
+        row0: plan[0].row0,
+        row1: last.row1,
+    };
+    assert_eq!(block_of(&request, ROWS as u64, 0, last.w1).unwrap(), all);
+    for (w0, w1) in [(2, 2), (3, 2), (0, last.w1 + 1)] {
+        assert!(
+            block_of(&request, ROWS as u64, w0, w1).is_err(),
+            "{w0}..{w1}"
+        );
+    }
+    let trccd = ccd_request("TRCCD", CcdConditioningStrategy::AllSelected);
+    assert!(block_of(&trccd, ROWS as u64, 0, 1).is_err());
 }
