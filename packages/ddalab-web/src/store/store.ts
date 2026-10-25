@@ -180,6 +180,13 @@ export function setView(change: Partial<View> | ((view: View) => Partial<View>))
   });
 }
 
+/** The page the view starts in and the pages of the recording; a view that reaches the end is on the last page. */
+export function pageOf(view: View, duration: number): [page: number, pages: number] {
+  const pages = Math.max(1, Math.ceil(duration / view.epochS - 1e-6));
+  const page = view.t1 >= duration - 1e-6 ? pages : Math.floor(view.t0 / view.epochS + 1e-6) + 1;
+  return [Math.min(page, pages), pages];
+}
+
 /** Moves the view by `epochs` epochs; the last page ends at the end of the recording. */
 export const pageBy = (epochs: number) =>
   setView((v) => ({ t0: v.t0 + epochs * v.epochS, t1: v.t1 + epochs * v.epochS }));
