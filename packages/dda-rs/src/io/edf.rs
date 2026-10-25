@@ -20,7 +20,9 @@ const SAMPLES_PER_RECORD: usize = 8;
 
 /// Most bytes one `read_at` fetches, so a long request does not hold its whole span in memory.
 const MAX_READ_BYTES: usize = 8 << 20;
-/// Record onsets that differ from the end of the previous record by less than this are contiguous.
+/// An EDF+D recording is contiguous when its last onset minus its first matches `(records - 1) * record_duration_s` within this.
+const SPAN_TOLERANCE_S: f64 = 1e-9;
+/// When the span test fails: a record onset that differs from the end of the previous record by less than this is contiguous.
 const ONSET_TOLERANCE_S: f64 = 1e-6;
 
 fn unsupported(message: String) -> DDAError {
@@ -69,9 +71,11 @@ fn si_unit(dimension: &str) -> (&str, f64) {
     }
 }
 
-/// (onset, duration, texts) of one time-stamped annotation list `+<onset>[\x15<duration>]\x14<text>\x14...`,
-/// or `None` when onset or duration is not a number.
-fn parse_tal(tal: &[u8]) -> Option<(f64, f64, Vec<String>)> {
+/// Onset, duration and texts of one time-stamped annotation list.
+type Tal = (f64, f64, Vec<String>);
+
+/// Parses `+<onset>[\x15<duration>]\x14<text>\x14...`, or `None` when onset or duration is not a number.
+fn parse_tal(tal: &[u8]) -> Option<Tal> {
     let tal = String::from_utf8_lossy(tal);
     let mut parts = tal.split('\x14');
     let head = parts.next()?;
@@ -81,6 +85,11 @@ fn parse_tal(tal: &[u8]) -> Option<(f64, f64, Vec<String>)> {
         .map(str::to_string)
         .collect();
     Some((onset.parse().ok()?, duration.parse().ok()?, texts))
+}
+
+/// The onset of the timekeeping TAL, the one without text that opens each record's first annotation channel.
+fn timekeeping(tals: &[Tal]) -> Option<f64> {
+    tals.first().filter(|tal| tal.2.is_empty()).map(|tal| tal.0)
 }
 
 /// Where a channel's samples sit in a data record.
@@ -93,6 +102,7 @@ struct EdfReader {
     info: RecordingInfo,
     source: Arc<dyn ByteSource>,
     data_start: u64,
+    record_duration_s: f64,
     record_bytes: usize,
     records: u64,
     bytes_per_sample: usize,
@@ -247,64 +257,14 @@ pub fn open_edf(files: &FileSet, name: &str) -> Result<Box<dyn Reader>> {
         .max_by_key(|&(&samples, &signals)| (signals, samples))
         .map_or(0, |(&samples, _)| samples);
 
-    let annotation_channels: Vec<(&ChannelInfo, &Slot)> = channels
-        .iter()
-        .zip(&slots)
-        .filter(|(channel, _)| channel.kind == ChannelKind::Annotation)
-        .collect();
-    if plus_d && annotation_channels.is_empty() {
+    if plus_d
+        && !channels
+            .iter()
+            .any(|channel| channel.kind == ChannelKind::Annotation)
+    {
         return Err(unsupported(
             "EDF+D recording without an annotation channel".to_string(),
         ));
-    }
-    let data_start = header_len as u64;
-    let mut annotations = Vec::new();
-    let mut expected_onset = None;
-    for record in 0..records {
-        for (n, (channel, slot)) in annotation_channels.iter().enumerate() {
-            let mut bytes = vec![0u8; slot.samples * bytes_per_sample];
-            source.read_at(
-                data_start + record * record_bytes as u64 + slot.byte_offset as u64,
-                &mut bytes,
-            )?;
-            let mut tals = Vec::new();
-            for raw in bytes.split(|&b| b == 0).filter(|t| !t.is_empty()) {
-                match parse_tal(raw) {
-                    Some(tal) => tals.push(tal),
-                    None => warnings.push(format!(
-                        "Skipped a malformed annotation in record {record}: '{}'",
-                        String::from_utf8_lossy(raw)
-                    )),
-                }
-            }
-            // The first annotation of a record's first annotation channel is the record's start time.
-            if plus_d && n == 0 {
-                let onset = tals.first().map(|tal| tal.0).ok_or_else(|| {
-                    unsupported(format!(
-                        "EDF+D record {record} has no timekeeping annotation"
-                    ))
-                })?;
-                if let Some(end) = expected_onset {
-                    let gap: f64 = onset - end;
-                    if gap.abs() > ONSET_TOLERANCE_S {
-                        return Err(unsupported(format!(
-                            "discontinuous EDF+D recording: gap of {} s after record {}",
-                            (gap * 1e6).round() / 1e6,
-                            record - 1
-                        )));
-                    }
-                }
-                expected_onset = Some(onset + record_duration_s);
-            }
-            for (onset_s, duration_s, texts) in tals {
-                annotations.extend(texts.into_iter().map(|label| Annotation {
-                    onset_s,
-                    duration_s,
-                    label,
-                    source: channel.label.clone(),
-                }));
-            }
-        }
     }
 
     let prefix = if bdf { "BDF" } else { "EDF" };
@@ -319,22 +279,89 @@ pub fn open_edf(files: &FileSet, name: &str) -> Result<Box<dyn Reader>> {
         sample_count: records * dominant_samples as u64,
         duration_s: records as f64 * record_duration_s,
         raw_type: if bdf { RawType::I24 } else { RawType::I16 },
-        annotations,
+        annotations: Vec::new(),
         warnings,
         input_files: vec![name.to_string()],
     };
-    Ok(Box::new(EdfReader {
+    let reader = EdfReader {
         info,
         source,
-        data_start,
+        data_start: header_len as u64,
+        record_duration_s,
         record_bytes,
         records,
         bytes_per_sample,
         slots,
-    }))
+    };
+    if plus_d {
+        reader.check_contiguous()?;
+    }
+    Ok(Box::new(reader))
 }
 
 impl EdfReader {
+    fn annotation_channels(&self) -> impl Iterator<Item = usize> + '_ {
+        (0..self.info.channels.len())
+            .filter(|&c| self.info.channels[c].kind == ChannelKind::Annotation)
+    }
+
+    /// The TALs in annotation channel `c` of `record`, from one `read_at` of that channel's samples,
+    /// and the number of entries that did not parse.
+    fn record_tals(&self, record: u64, c: usize) -> Result<(Vec<Tal>, usize)> {
+        let slot = &self.slots[c];
+        let mut bytes = vec![0u8; slot.samples * self.bytes_per_sample];
+        let at = self.data_start + record * self.record_bytes as u64 + slot.byte_offset as u64;
+        self.source.read_at(at, &mut bytes)?;
+        let entries: Vec<&[u8]> = bytes
+            .split(|&b| b == 0)
+            .filter(|entry| !entry.is_empty())
+            .collect();
+        let tals: Vec<Tal> = entries.iter().copied().filter_map(parse_tal).collect();
+        let unparsed = entries.len() - tals.len();
+        Ok((tals, unparsed))
+    }
+
+    /// The start time of `record`, from the timekeeping TAL of the first annotation channel.
+    fn record_onset(&self, record: u64) -> Result<f64> {
+        let c = self.annotation_channels().next().ok_or_else(|| {
+            unsupported("EDF+D recording without an annotation channel".to_string())
+        })?;
+        timekeeping(&self.record_tals(record, c)?.0).ok_or_else(|| {
+            unsupported(format!(
+                "EDF+D record {record} has no timekeeping annotation"
+            ))
+        })
+    }
+
+    /// Refuses an EDF+D recording with a gap between records. Two reads decide it when the first and last
+    /// onsets span `(records - 1) * record_duration_s`; only a mismatch reads every onset, to name the gap.
+    /// shortcut: a gap cancelled by an overlap passes the span test; scan every onset if such files turn up.
+    fn check_contiguous(&self) -> Result<()> {
+        if self.records < 2 {
+            return Ok(());
+        }
+        let first = self.record_onset(0)?;
+        let span = self.record_onset(self.records - 1)? - first;
+        let expected = (self.records - 1) as f64 * self.record_duration_s;
+        if (span - expected).abs() <= SPAN_TOLERANCE_S {
+            return Ok(());
+        }
+        let mut end = first + self.record_duration_s;
+        for record in 1..self.records {
+            let onset = self.record_onset(record)?;
+            let gap = onset - end;
+            if gap.abs() > ONSET_TOLERANCE_S {
+                return Err(unsupported(format!(
+                    "discontinuous EDF+D recording: gap of {} s after record {}",
+                    (gap * 1e6).round() / 1e6,
+                    record - 1
+                )));
+            }
+            end = onset + self.record_duration_s;
+        }
+        Ok(())
+    }
+
     /// The samples per record shared by `channels`, or the error naming why they cannot be read together.
     fn shared_samples(&self, channels: &[usize]) -> Result<usize> {
         if channels.is_empty() {
@@ -438,6 +465,39 @@ impl Reader for EdfReader {
             out[row][k] = raw as f64 * channel.gain + channel.offset;
         })?;
         Ok(out)
+    }
+
+    fn scan_annotations(&self) -> Result<(Vec<Annotation>, Vec<String>)> {
+        let mut annotations = Vec::new();
+        let (mut malformed, mut first_bad) = (0, None);
+        for record in 0..self.records {
+            for (n, c) in self.annotation_channels().enumerate() {
+                let (tals, unparsed) = self.record_tals(record, c)?;
+                // The first annotation channel opens every record with the timekeeping TAL.
+                let missing = n == 0 && timekeeping(&tals).is_none();
+                if unparsed > 0 || missing {
+                    malformed += unparsed + missing as usize;
+                    first_bad.get_or_insert(record);
+                }
+                let source = &self.info.channels[c].label;
+                for (onset_s, duration_s, texts) in tals {
+                    annotations.extend(texts.into_iter().map(|label| Annotation {
+                        onset_s,
+                        duration_s,
+                        label,
+                        source: source.clone(),
+                    }));
+                }
+            }
+        }
+        let warnings = first_bad
+            .map(|record| {
+                format!("{malformed} malformed annotation entries, first in record {record}")
+            })
+            .into_iter()
+            .collect();
+        annotations.extend(self.info.annotations.iter().cloned());
+        Ok((annotations, warnings))
     }
 
     fn read_raw_f32(

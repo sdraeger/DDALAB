@@ -3,6 +3,7 @@
 
 use dda_rs::io::{ByteSource, FileSet, MemorySource};
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 pub struct EdfSpec {
@@ -173,6 +174,31 @@ pub fn edf_bytes(spec: &EdfSpec) -> Vec<u8> {
         }
     }
     out
+}
+
+/// A `MemorySource` that counts its `read_at` calls.
+pub struct CountingSource(pub MemorySource, pub Arc<AtomicUsize>);
+
+impl ByteSource for CountingSource {
+    fn len(&self) -> u64 {
+        self.0.len()
+    }
+
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> dda_rs::Result<()> {
+        self.1.fetch_add(1, Ordering::SeqCst);
+        self.0.read_at(offset, buf)
+    }
+}
+
+/// A file set holding `bytes` as `name`, and the counter of reads through it.
+pub fn counting_file_set(name: &str, bytes: Vec<u8>) -> (FileSet, Arc<AtomicUsize>) {
+    let reads = Arc::new(AtomicUsize::new(0));
+    let source = CountingSource(MemorySource(bytes), reads.clone());
+    let files = FileSet {
+        primary: name.to_string(),
+        files: BTreeMap::from([(name.to_string(), Arc::new(source) as Arc<dyn ByteSource>)]),
+    };
+    (files, reads)
 }
 
 pub fn memory_file_set(name: &str, bytes: Vec<u8>) -> FileSet {

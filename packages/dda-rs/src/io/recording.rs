@@ -74,6 +74,12 @@ impl RecordingInfo {
 pub trait Reader: Send + Sync {
     fn info(&self) -> &RecordingInfo;
 
+    /// All annotations and the warnings raised finding them. `RecordingInfo::annotations` holds only
+    /// what opening the file finds cheaply, so a format whose annotations cost a pass over the file overrides this.
+    fn scan_annotations(&self) -> Result<(Vec<Annotation>, Vec<String>)> {
+        Ok((self.info().annotations.clone(), Vec::new()))
+    }
+
     /// `rows` rows from `row0` as `[row][channel]`, physical SI values.
     fn read_rows(&self, channels: &[usize], row0: u64, rows: usize) -> Result<Vec<Vec<f64>>>;
 
