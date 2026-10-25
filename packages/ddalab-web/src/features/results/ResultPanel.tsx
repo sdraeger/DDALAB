@@ -2,8 +2,9 @@
 // and electrode-group tints, the line plot of a picked row and the time axis. The heatmap draws in WebGL2
 // (heatmapLayer.ts) from tiles of the array's max-magnitude pyramid, which the IO worker reads from OPFS. View, cursor
 // and selection reach the canvases through store.subscribe, and the pointer and the focused row through the frame loop;
-// React renders the structure only. Loaded lazily: the first result brings it. With no recording open (an imported
-// result, say) the panel shows alone on the result's own interval, without the recording's events.
+// React renders the structure only. Loaded lazily: the first result brings it. With its recording not open (an
+// imported result, say) the panel shows alone, bound to the result's analysis interval and without the recording's
+// events. Shell.tsx puts it inside a ResultBoundary.
 import { Tabs } from "@base-ui/react/tabs";
 import X from "lucide-react/dist/esm/icons/x.mjs";
 import {
@@ -29,7 +30,6 @@ import { FANOUT, type ResultTile } from "../../render/resultPyramid";
 import { readColors, watchTheme } from "../../render/themeColors";
 import { openResult, setCursor, setShownResult, setView, useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
-import { ResultBoundary } from "../history/ResultBoundary";
 import { electrodeGroups } from "../inspector/groups";
 import { probing } from "../viewer/probe";
 import { usePlotPointer } from "../viewer/usePlotPointer";
@@ -81,22 +81,16 @@ function scaleOfArray(map: MapName, { rows, rowMin, rowMax }: ResultArray) {
 /** The channels a row label names: "A", "A & B", "A <- B" or "A <-> B". */
 const channelsOf = (label: string) => label.split(/ (?:<->|<-|&) /);
 
-/** A view that throws gives way to the reason instead of unmounting the app. */
 export default function ResultPanel(props: { recordingId: string | null; resultId: string }) {
-  return (
-    <ResultBoundary key={props.resultId} what="This result">
-      <Result {...props} />
-    </ResultBoundary>
-  );
-}
-
-function Result(props: { recordingId: string | null; resultId: string }) {
   const loaded = use(manifestOf(props.resultId));
+  // An imported result has no fingerprint (history.ts): it is recreated by importing it again.
+  const imported = useStore((s) => s.analyses.find((a) => a.id === props.resultId)?.fingerprint === "");
   if ("error" in loaded) {
     return (
       <section className={styles.result} aria-label="Result">
         <p role="alert" className={styles.failed}>
-          The result could not be read: {loaded.error}. Run the analysis again to recreate it.
+          The result could not be read: {loaded.error}.{" "}
+          {imported ? "Import it again to recreate it." : "Run the analysis again to recreate it."}
         </p>
       </section>
     );
@@ -155,10 +149,15 @@ function Heatmap({
   const rowPlot = useRef<RowPlotHandle>(null);
   usePlotPointer(plot, recordingId);
 
-  // Alone, the result fills the time axis with its analysis interval.
+  // Alone, the result fills the time axis with its analysis interval, which then bounds the view.
   useEffect(() => {
-    const { start_time_seconds: t0, end_time_seconds: t1 } = manifest.reproduction;
-    if (recordingId === null) setView({ t0, t1 });
+    if (recordingId !== null) return;
+    const interval = {
+      t0: manifest.reproduction.start_time_seconds,
+      t1: manifest.reproduction.end_time_seconds,
+    };
+    setShownResult({ interval });
+    setView(interval);
   }, [recordingId, manifest]);
 
   useEffect(() => {
@@ -180,13 +179,17 @@ function Heatmap({
     const c0 = centers[0];
     // Centers lie one window step apart: positions count steps from the first center.
     const step = windows > 1 ? (centers[windows - 1] - c0) / (windows - 1) : 1;
-    const { window_length_samples: length, window_step_samples: stepSamples } = manifest.reproduction;
-    // Without the recording its rate follows from the step between windows; one window spans the whole interval.
-    const halfS = opened
-      ? length / opened.info.sample_rate_hz / 2
-      : windows > 1
-        ? ((length / stepSamples) * step) / 2
-        : (manifest.reproduction.end_time_seconds - manifest.reproduction.start_time_seconds) / 2;
+    const {
+      window_length_samples: length,
+      request,
+      start_time_seconds,
+      end_time_seconds,
+    } = manifest.reproduction;
+    // Without the recording, its rate is the interval's samples over its seconds.
+    const rate =
+      opened?.info.sample_rate_hz ??
+      (request.time_range.end - request.time_range.start) / (end_time_seconds - start_time_seconds);
+    const halfS = length / rate / 2;
     const name = NAMES[array];
     let colors = readColors(plotEl);
     let size = { cssW: 0, cssH: 0, dpr: 1, W: 0, H: 0 };
@@ -467,6 +470,12 @@ function Heatmap({
           <span>
             centers {centers[0].toFixed(2)} to {centers[centers.length - 1].toFixed(2)} s
           </span>
+          {recordingId === null && (
+            <>
+              <span className={styles.thin} aria-hidden />
+              <span>{manifest.file_name} is not open</span>
+            </>
+          )}
         </span>
         <Suspense fallback={null}>
           <ColorBar loading={loading} name={NAMES[array]} map={map} />

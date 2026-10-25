@@ -1,6 +1,9 @@
-// The startup sweep of unfinished results, against a stand-in for OPFS and the Web Locks API.
+// The startup sweep of unfinished results and the deletion of a result, against stand-ins for OPFS and the Web Locks
+// API.
 import { afterEach, expect, test, vi } from "vitest";
-import { sweepInterrupted } from "./resultStore";
+import { memoryOpfs, putFile, type Tree } from "./memoryOpfs";
+import { npyHeader } from "./npy";
+import { deleteResult, resultArray, sweepInterrupted } from "./resultStore";
 
 /** A result directory whose `status` file holds `status`. */
 const result = (status: string) => ({
@@ -30,4 +33,50 @@ test("a_result_that_cannot_be_removed_leaves_the_others_swept", async () => {
   });
   expect(await sweepInterrupted()).toEqual(["a", "d"]);
   expect(removed).toEqual(["a", "d"]);
+});
+
+test("delete_waits_for_a_pyramid_build_then_removes_its_files", async () => {
+  const root = memoryOpfs();
+  // 20 windows of 2 rows: pyramid levels 1 to 3 above the array (4 windows a cell per level).
+  const header = npyHeader([20, 2]);
+  const array = new Uint8Array(header.length + 8 * 20 * 2);
+  array.set(header);
+  putFile(root, "results/r/ST/q.npy", array);
+  const folder = () => (root.get("results") as Tree).get("r") as Tree | undefined;
+  // The build of the array's pyramid holds its locks until `open` is called.
+  const events: string[] = [];
+  let entered = () => {};
+  const inBuild = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  let open = () => {};
+  const gate = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  const request = navigator.locks.request as (...args: unknown[]) => Promise<unknown>;
+  const locks = {
+    request(name: string, ...rest: unknown[]) {
+      const held = rest.pop() as (lock: unknown) => Promise<unknown>;
+      if (name !== "ddalab-pyramid:r/ST/q") return request(name, ...rest, held);
+      return request(name, ...rest, async (lock: unknown) => {
+        entered();
+        await gate;
+        const out = await held(lock);
+        events.push(`built ${[...((folder()?.get("ST") as Tree) ?? []).keys()].sort().join(" ")}`);
+        return out;
+      });
+    },
+  };
+  vi.stubGlobal("navigator", { ...navigator, locks });
+  const building = resultArray("r", "ST", "q").catch(() => {});
+  await inBuild;
+  const deleting = deleteResult("r").then(() => events.push("deleted"));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(events).toEqual([]);
+  expect(folder()).toBeDefined();
+  open();
+  await deleting;
+  await building;
+  expect(events).toEqual(["built q.L1.f32 q.L2.f32 q.L3.f32 q.npy q.pyramid.json", "deleted"]);
+  expect(folder()).toBeUndefined();
 });

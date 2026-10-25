@@ -48,7 +48,10 @@ export interface RunState {
   error?: string;
 }
 
-/** The result shown under the waveform: the recording it came from, its variant, array and plotted row. */
+/**
+ * The result shown under the waveform, or alone when its recording is not open: the recording it came from, its
+ * variant, array and plotted row.
+ */
 export interface ShownResult {
   id: string;
   fingerprint: string;
@@ -57,6 +60,8 @@ export interface ShownResult {
   array: "q" | "fit_error";
   /** The row whose line plot is drawn. */
   row: number | null;
+  /** Shown alone: its analysis interval in seconds, which bounds the view. */
+  interval?: { t0: number; t1: number };
 }
 
 interface State {
@@ -123,9 +128,21 @@ export const useStore = create<State>()(() => ({
 export const activeRecording = (s: State) =>
   s.activeRecordingId ? s.recordings[s.activeRecordingId] : undefined;
 
-/** `view` moved inside the recording: whole span in range, at least 8 samples, rows within the channels. */
-function clamp(view: View, recording: OpenRecording | undefined): View {
-  if (!recording) return view;
+/**
+ * `view` moved inside the recording: whole span in range, at least 8 samples, rows within the channels. Without a
+ * recording it stays inside `interval`, the analysis interval of a result shown alone, when there is one.
+ */
+function clamp(
+  view: View,
+  recording: OpenRecording | undefined,
+  interval?: { t0: number; t1: number },
+): View {
+  if (!recording) {
+    if (!interval) return view;
+    const span = Math.min(interval.t1 - interval.t0, view.t1 - view.t0);
+    const t0 = Math.min(interval.t1 - span, Math.max(interval.t0, view.t0));
+    return { ...view, t0, t1: t0 + span };
+  }
   const { duration_s: duration, sample_rate_hz: rate } = recording.info;
   const channels = recording.analysis_channels.length;
   const span = Math.min(duration, Math.max(8 / rate, view.t1 - view.t0));
@@ -216,7 +233,7 @@ export function selectChannels(channels: number[], on: boolean) {
 export function setView(change: Partial<View> | ((view: View) => Partial<View>)) {
   useStore.setState((s) => {
     const next = { ...s.view, ...(typeof change === "function" ? change(s.view) : change) };
-    return { view: clamp(next, activeRecording(s)) };
+    return { view: clamp(next, activeRecording(s), s.shownResult?.interval) };
   });
 }
 
@@ -280,17 +297,26 @@ export const setDdaForm = (change: Partial<DdaForm>) =>
 
 /**
  * Opens the result `id` (`null` closes it): its provenance, and its views once its record says it is complete. The
- * views start from its first variant.
+ * views start from its first variant; the result already shown keeps its variant, array and row. The open recording
+ * the result came from becomes the active one. With none open (an imported result has no fingerprint) no recording
+ * is active and the views show alone.
  */
 export const openResult = (id: string | null) =>
-  useStore.setState((s) => {
+  useStore.setState((s): Partial<State> => {
     const record = s.analyses.find((a) => a.id === id);
-    const complete = id !== null && record?.status === "complete";
+    if (id === null || record?.status !== "complete") return { activeResultId: id, shownResult: null };
+    const shownResult: ShownResult =
+      s.shownResult?.id === id
+        ? s.shownResult
+        : { id, fingerprint: record.fingerprint, variant: null, array: "q", row: null };
+    const own =
+      Object.keys(s.recordings).find((r) => s.recordings[r].fingerprint === record.fingerprint) ?? null;
+    if (own === s.activeRecordingId) return { activeResultId: id, shownResult };
     return {
       activeResultId: id,
-      shownResult: complete
-        ? { id, fingerprint: record.fingerprint, variant: null, array: "q", row: null }
-        : null,
+      shownResult,
+      activeRecordingId: own,
+      ...freshView(s.view, own === null ? undefined : s.recordings[own]),
     };
   });
 

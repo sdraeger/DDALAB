@@ -26,6 +26,7 @@ const NO_STORAGE = "this browser window has no OPFS";
 const runBar = (page: Page) => page.getByRole("region", { name: "Run" });
 const history = (page: Page) => page.getByRole("region", { name: "History" });
 const provenance = (page: Page) => page.getByRole("region", { name: "Provenance" });
+const result = (page: Page) => page.getByRole("region", { name: "Result" });
 const state = (page: Page) =>
   page.evaluate(() => {
     const { analyses, activeResultId, activeRecordingId, view, panels } = window.__ddalab.store.getState();
@@ -169,9 +170,8 @@ test("export_json_matches_cli", async ({ page }) => {
   expect(comparable(exported)).toEqual(comparable(cli));
 });
 
-test("import_cli_bundle_shows_heatmap_without_recording", async ({ page }) => {
-  test.skip(!(await hasStorage(page)), NO_STORAGE);
-  // A deflated zip of the CLI's bundle, as an archiver makes one.
+/** A deflated zip of the CLI's ST bundle, as an archiver makes one. */
+function stZip() {
   const zip = join(mkdtempSync(join(tmpdir(), "ddalab-import-")), "st.dda.zip");
   execFileSync("python3", [
     "-c",
@@ -182,8 +182,24 @@ test("import_cli_bundle_shows_heatmap_without_recording", async ({ page }) => {
     zip,
     bundleDir("st"),
   ]);
+  return zip;
+}
+
+/** The heatmap's next complete frame and the share of its pixels that are data (opaque over the transparent ground). */
+const heatmapDrawn = (page: Page) =>
+  page.evaluate(async () => {
+    const { results } = window.__ddalab;
+    const frame = await results.settled();
+    const { data } = results.pixels();
+    let opaque = 0;
+    for (let i = 3; i < data.length; i += 4) if (data[i] > 0) opaque++;
+    return { frame, drawn: opaque / (data.length / 4) };
+  });
+
+test("import_cli_bundle_shows_heatmap_without_recording", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
   const manifest = JSON.parse(readFileSync(join(bundleDir("st"), "manifest.json"), "utf8"));
-  await page.getByLabel("Result file").setInputFiles(zip);
+  await page.getByLabel("Result file").setInputFiles(stZip());
   const row = history(page).getByRole("listitem").filter({ hasText: "ST on fixture.vhdr" });
   await expect(row).toContainText("Complete");
   const { analyses, activeResultId, activeRecordingId } = await state(page);
@@ -193,17 +209,9 @@ test("import_cli_bundle_shows_heatmap_without_recording", async ({ page }) => {
   expect(analyses[0].manifest?.id).toBe(manifest.id);
   expect(analyses[0].plan?.windows).toBe(manifest.window_centers_seconds.length);
   await expect(provenance(page).getByText(manifest.reproduction.input_sha256["fixture.eeg"])).toBeVisible();
-  // The heatmap draws with no recording open, on the result's own interval: most of its pixels are data, which is
-  // opaque over the transparent ground.
-  await expect(page.getByRole("region", { name: "Result" })).toBeVisible();
-  const { frame, drawn } = await page.evaluate(async () => {
-    const { results } = window.__ddalab;
-    const frame = await results.settled();
-    const { data } = results.pixels();
-    let opaque = 0;
-    for (let i = 3; i < data.length; i += 4) if (data[i] > 0) opaque++;
-    return { frame, drawn: opaque / (data.length / 4) };
-  });
+  // The heatmap draws with no recording open, on the result's own interval.
+  await expect(result(page)).toContainText("fixture.vhdr is not open");
+  const { frame, drawn } = await heatmapDrawn(page);
   expect(frame).toMatchObject({
     resultId: activeResultId,
     variant: "ST",
@@ -212,6 +220,43 @@ test("import_cli_bundle_shows_heatmap_without_recording", async ({ page }) => {
     complete: true,
   });
   expect(drawn).toBeGreaterThan(0.5);
+});
+
+test("import_with_another_recording_open_shows_alone", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  await page.getByLabel("Recording files").setInputFiles(fixturePath("fixture.edf"));
+  await expect(page.getByRole("heading", { name: "fixture.edf" })).toBeVisible();
+  await page.getByLabel("Result file").setInputFiles(stZip());
+  const row = history(page).getByRole("listitem").filter({ hasText: "ST on fixture.vhdr" });
+  await expect(row).toContainText("Complete");
+  // No open recording made the result: none stays active, and the result takes the center with a note.
+  await expect(result(page)).toContainText("fixture.vhdr is not open");
+  const { activeResultId, activeRecordingId } = await state(page);
+  expect(activeRecordingId).toBeNull();
+  await expect(page.locator("canvas[data-traces]")).toHaveCount(0);
+  const { frame, drawn } = await heatmapDrawn(page);
+  expect(frame).toMatchObject({ resultId: activeResultId, variant: "ST", rows: 2, complete: true });
+  expect(drawn).toBeGreaterThan(0.5);
+});
+
+test("history_row_activates_its_recording", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  const id = await runBrainVision(page);
+  // Another recording becomes the active one; the result of the first one waits in the history.
+  await page.getByLabel("Recording files").setInputFiles(fixturePath("fixture.edf"));
+  await expect(page.getByRole("heading", { name: "fixture.edf" })).toBeVisible();
+  await expect(result(page)).toHaveCount(0);
+  await history(page)
+    .getByRole("listitem")
+    .filter({ hasText: "ST on fixture.vhdr" })
+    .getByRole("button", { name: /^ST on fixture\.vhdr/ })
+    .click();
+  // Its recording is active again, and the result shows under its waveform.
+  await expect(page.getByRole("heading", { name: "fixture.vhdr", exact: true })).toBeVisible();
+  await expect(result(page)).toBeVisible();
+  await expect(result(page)).not.toContainText("is not open");
+  expect((await state(page)).activeResultId).toBe(id);
+  expect((await heatmapDrawn(page)).frame).toMatchObject({ resultId: id, complete: true });
 });
 
 test("session_restores_view", async ({ page }) => {

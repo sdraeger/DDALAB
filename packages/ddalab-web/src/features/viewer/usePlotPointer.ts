@@ -1,9 +1,9 @@
 // Pointer gestures on the plot: the wheel zooms about the pointer (sideways scrolling pans), a drag pans, Shift-drag
-// selects, a click sets the cursor.
+// selects the interval of a run, a click sets the cursor.
 import { type RefObject, useEffect } from "react";
 import { setCursor, setSelection, setView, useStore, zoomBy } from "../../store/store";
 
-/** `recordingId` is null for a result shown without its recording. */
+/** `recordingId` is null for a result shown without its recording: there is nothing to run, and Shift-drag pans. */
 export function usePlotPointer(plot: RefObject<HTMLElement | null>, recordingId: string | null) {
   useEffect(() => {
     const plotEl = plot.current;
@@ -33,7 +33,8 @@ export function usePlotPointer(plot: RefObject<HTMLElement | null>, recordingId:
       plotEl.setPointerCapture(event.pointerId);
       const { view } = useStore.getState();
       const anchor = timeAt(event.clientX);
-      drag = { x: event.clientX, t0: view.t0, t1: view.t1, anchor, select: event.shiftKey, moved: false };
+      const select = event.shiftKey && recordingId !== null;
+      drag = { x: event.clientX, t0: view.t0, t1: view.t1, anchor, select, moved: false };
     };
     const move = (event: PointerEvent) => {
       if (!drag) return;

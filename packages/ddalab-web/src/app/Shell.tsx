@@ -15,6 +15,7 @@ import Ruler from "lucide-react/dist/esm/icons/ruler.mjs";
 import { type ButtonHTMLAttributes, lazy, type ReactElement, Suspense, useSyncExternalStore } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { RunButton } from "../features/analysis/RunBar";
+import { ResultBoundary } from "../features/history/ResultBoundary";
 import { Inspector } from "../features/inspector/Inspector";
 import { LibraryRail } from "../features/library/LibraryRail";
 import { Overview } from "../features/viewer/Overview";
@@ -24,6 +25,7 @@ import {
   activeRecording,
   EPOCHS,
   type Epoch,
+  openResult,
   pageBy,
   pageOf,
   pageToEnd,
@@ -106,8 +108,9 @@ export function Shell() {
 
 /**
  * The shown result under the waveform, when it came from the active recording: it shares its time axis. With no
- * recording open (`recordingId` null) it shows alone. One panel shows each result in turn, so its canvas and WebGL
- * context are reused.
+ * recording active (`recordingId` null) it shows alone. One panel shows each result in turn and reuses its canvas and
+ * WebGL context. The boundary sits outside the lazy chunk: a chunk that no longer loads (a tab opened before a
+ * deploy) or a view that throws leaves a message with a way out.
  */
 function ShownResult({ recordingId }: { recordingId: string | null }) {
   const id = useStore((s) => s.shownResult?.id);
@@ -115,10 +118,22 @@ function ShownResult({ recordingId }: { recordingId: string | null }) {
     (s) => recordingId === null || s.shownResult?.fingerprint === s.recordings[recordingId]?.fingerprint,
   );
   if (!id || !ours) return null;
+  const actions = (
+    <>
+      <button type="button" className={controls.quiet} onClick={() => location.reload()}>
+        Reload
+      </button>
+      <button type="button" className={controls.quiet} onClick={() => openResult(null)}>
+        Close the result
+      </button>
+    </>
+  );
   return (
-    <Suspense fallback={null}>
-      <ResultPanel recordingId={recordingId} resultId={id} />
-    </Suspense>
+    <ResultBoundary key={id} what="This result" action={actions}>
+      <Suspense fallback={null}>
+        <ResultPanel recordingId={recordingId} resultId={id} />
+      </Suspense>
+    </ResultBoundary>
   );
 }
 
