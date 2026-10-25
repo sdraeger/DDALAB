@@ -5,10 +5,11 @@ use super::recording::*;
 use super::FileSet;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::path::Path;
-
 #[cfg(not(target_arch = "wasm32"))]
-use {crate::error::Result, std::path::PathBuf};
+use {
+    crate::error::Result,
+    std::path::{Path, PathBuf},
+};
 
 /// `_BIDS_DURATION_TOLERANCE` of `mne.py`.
 const DURATION_TOLERANCE: f64 = 0.01;
@@ -17,15 +18,11 @@ const DURATION_TOLERANCE: f64 = 0.01;
 /// `info.annotations` and the warnings of the modality JSON to `info.warnings`. The sidecars found are
 /// appended to `info.input_files`. Sidecars missing from `files` are skipped.
 pub fn apply_bids_sidecars(info: &mut RecordingInfo, files: &FileSet) {
-    let Some((prefix, modality)) = Path::new(&files.primary)
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .and_then(|stem| stem.rsplit_once('_'))
-    else {
+    let Some([channels, events, json]) = FileSet::sidecar_names(&files.primary) else {
         return;
     };
 
-    if let Some(text) = read_sidecar(info, files, &format!("{prefix}_channels.tsv")) {
+    if let Some(text) = read_sidecar(info, files, &channels) {
         for row in tsv_rows(&text) {
             let Some(name) = row.get("name") else {
                 continue;
@@ -37,12 +34,12 @@ pub fn apply_bids_sidecars(info: &mut RecordingInfo, files: &FileSet) {
         }
     }
 
-    if let Some(text) = read_sidecar(info, files, &format!("{prefix}_events.tsv")) {
+    if let Some(text) = read_sidecar(info, files, &events) {
         info.annotations
             .extend(tsv_rows(&text).iter().filter_map(event));
     }
 
-    if let Some(text) = read_sidecar(info, files, &format!("{prefix}_{modality}.json")) {
+    if let Some(text) = read_sidecar(info, files, &json) {
         let warnings = json_warnings(&text, info.sample_count, info.sample_rate_hz);
         info.warnings.extend(warnings);
     }
@@ -146,16 +143,30 @@ fn json_warnings(text: &str, sample_count: u64, header_rate: f64) -> Vec<String>
     warnings
 }
 
+/// The deepest directory `discover_bids_recordings` reads, counted from `root`.
+#[cfg(not(target_arch = "wasm32"))]
+const MAX_DEPTH: usize = 6;
+
 /// The `*_ieeg` and `*_eeg` recordings (`.edf`, `.bdf`, `.vhdr`) under `root`, sorted by path.
+/// Entries whose name starts with `.` and directories deeper than `MAX_DEPTH` are skipped, and so is
+/// every directory that cannot be read; only `root` itself must be readable.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn discover_bids_recordings(root: &Path) -> Result<Vec<PathBuf>> {
-    fn walk(dir: &Path, found: &mut Vec<PathBuf>) -> Result<()> {
-        for entry in std::fs::read_dir(dir)? {
-            let entry = entry?;
+    fn walk(dir: &Path, depth: usize, found: &mut Vec<PathBuf>) -> Result<()> {
+        if depth > MAX_DEPTH {
+            return Ok(());
+        }
+        for entry in std::fs::read_dir(dir)?.flatten() {
             let path = entry.path();
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            if entry.file_name().to_string_lossy().starts_with('.') {
+                continue;
+            }
             // A symlinked directory is not followed (loops); a symlinked file counts (git-annex).
-            if entry.file_type()?.is_dir() {
-                walk(&path, found)?;
+            if kind.is_dir() {
+                let _ = walk(&path, depth + 1, found);
             } else if is_recording(&path) && path.is_file() {
                 found.push(path);
             }
@@ -164,7 +175,7 @@ pub fn discover_bids_recordings(root: &Path) -> Result<Vec<PathBuf>> {
     }
 
     let mut found = Vec::new();
-    walk(root, &mut found)?;
+    walk(root, 0, &mut found)?;
     found.sort();
     Ok(found)
 }

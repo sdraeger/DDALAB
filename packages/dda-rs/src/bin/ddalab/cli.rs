@@ -37,14 +37,17 @@ pub enum Command {
     Serve(ServeArgs),
 }
 
+/// Default `--block-mb`.
+pub const DEFAULT_BLOCK_MB: u64 = 512;
+
 #[derive(Args)]
 pub struct RunArgs {
-    /// Input data file path (EDF, ASCII/TXT/CSV)
+    /// Input data file path (EDF, BDF, BrainVision .vhdr, ASCII/TXT/CSV)
     #[arg(long)]
     pub file: String,
 
-    /// 0-based channel indices
-    /// Optional when --variant-configs provides per-variant channels/pairs.
+    /// 0-based indices into the analysis channels (`ddalab inspect` shows the list).
+    /// Defaults to every analysis channel BIDS channels.tsv does not mark bad.
     #[arg(long, num_args = 1..)]
     pub channels: Option<Vec<usize>>,
 
@@ -144,9 +147,17 @@ pub struct RunArgs {
     #[arg(long, env = "DDA_BINARY_PATH")]
     pub binary: Option<String>,
 
-    /// Output file (default: stdout)
-    #[arg(short, long)]
+    /// Result document file (default: stdout)
+    #[arg(short, long, conflicts_with = "bundle")]
     pub output: Option<String>,
+
+    /// Write a bundle directory instead of one document: `manifest.json` and one .npy file per array
+    #[arg(long)]
+    pub bundle: Option<String>,
+
+    /// Memory budget for the samples one block of windows reads, in MiB
+    #[arg(long, default_value_t = DEFAULT_BLOCK_MB)]
+    pub block_mb: u64,
 
     /// Compact JSON output (no indentation)
     #[arg(long, default_value_t = false)]
@@ -156,7 +167,7 @@ pub struct RunArgs {
     #[arg(long, default_value_t = false)]
     pub quiet: bool,
 
-    /// Compute device: cpu, cuda, or cuda:N
+    /// Compute device: cpu, cuda, or cuda:N (a non-cpu device runs the recording whole)
     #[arg(long, default_value = "cpu")]
     pub device: dda_rs::ComputeDevice,
 }
@@ -246,8 +257,8 @@ pub struct BatchArgs {
     #[arg(long, group = "input")]
     pub bids_dir: Option<String>,
 
-    /// 0-based channel indices
-    /// Optional when --variant-configs provides per-variant channels/pairs.
+    /// 0-based indices into the analysis channels (`ddalab inspect` shows the list).
+    /// Defaults to every analysis channel BIDS channels.tsv does not mark bad.
     #[arg(long, num_args = 1..)]
     pub channels: Option<Vec<usize>>,
 
@@ -327,9 +338,14 @@ pub struct BatchArgs {
     #[arg(long, env = "DDA_BINARY_PATH")]
     pub binary: Option<String>,
 
-    /// Output directory for per-file JSON results (default: JSONL to stdout)
+    /// Output directory for the result documents `<stem>.<sha8>.dda.json`
+    /// (default: each document is inlined in the manifest on stdout)
     #[arg(long)]
     pub output_dir: Option<String>,
+
+    /// Memory budget for the samples one block of windows reads, in MiB
+    #[arg(long, default_value_t = DEFAULT_BLOCK_MB)]
+    pub block_mb: u64,
 
     /// Continue processing remaining files after a failure
     #[arg(long, default_value_t = false)]
@@ -347,7 +363,7 @@ pub struct BatchArgs {
     #[arg(long, default_value_t = false)]
     pub quiet: bool,
 
-    /// Compute device: cpu, cuda, or cuda:N
+    /// Compute device: cpu, cuda, or cuda:N (a non-cpu device runs the recording whole)
     #[arg(long, default_value = "cpu")]
     pub device: dda_rs::ComputeDevice,
 }

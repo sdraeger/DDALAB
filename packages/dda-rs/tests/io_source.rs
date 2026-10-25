@@ -179,3 +179,17 @@ fn file_set_from_path_adds_modality_json_and_needs_the_primary() {
     );
     assert!(FileSet::from_path(&dir.path().join("absent.edf")).is_err());
 }
+
+#[test]
+fn sidecar_names_follow_the_bids_naming_rule() {
+    assert_eq!(
+        FileSet::sidecar_names("sub-01_task-x_eeg.edf"),
+        Some([
+            "sub-01_task-x_channels.tsv".to_string(),
+            "sub-01_task-x_events.tsv".to_string(),
+            "sub-01_task-x_eeg.json".to_string(),
+        ])
+    );
+    // no `_` in the stem: no prefix or modality
+    assert_eq!(FileSet::sidecar_names("plain.edf"), None);
+}

@@ -3,7 +3,6 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::ops::Range;
 use std::sync::{Arc, Mutex};
 
-#[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
 
 /// Random-access bytes. `read_at` fills `buf` from `offset` or errors if the range passes `len()`.
@@ -164,27 +163,32 @@ impl FileSet {
         self.files.get(name)
     }
 
+    /// The BIDS sidecars of a recording named `<prefix>_<modality>.<ext>`:
+    /// `<prefix>_channels.tsv`, `<prefix>_events.tsv` and `<prefix>_<modality>.json`.
+    /// `None` when the stem has no `_`.
+    pub fn sidecar_names(primary: &str) -> Option<[String; 3]> {
+        let stem = Path::new(primary).file_stem()?.to_str()?;
+        let (prefix, modality) = stem.rsplit_once('_')?;
+        Some([
+            format!("{prefix}_channels.tsv"),
+            format!("{prefix}_events.tsv"),
+            format!("{prefix}_{modality}.json"),
+        ])
+    }
+
     /// The primary file plus the siblings in its directory that belong to it:
-    /// for `<prefix>_<modality>.<ext>`, `<prefix>_channels.tsv`, `<prefix>_events.tsv` and
-    /// `<prefix>_<modality>.json`; for a `.vhdr`, the `DataFile` and `MarkerFile` it names.
+    /// its `sidecar_names`; for a `.vhdr`, the `DataFile` and `MarkerFile` it names.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn from_path(path: &Path) -> Result<FileSet> {
-        let not_a_file =
-            || DDAError::InvalidParameter(format!("not a file path: {}", path.display()));
         let primary = path
             .file_name()
-            .ok_or_else(not_a_file)?
+            .ok_or_else(|| {
+                DDAError::InvalidParameter(format!("not a file path: {}", path.display()))
+            })?
             .to_string_lossy()
             .into_owned();
-        let stem = path.file_stem().ok_or_else(not_a_file)?.to_string_lossy();
         let mut names = vec![primary.clone()];
-        if let Some((prefix, modality)) = stem.rsplit_once('_') {
-            names.extend([
-                format!("{prefix}_channels.tsv"),
-                format!("{prefix}_events.tsv"),
-                format!("{prefix}_{modality}.json"),
-            ]);
-        }
+        names.extend(Self::sidecar_names(&primary).into_iter().flatten());
         if path
             .extension()
             .is_some_and(|ext| ext.eq_ignore_ascii_case("vhdr"))

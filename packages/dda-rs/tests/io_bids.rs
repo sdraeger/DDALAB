@@ -270,3 +270,28 @@ fn discover_finds_ieeg_and_eeg_only() {
     assert_eq!(discover_bids_recordings(dir.path()).unwrap(), want);
     assert!(discover_bids_recordings(&dir.path().join("absent")).is_err());
 }
+
+#[cfg(unix)]
+#[test]
+fn discover_skips_hidden_deep_and_unreadable_entries() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let kept = "a/b/c/d/e/f/sub-01_task-a_eeg.edf"; // six directories below the root
+    let too_deep = "a/b/c/d/e/f/g/sub-01_task-b_eeg.edf";
+    let hidden = [
+        ".git/sub-01_task-c_eeg.edf",
+        "sub-01/.sub-01_task-d_eeg.edf",
+    ];
+    let unreadable = "locked/sub-01_task-e_eeg.edf";
+    for name in [kept, too_deep, unreadable].iter().chain(&hidden) {
+        let path = dir.path().join(name);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, "x").unwrap();
+    }
+    let locked = dir.path().join("locked");
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let found = discover_bids_recordings(dir.path());
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(found.unwrap(), [dir.path().join(kept)]);
+}
