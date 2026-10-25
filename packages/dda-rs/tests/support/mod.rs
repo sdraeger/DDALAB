@@ -363,7 +363,8 @@ pub fn brainvision_files(spec: &BrainVisionSpec) -> Vec<(String, Vec<u8>)> {
 }
 
 /// The files of `tests/fixtures`, as `examples/make_fixtures.rs` writes them: an EDF+ with two annotations and a
-/// channel at a quarter of the rate, a BDF, a BrainVision triple and a CSV whose time column sets the rate.
+/// channel at a quarter of the rate, a BDF, a BrainVision triple, a CSV whose time column sets the rate and an EDF
+/// of 8 records cut 600 bytes short (7 complete records and a warning).
 pub fn fixture_files() -> Vec<(String, Vec<u8>)> {
     let edf = EdfSpec {
         labels: vec!["Fp1".into(), "Fp2".into(), "Resp".into()],
@@ -412,6 +413,13 @@ pub fn fixture_files() -> Vec<(String, Vec<u8>)> {
     ];
     files.extend(brainvision_files(&brainvision));
     files.push(("fixture.csv".to_string(), csv.into_bytes()));
+    let mut truncated = edf_bytes(&EdfSpec {
+        records: 8,
+        seed: 78,
+        ..EdfSpec::default()
+    });
+    truncated.truncate(truncated.len() - 600);
+    files.push(("fixture_truncated.edf".to_string(), truncated));
     files
 }
 

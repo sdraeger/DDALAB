@@ -341,7 +341,12 @@ fn reproduction(
     }
 }
 
-/// The document without variants or diagnostics.
+/// The recording's warnings as diagnostics.
+fn warnings(info: &RecordingInfo) -> Vec<String> {
+    info.warnings.iter().map(|w| format!("Warning: {w}")).collect()
+}
+
+/// The document without variants; its diagnostics are the recording's warnings.
 fn skeleton(
     request: &DDARequest,
     info: &RecordingInfo,
@@ -361,7 +366,7 @@ fn skeleton(
             .to_string_lossy()
             .into_owned(),
         created_at_iso,
-        diagnostics: Vec::new(),
+        diagnostics: warnings(info),
         window_centers_seconds: window_centers(info, request, windows),
         variants: Vec::new(),
         reproduction: reproduction(request, info, plan, input_sha256),
@@ -386,7 +391,8 @@ fn summarize(matrix: &[Vec<f64>]) -> (Option<f64>, Option<f64>, Vec<f64>, Vec<f6
     )
 }
 
-/// The document of a finished run, with the matrices and their summaries inline.
+/// The document of a finished run, with the matrices and their summaries inline. Its diagnostics are the
+/// recording's warnings, then the engine's notes.
 pub fn build_document(
     result: &DDAResult,
     info: &RecordingInfo,
@@ -428,8 +434,10 @@ pub fn build_document(
         .flat_map(|v| v.matrix.iter().map(Vec::len))
         .max()
         .unwrap_or(0);
+    let mut diagnostics = warnings(info);
+    diagnostics.extend(result.engine_notes.iter().cloned());
     ResultDocument {
-        diagnostics: result.engine_notes.clone(),
+        diagnostics,
         variants,
         ..skeleton(
             request,
@@ -443,7 +451,8 @@ pub fn build_document(
     }
 }
 
-/// The document of a bundle: no matrices or summaries, and the bundle files of each variant in `arrays`.
+/// The document of a bundle: no matrices or summaries, and the bundle files of each variant in `arrays`. Its
+/// diagnostics are the recording's warnings.
 pub fn build_manifest(
     info: &RecordingInfo,
     request: &DDARequest,

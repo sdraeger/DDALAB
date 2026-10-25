@@ -259,13 +259,6 @@ async fn analyze_open(
     let created_at = chrono::Utc::now().to_rfc3339();
     let decorate = |document: &mut ResultDocument| {
         document.reproduction.compute_device = job.device.to_string();
-        let warnings = info
-            .warnings
-            .iter()
-            .map(|warning| format!("Warning: {warning}"));
-        document.diagnostics = warnings
-            .chain(std::mem::take(&mut document.diagnostics))
-            .collect();
     };
     let document = match sink.bundle {
         Some((writer, layout)) => {
