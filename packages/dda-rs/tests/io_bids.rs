@@ -2,8 +2,9 @@
 //!
 //! - `<prefix>_channels.tsv`: `status` and `type` by channel `name` (`channels_tsv_sets_status`)
 //! - `<prefix>_events.tsv`: `onset`, `duration`, `trial_type` rows become annotations with source `events.tsv`;
-//!   clock stamps and rows without a numeric onset or a label are skipped, `n/a` duration is 0
-//!   (`events_tsv_to_annotations`, `scan_annotations_appends_events_to_the_file_annotations`)
+//!   clock stamps and rows without a numeric onset are skipped, a missing, empty or `n/a` trial_type is the label
+//!   `n/a`, `n/a` duration is 0 (`events_tsv_to_annotations`, `events_without_a_trial_type_are_labeled_na`,
+//!   `scan_annotations_appends_events_to_the_file_annotations`)
 //! - `<prefix>_<modality>.json`: the two warnings of `_bids_warnings`, with the Python f-string text
 //!   (`bids_truncation_warning_text`, `bids_rate_drift_warning_text`, `consistent_or_unreadable_json_adds_no_warning`)
 //! - `open_recording` picks the reader by extension (`open_recording_dispatches_by_extension`)
@@ -105,11 +106,36 @@ fn events_tsv_to_annotations() {
     };
     assert_eq!(
         reader.info().annotations,
-        [want(1.5, 0.5, "stim"), want(2.0, 0.0, "resp")]
+        [
+            want(1.5, 0.5, "stim"),
+            want(2.0, 0.0, "resp"),
+            want(2.5, 1.0, "n/a")
+        ]
     );
     assert_eq!(
         reader.info().input_files,
         [PRIMARY, "sub-01_task-x_events.tsv"]
+    );
+}
+
+#[test]
+fn events_without_a_trial_type_are_labeled_na() {
+    let labels = |tsv: &str| {
+        let files = with_sidecar("sub-01_task-x_events.tsv", tsv);
+        let reader = open_recording(&files, None).unwrap();
+        let annotations = &reader.info().annotations;
+        annotations
+            .iter()
+            .map(|a| (a.onset_s, a.label.clone()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        labels("onset\tduration\ttrial_type\n1.0\t0\tn/a\n2.0\t0\tstim\n"),
+        [(1.0, "n/a".to_string()), (2.0, "stim".to_string())]
+    );
+    assert_eq!(
+        labels("onset\tduration\tvalue\n1.0\t0\t3\n"),
+        [(1.0, "n/a".to_string())]
     );
 }
 
