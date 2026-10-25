@@ -156,6 +156,15 @@ fn index(x: f64, what: &str) -> Result<u64> {
     }
 }
 
+/// The `rows * channels` values of a read, or an error where the count passes usize (32 bits on wasm32).
+fn values(rows: u32, channels: usize) -> Result<usize> {
+    (rows as usize).checked_mul(channels).ok_or_else(|| {
+        invalid(format!(
+            "{rows} rows of {channels} channels pass this platform's usize"
+        ))
+    })
+}
+
 fn recording(handle: u32) -> Result<Arc<dyn Reader>> {
     let reader = RECORDINGS.lock().unwrap().get(handle).cloned();
     reader.ok_or_else(|| invalid(format!("no open recording {handle}")))
@@ -317,7 +326,7 @@ pub extern "C" fn ddalab_read_raw(handle: u32, row0: f64, rows: u32) -> u64 {
                 info.sample_count
             )));
         }
-        let mut out = vec![0f32; rows as usize * channels.len()];
+        let mut out = vec![0f32; values(rows, channels.len())?];
         reader.read_raw_f32(&channels, row0, rows as usize, &mut out)?;
         Ok(out.iter().flat_map(|v| v.to_le_bytes()).collect())
     })())
@@ -513,7 +522,7 @@ pub extern "C" fn ddalab_pyramid_push(id: u32, row0: f64, rows: u32) -> u64 {
             let pyramid = expecting(&mut pyramids, id, row0, rows)?;
             (pyramid.reader.clone(), pyramid.channels.clone())
         };
-        let mut raw = vec![0f32; rows as usize * channels.len()];
+        let mut raw = vec![0f32; values(rows, channels.len())?];
         reader.read_raw_f32(&channels, row0, rows as usize, &mut raw)?;
         let mut pyramids = PYRAMIDS.lock().unwrap();
         let pyramid = expecting(&mut pyramids, id, row0, rows)?;

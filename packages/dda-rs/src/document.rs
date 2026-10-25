@@ -570,8 +570,9 @@ pub fn encode_block(
                 continue;
             };
             let spec = &layout.arrays[index];
-            let per_window: usize = spec.shape[1..].iter().product();
-            let offset = (spec.header.len() + block.w0 * per_window * 8) as u64;
+            // In u64: wasm32's usize wraps once an array passes 4 GiB.
+            let per_window: u64 = spec.shape[1..].iter().map(|&n| n as u64).product();
+            let offset = spec.header.len() as u64 + block.w0 as u64 * per_window * 8;
             let bytes = values.into_iter().flat_map(f64::to_le_bytes).collect();
             chunks.push((index, offset, bytes));
         }

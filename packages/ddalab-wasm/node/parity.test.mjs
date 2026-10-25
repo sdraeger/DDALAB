@@ -210,6 +210,36 @@ test('read_raw_is_row_major_display_channels', () => {
   abi.close(handle);
 });
 
+// wasm32 has a 32-bit usize: offsets and buffer sizes past 4 GiB must not wrap.
+test('run_block_offsets_pass_4_gib', () => {
+  const { handle, info } = abi.open(BRAINVISION);
+  // 65,536 copies of one pair give each window 65,536 x 3 coefficients; the last of 2,974 windows starts past 4 GiB.
+  const req = { ...request('CT', info.sample_count), ct_channel_pairs: Array(65536).fill([0, 1]) };
+  req.window_parameters = { window_length: 10, window_step: 1 };
+  const { layout, windows } = abi.plan(handle, req, 64);
+  const chunks = abi.runBlock(handle, req, windows - 1, windows);
+  abi.close(handle);
+  for (const { array, offset } of chunks) {
+    const { path: name, header, shape } = layout.arrays[array];
+    assert.equal(offset, header.length + (windows - 1) * shape[1] * (shape[2] ?? 1) * 8, name);
+  }
+  assert.ok(chunks.some(({ offset }) => offset > 2 ** 32));
+});
+
+test('reads_past_usize_are_refused', () => {
+  // fixture.bdf (two channels, 512 samples per record) declaring 2^22 records: 2^31 rows in a sparse 12 GiB file.
+  const file = path.join(tmp, 'huge.bdf');
+  const header = Buffer.from(fs.readFileSync(RECORDINGS[1][0]).subarray(0, 3 * 256));
+  header.write('4194304 ', 236, 'latin1');
+  fs.writeFileSync(file, header);
+  fs.truncateSync(file, header.length + 2 ** 22 * 512 * 2 * 3);
+  const { handle, info } = abi.open([file]);
+  assert.equal(info.sample_count, 2 ** 31);
+  assert.throws(() => abi.readRaw(handle, 0, 2 ** 31), /usize/);
+  assert.throws(() => abi.pyramid(handle).push(0, 2 ** 31), /usize/);
+  abi.close(handle);
+});
+
 test('progress_every_percent', () => {
   const { handle, info } = abi.open(EDF);
   const req = { ...request('ST', info.sample_count), channels: [0, 1], file_path: EDF[0] };
