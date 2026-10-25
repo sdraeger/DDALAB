@@ -1,0 +1,96 @@
+{
+ "id": "6ebecc78083446658ecd05013457de11",
+ "file_path": "/data/simon/ddalab_regen",
+ "file_name": "sub-pt01_ses-presurgery_task-ictal_acq-e",
+ "created_at_iso": "2026-09-28T16:13:38.050276554+00:00",
+ "engine_label": "DDA (CPU)",
+ "diagnostics": [
+  "Requested variants: ST"
+ ],
+ "window_centers_seconds": [
+  30.514
+ ],
+ "variants": [
+  {
+   "id": "ST",
+   "label": "Single Timeseries (ST)",
+   "row_labels": [
+    "G1"
+   ],
+   "matrix": [
+    [
+     0.04203497007650879
+    ]
+   ],
+   "summary": "Rust ST view",
+   "min_value": -0.5756078673896334,
+   "max_value": 0.5997942979003236,
+   "column_count": 595,
+   "row_mean_absolute": [
+    0.22501809964601513
+   ],
+   "row_peak_absolute": [
+    0.46408333927518475
+   ],
+   "network_motifs": null,
+   "coefficient_matrices": [
+    [
+     [
+      0.04203497007650879
+     ]
+    ]
+   ],
+   "fit_error_matrix": [
+    [
+     0.15548453245832197
+    ]
+   ]
+  }
+ ],
+ "is_fallback": false,
+ "reproduction": {
+  "expert_mode": false,
+  "compute_device": "cpu",
+  "variant_ids": [
+   "ST"
+  ],
+  "selected_channel_indices": [
+   0
+  ],
+  "selected_channel_names": [
+   "G1"
+  ],
+  "variant_channel_indices": {
+   "ST": [
+    0
+   ]
+  },
+  "variant_channel_names": {
+   "ST": [
+    "G1"
+   ]
+  },
+  "variant_pair_indices": {},
+  "variant_pair_names": {},
+  "window_length_samples": 1000,
+  "window_step_samples": 200,
+  "delays": [
+   7
+  ],
+  "model_terms": [
+   1
+  ],
+  "model_dimension": 4,
+  "polynomial_order": 4,
+  "nr_tau": 2,
+  "start_time_seconds": 30.0,
+  "end_time_seconds": 150.0,
+  "ddalab_version": "1.2.11",
+  "input_sha256": {
+   "sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-01_ieeg.vhdr": "6bbb37f9bb6fa8cc7db4160696733993419ec87c",
+   "sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-01_ieeg.eeg": "4bcec472ae77adb3f79fbbaa39ce3b4f09a1ead8",
+   "sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-01_ieeg.json": "3bd51bb43e4cdcbd508d3a56f7a9066bde833835",
+   "sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-01_ieeg.vmrk": "31a09e10fe5c6353951a4d0edaf14543e406c06b"
+  }
+ }
+}
