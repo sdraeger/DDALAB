@@ -34,6 +34,8 @@ export interface Core {
   manifest(handle: number, request: DDARequest, extras: ManifestExtras): ResultDocument;
   /** A SHA-256 stream: `update` throws on an error reply and `hex` ends the stream. */
   sha256(): { update(bytes: Uint8Array): void; hex(): string };
+  /** Bytes of the instance's linear memory, which only grows. */
+  memoryBytes(): number;
   /** Rows go in order from row 0; `push` and `finish` return the encoded tiles that completed. */
   pyramid(handle: number): {
     push(row0: number, rows: number): ArrayBuffer[];
@@ -187,6 +189,8 @@ export async function instantiateCore(
         hex: () => json(abi.ddalab_sha256_hex(id)),
       };
     },
+
+    memoryBytes: () => abi.memory.buffer.byteLength,
 
     pyramid(handle) {
       const id = abi.ddalab_pyramid_new(handle) >>> 0;

@@ -3,7 +3,7 @@
 // middle of a file, and these digests go into result manifests as provenance.
 import { instantiateCore } from "../core/abi";
 import wasmUrl from "../core/ddalab.wasm?url";
-import type { HashReply, HashRequest } from "../core/protocol";
+import type { HashReply, HashRequest, MemoryReply } from "../core/protocol";
 import { type Part, partsOf, readSource } from "../core/sources";
 import { yieldToLoop } from "./scan";
 
@@ -34,6 +34,12 @@ async function digest(part: Part, id: string): Promise<string | undefined> {
 self.addEventListener("message", async ({ data }: MessageEvent<HashRequest>) => {
   if (data.type === "cancel") {
     cancelled.add(data.id);
+    return;
+  }
+  if (data.type === "memory") {
+    if (import.meta.env.DEV || import.meta.env.MODE === "e2e") {
+      self.postMessage({ wasmBytes: (await core).memoryBytes() } satisfies MemoryReply);
+    }
     return;
   }
   const { id, input, names } = data;

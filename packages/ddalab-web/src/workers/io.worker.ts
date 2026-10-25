@@ -183,6 +183,9 @@ async function handle(request: IoRequest): Promise<unknown> {
       (new WebAssembly.Instance(new WebAssembly.Module(bytes)).exports.trap as () => void)();
       return;
     }
+    case "memory":
+      if (!(import.meta.env.DEV || import.meta.env.MODE === "e2e")) throw new Error("unknown request");
+      return (await core).memoryBytes();
     case "quota": {
       if (!(import.meta.env.DEV || import.meta.env.MODE === "e2e")) throw new Error("unknown request");
       let left = request.bytes;
