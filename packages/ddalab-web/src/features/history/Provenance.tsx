@@ -1,22 +1,32 @@
 // The provenance of the active result: what was asked of which files, the engine that ran it, the plan and the
 // timings, and the CLI command that writes the same bundle natively. Until the manifest records the input files'
-// digests, the open recording's hash worker says how far it has come.
+// digests, the open recording's hash worker says how far it has come. A result without a manifest (running, failed,
+// interrupted) names no engine: this page's engine need not be the one that ran it.
 import { Popover } from "@base-ui/react/popover";
 import Copy from "lucide-react/dist/esm/icons/copy.mjs";
 import Download from "lucide-react/dist/esm/icons/download.mjs";
-import { lazy, Suspense, use, useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { deleteResult } from "../../app/analyses";
-import { engine } from "../../app/recordings";
 import { cliCommand } from "../../core/cliCommand";
 import { type AnalysisRecord, resultName } from "../../core/history";
 import { openResult, useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
 import styles from "./History.module.css";
+import { ResultBoundary } from "./ResultBoundary";
 
 const ExportDialog = lazy(() => import("./ExportDialog"));
 
-/** The engine of this page: the one running a result whose manifest is not written yet. */
-const engineVersion = engine.version();
+/**
+ * Keyboard focus once the provenance closes: the result's history row, else (it was deleted) the history heading.
+ * The rows and the heading are HistoryRail's.
+ */
+const focusHistory = (id: string) =>
+  requestAnimationFrame(() =>
+    (
+      document.querySelector<HTMLElement>(`[data-result="${id}"]`) ??
+      document.getElementById("history-heading")
+    )?.focus(),
+  );
 
 const count = (n: number, word: string) => `${n.toLocaleString("en")} ${word}${n === 1 ? "" : "s"}`;
 const when = (time: number) =>
@@ -36,6 +46,20 @@ const STATUS: Record<Exclude<AnalysisRecord["status"], "complete">, string> = {
 };
 
 export default function Provenance() {
+  const id = useStore((s) => s.activeResultId);
+  const close = (
+    <button type="button" className={controls.quiet} onClick={() => openResult(null)}>
+      Close the result
+    </button>
+  );
+  return (
+    <ResultBoundary key={id} what="This result" action={close}>
+      <Details />
+    </ResultBoundary>
+  );
+}
+
+function Details() {
   const record = useStore((s) => s.analyses.find((a) => a.id === s.activeResultId));
   if (!record) return null;
   const { request, manifest, plan } = record;
@@ -123,22 +147,33 @@ export default function Provenance() {
 /** Export, delete (once confirmed) and close; a running result can only be closed. */
 function Actions({ record }: { record: AnalysisRecord }) {
   const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const remove = () =>
+    deleteResult(record.id).then(
+      () => focusHistory(record.id),
+      (failure: unknown) =>
+        setError(`The result could not be deleted: ${failure instanceof Error ? failure.message : failure}`),
+    );
   if (confirming) {
     return (
-      <div className={styles.actions}>
-        <span className={styles.confirm}>Delete this result and its files?</span>
-        <button type="button" className={controls.quiet} onClick={() => deleteResult(record.id)}>
-          Delete
-        </button>
-        <button
-          type="button"
-          className={controls.quiet}
-          ref={(button) => button?.focus()}
-          onClick={() => setConfirming(false)}
-        >
-          Keep
-        </button>
-      </div>
+      <>
+        {/* Keyed: the row mounts anew and Keep takes focus, where React would reuse the Close button. */}
+        <div className={styles.actions} key="confirm">
+          <span className={styles.confirm}>Delete this result and its files?</span>
+          <button type="button" className={controls.quiet} onClick={remove}>
+            Delete
+          </button>
+          {/* biome-ignore lint/a11y/noAutofocus: the safe answer takes focus when the question appears */}
+          <button type="button" className={controls.quiet} autoFocus onClick={() => setConfirming(false)}>
+            Keep
+          </button>
+        </div>
+        {error && (
+          <p role="alert" className={styles.error}>
+            {error}
+          </p>
+        )}
+      </>
     );
   }
   return (
@@ -166,7 +201,14 @@ function Actions({ record }: { record: AnalysisRecord }) {
       >
         Delete
       </button>
-      <button type="button" className={`${controls.quiet} ${styles.close}`} onClick={() => openResult(null)}>
+      <button
+        type="button"
+        className={`${controls.quiet} ${styles.close}`}
+        onClick={() => {
+          openResult(null);
+          focusHistory(record.id);
+        }}
+      >
         Close
       </button>
     </div>
@@ -174,7 +216,8 @@ function Actions({ record }: { record: AnalysisRecord }) {
 }
 
 function EngineFields({ record }: { record: AnalysisRecord }) {
-  const { engine_version, git_commit } = record.manifest?.reproduction ?? use(engineVersion);
+  if (!record.manifest) return null;
+  const { engine_version, git_commit } = record.manifest.reproduction;
   return (
     <>
       <dt>Engine</dt>

@@ -1,8 +1,9 @@
 // The export panel of a complete result: the bundle as a zip, the JSON result document, or one variant's Q values as
-// CSV, each named after the recording as the CLI names its bundle.
+// CSV, each named after the recording as the CLI names its bundle. The IO worker builds the document and the CSV.
 import { Popover } from "@base-ui/react/popover";
 import { useState } from "react";
-import { bundleZip, documentJson, variantCsv } from "../../core/exporters";
+import { engine } from "../../app/recordings";
+import { bundleZip } from "../../core/exporters";
 import type { AnalysisRecord } from "../../core/history";
 import controls from "../../styles/controls.module.css";
 import styles from "./History.module.css";
@@ -56,7 +57,7 @@ export default function ExportDialog({ record }: { record: AnalysisRecord }) {
         type="button"
         className={styles.option}
         disabled={busy}
-        onClick={() => save(`${stem}.dda.json`, () => documentJson(record.id))}
+        onClick={() => save(`${stem}.dda.json`, () => engine.exportDocument(record.id))}
       >
         <b>Document</b>
         <span>One JSON file with the matrices inline, as ddalab run --output writes it</span>
@@ -71,7 +72,7 @@ export default function ExportDialog({ record }: { record: AnalysisRecord }) {
               className={controls.button}
               disabled={busy}
               aria-label={`CSV of ${variant}`}
-              onClick={() => save(`${stem}.${variant}.csv`, () => variantCsv(record.id, variant))}
+              onClick={() => save(`${stem}.${variant}.csv`, () => engine.exportCsv(record.id, variant))}
             >
               {variant}
             </button>

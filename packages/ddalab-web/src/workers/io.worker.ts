@@ -1,10 +1,13 @@
 // The IO worker: one wasm instance that opens recordings, reads their bytes synchronously (`host_read`), serves raw
 // rows and tiles and scans each recording in the background. Requests run one at a time in the order they arrive;
 // the scan runs between them. Whole-file passes it must not make (annotations, hashes) have workers of their own.
+// Exports and imports of results also run here, beside the queue: their work stays off the main thread.
 import { type HostRead, instantiateCore } from "../core/abi";
 import wasmUrl from "../core/ddalab.wasm?url";
 import type { RecordingInput } from "../core/engine";
+import { documentJson, variantCsv } from "../core/exporters";
 import { fingerprintOf, sha256Hex } from "../core/fingerprint";
+import { importResult } from "../core/imports";
 import { levelCount, loadTile, saveTiles, tileCount, tileRows, tileSlot } from "../core/opfs";
 import type { IoEvent, IoReply, IoRequest, IoResults, ScanState } from "../core/protocol";
 import {
@@ -198,6 +201,12 @@ async function handle(request: IoRequest): Promise<unknown> {
       return discardResult(request.resultId);
     case "sweepResults":
       return sweepInterrupted();
+    case "exportDocument":
+      return documentJson(request.resultId);
+    case "exportCsv":
+      return variantCsv(request.resultId, request.variant);
+    case "importResult":
+      return importResult(request.input);
     case "trap": {
       if (!(import.meta.env.DEV || import.meta.env.MODE === "e2e")) throw new Error("unknown request");
       // A module whose export runs `unreachable`, the instruction a Rust panic compiles to.
@@ -225,34 +234,42 @@ async function handle(request: IoRequest): Promise<unknown> {
   }
 }
 
-/** The buffers a reply hands over instead of copying. */
+/** The buffers a reply hands over instead of copying (a Blob has a `bytes` method, which is no buffer). */
 const transfers = (ok: unknown): ArrayBuffer[] =>
   ok instanceof Float32Array
     ? [ok.buffer as ArrayBuffer]
-    : ok && typeof ok === "object" && "bytes" in ok
-      ? [ok.bytes as ArrayBuffer]
+    : ok && typeof ok === "object" && "bytes" in ok && ok.bytes instanceof ArrayBuffer
+      ? [ok.bytes]
       : [];
 
 // After a trap the instance is unusable (a panic leaves its locks and allocator in an unknown state): requests
 // queued behind the one that trapped fail at once, until the engine replaces this worker.
 let stopped = false;
 let queue = Promise.resolve();
-self.addEventListener("message", ({ data }: MessageEvent<IoRequest & { n: number }>) => {
-  queue = queue.then(async () => {
-    const { n } = data;
-    try {
-      if (stopped) throw new WebAssembly.RuntimeError("The engine stopped after an earlier error");
-      const ok = await handle(data);
-      const reply: IoReply = { n, ok };
-      self.postMessage(reply, { transfer: transfers(ok) });
-    } catch (error) {
-      stopped ||= error instanceof WebAssembly.RuntimeError;
-      const reply: IoReply = {
-        n,
-        error: error instanceof Error ? error.message : String(error),
-        trapped: error instanceof WebAssembly.RuntimeError,
-      };
-      self.postMessage(reply);
+/** Requests that use no engine and take seconds on a large result: tiles and rows go on while they run. */
+const BESIDE = new Set<IoRequest["type"]>(["exportDocument", "exportCsv", "importResult"]);
+
+async function answer(data: IoRequest & { n: number }) {
+  const { n } = data;
+  try {
+    if (stopped && !BESIDE.has(data.type)) {
+      throw new WebAssembly.RuntimeError("The engine stopped after an earlier error");
     }
-  });
+    const ok = await handle(data);
+    const reply: IoReply = { n, ok };
+    self.postMessage(reply, { transfer: transfers(ok) });
+  } catch (error) {
+    stopped ||= error instanceof WebAssembly.RuntimeError;
+    const reply: IoReply = {
+      n,
+      error: error instanceof Error ? error.message : String(error),
+      trapped: error instanceof WebAssembly.RuntimeError,
+    };
+    self.postMessage(reply);
+  }
+}
+
+self.addEventListener("message", ({ data }: MessageEvent<IoRequest & { n: number }>) => {
+  if (BESIDE.has(data.type)) void answer(data);
+  else queue = queue.then(() => answer(data));
 });

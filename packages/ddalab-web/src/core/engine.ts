@@ -3,6 +3,8 @@
 // opens the recordings it held again, and the request that trapped fails with the trap's message. Replacements
 // that never get a reply (the worker script does not load) stop after a few, with the engine unavailable.
 // A DDA run gets a pool of workers of its own, which end with it: a trap or a failed worker fails the run.
+
+import type { FolderFile } from "./imports";
 import type {
   Annotations,
   AnnotationsReply,
@@ -79,6 +81,12 @@ export interface Engine {
   run(id: string, request: DDARequest): Promise<AnalysisHandle>;
   /** Deletes the files of results a reload or a crash left unfinished; their ids. */
   sweepInterrupted(): Promise<string[]>;
+  /** The JSON result document of a stored result (exporters.ts), built in the IO worker. */
+  exportDocument(resultId: string): Promise<Blob>;
+  /** One variant's Q values as CSV (exporters.ts), built in the IO worker. */
+  exportCsv(resultId: string, variant: string): Promise<Blob>;
+  /** Stores and records a result the CLI wrote (imports.ts); its id. */
+  importResult(input: File | FolderFile[]): Promise<string>;
   // `resultTile` arrives with the result views (Task 7).
 }
 
@@ -483,6 +491,9 @@ export function createEngine(): Engine {
       };
     },
     sweepInterrupted: () => call({ type: "sweepResults" }),
+    exportDocument: (resultId) => call({ type: "exportDocument", resultId }),
+    exportCsv: (resultId, variant) => call({ type: "exportCsv", resultId, variant }),
+    importResult: (input) => call({ type: "importResult", input }),
   };
   return import.meta.env.DEV || import.meta.env.MODE === "e2e"
     ? Object.assign(engine, {

@@ -133,12 +133,16 @@ test("history_survives_reload", async ({ page }) => {
   await expect(provenance(page).getByText(sha)).toBeVisible();
   await expect(provenance(page)).toContainText("Fp1, Fp2");
   expect(await commandOf(page)).toBe(
-    "ddalab run --file fixture.vhdr --channels 0 1 --variants ST --wl 200 --ws 100 --delays 7 10 --model 1 2 10 " +
-      "--dm 4 --order 4 --nr-tau 2 --start-sample 500 --end-sample 2500 --bundle fixture.dda",
+    "ddalab run --file=fixture.vhdr --channels 0 1 --variants ST --wl 200 --ws 100 --delays 7 10 --model 1 2 10 " +
+      "--dm 4 --order 4 --nr-tau 2 --start-sample 500 --end-sample 2500 --bundle=fixture.dda",
   );
   const { analyses } = await state(page);
   expect(analyses[0]).toMatchObject({ id, status: "complete", plan: { windows: 18 } });
   expect(analyses[0].manifest?.reproduction.input_sha256["fixture.eeg"]).toBe(sha);
+  // Closing the result puts the keyboard back on its history row.
+  await provenance(page).getByRole("button", { name: "Close" }).click();
+  await expect(provenance(page)).toHaveCount(0);
+  await expect(row.getByRole("button", { name: /^ST on fixture\.vhdr/ })).toBeFocused();
 });
 
 test("export_bundle_zip_matches_cli", async ({ page }) => {
@@ -159,7 +163,7 @@ test("export_json_matches_cli", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
   await runBrainVision(page, ["ST", "CT", "CD", "DE", "SY"]);
   const exported = JSON.parse(readFileSync(await exportAs(page, "Document"), "utf8"));
-  const dir = runCommand(await commandOf(page), [/--bundle \S+$/, "--output document.json"]);
+  const dir = runCommand(await commandOf(page), [/--bundle=\S+$/, "--output=document.json"]);
   const cli = JSON.parse(readFileSync(join(dir, "document.json"), "utf8"));
   expect(exported.variants.map((v: { id: string }) => v.id)).toEqual(["ST", "CT", "CD", "DE", "SY"]);
   expect(comparable(exported)).toEqual(comparable(cli));
@@ -232,6 +236,8 @@ test("delete_removes_opfs_files", async ({ page }) => {
   await expect(provenance(page).getByRole("button", { name: "Keep" })).toBeFocused();
   await provenance(page).getByRole("button", { name: "Delete" }).click();
   await expect(row).toHaveCount(0);
+  // The row is gone: the keyboard lands on the history's heading.
+  await expect(history(page).getByRole("heading", { name: /^History/ })).toBeFocused();
   expect(await exists()).toBe(false);
   const { analyses, activeResultId } = await state(page);
   expect(analyses.map((a) => a.id)).not.toContain(id);

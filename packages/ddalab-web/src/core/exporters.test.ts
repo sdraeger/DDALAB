@@ -1,67 +1,28 @@
-// Exports of a stored result and imports of the CLI's, over an in-memory stand-in for the origin private file system.
-import "fake-indexeddb/auto";
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+// Exports of a stored result, over the in-memory stand-in for the origin private file system.
+import { setFlagsFromString } from "node:v8";
+import { runInNewContext } from "node:vm";
 import { beforeEach, expect, test, vi } from "vitest";
-import { documentJson, importResult, variantCsv } from "./exporters";
-import { listAnalyses } from "./history";
-
-type Tree = Map<string, Tree | Blob>;
-
-/** The parts of a FileSystemDirectoryHandle the exporters use, over `tree`. */
-function directory(tree: Tree): FileSystemDirectoryHandle {
-  const missing = () => new DOMException("not found", "NotFoundError");
-  return {
-    kind: "directory",
-    async getDirectoryHandle(name: string, options?: { create?: boolean }) {
-      if (!tree.has(name) && options?.create) tree.set(name, new Map());
-      const found = tree.get(name);
-      if (!(found instanceof Map)) throw missing();
-      return directory(found);
-    },
-    async getFileHandle(name: string, options?: { create?: boolean }) {
-      if (!tree.has(name) && options?.create) tree.set(name, new Blob());
-      if (!(tree.get(name) instanceof Blob)) throw missing();
-      return {
-        kind: "file",
-        getFile: async () => new File([tree.get(name) as Blob], name),
-        async createWritable() {
-          const parts: BlobPart[] = [];
-          return {
-            write: async (data: BlobPart) => void parts.push(data),
-            close: async () => void tree.set(name, new Blob(parts)),
-          };
-        },
-      };
-    },
-    async removeEntry(name: string) {
-      if (!tree.delete(name)) throw missing();
-    },
-    async *entries() {
-      for (const [name, entry] of tree)
-        yield [name, entry instanceof Map ? directory(entry) : { kind: "file" }];
-    },
-  } as unknown as FileSystemDirectoryHandle;
-}
+import { bundleZip, documentJson, variantCsv } from "./exporters";
+import { unzip } from "./imports";
+import { memoryOpfs, putFile, type Tree } from "./memoryOpfs";
+import { npyHeader } from "./npy";
 
 let root: Tree;
 beforeEach(() => {
-  root = new Map();
-  vi.stubGlobal("navigator", { storage: { getDirectory: async () => directory(root) } });
+  root = memoryOpfs();
 });
 
-/** A version 1.0 `.npy` file of little-endian f64 `values` in `shape`, its header unpadded. */
-function npy(shape: number[], values: number[] = []) {
-  const dict = `{'descr': '<f8', 'fortran_order': False, 'shape': (${shape.join(", ")}), }\n`;
-  const head = Uint8Array.from([0x93, 78, 85, 77, 80, 89, 1, 0, dict.length & 255, dict.length >> 8]);
-  return new Blob([head, dict, new Float64Array(values)]);
+/** A `.npy` file of `values` in `shape`. */
+function npy(shape: number[], values: ArrayLike<number> = []) {
+  const header = npyHeader(shape);
+  const bytes = new Uint8Array(header.length + 8 * values.length);
+  bytes.set(header);
+  bytes.set(new Uint8Array(Float64Array.from(values).buffer), header.length);
+  return bytes;
 }
 
-/** Stores a result of one variant under `id`, as a run leaves it. */
-function store(id: string, variant: object, arrays: Record<string, Blob>, windows: number[]) {
+/** Stores a complete result of one variant under `id`, as a run leaves it, plus `extra` files. */
+function store(id: string, variant: object, files: Record<string, Uint8Array | string>, windows: number[]) {
   const manifest = {
     schema: "ddalab.result/2",
     id,
@@ -72,28 +33,22 @@ function store(id: string, variant: object, arrays: Record<string, Blob>, window
     variants: [variant],
     reproduction: {},
   };
-  const files: Tree = new Map([
-    ["status", new Blob(["complete"])],
-    ["manifest.json", new Blob([JSON.stringify(manifest)])],
-  ]);
-  for (const [path, blob] of Object.entries(arrays)) {
-    const [folder, name] = path.split("/");
-    if (!files.has(folder)) files.set(folder, new Map());
-    (files.get(folder) as Tree).set(name, blob);
-  }
-  root.set("results", new Map([[id, files]]));
+  putFile(root, `results/${id}/status`, "complete");
+  putFile(root, `results/${id}/manifest.json`, JSON.stringify(manifest));
+  for (const [path, bytes] of Object.entries(files)) putFile(root, `results/${id}/${path}`, bytes);
 }
 
+const cd = {
+  id: "CD",
+  label: "Cross-Dynamical (CD)",
+  row_labels: ["Fp1 <- Fp2", 'Odd, "label"'],
+  matrix: [],
+};
+
 test("csv_header_and_first_row", async () => {
-  const variant = {
-    id: "CD",
-    label: "Cross-Dynamical (CD)",
-    row_labels: ["Fp1 <- Fp2", 'Odd, "label"'],
-    matrix: [],
-    arrays: ["CD/q.npy"],
-  };
   // Two windows of two rows, window-major; a non-finite value is an empty field.
-  store("r", variant, { "CD/q.npy": npy([2, 2], [0.25, Number.NaN, -1e-7, 3]) }, [1.5, 1.7]);
+  const q = npy([2, 2], [0.25, Number.NaN, -1e-7, 3]);
+  store("r", { ...cd, arrays: ["CD/q.npy"] }, { "CD/q.npy": q }, [1.5, 1.7]);
   const lines = (await (await variantCsv("r", "CD")).text()).split("\n");
   expect(lines[0]).toBe('window_center_s,Fp1 <- Fp2,"Odd, ""label"""');
   expect(lines[1]).toBe("1.5,0.25,");
@@ -101,45 +56,79 @@ test("csv_header_and_first_row", async () => {
 });
 
 test("json_size_guard", async () => {
-  // A million windows of 40 rows is about 800 MB of JSON; only the header is stored, which is all the guard reads.
+  // A million windows of 40 rows is about 800 MB of text; only the header is stored, which is all the guards read.
   const variant = { id: "ST", label: "ST", row_labels: [], matrix: [], arrays: ["ST/q.npy"] };
   store("big", variant, { "ST/q.npy": npy([1_000_000, 40]) }, []);
-  await expect(documentJson("big")).rejects.toThrow(/Export the bundle instead/);
+  await expect(documentJson("big")).rejects.toThrow(/about 800 MB\. Export the bundle instead/);
+  await expect(variantCsv("big", "ST")).rejects.toThrow(/about 820 MB\. Export the bundle instead/);
 });
 
-const CLI = fileURLToPath(new URL("../../../dda-rs/target/release/ddalab", import.meta.url));
-const FIXTURES = fileURLToPath(new URL("../../../dda-rs/tests/fixtures/", import.meta.url));
+test("zip_holds_the_manifest_and_its_arrays_only", async () => {
+  const q = npy([2, 2], [1, 2, 3, 4]);
+  // The status file and the heatmap's caches share the folder; `ddalab run --bundle` writes neither.
+  const files = { "CD/q.npy": q, "CD/q.npy.pyramid.json": "{}", "CD/q.L0.f32": new Uint8Array(16) };
+  store("r", { ...cd, arrays: ["CD/q.npy"] }, files, [1.5, 1.7]);
+  const zip = new File([await new Response(await bundleZip("r")).blob()], "r.zip");
+  const entries = await unzip(zip);
+  expect([...entries.keys()].sort()).toEqual(["CD/q.npy", "manifest.json"]);
+  expect(new Uint8Array(await (entries.get("CD/q.npy") as Blob).arrayBuffer())).toEqual(q);
+});
 
-test.skipIf(!existsSync(CLI))("cli_document_imports_and_exports_unchanged", async () => {
-  const out = join(mkdtempSync(join(tmpdir(), "ddalab-doc-")), "doc.json");
-  execFileSync(
-    CLI,
-    [
-      "run",
-      "--file",
-      "fixture.vhdr",
-      ...[
-        "--channels",
-        "0",
-        "1",
-        "--variants",
-        "ST",
-        "CT",
-        "CD",
-        "--ct-pairs",
-        "0,1",
-        "--cd-pairs",
-        "0,1",
-        "1,0",
-      ],
-      ...["--start-sample", "500", "--end-sample", "2500", "--output", out, "--quiet"],
-    ],
-    { cwd: FIXTURES },
+// Only the live heap counts: a full collection runs before each sample.
+setFlagsFromString("--expose-gc");
+const collect = runInNewContext("gc") as () => void;
+const liveHeap = () => {
+  collect();
+  return process.memoryUsage().heapUsed;
+};
+
+/**
+ * The most live JS heap `task` held above the heap at its start, in MB, sampled as each Blob part is made: the moment
+ * a slice's text is at its largest.
+ */
+async function heapGrowthMb(task: () => Promise<unknown>) {
+  const base = liveHeap();
+  let peak = base;
+  const Original = globalThis.Blob;
+  vi.stubGlobal(
+    "Blob",
+    class extends Original {
+      constructor(parts?: BlobPart[], options?: BlobPropertyBag) {
+        super(parts, options);
+        peak = Math.max(peak, liveHeap());
+      }
+    },
   );
-  const text = readFileSync(out, "utf8");
-  const id = await importResult(new File([text], "doc.json", { type: "application/json" }));
-  const [record] = await listAnalyses();
-  expect(record).toMatchObject({ id, status: "complete", fileName: "fixture.vhdr" });
-  expect(record.manifest?.variants.map((v) => v.id)).toEqual(["ST", "CT", "CD"]);
-  expect(JSON.parse(await (await documentJson(id)).text())).toEqual(JSON.parse(text));
+  try {
+    await task();
+  } finally {
+    vi.stubGlobal("Blob", Original);
+  }
+  return (peak - base) / 1e6;
+}
+
+test("text_exports_hold_a_slice_on_the_heap", async () => {
+  // 100,000 windows of 64 rows: 51 MB of values, about 130 MB of text each way.
+  const [windows, rows] = [100_000, 64];
+  const values = Float64Array.from({ length: windows * rows }, (_, i) => Math.sin(i) * 1e-3);
+  const variant = {
+    ...cd,
+    row_labels: Array.from({ length: rows }, (_, r) => `CH${r}`),
+    arrays: ["CD/q.npy"],
+  };
+  const centers = Array.from({ length: windows }, (_, w) => w / 10);
+  store("large", variant, { "CD/q.npy": npy([windows, rows], values) }, centers);
+  let json: Blob | undefined;
+  let csv: Blob | undefined;
+  const jsonGrowth = await heapGrowthMb(async () => (json = await documentJson("large")));
+  const csvGrowth = await heapGrowthMb(async () => (csv = await variantCsv("large", "CD")));
+  const mb = (n: number) => (n / 1e6).toFixed(1);
+  console.log(
+    `live heap growth: JSON ${jsonGrowth.toFixed(1)} MB for ${mb(json?.size ?? 0)} MB of text, ` +
+      `CSV ${csvGrowth.toFixed(1)} MB for ${mb(csv?.size ?? 0)} MB`,
+  );
+  expect(json?.size).toBeGreaterThan(100e6);
+  expect(csv?.size).toBeGreaterThan(100e6);
+  expect(jsonGrowth).toBeLessThan(24);
+  expect(csvGrowth).toBeLessThan(24);
 });

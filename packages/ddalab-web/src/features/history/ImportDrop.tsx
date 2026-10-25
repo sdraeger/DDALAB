@@ -1,9 +1,10 @@
 // Importing a result the CLI wrote: a bundle zip, a bundle folder or a JSON document, picked or dropped here. Dropped
-// here it is a result; dropped anywhere else in the window it would be taken for a recording.
+// here it is a result; dropped anywhere else in the window it would be taken for a recording. The IO worker reads,
+// checks and stores it.
 import FileUp from "lucide-react/dist/esm/icons/file-up.mjs";
 import { type ChangeEvent, type DragEvent, useRef, useState } from "react";
 import { refreshAnalyses } from "../../app/analyses";
-import { importResult } from "../../core/exporters";
+import { engine } from "../../app/recordings";
 import { droppedFiles } from "../../core/sources";
 import { openResult } from "../../store/store";
 import controls from "../../styles/controls.module.css";
@@ -21,7 +22,12 @@ export default function ImportDrop() {
     setBusy(true);
     setError(null);
     try {
-      const id = await importResult(input);
+      // A folder's paths go along: a File sent to a worker loses its `webkitRelativePath`.
+      const id = await engine.importResult(
+        Array.isArray(input)
+          ? input.map((file) => ({ path: file.webkitRelativePath || file.name, file }))
+          : input,
+      );
       await refreshAnalyses();
       openResult(id);
     } catch (failure) {
@@ -56,7 +62,10 @@ export default function ImportDrop() {
       className={styles.import}
       data-over={over || undefined}
       onDragOver={dragOver}
-      onDragLeave={() => setOver(false)}
+      onDragLeave={(event) => {
+        // Entering a button inside also leaves the target.
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOver(false);
+      }}
       onDrop={drop}
     >
       <div className={rail.actions}>

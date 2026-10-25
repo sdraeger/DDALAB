@@ -4,11 +4,14 @@ import type { DDARequest } from "./types";
 /** A word as POSIX sh reads it: plain when it is only safe characters, else in single quotes. */
 const quote = (word: string) => (/^[\w./:=@%+,-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`);
 
-/** `name` and its values; nothing when there are none. */
+/** `name` and its values, quoted; nothing when there are none. */
 const flag = (name: string, values: (number | string | null | undefined)[] | null | undefined) => {
   const given = (values ?? []).filter((v) => v !== null && v !== undefined);
-  return given.length > 0 ? [name, ...given.map(String)] : [];
+  return given.length > 0 ? [name, ...given.map((v) => quote(String(v)))] : [];
 };
+
+/** `--name=value`: a value that starts with "-" stays a value. */
+const named = (name: string, value: string) => [`${name}=${quote(value)}`];
 
 /**
  * The command for `request` on the recording `fileName`. What the request leaves out (a text recording's rate, the
@@ -19,7 +22,7 @@ export function cliCommand(request: DDARequest, fileName: string): string {
   const { window_parameters: window, model_parameters: model, preprocessing_options: filters } = request;
   const pairs = (list: [number, number][] | undefined) => list?.map(([a, b]) => `${a},${b}`);
   const words = [
-    ...flag("--file", [fileName]),
+    ...named("--file", fileName),
     ...flag("--channels", request.channels),
     ...flag("--variants", request.algorithm_selection.enabled_variants),
     ...flag("--ct-pairs", pairs(request.ct_channel_pairs)),
@@ -38,7 +41,7 @@ export function cliCommand(request: DDARequest, fileName: string): string {
     ...flag("--sr", [request.sampling_rate]),
     ...flag("--start-sample", [request.time_range.start]),
     ...flag("--end-sample", [request.time_range.end]),
-    ...flag("--bundle", [`${fileName.replace(/\.[^.]*$/, "")}.dda`]),
+    ...named("--bundle", `${fileName.replace(/\.[^.]*$/, "")}.dda`),
   ];
-  return ["ddalab", "run", ...words.map(quote)].join(" ");
+  return ["ddalab", "run", ...words].join(" ");
 }

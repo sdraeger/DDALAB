@@ -12,11 +12,23 @@ import type { DDARequest } from "./types";
 
 const FIXTURES = fileURLToPath(new URL("../../../dda-rs/tests/fixtures/", import.meta.url));
 const CLI_DIR = fileURLToPath(new URL("../../../dda-rs/target/release/", import.meta.url));
-const BRAINVISION = ["fixture.vhdr", "fixture.eeg", "fixture.vmrk"];
+/** Skipped without the native binary, except in CI, which builds it first and must not skip. */
+const noCli = !existsSync(join(CLI_DIR, "ddalab")) && !process.env.CI;
+
+/**
+ * The BrainVision fixture with its header renamed to start with "-", which the CLI must read as a file name. The
+ * header names its data and marker files itself.
+ */
+const PRIMARY = "-fixture.vhdr";
+const BRAINVISION: [name: string, fixture: string][] = [
+  [PRIMARY, "fixture.vhdr"],
+  ["fixture.eeg", "fixture.eeg"],
+  ["fixture.vmrk", "fixture.vmrk"],
+];
 
 /** Every v1 variant on Fp1 and Fp2 from sample 500 to 2500, with the pairs the browser makes of two channels. */
 const request: DDARequest = {
-  file_path: "fixture.vhdr",
+  file_path: PRIMARY,
   channels: [0, 1],
   time_range: { start: 500, end: 2500 },
   preprocessing_options: { highpass: null, lowpass: null },
@@ -34,14 +46,14 @@ const request: DDARequest = {
 
 /** The bundle the browser writes for `request`: each array's bytes by path, and the manifest. */
 async function browserBundle() {
-  const files = BRAINVISION.map((name) => readFileSync(join(FIXTURES, name)));
+  const files = BRAINVISION.map(([, fixture]) => readFileSync(join(FIXTURES, fixture)));
   const wasm = new WebAssembly.Module(readFileSync(new URL("./ddalab.wasm", import.meta.url)));
   const core = await instantiateCore(wasm, (fileId, offset, dst) =>
     dst.set(files[fileId - 1].subarray(offset, offset + dst.length)),
   );
   const { handle, info } = core.open({
-    primary: "fixture.vhdr",
-    files: BRAINVISION.map((name, i) => ({ name, file_id: i + 1, len: files[i].length })),
+    primary: PRIMARY,
+    files: BRAINVISION.map(([name], i) => ({ name, file_id: i + 1, len: files[i].length })),
   });
   // One window per block: the most block seams.
   const plan = core.plan(handle, request, 0);
@@ -55,12 +67,11 @@ async function browserBundle() {
       arrays[array].set(new Uint8Array(bytes), offset);
     }
   }
-  const input_sha256 = Object.fromEntries(
-    info.input_files.map((name) => [
-      name,
-      createHash("sha256").update(files[BRAINVISION.indexOf(name)]).digest("hex"),
-    ]),
-  );
+  const sha256 = (name: string) =>
+    createHash("sha256")
+      .update(files[BRAINVISION.findIndex(([n]) => n === name)])
+      .digest("hex");
+  const input_sha256 = Object.fromEntries(info.input_files.map((name) => [name, sha256(name)]));
   const extras = {
     id: "browser",
     created_at_iso: "2026-10-25T00:00:00Z",
@@ -71,26 +82,27 @@ async function browserBundle() {
   return { arrays: plan.layout.arrays.map(({ path }, i) => [path, arrays[i]] as const), manifest };
 }
 
-test.skipIf(!existsSync(join(CLI_DIR, "ddalab")))("round_trips_through_cli", async () => {
-  const command = cliCommand(request, "fixture.vhdr");
+test.skipIf(noCli)("round_trips_through_cli", async () => {
+  const command = cliCommand(request, PRIMARY);
   expect(command).toBe(
-    "ddalab run --file fixture.vhdr --channels 0 1 --variants ST CT CD DE SY --ct-pairs 0,1 --cd-pairs 0,1 1,0 " +
+    "ddalab run --file=-fixture.vhdr --channels 0 1 --variants ST CT CD DE SY --ct-pairs 0,1 --cd-pairs 0,1 1,0 " +
       "--wl 200 --ws 100 --delays 7 10 --model 1 2 10 --dm 4 --order 4 --nr-tau 2 " +
-      "--start-sample 500 --end-sample 2500 --bundle fixture.dda",
+      "--start-sample 500 --end-sample 2500 --bundle=-fixture.dda",
   );
   const dir = mkdtempSync(join(tmpdir(), "ddalab-cli-"));
-  for (const name of BRAINVISION) copyFileSync(join(FIXTURES, name), join(dir, name));
+  for (const [name, fixture] of BRAINVISION) copyFileSync(join(FIXTURES, fixture), join(dir, name));
   execFileSync("sh", ["-c", command], {
     cwd: dir,
     env: { ...process.env, PATH: `${CLI_DIR}:${process.env.PATH}` },
     stdio: "pipe",
   });
 
+  const bundle = join(dir, "-fixture.dda");
   const browser = await browserBundle();
   for (const [path, bytes] of browser.arrays) {
-    expect(new Uint8Array(readFileSync(join(dir, "fixture.dda", path))), path).toEqual(bytes);
+    expect(new Uint8Array(readFileSync(join(bundle, path))), path).toEqual(bytes);
   }
-  const cli = JSON.parse(readFileSync(join(dir, "fixture.dda", "manifest.json"), "utf8"));
+  const cli = JSON.parse(readFileSync(join(bundle, "manifest.json"), "utf8"));
   // The id and the time are the run's own; this CLI build carries no DDALAB_GIT_COMMIT, the wasm build does.
   const own = { id: "", created_at_iso: "" };
   const commit = (manifest: typeof cli) => ({ ...manifest.reproduction, git_commit: null });
@@ -103,12 +115,12 @@ test.skipIf(!existsSync(join(CLI_DIR, "ddalab")))("round_trips_through_cli", asy
 
 test("quotes_names_with_spaces", () => {
   const command = cliCommand({ ...request, file_path: "it's a recording.edf" }, "it's a recording.edf");
-  expect(command).toContain(`--file 'it'\\''s a recording.edf'`);
-  expect(command).toContain(`--bundle 'it'\\''s a recording.dda'`);
-  // The shell reads each quoted name back as one word.
+  expect(command).toContain(`--file='it'\\''s a recording.edf'`);
+  expect(command).toContain(`--bundle='it'\\''s a recording.dda'`);
+  // The shell reads each quoted name back as part of one word.
   const words = execFileSync("sh", ["-c", command.replace(/^ddalab run/, "printf '%s\\n'")], {
     encoding: "utf8",
   }).split("\n");
-  expect(words[1]).toBe("it's a recording.edf");
-  expect(words.at(-2)).toBe("it's a recording.dda");
+  expect(words[0]).toBe("--file=it's a recording.edf");
+  expect(words.at(-2)).toBe("--bundle=it's a recording.dda");
 });
