@@ -9,6 +9,7 @@ use crate::error::{DDAError, Result};
 use crate::io::Reader;
 use crate::types::{CcdConditioningStrategy, DDARequest, DDAResult, TimeRange};
 use serde::Serialize;
+use std::collections::BTreeSet;
 
 /// Windows `w0..w1` of a request and the recording rows `row0..row1` they read.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -93,24 +94,52 @@ pub fn validate_request(request: &DDARequest, analysis_channels: usize) -> Resul
             "pure Rust DDA does not yet implement highpass/lowpass preprocessing".to_string(),
         ));
     }
-    let pairs = |pairs: &Option<Vec<[usize; 2]>>| -> Vec<usize> {
-        pairs.iter().flatten().flatten().copied().collect()
-    };
-    let mut channels: Vec<usize> = request.channels.iter().flatten().copied().collect();
-    channels.extend(pairs(&request.ct_channel_pairs));
-    channels.extend(pairs(&request.cd_channel_pairs));
-    for config in request.variant_configs.iter().flat_map(|c| c.values()) {
-        channels.extend(config.selected_channels.iter().flatten());
-        channels.extend(config.conditioning_channels.iter().flatten());
-        channels.extend(pairs(&config.ct_channel_pairs));
-        channels.extend(pairs(&config.cd_channel_pairs));
-    }
-    match channels.into_iter().find(|&c| c >= analysis_channels) {
+    let mut copy = request.clone();
+    let channels = channel_indices(&mut copy);
+    match channels.into_iter().find(|c| **c >= analysis_channels) {
         Some(c) => Err(DDAError::InvalidParameter(format!(
             "channel {c} is out of range for {analysis_channels} analysis channels"
         ))),
         None => Ok(()),
     }
+}
+
+/// Every channel index of `request`: `channels`, the CT and CD pairs, and each variant config's selected,
+/// conditioning, CT and CD channels.
+fn channel_indices(request: &mut DDARequest) -> Vec<&mut usize> {
+    fn pairs(pairs: &mut Option<Vec<[usize; 2]>>) -> impl Iterator<Item = &mut usize> {
+        pairs.iter_mut().flatten().flatten()
+    }
+    let mut indices: Vec<&mut usize> = request.channels.iter_mut().flatten().collect();
+    indices.extend(pairs(&mut request.ct_channel_pairs));
+    indices.extend(pairs(&mut request.cd_channel_pairs));
+    for config in request
+        .variant_configs
+        .iter_mut()
+        .flat_map(|c| c.values_mut())
+    {
+        indices.extend(config.selected_channels.iter_mut().flatten());
+        indices.extend(config.conditioning_channels.iter_mut().flatten());
+        indices.extend(pairs(&mut config.ct_channel_pairs));
+        indices.extend(pairs(&mut config.cd_channel_pairs));
+    }
+    indices
+}
+
+/// The analysis channels `request` reads, ascending, and the request with its channel indices counting in that
+/// list. A request without `channels` reads them all, as the engine then falls back to every channel.
+fn localize(request: &DDARequest, analysis_channels: usize) -> (Vec<usize>, DDARequest) {
+    let mut local = request.clone();
+    if request.channels.as_ref().is_none_or(Vec::is_empty) {
+        return ((0..analysis_channels).collect(), local);
+    }
+    let mut indices = channel_indices(&mut local);
+    let used: BTreeSet<usize> = indices.iter().map(|c| **c).collect();
+    let used: Vec<usize> = used.into_iter().collect();
+    for c in &mut indices {
+        **c = used.partition_point(|&u| u < **c);
+    }
+    (used, local)
 }
 
 /// Refuses requests with a variant that reads every window at once.
@@ -192,24 +221,28 @@ pub fn run_block(
             grid.windows
         )));
     }
-    let channels = info.analysis_channels();
-    let labels: Vec<String> = channels
+    let analysis = info.analysis_channels();
+    validate_request(request, analysis.len())?;
+    let labels: Vec<String> = analysis
         .iter()
         .map(|&c| info.channels[c].label.clone())
         .collect();
-    let rows = reader.read_rows(&channels, block.row0, (block.row1 - block.row0) as usize)?;
+    let (used, mut local) = localize(request, analysis.len());
+    let columns: Vec<usize> = used.iter().map(|&i| analysis[i]).collect();
+    let used_labels: Vec<String> = used.iter().map(|&i| labels[i].clone()).collect();
+    let rows = reader.read_rows(&columns, block.row0, (block.row1 - block.row0) as usize)?;
     let start = (grid.first_row(block.w0) - block.row0) as f64;
-    let mut local = request.clone();
     local.time_range = TimeRange {
         start,
         end: start + ((block.w1 - block.w0 - 1) as u64 * grid.step + grid.marker - 2) as f64,
     };
     let mut progress = progress;
-    let mut result = run_request_on_matrix_with_progress(&local, &rows, Some(&labels), |p| {
+    let mut result = run_request_on_matrix_with_progress(&local, &rows, Some(&used_labels), |p| {
         if let Some(callback) = progress.as_deref_mut() {
             callback(p);
         }
     })?;
+    result.channels = labels;
     let shift = |values: &mut Option<Vec<f64>>| {
         values
             .iter_mut()
