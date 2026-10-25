@@ -57,13 +57,11 @@ const VARIANTS = {
   CT: {
     mask: '0 1 0 0 0 0',
     args: ['--ct-pairs', '0,1', '0,2', '1,3'],
-    ct: [200, 100],
     pairs: { ct_channel_pairs: [[0, 1], [0, 2], [1, 3]] },
   },
   CD: {
     mask: '0 0 1 0 0 0',
     args: ['--cd-pairs', '0,1', '2,1', '3,0'],
-    ct: [200, 100],
     pairs: { cd_channel_pairs: [[0, 1], [2, 1], [3, 0]] },
   },
   DE: { mask: '0 0 0 0 1 0', args: ['--ct-wl', '2', '--ct-ws', '1'], ct: [2, 1] },

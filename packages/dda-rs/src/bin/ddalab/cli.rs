@@ -66,11 +66,11 @@ pub struct RunArgs {
     #[arg(long, default_value_t = dda_rs::DEFAULT_WINDOW_STEP)]
     pub ws: u32,
 
-    /// CT-specific window length
+    /// Channels per CT and DE group when no pairs are given (default: every selected channel)
     #[arg(long)]
     pub ct_wl: Option<u32>,
 
-    /// CT-specific window step
+    /// Channel stride between CT and DE groups (default: --ct-wl)
     #[arg(long)]
     pub ct_ws: Option<u32>,
 
@@ -277,11 +277,11 @@ pub struct BatchArgs {
     #[arg(long, default_value_t = dda_rs::DEFAULT_WINDOW_STEP)]
     pub ws: u32,
 
-    /// CT-specific window length
+    /// Channels per CT and DE group when no pairs are given (default: every selected channel)
     #[arg(long)]
     pub ct_wl: Option<u32>,
 
-    /// CT-specific window step
+    /// Channel stride between CT and DE groups (default: --ct-wl)
     #[arg(long)]
     pub ct_ws: Option<u32>,
 

@@ -531,8 +531,8 @@ mod tests {
         let request = build_test_request(&args, tmp.path().to_str().unwrap());
         let pairs = request.ct_channel_pairs.unwrap();
         assert_eq!(pairs, vec![[0, 1], [0, 2]]);
-        assert_eq!(request.window_parameters.ct_window_length, Some(200));
-        assert_eq!(request.window_parameters.ct_window_step, Some(100));
+        assert_eq!(request.window_parameters.ct_window_length, None);
+        assert_eq!(request.window_parameters.ct_window_step, None);
     }
 
     #[test]
