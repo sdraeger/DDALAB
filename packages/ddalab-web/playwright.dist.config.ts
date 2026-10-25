@@ -1,9 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// The built app (dist/, from `npm run build`) as a plain static host serves it: under a userdir path, by a server
-// that sends no special headers. DIST_URL runs the same tests against another host, such as an Apache with
-// public/.htaccess.
-const url = process.env.DIST_URL ?? "http://localhost:5175/~user/ddalab/";
+// The built app (dist/, from `npm run build`) on a static host: under a userdir path, with the Content-Security-Policy
+// of dist/.htaccess and no other special header. DIST_WASM_TYPE=application/octet-stream serves the wasm module
+// without its MIME type, as a host that ignores the .htaccess does. DIST_URL runs the same tests against another
+// host, such as an Apache with public/.htaccess.
+const url = process.env.DIST_URL ?? "http://127.0.0.1:5175/~user/ddalab/";
 
 export default defineConfig({
   testDir: "e2e-dist",
@@ -11,9 +12,7 @@ export default defineConfig({
   webServer: process.env.DIST_URL
     ? undefined
     : {
-        // .selfhost/~user/ddalab is a link to dist, so the server mounts the app at a path, not at the root.
-        command:
-          "mkdir -p .selfhost/~user && ln -sfn ../../dist .selfhost/~user/ddalab && python3 -m http.server 5175 --directory .selfhost",
+        command: "node scripts/serve-dist.mjs 5175 /~user/ddalab/",
         url,
         reuseExistingServer: false,
       },

@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,9 +27,9 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(dir, { recursive: true }));
 
-const run = () => {
+const run = (script = SCRIPT) => {
   try {
-    return { status: 0, out: execFileSync("node", [SCRIPT, dir], { encoding: "utf8", stdio: "pipe" }) };
+    return { status: 0, out: execFileSync("node", [script, dir], { encoding: "utf8", stdio: "pipe" }) };
   } catch (error) {
     return { status: error.status, out: error.stdout + error.stderr };
   }
@@ -64,4 +64,12 @@ test("over_the_limit_fails", () => {
 test("an_entry_without_scripts_fails", () => {
   writeFileSync(join(dir, "index.html"), "<!doctype html><div id=root></div>");
   expect(run().status).toBe(1);
+});
+
+// Started through a symlink (an npm bin link, a checkout reached by a link) the script must still run its check.
+test("a_symlinked_script_path_still_gates", () => {
+  const link = join(dir, "linked-check-bundle-size.mjs");
+  symlinkSync(SCRIPT, link);
+  writeFileSync(join(dir, "assets", "shared.js"), randomBytes(LIMIT_BYTES + 1000));
+  expect(run(link).status).toBe(1);
 });
