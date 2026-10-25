@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 use dda_rs::blocks::{
     block_of, check_block_support, merge_blocks, plan_blocks, run_block, validate_request, Block,
@@ -57,10 +58,11 @@ fn rossler(seed: u64, rows: usize) -> Vec<Vec<f64>> {
 }
 
 /// The fixture channels behind the `Reader` interface, with a status channel at recording index 2
-/// that is not an analysis channel.
+/// that is not an analysis channel. `reads` keeps the channels of each `read_rows`.
 struct Recording {
     info: RecordingInfo,
     rows: Vec<Vec<f64>>,
+    reads: Mutex<Vec<Vec<usize>>>,
 }
 
 impl Recording {
@@ -75,7 +77,7 @@ impl Recording {
             bids_status: None,
             bids_type: None,
         };
-        let mut channels: Vec<ChannelInfo> = (0..CHANNELS)
+        let mut channels: Vec<ChannelInfo> = (0..signals[0].len())
             .map(|c| channel(format!("s{c}"), ChannelKind::Signal))
             .collect();
         channels.insert(2, channel("status".into(), ChannelKind::Status));
@@ -99,7 +101,11 @@ impl Recording {
             warnings: vec![],
             input_files: vec![],
         };
-        Recording { info, rows }
+        Recording {
+            info,
+            rows,
+            reads: Mutex::default(),
+        }
     }
 }
 
@@ -109,6 +115,7 @@ impl Reader for Recording {
     }
 
     fn read_rows(&self, channels: &[usize], row0: u64, rows: usize) -> Result<Vec<Vec<f64>>> {
+        self.reads.lock().unwrap().push(channels.to_vec());
         let row0 = row0 as usize;
         Ok(self.rows[row0..row0 + rows]
             .iter()
@@ -383,6 +390,76 @@ fn blocks_equal_single_run() {
                 assert_results_bitwise(&what, &whole, &merged);
             }
         }
+    }
+}
+
+/// The `variants` requests on analysis channels 17, 3, 30 and 10 of 32, given out of order.
+fn four_of_32() -> Vec<(&'static str, DDARequest)> {
+    let pick = vec![17, 3, 30, 10];
+    variants()
+        .into_iter()
+        .map(|(name, mut request)| {
+            request.channels = Some(pick.clone());
+            if request.ct_channel_pairs.is_some() {
+                request.ct_channel_pairs = Some(vec![[17, 3], [30, 10], [3, 30]]);
+            }
+            if request.cd_channel_pairs.is_some() {
+                request.cd_channel_pairs = Some(vec![[3, 17], [10, 30], [17, 10]]);
+            }
+            for config in request
+                .variant_configs
+                .iter_mut()
+                .flat_map(|c| c.values_mut())
+            {
+                config.selected_channels = Some(pick.clone());
+                config.cd_channel_pairs = Some(vec![[3, 17], [10, 30]]);
+            }
+            (name, request)
+        })
+        .collect()
+}
+
+#[test]
+fn blocks_read_only_used_channels() {
+    // 32 channels: the Rössler channels of six seeds side by side, cut to 32.
+    let runs: Vec<_> = (0..6).map(|k| rossler(0x5EED_0010 + k, ROWS)).collect();
+    let signals: Vec<Vec<f64>> = (0..ROWS)
+        .map(|r| {
+            runs.iter()
+                .flat_map(|run| run[r].clone())
+                .take(32)
+                .collect()
+        })
+        .collect();
+    let labels: Vec<String> = (0..32).map(|c| format!("s{c}")).collect();
+    let recording = Recording::new(&signals);
+    // Analysis channels 3, 10, 17 and 30; the status channel sits at recording index 2.
+    let used = vec![4, 11, 18, 31];
+    for (variant, mut request) in four_of_32() {
+        request.time_range = TimeRange {
+            start: 1_234.0,
+            end: 4_321.0,
+        };
+        let whole = run_request_on_matrix(&request, &signals, Some(&labels)).unwrap();
+        let plan = plan_blocks(&request, ROWS as u64, 32, 0).unwrap();
+        recording.reads.lock().unwrap().clear();
+        let parts = plan
+            .iter()
+            .map(|block| run_block(&recording, &request, block, None))
+            .collect::<Result<Vec<_>>>()
+            .unwrap();
+        let reads = recording.reads.lock().unwrap().clone();
+        assert_eq!(reads.len(), plan.len(), "{variant}");
+        let other = reads.iter().find(|c| **c != used);
+        assert!(other.is_none(), "{variant} read {other:?}");
+        let merged = merge_blocks(parts).unwrap();
+        assert_results_bitwise(variant, &whole, &merged);
+        assert_eq!(merged.channels, whole.channels, "{variant}");
+        let labels = |r: &DDAResult| -> Vec<_> {
+            let variants = r.variant_results.iter().flatten();
+            variants.map(|v| v.channel_labels.clone()).collect()
+        };
+        assert_eq!(labels(&merged), labels(&whole), "{variant}");
     }
 }
 
