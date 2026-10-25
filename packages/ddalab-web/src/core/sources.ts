@@ -1,4 +1,6 @@
-// Where recording bytes come from: files the user chose and URLs, as synchronous reads for the IO worker.
+// Where recording bytes come from: files the user chose and URLs, as synchronous reads for the workers.
+import type { RecordingInput } from "./engine";
+import { readSynthetic, type SyntheticSpec, syntheticEdfSize } from "./synthetic";
 
 declare const FileReaderSync: new () => { readAsArrayBuffer(blob: Blob): ArrayBuffer };
 
@@ -117,3 +119,37 @@ export function readUrlSync(url: string, offset: number, dst: Uint8Array): void 
   }
   dst.set(new Uint8Array(request.response));
 }
+
+/** Where the bytes of one recording file come from. */
+export type Source = { file: Blob } | { url: string } | { spec: SyntheticSpec };
+export interface Part {
+  name: string;
+  size: number;
+  source: Source;
+}
+
+/** The files of `input` with their sources. */
+export function partsOf(input: RecordingInput): Part[] {
+  if (input.kind === "files")
+    return input.files.map((file) => ({ name: file.name, size: file.size, source: { file } }));
+  if (input.kind === "url")
+    return input.files.map(({ name, size, url }) => ({ name, size, source: { url } }));
+  if (!(import.meta.env.DEV || import.meta.env.MODE === "e2e")) {
+    throw new Error("Synthetic recordings are not available");
+  }
+  return [{ name: "synthetic.edf", size: syntheticEdfSize(input.spec), source: { spec: input.spec } }];
+}
+
+/** Fills `dst` from `offset` of `source`. */
+export function readSource(source: Source, offset: number, dst: Uint8Array): void {
+  if ("file" in source) readFileSync(source.file, offset, dst);
+  else if ("url" in source) readUrlSync(source.url, offset, dst);
+  else readSynthetic(source.spec, offset, dst);
+}
+
+// shortcut: remote files above 1 GiB get on-demand tiles only, revisit if remote viewing of large files matters.
+const REMOTE_SCAN_LIMIT = 2 ** 30;
+
+/** Whether the scan builds the overview of `input` and the hash worker reads it whole. */
+export const isScanned = (input: RecordingInput) =>
+  input.kind !== "url" || input.files.reduce((sum, { size }) => sum + size, 0) <= REMOTE_SCAN_LIMIT;

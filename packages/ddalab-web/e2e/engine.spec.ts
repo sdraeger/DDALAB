@@ -5,14 +5,6 @@ import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "@playwright/test";
 import { instantiateCore } from "../src/core/abi";
-import type { Engine } from "../src/core/engine";
-import type { useStore } from "../src/store/store";
-
-declare global {
-  interface Window {
-    __ddalab: { engine: Engine & { trap(): Promise<void> }; store: typeof useStore };
-  }
-}
 
 const EDF = fileURLToPath(new URL("../../dda-rs/tests/fixtures/fixture.edf", import.meta.url));
 const bytes = readFileSync(EDF);

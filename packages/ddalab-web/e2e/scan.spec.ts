@@ -1,0 +1,222 @@
+// The background scan: pyramid tiles in OPFS, resume after a reload, the quota message, hashes and annotations.
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+import { fileURLToPath } from "node:url";
+import { expect, type Page, test } from "@playwright/test";
+import { instantiateCore } from "../src/core/abi";
+import { pyramidBytes } from "../src/core/opfs";
+import type { ScanState } from "../src/core/protocol";
+import { readSynthetic, type SyntheticSpec, syntheticEdfSize } from "../src/core/synthetic";
+
+const SPEC = { channels: 64, rateHz: 128, durationS: 2 * 3600, seed: 11 };
+const ROWS = SPEC.rateHz * SPEC.durationS;
+const fixture = (name: string) =>
+  fileURLToPath(new URL(`../../dda-rs/tests/fixtures/${name}`, import.meta.url));
+
+// The tiles the Node core builds straight from the same bytes, by SHA-256.
+const wasm = new WebAssembly.Module(readFileSync(new URL("../src/core/ddalab.wasm", import.meta.url)));
+const references = new Map<string, ReturnType<typeof referenceFor>>();
+async function referenceFor(spec: SyntheticSpec) {
+  const core = await instantiateCore(wasm, (_, offset, dst) => readSynthetic(spec, offset, dst));
+  const opened = core.open({
+    primary: "synthetic.edf",
+    files: [{ name: "synthetic.edf", file_id: 1, len: syntheticEdfSize(spec) }],
+  });
+  return { core, handle: opened.handle };
+}
+async function expectedTile(level: number, index: number, spec = SPEC) {
+  const key = JSON.stringify(spec);
+  if (!references.has(key)) references.set(key, referenceFor(spec));
+  const { core, handle } = await (references.get(key) as ReturnType<typeof referenceFor>);
+  return createHash("sha256")
+    .update(new Uint8Array(core.rawTile(handle, level, index)))
+    .digest("hex");
+}
+
+const open = (page: Page) => page.evaluate((spec) => window.__ddalab.openSynthetic(spec), SPEC);
+const tileDigest = (page: Page, id: string, level: number, index: number) =>
+  page.evaluate(
+    async ([id, level, index]) => {
+      const tile = await window.__ddalab.engine.tile(id, level, index);
+      if (!tile) return null;
+      const digest = await crypto.subtle.digest("SHA-256", tile.bytes);
+      return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+    },
+    [id, level, index] as const,
+  );
+const scanOf = (page: Page, id: string) =>
+  page.evaluate((id) => window.__ddalab.store.getState().recordings[id].scan, id);
+
+// Playwright's WebKit has no OPFS (getDirectory throws UnknownError); Safari itself has.
+const hasStorage = (page: Page) =>
+  page.evaluate(() =>
+    navigator.storage.getDirectory().then(
+      () => true,
+      () => false,
+    ),
+  );
+const NO_STORAGE = "this browser window has no OPFS";
+
+/** Records the scanned rows of every store update from now on. */
+const watchProgress = (page: Page) =>
+  page.evaluate(() => {
+    const seen: number[] = [];
+    Object.assign(window, { seen });
+    window.__ddalab.store.subscribe((state) => {
+      for (const { scan } of Object.values(state.recordings)) seen.push(scan.scannedRows);
+    });
+  });
+const progress = (page: Page) => page.evaluate(() => (window as unknown as { seen: number[] }).seen);
+
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => Reflect.deleteProperty(window, "showOpenFilePicker"));
+  await page.goto("/");
+});
+
+test("scan_progress_and_resume", async ({ page }) => {
+  test.setTimeout(180_000);
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  await watchProgress(page);
+  const id = await open(page);
+  await expect(page.getByText("Overview 100%")).toBeVisible({ timeout: 120_000 });
+  const seen = await progress(page);
+  expect(new Set(seen).size).toBeGreaterThan(2);
+  expect(seen).toEqual([...seen].sort((a, b) => a - b));
+  expect(seen.at(-1)).toBe(ROWS);
+  // A full tile, a partial one and the top level, which only the sequential pass builds.
+  for (const [level, index] of [
+    [0, 0],
+    [1, 3],
+    [2, 0],
+  ]) {
+    expect(await tileDigest(page, id, level, index)).toBe(await expectedTile(level, index));
+  }
+
+  await page.reload();
+  await watchProgress(page);
+  const again = await open(page);
+  await expect(page.getByText("Overview 100%")).toBeVisible({ timeout: 1000 });
+  // The stored tiles are reused: the scan jumps from nothing to complete without a pass over the rows.
+  expect((await progress(page)).filter((rows) => rows > 0 && rows < ROWS)).toEqual([]);
+  // Level 2 spans the whole file, too much to build on demand: it comes from the stored tiles.
+  expect(await tileDigest(page, again, 2, 0)).toBe(await expectedTile(2, 0));
+});
+
+test("visible_tile_before_scan", async ({ page }) => {
+  test.setTimeout(120_000);
+  const id = await open(page);
+  expect(await tileDigest(page, id, 2, 0)).toBeNull();
+  // A fine tile is built from the file at once, long before the sequential pass reaches it.
+  expect(await tileDigest(page, id, 0, 12)).toBe(await expectedTile(0, 12));
+  expect((await scanOf(page, id)).scannedRows).toBeLessThan(ROWS);
+});
+
+test("quota_error_message", async ({ page }) => {
+  test.setTimeout(120_000);
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  // One full level 0 tile (262,176 bytes) fits; the next write fails.
+  await page.evaluate(() => window.__ddalab.engine.quota(300_000));
+  const id = await open(page);
+  const gb = (pyramidBytes(ROWS, SPEC.channels, "I16") / 1e9).toLocaleString("en", {
+    maximumSignificantDigits: 2,
+  });
+  await expect(page.getByRole("alert")).toContainText(`needs about ${gb} GB of browser storage`);
+  const scan = await scanOf(page, id);
+  expect(scan.scannedRows).toBeLessThan(ROWS);
+  expect(scan.error).toContain(`${gb} GB`);
+  expect(await tileDigest(page, id, 0, 0)).toBe(await expectedTile(0, 0));
+});
+
+// Where the window has no storage the inspector says so, nothing is scanned, and the plot still gets the tiles
+// built from the file.
+test("storage_unavailable_message", async ({ page }) => {
+  test.skip(await hasStorage(page), "this browser window has OPFS");
+  const id = await open(page);
+  await expect(page.getByText("Browser storage is not available in this window")).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect((await scanOf(page, id)).scannedRows).toBe(0);
+  expect(await tileDigest(page, id, 0, 12)).toBe(await expectedTile(0, 12));
+});
+
+test("hash_matches_cli", async ({ page }) => {
+  const names = ["fixture.vhdr", "fixture.eeg", "fixture.vmrk"];
+  await page.getByLabel("Recording files").setInputFiles(names.map(fixture));
+  await expect(page.getByRole("heading", { name: "fixture.vhdr" })).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const state = window.__ddalab.store.getState();
+        const hashes = state.recordings[state.activeRecordingId as string].scan.sha256 ?? {};
+        return Object.keys(hashes).sort();
+      }),
+    )
+    .toEqual([...names].sort());
+  const hashes = await page.evaluate(() => {
+    const state = window.__ddalab.store.getState();
+    return state.recordings[state.activeRecordingId as string].scan.sha256;
+  });
+  for (const name of names) {
+    const [expected] = execFileSync("shasum", ["-a", "256", fixture(name)], { encoding: "utf8" }).split(" ");
+    expect(hashes?.[name]).toBe(expected);
+  }
+});
+
+test("annotations_reach_the_store", async ({ page }) => {
+  await page.getByLabel("Recording files").setInputFiles(fixture("fixture.edf"));
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const state = window.__ddalab.store.getState();
+        return state.recordings[state.activeRecordingId as string]?.info.annotations.map((a) => a.label);
+      }),
+    )
+    .toEqual(["eyes closed", "spike"]);
+});
+
+// 10 h of 64 channels at 256 Hz is 1.2 GB, served by ranges as OpenNeuro's S3 would: above the 1 GiB the scan covers.
+test("remote_above_1_gib_builds_tiles_on_demand", async ({ page }) => {
+  const spec = { channels: 64, rateHz: 256, durationS: 10 * 3600, seed: 5 };
+  const size = syntheticEdfSize(spec);
+  expect(size).toBeGreaterThan(2 ** 30);
+  const server = createServer((req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Headers", "Range");
+    const range = /^bytes=(\d+)-(\d+)$/.exec(req.headers.range ?? "");
+    if (req.method === "OPTIONS") return void res.writeHead(204).end();
+    if (!range) return void res.writeHead(416).end();
+    const [from, to] = [Number(range[1]), Math.min(Number(range[2]), size - 1)];
+    const body = Buffer.alloc(to - from + 1);
+    readSynthetic(spec, from, body);
+    res
+      .writeHead(206, { "Content-Range": `bytes ${from}-${to}/${size}`, "Content-Length": body.length })
+      .end(body);
+  });
+  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  try {
+    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/synthetic.edf`;
+    const { id, scan } = await page.evaluate(
+      async (remote) => {
+        const { engine } = window.__ddalab;
+        const input = { kind: "url" as const, files: [remote], primary: remote.name };
+        const { id } = await engine.open(input);
+        await new Promise((done) => setTimeout(done, 500));
+        let scan: unknown;
+        engine.onScan(id, (state) => {
+          scan = state;
+        });
+        return { id, scan: scan as ScanState };
+      },
+      { name: "synthetic.edf", url, size },
+    );
+    expect(scan.notice).toContain("above 1 GiB");
+    expect(scan).toMatchObject({ scannedRows: 0, sha256: {} });
+    expect(await tileDigest(page, id, 1, 0)).toBe(await expectedTile(1, 0, spec));
+    // Too coarse to read from the file on demand.
+    expect(await tileDigest(page, id, 2, 0)).toBeNull();
+  } finally {
+    server.close();
+  }
+});

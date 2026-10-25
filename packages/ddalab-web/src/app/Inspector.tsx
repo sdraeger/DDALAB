@@ -12,7 +12,8 @@ export function Inspector() {
       </section>
     );
   }
-  const { info } = recording;
+  const { info, scan } = recording;
+  const percent = scan.totalRows === 0 ? 100 : Math.floor((100 * scan.scannedRows) / scan.totalRows);
   return (
     <section aria-label="Inspector">
       <h2>{info.input_files[0]}</h2>
@@ -24,6 +25,14 @@ export function Inspector() {
         <dt>Sample rate</dt>
         <dd>{info.sample_rate_hz} Hz</dd>
       </dl>
+      {scan.notice ? (
+        <p>{scan.notice}</p>
+      ) : (
+        <p>
+          Overview {percent}% <progress aria-label="Overview" max={100} value={percent} />
+        </p>
+      )}
+      {scan.error && <p role="alert">{scan.error}</p>}
       <ul aria-label="Channels">
         {info.channels
           .filter((channel) => channel.kind === "Signal")

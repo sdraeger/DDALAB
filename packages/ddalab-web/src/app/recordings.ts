@@ -1,10 +1,31 @@
 // Opening recordings: the app's engine, and what happens between a chosen file and an open recording.
 import { createEngine } from "../core/engine";
 import { buildFileSet } from "../core/sources";
+import type { SyntheticSpec } from "../core/synthetic";
 import { forgetRecent, listRecent, type RecentEntry, rememberRecent } from "../store/recent";
-import { addRecording, removeRecording, useStore } from "../store/store";
+import { addRecording, removeRecording, setAnnotations, setScan, useStore } from "../store/store";
 
 export const engine = createEngine();
+
+/** Brings what the engine learns about a recording after it opened into the store: its scan and its annotations. */
+function follow(id: string) {
+  engine.onScan(id, (scan) => setScan(id, scan));
+  engine
+    .annotations(id)
+    .catch((error: Error) => ({
+      annotations: [],
+      warnings: [`The annotations could not be read: ${error.message}`],
+    }))
+    .then((found) => setAnnotations(id, found));
+}
+
+/** Opens a synthetic recording like a chosen file; dev and e2e builds only. */
+export async function openSynthetic(spec: SyntheticSpec) {
+  const { id, info, fingerprint } = await engine.open({ kind: "synthetic", spec });
+  addRecording(id, { info, fingerprint, source: "synthetic" });
+  follow(id);
+  return id;
+}
 
 /** What the UI tells the user after an attempt to open. */
 export type Outcome =
@@ -47,6 +68,7 @@ export async function openFiles(
       primary: set.primary,
     });
     addRecording(id, { info, fingerprint, source: "files" });
+    follow(id);
     const handle = info.input_files.length === 1 ? options.handle : undefined;
     await rememberRecent({ fingerprint, primary: set.primary, names: info.input_files, handle }).catch(
       () => {},
