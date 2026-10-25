@@ -26,13 +26,13 @@ test("reopen_through_a_stored_handle", async ({ page }) => {
 
   await page.goto("/");
   await page.getByRole("button", { name: "Open files" }).click();
-  await expect(channels).toHaveText(["Fp1", "Fp2", "Resp"]);
+  await expect(channels).toHaveText(["Fp1", "Fp2"]);
 
   await page.reload();
   await expect(channels).toHaveCount(0);
   // No "Locate": the entry holds a handle.
   await expect(page.getByText("Select the file again to reopen it.")).toHaveCount(0);
   await page.getByRole("button", { name: "Reopen fixture.edf" }).click();
-  await expect(channels).toHaveText(["Fp1", "Fp2", "Resp"]);
+  await expect(channels).toHaveText(["Fp1", "Fp2"]);
   await expect(page.getByRole("alert")).toHaveCount(0);
 });

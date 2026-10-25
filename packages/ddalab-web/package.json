@@ -6,7 +6,7 @@
   "scripts": {
     "build:wasm": "node scripts/build-wasm.mjs",
     "dev": "npm run build:wasm && vite",
-    "build": "npm run build:wasm && tsc && vite build",
+    "build": "npm run build:wasm && tsc && vite build && node scripts/check-dist.mjs",
     "typecheck": "tsc",
     "check": "biome check .",
     "test": "npm run build:wasm && vitest run",

@@ -1,7 +1,7 @@
 // Recently opened recordings in IndexedDB. A FileSystemHandle lets a recording reopen without a picker, but only
 // browsers with showOpenFilePicker (Chromium) can persist one; elsewhere the entry keeps names and the fingerprint
 // and the user selects the file again.
-import { openDB } from "idb";
+import { type IDBPDatabase, openDB } from "idb";
 
 export interface RecentEntry {
   /** Identity of the recording; see `fingerprint.ts`. */
@@ -14,8 +14,22 @@ export interface RecentEntry {
 }
 
 const KEEP = 20;
+// One connection for the page. When another tab asks for a newer version this one closes (`blocking`) and that
+// tab's upgrade is not held up; the next call opens again, and fails if this code is older than the database.
+let connection: Promise<IDBPDatabase> | undefined;
 const database = () =>
-  openDB("ddalab", 1, { upgrade: (db) => void db.createObjectStore("recent", { keyPath: "fingerprint" }) });
+  (connection ??= openDB("ddalab", 1, {
+    upgrade(db, _old, _new, upgrading) {
+      db.createObjectStore("recent", { keyPath: "fingerprint" });
+      // idb wraps the upgrade transaction and rejects `done` if it aborts, as it does when the page closes mid-upgrade.
+      upgrading.done.catch(() => {});
+    },
+    blocking: () => void connection?.then((db) => db.close()).finally(() => (connection = undefined)),
+    terminated: () => (connection = undefined),
+  }).catch((error) => {
+    connection = undefined;
+    throw error;
+  }));
 
 /** Notes that `entry` was opened at `lastOpened`, replacing its earlier entry and dropping the oldest past 20. */
 export async function rememberRecent(

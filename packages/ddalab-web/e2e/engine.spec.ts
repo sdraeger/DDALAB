@@ -50,7 +50,7 @@ async function expectedRaw(rows: number) {
 const openFixture = async (page: Page) => {
   await page.goto("/");
   await page.getByLabel("Recording files").setInputFiles(EDF);
-  await expect(page.getByRole("list", { name: "Channels" }).getByRole("listitem")).toHaveCount(3);
+  await expect(page.getByRole("list", { name: "Channels" }).getByRole("listitem")).toHaveCount(2);
 };
 const raw = (page: Page, rows: number) =>
   page.evaluate(async (n) => {
@@ -95,6 +95,14 @@ test("url_source_matches_the_file", async ({ page }) => {
   expect(opened.local).toEqual(opened.remote);
   // The same bytes have the same fingerprint, from a file or from ranges of a URL.
   expect(opened.same).toBe(true);
+});
+
+// Playwright intercepts the worker's script request in Chromium; elsewhere the failure cannot be staged.
+test("a_worker_that_does_not_load_ends_in_a_clear_error", async ({ page, browserName }) => {
+  test.skip(browserName !== "chromium", "worker script requests are not interceptable here");
+  await page.route(/io\.worker/, (route) => route.abort());
+  await page.goto("/");
+  await expect(page.getByRole("status")).toHaveText(/^failed: The engine could not start/);
 });
 
 test("trap_recreates_the_worker", async ({ page }) => {

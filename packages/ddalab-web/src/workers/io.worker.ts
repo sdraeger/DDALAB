@@ -52,12 +52,6 @@ const recording = (id: string) => {
   return found;
 };
 
-// A module whose export runs `unreachable`, the instruction a Rust panic compiles to.
-// biome-ignore format: the bytes of a wasm module
-const UNREACHABLE = new Uint8Array([
-  0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2, 1, 0, 7, 8, 1, 4, 116, 114, 97, 112, 0, 0, 10, 5, 1, 3, 0, 0, 11,
-]);
-
 function startScan(id: string, input: RecordingInput, rec: Recording) {
   const { info } = rec;
   const emit = (state: ScanState) => {
@@ -120,6 +114,13 @@ async function open(id: string, input: RecordingInput): Promise<IoResults["open"
       used.map(({ name, size, source }) => fingerprintOf(name, size, slice(source))),
     );
     const fingerprint = await sha256Hex(prints.join("\n"));
+    // Tiles and hashes are kept per fingerprint: one engine recording per content.
+    const known = [...recordings].find(([, other]) => other.fingerprint === fingerprint)?.[0];
+    if (known !== undefined) {
+      (await core).close(handle);
+      for (const fileId of fileIds) sources.delete(fileId);
+      return { info, fingerprint, analysis_channels: opened.analysis_channels, duplicateOf: known };
+    }
     const rec: Recording = {
       handle,
       fileIds,
@@ -131,7 +132,7 @@ async function open(id: string, input: RecordingInput): Promise<IoResults["open"
     };
     recordings.set(id, rec);
     startScan(id, input, rec);
-    return { info, fingerprint };
+    return { info, fingerprint, analysis_channels: opened.analysis_channels };
   } catch (error) {
     if (handle !== undefined) (await core).close(handle);
     for (const fileId of fileIds) sources.delete(fileId);
@@ -178,10 +179,16 @@ async function handle(request: IoRequest): Promise<unknown> {
       return tile(request.id, request.level, request.index);
     case "annotations":
       return (await core).annotations(recording(request.id).handle);
-    case "trap":
+    case "trap": {
       if (!(import.meta.env.DEV || import.meta.env.MODE === "e2e")) throw new Error("unknown request");
-      (new WebAssembly.Instance(new WebAssembly.Module(UNREACHABLE)).exports.trap as () => void)();
+      // A module whose export runs `unreachable`, the instruction a Rust panic compiles to.
+      // biome-ignore format: the bytes of a wasm module
+      const bytes = new Uint8Array([
+        0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2, 1, 0, 7, 8, 1, 4, 116, 114, 97, 112, 0, 0, 10, 5, 1, 3, 0, 0, 11,
+      ]);
+      (new WebAssembly.Instance(new WebAssembly.Module(bytes)).exports.trap as () => void)();
       return;
+    }
     case "quota": {
       if (!(import.meta.env.DEV || import.meta.env.MODE === "e2e")) throw new Error("unknown request");
       let left = request.bytes;

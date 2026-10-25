@@ -3,7 +3,14 @@ import { createEngine } from "../core/engine";
 import { buildFileSet } from "../core/sources";
 import type { SyntheticSpec } from "../core/synthetic";
 import { forgetRecent, listRecent, type RecentEntry, rememberRecent } from "../store/recent";
-import { addRecording, removeRecording, setAnnotations, setScan, useStore } from "../store/store";
+import {
+  activateRecording,
+  addRecording,
+  removeRecording,
+  setAnnotations,
+  setScan,
+  useStore,
+} from "../store/store";
 
 export const engine = createEngine();
 
@@ -19,12 +26,19 @@ function follow(id: string) {
     .then((found) => setAnnotations(id, found));
 }
 
+/** Shows an opened recording: a new one joins the store; one that was already open becomes the active one. */
+function adopt(opened: Awaited<ReturnType<typeof engine.open>>, source: "files" | "url" | "synthetic") {
+  const { id, info, fingerprint, analysis_channels } = opened;
+  if (useStore.getState().recordings[id]) return activateRecording(id);
+  addRecording(id, { info, fingerprint, analysis_channels, source });
+  follow(id);
+}
+
 /** Opens a synthetic recording like a chosen file; dev and e2e builds only. */
 export async function openSynthetic(spec: SyntheticSpec) {
-  const { id, info, fingerprint } = await engine.open({ kind: "synthetic", spec });
-  addRecording(id, { info, fingerprint, source: "synthetic" });
-  follow(id);
-  return id;
+  const opened = await engine.open({ kind: "synthetic", spec });
+  adopt(opened, "synthetic");
+  return opened.id;
 }
 
 /** What the UI tells the user after an attempt to open. */
@@ -62,13 +76,9 @@ export async function openFiles(
   if ("error" in set) return { kind: "error", message: set.error, folder: false };
   if ("candidates" in set) return { kind: "choose", candidates: set.candidates };
   try {
-    const { id, info, fingerprint } = await engine.open({
-      kind: "files",
-      files: set.files,
-      primary: set.primary,
-    });
-    addRecording(id, { info, fingerprint, source: "files" });
-    follow(id);
+    const opened = await engine.open({ kind: "files", files: set.files, primary: set.primary });
+    adopt(opened, "files");
+    const { info, fingerprint } = opened;
     const handle = info.input_files.length === 1 ? options.handle : undefined;
     await rememberRecent({ fingerprint, primary: set.primary, names: info.input_files, handle }).catch(
       () => {},

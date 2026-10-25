@@ -6,6 +6,8 @@ import type { RecentEntry } from "./recent";
 
 export interface OpenRecording {
   info: RecordingInfo;
+  /** Indices into `info.channels` of the display channels, which raw rows and DDA requests index. */
+  analysis_channels: number[];
   fingerprint: string;
   scan: ScanState;
   source: "files" | "url" | "synthetic";
@@ -26,6 +28,11 @@ export function addRecording(id: string, recording: Omit<OpenRecording, "scan">)
     recordings: { ...s.recordings, [id]: { ...recording, scan } },
     activeRecordingId: id,
   }));
+}
+
+/** Makes an open recording the active one. */
+export function activateRecording(id: string) {
+  useStore.setState((s) => (s.recordings[id] ? { activeRecordingId: id } : s));
 }
 
 /** Drops a recording; the most recently added of the rest becomes the active one. */

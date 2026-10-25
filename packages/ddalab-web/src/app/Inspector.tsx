@@ -12,7 +12,12 @@ export function Inspector() {
       </section>
     );
   }
-  const { info, scan } = recording;
+  const { info, scan, analysis_channels } = recording;
+  // Signals at another rate than the display channels are not analyzed or displayed.
+  const analyzed = new Set(analysis_channels);
+  const others = info.channels.flatMap((channel, i) =>
+    channel.kind === "Signal" && !analyzed.has(i) ? [{ channel, i }] : [],
+  );
   const percent = scan.totalRows === 0 ? 100 : Math.floor((100 * scan.scannedRows) / scan.totalRows);
   return (
     <section aria-label="Inspector">
@@ -34,13 +39,22 @@ export function Inspector() {
       )}
       {scan.error && <p role="alert">{scan.error}</p>}
       <ul aria-label="Channels">
-        {info.channels
-          .filter((channel) => channel.kind === "Signal")
-          .map((channel, i) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: labels can repeat and the list never reorders
-            <li key={i}>{channel.label}</li>
-          ))}
+        {analysis_channels.map((index) => (
+          <li key={index}>{info.channels[index].label}</li>
+        ))}
       </ul>
+      {others.length > 0 && (
+        <>
+          <p>Not analyzed or displayed (another sample rate):</p>
+          <ul aria-label="Not analyzed">
+            {others.map(({ channel, i }) => (
+              <li key={i}>
+                {channel.label} ({channel.sample_rate_hz} Hz)
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       {info.warnings.length > 0 && (
         <ul aria-label="Warnings">
           {info.warnings.map((warning) => (

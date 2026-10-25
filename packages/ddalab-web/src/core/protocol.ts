@@ -33,7 +33,14 @@ export type IoRequest =
 
 export interface IoResults {
   version: EngineVersion;
-  open: { info: RecordingInfo; fingerprint: string };
+  open: {
+    info: RecordingInfo;
+    fingerprint: string;
+    /** Indices into `info.channels` of the display channels (the core's `analysis_channels`). */
+    analysis_channels: number[];
+    /** The id of the open recording with this fingerprint, when there is one: this open was dropped. */
+    duplicateOf?: string;
+  };
   close: undefined;
   raw: Float32Array;
   /** `null` while the scan has not reached the tile and reading it from the file would take too long. */
