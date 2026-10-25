@@ -118,10 +118,12 @@ jobs:
         with:
           name: web-bundle
 
-      # The desktop release workflow creates the same release; whichever runs first creates it.
+      # The release workflow creates the same release for the tag and can run at the same time. When it wins the race
+      # between this view and create, the create fails and the release exists: view it again before giving up.
       - name: Attach the bundle
         run: |
           if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release create "$GITHUB_REF_NAME" --title "DDALAB ${GITHUB_REF_NAME#v}" --generate-notes
+            gh release create "$GITHUB_REF_NAME" --title "DDALAB ${GITHUB_REF_NAME#v}" --generate-notes ||
+              { sleep 10; gh release view "$GITHUB_REF_NAME" >/dev/null; }
           fi
           gh release upload "$GITHUB_REF_NAME" ddalab-web-*.zip --clobber

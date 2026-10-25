@@ -4,7 +4,7 @@
 // A publish copies everything except index.html first, then index.html with --delete-delay. No page then points at a
 // file that is not there yet, and old files go last. A target that is not empty and lacks the .ddalab-web marker (the
 // build writes it into dist) belongs to another site: --publish refuses it unless --replace is given. After a
-// publish, HEAD requests check the headers the host sends (check-live.mjs); a mismatch exits non-zero.
+// publish, HEAD requests check the headers the host sends (check-live.mjs); a mismatch or no answer exits non-zero.
 // Usage: npm run deploy:snl [-- --publish [--replace]]
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -47,7 +47,7 @@ if (!publish) {
   const problems = await checkLive(SITE, `${root}dist`);
   for (const problem of problems) console.error(problem);
   if (problems.length > 0) {
-    console.error(`published ${SITE}, but the host does not send the headers of public/.htaccess`);
+    console.error(`published ${SITE}, but it fails the check of the headers of public/.htaccess`);
     process.exit(1);
   }
   console.log(`published ${SITE}; the host sends the headers of public/.htaccess`);

@@ -34,7 +34,7 @@ npm run deploy:snl -- --publish   # copies dist/ to node32:public_html/ddalab/, 
 npm run check:live                # the header check alone, against the site
 ```
 
-A publish copies everything except `index.html` first, then `index.html` with `--delete-delay`, which removes older files last. `--publish` refuses a target that is not empty and lacks the `.ddalab-web` marker (the build writes it into `dist/`), unless `--replace` is also given. The header check sends HEAD requests for `index.html`, the entry script and the wasm module, and exits non-zero when one lacks the MIME type, the single `Cache-Control` or the CSP of `public/.htaccess`.
+A publish copies everything except `index.html` first, then `index.html` with `--delete-delay`, which removes older files last. `--publish` refuses a target that is not empty and lacks the `.ddalab-web` marker (the build writes it into `dist/`), unless `--replace` is also given. The header check sends HEAD requests for the folder, `index.html`, the entry script, a style sheet and the wasm module, and exits non-zero when one gets no answer or lacks the MIME type, the single `Cache-Control` or the CSP of `public/.htaccess`.
 
 ### Content-Security-Policy
 
