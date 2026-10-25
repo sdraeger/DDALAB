@@ -4,9 +4,8 @@
     "fixtures_dir": "pool-bench",
     "output_dir": "pool-bench/out",
     "spare_cores": 1,
-    "max_case_seconds": 120,
+    "max_case_seconds": 1800,
     "window_length": 1000,
-    "window_step": 200,
     "delays": [
       7,
       10
@@ -21,6 +20,7 @@
         "variant": "ST",
         "channels": 32,
         "ct_pairs": [],
+        "window_step": 200,
         "budget_mb": 64,
         "cache_mb": 64
       },
@@ -30,6 +30,7 @@
         "variant": "ST",
         "channels": 128,
         "ct_pairs": [],
+        "window_step": 200,
         "budget_mb": 64,
         "cache_mb": 64
       },
@@ -39,6 +40,7 @@
         "variant": "CT",
         "channels": 16,
         "ct_pairs": "all",
+        "window_step": 200,
         "budget_mb": 64,
         "cache_mb": 64
       },
@@ -48,6 +50,7 @@
         "variant": "ST",
         "channels": 32,
         "ct_pairs": [],
+        "window_step": 200,
         "budget_mb": 16,
         "cache_mb": 64
       },
@@ -57,6 +60,7 @@
         "variant": "ST",
         "channels": 128,
         "ct_pairs": [],
+        "window_step": 200,
         "budget_mb": 16,
         "cache_mb": 64
       },
@@ -66,6 +70,7 @@
         "variant": "CT",
         "channels": 16,
         "ct_pairs": "all",
+        "window_step": 200,
         "budget_mb": 16,
         "cache_mb": 64
       },
@@ -75,6 +80,7 @@
         "variant": "ST",
         "channels": 32,
         "ct_pairs": [],
+        "window_step": 200,
         "budget_mb": 64,
         "cache_mb": 8
       },
@@ -84,6 +90,7 @@
         "variant": "ST",
         "channels": 128,
         "ct_pairs": [],
+        "window_step": 200,
         "budget_mb": 64,
         "cache_mb": 8
       },
@@ -93,6 +100,7 @@
         "variant": "CT",
         "channels": 16,
         "ct_pairs": "all",
+        "window_step": 200,
         "budget_mb": 64,
         "cache_mb": 8
       },
@@ -102,6 +110,7 @@
         "variant": "ST",
         "channels": 32,
         "ct_pairs": [],
+        "window_step": 200,
         "budget_mb": 16,
         "cache_mb": 8
       },
@@ -111,6 +120,7 @@
         "variant": "ST",
         "channels": 128,
         "ct_pairs": [],
+        "window_step": 200,
         "budget_mb": 16,
         "cache_mb": 8
       },
@@ -120,6 +130,27 @@
         "variant": "CT",
         "channels": 16,
         "ct_pairs": "all",
+        "window_step": 200,
+        "budget_mb": 16,
+        "cache_mb": 8
+      },
+      {
+        "name": "ST_4ch_WS1_16MiB_cache8",
+        "file": "large_16ch.edf",
+        "variant": "ST",
+        "channels": 4,
+        "ct_pairs": [],
+        "window_step": 1,
+        "budget_mb": 16,
+        "cache_mb": 8
+      },
+      {
+        "name": "CT_128ch_16MiB_cache8",
+        "file": "large_128ch.edf",
+        "variant": "CT",
+        "channels": 128,
+        "ct_pairs": "all",
+        "window_step": 200,
         "budget_mb": 16,
         "cache_mb": 8
       }
@@ -129,10 +160,10 @@
   "logical_cores": 18,
   "total_memory_gb": 24,
   "node_version": "v26.12.1",
-  "commit": "86b4e82ff96d79eb24f1f19ea9de819dcc5fe4a9",
+  "commit": "2fa0acd146ef6590f2e6a5f935afa4dc17fbe14b",
   "worktree_dirty": false,
-  "wasm_sha256": "c7c67d984334538b4a3749a34ee9e3917386e12db14815ba83248401976e8924",
-  "cli_sha256": "32e8c598bc08c0982dedd1117a97d92245d19eb3dc46b5821244e91792b955fd",
+  "wasm_sha256": "827c9b29ce3867bb31acf7e44d0921e184131ddfbb451b1fbc638e1da00e77c9",
+  "cli_sha256": "64be5d8879f6fd08019f78ff00a0031f682a77970c309f0f82833511cf78f8e8",
   "input_sha256": {
     "large_32ch.edf": "bf2f629bc6e7f5a9c087e22d95c24beabb9217da71c9e5441b5e781f0a1573ca",
     "large_128ch.edf": "0b9f775d4afbc17ccaa19b60e53b24df28207b92c8323ea4820e500b7f172b77",
