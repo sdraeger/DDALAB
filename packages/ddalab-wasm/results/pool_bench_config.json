@@ -1,8 +1,8 @@
 {
   "config_file": "pool-bench.config.json",
   "config": {
-    "fixtures_dir": "/private/tmp/claude-501/-Users-simon--claude-spares-spare-IbrYhW/b48c7e55-2fcf-4587-a109-f875976af92c/scratchpad/pool-bench",
-    "output_dir": "/private/tmp/claude-501/-Users-simon--claude-spares-spare-IbrYhW/b48c7e55-2fcf-4587-a109-f875976af92c/scratchpad/pool-bench/out",
+    "fixtures_dir": "pool-bench",
+    "output_dir": "pool-bench/out",
     "spare_cores": 1,
     "max_case_seconds": 120,
     "window_length": 1000,
@@ -129,10 +129,10 @@
   "logical_cores": 18,
   "total_memory_gb": 24,
   "node_version": "v26.12.1",
-  "commit": "3c9c64388a58790235e97c71744ba679660470ac",
-  "worktree_dirty": true,
-  "wasm_sha256": "8f3e65550cdb885231441d1fcb9464345b4a4efce03bcf0a98ee3fb494b4047f",
-  "cli_sha256": "e3b0b868d077a3fc95b67c4118ed4121c94aed56559040924885dc9e725aad65",
+  "commit": "dd6c9251f9e1f69559becab0afb82590cceb38f2",
+  "worktree_dirty": false,
+  "wasm_sha256": "fd7f07c370fd25d20ab141bd2641c2e21cddab209eb583b36a8c7b7e8ba49391",
+  "cli_sha256": "69e2d6ab0d2467f7673d092f3d2f026e9a1e6cf71f1f78379862918e01dd99f8",
   "input_sha256": {
     "large_32ch.edf": "bf2f629bc6e7f5a9c087e22d95c24beabb9217da71c9e5441b5e781f0a1573ca",
     "large_128ch.edf": "0b9f775d4afbc17ccaa19b60e53b24df28207b92c8323ea4820e500b7f172b77",
