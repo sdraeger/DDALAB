@@ -1,0 +1,93 @@
+/*
+ * Design tokens of the DDALAB workbench (direction contract: .impeccable/surfaces/packages-ddalab-web-src-app-app-tsx.md).
+ * Every colour role holds its light and its dark value in one light-dark() pair. The theme follows the system
+ * (`color-scheme: light dark`) until the user picks one, which theme.ts sets as `data-theme` on <html>.
+ * The dark values are for dim reading rooms: no pure black, ink and marks at AA contrast on their grounds.
+ */
+:root {
+  color-scheme: light dark;
+
+  /* Surfaces: the white trace area, the gray chrome around it and the hairlines between them. */
+  --ground: light-dark(#ffffff, #15191c);
+  --chrome: light-dark(#f1f3f5, #1d2226);
+  --chrome-hover: light-dark(#e6e9ec, #262c31);
+  --hairline: light-dark(#dee2e6, #313940);
+  --grid: light-dark(#eceff2, #22282d);
+
+  /* Text and marks. */
+  --ink: light-dark(#1e2a33, #dde3e8);
+  --muted: light-dark(#56636e, #98a4ae);
+  --trace: light-dark(#000000, #d3dae0);
+
+  /* One accent: primary actions, selection, the view outline and focus. */
+  --primary: light-dark(#2f6a9e, #79aedf);
+  --primary-ink: light-dark(#ffffff, #0f1b26);
+  --primary-wash: light-dark(rgb(47 106 158 / 0.1), rgb(121 174 223 / 0.16));
+  --focus: light-dark(#2f6a9e, #8fbdea);
+
+  /* Events and errors. */
+  --event: light-dark(#b4372b, #e5806f);
+  --event-ink: light-dark(#ffffff, #24100c);
+
+  /* Electrode-group tints, light and used only in marks; groups past the eighth repeat the family. */
+  --group-1: light-dark(#9fc7b4, #5e8f78);
+  --group-2: light-dark(#a9c4e2, #6a89ae);
+  --group-3: light-dark(#e6c79a, #a88a58);
+  --group-4: light-dark(#d7b5cb, #9a7690);
+  --group-5: light-dark(#c6c0e4, #8580ae);
+  --group-6: light-dark(#a7d1d3, #5f9396);
+  --group-7: light-dark(#d8cf9c, #9a9061);
+  --group-8: light-dark(#e4b7a5, #a57a68);
+
+  /* Heatmap colour-bar endpoints: Crameri batlow (sequential) and vik (diverging, centred at zero). */
+  --batlow-low: #011959;
+  --batlow-high: #faccfa;
+  --vik-low: #001261;
+  --vik-mid: #ece5e0;
+  --vik-high: #590008;
+
+  /* Type: the system UI stack; two sizes in dense panes, then section and workspace titles. */
+  --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --text-small: 12px;
+  --text-body: 13px;
+  --text-section: 15px;
+  --text-title: 17px;
+  --leading-small: 16px;
+  --leading-body: 18px;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-strong: 600;
+  --numerals: tabular-nums;
+
+  /* Spacing on a 4 px unit. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+
+  --radius-small: 3px;
+  --radius: 5px;
+  --hairline-width: 1px;
+
+  /* Motion: short ease-out moments for disclosure and state changes only. */
+  --motion-fast: 150ms;
+  --motion: 200ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion: 0ms;
+  }
+}
