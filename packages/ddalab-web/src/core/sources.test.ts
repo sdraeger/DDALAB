@@ -1,5 +1,5 @@
-import { expect, test } from "vitest";
-import { buildFileSet, type FileSet, isScanned } from "./sources";
+import { afterEach, expect, test, vi } from "vitest";
+import { buildFileSet, type FileSet, isScanned, readUrlSync } from "./sources";
 
 /** A file; `path` is what `<input webkitdirectory>` reports as `webkitRelativePath`. */
 function file(path: string): File {
@@ -68,4 +68,52 @@ test("remote_files_above_1_gib_are_not_scanned", () => {
   expect(isScanned(url(2 ** 30))).toBe(true);
   expect(isScanned(url(2 ** 30, 1))).toBe(false);
   expect(isScanned({ kind: "files", files: [], primary: "a.edf" })).toBe(true);
+});
+
+/** Answers every synchronous GET with `status` and `body`, as a server would to a ranged request. */
+function answer(status: number, body: Uint8Array) {
+  vi.stubGlobal(
+    "XMLHttpRequest",
+    class {
+      status = status;
+      response = body.buffer;
+      open() {}
+      setRequestHeader() {}
+      send() {}
+    },
+  );
+}
+afterEach(() => vi.unstubAllGlobals());
+const bytes = (n: number) => Uint8Array.from({ length: n }, (_, i) => i % 251);
+const SIDECAR = "https://openneuro.org/crn/datasets/ds003029/objects/9f94?filename=run-01_events.tsv";
+
+test("url_read_takes_a_small_file_sent_whole", () => {
+  // OpenNeuro's object store ignores Range and sends a sidecar whole.
+  answer(200, bytes(885));
+  const dst = new Uint8Array(5);
+  readUrlSync(SIDECAR, 885, 10, dst);
+  expect(Array.from(dst)).toEqual([10, 11, 12, 13, 14]);
+});
+
+test("url_read_refuses_a_data_file_sent_whole", () => {
+  answer(200, bytes(16));
+  const eeg = "https://openneuro.org/crn/datasets/ds003029/objects/a1b2?filename=run-01_ieeg.eeg";
+  expect(() => readUrlSync(eeg, 105479360, 0, new Uint8Array(4))).toThrow(
+    `openneuro.org ignores Range requests: ${eeg} is above 4 MiB and would download whole at every read`,
+  );
+});
+
+test("url_read_refuses_a_whole_answer_of_another_size", () => {
+  // A portal or proxy page in place of the file.
+  answer(200, bytes(3000));
+  expect(() => readUrlSync(SIDECAR, 885, 0, new Uint8Array(4))).toThrow(
+    `${SIDECAR}: asked for 4 bytes at 0, got status 200 with 3000 bytes`,
+  );
+});
+
+test("url_read_takes_a_range", () => {
+  answer(206, bytes(4));
+  const dst = new Uint8Array(4);
+  readUrlSync("https://s3.amazonaws.com/openneuro.org/ds003029/run-01_ieeg.eeg", 105479360, 4096, dst);
+  expect(Array.from(dst)).toEqual([0, 1, 2, 3]);
 });

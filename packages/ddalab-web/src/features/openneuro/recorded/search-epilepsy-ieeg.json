@@ -1,0 +1,195 @@
+{
+  "data": {
+    "advancedSearch": {
+      "edges": [
+        {
+          "node": {
+            "id": "ds004100",
+            "latestSnapshot": {
+              "tag": "1.1.3",
+              "description": {
+                "Name": "HUP iEEG Epilepsy Dataset"
+              },
+              "summary": {
+                "modalities": ["ieeg"],
+                "subjects": [
+                  "HUP060",
+                  "HUP064",
+                  "HUP065",
+                  "HUP070",
+                  "HUP074",
+                  "HUP075",
+                  "HUP080",
+                  "HUP082",
+                  "HUP086",
+                  "HUP087",
+                  "HUP088",
+                  "HUP089",
+                  "HUP094",
+                  "HUP097",
+                  "HUP105",
+                  "HUP106",
+                  "HUP107",
+                  "HUP111",
+                  "HUP112",
+                  "HUP114",
+                  "HUP116",
+                  "HUP117",
+                  "HUP123",
+                  "HUP126",
+                  "HUP130",
+                  "HUP133",
+                  "HUP134",
+                  "HUP135",
+                  "HUP138",
+                  "HUP139",
+                  "HUP140",
+                  "HUP141",
+                  "HUP142",
+                  "HUP144",
+                  "HUP146",
+                  "HUP148",
+                  "HUP150",
+                  "HUP151",
+                  "HUP157",
+                  "HUP158",
+                  "HUP160",
+                  "HUP162",
+                  "HUP163",
+                  "HUP164",
+                  "HUP165",
+                  "HUP166",
+                  "HUP171",
+                  "HUP172",
+                  "HUP173",
+                  "HUP177",
+                  "HUP179",
+                  "HUP180",
+                  "HUP181",
+                  "HUP185",
+                  "HUP187",
+                  "HUP188",
+                  "HUP190"
+                ],
+                "size": 14196260504
+              }
+            }
+          }
+        },
+        {
+          "node": {
+            "id": "ds003029",
+            "latestSnapshot": {
+              "tag": "1.0.7",
+              "description": {
+                "Name": "Epilepsy-iEEG-Multicenter-Dataset"
+              },
+              "summary": {
+                "modalities": ["ieeg"],
+                "subjects": [
+                  "jh101",
+                  "jh102",
+                  "jh103",
+                  "jh104",
+                  "jh105",
+                  "jh106",
+                  "jh108",
+                  "pt01",
+                  "pt10",
+                  "pt11",
+                  "pt12",
+                  "pt13",
+                  "pt14",
+                  "pt15",
+                  "pt16",
+                  "pt17",
+                  "pt2",
+                  "pt3",
+                  "pt6",
+                  "pt7",
+                  "pt8",
+                  "umf001",
+                  "umf002",
+                  "umf003",
+                  "umf004",
+                  "umf005",
+                  "ummc001",
+                  "ummc002",
+                  "ummc003",
+                  "ummc004",
+                  "ummc005",
+                  "ummc006",
+                  "ummc007",
+                  "ummc008",
+                  "ummc009"
+                ],
+                "size": 11083752416
+              }
+            }
+          }
+        },
+        {
+          "node": {
+            "id": "ds003876",
+            "latestSnapshot": {
+              "tag": "1.0.2",
+              "description": {
+                "Name": "Epilepsy-iEEG-Interictal-Multicenter-Dataset"
+              },
+              "summary": {
+                "modalities": ["ieeg"],
+                "subjects": [
+                  "NIH1",
+                  "NIH10",
+                  "NIH11",
+                  "NIH2",
+                  "NIH3",
+                  "NIH4",
+                  "NIH5",
+                  "NIH6",
+                  "NIH7",
+                  "NIH8",
+                  "NIH9",
+                  "PY18N002",
+                  "PY18N007",
+                  "PY18N013",
+                  "PY18N015",
+                  "PY19N012",
+                  "PY19N015",
+                  "PY19N023",
+                  "PY19N026",
+                  "jh103",
+                  "jh105",
+                  "pt1",
+                  "pt2",
+                  "pt3",
+                  "rns002",
+                  "rns003",
+                  "rns004",
+                  "rns005",
+                  "rns006",
+                  "rns009",
+                  "rns011",
+                  "rns013",
+                  "rns014",
+                  "rns015",
+                  "umf001",
+                  "umf002",
+                  "umf003",
+                  "umf004",
+                  "umf005"
+                ],
+                "size": 5368598177
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "extensions": {
+    "openneuro": {
+      "version": "5.10.1"
+    }
+  }
+}

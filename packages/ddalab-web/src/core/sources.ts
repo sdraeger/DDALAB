@@ -107,22 +107,39 @@ export function readFileSync(file: Blob, offset: number, dst: Uint8Array): void 
   dst.set(bytes);
 }
 
-/** Fills `dst` from `offset` of the resource at `url` with a ranged GET; the server must honor `Range`. */
-export function readUrlSync(url: string, offset: number, dst: Uint8Array): void {
+/** The largest file a server that ignores Range may send whole: one block of the core's cache, fetched once. */
+const WHOLE_FILE_LIMIT = 4 * 2 ** 20;
+
+/**
+ * Fills `dst` from `offset` of the file of `size` bytes at `url` with a ranged GET. A server that ignores Range
+ * answers 200 with the whole file, which is taken for files up to 4 MiB (OpenNeuro's object store sends its small
+ * unannexed sidecars whole) and refused above, where every read would download the whole file.
+ */
+export function readUrlSync(url: string, size: number, offset: number, dst: Uint8Array): void {
   if (dst.length === 0) return;
   const request = new XMLHttpRequest();
   request.open("GET", url, false);
   request.responseType = "arraybuffer";
   request.setRequestHeader("Range", `bytes=${offset}-${offset + dst.length - 1}`);
   request.send();
-  if (request.status !== 206 || request.response.byteLength !== dst.length) {
-    throw new Error(`${url}: asked for ${dst.length} bytes at ${offset}, got status ${request.status}`);
+  if (request.status === 200 && size > WHOLE_FILE_LIMIT) {
+    throw new Error(
+      `${new URL(url).host} ignores Range requests: ${url} is above 4 MiB and would download whole at every read`,
+    );
   }
-  dst.set(new Uint8Array(request.response));
+  const body = new Uint8Array(request.response);
+  const whole = request.status === 200 && body.length === size;
+  const part = whole ? body.subarray(offset, offset + dst.length) : body;
+  if (!(whole || request.status === 206) || part.length !== dst.length) {
+    throw new Error(
+      `${url}: asked for ${dst.length} bytes at ${offset}, got status ${request.status} with ${body.length} bytes`,
+    );
+  }
+  dst.set(part);
 }
 
 /** Where the bytes of one recording file come from. */
-export type Source = { file: Blob } | { url: string } | { spec: SyntheticSpec };
+export type Source = { file: Blob } | { url: string; size: number } | { spec: SyntheticSpec };
 export interface Part {
   name: string;
   size: number;
@@ -134,7 +151,7 @@ export function partsOf(input: RecordingInput): Part[] {
   if (input.kind === "files")
     return input.files.map((file) => ({ name: file.name, size: file.size, source: { file } }));
   if (input.kind === "url")
-    return input.files.map(({ name, size, url }) => ({ name, size, source: { url } }));
+    return input.files.map(({ name, size, url }) => ({ name, size, source: { url, size } }));
   if (!(import.meta.env.DEV || import.meta.env.MODE === "e2e")) {
     throw new Error("Synthetic recordings are not available");
   }
@@ -150,7 +167,7 @@ export const openRequestOf = (input: RecordingInput, parts: Part[], fileIds: num
 /** Fills `dst` from `offset` of `source`. */
 export function readSource(source: Source, offset: number, dst: Uint8Array): void {
   if ("file" in source) readFileSync(source.file, offset, dst);
-  else if ("url" in source) readUrlSync(source.url, offset, dst);
+  else if ("url" in source) readUrlSync(source.url, source.size, offset, dst);
   else if (import.meta.env.DEV || import.meta.env.MODE === "e2e") readSynthetic(source.spec, offset, dst);
   else throw new Error("Synthetic recordings are not available");
 }

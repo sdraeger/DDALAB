@@ -1,7 +1,8 @@
-// The library rail: opening recordings (picker, folder, drop anywhere in the window), the open ones, the recent ones.
+// The library rail: opening recordings (picker, folder, drop anywhere in the window), the open ones, the recent ones,
+// OpenNeuro and the history.
 import FilePlus from "lucide-react/dist/esm/icons/file-plus.mjs";
 import FolderOpen from "lucide-react/dist/esm/icons/folder-open.mjs";
-import { type ChangeEvent, Suspense, use, useEffect, useEffectEvent, useRef, useState } from "react";
+import { type ChangeEvent, lazy, Suspense, use, useEffect, useEffectEvent, useRef, useState } from "react";
 import {
   canPickFiles,
   engine,
@@ -17,6 +18,18 @@ import type { RecentEntry } from "../../store/recent";
 import { activateRecording, useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
 import styles from "./LibraryRail.module.css";
+
+// A chunk that does not load (offline after a deploy) leaves a note: without the catch it would unmount the app.
+const OpenNeuroPanel = lazy(() =>
+  import("../openneuro/OpenNeuroPanel").then(
+    (module) => ({ default: module.OpenNeuroPanel }),
+    () => ({ default: OpenNeuroMissing }),
+  ),
+);
+
+function OpenNeuroMissing() {
+  return <p className={styles.hint}>OpenNeuro search did not load. Reload the page to use it.</p>;
+}
 
 const version = engine.version().then(
   (v) => v.engine_version,
@@ -127,6 +140,9 @@ export function LibraryRail() {
       </section>
       <OpenRecordings />
       <Recent entries={recent} onOpen={open} />
+      <Suspense>
+        <OpenNeuroPanel />
+      </Suspense>
       <History />
       <p className={styles.footer}>
         Engine{" "}
