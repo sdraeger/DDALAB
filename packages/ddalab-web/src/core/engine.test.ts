@@ -9,6 +9,8 @@ type OpenMessage = Extract<Message, { type: "open" }>;
 class FakeWorker {
   /** The IO workers created so far, in order. */
   static io: FakeWorker[] = [];
+  /** The annotation workers created so far, in order. */
+  static annotators: FakeWorker[] = [];
   /** Decides what a new worker does; runs before the engine attaches its handlers. */
   static onCreate: (worker: FakeWorker) => void = () => {};
   /** Decides what a worker answers to a message. */
@@ -23,6 +25,7 @@ class FakeWorker {
 
   constructor(url: URL) {
     if (url.pathname.includes("io.worker")) FakeWorker.io.push(this);
+    if (url.pathname.includes("annotations.worker")) FakeWorker.annotators.push(this);
     FakeWorker.onCreate(this);
   }
   postMessage(message: Message) {
@@ -67,6 +70,7 @@ const healthy = (worker: FakeWorker, message: Message) => {
 
 beforeEach(() => {
   FakeWorker.io = [];
+  FakeWorker.annotators = [];
   FakeWorker.onCreate = () => {};
   FakeWorker.onMessage = healthy;
   vi.stubGlobal("Worker", FakeWorker);
@@ -182,4 +186,51 @@ test("opening_a_recording_that_is_open_returns_its_id", async () => {
 test("open_carries_the_analysis_channels", async () => {
   const engine = createEngine();
   expect((await engine.open(input("a.edf"))).analysis_channels).toEqual([0, 1]);
+});
+
+test("annotations_are_read_by_a_worker_of_their_own", async () => {
+  const engine = createEngine();
+  const { id } = await engine.open(input("a.edf"));
+  const found = { annotations: [{ onset_s: 1, duration_s: 0, label: "spike", source: "x" }], warnings: [] };
+  FakeWorker.onMessage = (worker, message) => {
+    if (FakeWorker.annotators.includes(worker)) worker.ok(message, found);
+    else healthy(worker, message);
+  };
+  expect(await engine.annotations(id)).toEqual(found);
+  expect(FakeWorker.annotators).toHaveLength(1);
+  // The recording is opened by that worker from the same input; the IO worker is asked nothing.
+  expect(FakeWorker.annotators[0].received).toMatchObject([{ input: { primary: "a.edf" } }]);
+  expect(FakeWorker.io[0].received.map((m) => m.type)).toEqual(["open"]);
+});
+
+test("a_trapped_annotation_reader_is_replaced", async () => {
+  const engine = createEngine();
+  const { id } = await engine.open(input("a.edf"));
+  FakeWorker.onMessage = (worker, message) => {
+    if (worker === FakeWorker.annotators[0]) worker.trap(message);
+    else if (FakeWorker.annotators.includes(worker)) worker.ok(message, { annotations: [], warnings: [] });
+    else healthy(worker, message);
+  };
+  await expect(engine.annotations(id)).rejects.toThrow("unreachable");
+  expect(await engine.annotations(id)).toEqual({ annotations: [], warnings: [] });
+  expect(FakeWorker.annotators).toHaveLength(2);
+  expect(FakeWorker.annotators[0].terminated).toBe(true);
+});
+
+test("remote_recordings_above_1_gib_are_not_read_for_annotations", async () => {
+  const engine = createEngine();
+  FakeWorker.onMessage = (worker, message) => {
+    if (message.type === "open") {
+      worker.ok(message, { info: info("big.edf"), fingerprint: "print-big", analysis_channels: [0] });
+    } else healthy(worker, message);
+  };
+  const { id } = await engine.open({
+    kind: "url",
+    primary: "big.edf",
+    files: [{ name: "big.edf", url: "https://example.org/big.edf", size: 2 ** 30 + 1 }],
+  });
+  const found = await engine.annotations(id);
+  expect(found.annotations).toEqual([]);
+  expect(found.warnings[0]).toContain("above 1 GiB");
+  expect(FakeWorker.annotators).toHaveLength(0);
 });

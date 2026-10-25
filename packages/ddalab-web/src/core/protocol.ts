@@ -26,7 +26,6 @@ export type IoRequest =
   | { type: "close"; id: string }
   | { type: "raw"; id: string; row0: number; rows: number }
   | { type: "tile"; id: string; level: number; index: number }
-  | { type: "annotations"; id: string }
   // Dev and e2e builds only:
   | { type: "trap" } // raises the error a Rust panic raises
   | { type: "quota"; bytes: number }; // the storage fills up after this many more bytes of writes
@@ -45,7 +44,6 @@ export interface IoResults {
   raw: Float32Array;
   /** `null` while the scan has not reached the tile and reading it from the file would take too long. */
   tile: Tile | null;
-  annotations: { annotations: Annotation[]; warnings: string[] };
   trap: undefined;
   quota: undefined;
 }
@@ -64,7 +62,20 @@ export interface IoEvent {
 
 /** Asks the hash worker for the SHA-256 of `names`, files of `input`, which it reports one file at a time. */
 export type HashRequest =
-  | { type: "hash"; id: string; fingerprint: string; input: RecordingInput; names: string[] }
+  | { type: "hash"; id: string; input: RecordingInput; names: string[] }
   | { type: "cancel"; id: string };
 
 export type HashReply = { id: string; name: string; sha256: string } | { id: string; error: string };
+
+/** Asks the annotation worker, which opens `input` itself, for the full annotation list. */
+export interface AnnotationsRequest {
+  n: number;
+  input: RecordingInput;
+}
+
+export type Annotations = { annotations: Annotation[]; warnings: string[] };
+
+export type AnnotationsReply =
+  | { n: number; ok: Annotations }
+  /** `trapped`: the wasm instance trapped and is unusable; the engine replaces the worker. */
+  | { n: number; error: string; trapped: boolean };

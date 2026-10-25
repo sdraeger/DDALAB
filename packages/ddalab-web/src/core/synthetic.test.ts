@@ -69,6 +69,35 @@ test("bytes_deterministic", () => {
   expect(bytes({ ...spec, seed: 4 }, 1024, 200)).not.toEqual(whole.subarray(1024, 1224));
 });
 
+// Every window of 33 bytes, whatever its alignment to samples, records and the annotation channel.
+test.each([false, true])("every_window_is_a_slice_of_the_whole (annotations %s)", (annotations) => {
+  const spec = { channels: 3, rateHz: 10, durationS: 5, seed: 3, annotations };
+  const size = syntheticEdfSize(spec);
+  const whole = bytes(spec, 0, size);
+  for (let offset = 0; offset + 33 <= size; offset += 5) {
+    expect(bytes(spec, offset, 33)).toEqual(whole.subarray(offset, offset + 33));
+  }
+});
+
+test("annotation_channel_parses_in_core", async () => {
+  const spec = { channels: 3, rateHz: 10, durationS: 200, seed: 1, annotations: true };
+  const { core, handle, info, analysis_channels } = await open(spec);
+  expect(info.format).toBe("EDF+");
+  expect(info.channels.map((channel) => channel.kind)).toEqual(["Signal", "Signal", "Signal", "Annotation"]);
+  expect(analysis_channels).toEqual([0, 1, 2]);
+  expect(info.sample_count).toBe(2000);
+  expect(info.warnings).toEqual([]);
+  expect(core.annotations(handle).annotations).toMatchObject([
+    { onset_s: 97, label: "spike" },
+    { onset_s: 194, label: "spike" },
+  ]);
+  // The signals are those of the same recording without the annotation channel.
+  const plain = await open({ ...spec, annotations: false });
+  expect(Array.from(core.readRaw(handle, 95 * 10, 30))).toEqual(
+    Array.from(plain.core.readRaw(plain.handle, 95 * 10, 30)),
+  );
+});
+
 test("spike_every_97_s", () => {
   const spec = { channels: 1, rateHz: 10, durationS: 200, seed: 5 };
   const sample = (n: number) => new DataView(bytes(spec, 256 * 2 + n * 2, 2).buffer).getInt16(0, true);

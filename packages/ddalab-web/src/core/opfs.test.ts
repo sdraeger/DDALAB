@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 import { instantiateCore } from "./abi";
-import { levelCount, pyramidBytes, readTile, tileCount, tileSlot, writeTile } from "./opfs";
+import { levelCount, pyramidBytes, readTile, type TileId, tileCount, tileSlot, writeTile } from "./opfs";
 import { readSynthetic, syntheticEdfSize } from "./synthetic";
 
 const wasm = new WebAssembly.Module(readFileSync(new URL("./ddalab.wasm", import.meta.url)));
@@ -34,8 +34,11 @@ test("geometry_matches_the_core", () => {
   expect(tiles.reduce((sum, tile) => sum + tile.length, 0)).toBe(pyramidBytes(rows, 3, "I16"));
 });
 
-/** A sync access handle over memory, one per level file. */
-function memoryFile(room = Number.POSITIVE_INFINITY) {
+/**
+ * A sync access handle over memory, one per level file. Past `room` bytes of writes the storage is full: the write
+ * keeps what fits, then throws `QuotaExceededError`, or with `quiet` returns the short count.
+ */
+function memoryFile(room = Number.POSITIVE_INFINITY, quiet = false) {
   let data = new Uint8Array(0);
   return {
     read(buffer: Uint8Array, { at }: { at: number }) {
@@ -43,7 +46,6 @@ function memoryFile(room = Number.POSITIVE_INFINITY) {
       buffer.set(part);
       return part.length;
     },
-    // Past `room` bytes of writes the storage is full: the write keeps what fits, then throws.
     write(buffer: Uint8Array, { at }: { at: number }) {
       const kept = buffer.subarray(0, Math.max(0, Math.min(buffer.length, room)));
       room -= kept.length;
@@ -53,11 +55,14 @@ function memoryFile(room = Number.POSITIVE_INFINITY) {
         data = grown;
       }
       data.set(kept, at);
-      if (kept.length < buffer.length) throw new DOMException("full", "QuotaExceededError");
-      return buffer.length;
+      if (kept.length < buffer.length && !quiet) throw new DOMException("full", "QuotaExceededError");
+      return kept.length;
     },
   } as unknown as FileSystemSyncAccessHandle;
 }
+
+/** The tile as a recording of three I16 channels asks for it. */
+const want = (tile: Uint8Array): TileId => ({ ...position(tile), channels: 3, rawType: "I16" });
 
 test("stored_tiles_round_trip", () => {
   const slot = tileSlot(3, "I16");
@@ -68,7 +73,7 @@ test("stored_tiles_round_trip", () => {
   }
   // Writing level 0 tile 2 left tile 1 as a hole, which reads as unwritten.
   for (const tile of tiles) {
-    const read = readTile(files[position(tile).level], slot, position(tile).index);
+    const read = readTile(files[position(tile).level], want(tile));
     if (skipped(tile)) expect(read).toBeNull();
     else expect(new Uint8Array(read as ArrayBuffer)).toEqual(tile);
   }
@@ -81,6 +86,38 @@ test("full_storage_keeps_earlier_tiles", () => {
   const file = memoryFile(first.length + 1000);
   writeTile(file, slot, 0, first);
   expect(() => writeTile(file, slot, 1, second)).toThrow("full");
-  expect(new Uint8Array(readTile(file, slot, 0) as ArrayBuffer)).toEqual(first);
-  expect(readTile(file, slot, 1)).toBeNull();
+  expect(new Uint8Array(readTile(file, want(first)) as ArrayBuffer)).toEqual(first);
+  expect(readTile(file, want(second))).toBeNull();
+});
+
+test("a_short_write_is_a_full_storage", () => {
+  const [first] = tiles;
+  const file = memoryFile(first.length / 2, true);
+  expect(() => writeTile(file, tileSlot(3, "I16"), 0, first)).toThrow(
+    expect.objectContaining({ name: "QuotaExceededError" }),
+  );
+  expect(readTile(file, want(first))).toBeNull();
+});
+
+// Tiles are kept under a fingerprint that does not pin every byte: a slot is served only when its header names
+// the level, index, channels and sample type asked for.
+test("a_slot_of_another_recording_is_not_served", () => {
+  const [tile] = tiles.filter((t) => position(t).level === 0);
+  const asked = want(tile);
+  const file = memoryFile();
+  writeTile(file, tileSlot(3, "I16"), 0, tile);
+  expect(readTile(file, asked)).not.toBeNull();
+  // Another channel count, read from the slot position that count has (index 0 starts at byte 0 for all).
+  expect(readTile(file, { ...asked, channels: 2 })).toBeNull();
+  expect(readTile(file, { ...asked, channels: 4 })).toBeNull();
+  expect(readTile(file, { ...asked, rawType: "I32" })).toBeNull();
+  expect(readTile(file, { ...asked, rawType: "F32" })).toBeNull();
+  expect(readTile(file, { ...asked, level: 1 })).toBeNull();
+  // Level 0 tile 0 stored where tile 1 belongs.
+  writeTile(file, tileSlot(3, "I16"), 1, tile);
+  expect(readTile(file, { ...asked, index: 1 })).toBeNull();
+  // A tile of three channels in the slot of a two-channel recording's tile 1.
+  const narrow = memoryFile();
+  writeTile(narrow, tileSlot(2, "I16"), 1, tiles.find((t) => position(t).index === 1) as Uint8Array);
+  expect(readTile(narrow, { level: 0, index: 1, channels: 2, rawType: "I16" })).toBeNull();
 });

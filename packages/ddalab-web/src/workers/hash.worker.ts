@@ -1,8 +1,8 @@
 // The hash worker: SHA-256 of a recording's files with the core's streaming hash, in 4 MiB slices, one file at a
-// time. The digests are kept in OPFS next to the tiles; a recording opened again is not read a second time.
+// time. Every open reads the files again: a stored digest would stand on the fingerprint, which does not pin the
+// middle of a file, and these digests go into result manifests as provenance.
 import { instantiateCore } from "../core/abi";
 import wasmUrl from "../core/ddalab.wasm?url";
-import { readJson, writeJson } from "../core/opfs";
 import type { HashReply, HashRequest } from "../core/protocol";
 import { type Part, partsOf, readSource } from "../core/sources";
 import { yieldToLoop } from "./scan";
@@ -36,20 +36,16 @@ self.addEventListener("message", async ({ data }: MessageEvent<HashRequest>) => 
     cancelled.add(data.id);
     return;
   }
-  const { id, fingerprint, input, names } = data;
+  const { id, input, names } = data;
   try {
-    const kept = ((await readJson(fingerprint, "sha256.json")) ?? {}) as Record<string, string>;
-    const all = { ...kept };
     const parts = partsOf(input);
     for (const name of names) {
       const part = parts.find((p) => p.name === name);
       if (!part) throw new Error(`${name} is not among the opened files`);
-      const sha256 = kept[name] ?? (await digest(part, id));
+      const sha256 = await digest(part, id);
       if (sha256 === undefined) return;
-      all[name] = sha256;
       reply({ id, name, sha256 });
     }
-    await writeJson(fingerprint, "sha256.json", all).catch(() => {}); // storage full: hash again next time
   } catch (error) {
     reply({ id, error: error instanceof Error ? error.message : String(error) });
   }

@@ -7,7 +7,7 @@ import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "@playwright/test";
 import { instantiateCore } from "../src/core/abi";
-import { pyramidBytes } from "../src/core/opfs";
+import { pyramidBytes, tileSlot } from "../src/core/opfs";
 import type { ScanState } from "../src/core/protocol";
 import { readSynthetic, type SyntheticSpec, syntheticEdfSize } from "../src/core/synthetic";
 
@@ -47,6 +47,8 @@ const tileDigest = (page: Page, id: string, level: number, index: number) =>
     },
     [id, level, index] as const,
   );
+const fingerprintOf = (page: Page, id: string) =>
+  page.evaluate((id) => window.__ddalab.store.getState().recordings[id].fingerprint, id);
 const scanOf = (page: Page, id: string) =>
   page.evaluate((id) => window.__ddalab.store.getState().recordings[id].scan, id);
 
@@ -114,6 +116,31 @@ test("visible_tile_before_scan", async ({ page }) => {
   expect((await scanOf(page, id)).scannedRows).toBeLessThan(ROWS);
 });
 
+// Stored tiles are served only when their header names this recording's level, index and channel count.
+test("a_stored_slot_of_another_shape_is_rebuilt", async ({ page }) => {
+  test.setTimeout(180_000);
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  const id = await open(page);
+  await expect(page.getByText("Overview 100%")).toBeVisible({ timeout: 120_000 });
+  const fingerprint = await fingerprintOf(page, id);
+  await page.evaluate((closing) => window.__ddalab.engine.close(closing), id);
+  // The slot of tile 0 of level 0 now says it holds 2 channels, as another recording's would.
+  await page.evaluate(async (print) => {
+    const tiles = await (await navigator.storage.getDirectory()).getDirectoryHandle("tiles");
+    const directory = await tiles.getDirectoryHandle(print);
+    const writable = await (await directory.getFileHandle("L0.ddt")).createWritable({
+      keepExistingData: true,
+    });
+    await writable.write({ type: "write", position: 16, data: new Uint8Array([2, 0, 0, 0]) });
+    await writable.close();
+  }, fingerprint);
+  const again = await open(page);
+  await expect(page.getByText("Overview 100%")).toBeVisible({ timeout: 1000 });
+  expect(await tileDigest(page, again, 0, 0)).toBe(await expectedTile(0, 0));
+  // The next slot is untouched and served as stored.
+  expect(await tileDigest(page, again, 0, 1)).toBe(await expectedTile(0, 1));
+});
+
 test("quota_error_message", async ({ page }) => {
   test.setTimeout(120_000);
   test.skip(!(await hasStorage(page)), NO_STORAGE);
@@ -127,6 +154,22 @@ test("quota_error_message", async ({ page }) => {
   const scan = await scanOf(page, id);
   expect(scan.scannedRows).toBeLessThan(ROWS);
   expect(scan.error).toContain(`${gb} GB`);
+  // The file holds the tile that was written, header first; the one that did not fit left no header.
+  const slot = tileSlot(SPEC.channels, "I16");
+  const magic = await page.evaluate(
+    async ([fingerprint, ...at]) => {
+      const tiles = await (await navigator.storage.getDirectory()).getDirectoryHandle("tiles");
+      const directory = await tiles.getDirectoryHandle(fingerprint as string);
+      const file = await (await directory.getFileHandle("L0.ddt")).getFile();
+      return Promise.all(
+        at.map(async (start) =>
+          new TextDecoder().decode(await file.slice(start as number, (start as number) + 4).arrayBuffer()),
+        ),
+      );
+    },
+    [await fingerprintOf(page, id), 0, slot],
+  );
+  expect(magic).toEqual(["DDT1", ""]);
   expect(await tileDigest(page, id, 0, 0)).toBe(await expectedTile(0, 0));
 });
 
@@ -141,27 +184,54 @@ test("storage_unavailable_message", async ({ page }) => {
   expect(await tileDigest(page, id, 0, 12)).toBe(await expectedTile(0, 12));
 });
 
-test("hash_matches_cli", async ({ page }) => {
-  const names = ["fixture.vhdr", "fixture.eeg", "fixture.vmrk"];
-  await page.getByLabel("Recording files").setInputFiles(names.map(fixture));
+const BRAINVISION = ["fixture.vhdr", "fixture.eeg", "fixture.vmrk"];
+
+const activeScan = (page: Page) =>
+  page.evaluate(() => {
+    const state = window.__ddalab.store.getState();
+    const { fingerprint, scan } = state.recordings[state.activeRecordingId as string];
+    return { fingerprint, sha256: scan.sha256 ?? {} };
+  });
+
+/** Opens the BrainVision fixture and waits for the digest of each of its files. */
+async function openBrainVision(page: Page) {
+  await page.getByLabel("Recording files").setInputFiles(BRAINVISION.map(fixture));
   await expect(page.getByRole("heading", { name: "fixture.vhdr" })).toBeVisible();
   await expect
-    .poll(() =>
-      page.evaluate(() => {
-        const state = window.__ddalab.store.getState();
-        const hashes = state.recordings[state.activeRecordingId as string].scan.sha256 ?? {};
-        return Object.keys(hashes).sort();
-      }),
-    )
-    .toEqual([...names].sort());
-  const hashes = await page.evaluate(() => {
-    const state = window.__ddalab.store.getState();
-    return state.recordings[state.activeRecordingId as string].scan.sha256;
-  });
-  for (const name of names) {
-    const [expected] = execFileSync("shasum", ["-a", "256", fixture(name)], { encoding: "utf8" }).split(" ");
-    expect(hashes?.[name]).toBe(expected);
-  }
+    .poll(async () => Object.keys((await activeScan(page)).sha256).sort())
+    .toEqual([...BRAINVISION].sort());
+  return activeScan(page);
+}
+
+const shasum = (name: string) =>
+  execFileSync("shasum", ["-a", "256", fixture(name)], { encoding: "utf8" }).split(" ")[0];
+
+test("hash_matches_cli", async ({ page }) => {
+  const { sha256 } = await openBrainVision(page);
+  for (const name of BRAINVISION) expect(sha256[name]).toBe(shasum(name));
+});
+
+// The fingerprint does not pin every byte of a file: a digest kept under it could belong to other bytes.
+test("stored_digests_are_not_reused", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  const { fingerprint } = await openBrainVision(page);
+  await page.getByRole("button", { name: "Close recording" }).click();
+  // The record an earlier version kept next to the tiles, with digests of other bytes.
+  await page.evaluate(
+    async ([print, names]) => {
+      const tiles = await (await navigator.storage.getDirectory()).getDirectoryHandle("tiles");
+      const directory = await tiles.getDirectoryHandle(print as string, { create: true });
+      const file = await directory.getFileHandle("sha256.json", { create: true });
+      const writable = await file.createWritable();
+      await writable.write(
+        JSON.stringify(Object.fromEntries((names as string[]).map((n) => [n, "0".repeat(64)]))),
+      );
+      await writable.close();
+    },
+    [fingerprint, BRAINVISION],
+  );
+  const { sha256 } = await openBrainVision(page);
+  for (const name of BRAINVISION) expect(sha256[name]).toBe(shasum(name));
 });
 
 test("annotations_reach_the_store", async ({ page }) => {
@@ -174,6 +244,29 @@ test("annotations_reach_the_store", async ({ page }) => {
       }),
     )
     .toEqual(["eyes closed", "spike"]);
+});
+
+// The annotation list of an EDF+ is a pass over the whole file. It runs in a worker of its own: a tile asked for
+// after it is answered first.
+test("annotations_do_not_block_tiles", async ({ page }) => {
+  test.setTimeout(120_000);
+  const spec = { channels: 64, rateHz: 256, durationS: 4 * 3600, seed: 2, annotations: true };
+  const result = await page.evaluate(async (s) => {
+    const { engine } = window.__ddalab;
+    const { id } = await engine.open({ kind: "synthetic", spec: s });
+    const order: string[] = [];
+    const annotations = engine.annotations(id).then((found) => {
+      order.push("annotations");
+      return found;
+    });
+    await engine.tile(id, 0, 5).then(() => order.push("tile"));
+    return { order, found: await annotations };
+  }, spec);
+  expect(result.order).toEqual(["tile", "annotations"]);
+  // One spike every 97 s, from the first one at 97 s.
+  expect(result.found.annotations).toHaveLength(Math.ceil(spec.durationS / 97) - 1);
+  expect(result.found.annotations[0]).toMatchObject({ onset_s: 97, label: "spike" });
+  expect(result.found.warnings).toEqual([]);
 });
 
 // 10 h of 64 channels at 256 Hz is 1.2 GB, served by ranges as OpenNeuro's S3 would: above the 1 GiB the scan covers.

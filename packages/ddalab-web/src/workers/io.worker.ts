@@ -1,13 +1,13 @@
 // The IO worker: one wasm instance that opens recordings, reads their bytes synchronously (`host_read`), serves raw
 // rows and tiles and scans each recording in the background. Requests run one at a time in the order they arrive;
-// the scan runs between them.
+// the scan runs between them. Whole-file passes it must not make (annotations, hashes) have workers of their own.
 import { type HostRead, instantiateCore } from "../core/abi";
 import wasmUrl from "../core/ddalab.wasm?url";
 import type { RecordingInput } from "../core/engine";
 import { fingerprintOf, sha256Hex } from "../core/fingerprint";
 import { levelCount, loadTile, saveTiles, tileCount, tileRows, tileSlot } from "../core/opfs";
 import type { IoEvent, IoReply, IoRequest, IoResults, ScanState } from "../core/protocol";
-import { isScanned, partsOf, readSource, type Source } from "../core/sources";
+import { isScanned, openRequestOf, partsOf, readSource, type Source } from "../core/sources";
 import type { RecordingInfo } from "../core/types";
 import { scan, yieldToLoop } from "./scan";
 
@@ -97,13 +97,7 @@ async function open(id: string, input: RecordingInput): Promise<IoResults["open"
   });
   let handle: number | undefined;
   try {
-    const opened = (await core).open(
-      {
-        primary: "primary" in input ? input.primary : parts[0].name,
-        files: parts.map(({ name, size }, i) => ({ name, file_id: fileIds[i], len: size })),
-      },
-      { cacheMb: 64 },
-    );
+    const opened = (await core).open(openRequestOf(input, parts, fileIds), { cacheMb: 64 });
     handle = opened.handle;
     const { info } = opened;
     // The identity of what the core read: its files, by name.
@@ -156,7 +150,9 @@ async function tile(id: string, level: number, index: number): Promise<IoResults
     throw new Error(`tile ${index} of level ${level} does not exist for ${rows} rows`);
   }
   const slot = tileSlot(rec.channels, rawType);
-  const stored = await loadTile(rec.fingerprint, slot, level, index).catch(() => null);
+  const stored = await loadTile(rec.fingerprint, { level, index, channels: rec.channels, rawType }).catch(
+    () => null,
+  );
   if (stored) return { level, index, bytes: stored };
   // The tiles of the region on screen come this way while the scan, which can only start at row 0, works its way up.
   if ((Math.min(tileRows(level), rows) * rec.fileBytes) / rows > ON_DEMAND_BYTES) return null;
@@ -177,8 +173,6 @@ async function handle(request: IoRequest): Promise<unknown> {
       return (await core).readRaw(recording(request.id).handle, request.row0, request.rows);
     case "tile":
       return tile(request.id, request.level, request.index);
-    case "annotations":
-      return (await core).annotations(recording(request.id).handle);
     case "trap": {
       if (!(import.meta.env.DEV || import.meta.env.MODE === "e2e")) throw new Error("unknown request");
       // A module whose export runs `unreachable`, the instruction a Rust panic compiles to.

@@ -14,6 +14,9 @@ const FORBIDDEN = [
   ["the trap hook", "exports.trap"],
   ["the storage quota hook", "The quota was exceeded"],
   ["the synthetic recording generator", "Startdate 01-JAN-2020"],
+  ["the synthetic recording generator", "synthetic.edf"],
+  ["the synthetic recording generator", "-3276.8"],
+  ["the synthetic recording generator", "EDF+C"],
   // A wasm module written into code: as a byte list, as a string or as base64.
   ["wasm bytes in code", /0,\s*97,\s*115,\s*109,\s*1,\s*0,\s*0,\s*0/],
   ["wasm bytes in code", /\\0asm|\\x00asm|AGFzbQEAAAA/],

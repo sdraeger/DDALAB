@@ -3,6 +3,9 @@
 // opens the recordings it held again, and the request that trapped fails with the trap's message. Replacements
 // that never get a reply (the worker script does not load) stop after a few, with the engine unavailable.
 import type {
+  Annotations,
+  AnnotationsReply,
+  AnnotationsRequest,
   HashReply,
   HashRequest,
   IoEvent,
@@ -15,7 +18,7 @@ import type {
 import { isScanned } from "./sources";
 import type { SyntheticSpec } from "./synthetic";
 import { TileCache } from "./tileCache";
-import type { Annotation, EngineVersion, RecordingInfo } from "./types";
+import type { EngineVersion, RecordingInfo } from "./types";
 
 export type RecordingInput =
   | { kind: "files"; files: File[]; primary: string }
@@ -42,8 +45,11 @@ export interface Engine {
   tile(id: string, level: number, index: number): Promise<Tile | null>;
   /** All display channels, row-major. */
   raw(id: string, row0: number, rows: number): Promise<Float32Array>;
-  /** The full annotation list; it reads every record of an EDF+: ask in the background. */
-  annotations(id: string): Promise<{ annotations: Annotation[]; warnings: string[] }>;
+  /**
+   * The full annotation list. An EDF+ takes a pass over the whole file, which a worker of its own makes: the
+   * answer comes late and nothing else waits for it. Remote recordings above 1 GiB are not read (a warning says so).
+   */
+  annotations(id: string): Promise<Annotations>;
   /** Calls `listener` with the current scan state at once and with every change after. */
   onScan(id: string, listener: (state: ScanState) => void): () => void;
   // `run` and `resultTile` arrive with the DDA worker pool (Tasks 6 and 7).
@@ -86,6 +92,8 @@ export function createEngine(): Engine {
   const requested = new Map<string, Promise<Tile | null>>();
   let worker: Worker;
   let hasher: Worker | undefined;
+  let annotator: Worker | undefined;
+  const annotating = new Map<number, { resolve(found: Annotations): void; reject(error: Error): void }>();
   let serial = 0;
   /** Workers that have sent a message: their script loaded. */
   const loaded = new WeakSet<Worker>();
@@ -166,6 +174,36 @@ export function createEngine(): Engine {
     hasher.postMessage(request);
   }
 
+  /** Started with the first request: it loads a third copy of the wasm. A trapped or failed worker is replaced. */
+  function annotate(input: RecordingInput) {
+    if (!annotator) {
+      const started = new Worker(new URL("../workers/annotations.worker.ts", import.meta.url), {
+        type: "module",
+      });
+      annotator = started;
+      const lose = (error: Error) => {
+        if (annotator !== started) return;
+        annotator = undefined;
+        started.terminate();
+        for (const { reject } of annotating.values()) reject(error);
+        annotating.clear();
+      };
+      started.onmessage = ({ data }: MessageEvent<AnnotationsReply>) => {
+        const waiting = annotating.get(data.n);
+        annotating.delete(data.n);
+        if ("error" in data) {
+          waiting?.reject(new Error(data.error));
+          if (data.trapped) lose(new Error("The annotation reader stopped; try again"));
+        } else waiting?.resolve(data.ok);
+      };
+      started.onerror = (event) => lose(new Error(event.message || "The annotation reader stopped"));
+    }
+    return new Promise<Annotations>((resolve, reject) => {
+      annotating.set(++serial, { resolve, reject });
+      annotator?.postMessage({ n: serial, input } satisfies AnnotationsRequest);
+    });
+  }
+
   function start() {
     const started = new Worker(new URL("../workers/io.worker.ts", import.meta.url), { type: "module" });
     worker = started;
@@ -200,7 +238,7 @@ export function createEngine(): Engine {
       held.set(id, input);
       const { info, fingerprint } = opened;
       scans.set(id, { fingerprint, scan: { scannedRows: 0, totalRows: info.sample_count }, sha256: {} });
-      if (isScanned(input)) hash({ type: "hash", id, fingerprint, input, names: info.input_files });
+      if (isScanned(input)) hash({ type: "hash", id, input, names: info.input_files });
       return { id, ...opened };
     },
     close(id) {
@@ -228,7 +266,17 @@ export function createEngine(): Engine {
       return inFlight;
     },
     raw: (id, row0, rows) => call({ type: "raw", id, row0, rows }),
-    annotations: (id) => call({ type: "annotations", id }),
+    annotations(id) {
+      const input = held.get(id);
+      if (!input) return Promise.reject(new Error(`no open recording ${id}`));
+      if (!isScanned(input)) {
+        return Promise.resolve({
+          annotations: [],
+          warnings: ["Annotations are not read from recordings above 1 GiB opened from a URL."],
+        });
+      }
+      return annotate(input);
+    },
     onScan(id, listener) {
       const set = listeners.get(id) ?? new Set();
       listeners.set(id, set.add(listener));
