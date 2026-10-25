@@ -14,9 +14,10 @@
 //   native_cli_wall_s = seconds of `ddalab run --bundle --block-mb budget_mb` with DDALAB_RAYON_THREADS = workers
 //   outputs_identical = every .npy of the two bundles is byte-equal and the manifests equal apart from id and time
 //
-// Inputs: `cargo run --release --example make_fixtures -- --large <fixtures_dir> 16 32 128` (packages/dda-rs),
-// `cargo build --release --bin ddalab` and the wasm build (see parity.test.mjs).
-// Command: node packages/ddalab-wasm/node/pool-bench.mjs packages/ddalab-wasm/node/pool-bench.config.json
+// fixtures_dir and output_dir are relative to $DDALAB_BENCH_DIR, a directory outside the repository for the ~1 GB inputs.
+// Inputs: `cargo run --release --example make_fixtures -- --large "$DDALAB_BENCH_DIR/<fixtures_dir>" 16 32 128`
+// (packages/dda-rs), `cargo build --release --bin ddalab` and the wasm build (see parity.test.mjs).
+// Command: DDALAB_BENCH_DIR=<dir> node packages/ddalab-wasm/node/pool-bench.mjs packages/ddalab-wasm/node/pool-bench.config.json
 // Writes packages/ddalab-wasm/results/pool_bench.csv and pool_bench_config.json (the config, machine, commit, hashes).
 import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -38,6 +39,13 @@ const CASE_KEYS = ['name', 'file', 'variant', 'channels', 'ct_pairs', 'budget_mb
 const MASKS = { ST: '1 0 0 0 0 0', CT: '0 1 0 0 0 0' };
 
 const range = (n) => [...Array(n).keys()];
+
+/** `parts` joined under $DDALAB_BENCH_DIR. */
+function benchPath(...parts) {
+  const root = process.env.DDALAB_BENCH_DIR;
+  if (!root) throw new Error('DDALAB_BENCH_DIR must name the directory holding fixtures_dir and output_dir');
+  return path.join(root, ...parts);
+}
 const sha256 = (file) => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 
 function readConfig(file) {
@@ -58,7 +66,7 @@ function request(config, c, rows) {
   if (!(c.variant in MASKS)) throw new Error(`${c.name}: variant ${c.variant} is not ST or CT`);
   const ct = c.variant === 'CT';
   return {
-    file_path: path.join(config.fixtures_dir, c.file),
+    file_path: benchPath(config.fixtures_dir, c.file),
     channels: range(c.channels),
     time_range: { start: 0, end: rows - 1 },
     preprocessing_options: { highpass: null, lowpass: null },
@@ -85,8 +93,8 @@ async function work({ module, file, cacheMb, req, blocks, counter }) {
 
 /** Runs case `c` on the worker pool into `<output_dir>/wasm-<name>`. */
 async function runPool(config, c) {
-  const file = path.join(config.fixtures_dir, c.file);
-  const dir = path.join(config.output_dir, `wasm-${c.name}`);
+  const file = benchPath(config.fixtures_dir, c.file);
+  const dir = benchPath(config.output_dir, `wasm-${c.name}`);
   fs.rmSync(dir, { recursive: true, force: true });
   const workers = os.availableParallelism() - config.spare_cores;
   const module = await WebAssembly.compile(fs.readFileSync(WASM));
@@ -133,10 +141,10 @@ async function runPool(config, c) {
 
 /** The same request through the CLI into `<output_dir>/cli-<name>`: seconds. */
 function runCli(config, c, threads) {
-  const dir = path.join(config.output_dir, `cli-${c.name}`);
+  const dir = benchPath(config.output_dir, `cli-${c.name}`);
   fs.rmSync(dir, { recursive: true, force: true });
   const ctArgs = c.variant === 'CT' ? ['--ct-pairs', ...pairsOf(c).map((p) => p.join(','))] : [];
-  const args = ['run', '--file', path.join(config.fixtures_dir, c.file), '--channels', ...range(c.channels).map(String),
+  const args = ['run', '--file', benchPath(config.fixtures_dir, c.file), '--channels', ...range(c.channels).map(String),
     '--variants', c.variant, '--wl', `${config.window_length}`, '--ws', `${config.window_step}`,
     '--delays', ...config.delays.map(String), '--dm', `${config.dm}`, '--order', `${config.order}`,
     '--nr-tau', `${config.nr_tau}`, ...ctArgs, '--block-mb', `${c.budget_mb}`, '--bundle', dir, '--quiet'];
@@ -150,7 +158,7 @@ function runCli(config, c, threads) {
 
 /** Both bundles hold the same bytes, and the same manifest apart from id and creation time. */
 function sameBundles(config, c) {
-  const dirs = ['wasm', 'cli'].map((side) => path.join(config.output_dir, `${side}-${c.name}`));
+  const dirs = ['wasm', 'cli'].map((side) => benchPath(config.output_dir, `${side}-${c.name}`));
   const [a, b] = dirs.map((d) => JSON.parse(fs.readFileSync(path.join(d, 'manifest.json'), 'utf8')));
   const arrays = a.variants.flatMap((v) => v.arrays);
   const sameArrays = arrays.every((p) => fs.readFileSync(path.join(dirs[0], p)).equals(fs.readFileSync(path.join(dirs[1], p))));
@@ -160,7 +168,7 @@ function sameBundles(config, c) {
 
 async function main(configFile) {
   const config = readConfig(configFile);
-  fs.mkdirSync(config.output_dir, { recursive: true });
+  fs.mkdirSync(benchPath(config.output_dir), { recursive: true });
   const rows = ['case,variant,channels,budget_mb,cache_mb,blocks,workers,wall_s,peak_rss_mb,worker_wasm_mb,' +
     'native_cli_wall_s,outputs_identical'];
   const inputs = {};
@@ -175,7 +183,7 @@ async function main(configFile) {
     rows.push([c.name, c.variant, c.channels, c.budget_mb, c.cache_mb, pool.blocks, pool.workers,
       pool.wall_s.toFixed(2), pool.peak_rss_mb.toFixed(0), pool.worker_wasm_mb.toFixed(0), native.toFixed(2),
       sameBundles(config, c)].join(','));
-    inputs[c.file] = JSON.parse(fs.readFileSync(path.join(config.output_dir, `cli-${c.name}`, 'manifest.json'), 'utf8'))
+    inputs[c.file] = JSON.parse(fs.readFileSync(benchPath(config.output_dir, `cli-${c.name}`, 'manifest.json'), 'utf8'))
       .reproduction.input_sha256[c.file];
     console.log(rows.at(-1));
   }
