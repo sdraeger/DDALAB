@@ -4,7 +4,7 @@
 import type { Locator } from "@playwright/test";
 import { bundleDir } from "./global-setup";
 import { showFixture } from "./resultFixture";
-import { expect, type Page, test } from "./test";
+import { expect, hasStorage, NO_STORAGE, type Page, test } from "./test";
 
 const DURATION = "0.16s";
 const EASE = "cubic-bezier(0.23, 1, 0.32, 1)";
@@ -141,10 +141,7 @@ test("reduced_motion_popups_do_not_scale", async ({ page }) => {
 // Each toggle is one view transition (where the browser has them; elsewhere the change is immediate) and one layout
 // change: the waveform's canvas resizes once.
 test("panels_and_results_toggle_in_a_view_transition", async ({ page }) => {
-  test.skip(
-    !(await page.evaluate(() => navigator.storage.getDirectory().then(Boolean, () => false))),
-    "no OPFS",
-  );
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
   await openRecording(page);
   await showFixture(page, { id: "motion", windows: 40, rows: 2, first: 1, step: 0.5, values: [] });
   const result = page.getByRole("region", { name: "Result" });
@@ -196,10 +193,7 @@ test("panels_and_results_toggle_in_a_view_transition", async ({ page }) => {
 // A result's first open loads its view and its manifest after the crossfade has ended: the result and its provenance
 // fade in by themselves. Neither appears at full opacity outside a view transition.
 test("cold_result_open_fades_in", async ({ page }) => {
-  test.skip(
-    !(await page.evaluate(() => navigator.storage.getDirectory().then(Boolean, () => false))),
-    "no OPFS",
-  );
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
   const names = ["Result", "Provenance"];
   await page.evaluate((names) => {
     const seen: Record<string, [opacity: number, inTransition: boolean][]> = {};

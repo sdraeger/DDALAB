@@ -286,15 +286,16 @@ test("folder_drop_lists_its_recordings", async ({ page }) => {
 // The header's data file is listed, then deleted before the recording opens: the core cannot read it, and the error
 // shows in the Folder section beside the tree.
 test("open_error_shows_beside_the_tree", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
   const parts = ["fixture.vhdr", "fixture.eeg", "fixture.vmrk"].map((name) => ({
     name,
     base64: readFileSync(fixturePath(name)).toString("base64"),
   }));
   const writable = await page.evaluate(async (files) => {
-    // Playwright's WebKit has no OPFS (getDirectory throws UnknownError).
-    const root = await navigator.storage.getDirectory().catch(() => null);
-    if (!root || !("createWritable" in FileSystemFileHandle.prototype)) return false;
-    const folder = await root.getDirectoryHandle("vanishing", { create: true });
+    if (!("createWritable" in FileSystemFileHandle.prototype)) return false;
+    const folder = await (await navigator.storage.getDirectory()).getDirectoryHandle("vanishing", {
+      create: true,
+    });
     for (const { name, base64 } of files) {
       const stream = await (await folder.getFileHandle(name, { create: true })).createWritable();
       await stream.write(Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)));
@@ -303,7 +304,7 @@ test("open_error_shows_beside_the_tree", async ({ page }) => {
     Object.assign(window, { showDirectoryPicker: async () => folder });
     return true;
   }, parts);
-  test.skip(!writable, "this browser cannot write to its private file system");
+  test.skip(!writable, "this browser cannot write files in its private file system");
   await page.getByRole("button", { name: "Open folder" }).click();
   const folder = page.getByRole("region", { name: /^Folder/ });
   const row = folder.getByRole("treeitem", { name: "fixture.vhdr" });

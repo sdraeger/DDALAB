@@ -89,15 +89,7 @@ test("a_scan_re_renders_its_progress_only", async ({ page }) => {
 
 test("a_run_re_renders_its_progress_only", async ({ page }) => {
   test.setTimeout(180_000);
-  test.skip(
-    !(await page.evaluate(() =>
-      navigator.storage.getDirectory().then(
-        () => true,
-        () => false,
-      ),
-    )),
-    "this browser window has no OPFS",
-  );
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
   // Four DDA workers whatever the machine, for a fixed count of blocks.
   await page.addInitScript(() => Object.defineProperty(navigator, "hardwareConcurrency", { get: () => 5 }));
   await page.reload();
@@ -127,15 +119,7 @@ test("a_run_re_renders_its_progress_only", async ({ page }) => {
 });
 
 test("canvases_repaint_for_what_they_draw", async ({ page }) => {
-  test.skip(
-    !(await page.evaluate(() =>
-      navigator.storage.getDirectory().then(
-        () => true,
-        () => false,
-      ),
-    )),
-    "this browser window has no OPFS",
-  );
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
   test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   await page.evaluate(() =>
     window.__ddalab.openSynthetic({ channels: 8, rateHz: 256, durationS: 60, seed: 4 }),
@@ -182,17 +166,21 @@ test("canvases_repaint_for_what_they_draw", async ({ page }) => {
 
 test("a_closed_inspector_neither_renders_nor_plans", async ({ page }) => {
   test.setTimeout(120_000);
+  const stored = await hasStorage(page);
   await page.getByRole("button", { name: "Inspector" }).click();
   const id = await page.evaluate((spec) => window.__ddalab.openSynthetic(spec), SCAN);
   const counts = await rendersDuring(page, ["Inspector", "Scan", "RunBar", "RunButton"], async () => {
     await expect
       .poll(
         () =>
-          page.evaluate((id) => {
-            // Over, or not stored at all in a window without OPFS.
-            const { scan } = window.__ddalab.store.getState().recordings[id];
-            return scan.scannedRows === scan.totalRows || Boolean(scan.notice);
-          }, id),
+          page.evaluate(
+            ({ id, stored }) => {
+              // Over, or not stored at all in a window without OPFS.
+              const { scan } = window.__ddalab.store.getState().recordings[id];
+              return scan.scannedRows === scan.totalRows || (!stored && Boolean(scan.notice));
+            },
+            { id, stored },
+          ),
         { timeout: 100_000 },
       )
       .toBe(true);
@@ -228,15 +216,7 @@ test("a_closed_inspector_neither_renders_nor_plans", async ({ page }) => {
 });
 
 test("moving_between_result_rows_renders_the_rows_only", async ({ page }) => {
-  test.skip(
-    !(await page.evaluate(() =>
-      navigator.storage.getDirectory().then(
-        () => true,
-        () => false,
-      ),
-    )),
-    "this browser window has no OPFS",
-  );
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
   test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   await page.evaluate(() =>
     window.__ddalab.openSynthetic({ channels: 64, rateHz: 256, durationS: 60, seed: 4 }),
