@@ -1,5 +1,6 @@
-// About DDALAB, from the command bar: the app's version, the engine that runs the analyses, the tab shortcuts, and the
-// citation and license notice the heatmap's color maps come with (render/colormaps.ts).
+// About DDALAB, from the command bar: its authors, the app's version, the engine that runs the analyses, the tab
+// shortcuts, and, under its own heading, the citation and license notice the heatmap's color maps come with
+// (render/colormaps.ts).
 import { Popover } from "@base-ui/react/popover";
 import { use } from "react";
 import { version } from "../../../package.json";
@@ -21,6 +22,7 @@ export default function About() {
         <Logo />
         About DDALAB
       </Popover.Title>
+      <p className={styles.byline}>By Simon Dräger, Claudia Lainscsek and Terrence J. Sejnowski</p>
       <dl className={styles.facts}>
         <dt>Version</dt>
         <dd>{version}</dd>
@@ -29,7 +31,7 @@ export default function About() {
         <dt>Commit</dt>
         <dd>{found.commit ? <code>{found.commit}</code> : "not recorded in this build"}</dd>
       </dl>
-      <section aria-labelledby="tab-keys" className={styles.keys}>
+      <section aria-labelledby="tab-keys" className={styles.section}>
         <h3 id="tab-keys" className={styles.heading}>
           Tab shortcuts
         </h3>
@@ -48,11 +50,16 @@ export default function About() {
       <p className={styles.text}>
         Install DDALAB from your browser's menu to use it offline in its own window.
       </p>
-      <p className={styles.text}>
-        The heatmap colors are Crameri's batlow, vik and berlin. Crameri, F. (2018). Scientific colour maps.
-        Zenodo. doi:10.5281/zenodo.1243862
-      </p>
-      <p className={styles.text}>MIT License, Copyright (c) 2020 Fabio Crameri</p>
+      <section aria-labelledby="color-maps" className={styles.section}>
+        <h3 id="color-maps" className={styles.heading}>
+          Color maps
+        </h3>
+        <p className={styles.text}>
+          The heatmap uses batlow, vik and berlin from Fabio Crameri's Scientific colour maps. Crameri, F.
+          (2018). Scientific colour maps. Zenodo. doi:10.5281/zenodo.1243862
+        </p>
+        <p className={styles.text}>MIT License, Copyright (c) 2020 Fabio Crameri</p>
+      </section>
     </div>
   );
 }
