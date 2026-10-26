@@ -83,8 +83,10 @@
 /* The scale settings sit in the bar while it has room for them, else behind one button (ScaleChoices in Shell.tsx):
    below 1440 px, or 1600 px with the inspector closed and the run status beside Run. Below 1024 px the wordmark and
    the Local and Annotate labels give way to their marks. Only the recording name and the run status shrink; every
-   width depends on the window alone, and zooming moves nothing. With the inspector open the bar needs 1385 px in
-   Noto Sans and up to 1430 px (Firefox) in DejaVu Sans, Ubuntu's system-ui. */
+   width depends on the window alone, and zooming moves nothing. With the inspector open and up to 9,999 pages the bar
+   needs 1385 px in Noto Sans and up to 1430 px (Firefox) in DejaVu Sans, the system-ui of the headless Ubuntu CI
+   runner. Each further page digit widens it by 16 px or more: at 1440 px in DejaVu Sans, 10,000 pages (over 27.8 h
+   at 10 s a page) overflow it by 6 px in Firefox, and 100,000 pages by 23 to 31 px in every browser. */
 .bar > button {
   flex-shrink: 0;
 }
