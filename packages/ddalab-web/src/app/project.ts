@@ -7,6 +7,7 @@ import { version } from "../../package.json";
 import { type BatchRecord, listBatches, saveBatch } from "../core/batch";
 import { bundleFiles } from "../core/exporters";
 import { type AnalysisRecord, listAnalyses, persistStorage, resultName } from "../core/history";
+import { hasTiles } from "../core/opfs";
 import {
   batchIds,
   batchOf,
@@ -20,8 +21,18 @@ import {
 import { isScanned, pathOf } from "../core/sources";
 import { loadAnnotations } from "../core/userAnnotations";
 import { addAnnotations } from "../features/annotations/model";
+import { database } from "../store/recent";
 import { useStore } from "../store/store";
-import { idOf, remembered, selectTab, type Tab, type TabFile, type TabSource, tabOf } from "../store/tabs";
+import {
+  idOf,
+  remembered,
+  rememberedDigests,
+  selectTab,
+  type Tab,
+  type TabFile,
+  type TabSource,
+  tabOf,
+} from "../store/tabs";
 import { engineVersion, refreshAnalyses } from "./analyses";
 import { download } from "./download";
 import { engine, type OpenOptions, type Outcome, openFiles } from "./recordings";
@@ -258,44 +269,82 @@ export async function openProjectRecording(
 }
 
 /**
- * The SHA-256 of each file of the recording of `fingerprint` as this browser knows it: an open recording's (hashed now
- * if it is not yet), else its tab's, `{}` for a tab never hashed; `undefined` when no tab holds that recording.
+ * What this browser keeps under a recording's fingerprint, which a project's copy of it would share: its tab (open or
+ * not), its annotations, its results and its cached tiles; and each set of its files' SHA-256 known here: the open
+ * recording's (hashed now if need be) or its tab's, those its results recorded as their input, and those kept from when
+ * it was last hashed (store/tabs.ts `rememberDigests`).
  */
-async function digestsOf(fingerprint: string): Promise<Record<string, string> | undefined> {
+interface Kept {
+  tab: boolean;
+  /** Its tab is detached and was never hashed: reattaching it checks it. */
+  unhashed: boolean;
+  annotations: number;
+  results: number;
+  tiles: boolean;
+  digests: Record<string, string>[];
+}
+
+async function keptHere(fingerprint: string, analyses: AnalysisRecord[]): Promise<Kept> {
   const id = idOf(fingerprint);
-  if (id) return engine.hashes(id);
   const tab = tabOf(fingerprint);
-  return tab && (tab.sha256 ?? {});
+  const [annotations, tiles, remembered, own] = await Promise.all([
+    loadAnnotations(fingerprint).catch(() => []),
+    hasTiles(fingerprint),
+    rememberedDigests(fingerprint).catch(() => undefined),
+    id ? engine.hashes(id) : tab?.sha256,
+  ]);
+  const results = analyses.filter((a) => a.fingerprint === fingerprint);
+  const digests = [own, remembered, ...results.map((a) => a.manifest?.reproduction.input_sha256)];
+  return {
+    tab: tab !== undefined,
+    unhashed: tab !== undefined && !id && !tab.sha256,
+    annotations: annotations.length,
+    results: results.length,
+    tiles,
+    digests: digests.filter((d) => d !== undefined),
+  };
 }
 
 /**
- * Whether the project's `recording` may join the recording of its fingerprint in a tab here: `new` when no tab holds
- * it; `same` when the project's own bytes, hashed now, have the digests known here; otherwise `differs`, or
- * `unchecked` when the digests here are not all known or the project's bytes could not be hashed. The fingerprint
- * reads only a file's name, size and edges: the bytes decide.
+ * Whether the project's `recording` may join what `kept` holds under its fingerprint, which reads only a file's name,
+ * size and edges: `new` when nothing is kept; `same` when the project's own bytes, hashed now, have every set of
+ * digests known here; otherwise `differs`, or `unchecked` when no complete set is known or the bytes could not be
+ * hashed.
  */
-async function verdict(recording: ProjectRecording, entries: Map<string, Blob>) {
-  const known = await digestsOf(recording.fingerprint);
-  if (!known) return "new";
-  if (!recording.files.every((f) => known[f.name])) return "unchecked";
-  if (!sameFiles(recording.files, known)) return "differs";
+async function verdict(recording: ProjectRecording, entries: Map<string, Blob>, kept: Kept) {
+  if (!kept.tab && kept.annotations === 0 && kept.results === 0 && !kept.tiles) return "new";
+  const known = kept.digests.filter((set) => recording.files.every((f) => set[f.name]));
+  if (known.length === 0) return "unchecked";
+  if (!known.every((set) => sameFiles(recording.files, set))) return "differs";
   const hashed = await engine.digests(filesIn(recording, entries)).catch(() => undefined);
   if (!hashed) return "unchecked";
-  return sameFiles(
-    recording.files.map((f) => ({ ...f, sha256: hashed[f.name] })),
-    known,
-  )
-    ? "same"
-    : "differs";
+  const actual = recording.files.map((f) => ({ ...f, sha256: hashed[f.name] }));
+  return known.every((set) => sameFiles(actual, set)) ? "same" : "differs";
 }
 
-/** What the user reads when the project's copy of `name` is refused, and what to do. */
-const refusal = (name: string, project: string, why: "differs" | "unchecked") =>
-  `${name} was not opened from ${project}: ${
+const count = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+const listed = (items: string[]) =>
+  items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+
+/** What the user reads when the project's copy of `name` is refused: what happened, what stays, and what to do. */
+function refusal(name: string, project: string, why: "differs" | "unchecked", kept: Kept) {
+  const what =
     why === "differs"
-      ? `it has the name, size, start and end of the ${name} already in a tab here, but other contents`
-      : `it could not be checked against the ${name} already in a tab here`
-  }. The project's annotations and results for it were not added. To use the project's copy instead, close the tab of ${name} and open the project again.`;
+      ? `this browser keeps another ${name} with the same name, size, start and end but other contents, and the project's copy cannot be opened while yours is here`
+      : `this browser keeps a ${name} with the same name, size, start and end that could not be compared with it`;
+  const remove = [
+    kept.annotations > 0 &&
+      `delete its ${count(kept.annotations, "annotation")}${kept.tab ? "" : " (open the recording to do so)"}`,
+    kept.results > 0 && `delete its ${count(kept.results, "result")} in History`,
+    kept.tab && "close its tab",
+    kept.tiles && "clear cached tiles in Local data",
+  ].filter((step) => typeof step === "string");
+  const next =
+    why === "unchecked" && kept.unhashed
+      ? `Reattach your tab of ${name}, which checks it, then open the project again.`
+      : `To use the project's copy, first remove your ${name} from this browser: ${listed(remove)}. Then open the project again.`;
+  return `${name} was not opened from ${project}: ${what}. Your ${name}, its annotations and its results stay as they are, and the project's annotations and results for it were not added. ${next}`;
+}
 
 /**
  * Adds the results of the recordings in `joins` and their batches, beside what is here. A result here already (by id)
@@ -322,16 +371,19 @@ async function addResults(
     files.push({ path: `${source}/${name}`, file });
     bundles.set(folder, files);
   }
-  const joined = results.filter((r) => joins.has(r.record.fingerprint));
-  for (const { path, record } of joined) {
-    if (have.has(record.id)) continue;
-    const bundle = bundles.get(path) ?? [];
+  const fresh = results.filter((r) => joins.has(r.record.fingerprint) && !have.has(r.record.id));
+  const imports = fresh.map(({ path, record }) => {
     const target = record.batch ? ids.get(record.batch) : undefined;
     const here = stored.find((b) => b.id === target);
     const batch = !here || here.results.some((r) => r.resultId === record.id) ? target : undefined;
-    await engine
-      .importResult(bundle, { ...record, batch })
-      .catch((error) => problems.push(`A result of ${record.fileName} was not added: ${messageOf(error)}`));
+    return { input: bundles.get(path) ?? [], kept: { ...record, batch } };
+  });
+  // The results' records together are bounded (imports.ts): above it none is added, and this says why.
+  const outcomes = imports.length > 0 ? await engine.importResults(imports) : [];
+  const joined = fresh.filter((_, i) => "id" in outcomes[i]);
+  for (const [i, outcome] of outcomes.entries()) {
+    if ("error" in outcome)
+      problems.push(`A result of ${fresh[i].record.fileName} was not added: ${outcome.error}`);
   }
   if (joined.length > 0) {
     void persistStorage();
@@ -375,21 +427,28 @@ async function openOne(file: File, handle?: FileSystemFileHandle): Promise<Outco
   const problems: string[] = [];
   const joins = new Set<string>();
   /** Detached tabs here whose recording the project's bytes match, with those bytes. */
-  const checked: { tab: Tab; files: File[] }[] = [];
+  const checked: { fingerprint: string; files: File[] }[] = [];
+  const analyses = await listAnalyses().catch(() => []);
   for (const recording of project.recordings) {
-    const judged = await verdict(recording, entries);
+    const { fingerprint, files } = recording;
+    const kept = await keptHere(fingerprint, analyses);
+    const judged = await verdict(recording, entries, kept);
     if (judged === "differs" || judged === "unchecked") {
-      problems.push(refusal(recording.files[0].name, file.name, judged));
+      problems.push(refusal(files[0].name, file.name, judged, kept));
       continue;
     }
-    joins.add(recording.fingerprint);
-    const tab = tabOf(recording.fingerprint);
-    if (judged === "same" && tab && !idOf(tab.fingerprint)) {
-      checked.push({ tab, files: filesIn(recording, entries) });
+    joins.add(fingerprint);
+    if (judged === "same" && kept.tab && !idOf(fingerprint)) {
+      checked.push({ fingerprint, files: filesIn(recording, entries) });
     }
+    // Nothing of it is kept here: a list of the file's own annotations cached under its fingerprint is read again.
+    if (judged === "new")
+      await database()
+        .then((db) => db.delete("fileAnnotations", fingerprint))
+        .catch(() => {});
   }
   await addResults(project, entries, file.name, joins, problems).catch((error) =>
-    problems.push(`Its results were not added: ${messageOf(error)}`),
+    problems.push(`The results of ${file.name} were not added: ${messageOf(error)}.`),
   );
   for (const { fingerprint, annotations, files } of project.recordings) {
     if (!joins.has(fingerprint)) continue;
@@ -416,7 +475,7 @@ async function openOne(file: File, handle?: FileSystemFileHandle): Promise<Outco
   if (project.active_tab && joins.has(project.active_tab)) selectTab(project.active_tab);
   const fresh = new Set(added.map((t) => t.fingerprint));
   await Promise.all([
-    ...checked.map(({ tab, files }) => attachChecked(tab, files)),
+    ...checked.map(({ fingerprint, files }) => attachChecked(fingerprint, files)),
     reattachFrom([file], null, handle && { files: [handle] }, fresh),
   ]);
   return {

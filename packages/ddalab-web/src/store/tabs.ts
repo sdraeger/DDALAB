@@ -242,3 +242,26 @@ export async function saveTabs(value = remembered()): Promise<void> {
 export async function loadTabs(): Promise<{ tabs: Tab[]; active: string | null } | undefined> {
   return (await database()).get("tabs", KEY);
 }
+
+/** Where the digests of every recording hashed in this browser are kept, beside the open set. */
+const DIGESTS = "sha256";
+
+/**
+ * Keeps the SHA-256 of the files of the recording `fingerprint`, hashed while it was open: what a project's copy of it
+ * is checked against once its tab is gone (app/project.ts).
+ */
+export async function rememberDigests(fingerprint: string, sha256: Record<string, string>): Promise<void> {
+  const writes = (await database()).transaction("tabs", "readwrite");
+  const all: Record<string, Record<string, string>> = (await writes.store.get(DIGESTS)) ?? {};
+  await writes.store.put({ ...all, [fingerprint]: sha256 }, DIGESTS);
+  await writes.done;
+}
+
+/** The SHA-256 of the files of the recording `fingerprint` as last hashed here, if it was. */
+export async function rememberedDigests(fingerprint: string): Promise<Record<string, string> | undefined> {
+  const all: Record<string, Record<string, string>> | undefined = await (await database()).get(
+    "tabs",
+    DIGESTS,
+  );
+  return all?.[fingerprint];
+}
