@@ -41,6 +41,8 @@ if (location.search.includes("openneuro=")) {
 }
 void refreshRecent();
 const listed = sweepAnalyses();
+// Batches cut short by the last visit read as interrupted; their chunk is the history's.
+void import("./app/batch").then((batch) => batch.sweepBatches()).catch(() => {});
 restoreSession(listed);
 void restoreTabs(listed);
 // Before React renders: the CSP allows no inline script, and the module entry is the earliest script there is.

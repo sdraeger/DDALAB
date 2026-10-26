@@ -1,0 +1,282 @@
+/* The batch: its action beside the opened folder, its panel, its progress in the Folder section, the tree rows' marks
+   and its status in the command bar. */
+
+.action {
+  flex: none;
+  height: 24px;
+  margin-right: calc(-1 * var(--space-2));
+  font-size: var(--text-small);
+}
+
+.action:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.title {
+  font-size: var(--text-body);
+  font-weight: var(--weight-strong);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.legend {
+  padding: 0 0 var(--space-1);
+  color: var(--muted);
+  font-size: var(--text-small);
+  font-weight: var(--weight-strong);
+  font-variant-caps: all-small-caps;
+  letter-spacing: 0.06em;
+}
+
+/* Labels in a column of their own, as in the provenance. */
+.fields {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: var(--space-1) var(--space-2);
+}
+
+.fields dt {
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.fields dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.link {
+  align-self: flex-start;
+  height: 24px;
+  margin-left: calc(-1 * var(--space-2));
+  font-size: var(--text-small);
+}
+
+.note {
+  display: block;
+  color: var(--muted);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+.title + .note {
+  margin-top: calc(-1 * var(--space-3));
+}
+
+/* A radio before its words; a second line explains it. */
+.choice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--space-2);
+  cursor: pointer;
+}
+
+.choice input[type="radio"] {
+  margin: 0;
+  translate: 0 1px;
+}
+
+.choice + .note {
+  padding-left: calc(13px + var(--space-2));
+}
+
+.range {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* An input with its unit inside the same box, as in the run bar. */
+.unitInput {
+  display: flex;
+  align-items: center;
+  width: 84px;
+  height: 28px;
+  border: var(--hairline-width) solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--ground);
+  transition-property: border-color;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
+}
+
+.unitInput:focus-within {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.unitInput input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 var(--space-2);
+  border: 0;
+  background: transparent;
+  outline: 0;
+  text-align: right;
+}
+
+.unitInput span {
+  padding-right: var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.unitInput:has(input[aria-invalid]) {
+  border-color: var(--event);
+}
+
+.reason {
+  color: var(--event);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+.start {
+  justify-content: center;
+  height: 32px;
+}
+
+.start:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* The batch while it runs: which recording of how many, its file, its run's progress and the counts so far. */
+.progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) 0;
+  border-block: var(--hairline-width) solid var(--hairline);
+}
+
+.line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.line b {
+  font-weight: var(--weight-strong);
+}
+
+.line button {
+  height: 24px;
+  font-size: var(--text-small);
+}
+
+.file {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progress progress {
+  flex: 1;
+  height: 4px;
+  appearance: none;
+  border: 0;
+  border-radius: 2px;
+  background: var(--hairline);
+  overflow: hidden;
+}
+
+.progress progress::-webkit-progress-bar {
+  background: var(--hairline);
+}
+
+.progress progress::-webkit-progress-value {
+  background: var(--primary);
+}
+
+.progress progress::-moz-progress-bar {
+  background: var(--primary);
+}
+
+.percent {
+  min-width: 4ch;
+  font-size: var(--text-small);
+  text-align: end;
+}
+
+.ended {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  color: var(--muted);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+.ended svg {
+  flex: none;
+  block-size: 1cap;
+  inline-size: auto;
+  color: var(--primary);
+  stroke-width: 2.5;
+}
+
+/* A row's batch mark: its icon and its word; the color repeats the word. */
+.mark {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  font-weight: var(--weight-medium);
+}
+
+.mark svg {
+  block-size: 1cap;
+  inline-size: auto;
+  stroke-width: 2.5;
+}
+
+.mark[data-mark="failed"] {
+  color: var(--event);
+}
+
+.mark[data-mark="running"] {
+  color: var(--primary);
+}
+
+/* The command bar's batch status, beside Run. */
+.barStatus {
+  flex: 0 1 clamp(120px, 18vw, 280px);
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--text-small);
+  text-align: end;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Words for screen readers only. */
+.announce {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

@@ -60,8 +60,10 @@ interface Attempt {
 export function LibraryRail() {
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [opening, setOpening] = useState(false);
-  const [folder, setFolder] = useState<{ source: FolderSource; key: number } | null>(null);
-  const showFolder = (source: FolderSource) => setFolder((shown) => ({ source, key: (shown?.key ?? 0) + 1 }));
+  // `resume`: the batch the history resumes on this folder once it is read.
+  const [folder, setFolder] = useState<{ source: FolderSource; key: number; resume?: string } | null>(null);
+  const showFolder = (source: FolderSource, resume?: string) =>
+    setFolder((shown) => ({ source, key: (shown?.key ?? 0) + 1, resume }));
   const recent = useStore((s) => s.recent);
   const attempt = useRef<Attempt>({ files: [] });
   const filesInput = useRef<HTMLInputElement>(null);
@@ -186,6 +188,7 @@ export function LibraryRail() {
           <FolderTree
             key={folder.key}
             source={folder.source}
+            resume={folder.resume}
             // The tree shows how its own opens went, beside its rows.
             onOpen={(recording, handles) => openFiles(recording.files, { choice: recording.path, handles })}
             onClose={() => setFolder(null)}
@@ -196,7 +199,7 @@ export function LibraryRail() {
         <OpenNeuroPanel />
       </Suspense>
       <Suspense fallback={null}>
-        <HistoryRail />
+        <HistoryRail onResume={showFolder} />
       </Suspense>
       <p className={styles.footer}>
         Engine{" "}

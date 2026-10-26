@@ -19,11 +19,19 @@
   line-height: var(--leading-small);
 }
 
-/* The opened folder, above its rows. */
+/* The opened folder and the batch's action, above its rows. */
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
 .root {
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
+  min-width: 0;
   font-weight: var(--weight-medium);
 }
 
