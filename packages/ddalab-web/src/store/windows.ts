@@ -41,8 +41,9 @@ async function savedWindows(): Promise<Map<string, SavedWindow>> {
   return new Map(keys.map((key, i) => [String(key).slice(PREFIX.length), values[i]]));
 }
 
-/** The windows that hold their id now, open or opening. */
+/** The windows that hold their id now, open or opening. Without Web Locks (an insecure origin) none counts as held. */
 async function heldIds(): Promise<Set<string>> {
+  if (!navigator.locks) return new Set();
   const { held = [], pending = [] } = await navigator.locks.query();
   return new Set(
     [...held, ...pending].flatMap(({ name }) => (name?.startsWith(LOCK) ? [name.slice(LOCK.length)] : [])),
@@ -55,6 +56,8 @@ async function heldIds(): Promise<Set<string>> {
  */
 const hold = (id: string, waitMs: number) =>
   new Promise<boolean>((granted) => {
+    // Without Web Locks a window cannot tell others it is open: it takes the id and works as the only window.
+    if (!navigator.locks) return granted(true);
     const options = waitMs > 0 ? { signal: AbortSignal.timeout(waitMs) } : { ifAvailable: true };
     navigator.locks
       .request(LOCK + id, options, (lock) => {

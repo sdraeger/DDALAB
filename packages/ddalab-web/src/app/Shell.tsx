@@ -272,7 +272,8 @@ function PanelButton(props: {
       </IconButton>
       <Popover.Portal>
         <Popover.Positioner sideOffset={6} align="end">
-          <Popover.Popup className={controls.panel}>
+          {/* Named by its button; a panel with a Popover.Title (About) is named by that instead. */}
+          <Popover.Popup className={controls.panel} aria-label={props.label}>
             <Suspense fallback={null}>{props.children}</Suspense>
           </Popover.Popup>
         </Popover.Positioner>
