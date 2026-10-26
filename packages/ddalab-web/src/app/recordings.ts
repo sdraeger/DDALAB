@@ -88,8 +88,8 @@ export async function openFiles(
   if ("error" in set) return { kind: "error", message: set.error, folder: false };
   if ("candidates" in set) return { kind: "choose", candidates: set.candidates };
   try {
-    const files = { kind: "files", files: set.files, primary: set.primary } as const;
-    const [opened] = await Promise.all([engine.open(files), viewerReady()]);
+    const input = { kind: "files", files: set.files, primary: set.primary } as const;
+    const [opened] = await Promise.all([engine.open(input), viewerReady()]);
     adopt(opened, "files");
     const { info, fingerprint } = opened;
     const handle = info.input_files.length === 1 ? options.handle : undefined;
