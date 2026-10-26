@@ -276,27 +276,36 @@ function savedOf(saved: TabView): TabView {
 
 /** The first field that does not fit the rest of the project (paths, references, ids twice); `undefined` if none. */
 function inconsistent(project: Project): string | undefined {
-  const prints = project.recordings.map((r) => r.fingerprint);
-  const marks = project.recordings.flatMap((r) => r.annotations.map((a) => a.id));
+  // Sets throughout: a project.json of 32 MiB may list hundreds of thousands of items.
+  const prints = new Set<string>();
+  const marks = new Map<string, number>();
+  for (const r of project.recordings)
+    for (const a of r.annotations) marks.set(a.id, (marks.get(a.id) ?? 0) + 1);
   for (const [k, { fingerprint, files, annotations }] of project.recordings.entries()) {
-    if (prints.indexOf(fingerprint) !== k) return `recordings[${k}].fingerprint`;
+    if (prints.has(fingerprint)) return `recordings[${k}].fingerprint`;
+    prints.add(fingerprint);
+    const names = new Set<string>();
     for (const [i, { path, name }] of files.entries()) {
       if (path !== `recordings/${k}/${name}`) return `recordings[${k}].files[${i}].path`;
-      if (files.findIndex((f) => f.name === name) !== i) return `recordings[${k}].files[${i}].name`;
+      if (names.has(name)) return `recordings[${k}].files[${i}].name`;
+      names.add(name);
     }
     // Annotation ids are the store's keys across recordings: one id twice would file one over the other.
-    const twice = annotations.findIndex((a) => marks.indexOf(a.id) !== marks.lastIndexOf(a.id));
+    const twice = annotations.findIndex((a) => (marks.get(a.id) as number) > 1);
     if (twice >= 0) return `recordings[${k}].annotations[${twice}].id`;
   }
-  if (project.active_tab != null && !prints.includes(project.active_tab)) return "active_tab";
-  const batches = project.batches.map((b) => b.id);
+  if (project.active_tab != null && !prints.has(project.active_tab)) return "active_tab";
+  const batches = new Set(project.batches.map((b) => b.id));
+  if (batches.size !== project.batches.length) return "batches";
+  const results = new Set<string>();
   for (const [i, { path, record }] of project.results.entries()) {
     if (path !== `results/${record.id}/`) return `results[${i}].path`;
-    if (!prints.includes(record.fingerprint)) return `results[${i}].record.fingerprint`;
-    if (project.results.findIndex((r) => r.record.id === record.id) !== i) return `results[${i}].record.id`;
-    if (record.batch != null && !batches.includes(record.batch)) return `results[${i}].record.batch`;
+    if (!prints.has(record.fingerprint)) return `results[${i}].record.fingerprint`;
+    if (results.has(record.id)) return `results[${i}].record.id`;
+    results.add(record.id);
+    if (record.batch != null && !batches.has(record.batch)) return `results[${i}].record.batch`;
   }
-  return batches.findIndex((id, i) => batches.indexOf(id) !== i) >= 0 ? "batches" : undefined;
+  return undefined;
 }
 
 /**
