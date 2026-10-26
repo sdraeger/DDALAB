@@ -23,6 +23,8 @@ export interface AnalysisRecord {
   /** "interrupted": a reload or a crash ended the run, and its files were deleted. */
   status: "running" | "complete" | "interrupted" | "failed";
   error?: string;
+  /** The batch that ran it (core/batch.ts); the history lists it under the batch. */
+  batch?: string;
 }
 
 /**

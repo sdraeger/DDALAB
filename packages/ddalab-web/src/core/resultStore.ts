@@ -156,7 +156,7 @@ export async function storeResult(
   }
 }
 
-/** Deletes the files of a result that will not complete (it failed or was cancelled). */
+/** Deletes the files of a result that will not complete (it failed or was canceled). */
 export async function discardResult(resultId: string): Promise<void> {
   const result = writing.get(resultId);
   writing.delete(resultId);

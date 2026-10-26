@@ -1,5 +1,6 @@
 // The Folder section of the library rail: the walk of an opened folder with its running count, then the folder's
-// recordings as a tree. A click or Enter on a recording opens it with its companion files.
+// recordings as a tree. A click or Enter on a recording opens it with its companion files. "Run on all" runs the DDA
+// settings on every recording shown (Batch.tsx); a folder opened to resume a batch resumes it once it is read.
 import {
   createTree,
   hotkeysCoreFeature,
@@ -8,8 +9,11 @@ import {
   type TreeConfig,
   type TreeState,
 } from "@headless-tree/core";
+import Check from "lucide-react/dist/esm/icons/check.mjs";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right.mjs";
 import FolderOpen from "lucide-react/dist/esm/icons/folder-open.mjs";
+import Play from "lucide-react/dist/esm/icons/play.mjs";
+import X from "lucide-react/dist/esm/icons/x.mjs";
 import {
   type CSSProperties,
   type KeyboardEvent,
@@ -22,7 +26,9 @@ import {
   useState,
   useTransition,
 } from "react";
+import { resumeBatch } from "../../app/batch";
 import type { FileHandles, Outcome } from "../../app/recordings";
+import { discovered, type Mark } from "../../core/batch";
 import {
   classifyFolder,
   type FolderNode,
@@ -33,8 +39,10 @@ import {
   type Walked,
   walk,
 } from "../../core/folder";
+import { pathOf } from "../../core/sources";
 import { useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
+import { BatchAction, BatchProgressView } from "./Batch";
 import styles from "./FolderTree.module.css";
 import rail from "./LibraryRail.module.css";
 
@@ -58,20 +66,34 @@ export default function FolderTree(props: {
   source: FolderSource;
   onOpen(recording: FolderRecording, handles: FileHandles): Promise<Outcome>;
   onClose(): void;
+  /** The batch to resume on the recordings of this folder. */
+  resume?: string;
 }) {
-  const { source, onOpen } = props;
+  const { source, onOpen, resume } = props;
   const [count, setCount] = useState(0);
-  const [result, setResult] = useState<{ walked: Walked; recordings: FolderRecording[] }>();
+  // `bids`: the opened folder is a BIDS dataset's root, which a batch reads as `ddalab batch --bids-dir` does.
+  const [result, setResult] = useState<{ walked: Walked; recordings: FolderRecording[]; bids: boolean }>();
   const [error, setError] = useState<string>();
   useEffect(() => {
     const walking = new AbortController();
     walk(source, walking.signal, setCount)
-      .then(async (walked) => ({ walked, recordings: await classifyFolder(walked.files) }))
-      .then(setResult, (failure: Error) => {
-        if (!walking.signal.aborted) setError(`The folder could not be read: ${failure.message}`);
-      });
+      .then(async (walked) => ({
+        walked,
+        recordings: await classifyFolder(walked.files),
+        bids: walked.files.some((file) => /^[^/]+\/dataset_description\.json$/.test(pathOf(file))),
+      }))
+      .then(
+        (found) => {
+          setResult(found);
+          if (resume && !walking.signal.aborted)
+            void resumeBatch(resume, found.recordings, found.walked.root);
+        },
+        (failure: Error) => {
+          if (!walking.signal.aborted) setError(`The folder could not be read: ${failure.message}`);
+        },
+      );
     return () => walking.abort();
-  }, [source]);
+  }, [source, resume]);
   // A recording opens with the handles of all its files, when the walk has them, and of the opened folder.
   const open = useCallback(
     (recording: FolderRecording) => {
@@ -93,7 +115,13 @@ export default function FolderTree(props: {
           {error}
         </p>
       ) : result ? (
-        <Recordings recordings={result.recordings} unreadable={result.walked.unreadable} onOpen={open} />
+        <Recordings
+          recordings={result.recordings}
+          unreadable={result.walked.unreadable}
+          handle={result.walked.root}
+          bids={result.bids}
+          onOpen={open}
+        />
       ) : (
         <div className={styles.walking}>
           <p>
@@ -116,6 +144,8 @@ const counted = (n: number, what: string) => `${n.toLocaleString("en-US")} ${wha
 function Recordings(props: {
   recordings: FolderRecording[];
   unreadable: Walked["unreadable"];
+  handle?: FileSystemDirectoryHandle;
+  bids: boolean;
   onOpen(recording: FolderRecording): Promise<Outcome>;
 }) {
   const { recordings, unreadable, onOpen } = props;
@@ -132,6 +162,12 @@ function Recordings(props: {
       r.name.toLowerCase().includes(needle) || r.path.slice(below).toLowerCase().includes(needle);
     return folderTree(recordings.filter(matches), true);
   }, [recordings, whole, filter]);
+  // The batch's recordings, of the ones shown: in a BIDS dataset the CLI's, a header without its data file
+  // included (it fails as in the CLI); elsewhere the ones that open, in path order.
+  const runnable = useMemo(() => {
+    const listed = recordings.filter((r) => shown.nodes[r.path] !== undefined);
+    return props.bids && whole.root ? discovered(listed, whole.root) : listed.filter((r) => !r.missing);
+  }, [recordings, shown, props.bids, whole.root]);
   const lost = [
     unreadable.files > 0 && counted(unreadable.files, "file"),
     unreadable.folders > 0 && counted(unreadable.folders, "folder"),
@@ -168,12 +204,16 @@ function Recordings(props: {
   }
   return (
     <>
-      {whole.root && (
-        <p className={styles.root} title={whole.root}>
-          <FolderOpen aria-hidden />
-          <span>{whole.root}</span>
-        </p>
-      )}
+      <div className={styles.head}>
+        {whole.root && (
+          <p className={styles.root} title={whole.root}>
+            <FolderOpen aria-hidden />
+            <span>{whole.root}</span>
+          </p>
+        )}
+        <BatchAction recordings={runnable} root={whole.root} handle={props.handle} />
+      </div>
+      <BatchProgressView />
       {recordings.length >= SEARCH_FROM && (
         <input
           type="search"
@@ -194,6 +234,7 @@ function Recordings(props: {
           nodes={shown.nodes}
           expanded={shown.expanded}
           label={whole.root ? `Recordings in ${whole.root}` : "Recordings"}
+          root={whole.root}
           opened={opened}
           stale={filtering}
           onOpen={open}
@@ -247,6 +288,7 @@ function Tree(props: {
   nodes: Record<string, FolderNode>;
   expanded: string[];
   label: string;
+  root: string;
   opened: Record<string, string>;
   stale: boolean;
   onOpen(recording: FolderRecording): void;
@@ -254,6 +296,8 @@ function Tree(props: {
   const { nodes, opened, onOpen } = props;
   const recordings = useStore((s) => s.recordings);
   const active = useStore((s) => s.activeRecordingId);
+  // The marks of this folder's batch.
+  const marks = useStore((s) => (s.batch?.root === props.root ? s.batch.marks : undefined));
   const describe = useId();
   const tree = useTreeBuiltOnce<FolderNode>({
     rootItemId: ROOT,
@@ -388,10 +432,36 @@ function Tree(props: {
             describe={`${describe}-${item.getItemMeta().index}`}
             open={item.getId() in opened && opened[item.getId()] in recordings}
             active={active !== null && opened[item.getId()] === active}
+            mark={marks?.[item.getId()]}
           />
         ))}
       </div>
     </div>
+  );
+}
+
+/** A thin rule between two fields of a row's meta, after a space that keeps their words apart in its description. */
+const Rule = () => (
+  <>
+    {" "}
+    <span className={rail.thin} aria-hidden />
+  </>
+);
+
+const MARK: Record<Mark, { word: string; Icon: typeof Check }> = {
+  done: { word: "Done", Icon: Check },
+  failed: { word: "Failed", Icon: X },
+  running: { word: "Running", Icon: Play },
+};
+
+/** A row's batch mark: an icon and its word, the color only repeating the word. */
+function RowMark({ mark }: { mark: Mark }) {
+  const { word, Icon } = MARK[mark];
+  return (
+    <span className={styles.mark} data-mark={mark}>
+      <Icon aria-hidden />
+      {word}
+    </span>
   );
 }
 
@@ -403,6 +473,7 @@ function Row(props: {
   describe: string;
   open: boolean;
   active: boolean;
+  mark?: Mark;
 }) {
   const { item } = props;
   const { recording, label, count } = item.getItemData();
@@ -448,19 +519,32 @@ function Row(props: {
     >
       <span className={styles.name}>{label}</span>
       <span className={styles.meta} id={props.describe}>
-        {recording.format}
-        <span className={rail.thin} aria-hidden />
-        {recording.missing ? (
-          <span className={styles.missing}>{recording.missing}</span>
-        ) : (
-          sizeOf(recording.size)
-        )}
-        {props.open && (
-          <>
-            <span className={rail.thin} aria-hidden />
-            {/* The words tell the shown recording from the other open ones; color only repeats them. */}
-            <span className={styles.open}>{props.active ? "Viewing" : "Open"}</span>
-          </>
+        {/* Format and size give way first, in an ellipsis; then the status words, in one of their own. */}
+        <span className={styles.facts}>
+          {recording.format}
+          <Rule />
+          {recording.missing ? (
+            <span className={styles.missing}>{recording.missing}</span>
+          ) : (
+            sizeOf(recording.size)
+          )}
+        </span>
+        {(props.open || props.mark) && (
+          <span className={styles.status}>
+            {props.open && (
+              <>
+                <Rule />
+                {/* The words tell the shown recording from the other open ones; color only repeats them. */}
+                <span className={styles.open}>{props.active ? "Viewing" : "Open"}</span>
+              </>
+            )}
+            {props.mark && (
+              <>
+                <Rule />
+                <RowMark mark={props.mark} />
+              </>
+            )}
+          </span>
         )}
       </span>
     </div>

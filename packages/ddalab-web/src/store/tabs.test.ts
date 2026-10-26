@@ -43,10 +43,10 @@ test("version_2_database_upgrades_with_its_recent_list", async () => {
     { fingerprint: "f", primary: "a.edf", names: ["a.edf"], lastOpened: 1 },
   ]);
   const stores = [...(await database()).objectStoreNames].sort();
-  expect(stores).toEqual(["analyses", "annotations", "fileAnnotations", "recent", "tabs"]);
+  expect(stores).toEqual(STORES);
 });
 
-const STORES = ["analyses", "annotations", "fileAnnotations", "recent", "tabs"];
+const STORES = ["analyses", "annotations", "batches", "fileAnnotations", "recent", "tabs"];
 const mark = { id: "m", onset_s: 1, duration_s: 0, label: "spike" };
 
 // Two branches each took version 3 for one store: a browser can sit at version 3 with either, and the upgrade adds the
@@ -99,6 +99,48 @@ test("version_4_annotation_lists_become_a_record_each", async () => {
   ]);
   expect(warned).toHaveBeenCalledOnce();
   warned.mockRestore();
+});
+
+// Two branches each took version 5. The batch branch's: the batches, and the annotations still a list per recording.
+test("version_5_of_the_batch_branch_upgrades", async () => {
+  await deleteDB("ddalab");
+  const old = await openDB("ddalab", 5, {
+    upgrade(db) {
+      for (const name of ["recent", "annotations"]) db.createObjectStore(name, { keyPath: "fingerprint" });
+      for (const name of ["analyses", "batches"]) db.createObjectStore(name, { keyPath: "id" });
+      db.createObjectStore("tabs");
+    },
+  });
+  const batch = { id: "b", root: "ds", paths: ["ds/a.edf"], results: [], status: "complete" };
+  await old.put("batches", batch);
+  await old.put("annotations", { fingerprint: "f", annotations: [mark] });
+  old.close();
+  const db = await database();
+  expect([...db.objectStoreNames].sort()).toEqual(STORES);
+  expect(await db.get("batches", "b")).toEqual(batch);
+  expect(await db.getAllFromIndex("annotations", "fingerprint", "f")).toEqual([
+    { ...mark, fingerprint: "f" },
+  ]);
+});
+
+// Integration's version 5: an annotation a record, the files' lists, no batches.
+test("version_5_with_records_gains_batches", async () => {
+  await deleteDB("ddalab");
+  const old = await openDB("ddalab", 5, {
+    upgrade(db) {
+      db.createObjectStore("recent", { keyPath: "fingerprint" });
+      db.createObjectStore("analyses", { keyPath: "id" });
+      db.createObjectStore("tabs");
+      db.createObjectStore("fileAnnotations");
+      db.createObjectStore("annotations", { keyPath: "id" }).createIndex("fingerprint", "fingerprint");
+    },
+  });
+  await old.put("annotations", { ...mark, fingerprint: "f" });
+  old.close();
+  const db = await database();
+  expect([...db.objectStoreNames].sort()).toEqual(STORES);
+  expect(await db.get("annotations", "m")).toEqual({ ...mark, fingerprint: "f" });
+  expect(await db.getAll("batches")).toEqual([]);
 });
 
 const file = (path: string, size: number, lastModified = 1000) => {

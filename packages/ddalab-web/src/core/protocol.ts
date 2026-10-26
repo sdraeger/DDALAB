@@ -48,7 +48,8 @@ export interface Tile {
 
 export type IoRequest =
   | { type: "version" }
-  | { type: "open"; id: string; input: RecordingInput }
+  /** `scan` false: no overview scan (a batch's open); the tiles of the view are built as they are asked for. */
+  | { type: "open"; id: string; input: RecordingInput; scan?: boolean }
   | { type: "close"; id: string }
   | { type: "raw"; id: string; row0: number; rows: number }
   | { type: "tile"; id: string; level: number; index: number }

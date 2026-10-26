@@ -101,6 +101,6 @@ export function runAnalysis(deps: {
       return () => void listeners.delete(listener);
     },
     done,
-    cancel: () => finish(new DOMException("The run was cancelled", "AbortError")),
+    cancel: () => finish(new DOMException("The run was canceled", "AbortError")),
   };
 }

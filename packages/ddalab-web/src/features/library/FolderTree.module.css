@@ -19,11 +19,19 @@
   line-height: var(--leading-small);
 }
 
-/* The opened folder, above its rows. */
+/* The opened folder and the batch's action, above its rows. */
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
 .root {
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
+  min-width: 0;
   font-weight: var(--weight-medium);
 }
 
@@ -189,21 +197,50 @@
   color: var(--muted);
 }
 
+/* Format and size, then the row's status words ("Viewing", a batch mark). Where the rail is too narrow for all of it (a
+   shown row deep in a tree), format and size give way in an ellipsis and the status words stay whole; the row's
+   description keeps everything. */
 .meta {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
+  overflow: hidden;
   color: var(--muted);
   font-size: var(--text-small);
   line-height: var(--leading-small);
   white-space: nowrap;
 }
 
-.missing {
+.facts {
+  min-width: 0;
   overflow: hidden;
-  color: var(--event);
   text-overflow: ellipsis;
+}
+
+/* The status words keep their width while format and size have any; past that (a row more than six folders down),
+   they end in an ellipsis of their own. The gap before them is left out of their width. */
+.status {
+  flex-shrink: 0;
+  max-width: calc(100% - var(--space-2));
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The thin rules between the fields, inline in the line of their part, after the space that separates the words. */
+.facts > [aria-hidden="true"],
+.status > [aria-hidden="true"] {
+  display: inline-block;
+  margin: 0 var(--space-2) 0 var(--space-1);
+  vertical-align: middle;
+}
+
+.status > [aria-hidden="true"]:first-child {
+  margin-left: 0;
+}
+
+.missing {
+  color: var(--event);
 }
 
 .open {
@@ -211,8 +248,32 @@
   font-weight: var(--weight-medium);
 }
 
-/* On the wash the blue falls under 4.5:1: "Viewing" is set in ink. */
-.recording[aria-selected="true"] .open {
+/* A row's batch mark: its icon and its word, inline so that an ellipsis can cut the word; the color repeats the word.
+   The icon sits on the baseline and spans the capitals (1cap). */
+.mark {
+  font-weight: var(--weight-medium);
+}
+
+.mark svg {
+  block-size: 1cap;
+  inline-size: auto;
+  margin-right: 2px;
+  vertical-align: baseline;
+  stroke-width: 2.5;
+}
+
+.mark[data-mark="failed"] {
+  color: var(--event);
+}
+
+.mark[data-mark="running"] {
+  color: var(--primary);
+}
+
+/* On the wash the blue and the red fall under 4.5:1: "Viewing" and the batch marks are set in ink; the marks' words
+   and icons still tell them apart. */
+.recording[aria-selected="true"] .open,
+.recording[aria-selected="true"] .mark {
   color: var(--ink);
 }
 
