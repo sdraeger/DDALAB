@@ -88,8 +88,9 @@ export default function AppMenu() {
   const listWindows = (open: boolean) => {
     if (open) reopenable().then(setSaved, () => setSaved([]));
   };
+  // A heading takes no name from the menubar inside it: it is named outright.
   return (
-    <h1 className={styles.brand}>
+    <h1 className={styles.brand} aria-label="DDALAB">
       <Menubar render={<span />} className={styles.menubar}>
         <Menu.Root onOpenChange={listWindows}>
           <Menu.Trigger ref={trigger} className={styles.trigger}>

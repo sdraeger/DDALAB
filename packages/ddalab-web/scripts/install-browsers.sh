@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Installs Playwright browsers with their system packages on a CI runner. The runner's Azure mirror of Ubuntu has
-# stalled or crawled mid-download until the job timed out, and a try stopped by the time limit left apt holding its
-# lock for the next one. apt now gives up on a stalled connection after 30 s and retries it, each try gets 15 minutes,
-# a new try waits for the previous one's apt to let go of its locks, and tries after the first use the main archive.
+# stalled or crawled mid-download until the job timed out. apt gives up on a stalled connection after 30 s and retries
+# it, and each try gets 15 minutes. The time limit stops npx but not the apt-get it started as root, which went on
+# holding apt's lock through the next tries: a try that fails stops it and finishes what dpkg had begun. Tries after
+# the first use the main archive.
 # Usage: scripts/install-browsers.sh chromium firefox webkit
 set -u
 echo 'Acquire::Retries "5"; Acquire::http::Timeout "30"; Acquire::https::Timeout "30";' |
@@ -15,5 +16,8 @@ for try in 1 2 3; do
   fi
   timeout 900 npx playwright install --with-deps "$@" && exit 0
   echo "Browser install try $try failed or hung" >&2
+  sudo pkill -x apt-get
+  sleep 5
+  sudo dpkg --configure -a
 done
 exit 1
