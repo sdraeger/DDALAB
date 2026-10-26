@@ -1,5 +1,7 @@
 // The time axis on 2D canvases: tick steps and labels, the hatch of regions without data, and what the waveform pane
-// draws around its traces (the ruler above them, the grid, selection, events and cursor under them).
+// draws around its traces (the ruler above them, the grid, selection, events and cursor under them). The recording's
+// events are red and outlined on the ruler, the user's annotations ink and solid.
+import type { UserAnnotation } from "../core/userAnnotations";
 import type { OpenRecording } from "../store/store";
 import type { Colors } from "./themeColors";
 import type { Gap } from "./waveformLayer";
@@ -88,52 +90,118 @@ function label(
   ctx.fillText(text, x, y);
 }
 
-export interface MarksScene {
+export interface EventsScene {
   /** Device pixels. */
   W: number;
   H: number;
   dpr: number;
   view: { t0: number; t1: number };
-  selection: { t0: number; t1: number } | null;
-  cursorS: number | null;
   /** Its events are marked; a result shown without its recording has none. */
   recording: OpenRecording | undefined;
+  /** The user's annotations of `recording`. */
+  user?: UserAnnotation[];
+  /** The id of the picked annotation: a user annotation's line is drawn at full strength. */
+  picked?: string | null;
   colors: Colors;
   /** Over opaque data (the heatmap): lines get a halo of the ground color, and the selection its edges. */
   over?: boolean;
 }
 
-/** The selection, the events and the cursor, which every plot on the time axis shares. */
-export function drawMarks(ctx: CanvasRenderingContext2D, scene: MarksScene) {
-  const { W, H, dpr, view, recording, colors, over } = scene;
+export interface MarksScene extends EventsScene {
+  selection: { t0: number; t1: number } | null;
+  cursorS: number | null;
+}
+
+/**
+ * A vertical line `w` device pixels wide from `y` down `h`, in the fill color. Dashed (4 CSS px on, 3 off) it marks
+ * a file event, solid a user annotation: on every plot the two kinds differ by more than their color.
+ */
+export function column(
+  ctx: CanvasRenderingContext2D,
+  px: number,
+  y: number,
+  w: number,
+  h: number,
+  dashed: boolean,
+  dpr: number,
+) {
+  if (!dashed) return ctx.fillRect(px, y, w, h);
+  ctx.save();
+  ctx.strokeStyle = ctx.fillStyle;
+  ctx.lineWidth = w;
+  ctx.setLineDash([4 * dpr, 3 * dpr]);
+  ctx.beginPath();
+  ctx.moveTo(px + w / 2, y);
+  ctx.lineTo(px + w / 2, y + h);
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** A vertical line `line` device pixels wide at `px`; over opaque data it stands on a halo of the ground color. */
+function vline(
+  ctx: CanvasRenderingContext2D,
+  px: number,
+  line: number,
+  color: string,
+  scene: EventsScene,
+  alpha = 1,
+  dashed = false,
+) {
+  if (scene.over) {
+    ctx.globalAlpha = 0.6;
+    ctx.fillStyle = scene.colors.ground;
+    column(ctx, px - line, 0, 3 * line, scene.H, dashed, scene.dpr);
+  }
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = color;
+  column(ctx, px, 0, line, scene.H, dashed, scene.dpr);
+  ctx.globalAlpha = 1;
+}
+
+/**
+ * The events of the view: a line at each onset (and at the end of a user span) and a light wash over spans. The
+ * file's lines are dashed red, the user's solid ink.
+ */
+export function drawEvents(ctx: CanvasRenderingContext2D, scene: EventsScene) {
+  const { W, H, dpr, view, colors } = scene;
   const x = (t: number) => ((t - view.t0) / (view.t1 - view.t0)) * W;
   const line = Math.max(1, Math.round(dpr));
-  const mark = (t: number, color: string) => {
-    const px = Math.round(x(t));
-    if (over) {
-      ctx.globalAlpha = 0.6;
-      ctx.fillStyle = colors.ground;
-      ctx.fillRect(px - line, 0, 3 * line, H);
-      ctx.globalAlpha = 1;
-    }
+  const shown = (a: { onset_s: number; duration_s: number }) =>
+    a.onset_s + a.duration_s >= view.t0 && a.onset_s <= view.t1;
+  const wash = (a: { onset_s: number; duration_s: number }, color: string, alpha: number) => {
     ctx.fillStyle = color;
-    ctx.fillRect(px, 0, line, H);
+    ctx.globalAlpha = alpha;
+    ctx.fillRect(x(a.onset_s), 0, x(a.onset_s + a.duration_s) - x(a.onset_s), H);
+    ctx.globalAlpha = 1;
   };
+  for (const a of scene.recording?.info.annotations ?? []) {
+    if (!shown(a)) continue;
+    if (a.duration_s > 0) wash(a, colors.event, 0.08);
+    vline(ctx, Math.round(x(a.onset_s)), line, colors.event, scene, 1, true);
+  }
+  for (const a of scene.user ?? []) {
+    if (!shown(a)) continue;
+    const alpha = a.id === scene.picked ? 1 : 0.6;
+    if (a.duration_s > 0) {
+      wash(a, colors.ink, 0.06);
+      vline(ctx, Math.round(x(a.onset_s + a.duration_s)), line, colors.ink, scene, alpha);
+    }
+    vline(ctx, Math.round(x(a.onset_s)), line, colors.ink, scene, alpha);
+  }
+}
+
+/** The selection, the events and the cursor, which every plot on the time axis shares. */
+export function drawMarks(ctx: CanvasRenderingContext2D, scene: MarksScene) {
+  const { W, dpr, view, colors, over } = scene;
+  const x = (t: number) => ((t - view.t0) / (view.t1 - view.t0)) * W;
+  const line = Math.max(1, Math.round(dpr));
+  const mark = (t: number, color: string) => vline(ctx, Math.round(x(t)), line, color, scene);
   if (scene.selection) {
     ctx.fillStyle = colors.wash;
-    ctx.fillRect(x(scene.selection.t0), 0, x(scene.selection.t1) - x(scene.selection.t0), H);
+    ctx.fillRect(x(scene.selection.t0), 0, x(scene.selection.t1) - x(scene.selection.t0), scene.H);
     if (over) for (const t of [scene.selection.t0, scene.selection.t1]) mark(t, colors.primary);
   }
-  for (const a of recording?.info.annotations ?? []) {
-    if (a.onset_s + a.duration_s < view.t0 || a.onset_s > view.t1) continue;
-    if (a.duration_s > 0) {
-      ctx.fillStyle = colors.event;
-      ctx.globalAlpha = 0.08;
-      ctx.fillRect(x(a.onset_s), 0, x(a.onset_s + a.duration_s) - x(a.onset_s), H);
-      ctx.globalAlpha = 1;
-    }
-    mark(a.onset_s, colors.event);
-  }
+  drawEvents(ctx, scene);
   if (scene.cursorS !== null && scene.cursorS >= view.t0 && scene.cursorS <= view.t1) {
     mark(scene.cursorS, colors.primary);
   }
@@ -175,38 +243,100 @@ export interface RulerScene {
   dpr: number;
   view: { t0: number; t1: number };
   recording: OpenRecording;
+  user: UserAnnotation[];
+  picked: string | null;
   colors: Colors;
 }
 
-/** The time ruler: labeled ticks and the event flags of the view. */
-export function drawRuler(ctx: CanvasRenderingContext2D, scene: RulerScene) {
+/** An event's flag on the ruler, in device pixels: what a pointer over the ruler hits. */
+export interface Flag {
+  /** A user annotation's id, or `file:<index>` for the recording's own. */
+  id: string;
+  user: boolean;
+  x0: number;
+  x1: number;
+}
+
+/** `text` cut to `room` device pixels with an ellipsis; empty when not even one letter fits. */
+function elide(ctx: CanvasRenderingContext2D, text: string, room: number): string {
+  if (ctx.measureText(text).width <= room) return text;
+  for (let n = text.length - 1; n > 0; n--) {
+    const cut = `${text.slice(0, n).trimEnd()}\u2026`;
+    if (ctx.measureText(cut).width <= room) return cut;
+  }
+  return "";
+}
+
+/**
+ * The time ruler: labeled ticks and a flag at each event in the view, a bar under a span. The recording's events
+ * have outlined red flags, the user's solid ink ones. A flag takes the room up to the next flag or tick label and
+ * elides its label to fit; one with no room left is a narrow pin. Returns the flags as drawn.
+ */
+export function drawRuler(ctx: CanvasRenderingContext2D, scene: RulerScene): Flag[] {
   const { W, H, dpr, view, recording, colors } = scene;
   const x = (t: number) => ((t - view.t0) / (view.t1 - view.t0)) * W;
   const line = Math.max(1, Math.round(dpr));
   ctx.clearRect(0, 0, W, H);
   ctx.fillStyle = colors.hairline;
   ctx.fillRect(0, H - line, W, line);
-  ctx.font = `${11 * dpr}px ${colors.font}`;
   ctx.textBaseline = "middle";
+  const events = [
+    ...recording.info.annotations.map((a, i) => ({ a, id: `file:${i}`, user: false })),
+    ...scene.user.map((a) => ({ a, id: a.id, user: true })),
+  ]
+    .filter(({ a }) => a.onset_s + a.duration_s >= view.t0 && a.onset_s <= view.t1)
+    .map((e) => ({ ...e, left: Math.max(0, Math.round(x(e.a.onset_s))) }))
+    .sort((p, q) => p.left - q.left);
+  const [top, h, pad, pin] = [2 * dpr, H - 6 * dpr, 4 * dpr, 4 * dpr];
+  // The tick labels first: one a flag starts on moves to the left of its tick, else it is left out.
+  ctx.font = `${11 * dpr}px ${colors.font}`;
   const { step, at } = ticks(view.t0, view.t1, W / dpr, 96);
-  for (const t of at) {
+  const blocked = (l0: number, l1: number) =>
+    l0 < 0 || events.some(({ left }) => left > l0 - pin - 4 * dpr && left < l1 + 2 * dpr);
+  const labels = at.map((t) => {
     const px = Math.round(x(t));
+    const text = tickLabel(t, step);
+    const w = ctx.measureText(text).width;
+    return { px, text, l0: [px + 3 * dpr, px - 3 * dpr - w].find((l) => !blocked(l, l + w)) };
+  });
+  for (const { px, text, l0 } of labels) {
     ctx.fillStyle = colors.hairline;
     ctx.fillRect(px, H - 5 * dpr, line, 5 * dpr);
+    if (l0 === undefined) continue;
     ctx.fillStyle = colors.muted;
-    ctx.fillText(tickLabel(t, step), px + 3 * dpr, H / 2 - dpr);
+    ctx.fillText(text, l0, H / 2 - dpr);
   }
+  // Then each flag up to the next flag or tick label, its label elided to fit.
+  const stops = labels.flatMap(({ l0 }) => (l0 === undefined ? [] : [l0]));
   ctx.font = `600 ${11 * dpr}px ${colors.font}`;
-  for (const a of recording.info.annotations) {
-    if (a.onset_s < view.t0 || a.onset_s > view.t1) continue;
-    const text = a.label || "event";
-    const w = ctx.measureText(text).width + 8 * dpr;
-    const left = Math.min(Math.round(x(a.onset_s)), W - w);
-    ctx.fillStyle = colors.event;
-    ctx.fillRect(left, 2 * dpr, w, H - 4 * dpr);
-    ctx.fillStyle = colors.eventInk;
-    ctx.fillText(text, left + 4 * dpr, H / 2);
-  }
+  const flags = events.map(({ a, left }, k) => {
+    const next = Math.min(events[k + 1]?.left ?? W, ...stops.filter((l) => l > left));
+    const text = elide(ctx, a.label || "event", next - left - 2 * dpr - 2 * pad);
+    return { text, x0: left, x1: left + (text ? ctx.measureText(text).width + 2 * pad : pin) };
+  });
+  events.forEach(({ a, id, user, left }, k) => {
+    const { text, x1 } = flags[k];
+    const w = x1 - left;
+    if (a.duration_s > 0) {
+      ctx.fillStyle = user ? colors.ink : colors.event;
+      ctx.fillRect(left, H - 4 * dpr, Math.min(W, x(a.onset_s + a.duration_s)) - left, 2 * dpr);
+    }
+    ctx.fillStyle = user ? colors.ink : colors.ground;
+    ctx.fillRect(left, top, w, h);
+    if (!user) {
+      ctx.strokeStyle = colors.event;
+      ctx.lineWidth = line;
+      ctx.strokeRect(left + line / 2, top + line / 2, w - line, h - line);
+    }
+    if (id === scene.picked) {
+      ctx.strokeStyle = colors.primary;
+      ctx.lineWidth = 2 * line;
+      ctx.strokeRect(left - line, top - line, w + 2 * line, h + 2 * line);
+    }
+    ctx.fillStyle = user ? colors.ground : colors.event;
+    if (text) ctx.fillText(text, left + pad, top + h / 2);
+  });
+  return events.map(({ id, user }, k) => ({ id, user, x0: flags[k].x0, x1: flags[k].x1 }));
 }
 
 export interface AxisScene {

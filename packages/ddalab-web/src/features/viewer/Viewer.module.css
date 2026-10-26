@@ -49,7 +49,7 @@
   height: 100%;
 }
 
-/* The locator: the part of the recording on screen. Paging glides it; continuous moves set data-live. */
+/* The locator: the part of the recording on screen. It follows the view at once, as the traces do. */
 .outline {
   position: absolute;
   top: 16px;
@@ -59,13 +59,6 @@
   border-radius: 2px;
   background: color-mix(in srgb, var(--ink) 5%, transparent);
   pointer-events: none;
-  transition:
-    transform var(--motion) var(--ease-out),
-    width var(--motion) var(--ease-out);
-}
-
-.outline[data-live="true"] {
-  transition: none;
 }
 
 .tab {
@@ -290,4 +283,33 @@
 
 .plot .problem {
   left: var(--space-2);
+}
+
+/* The full name of the annotation flag under the pointer, under the ruler (features/annotations). */
+.tip {
+  position: fixed;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  max-width: 36ch;
+  padding: 3px var(--space-2);
+  border-radius: var(--radius-small);
+  background: var(--ink);
+  color: var(--ground);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+  pointer-events: none;
+}
+
+.tip[hidden] {
+  display: none;
+}
+
+.tip b {
+  overflow-wrap: anywhere;
+  font-weight: var(--weight-strong);
+}
+
+.tip span {
+  color: color-mix(in srgb, var(--ground) 78%, var(--ink));
 }

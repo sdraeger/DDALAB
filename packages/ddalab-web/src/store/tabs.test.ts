@@ -1,8 +1,8 @@
 import "fake-indexeddb/auto";
-import { openDB } from "idb";
+import { deleteDB, openDB } from "idb";
 import { beforeEach, expect, test } from "vitest";
 import type { AnalysisRecord } from "../core/history";
-import { listRecent } from "./recent";
+import { database, listRecent } from "./recent";
 import {
   activateRecording,
   type OpenRecording,
@@ -42,6 +42,29 @@ test("version_2_database_upgrades_with_its_recent_list", async () => {
   expect(await listRecent()).toEqual([
     { fingerprint: "f", primary: "a.edf", names: ["a.edf"], lastOpened: 1 },
   ]);
+});
+
+// Two branches each took version 3 for one store: a browser can sit at version 3 with either, and version 4 adds the
+// missing one and keeps the other's records.
+test.each([
+  ["annotations", { fingerprint: "f", annotations: [] }, "f"],
+  ["tabs", { tabs: [], active: null }, "open"],
+] as const)("version_3_with_only_%s_upgrades_to_4", async (store, record, key) => {
+  // The page's connection closes for the delete (recent.ts `blocking`) and opens again after.
+  await deleteDB("ddalab");
+  const old = await openDB("ddalab", 3, {
+    upgrade(db) {
+      db.createObjectStore("recent", { keyPath: "fingerprint" });
+      db.createObjectStore("analyses", { keyPath: "id" });
+      if (store === "annotations") db.createObjectStore(store, { keyPath: "fingerprint" });
+      else db.createObjectStore(store);
+    },
+  });
+  await (store === "annotations" ? old.put(store, record) : old.put(store, record, key));
+  old.close();
+  const db = await database();
+  expect([...db.objectStoreNames].sort()).toEqual(["analyses", "annotations", "recent", "tabs"]);
+  expect(await db.get(store, key)).toEqual(record);
 });
 
 const file = (path: string, size: number, lastModified = 1000) => {

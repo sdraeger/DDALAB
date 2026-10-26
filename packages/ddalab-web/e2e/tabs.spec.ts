@@ -207,11 +207,21 @@ test("reorder_by_drag_and_close", async ({ page }) => {
   await expect(tabs(page)).toHaveCount(0);
 });
 
+/** Opens the recordings `names` (their primary files) in turn from the folder tree of the folder `folder`. */
+async function openFromTree(page: Page, folder: string, names: string[]) {
+  const tree = page.getByRole("tree", { name: `Recordings in ${folder}` });
+  for (const name of names) {
+    // A row's accessible name is its label, then its file name.
+    await tree.getByRole("treeitem", { name: new RegExp(`, ${name.replaceAll(".", "\\.")}$`) }).click();
+    await expect(heading(page, name)).toBeVisible();
+  }
+}
+
 test("reload_returns_detached_tabs_and_one_folder_reattaches_them", async ({ page }) => {
   const folder = recordingsFolder();
   await page.goto("/");
-  const pick = page.getByLabel("Recording folder");
-  for (const sub of ["a", "b", "c"]) await pick.setInputFiles(join(folder, sub));
+  await page.getByLabel("Recording folder").setInputFiles(folder);
+  await openFromTree(page, "recordings", ["fixture.edf", "fixture.bdf", "fixture.vhdr"]);
   await expect(tabs(page)).toHaveText(["fixture.edf", "fixture.bdf", "fixture.vhdr"]);
   // The 30 s EDF on its second page.
   await tabs(page).nth(0).click();
@@ -241,9 +251,8 @@ test("reload_returns_detached_tabs_and_one_folder_reattaches_them", async ({ pag
 test("a_changed_file_stays_detached_with_its_reason", async ({ page }) => {
   const folder = recordingsFolder();
   await page.goto("/");
-  const pick = page.getByLabel("Recording folder");
-  await pick.setInputFiles(join(folder, "a"));
-  await pick.setInputFiles(join(folder, "b"));
+  await page.getByLabel("Recording folder").setInputFiles(folder);
+  await openFromTree(page, "recordings", ["fixture.edf", "fixture.bdf"]);
   await expect(tabs(page)).toHaveCount(2);
   await flush(page);
   await page.reload();
@@ -523,12 +532,9 @@ test("granted_handles_reattach_on_their_own_and_one_grant_covers_a_folder", asyn
   const files = { "recordings/a/fixture.edf": edf, "recordings/b/copy.edf": edf };
   await stubPickers(page, files);
   await page.goto("/");
-  const choose = page.getByRole("group", { name: "Several recordings found" });
-  for (const path of ["recordings/a/fixture.edf", "recordings/b/copy.edf"]) {
-    await page.getByRole("button", { name: "Open folder" }).click();
-    await choose.getByRole("button", { name: path }).click();
-    await expect(heading(page, path.split("/").at(-1) as string)).toBeVisible();
-  }
+  // The folder tree walks the picked folder through its handle and opens each recording with it.
+  await page.getByRole("button", { name: "Open folder" }).click();
+  await openFromTree(page, "recordings", ["fixture.edf", "copy.edf"]);
   await expect(tabs(page)).toHaveText(["fixture.edf", "copy.edf"]);
   await flush(page);
 
@@ -593,7 +599,7 @@ test("a_reattach_refused_on_load_leaves_an_open_from_the_library_open", async ({
   await stubPickers(page, { "recordings/a/big.edf": base64Of(big) });
   await page.goto("/");
   await page.getByRole("button", { name: "Open folder" }).click();
-  await expect(heading(page, "big.edf")).toBeVisible();
+  await openFromTree(page, "recordings", ["big.edf"]);
   await expect.poll(() => hashedTabs(page), { timeout: 30_000 }).toBe(true);
   await flush(page);
   // Written again with one byte changed in the middle: name, size and fingerprint stay and the date moves (the
@@ -620,6 +626,10 @@ test("a_reattach_refused_on_load_leaves_an_open_from_the_library_open", async ({
   await expect(tabs(page)).toHaveText(["big.edf, detached"]);
   // The user opens the file from the library: it attaches to its tab and stays open, with a warning.
   await page.getByRole("button", { name: "Open folder" }).click();
+  await page
+    .getByRole("tree", { name: "Recordings in recordings" })
+    .getByRole("treeitem", { name: /, big\.edf$/ })
+    .click();
   await expect(page.getByRole("list", { name: "Warnings" })).toContainText(
     "big.edf differs from the file this tab had open before",
     { timeout: 30_000 },

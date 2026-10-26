@@ -18,7 +18,7 @@ import {
   updateTab,
 } from "../store/tabs";
 import { ask, fileAt, permitted } from "./handles";
-import { closeRecording, engine, type Handles, openFiles, openInput } from "./recordings";
+import { closeRecording, engine, type FileHandles, openFiles, openInput } from "./recordings";
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -65,11 +65,18 @@ function detach(fingerprint: string, reason: string) {
 /** Recordings reattached without the user picking their files (handles, URLs): another SHA-256 detaches them. */
 const unpicked = new Set<string>();
 
+/** The handles of `chosen`, a part of `files` whose handles `handles` holds in the same order; all or none. */
+function handlesFor(chosen: File[], files: File[], handles?: FileHandles): FileHandles | undefined {
+  if (!handles) return undefined;
+  const own = chosen.map((file) => handles.files?.[files.indexOf(file)]);
+  return { root: handles.root, files: own.every((h) => h !== undefined) ? own : undefined };
+}
+
 /**
- * Opens the detached `tab` from `files` when they hold its files; `false` when they hold none of them. `picked`: the
- * user chose these files.
+ * Opens the detached `tab` from `files` when they hold its files; `false` when they hold none of them. `handles`
+ * holds the handles of `files` in their order, where the browser gives them. `picked`: the user chose these files.
  */
-async function attachFiles(tab: Tab, files: File[], handles: Handles | undefined, picked: boolean) {
+async function attachFiles(tab: Tab, files: File[], handles: FileHandles | undefined, picked: boolean) {
   if (tab.source?.kind !== "files") return false;
   const { fingerprint } = tab;
   const match = matchFiles(tab.source.files, files);
@@ -93,7 +100,7 @@ async function attachFiles(tab: Tab, files: File[], handles: Handles | undefined
     exact: true,
     verify,
     signal: check.signal,
-    handles,
+    handles: handlesFor(match.files, files, handles),
     activate: false,
   };
   const outcome = await openFiles(match.files, options);
@@ -132,8 +139,7 @@ async function viaHandles(source: TabSource & { kind: "files" }) {
   if (root)
     return { files: await Promise.all(source.files.map((f) => fileAt(root, f.path))), handles: { root } };
   const handles = source.files.map((f) => f.handle as FileSystemFileHandle);
-  const files = await Promise.all(handles.map((h) => h.getFile()));
-  return { files, handles: { files: new Map(files.map((file, i) => [file, handles[i]])) } };
+  return { files: await Promise.all(handles.map((h) => h.getFile())), handles: { files: handles } };
 }
 
 /** Reattaches `tab` when it needs no prompt: by URL, or through handles that may still be read. */
@@ -191,7 +197,7 @@ export const pickerFor = (tab: Tab): "folder" | "files" =>
     : "files";
 
 /** Reattaches every detached tab whose files are among the picked ones; `target` says when none of its files is. */
-export async function reattachFrom(picked: File[], target: string | null, handles?: Handles) {
+export async function reattachFrom(picked: File[], target: string | null, handles?: FileHandles) {
   await Promise.all(
     detachedTabs().map(async (tab) => {
       const found = await attachFiles(tab, picked, handles, true);

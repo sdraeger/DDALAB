@@ -39,17 +39,12 @@ import {
 import { useStore } from "../../store/store";
 import { hasHandles, moveTab, selectTab, shortNames, type Tab } from "../../store/tabs";
 import controls from "../../styles/controls.module.css";
+import { ALT, KEYS, LINUX_NOTE } from "./keys";
 import styles from "./TabStrip.module.css";
 
 const PANEL = "recording-panel";
 const tabId = (fingerprint: string) => `tab-${fingerprint}`;
-const AGENT = typeof navigator === "undefined" ? "" : navigator.userAgent;
-const ALT = AGENT.includes("Mac") ? "Option" : "Alt";
-const KEYS =
-  `${ALT}+1 to ${ALT}+9 jump to a tab, ${ALT}+[ and ${ALT}+] go to the previous and next, ` +
-  `${ALT}+Shift+[ and ${ALT}+Shift+] move the tab.`;
-const LINUX = AGENT.includes("Linux") && !AGENT.includes("Android");
-const HINT = `All tabs (${ALT}+K). ${KEYS}${LINUX ? ` On Linux they replace the browser's own ${ALT}+digit tab keys.` : ""}`;
+const HINT = `All tabs (${ALT}+K). ${KEYS} ${LINUX_NOTE}`.trim();
 const TEXT_FIELDS =
   'input:not([type="checkbox"]):not([type="radio"]), textarea, select, [contenteditable="true"]';
 
@@ -340,7 +335,7 @@ export function DetachedNote({ fingerprint, brief }: { fingerprint: string; brie
     others > 0 && `${others} other ${others === 1 ? "recording is" : "recordings are"} detached`,
   ].filter(Boolean);
   return (
-    <div className={brief ? styles.line : styles.note}>
+    <div className={brief ? styles.line : styles.note} data-appear>
       <p>{what}</p>
       {left.length > 0 && !brief && <p className={styles.more}>{left.join(". ")}</p>}
       {reason && (
@@ -525,6 +520,7 @@ function Switcher({ onClose }: { onClose(): void }) {
     <dialog
       ref={dialog}
       className={styles.switcher}
+      data-appear
       aria-label="Switch recording"
       data-own-keys
       onClose={onClose}

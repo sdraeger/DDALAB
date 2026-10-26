@@ -81,8 +81,12 @@
   border: var(--hairline-width) solid var(--hairline);
   border-radius: var(--radius);
   background: var(--ground);
+  transition-property: border-color;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
 }
 
+/* The focus ring shows at once. */
 .unitInput:focus-within {
   outline: 2px solid var(--focus);
   outline-offset: 1px;
@@ -142,14 +146,21 @@
   font-weight: var(--weight-medium);
 }
 
-/* Next to the command bar's Run while the inspector is hidden: why it cannot run, or how far the run is. */
+/* Next to the command bar's Run while the inspector is hidden: why it cannot run, or how far the run is (in full in
+   its title). Its slot takes its width from the window, never from what it says: a run's percentages and a message
+   coming or going move nothing in the bar. It gives way first when the bar is short. */
 .barStatus {
+  flex: 0 1 clamp(120px, 18vw, 280px);
+  min-width: 0;
   overflow: hidden;
-  max-width: 280px;
+  text-align: end;
   color: var(--muted);
   font-size: var(--text-small);
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition-property: opacity, transform, color;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
 }
 
 .barStatus[data-refused] {

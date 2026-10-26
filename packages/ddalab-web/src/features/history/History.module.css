@@ -1,7 +1,9 @@
 /* The history's additions to the library rail, the import drop target, the provenance and the export panel. */
 
 .results {
-  transition: opacity var(--motion-fast) var(--ease-out);
+  transition-property: opacity;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
 }
 
 .results[data-stale] {
@@ -25,7 +27,8 @@
   color: var(--muted);
 }
 
-/* A drop target that shows itself only while something is dragged over it. */
+/* A drop target that shows itself only while something is dragged over it: its frame and wash fade in. It does not
+   rise, which would move it under the pointer. */
 .import {
   display: flex;
   flex-direction: column;
@@ -34,9 +37,9 @@
   padding: var(--space-2);
   border: var(--hairline-width) dashed transparent;
   border-radius: var(--radius);
-  transition:
-    border-color var(--motion-fast) var(--ease-out),
-    background-color var(--motion-fast) var(--ease-out);
+  transition-property: border-color, background-color;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
 }
 
 .import[data-over] {
@@ -196,11 +199,15 @@
   background: var(--ground);
   text-align: left;
   cursor: pointer;
-  transition: background-color var(--motion-fast) var(--ease-out);
+  transition-property: background-color, opacity;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
 }
 
-.option:hover:not(:disabled) {
-  background: var(--chrome-hover);
+@media (hover: hover) and (pointer: fine) {
+  .option:hover:not(:disabled) {
+    background: var(--chrome-hover);
+  }
 }
 
 .option:disabled {

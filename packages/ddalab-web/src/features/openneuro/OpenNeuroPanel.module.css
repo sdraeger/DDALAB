@@ -58,18 +58,25 @@
   color: var(--muted);
 }
 
+/* The underline is always drawn, in a transparent color that turns visible on hover. */
 .step {
   padding: 0;
   border: 0;
   background: none;
   color: var(--primary);
   text-align: left;
+  text-decoration: underline transparent;
+  text-underline-offset: 2px;
   cursor: pointer;
+  transition-property: text-decoration-color;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
 }
 
-.step:hover {
-  text-decoration: underline;
-  text-underline-offset: 2px;
+@media (hover: hover) and (pointer: fine) {
+  .step:hover {
+    text-decoration-color: currentColor;
+  }
 }
 
 .folder {
