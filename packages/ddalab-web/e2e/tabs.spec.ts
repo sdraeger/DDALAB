@@ -215,6 +215,8 @@ async function openFromTree(page: Page, folder: string, names: string[]) {
     // A row's accessible name is its label, then its file name.
     await tree.getByRole("treeitem", { name: new RegExp(`, ${name.replaceAll(".", "\\.")}$`) }).click();
     await expect(heading(page, name)).toBeVisible();
+    // Its entry in the recent list, above the tree, moves the tree down: the next click waits for it.
+    await expect(page.getByRole("button", { name: `Forget ${name}`, exact: true })).toBeVisible();
   }
 }
 
