@@ -5,6 +5,7 @@ import FileUp from "lucide-react/dist/esm/icons/file-up.mjs";
 import { type ChangeEvent, type DragEvent, useRef, useState } from "react";
 import { refreshAnalyses } from "../../app/analyses";
 import { engine } from "../../app/recordings";
+import { inTransition } from "../../app/viewTransition";
 import { droppedFiles } from "../../core/sources";
 import { openResult } from "../../store/store";
 import controls from "../../styles/controls.module.css";
@@ -29,7 +30,7 @@ export default function ImportDrop() {
           : input,
       );
       await refreshAnalyses();
-      openResult(id);
+      inTransition(() => openResult(id));
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
     } finally {

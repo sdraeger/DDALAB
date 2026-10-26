@@ -15,6 +15,17 @@
   }
 }
 
+/* Below 1024 px the command bar keeps the icon alone, at the size of the bar's other icons. */
+@media (width < 1024px) {
+  .label {
+    display: none;
+  }
+
+  .trigger svg {
+    block-size: 16px;
+  }
+}
+
 .content {
   display: flex;
   flex-direction: column;

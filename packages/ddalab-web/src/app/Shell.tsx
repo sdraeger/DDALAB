@@ -12,7 +12,15 @@ import Moon from "lucide-react/dist/esm/icons/moon.mjs";
 import PanelLeft from "lucide-react/dist/esm/icons/panel-left.mjs";
 import PanelRight from "lucide-react/dist/esm/icons/panel-right.mjs";
 import Ruler from "lucide-react/dist/esm/icons/ruler.mjs";
-import { type ButtonHTMLAttributes, lazy, type ReactElement, Suspense, useSyncExternalStore } from "react";
+import SlidersHorizontal from "lucide-react/dist/esm/icons/sliders-horizontal.mjs";
+import {
+  type ButtonHTMLAttributes,
+  lazy,
+  type ReactElement,
+  type ReactNode,
+  Suspense,
+  useSyncExternalStore,
+} from "react";
 import { useShallow } from "zustand/react/shallow";
 import { RunButton } from "../features/analysis/RunBar";
 import { ResultBoundary } from "../features/history/ResultBoundary";
@@ -44,6 +52,7 @@ import {
 import controls from "../styles/controls.module.css";
 import { Logo } from "./Logo";
 import styles from "./Shell.module.css";
+import { inTransition } from "./viewTransition";
 
 const Calibration = lazy(() => import("../features/settings/Calibration"));
 const ResultPanel = lazy(() => import("../features/results/ResultPanel"));
@@ -73,7 +82,11 @@ export function Shell() {
         data-inspector={inspector ? "open" : "closed"}
       >
         <header className={styles.bar}>
-          <IconButton label="Library" aria-pressed={library} onClick={() => togglePanel("library")}>
+          <IconButton
+            label="Library"
+            aria-pressed={library}
+            onClick={() => inTransition(() => togglePanel("library"))}
+          >
             <PanelLeft aria-hidden />
           </IconButton>
           <span className={styles.brand}>
@@ -90,13 +103,17 @@ export function Shell() {
             </Suspense>
           )}
           <DisplaySettings />
-          <IconButton label="Inspector" aria-pressed={inspector} onClick={() => togglePanel("inspector")}>
+          <IconButton
+            label="Inspector"
+            aria-pressed={inspector}
+            onClick={() => inTransition(() => togglePanel("inspector"))}
+          >
             <PanelRight aria-hidden />
           </IconButton>
           <LocalData />
           <ThemeToggle />
         </header>
-        <aside className={styles.library} aria-label="Library" data-appear>
+        <aside className={styles.library} aria-label="Library">
           <LibraryRail />
         </aside>
         <main className={styles.center}>
@@ -114,7 +131,7 @@ export function Shell() {
             </p>
           )}
         </main>
-        <aside className={styles.inspector} data-appear>
+        <aside className={styles.inspector}>
           <Inspector />
         </aside>
       </div>
@@ -140,7 +157,7 @@ function ShownResult({ recordingId }: { recordingId: string | null }) {
       <button type="button" className={controls.quiet} onClick={() => location.reload()}>
         Reload
       </button>
-      <button type="button" className={controls.quiet} onClick={() => openResult(null)}>
+      <button type="button" className={controls.quiet} onClick={() => inTransition(() => openResult(null))}>
         Close the result
       </button>
     </>
@@ -216,23 +233,55 @@ function ViewControls() {
         </span>
       </div>
       <span className={controls.rule} />
-      <Choice label="Epoch" value={epochS} values={EPOCHS} unit="s" onChange={(e) => setEpoch(e as Epoch)} />
-      <Choice
-        label="Sensitivity"
-        value={sensitivity}
-        values={SENSITIVITIES}
-        unit="µV/mm"
-        onChange={(s) => setView({ sensitivityUvPerMm: s })}
-      />
-      <Choice
-        label="Timebase"
-        value={timebase}
-        values={TIMEBASES}
-        unit="mm/s"
-        chars={timebaseWidth}
-        onChange={setTimebase}
-      />
+      <ScaleChoices>
+        <Choice
+          label="Epoch"
+          value={epochS}
+          values={EPOCHS}
+          unit="s"
+          onChange={(e) => setEpoch(e as Epoch)}
+        />
+        <Choice
+          label="Sensitivity"
+          value={sensitivity}
+          values={SENSITIVITIES}
+          unit="µV/mm"
+          onChange={(s) => setView({ sensitivityUvPerMm: s })}
+        />
+        <Choice
+          label="Timebase"
+          value={timebase}
+          values={TIMEBASES}
+          unit="mm/s"
+          chars={timebaseWidth}
+          onChange={setTimebase}
+        />
+      </ScaleChoices>
     </div>
+  );
+}
+
+/**
+ * The scale settings: in the bar while it has room for them, else behind one button (the widths are in
+ * Shell.module.css). The popover mounts its copy only while open, when the bar's own is hidden.
+ */
+function ScaleChoices({ children }: { children: ReactNode }) {
+  return (
+    <>
+      <div className={styles.scales}>{children}</div>
+      <span className={styles.scaleMenu}>
+        <Popover.Root>
+          <IconButton label="Epoch, sensitivity and timebase" render={<Popover.Trigger />}>
+            <SlidersHorizontal aria-hidden />
+          </IconButton>
+          <Popover.Portal>
+            <Popover.Positioner sideOffset={6}>
+              <Popover.Popup className={`${controls.panel} ${styles.scaleList}`}>{children}</Popover.Popup>
+            </Popover.Positioner>
+          </Popover.Portal>
+        </Popover.Root>
+      </span>
+    </>
   );
 }
 
@@ -326,20 +375,16 @@ const subscribeToScheme = (onChange: () => void) => {
   return () => query.removeEventListener("change", onChange);
 };
 
-/**
- * Follows the system until pressed; the pick is remembered (theme.ts). The page crossfades to the new theme where the
- * browser has view transitions (base.css times it); elsewhere it switches at once.
- */
+/** Follows the system until pressed; the pick is remembered (theme.ts). The page crossfades to the new theme. */
 function ThemeToggle() {
   const picked = useStore((s) => s.theme);
   const systemDark = useSyncExternalStore(subscribeToScheme, () => darkQuery().matches);
   const dark = (picked ?? (systemDark ? "dark" : "light")) === "dark";
-  const toggle = () => setTheme(dark ? "light" : "dark");
   return (
     <IconButton
       label="Dark theme"
       aria-pressed={dark}
-      onClick={() => (document.startViewTransition ? document.startViewTransition(toggle) : toggle())}
+      onClick={() => inTransition(() => setTheme(dark ? "light" : "dark"))}
     >
       <Moon aria-hidden />
     </IconButton>
