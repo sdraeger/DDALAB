@@ -251,19 +251,19 @@
     border: 0;
   }
 
-  /* The center stays laid out under the library and the inspector, which cover it (inert in Shell.tsx): the page keeps
-     its main landmark, and the waveform its size. */
+  /* The center stays laid out under the library and the inspector, which cover it while it is inert (Shell.tsx): the
+     waveform keeps its size. */
+  .library,
+  .inspector {
+    z-index: 1;
+  }
+
   .shell[data-view] .library {
     display: none;
   }
 
   .shell[data-view="library"] .library {
     display: block;
-  }
-
-  .library,
-  .inspector {
-    z-index: 1;
   }
 
   .shell[data-view="results"] .waveform,
