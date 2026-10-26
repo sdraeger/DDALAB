@@ -40,9 +40,9 @@ async function annotate(page: Page, t0: number, t1: number, label: string) {
 
 /** Runs ST on the chosen channels from 1 s to 5 s; the result's input SHA-256 by file. */
 async function run(page: Page) {
-  await expect(runBar(page).getByText(/^Plan /)).toBeVisible();
   await page.evaluate(() => window.__ddalab.store.setState({ selection: { t0: 1, t1: 5 } }));
   await expect(runBar(page).getByLabel("End", { exact: true })).toHaveValue("5");
+  await expect(runBar(page).getByText(/^Plan /)).toBeVisible();
   await runBar(page).getByRole("button", { name: "Run DDA" }).click();
   await expect(runBar(page).getByText("Complete", { exact: true })).toBeVisible({ timeout: 60_000 });
   return page.evaluate(() => {
