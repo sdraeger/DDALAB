@@ -276,7 +276,8 @@ function PanelButton(props: {
   preload: () => Promise<unknown>;
   children: ReactElement;
 }) {
-  const preload = () => void props.preload();
+  // A chunk that fails to preload stays quiet: opening the panel loads it again and reports a failure.
+  const preload = () => void props.preload().catch(() => {});
   return (
     <Popover.Root>
       <IconButton label={props.label} render={<Popover.Trigger />} onPointerEnter={preload} onFocus={preload}>

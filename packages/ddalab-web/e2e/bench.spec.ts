@@ -13,11 +13,16 @@
  * hashed in the page first. Each case waits up to `load_wait_s` for the 1-minute load average to fall to `max_load_1m`,
  * and is skipped (and the run failed at the end) when it does not; then it runs `repeats` times, browser then native
  * on even repeats and native then browser on odd ones.
+ *   windows        = 1 + floor((N - (window_length + max(delays) + 2 dm - 1)) / window_step), N = end - start + 1 the
+ *                    samples of the run's range, as the core counts them (engine.plan)
+ *   repeats        = `repeats` of the config for a measured case, 0 for a skipped one
+ *   skipped        = empty for a measured case; else "load L above max_load_1m", L the 1-minute load average after
+ *                    waiting `load_wait_s`
  *   workers        = navigator.hardwareConcurrency - 1, the DDA workers of the browser's run (engine.ts poolSize)
  *   threads        = DDALAB_RAYON_THREADS of the CLI = workers
  *   budget_mb      = the browser's block budget, min(16, needed / (2 workers)) MiB (scheduler.ts blockBudgetMb)
  *   browser_blocks = blocks of the browser's plan; native_blocks = blocks of the core's plan (the wasm host in Node)
- *                    for the request the CLI recorded in its manifest, at budget_mb
+ *                    for the request the CLI recorded in its manifest, at budget_mb; the case fails when they differ
  *   browser_s      = median over repeats of the seconds from engine.run to its `done` (blocks computed and written to
  *                    OPFS, the manifest written); the input's SHA-256 is known before the clock starts
  *   native_s       = median over repeats of the seconds from the CLI's first progress line on stderr (its serial
@@ -31,15 +36,25 @@
  * Memory comes from one more browser run of the case after the repeats, kept out of the timing: sampling slows a run.
  * Its samples start every `memory_sample_ms` from engine.run to `done`, or as soon as the one before returns when that
  * took longer (e2e/sampleMax.ts):
- *   run_memory_gb          = max over samples of performance.measureUserAgentSpecificMemory().bytes / 1e9, the
- *                            spec's measure of JS plus wasm for the page and its dedicated workers, in a cross-origin
- *                            isolated page, measured eagerly (--enable-blink-features=ForceEagerMeasureMemory)
+ *   run_memory_gb          = max over samples of performance.measureUserAgentSpecificMemory().bytes / 1e9: the JS of
+ *                            the page and its dedicated workers, in a cross-origin isolated page, measured eagerly
+ *                            (`browser_args`); it does not cover the DDA workers' wasm memory
  *   run_memory_interval_ms = mean milliseconds between the starts of those samples
  *   run_wasm_gb            = max over samples of sum over the run's DDA workers of the wasm memory each reported with
- *                            its last block (memory.buffer.byteLength) / 1e9: a check of the wasm in run_memory_gb
+ *                            its last block (memory.buffer.byteLength) / 1e9: the wasm run_memory_gb leaves out
+ *   run_js_wasm_gb         = run_memory_gb + run_wasm_gb: the figure for the spec's 1.5 GB contract on JS plus wasm,
+ *                            an upper bound on their simultaneous total, as the two maxima may fall at different times
  *   run_rss_tree_gb        = max over samples every `memory_sample_ms` of sum(RSS of each process of the Chromium
  *                            process tree of the case's profile) / 1e9, from `ps`: an upper bound, which counts pages
  *                            that processes share once per process
+ * results/browser_bench_runs.csv has a row per run:
+ *   case, repeat   = the case's name; the repeat, 0 to repeats - 1 for timed runs and `repeats` for the memory run
+ *   side, order    = browser, native or memory; 0 for the first run of its repeat, 1 for the second, 0 for memory
+ *   load_1m        = the 1-minute load average when the run starts
+ *   seconds        = browser and memory: engine.run to `done`; native: the CLI's first progress line to its exit
+ *   total_s, cpu_s = native only: the CLI's `time -p` real, and user + sys
+ *   memory_gb, memory_interval_ms, wasm_gb, rss_tree_gb = memory only: run_memory_gb, run_memory_interval_ms,
+ *                    run_wasm_gb and run_rss_tree_gb of the case
  * Each repeat compares the two outputs and fails on a difference: every .npy array byte for byte (SHA-256), and the
  * manifests, the recorded request included, apart from id, creation time and the build commit (`comparable`).
  * Display metrics, one value each, repeated on every row (e2e/perfMeasures.ts, the measurements of e2e/perf.spec.ts):
@@ -95,10 +110,12 @@ const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 const CONFIG_FILE = process.env.DDALAB_BENCH_CONFIG ?? here("bench.config.json");
 const RESULTS = here("../results/");
 const OUTPUTS = ["browser_bench.csv", "browser_bench_runs.csv", "browser_bench_config.json"];
-const PROFILE = "chromium-profile";
-/** Chromium measures memory at once instead of at its next garbage collection, up to 20 s later. */
-const BROWSER_ARGS = ["--enable-blink-features=ForceEagerMeasureMemory"];
+// `profile_dir`: the folder of each test's Chromium profile in its output folder. `browser_args`: Chromium's flags;
+// --enable-blink-features=ForceEagerMeasureMemory measures memory at once, where Chromium waits for its next garbage
+// collection (up to 20 s).
 const KEYS = [
+  "profile_dir",
+  "browser_args",
   "recording",
   "window_length",
   "window_step",
@@ -149,15 +166,18 @@ const test = base.extend({
     use,
     testInfo,
   ) => {
-    const context = await playwright.chromium.launchPersistentContext(testInfo.outputPath(PROFILE), {
-      channel,
-      headless,
-      viewport,
-      deviceScaleFactor,
-      userAgent,
-      baseURL,
-      args: BROWSER_ARGS,
-    });
+    const context = await playwright.chromium.launchPersistentContext(
+      testInfo.outputPath(config.profile_dir),
+      {
+        channel,
+        headless,
+        viewport,
+        deviceScaleFactor,
+        userAgent,
+        baseURL,
+        args: config.browser_args,
+      },
+    );
     await use(context);
     await context.close();
   },
@@ -512,7 +532,7 @@ for (const c of cases) {
   test(`dda_${c.name}`, async ({ page }) => {
     test.setTimeout((config.load_wait_s + 2 * config.repeats * config.max_case_seconds) * 1000 + 600_000);
     const path = pathOf(specOf(c.channels));
-    const profile = test.info().outputPath(PROFILE);
+    const profile = test.info().outputPath(config.profile_dir);
     const { id, info, sha256 } = await openScanned(page, path);
     Object.assign(inputs, sha256);
     const variants = await page.evaluate(async () => (await window.__ddalab.engine.version()).variants);
@@ -565,6 +585,7 @@ for (const c of cases) {
       cliRequest = native.manifest.reproduction.request;
     }
     if (cliRequest) row.native_blocks = await coreBlocks(path, cliRequest, plan.budgetMb);
+    expect(row.native_blocks, `${c.name}: the CLI's blocks`).toBe(row.browser_blocks);
     const load_1m = loadavg()[0];
     const measured = await memoryRun(page, id, request, profile);
     runs.push({
@@ -600,8 +621,8 @@ test.afterAll(async ({ browser }) => {
   const d = display as Display;
   const csv = [
     "case,variant,channels,windows,workers,threads,budget_mb,browser_blocks,native_blocks,repeats,browser_s," +
-      "native_s,ratio,native_total_s,native_cpu_s,run_memory_gb,run_memory_interval_ms,run_wasm_gb,run_rss_tree_gb," +
-      "load_1m_max,skipped,first_viewport_ms,scan_mb_s," +
+      "native_s,ratio,native_total_s,native_cpu_s,run_memory_gb,run_memory_interval_ms,run_wasm_gb,run_js_wasm_gb," +
+      "run_rss_tree_gb,load_1m_max,skipped,first_viewport_ms,scan_mb_s," +
       "pan_p95_ms_tile,pan_p95_ms_raw,pan_incomplete,pan_blank,scan_memory_gb",
     ...rows.map((r) => {
       const mine = runs.filter((run) => run.case === r.name);
@@ -632,6 +653,7 @@ test.afterAll(async ({ browser }) => {
         fixed(memoryRun?.memory_gb ?? 0, 3),
         fixed(memoryRun?.memory_interval_ms ?? 0, 0),
         fixed(memoryRun?.wasm_gb ?? 0, 3),
+        fixed((memoryRun?.memory_gb ?? 0) + (memoryRun?.wasm_gb ?? 0), 3),
         fixed(memoryRun?.rss_tree_gb ?? 0, 3),
         fixed(Math.max(...mine.map((run) => run.load_1m)), 2),
         r.skipped,
@@ -693,7 +715,6 @@ test.afterAll(async ({ browser }) => {
       ? "vite preview of `vite build --mode e2e` (minified, with the e2e test hook)"
       : "vite dev server",
     storage: "a persistent Chromium profile per test in test-results (OPFS on disk)",
-    browser_args: BROWSER_ARGS,
     timed_span:
       "browser: engine.run to done, the input hashed before; " +
       "native: first progress line to exit, after the CLI's own serial hash",
