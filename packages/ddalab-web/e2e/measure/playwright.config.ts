@@ -1,5 +1,5 @@
-// The measurement harness of the React best-practice fixes (render counts and timings), Chromium, one worker. Not a
-// test suite: each `*.measure.ts` appends what it measures to $OUT as JSON lines, tagged with $LABEL.
+// The measurement harness of the React best-practice fixes (render counts and timings), Chromium, one worker. Each
+// `*.measure.ts` asserts little and appends what it measures to $OUT as JSON lines, tagged with $LABEL.
 //
 //   OUT=<file.jsonl> LABEL=<commit> npx playwright test -c e2e/measure/playwright.config.ts renders.measure.ts
 //   OUT=... LABEL=... MEASURE_DIST=<dir> [COLD=1] npx playwright test -c e2e/measure/playwright.config.ts timing.measure.ts
