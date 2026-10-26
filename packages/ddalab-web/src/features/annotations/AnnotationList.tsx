@@ -6,7 +6,7 @@
 import { Popover } from "@base-ui/react/popover";
 import Download from "lucide-react/dist/esm/icons/download.mjs";
 import { type KeyboardEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { download } from "../../app/download";
+import { download, type Saveable } from "../../app/download";
 import type { UserAnnotation } from "../../core/userAnnotations";
 import { setSelection, useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
@@ -27,6 +27,7 @@ export default function AnnotationList({ recordingId }: { recordingId: string })
   const user = useStore((s) => s.annotations[fingerprint] ?? EMPTY);
   const picked = useStore((s) => s.pickedAnnotation);
   const [showFile, setShowFile] = useState(true);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const filter = useDeferredValue(query);
   const all = useMemo(() => listed(files ?? [], names ?? [], user), [files, names, user]);
@@ -49,6 +50,13 @@ export default function AnnotationList({ recordingId }: { recordingId: string })
     }
   }, [picked]);
   const stem = (names?.[0] ?? "recording").replace(/\.[^.]*$/, "").replace(/_(eeg|ieeg|meg)$/, "");
+  /** Saves an export as ExportDialog does: a failure shows in the panel. */
+  const save = (name: string, make: () => Saveable) => {
+    setExportError(null);
+    download(name, make).catch((failure) =>
+      setExportError(failure instanceof Error ? failure.message : String(failure)),
+    );
+  };
 
   const onKey = (event: KeyboardEvent<HTMLUListElement>) => {
     const list = event.currentTarget;
@@ -170,7 +178,7 @@ export default function AnnotationList({ recordingId }: { recordingId: string })
                   type="button"
                   className={history.option}
                   onClick={() =>
-                    download(
+                    save(
                       `${stem}_events.tsv`,
                       () => new Blob([eventsTsv(shown)], { type: "text/tab-separated-values" }),
                     )
@@ -183,7 +191,7 @@ export default function AnnotationList({ recordingId }: { recordingId: string })
                   type="button"
                   className={history.option}
                   onClick={() =>
-                    download(
+                    save(
                       `${stem}_annotations.json`,
                       () => new Blob([eventsJson(shown)], { type: "application/json" }),
                     )
@@ -192,6 +200,11 @@ export default function AnnotationList({ recordingId }: { recordingId: string })
                   <b>JSON</b>
                   <span>The same records as an array</span>
                 </button>
+                {exportError && (
+                  <p role="alert" className={history.error}>
+                    {exportError}
+                  </p>
+                )}
               </div>
             </Popover.Popup>
           </Popover.Positioner>
