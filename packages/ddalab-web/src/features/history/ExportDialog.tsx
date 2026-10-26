@@ -2,23 +2,12 @@
 // CSV, each named after the recording as the CLI names its bundle. The IO worker builds the document and the CSV.
 import { Popover } from "@base-ui/react/popover";
 import { useState } from "react";
+import { download } from "../../app/download";
 import { engine } from "../../app/recordings";
 import { bundleZip } from "../../core/exporters";
 import type { AnalysisRecord } from "../../core/history";
 import controls from "../../styles/controls.module.css";
 import styles from "./History.module.css";
-
-/** Saves `blob` as `name` through the browser's downloads. */
-export function download(blob: Blob, name: string) {
-  const link = Object.assign(document.createElement("a"), {
-    href: URL.createObjectURL(blob),
-    download: name,
-  });
-  document.body.append(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(link.href), 60_000);
-}
 
 export default function ExportDialog({ record }: { record: AnalysisRecord }) {
   const [busy, setBusy] = useState(false);

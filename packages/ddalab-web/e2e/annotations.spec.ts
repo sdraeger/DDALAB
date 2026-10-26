@@ -10,8 +10,6 @@ const EDF = fileURLToPath(new URL("../../dda-rs/tests/fixtures/fixture.edf", imp
 const editor = (page: Page) => page.getByRole("dialog");
 const list = (page: Page) => page.getByRole("list", { name: "Annotations" });
 const runBar = (page: Page) => page.getByRole("region", { name: "Run" });
-/** The list item of the annotation labeled `label`. */
-const row = (page: Page, label: string) => list(page).getByRole("listitem").filter({ hasText: label });
 
 /** Opens the EDF+ fixture: 30 s at 256 Hz, its own events "eyes closed" (2.5 s for 1 s) and "spike" (20 s). */
 async function openFixture(page: Page) {
@@ -131,7 +129,7 @@ test("a_selection_then_a_marks_a_span", async ({ page }) => {
   await editor(page).getByLabel("Label").fill("seizure");
   await page.keyboard.press("Enter");
   expect(await mine(page)).toEqual([[selection?.t0, (selection?.t1 ?? 0) - (selection?.t0 ?? 0), "seizure"]]);
-  await expect(row(page, "seizure").getByRole("button", { name: "Use as selection" })).toBeVisible();
+  await expect(list(page).getByRole("button", { name: "Use as selection: seizure" })).toBeVisible();
 });
 
 test("a_double_click_marks_a_point_and_a_press_elsewhere_keeps_its_label", async ({ page }) => {
@@ -191,7 +189,8 @@ test("a_flag_dragged_along_the_ruler_moves_and_undo_moves_it_back", async ({ pag
   expect(await mine(page)).toEqual([[5, 0, "mark"]]);
   await page.keyboard.press("ControlOrMeta+Shift+z");
   expect(Math.abs((await mine(page))[0][0] - 8)).toBeLessThanOrEqual(await pixelS(page));
-  // A click on the flag opens its editor.
+  // A click on the flag opens its editor, once a frame has drawn the flag where redo put it.
+  await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
   await page.mouse.click(to.x + 3, to.y);
   await expect(editor(page).getByRole("heading", { name: /^Annotation/ })).toBeVisible();
   await expect(editor(page).getByLabel("Onset (s)")).toBeVisible();
@@ -228,6 +227,8 @@ test("the_list_moves_jumps_renames_and_deletes_from_the_keyboard", async ({ page
   await page.keyboard.press("Enter");
   const view = await page.evaluate(() => window.__ddalab.store.getState().view);
   expect((view.t0 + view.t1) / 2).toBeCloseTo(25, 6);
+  await expect(rows.nth(3)).toHaveAttribute("aria-current", "true");
+  await expect(rows.nth(3)).toHaveAttribute("aria-keyshortcuts", "Enter F2 Delete");
   await page.keyboard.press("F2");
   await editor(page).getByLabel("Label").fill("renamed");
   await page.keyboard.press("Enter");
@@ -250,11 +251,14 @@ test("the_list_moves_jumps_renames_and_deletes_from_the_keyboard", async ({ page
   await page.getByLabel("Filter annotations by label").fill("");
   await page.getByLabel("Show file events").uncheck();
   await expect(rows).toHaveCount(1);
+  // A double-click opens the editor, for a pointer.
+  await rows.first().dblclick();
+  await expect(editor(page).getByLabel("Onset (s)")).toHaveValue("4");
 });
 
 test("use_as_selection_sets_the_run_interval_a_run_takes", async ({ page }) => {
   await mark(page, 2, "segment", { onset: "2", duration: "4" });
-  await row(page, "segment").getByRole("button", { name: "Use as selection" }).click();
+  await list(page).getByRole("button", { name: "Use as selection: segment" }).click();
   await expect(runBar(page).getByLabel("Start", { exact: true })).toHaveValue("2");
   await expect(runBar(page).getByLabel("End", { exact: true })).toHaveValue("6");
   await page.getByRole("checkbox", { name: "Select Fp1" }).check();
