@@ -14,7 +14,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  height: 36px;
+  height: calc(var(--hit) + 8px);
   padding: 0 var(--space-2) 0 var(--space-3);
   border-bottom: var(--hairline-width) solid var(--hairline);
   background: var(--chrome);
@@ -36,7 +36,7 @@
 }
 
 .tab {
-  height: 30px;
+  height: calc(var(--hit) + 2px);
   margin-bottom: -1px;
   padding: 0 var(--space-3);
   border: var(--hairline-width) solid transparent;
@@ -72,7 +72,7 @@
 }
 
 .toggle {
-  height: 24px;
+  height: calc(var(--hit) - 4px);
   margin-left: -1px;
   padding: 0 var(--space-2);
   border: var(--hairline-width) solid var(--hairline);

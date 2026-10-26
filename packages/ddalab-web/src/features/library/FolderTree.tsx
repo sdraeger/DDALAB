@@ -42,12 +42,11 @@ import {
 import { pathOf } from "../../core/sources";
 import { useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
+import { useHit } from "../../styles/hit";
 import { BatchAction, BatchProgressView } from "./Batch";
 import styles from "./FolderTree.module.css";
 import rail from "./LibraryRail.module.css";
 
-/** Row heights in px as FolderTree.module.css sets them: the list places rows by them. */
-const ROW = { folder: 28, twoLines: 40 };
 /** From this many rows on, only the rows in view (and the focused one) are rendered. */
 const VIRTUAL_FROM = 200;
 /** Rows rendered past each edge of the view. */
@@ -294,6 +293,8 @@ function Tree(props: {
   onOpen(recording: FolderRecording): void;
 }) {
   const { nodes, opened, onOpen } = props;
+  // Row heights in px as FolderTree.module.css sets them (--hit, --hit-two): the list places rows by them.
+  const row = useHit();
   const recordings = useStore((s) => s.recordings);
   const active = useStore((s) => s.activeRecordingId);
   // The marks of this folder's batch.
@@ -385,10 +386,10 @@ function Tree(props: {
       index.set(meta.itemId, meta.index);
       tops.push(total);
       wrapped.push(wraps(node, meta.level));
-      total += node.recording || wrapped.at(-1) ? ROW.twoLines : ROW.folder;
+      total += node.recording || wrapped.at(-1) ? row.two : row.one;
     }
     return { tops, wrapped, total, index };
-  }, [items, nodes, wraps]);
+  }, [items, nodes, wraps, row]);
   const { tops, wrapped, total } = places;
   let first = 0;
   let last = items.length;

@@ -16,7 +16,7 @@
 }
 
 .search {
-  height: 28px;
+  height: var(--hit);
   padding: 0 var(--space-2);
   border: var(--hairline-width) solid var(--hairline);
   border-radius: var(--radius);

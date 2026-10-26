@@ -7,6 +7,7 @@ import type { RecordingInfo } from "../../core/types";
 import { activeRecording, selectChannels, showChosenOnly, useStore } from "../../store/store";
 import { tabOf, updateTab } from "../../store/tabs";
 import controls from "../../styles/controls.module.css";
+import { useHit } from "../../styles/hit";
 import { DdaSettings } from "../analysis/DdaSettings";
 import { RunBar } from "../analysis/RunBar";
 import { electrodeGroups, type Group } from "./groups";
@@ -15,8 +16,6 @@ import styles from "./Inspector.module.css";
 const Provenance = lazy(() => import("../history/Provenance"));
 const Annotations = lazy(() => import("../annotations/AnnotationList"));
 
-/** The height of a channel row in CSS px; the list renders only the rows in view. */
-const ROW = 28;
 /** The electrode groups listed before "Show all". */
 const GROUPS_SHOWN = 8;
 /** Rows rendered above and below the visible ones. */
@@ -269,6 +268,8 @@ function ChannelList(props: {
   stale: boolean;
 }) {
   const { shown, labels, info, analysis, tints, groupOf, chosen } = props;
+  // The height of a channel row in CSS px (--hit); the list renders only the rows in view.
+  const row = useHit().one;
   // The first row in view: a scroll renders the list when it crosses a row, which keeps this the same in between.
   const [top, setTop] = useState(0);
   const [height, setHeight] = useState(0);
@@ -280,7 +281,7 @@ function ChannelList(props: {
   }, []);
   const first = Math.max(0, top - OVERSCAN);
   // One row more than the pixel offset would need: the rows in view start anywhere within `top`.
-  const last = Math.min(shown.length, top + Math.ceil((height || 800) / ROW) + 1 + OVERSCAN);
+  const last = Math.min(shown.length, top + Math.ceil((height || 800) / row) + 1 + OVERSCAN);
   return (
     <div
       className={styles.scroller}
@@ -288,18 +289,18 @@ function ChannelList(props: {
       // Page keys scroll this list instead of paging the recording.
       data-own-keys
       ref={measure}
-      onScroll={(event) => setTop(Math.floor(event.currentTarget.scrollTop / ROW))}
+      onScroll={(event) => setTop(Math.floor(event.currentTarget.scrollTop / row))}
       // At rest the list shows whole rows: none half hidden at its edge under the search field. CSS snapping would
       // snap to the rendered rows only, which a jump down the virtual list leaves behind.
       onScrollEnd={(event) => {
         const element = event.currentTarget;
-        const whole = Math.round(element.scrollTop / ROW) * ROW;
+        const whole = Math.round(element.scrollTop / row) * row;
         if (Math.abs(whole - element.scrollTop) < 0.5) return;
         const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
         element.scrollTo({ top: whole, behavior: reduced ? "instant" : "smooth" });
       }}
     >
-      <ul aria-label="Channels" className={styles.list} style={{ height: shown.length * ROW }}>
+      <ul aria-label="Channels" className={styles.list} style={{ height: shown.length * row }}>
         {shown.slice(first, last).map((channel, k) => {
           const i = first + k;
           const { kind, bids_type, bids_status } = info.channels[analysis[channel]];
@@ -309,7 +310,7 @@ function ChannelList(props: {
               className={styles.row}
               aria-setsize={shown.length}
               aria-posinset={i + 1}
-              style={{ transform: `translateY(${i * ROW}px)` }}
+              style={{ transform: `translateY(${i * row}px)` }}
             >
               <label className={styles.channel}>
                 <input

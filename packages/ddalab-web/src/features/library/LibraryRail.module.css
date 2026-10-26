@@ -140,7 +140,7 @@
 }
 
 .recentActions button {
-  height: 22px;
+  height: calc(var(--hit) - 6px);
   font-size: var(--text-small);
 }
 
