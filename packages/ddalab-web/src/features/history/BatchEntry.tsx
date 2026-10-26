@@ -1,6 +1,7 @@
 // A batch in the history: when it ran, its settings and how it stands, opened to show its results (ordinary rows),
 // the recordings that failed with their reasons, the combined export and, for a batch cut short, Resume. Resume reads
-// the folder again through its handle where the browser kept one, else asks for the folder once more.
+// the folder again through its handle where the browser kept one, else asks for the folder once more on the same
+// button. Once the batch resumes, its row takes the focus the button had.
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right.mjs";
 import Download from "lucide-react/dist/esm/icons/download.mjs";
 import { type ChangeEvent, type ReactNode, useId, useRef, useState } from "react";
@@ -30,6 +31,7 @@ export function BatchEntry(props: {
   const [note, setNote] = useState<{ text: string; error: boolean }>();
   const busy = useStore((s) => s.batch?.status === "running" || s.run?.status === "running");
   const folderInput = useRef<HTMLInputElement>(null);
+  const head = useRef<HTMLButtonElement>(null);
   const failures = batch.results.filter((r) => r.status === "error");
   const ok = batch.results.length - failures.length;
   const resumable = batch.status === "interrupted" || batch.status === "cancelled";
@@ -46,18 +48,23 @@ export function BatchEntry(props: {
       });
     }
   }
+  // The button goes once the batch runs again.
+  const resumeOn = (source: FolderSource) => {
+    setChoose(false);
+    head.current?.focus();
+    props.onResume(source, batch.id);
+  };
   async function resume() {
     setNote(undefined);
     const handle = await reattach(batch);
-    if (handle) props.onResume({ kind: "handle", handle }, batch.id);
+    if (handle) resumeOn({ kind: "handle", handle });
     else setChoose(true);
   }
   function chosen(source: FolderSource, folder: string) {
     if (batch.root && folder !== batch.root) {
       return setNote({ text: `That folder is ${folder}. The batch ran on ${batch.root}.`, error: true });
     }
-    setChoose(false);
-    props.onResume(source, batch.id);
+    resumeOn(source);
   }
   async function chooseFolder() {
     const pick = (window as { showDirectoryPicker?: DirectoryPicker }).showDirectoryPicker;
@@ -74,6 +81,7 @@ export function BatchEntry(props: {
   return (
     <li data-appear>
       <button
+        ref={head}
         type="button"
         className={rail.entry}
         aria-expanded={open}
@@ -85,9 +93,7 @@ export function BatchEntry(props: {
           <span className={rail.entryName}>{name}</span>
         </span>
         <span className={`${rail.entryMeta} ${styles.indent}`}>
-          <span className={failures.length > 0 || resumable ? styles.failed : undefined}>
-            {batchOutcome(batch)}
-          </span>
+          <span className={failures.length > 0 ? styles.failed : undefined}>{batchOutcome(batch)}</span>
           <span className={rail.thin} aria-hidden />
           {props.when}
         </span>
@@ -112,14 +118,15 @@ export function BatchEntry(props: {
               Export batch
             </button>
           )}
-          {resumable && !choose && (
-            <button type="button" className={controls.button} disabled={busy} onClick={resume}>
-              Resume
-            </button>
-          )}
-          {resumable && choose && (
-            <button type="button" className={controls.button} disabled={busy} onClick={chooseFolder}>
-              Choose the folder again
+          {resumable && (
+            // One button: its label and action follow the step, and focus stays on it.
+            <button
+              type="button"
+              className={controls.button}
+              disabled={busy}
+              onClick={choose ? chooseFolder : resume}
+            >
+              {choose ? "Choose the folder again" : "Resume"}
             </button>
           )}
         </div>
