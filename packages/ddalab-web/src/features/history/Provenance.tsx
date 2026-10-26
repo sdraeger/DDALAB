@@ -164,7 +164,7 @@ function Actions({ record }: { record: AnalysisRecord }) {
         {/* Keyed: the row mounts anew and Keep takes focus, where React would reuse the Close button. */}
         <div className={styles.actions} key="confirm" data-appear>
           <span className={styles.confirm}>Delete this result and its files?</span>
-          <button type="button" className={controls.quiet} onClick={remove}>
+          <button type="button" className={`${controls.quiet} ${styles.delete}`} onClick={remove}>
             Delete
           </button>
           {/* biome-ignore lint/a11y/noAutofocus: the safe answer takes focus when the question appears */}
@@ -199,7 +199,7 @@ function Actions({ record }: { record: AnalysisRecord }) {
       </Popover.Root>
       <button
         type="button"
-        className={controls.quiet}
+        className={`${controls.quiet} ${styles.delete} ${styles.apart}`}
         disabled={record.status === "running"}
         onClick={() => setConfirming(true)}
       >

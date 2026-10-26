@@ -89,6 +89,15 @@
   margin-left: auto;
 }
 
+/* Delete takes the event tone, kept apart from Export. */
+.actions .delete {
+  color: var(--event);
+}
+
+.apart {
+  margin-left: var(--space-3);
+}
+
 .confirm {
   margin-right: var(--space-1);
 }
@@ -185,18 +194,20 @@
 .export {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-1);
 }
 
+/* An export: a plain row, its text in line with the title above, a wash under the pointer. */
 .option {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  width: 100%;
+  width: calc(100% + 2 * var(--space-2));
+  margin: 0 calc(-1 * var(--space-2));
   padding: var(--space-2);
-  border: var(--hairline-width) solid var(--hairline);
+  border: 0;
   border-radius: var(--radius);
-  background: var(--ground);
+  background: transparent;
   text-align: left;
   cursor: pointer;
   transition-property: background-color, opacity;
@@ -223,25 +234,4 @@
   color: var(--muted);
   font-size: var(--text-small);
   line-height: var(--leading-small);
-}
-
-.csv {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  margin: var(--space-1) 0 0;
-  padding: 0;
-  border: 0;
-}
-
-.csv legend {
-  padding: 0 0 var(--space-2);
-  color: var(--muted);
-  font-size: var(--text-small);
-}
-
-.variants {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
 }

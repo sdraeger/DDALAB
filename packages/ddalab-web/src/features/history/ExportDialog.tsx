@@ -1,12 +1,12 @@
 // The export panel of a complete result: the bundle as a zip, the JSON result document, or one variant's Q values as
-// CSV, each named after the recording as the CLI names its bundle. The IO worker builds the document and the CSV.
+// CSV, each a plain row, named after the recording as the CLI names its bundle. The IO worker builds the document and
+// the CSV.
 import { Popover } from "@base-ui/react/popover";
 import { useState } from "react";
 import { download } from "../../app/download";
 import { engine } from "../../app/recordings";
 import { bundleZip } from "../../core/exporters";
 import type { AnalysisRecord } from "../../core/history";
-import controls from "../../styles/controls.module.css";
 import styles from "./History.module.css";
 
 export default function ExportDialog({ record }: { record: AnalysisRecord }) {
@@ -51,23 +51,18 @@ export default function ExportDialog({ record }: { record: AnalysisRecord }) {
         <b>Document</b>
         <span>One JSON file with the matrices inline, as ddalab run --output writes it</span>
       </button>
-      <fieldset className={styles.csv}>
-        <legend>Q values as CSV, a window per line</legend>
-        <div className={styles.variants}>
-          {variants.map((variant) => (
-            <button
-              key={variant}
-              type="button"
-              className={controls.button}
-              disabled={busy}
-              aria-label={`CSV of ${variant}`}
-              onClick={() => save(`${stem}.${variant}.csv`, () => engine.exportCsv(record.id, variant))}
-            >
-              {variant}
-            </button>
-          ))}
-        </div>
-      </fieldset>
+      {variants.map((variant) => (
+        <button
+          key={variant}
+          type="button"
+          className={styles.option}
+          disabled={busy}
+          onClick={() => save(`${stem}.${variant}.csv`, () => engine.exportCsv(record.id, variant))}
+        >
+          <b>CSV of {variant}</b>
+          <span>The Q values of {variant}, a window per line</span>
+        </button>
+      ))}
       {busy && (
         <p className={styles.note} aria-live="polite">
           Preparing the file

@@ -3,6 +3,7 @@
 import Folder from "lucide-react/dist/esm/icons/folder.mjs";
 import { type FormEvent, type MouseEvent, useEffect, useRef, useState } from "react";
 import { openInput } from "../../app/recordings";
+import { useStore } from "../../store/store";
 import rail from "../library/LibraryRail.module.css";
 import {
   type DatasetHit,
@@ -62,6 +63,8 @@ export function OpenNeuroPanel() {
   const [status, setStatus] = useState<Status>(link ? { kind: "busy", text: opening(link) } : IDLE);
   const [results, setResults] = useState<Results | null>(null);
   const [place, setPlace] = useState<Place | null>(null);
+  // The hint is for a first open: it goes once a recording has a tab.
+  const untouched = useStore((s) => s.tabs.length === 0);
   const searching = useRef<AbortController | null>(null);
   // The number of the latest operation: only it shows its status and result, and a late answer is dropped.
   const latest = useRef(0);
@@ -153,13 +156,15 @@ export function OpenNeuroPanel() {
       ) : results ? (
         <ResultList results={results} onBrowse={(dataset) => browse(dataset, [])} />
       ) : (
-        <p className={rail.hint}>
-          Recordings stream in place from OpenNeuro, a range at a time. Try the{" "}
-          <a href={DEMO} onClick={openDemo}>
-            ds003029 seizure recording
-          </a>
-          .
-        </p>
+        untouched && (
+          <p className={rail.hint}>
+            Recordings stream in place from OpenNeuro, a range at a time. Try the{" "}
+            <a href={DEMO} onClick={openDemo}>
+              ds003029 seizure recording
+            </a>
+            .
+          </p>
+        )
       )}
     </section>
   );
