@@ -51,9 +51,9 @@ async function zoom(page: Page, samplesPerPixel: number, t0: number, channel: nu
  * mapping from samples to pixels comes from the store, the recording's channel list and the canvas size, as the
  * spec states it, not from the renderer. In column c (sample positions p0 = s0 + c * spp to p1 = p0 + spp) the
  * polyline spans the samples strictly inside and its values at p0 and p1. The drawn span must contain that span and
- * lie within the union of the spans of columns c - 1 to c + 1. Each row's trace must stay inside its band of pixel
- * rows (the scenes are chosen so), which tells the rows' pixels apart. A value within TOLERANCE px of a pixel edge
- * may fall on either side (float32 in the shader, float64 here).
+ * lie within the union of the spans of columns c - 1 to c + 1, both clipped to the row's band of pixel rows: a row
+ * inks its own band only, which tells the rows' pixels apart. A value within TOLERANCE px of a pixel edge may fall on
+ * either side (float32 in the shader, float64 here). `clipped` counts the columns whose span leaves its band.
  */
 const checkPixels = (page: Page) =>
   page.evaluate(async () => {
@@ -76,6 +76,7 @@ const checkPixels = (page: Page) =>
     const raw = await engine.raw(id, first, last - first + 1);
     const failures: string[] = [];
     let inked = 0;
+    let clipped = 0;
     for (let r = 0; r < Math.min(view.rowCount, C - view.firstChannel); r++) {
       const ch = view.firstChannel + r;
       const { unit, gain, offset } = info.channels[analysis_channels[ch]];
@@ -99,10 +100,9 @@ const checkPixels = (page: Page) =>
         for (let i = Math.floor(p0) + 1; i < p1; i++) values.push(v(i));
         return [y(Math.max(...values)), y(Math.min(...values))];
       });
-      if (reference.some((s) => s && (Math.floor(s[0]) < band[0] || Math.floor(s[1]) > band[1]))) {
-        failures.push(`row ${r}: the trace leaves its band, choose another scene`);
-        continue;
-      }
+      clipped += reference.filter(
+        (s) => s && (Math.floor(s[0]) < band[0] || Math.floor(s[1]) > band[1]),
+      ).length;
       for (let c = 0; c < W; c++) {
         let top = -1;
         let bottom = -1;
@@ -120,22 +120,28 @@ const checkPixels = (page: Page) =>
           if (top >= 0) failures.push(`row ${r} column ${c}: ink where the recording has no rows`);
           continue;
         }
-        const need = [Math.floor(ref[0] + TOLERANCE), Math.floor(ref[1] - TOLERANCE)];
+        const need = [
+          Math.max(band[0], Math.floor(ref[0] + TOLERANCE)),
+          Math.min(band[1], Math.floor(ref[1] - TOLERANCE)),
+        ];
         const near = [c, c + 1, c + 2].flatMap((k) => (reference[k] ? [reference[k]] : []));
         const allow = [
-          Math.floor(Math.min(...near.map((s) => s[0])) - TOLERANCE),
-          Math.floor(Math.max(...near.map((s) => s[1])) + TOLERANCE),
+          Math.max(band[0], Math.floor(Math.min(...near.map((s) => s[0])) - TOLERANCE)),
+          Math.min(band[1], Math.floor(Math.max(...near.map((s) => s[1])) + TOLERANCE)),
         ];
-        inked++;
-        if (top < 0) failures.push(`row ${r} column ${c}: no ink, expected rows ${need}`);
-        else if (gaps > 0) failures.push(`row ${r} column ${c}: the span has gaps`);
-        else if (top > need[0] || bottom < need[1])
+        // A span that passes the band entirely needs no ink there.
+        const own = need[0] <= need[1];
+        if (own) inked++;
+        if (top < 0) {
+          if (own) failures.push(`row ${r} column ${c}: no ink, expected rows ${need}`);
+        } else if (gaps > 0) failures.push(`row ${r} column ${c}: the span has gaps`);
+        else if (own && (top > need[0] || bottom < need[1]))
           failures.push(`row ${r} column ${c}: ${top}..${bottom} misses ${need}`);
         else if (top < allow[0] || bottom > allow[1])
           failures.push(`row ${r} column ${c}: ${top}..${bottom} past ${allow}`);
       }
     }
-    return { mode: frame.mode, inked, failures: failures.slice(0, 10) };
+    return { mode: frame.mode, inked, clipped, failures: failures.slice(0, 10) };
   });
 
 test.beforeEach(async ({ page }) => {
@@ -185,6 +191,26 @@ test("waveform_is_pixel_exact_with_many_rows", async ({ page }) => {
   const result = await checkPixels(page);
   expect(result).toMatchObject({ mode: "rawSpan", failures: [] });
   expect(result.inked).toBeGreaterThan(6 * 1000);
+});
+
+// Four rows at 30 µV/mm: the synthetic traces (up to about 1050 µV) and their spikes at 97 s (3000 µV, up on even
+// channels and down on odd ones) reach far past their rows. Each row inks its own band, with its trace clipped to it,
+// and none of its neighbors' ink, in raw spans and in the polyline.
+test("traces_stay_in_their_rows", async ({ page }) => {
+  test.setTimeout(120_000);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
+  await openSynthetic(page, { channels: 4, rateHz: 256, durationS: 120, seed: 9 });
+  for (const [mode, spp, t0] of [
+    ["line", 0.5, 96],
+    ["rawSpan", 5, 90],
+  ] as const) {
+    await zoom(page, spp, t0, 0, 4);
+    await setView(page, { sensitivityUvPerMm: 30 });
+    const result = await checkPixels(page);
+    expect(result, `${spp} samples per pixel`).toMatchObject({ mode, failures: [] });
+    expect(result.inked).toBeGreaterThan(1000);
+    expect(result.clipped).toBeGreaterThan(100);
+  }
 });
 
 // The synthetic recording has a +30000 spike (3000 µV) on its first channel every 97 s; the traces stay under
