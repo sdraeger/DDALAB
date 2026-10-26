@@ -167,6 +167,14 @@ test("escape_puts_back_the_interval", async ({ page }) => {
   await end.press("Escape");
   await expect(end).toHaveValue("6");
   expect(await page.evaluate(() => window.__ddalab.store.getState().selection)).toBeNull();
+  // Escape right after Enter, before the interval has rested, takes the commit back: no field keeps its values.
+  await end.fill("4");
+  await end.press("Enter");
+  await end.press("Escape");
+  await expect(end).toHaveValue("6");
+  expect(await page.evaluate(() => window.__ddalab.store.getState().selection)).toBeNull();
+  await page.waitForTimeout(400);
+  await expect(end).toHaveValue("6");
 });
 
 test("st_result_equals_cli_bundle", async ({ page }) => {

@@ -353,6 +353,20 @@ test("paging_keys", async ({ page }) => {
   await expect(page.getByText("Page 2 of 2")).toBeVisible();
 });
 
+test("escape_and_a_press_off_the_plot_let_the_cursor_go", async ({ page }) => {
+  await openFixture(page);
+  const cursor = () => page.evaluate(() => window.__ddalab.store.getState().cursorS);
+  const plot = page.locator("canvas[data-traces]");
+  await plot.click({ position: { x: 200, y: 40 } });
+  expect(await cursor()).not.toBeNull();
+  await page.keyboard.press("Escape");
+  expect(await cursor()).toBeNull();
+  await plot.click({ position: { x: 200, y: 40 } });
+  expect(await cursor()).not.toBeNull();
+  await page.getByRole("heading", { name: "Channels" }).click();
+  expect(await cursor()).toBeNull();
+});
+
 test("sensitivity_steps", async ({ page }) => {
   // The scale settings sit in the bar from 1400 px with the inspector open (Shell.module.css).
   await page.setViewportSize({ width: 1440, height: 720 });

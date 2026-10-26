@@ -2,7 +2,7 @@
 // plan the core makes for it, Run and the run's progress, and how the last run ended.
 import Check from "lucide-react/dist/esm/icons/check.mjs";
 import Play from "lucide-react/dist/esm/icons/play.mjs";
-import { use, useCallback, useEffect, useId, useMemo, useState } from "react";
+import { use, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { cancelRun, startRun, variants } from "../../app/analyses";
 import { engine } from "../../app/recordings";
@@ -20,6 +20,9 @@ const runInterval = (): Interval => {
   return { t0: (selection ?? view).t0, t1: (selection ?? view).t1 };
 };
 
+/** Milliseconds the run interval rests before what depends on it renders. */
+const REST_MS = 200;
+
 /** The run interval once it has rested for 200 ms: a pan or a selection drag does not re-render what depends on it. */
 function useRestingInterval(): Interval {
   const [interval, settle] = useState(runInterval);
@@ -34,7 +37,7 @@ function useRestingInterval(): Interval {
     const stop = useStore.subscribe((now, last) => {
       if (now.selection === last.selection && now.view === last.view) return;
       clearTimeout(timer);
-      timer = setTimeout(rest, 200);
+      timer = setTimeout(rest, REST_MS);
     });
     return () => {
       clearTimeout(timer);
@@ -186,7 +189,7 @@ export function RunButton({ recordingId, status }: { recordingId: string; status
       )}
       <button
         type="button"
-        className={controls.primary}
+        className={controls.button}
         data-appear
         disabled={!request || busy || (status && plan?.refused)}
         onClick={() => runNow(recordingId, now)}
@@ -222,7 +225,7 @@ type Field = "start" | "end";
 
 /**
  * Start and end in seconds: typing them sets the selection, the keyboard's way to choose what to run on. Enter or
- * leaving a field commits both; Escape puts back the interval of this moment. A field typed in keeps its text until
+ * leaving a field commits both; Escape puts back the rested interval. A field typed in keeps its text until
  * then, whatever the selection or the view does meanwhile.
  */
 function IntervalFields(props: { interval: Interval; duration: number; error?: string }) {
@@ -231,6 +234,8 @@ function IntervalFields(props: { interval: Interval; duration: number; error?: s
   const shown = (i: Interval) => ({ start: seconds(i.t0), end: seconds(i.t1) });
   const [text, setText] = useState({ ...shown(interval), of: interval, typed: [] as Field[] });
   const [typo, setTypo] = useState(false);
+  /** The selection before the last commit, and when it was made. */
+  const pending = useRef<{ before: Interval | null; at: number } | null>(null);
   // The selection or the view moved: the fields not typed in show it.
   if (text.of !== interval) {
     const now = shown(interval);
@@ -252,10 +257,16 @@ function IntervalFields(props: { interval: Interval; duration: number; error?: s
     setTypo(!ok);
     if (!ok) return;
     setText({ ...text, typed: [] });
+    pending.current = { before: useStore.getState().selection, at: performance.now() };
     setSelection({ t0, t1 });
   };
   const revert = () => {
-    setText({ ...shown(runInterval()), of: text.of, typed: [] });
+    // Escape before the committed interval has rested takes the commit back.
+    const undone =
+      pending.current && performance.now() - pending.current.at < REST_MS ? pending.current : null;
+    pending.current = null;
+    if (undone) setSelection(undone.before);
+    setText({ ...shown(interval), of: interval, typed: [] });
     setTypo(false);
   };
   const error = typo ? "Type the start and the end in seconds, the end after the start" : props.error;

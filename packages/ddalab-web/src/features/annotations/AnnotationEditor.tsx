@@ -165,7 +165,14 @@ function Form(props: {
           />
         </div>
         <Autocomplete.Portal>
-          <Autocomplete.Positioner sideOffset={4} className={styles.suggestions}>
+          {/* Beside the field: below it the list would cover Save and the key hint. */}
+          <Autocomplete.Positioner
+            side="inline-start"
+            align="start"
+            sideOffset={12}
+            collisionPadding={8}
+            className={styles.suggestions}
+          >
             <Autocomplete.Popup className={styles.suggestionsPopup}>
               <Autocomplete.List className={styles.suggestionList}>
                 {(item: string) => (
