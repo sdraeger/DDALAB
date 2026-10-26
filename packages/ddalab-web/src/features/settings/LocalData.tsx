@@ -1,10 +1,11 @@
 // The command bar's note that data stays on this device: recordings are read and analyzed in the browser, and what
 // this device brings to an analysis bounds how much it can take. Its Storage section says what the site keeps in the
-// browser and clears the cached tiles.
+// browser and clears the cached tiles and the copy of the last export made for the downloads.
 import { Popover } from "@base-ui/react/popover";
 import { Tooltip } from "@base-ui/react/tooltip";
 import HardDrive from "lucide-react/dist/esm/icons/hard-drive.mjs";
 import { useEffect, useId, useState } from "react";
+import { clearSpool, spoolBytes } from "../../app/download";
 import { ddaWorkers } from "../../core/engine";
 import { evictTiles } from "../../core/opfs";
 import controls from "../../styles/controls.module.css";
@@ -19,18 +20,22 @@ const size = (bytes: number) =>
       ? `${Math.round(bytes / 1e6).toLocaleString("en")} MB`
       : `${Math.ceil(bytes / 1e3).toLocaleString("en")} kB`;
 
-type Usage = { used: number; quota: number; tiles: number };
+type Usage = { used: number; quota: number; tiles: number; spool: number };
 
 /** What the browser holds for this site, and how much of it is cached tiles (an eviction with no limit deletes none). */
 async function measure(): Promise<Usage> {
-  const [estimate, tiles] = await Promise.all([
+  const [estimate, tiles, spool] = await Promise.all([
     navigator.storage.estimate(),
     evictTiles(Number.POSITIVE_INFINITY),
+    spoolBytes(),
   ]);
-  return { used: estimate.usage ?? 0, quota: estimate.quota ?? 0, tiles };
+  return { used: estimate.usage ?? 0, quota: estimate.quota ?? 0, tiles, spool };
 }
 
-/** The site's storage, with "Clear cached tiles": results, the history and the tiles of open recordings stay. */
+/**
+ * The site's storage, with "Clear cached tiles": results, the history and the tiles of open recordings stay; the copy of
+ * the last export goes too.
+ */
 function Storage() {
   const heading = useId();
   const [usage, setUsage] = useState<Usage | "none" | null>(null);
@@ -47,7 +52,7 @@ function Storage() {
   }, []);
   const clear = async () => {
     setUsage(null);
-    await evictTiles(0).catch(() => {});
+    await Promise.all([evictTiles(0).catch(() => {}), clearSpool()]);
     setCleared(true);
     setUsage(await measure().catch(() => "none" as const));
   };
@@ -61,13 +66,13 @@ function Storage() {
           ? "Measuring…"
           : usage === "none"
             ? "Browser storage is not available in this window."
-            : `This site uses ${size(usage.used)} of the ${size(usage.quota)} the browser allows it. Cached tiles take ${size(usage.tiles)}.`}
+            : `This site uses ${size(usage.used)} of the ${size(usage.quota)} the browser allows it. Cached tiles take ${size(usage.tiles)}.${usage.spool > 0 ? ` The copy of the last export takes ${size(usage.spool)}.` : ""}`}
       </p>
       <div className={styles.actions}>
         <button
           type="button"
           className={controls.button}
-          disabled={usage === null || usage === "none" || usage.tiles === 0}
+          disabled={usage === null || usage === "none" || usage.tiles + usage.spool === 0}
           onClick={() => void clear()}
         >
           Clear cached tiles

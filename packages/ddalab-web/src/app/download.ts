@@ -1,5 +1,7 @@
-// Saving a file the page made, for the result and annotation exports: through the browser's own Save dialog where it
-// has one (Chromium), else through its downloads.
+// Saving a file the page made, for the result, annotation and batch exports: through the browser's own Save dialog
+// where it has one (Chromium), else through its downloads. A stream bound for the downloads is spooled into a file of
+// the origin's private storage (`exports/`) first; the window that spooled one holds the Web Lock `ddalab-exports`,
+// shared, for the rest of its life, and a page that starts while no window holds it deletes the spool.
 
 /** What an export makes: a Blob (kept on disk by the browser when it is large) or a stream of its bytes. */
 export type Saveable = Blob | ReadableStream<Uint8Array>;
@@ -56,6 +58,47 @@ export async function download(name: string, make: () => Saveable | Promise<Save
   setTimeout(() => URL.revokeObjectURL(link.href), 60_000);
 }
 
+const SPOOL = "exports";
+const SPOOL_LOCK = "ddalab-exports";
+
+/** The spool's lock, taken by this window once it first spools and held until it closes. */
+let held: Promise<void> | undefined;
+const hold = () =>
+  (held ??= new Promise<void>((granted) => {
+    navigator.locks
+      .request(SPOOL_LOCK, { mode: "shared" }, () => {
+        granted();
+        return new Promise<never>(() => {});
+      })
+      .catch(() => granted());
+  }));
+
+/** On startup: deletes the spooled files, unless a window that spooled one is open (its download may still read it). */
+export const sweepSpool = () =>
+  navigator.locks
+    .request(SPOOL_LOCK, { ifAvailable: true }, (lock) => (lock ? clearSpool() : undefined))
+    .catch(() => {});
+
+/** Deletes the spooled files, whoever holds the lock: the user asked (LocalData). */
+export const clearSpool = () =>
+  navigator.storage
+    .getDirectory()
+    .then((root) => root.removeEntry(SPOOL, { recursive: true }))
+    .catch(() => {});
+
+/** Bytes the spooled files take; 0 without them or without storage. */
+export async function spoolBytes(): Promise<number> {
+  const spool = await navigator.storage
+    .getDirectory()
+    .then((root) => root.getDirectoryHandle(SPOOL))
+    .catch(() => undefined);
+  let bytes = 0;
+  if (spool)
+    for await (const entry of spool.values())
+      if (entry.kind === "file") bytes += (await (entry as FileSystemFileHandle).getFile()).size;
+  return bytes;
+}
+
 /**
  * `data` written into a file of the origin's private storage a part at a time, and that file, which stays on disk for
  * the download to read. Without a writable OPFS file it becomes a Blob, which browsers keep on disk when it is large.
@@ -63,13 +106,14 @@ export async function download(name: string, make: () => Saveable | Promise<Save
 async function spooled(name: string, data: ReadableStream<Uint8Array>): Promise<Blob> {
   const spool = await navigator.storage
     .getDirectory()
-    .then((root) => root.getDirectoryHandle("exports", { create: true }))
+    .then((root) => root.getDirectoryHandle(SPOOL, { create: true }))
     .catch(() => undefined);
   // shortcut: a browser with neither gets the whole stream as one Blob; upgrade if one needs exports of many GB there.
   if (!spool || !("createWritable" in FileSystemFileHandle.prototype)) return new Response(data).blob();
   // shortcut: the last export's file goes when the next one starts, long after its download; one still being written
   // stays. Upgrade to a file per export if two exports at once need it.
   for await (const old of spool.keys()) await spool.removeEntry(old).catch(() => {});
+  await hold();
   const file = await spool.getFileHandle(name, { create: true });
   await data.pipeTo(await file.createWritable());
   return file.getFile();
