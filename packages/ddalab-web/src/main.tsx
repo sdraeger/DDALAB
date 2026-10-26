@@ -5,7 +5,7 @@ import { StrictMode } from "react";
 import { preconnect } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { App } from "./app/App";
-import { sweepAnalyses } from "./app/analyses";
+import { refreshAnalyses, sweepAnalyses } from "./app/analyses";
 import { sweepSpool } from "./app/download";
 import { engine, openInput, openSynthetic, refreshRecent } from "./app/recordings";
 import { flushTabs, restoreTabs } from "./app/tabs";
@@ -13,8 +13,10 @@ import { registerWorker } from "./app/update";
 import { loadViewer } from "./app/viewerChunk";
 import { heatmapProbe } from "./features/results/probe";
 import { viewerProbe } from "./features/viewer/probe";
+import { onChanged } from "./store/recent";
 import { restoreSession } from "./store/session";
 import { useStore } from "./store/store";
+import { claimWindow } from "./store/windows";
 import { applyTheme, storedTheme } from "./styles/theme";
 
 const root = document.getElementById("root");
@@ -46,10 +48,18 @@ const listed = sweepAnalyses();
 void sweepSpool();
 // Batches cut short by the last visit read as interrupted; their chunk is the history's.
 void import("./app/batch").then((batch) => batch.sweepBatches()).catch(() => {});
-restoreSession(listed);
-void restoreTabs(listed);
+// What another window writes to the history, the batches or the recent list, this one lists again.
+onChanged((store) => {
+  if (store === "analyses") void refreshAnalyses();
+  else if (store === "recent") void refreshRecent();
+  else void import("./app/batch").then((batch) => batch.refreshBatches()).catch(() => {});
+});
 // Before React renders: the CSP allows no inline script, and the module entry is the earliest script there is.
 applyTheme(storedTheme());
+// The window's own tabs and session (store/windows.ts): its panels are set before the first render.
+await claimWindow().catch(() => {});
+restoreSession(listed);
+void restoreTabs(listed);
 
 // The CSP allows no inline <style>, which Base UI adds to an opened Select unless told otherwise.
 createRoot(root).render(

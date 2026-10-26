@@ -1,5 +1,5 @@
-/* Below 1024 px the command bar keeps the flag alone, at the size of the bar's other icons (Shell.module.css). */
-@media (width < 1024px) {
+/* Below 1024 px (Shell.module.css) the command bar keeps the flag alone, at the size of the bar's other icons (Shell.module.css). */
+@container commandbar (width < 1008px) {
   .label {
     display: none;
   }

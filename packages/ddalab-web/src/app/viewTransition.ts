@@ -19,4 +19,6 @@ export function inTransition(update: () => void) {
     if (--running === 0) delete root.dataset.viewTransition;
   };
   transition.finished.then(done, done);
+  // A transition the next one replaces before it starts rejects `ready` ("Transition was skipped"); the update still ran.
+  transition.ready.catch(() => {});
 }

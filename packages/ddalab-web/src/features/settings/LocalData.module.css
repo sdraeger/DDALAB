@@ -15,8 +15,8 @@
   }
 }
 
-/* Below 1024 px the command bar keeps the icon alone, at the size of the bar's other icons. */
-@media (width < 1024px) {
+/* Below 1024 px (Shell.module.css) the command bar keeps the icon alone, at the size of the bar's other icons. */
+@container commandbar (width < 1008px) {
   .label {
     display: none;
   }

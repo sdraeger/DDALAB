@@ -2,11 +2,12 @@
 // are read again on the next visit. Tabs live in the one store (`tabs`, `activeTab`, `tabReasons`) and are keyed by
 // fingerprint, as results and tiles are. A tab is attached while its recording is open and detached while the browser
 // cannot read its files yet. A switch is one update (`enter` in store.ts). The set lives in IndexedDB beside the
-// recent list (`saveTabs`); app/tabs.ts restores and reattaches it.
+// recent list, one per window (`saveTabs`, windows.ts); app/tabs.ts restores and reattaches it.
 import type { RecordingInput } from "../core/engine";
 import { directory, pathOf } from "../core/sources";
 import { database } from "./recent";
 import { enter, type ShownResult, tabViewOf, useStore, type View } from "./store";
+import { type SavedWindow, windowKey } from "./windows";
 
 /** One file of a recording as it was opened: what tells it apart among picked files, and its handle (Chromium). */
 export interface TabFile {
@@ -233,14 +234,13 @@ export function remembered(): { tabs: Tab[]; active: string | null } {
   return { tabs, active: s.activeTab };
 }
 
-const KEY = "open";
-
-export async function saveTabs(value = remembered()): Promise<void> {
-  await (await database()).put("tabs", value, KEY);
+/** Saves the open set as this window's (windows.ts). */
+export async function saveTabs(value: Omit<SavedWindow, "used"> = remembered()): Promise<void> {
+  await (await database()).put("tabs", { ...value, used: Date.now() }, windowKey());
 }
 
-export async function loadTabs(): Promise<{ tabs: Tab[]; active: string | null } | undefined> {
-  return (await database()).get("tabs", KEY);
+export async function loadTabs(): Promise<SavedWindow | undefined> {
+  return (await database()).get("tabs", windowKey());
 }
 
 /** Where the digests of every recording hashed in this browser are kept, beside the open set. */

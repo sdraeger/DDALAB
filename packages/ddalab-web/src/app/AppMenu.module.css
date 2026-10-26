@@ -1,0 +1,146 @@
+/* The application menu (AppMenu.tsx): the mark and wordmark as its trigger, and its menus, which take the shell's
+   popup (controls.module.css). */
+
+/* The page's one heading: it holds the menu bar and sets no type of its own. */
+.brand {
+  display: flex;
+  flex: none;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.menubar {
+  display: flex;
+}
+
+/* The mark sits on the wordmark's baseline and spans its capitals, the row centered in the 28 px box. The padding
+   reaches into the bar's gaps by as much as the margin takes back: the bar keeps its widths. */
+.trigger {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  align-items: baseline;
+  gap: var(--space-2);
+  height: 28px;
+  margin: 0 calc(-1 * var(--space-1));
+  padding: 0 var(--space-1);
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  transition-property: background-color, transform;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .trigger:hover {
+    background: var(--chrome-hover);
+  }
+}
+
+.trigger[data-popup-open] {
+  background: var(--chrome-hover);
+}
+
+.trigger:active {
+  transform: scale(var(--motion-scale));
+}
+
+.wordmark {
+  font-weight: var(--weight-strong);
+  letter-spacing: 0.02em;
+}
+
+/* Below 1024 px (Shell.module.css) the mark stands alone; the name stays the trigger's and the heading's. */
+@container commandbar (width < 1008px) {
+  .wordmark {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+.menu {
+  min-width: 200px;
+}
+
+/* A check column, the label and the shortcut or the submenu's chevron. The highlight follows the pointer and the
+   arrow keys at once: it has no transition. */
+.item {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--space-2);
+  max-width: 360px;
+  padding: 3px var(--space-3) 3px var(--space-2);
+  cursor: default;
+  user-select: none;
+  outline: 0;
+  white-space: nowrap;
+}
+
+.item[data-popup-open] {
+  background: var(--chrome-hover);
+}
+
+.item[data-highlighted] {
+  background: var(--primary);
+  color: var(--primary-ink);
+}
+
+.item[data-disabled] {
+  color: var(--muted);
+}
+
+.label {
+  grid-column: 2;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.keys {
+  grid-column: 3;
+  font: inherit;
+  color: var(--muted);
+}
+
+.check {
+  display: flex;
+  grid-column: 1;
+}
+
+.check svg,
+.more {
+  width: 12px;
+  height: 12px;
+}
+
+.more {
+  grid-column: 3;
+  justify-self: end;
+  color: var(--muted);
+}
+
+.item[data-highlighted] :is(.keys, .more) {
+  color: inherit;
+}
+
+.separator {
+  height: var(--hairline-width);
+  margin: var(--space-1) 0;
+  background: var(--hairline);
+}
+
+/* A group's name, over its items' labels. */
+.group {
+  padding: 3px var(--space-3) 3px calc(14px + 2 * var(--space-2));
+  color: var(--muted);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
