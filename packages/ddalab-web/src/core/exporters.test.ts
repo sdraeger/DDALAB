@@ -55,6 +55,42 @@ test("csv_header_and_first_row", async () => {
   expect(lines[2]).toBe("1.7,-1e-7,3");
 });
 
+test("document_takes_serde_jsons_pretty_layout", async () => {
+  // Q of two windows and rows (a NaN among them), coefficients of three terms, and the fit error; JSON.stringify with
+  // two spaces lays JSON out as serde_json's to_string_pretty does, and the CLI adds no newline after a file's brace.
+  const arrays = ["CD/q.npy", "CD/coefficients.npy", "CD/fit_error.npy"];
+  const files = {
+    "CD/q.npy": npy([2, 2], [0.25, Number.NaN, -1e-7, 3]),
+    "CD/coefficients.npy": npy(
+      [2, 2, 3],
+      Array.from({ length: 12 }, (_, i) => i / 8),
+    ),
+    "CD/fit_error.npy": npy([2, 2], [1, 2, 3, 4]),
+  };
+  store("r", { ...cd, arrays }, files, [1.5, 1.7]);
+  const text = await (await documentJson("r")).text();
+  expect(text).toBe(JSON.stringify(JSON.parse(text), null, 2));
+  const { variants } = JSON.parse(text);
+  expect(variants[0].matrix).toEqual([
+    [0.25, -1e-7],
+    [null, 3],
+  ]);
+  expect(variants[0].coefficient_matrices[2]).toEqual([
+    [0.25, 1],
+    [0.625, 1.375],
+  ]);
+  // No rows: an empty matrix, and one empty matrix per term.
+  store(
+    "e",
+    { ...cd, arrays },
+    { ...files, "CD/q.npy": npy([2, 0]), "CD/coefficients.npy": npy([2, 0, 2]) },
+    [1, 2],
+  );
+  const empty = await (await documentJson("e")).text();
+  expect(empty).toBe(JSON.stringify(JSON.parse(empty), null, 2));
+  expect(JSON.parse(empty).variants[0]).toMatchObject({ matrix: [], coefficient_matrices: [[], []] });
+});
+
 test("json_size_guard", async () => {
   // A million windows of 40 rows is about 800 MB of text; only the header is stored, which is all the guards read.
   const variant = { id: "ST", label: "ST", row_labels: [], matrix: [], arrays: ["ST/q.npy"] };
