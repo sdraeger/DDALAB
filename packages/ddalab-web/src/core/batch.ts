@@ -120,6 +120,8 @@ function stemOf(path: string) {
 }
 
 /** Rust's order of paths: component by component. */
+// shortcut: compares UTF-16 units where Rust compares bytes, which differ only between an astral character and U+E000
+// to U+FFFF in one component; compare UTF-8 bytes if a dataset ever names files so.
 export const byComponents = (a: string, b: string) => {
   const [x, y] = [a.split("/"), b.split("/")];
   for (let i = 0; i < Math.min(x.length, y.length); i++) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1;
@@ -191,7 +193,7 @@ export function batchManifest(batch: BatchRecord, analyses: AnalysisRecord[], na
         outputPath: null,
         resolvedDatasetPath: path,
         status: "error",
-        warnings,
+        warnings: [...warnings],
       };
     }
     const counts = record.manifest.variants.map((v) => [v.id, v.row_labels.length] as const);
@@ -202,7 +204,8 @@ export function batchManifest(batch: BatchRecord, analyses: AnalysisRecord[], na
       resolvedDatasetPath: path,
       result: { rows, windows: record.plan?.windows ?? 0 },
       status,
-      warnings,
+      // A copy: the export may add to it, and the batch's own list belongs to the store.
+      warnings: [...warnings],
     };
   });
   const failed = results.filter((r) => r.status === "error").length;

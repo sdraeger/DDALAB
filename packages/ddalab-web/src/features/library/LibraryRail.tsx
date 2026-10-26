@@ -65,8 +65,11 @@ export function LibraryRail() {
   const [opening, setOpening] = useState(false);
   // `resume`: the batch the history resumes on this folder once it is read.
   const [folder, setFolder] = useState<{ source: FolderSource; key: number; resume?: string } | null>(null);
-  const showFolder = (source: FolderSource, resume?: string) =>
+  const showFolder = (source: FolderSource, resume?: string) => {
+    // Another folder drops the last batch's outcome and marks; a batch still running keeps its progress.
+    if (useStore.getState().batch?.status !== "running") useStore.setState({ batch: null });
     setFolder((shown) => ({ source, key: (shown?.key ?? 0) + 1, resume }));
+  };
   const recent = useStore((s) => s.recent);
   // The hint is for a first open: it goes once a recording has a tab.
   const untouched = useStore((s) => s.tabs.length === 0);

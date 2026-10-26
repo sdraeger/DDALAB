@@ -106,6 +106,12 @@
 .unitInput {
   composes: unitInput from "../analysis/Analysis.module.css";
   width: 84px;
+  transition-property: border-color, opacity;
+}
+
+/* While the whole recording is chosen; a click on the field chooses the range. */
+.unitInput:has(input[aria-disabled="true"]) {
+  opacity: 0.6;
 }
 
 .reason {

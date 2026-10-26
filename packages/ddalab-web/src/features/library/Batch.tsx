@@ -4,7 +4,7 @@ import { Popover } from "@base-ui/react/popover";
 import Check from "lucide-react/dist/esm/icons/check.mjs";
 import ListChecks from "lucide-react/dist/esm/icons/list-checks.mjs";
 import Play from "lucide-react/dist/esm/icons/play.mjs";
-import { use, useId, useRef, useState } from "react";
+import { use, useId, useLayoutEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { variants } from "../../app/analyses";
 import { cancelBatch, startBatch } from "../../app/batch";
@@ -211,12 +211,13 @@ function BatchPanel(props: {
                     inputMode="decimal"
                     value={range[field]}
                     aria-invalid={rangeError ? true : undefined}
-                    // Out of the tab order until the range is chosen: Tab to Start keeps the whole recording.
-                    disabled={whole}
-                    onChange={(event) => {
-                      setWhole(false);
-                      setRange({ ...range, [field]: event.target.value });
-                    }}
+                    // Out of the tab order until the range is chosen, which Tab to Start leaves alone; a click on
+                    // the field chooses it.
+                    aria-disabled={whole || undefined}
+                    readOnly={whole}
+                    tabIndex={whole ? -1 : undefined}
+                    onPointerDown={() => setWhole(false)}
+                    onChange={(event) => setRange({ ...range, [field]: event.target.value })}
                   />
                   <span aria-hidden>s</span>
                 </span>
@@ -247,21 +248,28 @@ function BatchPanel(props: {
 }
 
 /**
- * The batch of this page in the Folder section: how far it is while it runs, then how it ended. Focus inside the
- * progress (on Cancel), or focus its removal dropped to the page, moves to the line that replaces it.
+ * The batch of this page in the Folder section: how far it is while it runs, then how it ended. Focus last inside the
+ * progress (on Cancel) moves to the line that replaces it, once, as the batch ends.
  */
 export function BatchProgressView() {
   const batch = useStore((s) => s.batch);
   const record = useStore((s) => s.batches.find((b) => b.id === s.batch?.id));
   const bar = useRef<HTMLProgressElement>(null);
   const percent = useRef<HTMLSpanElement>(null);
+  const ended = useRef<HTMLParagraphElement>(null);
   const focused = useRef(false);
+  const running = useRef(false);
   useRunPercent(percent, bar);
+  const recording = recordingOf(batch);
+  useLayoutEffect(() => {
+    if (running.current && !recording && focused.current) ended.current?.focus();
+    running.current = recording !== undefined;
+    if (!recording) focused.current = false;
+  }, [recording]);
   if (!batch) return null;
   const marks = Object.values(batch.marks);
   const done = marks.filter((m) => m === "done").length;
   const failed = marks.filter((m) => m === "failed").length;
-  const recording = recordingOf(batch);
   if (!recording) {
     const outcome = !record
       ? "Batch ended."
@@ -269,16 +277,7 @@ export function BatchProgressView() {
         ? `Batch finished: ${batchOutcome(record)}.`
         : `Batch stopped: ${batchOutcome(record).toLowerCase()}.`;
     return (
-      <p
-        key="ended"
-        className={styles.ended}
-        tabIndex={-1}
-        data-appear
-        ref={(line) => {
-          if (line && (focused.current || document.activeElement === document.body)) line.focus();
-          focused.current = false;
-        }}
-      >
+      <p key="ended" className={styles.ended} tabIndex={-1} data-appear ref={ended}>
         <Check aria-hidden />
         <span>{outcome} The results are in the history.</span>
       </p>
@@ -294,7 +293,8 @@ export function BatchProgressView() {
         focused.current = true;
       }}
       onBlur={(event) => {
-        focused.current = event.currentTarget.contains(event.relatedTarget);
+        // Focus that goes nowhere (the button removed, the window left) still counts as here.
+        if (event.relatedTarget) focused.current = event.currentTarget.contains(event.relatedTarget);
       }}
     >
       <div className={styles.line}>
