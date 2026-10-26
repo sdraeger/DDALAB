@@ -445,7 +445,8 @@ export function createWaveformLayer(
           const start = i * LAYER_ROWS;
           const n = Math.min(LAYER_ROWS, values.length / channels - start);
           if (n <= 0) return;
-          const chunk = values.subarray(start * channels, (start + n) * channels);
+          // A copy: a view would keep the whole request's buffer alive while the cache counts the chunk alone.
+          const chunk = values.slice(start * channels, (start + n) * channels);
           remember(first + i, chunk);
           if (wanted.chunks.has(first + i)) uploadRaw(first + i, chunk, wanted.first);
         });

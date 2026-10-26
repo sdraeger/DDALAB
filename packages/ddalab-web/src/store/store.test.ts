@@ -9,6 +9,7 @@ import {
   showResult,
   useStore,
   type View,
+  zoomBy,
 } from "./store";
 
 const view = (t0: number, t1: number, epochS: 10 | 20 | 30 = 10): View => ({
@@ -85,6 +86,12 @@ test("a_result_shown_alone_bounds_the_view", () => {
   expect(useStore.getState().view).toMatchObject({ t0: 100, t1: 170 });
   setView({ t0: 0, t1: 1000 });
   expect(useStore.getState().view).toMatchObject({ t0: 100, t1: 200 });
+  // Zoomed in without end, it stops at a millionth of the interval and zooms out again from there.
+  for (let i = 0; i < 100; i++) zoomBy(0.1, 150);
+  const { t0, t1 } = useStore.getState().view;
+  expect(t1 - t0).toBeCloseTo(1e-4, 9);
+  zoomBy(10, 150);
+  expect(useStore.getState().view.t1 - useStore.getState().view.t0).toBeCloseTo(1e-3, 9);
 });
 
 /** A complete record whose manifest says it analyzed 100 s to 160 s. */
