@@ -47,9 +47,12 @@ test("opens_a_recording_and_runs_dda", async ({ page }, testInfo) => {
   // 1440 px the scale settings sit behind their button.
   const scales = page.getByRole("button", { name: "Epoch, sensitivity and timebase" });
   const epoch = page.getByRole("combobox", { name: "Epoch" });
-  // isVisible does not wait: let the command bar settle on one of the two layouts first.
-  await expect(scales.or(epoch)).toBeVisible();
-  if (await scales.isVisible()) await scales.click();
+  // The bar can still be settling after the recording opens, and a popover opened mid-settle can close again: open it
+  // until the Epoch control shows.
+  await expect(async () => {
+    if (!(await epoch.isVisible())) await scales.click({ timeout: 2000 });
+    await expect(epoch).toBeVisible({ timeout: 2000 });
+  }).toPass();
   await epoch.click();
   await expect(page.getByRole("listbox")).toBeVisible();
   await page.keyboard.press("Escape");
