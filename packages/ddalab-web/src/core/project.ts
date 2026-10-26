@@ -3,8 +3,9 @@
 // (app/project.ts writes and opens it). Every entry is stored, so a recording is a byte range of the project, which the
 // app reads in place. `project.json` says what the archive holds; `recordings/<k>/<name>` are the files of the k-th
 // tab's recording and `results/<id>/` the bundle of a result, as `ddalab run --bundle` writes it. A project from
-// elsewhere is untrusted: its project.json is bounded and checked field by field, every file it names must be a stored
-// entry of the size it names, and each recording's files must have the fingerprint it claims.
+// elsewhere is untrusted: its project.json is bounded and checked field by field and rebuilt from the fields checked,
+// every file it names must be a stored entry of the size it names, and each recording's files must have the
+// fingerprint it claims.
 import type { TabView } from "../store/tabs";
 import type { BatchRecord } from "./batch";
 import { fingerprintOf, sha256Hex } from "./fingerprint";
@@ -36,6 +37,8 @@ export interface ProjectRecording {
   channel_query?: string;
 }
 
+export type ProjectBatch = Omit<BatchRecord, "handle">;
+
 export interface Project {
   schema: typeof SCHEMA;
   app_version: string;
@@ -49,7 +52,7 @@ export interface Project {
   /** Each result's bundle folder (`results/<id>/`) and what its history record keeps beside the bundle's manifest. */
   results: { path: string; record: KeptRecord }[];
   /** The batches the results belong to, without their folder handles. */
-  batches: Omit<BatchRecord, "handle">[];
+  batches: ProjectBatch[];
 }
 
 type Test = (v: unknown) => boolean;
@@ -79,10 +82,14 @@ const oneOf =
   (v: unknown) =>
     values.includes(v);
 const matches = (pattern: RegExp) => (v: unknown) => isString(v) && pattern.test(v as string);
+const between = (low: number, high: number) => (v: unknown) =>
+  isNumber(v) && (v as number) >= low && (v as number) <= high;
 const isHash = matches(/^[0-9a-f]{64}$/);
 const isId = matches(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
 const isCount = (v: unknown) => Number.isSafeInteger(v) && (v as number) >= 0;
 const isBoolean = (v: unknown) => typeof v === "boolean";
+/** A time a Date holds, in ms: the History prints it, and a Date beyond ±8.64e15 ms has no ISO string. */
+const isTime = between(-8.64e15, 8.64e15);
 /** A file name the app may give a File: no folder, no parent. */
 const isName = (v: unknown) =>
   isString(v) && /^[^/\\\0]{1,255}$/.test(v as string) && v !== "." && v !== "..";
@@ -91,16 +98,16 @@ const span = shaped([
   ["t1", isNumber],
 ]);
 
-/** What a tab shows again. A viewer setting of another version rides along in `view` as a plain value. */
+/** What a tab shows again, with the viewer setting 2.0.1 adds (`chosenOnly`). */
 const SAVED: Fields = [
   ["view", isObject],
-  ["view", (v) => Object.values(v as object).every((x) => x === null || typeof x !== "object")],
   ["view.t0", isNumber],
   ["view.t1", isNumber],
   ["view.firstChannel", isCount],
   ["view.rowCount", isCount],
   ["view.epochS", oneOf(10, 20, 30)],
-  ["view.sensitivityUvPerMm", (v) => isNumber(v) && (v as number) > 0],
+  ["view.sensitivityUvPerMm", between(1e-3, 1e6)],
+  ["view.chosenOnly", optional(isBoolean)],
   ["selection", optional(span)],
   ["selectedChannels", listOf(isCount)],
   [
@@ -129,7 +136,7 @@ const RECORDING: Fields = [
       ["name", isName],
       ["size", isCount],
       ["sha256", isHash],
-      ["last_modified", isNumber],
+      ["last_modified", isTime],
     ],
   ],
   [
@@ -162,15 +169,15 @@ const RESULT: Fields = [
       ]),
     ),
   ],
-  ["record.createdAt", isNumber],
-  ["record.finishedAt", optional(isNumber)],
+  ["record.createdAt", isTime],
+  ["record.finishedAt", optional(isTime)],
   ["record.batch", optional(isId)],
 ];
 
 const BATCH: Fields = [
   ["id", isId],
-  ["createdAt", isNumber],
-  ["finishedAt", optional(isNumber)],
+  ["createdAt", isTime],
+  ["finishedAt", optional(isTime)],
   ["root", isString],
   ["form.expert", isBoolean],
   ["form.variants", listOf(isString)],
@@ -211,46 +218,96 @@ const PROJECT: Fields = [
   ["batches", BATCH],
 ];
 
+/** `value` with only `keys`, those it has; a list of checked primitives is taken as it is. */
+const only = <T extends object, K extends keyof T>(value: T, keys: readonly K[]) =>
+  Object.fromEntries(keys.filter((k) => value[k] !== undefined).map((k) => [k, value[k]])) as Pick<T, K>;
+
 /** What a project keeps of a result's record; the bundle's manifest gives the rest. */
-export const kept = ({
-  id,
-  fingerprint,
-  fileName,
-  inputFiles,
-  plan,
-  createdAt,
-  finishedAt,
-  batch,
-}: KeptRecord): KeptRecord => ({ id, fingerprint, fileName, inputFiles, plan, createdAt, finishedAt, batch });
+export const kept = (record: KeptRecord): KeptRecord => ({
+  ...only(record, ["id", "fingerprint", "fileName", "inputFiles", "createdAt", "finishedAt", "batch"]),
+  ...(record.plan && { plan: only(record.plan, ["windows", "blocks", "workers"]) }),
+});
+
+/** A batch with the fields of BatchRecord and nothing else, in one order (two of them compare as JSON). */
+export const batchOf = (b: ProjectBatch): ProjectBatch => ({
+  ...only(b, ["id", "createdAt", "finishedAt", "root", "paths", "status"]),
+  form: only(b.form, [
+    "expert",
+    "variants",
+    "windowLength",
+    "windowStep",
+    "delays",
+    "modelTerms",
+    "dm",
+    "order",
+    "nrTau",
+  ]),
+  channels: b.channels.kind === "labels" ? { kind: "labels", labels: b.channels.labels } : { kind: "signal" },
+  interval:
+    b.interval.kind === "range"
+      ? { kind: "range", startS: b.interval.startS, endS: b.interval.endS }
+      : { kind: "whole" },
+  results: b.results.map((r) => only(r, ["path", "status", "resultId", "warnings", "error"])),
+});
+
+/** A tab's saved state with the fields a tab reads; the calibration belongs to the display and stays out. */
+function savedOf(saved: TabView): TabView {
+  const view = only(saved.view as TabView["view"] & { chosenOnly?: boolean }, [
+    "t0",
+    "t1",
+    "firstChannel",
+    "rowCount",
+    "chosenOnly",
+    "epochS",
+    "sensitivityUvPerMm",
+  ]);
+  const shown = saved.shownResult;
+  const interval = shown?.interval && only(shown.interval, ["t0", "t1"]);
+  return {
+    view,
+    selection: saved.selection ? only(saved.selection, ["t0", "t1"]) : null,
+    selectedChannels: saved.selectedChannels,
+    shownResult: shown
+      ? { ...only(shown, ["id", "fingerprint", "variant", "array", "row"]), ...(interval && { interval }) }
+      : null,
+    activeResultId: saved.activeResultId ?? null,
+  };
+}
 
 /** The first field that does not fit the rest of the project (paths, references, ids twice); `undefined` if none. */
 function inconsistent(project: Project): string | undefined {
   const prints = project.recordings.map((r) => r.fingerprint);
-  for (const [k, { fingerprint, files }] of project.recordings.entries()) {
+  const marks = project.recordings.flatMap((r) => r.annotations.map((a) => a.id));
+  for (const [k, { fingerprint, files, annotations }] of project.recordings.entries()) {
     if (prints.indexOf(fingerprint) !== k) return `recordings[${k}].fingerprint`;
     for (const [i, { path, name }] of files.entries()) {
       if (path !== `recordings/${k}/${name}`) return `recordings[${k}].files[${i}].path`;
       if (files.findIndex((f) => f.name === name) !== i) return `recordings[${k}].files[${i}].name`;
     }
+    // Annotation ids are the store's keys across recordings: one id twice would file one over the other.
+    const twice = annotations.findIndex((a) => marks.indexOf(a.id) !== marks.lastIndexOf(a.id));
+    if (twice >= 0) return `recordings[${k}].annotations[${twice}].id`;
   }
   if (project.active_tab != null && !prints.includes(project.active_tab)) return "active_tab";
+  const batches = project.batches.map((b) => b.id);
   for (const [i, { path, record }] of project.results.entries()) {
     if (path !== `results/${record.id}/`) return `results[${i}].path`;
     if (!prints.includes(record.fingerprint)) return `results[${i}].record.fingerprint`;
     if (project.results.findIndex((r) => r.record.id === record.id) !== i) return `results[${i}].record.id`;
+    if (record.batch != null && !batches.includes(record.batch)) return `results[${i}].record.batch`;
   }
-  const batches = project.batches.map((b) => b.id);
   return batches.findIndex((id, i) => batches.indexOf(id) !== i) >= 0 ? "batches" : undefined;
 }
 
 /**
- * `document` as a project, or an error that names its first wrong field. What the app reads of it is kept and nothing
- * else: a record keeps the fields an opened project keeps, a batch no folder handle, a view no calibration (which
- * belongs to the display), and a running batch is interrupted.
+ * `document` as a project, or an error that names its first wrong field. The project is rebuilt from the fields it
+ * checks and nothing else reaches the store: a record keeps the fields an opened project keeps, a batch no folder
+ * handle, a view no calibration, and a running batch is interrupted.
  */
 export function checkProject(document: unknown, source: string): Project {
   const schema = isObject(document) ? document.schema : undefined;
-  if (!isString(schema) || !(schema as string).startsWith("ddalab.project/")) {
+  const version = /^ddalab\.project\/(\d+)$/.exec(isString(schema) ? (schema as string) : "")?.[1];
+  if (!version || Number(version) < 1) {
     throw new Error(`${source} is not a DDALAB project: its project.json names no schema ${SCHEMA}`);
   }
   if (schema !== SCHEMA) {
@@ -262,21 +319,40 @@ export function checkProject(document: unknown, source: string): Project {
   }
   const project = document as Project;
   return {
-    ...project,
-    recordings: project.recordings.map((r) => {
-      if (!r.saved) return { ...r, saved: null };
-      const { mmPerCssMm: _, ...view } = r.saved.view as TabView["view"] & { mmPerCssMm?: number };
-      return { ...r, saved: { ...r.saved, view } };
-    }),
+    ...only(project, ["schema", "app_version", "engine_version", "created_at_iso"]),
+    git_commit: project.git_commit ?? null,
+    recordings: project.recordings.map((r) => ({
+      fingerprint: r.fingerprint,
+      files: r.files.map((f) => only(f, ["path", "name", "size", "sha256", "last_modified"])),
+      annotations: r.annotations.map((a) => only(a, ["id", "onset_s", "duration_s", "label"])),
+      saved: r.saved ? savedOf(r.saved) : null,
+      ...(r.channel_query != null && { channel_query: r.channel_query }),
+    })),
+    active_tab: project.active_tab ?? null,
     results: project.results.map(({ path, record }) => ({ path, record: kept(record) })),
-    batches: project.batches.map(
-      ({ handle: _, ...batch }: Omit<BatchRecord, "handle"> & { handle?: unknown }) => ({
-        ...batch,
-        status: batch.status === "running" ? "interrupted" : batch.status,
-      }),
-    ),
+    batches: project.batches.map((b) => {
+      const batch = batchOf(b);
+      return { ...batch, status: batch.status === "running" ? "interrupted" : batch.status };
+    }),
   };
 }
+
+/**
+ * The id each of `batches` (a project's) takes beside `stored` (this browser's): its own, unless a stored batch of that
+ * id is another batch (by its fields), whose place it never takes; then a new one.
+ */
+export const batchIds = (batches: ProjectBatch[], stored: ProjectBatch[]) =>
+  new Map(
+    batches.map((b) => {
+      const own = stored.find((o) => o.id === b.id);
+      const same = !own || JSON.stringify(batchOf(own)) === JSON.stringify(batchOf(b));
+      return [b.id, same ? b.id : crypto.randomUUID()];
+    }),
+  );
+
+/** Whether `files` have exactly the SHA-256 digests `known` holds, by file name. */
+export const sameFiles = (files: ProjectFile[], known: Record<string, string>) =>
+  files.length === Object.keys(known).length && files.every((f) => known[f.name] === f.sha256);
 
 /** The fingerprint of a recording read from `files` (name and bytes), as the IO worker computes it on open. */
 export async function fingerprintOfFiles(files: { name: string; bytes: Blob }[]): Promise<string> {

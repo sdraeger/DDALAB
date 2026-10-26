@@ -43,8 +43,9 @@ const u64 = (view: DataView, at: number) => Number(view.getBigUint64(at, true));
 /**
  * The entries of the zip archive `zip`, from its central directory, ZIP64 where it has it. The directory is read by
  * its size, as Python's zipfile reads it: an archive of more than 65,535 entries with no ZIP64 record (client-zip
- * writes none for the count alone) reads whole. Each entry's local header must name it as the directory does, and its
- * bytes must lie before the directory.
+ * writes none for the count alone) reads whole, its 16-bit count saying 65,535. Each entry's local header must name it
+ * and its method as the directory does, its bytes must lie before the directory, and no two entries may share bytes:
+ * one byte range listed many times would be read, and stored, as many files.
  */
 export async function zipEntries(zip: Blob, source: string): Promise<ZipEntry[]> {
   const broken = (what: string) => new Error(`${source} is not a readable zip archive: ${what}`);
@@ -53,6 +54,7 @@ export async function zipEntries(zip: Blob, source: string): Promise<ZipEntry[]>
   let end = tail.byteLength - 22;
   while (end >= 0 && tail.getUint32(end, true) !== 0x06054b50) end--;
   if (end < 0) throw new Error(`${source} is not a zip archive`);
+  let count = tail.getUint16(end + 10, true);
   let size = tail.getUint32(end + 12, true);
   let offset = tail.getUint32(end + 16, true);
   // ZIP64: a locator right before the end record gives the place of the ZIP64 end record and its full values.
@@ -61,6 +63,7 @@ export async function zipEntries(zip: Blob, source: string): Promise<ZipEntry[]>
     const record = new DataView(await zip.slice(at, at + 56).arrayBuffer());
     if (record.byteLength < 56 || record.getUint32(0, true) !== 0x06064b50)
       throw broken("its ZIP64 end record");
+    count = u64(record, 32);
     size = u64(record, 40);
     offset = u64(record, 48);
   }
@@ -68,6 +71,8 @@ export async function zipEntries(zip: Blob, source: string): Promise<ZipEntry[]>
   const directory = new DataView(await zip.slice(offset, offset + size).arrayBuffer());
   const decoder = new TextDecoder();
   const entries: ZipEntry[] = [];
+  /** Where each entry's local header starts and its bytes end. */
+  const spans: { local: number; end: number; name: string }[] = [];
   for (let at = 0; at < size; ) {
     if (at + 46 > size || directory.getUint32(at, true) !== 0x02014b50) throw broken("its central directory");
     const method = directory.getUint16(at + 10, true);
@@ -75,24 +80,28 @@ export async function zipEntries(zip: Blob, source: string): Promise<ZipEntry[]>
     let length = directory.getUint32(at + 24, true);
     const nameBytes = directory.getUint16(at + 28, true);
     const extra = at + 46 + nameBytes;
-    const next = extra + directory.getUint16(at + 30, true) + directory.getUint16(at + 32, true);
+    const extraEnd = extra + directory.getUint16(at + 30, true);
+    const next = extraEnd + directory.getUint16(at + 32, true);
     let local = directory.getUint32(at + 42, true);
     if (next > size) throw broken("its central directory");
     const raw = new Uint8Array(directory.buffer, at + 46, nameBytes);
     const name = decoder.decode(raw);
     // The ZIP64 field holds, in this order, each of these that the 32-bit field leaves at 0xffffffff.
-    for (let x = extra; x + 4 <= next; x += 4 + directory.getUint16(x + 2, true)) {
-      if (directory.getUint16(x, true) !== 1) continue;
+    for (let x = extra; x + 4 <= extraEnd; ) {
+      const fieldEnd = x + 4 + directory.getUint16(x + 2, true);
+      if (fieldEnd > extraEnd) throw broken(`the extra fields of ${name}`);
       let y = x + 4;
-      if (length === 0xffffffff) {
-        length = u64(directory, y);
+      const take = () => {
+        if (y + 8 > fieldEnd) throw broken(`the ZIP64 field of ${name}`);
         y += 8;
+        return u64(directory, y - 8);
+      };
+      if (directory.getUint16(x, true) === 1) {
+        if (length === 0xffffffff) length = take();
+        if (compressed === 0xffffffff) compressed = take();
+        if (local === 0xffffffff) local = take();
       }
-      if (compressed === 0xffffffff) {
-        compressed = u64(directory, y);
-        y += 8;
-      }
-      if (local === 0xffffffff) local = u64(directory, y);
+      x = fieldEnd;
     }
     at = next;
     const header = new Uint8Array(await zip.slice(local, local + 30 + nameBytes).arrayBuffer());
@@ -100,12 +109,19 @@ export async function zipEntries(zip: Blob, source: string): Promise<ZipEntry[]>
     const named =
       header.length === 30 + nameBytes &&
       view.getUint32(0, true) === 0x04034b50 &&
+      view.getUint16(8, true) === method &&
       view.getUint16(26, true) === nameBytes &&
       header.subarray(30).every((b, i) => b === raw[i]);
     if (!named) throw broken(`the local header of ${name}`);
     const start = local + 30 + nameBytes + view.getUint16(28, true);
     if (start + compressed > offset) throw broken(`${name} reaches into the central directory`);
     entries.push({ name, method, compressed, size: length, start });
+    spans.push({ local, end: start + compressed, name });
+  }
+  if (count === 0xffff ? entries.length < count : entries.length !== count) throw broken("its entry count");
+  spans.sort((a, b) => a.local - b.local);
+  for (let i = 1; i < spans.length; i++) {
+    if (spans[i - 1].end > spans[i].local) throw broken(`${spans[i - 1].name} overlaps ${spans[i].name}`);
   }
   return entries;
 }
@@ -204,6 +220,9 @@ async function fromBundle(files: Map<string, Blob>, source: string): Promise<Inc
     .sort((a, b) => a.split("/").length - b.split("/").length)[0];
   if (!manifestPath) throw new Error(`${source} holds no manifest.json: it is not a DDALAB result bundle`);
   const prefix = manifestPath.slice(0, -"manifest.json".length);
+  if ((files.get(manifestPath) as Blob).size > DOCUMENT_LIMIT) {
+    throw new Error(`The manifest.json of ${source} is above 96 MiB`);
+  }
   let manifest: ResultDocument;
   try {
     manifest = JSON.parse(await (files.get(manifestPath) as Blob).text());
