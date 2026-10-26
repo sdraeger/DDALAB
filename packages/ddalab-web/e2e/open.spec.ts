@@ -58,6 +58,7 @@ test("the_same_recording_opens_once", async ({ page }) => {
   await expect(channels(page)).toHaveCount(2);
   const edf = await state();
   await page.getByLabel("Recording folder").setInputFiles(fixturePath(""));
+  await page.getByRole("treeitem", { name: "fixture.vhdr" }).click();
   await expect(channels(page)).toHaveCount(4);
   expect(await state()).toMatchObject({ open: 2 });
   await files(page).setInputFiles(fixturePath("fixture.edf"));
@@ -81,11 +82,27 @@ test("drop_brainvision_folder", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "fixture.vhdr" })).toBeVisible();
 });
 
-// The folder holds EDF, BDF, CSV and BrainVision files: BrainVision wins and its data file comes with it.
-test("open_folder_prefers_brainvision", async ({ page }) => {
+// The folder holds EDF, BDF, CSV and BrainVision files: each is a recording, and the BrainVision data and marker
+// files come with their header.
+test("open_folder_lists_every_format", async ({ page }) => {
   await page.getByLabel("Recording folder").setInputFiles(fixturePath(""));
+  const rows = page.getByRole("tree", { name: "Recordings in fixtures" }).getByRole("treeitem");
+  await expect(rows).toHaveCount(5);
+  expect(await rows.evaluateAll((items) => items.map((item) => item.getAttribute("aria-label")))).toEqual([
+    "fixture.bdf",
+    "fixture.csv",
+    "fixture.edf",
+    "fixture.vhdr",
+    "fixture_truncated.edf",
+  ]);
+  await expect(rows).toContainText(["BDF", "Text", "EDF", "BrainVision", "EDF"]);
+  await rows.filter({ hasText: "BrainVision" }).click();
   await expect(channels(page)).toHaveText(["Fp1", "Fp2", "Cz", "Pz"]);
   await expect(page.getByRole("heading", { name: "fixture.vhdr" })).toBeVisible();
+  const opened = await page.evaluate(() =>
+    Object.values(window.__ddalab.store.getState().recordings).map((r) => r.info.input_files),
+  );
+  expect(opened).toEqual([["fixture.vhdr", "fixture.eeg", "fixture.vmrk"]]);
 });
 
 test("vhdr_without_eeg_errors", async ({ page }) => {

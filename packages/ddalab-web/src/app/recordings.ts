@@ -45,7 +45,7 @@ export const openSynthetic = (spec: SyntheticSpec) => openInput({ kind: "synthet
 
 /** What the UI tells the user after an attempt to open. */
 export type Outcome =
-  | { kind: "opened"; warning?: string }
+  | { kind: "opened"; id: string; warning?: string }
   | { kind: "error"; message: string; folder: boolean }
   | { kind: "choose"; candidates: string[] };
 
@@ -92,6 +92,7 @@ export async function openFiles(
     const differs = options.expect !== undefined && options.expect !== fingerprint;
     return {
       kind: "opened",
+      id: opened.id,
       warning: differs ? "This file differs from the recording you opened before" : undefined,
     };
   } catch (error) {

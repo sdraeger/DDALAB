@@ -7,7 +7,16 @@ declare const FileReaderSync: new () => { readAsArrayBuffer(blob: Blob): ArrayBu
 
 const READS = "DDALAB reads EDF, BDF, BrainVision and delimited text";
 /** The formats DDALAB reads, best first. The text extensions share the last rank. */
-const RANK: Record<string, number> = { vhdr: 0, edf: 1, bdf: 2, txt: 3, csv: 3, tsv: 3, ascii: 3, dat: 3 };
+export const RANK: Record<string, number> = {
+  vhdr: 0,
+  edf: 1,
+  bdf: 2,
+  txt: 3,
+  csv: 3,
+  tsv: 3,
+  ascii: 3,
+  dat: 3,
+};
 /** Formats the spec names as not supported yet, by extension. */
 const UNSUPPORTED: Record<string, string> = {
   fif: "FIFF",
@@ -24,10 +33,10 @@ export type FileSet =
   | { candidates: string[] } // several recordings: the user chooses one and calls again with it
   | { error: string };
 
-const extension = (name: string) => (name.split(".").slice(1).at(-1) ?? "").toLowerCase();
+export const extension = (name: string) => (name.split(".").slice(1).at(-1) ?? "").toLowerCase();
 /** What a folder pick reports (`dir/sub/file`), or the bare name. */
-const pathOf = (file: File) => file.webkitRelativePath || file.name;
-const directory = (path: string) => path.slice(0, path.lastIndexOf("/") + 1);
+export const pathOf = (file: File) => file.webkitRelativePath || file.name;
+export const directory = (path: string) => path.slice(0, path.lastIndexOf("/") + 1);
 
 /**
  * Picks the recording to open (`choice` is one of its `candidates`) and passes every file of its directory:
