@@ -11,8 +11,15 @@ import {
   setScan,
   useStore,
 } from "../store/store";
+import { loadViewer } from "./viewerChunk";
 
 export const engine = createEngine();
+
+/**
+ * The viewer's chunk, asked for as a recording starts to open and awaited with the open: the recording then renders
+ * with its plots at once (viewerChunk.ts). A chunk that does not load is reported where the plots go.
+ */
+const viewerReady = () => loadViewer().catch(() => {});
 
 /** Brings what the engine learns about a recording after it opened into the store: its scan and its annotations. */
 function follow(id: string) {
@@ -36,7 +43,7 @@ function adopt(opened: Awaited<ReturnType<typeof engine.open>>, source: "files" 
 
 /** Opens an input as the UI opens files: an OpenNeuro recording, or a synthetic one in dev and e2e builds. */
 export async function openInput(input: RecordingInput) {
-  const opened = await engine.open(input);
+  const [opened] = await Promise.all([engine.open(input), viewerReady()]);
   adopt(opened, input.kind);
   return opened.id;
 }
@@ -81,7 +88,8 @@ export async function openFiles(
   if ("error" in set) return { kind: "error", message: set.error, folder: false };
   if ("candidates" in set) return { kind: "choose", candidates: set.candidates };
   try {
-    const opened = await engine.open({ kind: "files", files: set.files, primary: set.primary });
+    const files = { kind: "files", files: set.files, primary: set.primary } as const;
+    const [opened] = await Promise.all([engine.open(files), viewerReady()]);
     adopt(opened, "files");
     const { info, fingerprint } = opened;
     const handle = info.input_files.length === 1 ? options.handle : undefined;
