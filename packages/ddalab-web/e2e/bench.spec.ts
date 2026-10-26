@@ -27,10 +27,19 @@
  *   native_total_s = median of the CLI's whole wall time (`time -p` real: start, open, hash, plan, run, exit)
  *   native_cpu_s   = median of the CLI's user + sys seconds (`time -p`), its hash included; native_cpu_s /
  *                    native_total_s is the CLI's mean busy threads
- *   run_memory_gb  = max over the browser runs and over samples every `memory_sample_ms` during engine.run of
- *                    sum(RSS of each process of the Chromium process tree of the case's profile) / 1e9, from `ps`
- *                    (pages a process shares with another count in each)
  *   load_1m_max    = max of the 1-minute load average at the start of each of the case's runs
+ * Memory comes from one more browser run of the case after the repeats, kept out of the timing: sampling slows a run.
+ * Its samples start every `memory_sample_ms` from engine.run to `done`, or as soon as the one before returns when that
+ * took longer (e2e/sampleMax.ts):
+ *   run_memory_gb          = max over samples of performance.measureUserAgentSpecificMemory().bytes / 1e9, the
+ *                            spec's measure of JS plus wasm for the page and its dedicated workers, in a cross-origin
+ *                            isolated page, measured eagerly (--enable-blink-features=ForceEagerMeasureMemory)
+ *   run_memory_interval_ms = mean milliseconds between the starts of those samples
+ *   run_wasm_gb            = max over samples of sum over the run's DDA workers of the wasm memory each reported with
+ *                            its last block (memory.buffer.byteLength) / 1e9: a check of the wasm in run_memory_gb
+ *   run_rss_tree_gb        = max over samples every `memory_sample_ms` of sum(RSS of each process of the Chromium
+ *                            process tree of the case's profile) / 1e9, from `ps`: an upper bound, which counts pages
+ *                            that processes share once per process
  * Each repeat compares the two outputs and fails on a difference: every .npy array byte for byte (SHA-256), and the
  * manifests, the recorded request included, apart from id, creation time and the build commit (`comparable`).
  * Display metrics, one value each, repeated on every row (e2e/perfMeasures.ts, the measurements of e2e/perf.spec.ts):
@@ -80,12 +89,15 @@ import {
   widenPlot,
   writeSynthetic,
 } from "./perfMeasures";
+import { sampleMax } from "./sampleMax";
 
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 const CONFIG_FILE = process.env.DDALAB_BENCH_CONFIG ?? here("bench.config.json");
 const RESULTS = here("../results/");
 const OUTPUTS = ["browser_bench.csv", "browser_bench_runs.csv", "browser_bench_config.json"];
 const PROFILE = "chromium-profile";
+/** Chromium measures memory at once instead of at its next garbage collection, up to 20 s later. */
+const BROWSER_ARGS = ["--enable-blink-features=ForceEagerMeasureMemory"];
 const KEYS = [
   "recording",
   "window_length",
@@ -144,6 +156,7 @@ const test = base.extend({
       deviceScaleFactor,
       userAgent,
       baseURL,
+      args: BROWSER_ARGS,
     });
     await use(context);
     await context.close();
@@ -168,14 +181,26 @@ const display: Partial<Display> = {};
 interface Run {
   case: string;
   repeat: number;
-  side: "browser" | "native";
+  side: "browser" | "native" | "memory";
   order: number;
   load_1m: number;
   seconds: number;
   total_s: number | null;
   cpu_s: number | null;
   memory_gb: number | null;
+  memory_interval_ms: number | null;
+  wasm_gb: number | null;
+  rss_tree_gb: number | null;
 }
+/** The fields a side does not measure. */
+const NONE = {
+  total_s: null,
+  cpu_s: null,
+  memory_gb: null,
+  memory_interval_ms: null,
+  wasm_gb: null,
+  rss_tree_gb: null,
+};
 const runs: Run[] = [];
 interface Row extends Case {
   windows: number;
@@ -340,34 +365,72 @@ function bundleResult(dir: string) {
   return { arrays, manifest: JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")) as ResultDocument };
 }
 
-/** One browser run: its seconds, the peak bytes of the Chromium process tree during it, its plan and its output. */
-async function browserRun(page: Page, id: string, request: DDARequest, profile: string) {
-  let peak = treeBytes(profile);
+/** One timed browser run: its seconds, its plan's blocks and its output. */
+async function browserRun(page: Page, id: string, request: DDARequest) {
+  const ran = await page.evaluate(
+    async ([id, request]) => {
+      const { engine } = window.__ddalab;
+      const started = performance.now();
+      const handle = await engine.run(id, request);
+      await handle.done;
+      return {
+        seconds: (performance.now() - started) / 1000,
+        resultId: handle.id,
+        blocks: handle.plan.blocks,
+      };
+    },
+    [id, request] as const,
+  );
+  const output = await storedResult(page, ran.resultId);
+  await page.evaluate((resultId) => window.__ddalab.engine.deleteResult(resultId), ran.resultId);
+  return { ...ran, output };
+}
+
+/**
+ * The untimed run that measures memory: the samples of measureUserAgentSpecificMemory and of the DDA workers' wasm,
+ * taken in the page by `sampleMax` (passed in as its source), and the process tree's RSS, sampled from here.
+ */
+async function memoryRun(page: Page, id: string, request: DDARequest, profile: string) {
+  let rss = treeBytes(profile);
   const sampler = setInterval(() => {
-    peak = Math.max(peak, treeBytes(profile));
+    rss = Math.max(rss, treeBytes(profile));
   }, config.memory_sample_ms);
-  let ran: { seconds: number; resultId: string; blocks: number };
   try {
-    ran = await page.evaluate(
-      async ([id, request]) => {
+    const ran = await page.evaluate(
+      async ([id, request, intervalMs, source]) => {
+        if (!crossOriginIsolated) throw new Error("the page is not cross-origin isolated");
+        const sample: typeof sampleMax = new Function(`return (${source})`)();
         const { engine } = window.__ddalab;
-        const started = performance.now();
-        const handle = await engine.run(id, request);
-        await handle.done;
-        return {
-          seconds: (performance.now() - started) / 1000,
-          resultId: handle.id,
-          blocks: handle.plan.blocks,
+        const measured = performance as unknown as {
+          measureUserAgentSpecificMemory(): Promise<{ bytes: number }>;
         };
+        let handle: Awaited<ReturnType<typeof engine.run>> | undefined;
+        let finish = () => {};
+        const finished = new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+        const samples = Promise.all([
+          sample(async () => (await measured.measureUserAgentSpecificMemory()).bytes, finished, intervalMs),
+          sample(async () => handle?.wasmBytes() ?? 0, finished, intervalMs),
+        ]);
+        const started = performance.now();
+        try {
+          handle = await engine.run(id, request);
+          await handle.done;
+        } finally {
+          finish();
+        }
+        const seconds = (performance.now() - started) / 1000;
+        const [memory, wasm] = await samples;
+        await engine.deleteResult(handle.id);
+        return { seconds, memory, wasmBytes: Math.max(wasm.max, handle.wasmBytes()) };
       },
-      [id, request] as const,
+      [id, request, config.memory_sample_ms, String(sampleMax)] as const,
     );
+    return { ...ran, rssBytes: rss };
   } finally {
     clearInterval(sampler);
   }
-  const output = await storedResult(page, ran.resultId);
-  await page.evaluate((resultId) => window.__ddalab.engine.deleteResult(resultId), ran.resultId);
-  return { ...ran, memoryBytes: peak, output };
 }
 
 /**
@@ -482,21 +545,15 @@ for (const c of cases) {
         const load_1m = loadavg()[0];
         const at = { case: c.name, repeat, side, order, load_1m };
         if (side === "browser") {
-          const ran = await browserRun(page, id, request, profile);
+          const ran = await browserRun(page, id, request);
           expect(ran.blocks).toBe(plan.blocks);
           outputs.browser = ran.output;
-          runs.push({
-            ...at,
-            seconds: ran.seconds,
-            total_s: null,
-            cpu_s: null,
-            memory_gb: ran.memoryBytes / 1e9,
-          });
+          runs.push({ ...at, ...NONE, seconds: ran.seconds });
         } else {
           const ran = await nativeRun(request, path, plan.workers, plan.budgetMb);
           outputs.native = bundleResult(ran.bundle);
           rmSync(ran.bundle, { recursive: true, force: true });
-          runs.push({ ...at, seconds: ran.seconds, total_s: ran.total_s, cpu_s: ran.cpu_s, memory_gb: null });
+          runs.push({ ...at, ...NONE, seconds: ran.seconds, total_s: ran.total_s, cpu_s: ran.cpu_s });
         }
       }
       const { browser, native } = outputs as Required<typeof outputs>;
@@ -508,6 +565,21 @@ for (const c of cases) {
       cliRequest = native.manifest.reproduction.request;
     }
     if (cliRequest) row.native_blocks = await coreBlocks(path, cliRequest, plan.budgetMb);
+    const load_1m = loadavg()[0];
+    const measured = await memoryRun(page, id, request, profile);
+    runs.push({
+      ...NONE,
+      case: c.name,
+      repeat: config.repeats,
+      side: "memory",
+      order: 0,
+      load_1m,
+      seconds: measured.seconds,
+      memory_gb: measured.memory.max / 1e9,
+      memory_interval_ms: measured.memory.intervalMs,
+      wasm_gb: measured.wasmBytes / 1e9,
+      rss_tree_gb: measured.rssBytes / 1e9,
+    });
     const mine = runs.filter((r) => r.case === c.name);
     const of = (side: Run["side"]) => median(mine.filter((r) => r.side === side).map((r) => r.seconds));
     console.log(
@@ -528,13 +600,16 @@ test.afterAll(async ({ browser }) => {
   const d = display as Display;
   const csv = [
     "case,variant,channels,windows,workers,threads,budget_mb,browser_blocks,native_blocks,repeats,browser_s," +
-      "native_s,ratio,native_total_s,native_cpu_s,run_memory_gb,load_1m_max,skipped,first_viewport_ms,scan_mb_s," +
+      "native_s,ratio,native_total_s,native_cpu_s,run_memory_gb,run_memory_interval_ms,run_wasm_gb,run_rss_tree_gb," +
+      "load_1m_max,skipped,first_viewport_ms,scan_mb_s," +
       "pan_p95_ms_tile,pan_p95_ms_raw,pan_incomplete,pan_blank,scan_memory_gb",
     ...rows.map((r) => {
       const mine = runs.filter((run) => run.case === r.name);
       const browserRuns = mine.filter((run) => run.side === "browser");
       const nativeRuns = mine.filter((run) => run.side === "native");
-      const measured = !r.skipped && browserRuns.length > 0 && nativeRuns.length > 0;
+      const memoryRun = mine.find((run) => run.side === "memory");
+      const measured =
+        !r.skipped && browserRuns.length > 0 && nativeRuns.length > 0 && memoryRun !== undefined;
       const browserS = median(browserRuns.map((run) => run.seconds));
       const nativeS = median(nativeRuns.map((run) => run.seconds));
       const fixed = (value: number, digits: number) => (measured ? value.toFixed(digits) : "");
@@ -554,7 +629,10 @@ test.afterAll(async ({ browser }) => {
         fixed(browserS / nativeS, 3),
         fixed(median(nativeRuns.map((run) => run.total_s ?? 0)), 2),
         fixed(median(nativeRuns.map((run) => run.cpu_s ?? 0)), 2),
-        fixed(Math.max(...browserRuns.map((run) => run.memory_gb ?? 0)), 3),
+        fixed(memoryRun?.memory_gb ?? 0, 3),
+        fixed(memoryRun?.memory_interval_ms ?? 0, 0),
+        fixed(memoryRun?.wasm_gb ?? 0, 3),
+        fixed(memoryRun?.rss_tree_gb ?? 0, 3),
         fixed(Math.max(...mine.map((run) => run.load_1m)), 2),
         r.skipped,
         d.first_viewport_ms.toFixed(0),
@@ -568,7 +646,7 @@ test.afterAll(async ({ browser }) => {
     }),
   ];
   const runsCsv = [
-    "case,repeat,side,order,load_1m,seconds,total_s,cpu_s,memory_gb",
+    "case,repeat,side,order,load_1m,seconds,total_s,cpu_s,memory_gb,memory_interval_ms,wasm_gb,rss_tree_gb",
     ...runs.map((r) =>
       [
         r.case,
@@ -580,6 +658,9 @@ test.afterAll(async ({ browser }) => {
         r.total_s?.toFixed(2) ?? "",
         r.cpu_s?.toFixed(2) ?? "",
         r.memory_gb?.toFixed(3) ?? "",
+        r.memory_interval_ms?.toFixed(0) ?? "",
+        r.wasm_gb?.toFixed(3) ?? "",
+        r.rss_tree_gb?.toFixed(3) ?? "",
       ].join(","),
     ),
   ];
@@ -612,6 +693,7 @@ test.afterAll(async ({ browser }) => {
       ? "vite preview of `vite build --mode e2e` (minified, with the e2e test hook)"
       : "vite dev server",
     storage: "a persistent Chromium profile per test in test-results (OPFS on disk)",
+    browser_args: BROWSER_ARGS,
     timed_span:
       "browser: engine.run to done, the input hashed before; " +
       "native: first progress line to exit, after the CLI's own serial hash",
