@@ -47,8 +47,12 @@ function warn(fingerprint: string, error: unknown) {
   }
 }
 
+/** Per fingerprint: how many changes its list has had, which tells a restore whether one came during its read. */
+const changes = new Map<string, number>();
+
 /** Shows `next` as the recording's list and stores it; a picked or edited annotation that is gone is let go. */
 function show(fingerprint: string, next: UserAnnotation[]) {
+  changes.set(fingerprint, (changes.get(fingerprint) ?? 0) + 1);
   useStore.setState((s) => {
     const gone = (id: string | undefined | null) =>
       Boolean(id) && !id?.startsWith("file:") && !next.some((a) => a.id === id);
@@ -72,19 +76,20 @@ function commit(fingerprint: string, next: UserAnnotation[]) {
 }
 
 /**
- * Reads the stored list of a recording that has none in the store yet. Annotations made while it loads join it:
- * the merged list is stored, and their undo steps, which knew nothing of the stored ones, are dropped.
+ * Reads the stored list of a recording that has none in the store yet. A change made while it loads (even one that
+ * left nothing, a creation and its deletion) has stored a list without the stored ones: the list made meanwhile
+ * joins the stored one, the merge is stored, and the undo steps, which knew nothing of the stored ones, are dropped.
  */
 export async function restoreAnnotations(fingerprint: string) {
   if (useStore.getState().annotations[fingerprint]) return;
+  const before = changes.get(fingerprint) ?? 0;
   const stored = await loadAnnotations(fingerprint).catch((error) => {
     warn(fingerprint, error);
     return EMPTY;
   });
-  const made = listOf(fingerprint);
-  const merged = [...stored, ...made];
+  const merged = [...stored, ...listOf(fingerprint)];
   useStore.setState((s) => ({ annotations: { ...s.annotations, [fingerprint]: merged } }));
-  if (made.length === 0) return;
+  if ((changes.get(fingerprint) ?? 0) === before) return;
   undos.delete(fingerprint);
   redos.delete(fingerprint);
   store(fingerprint, merged);
