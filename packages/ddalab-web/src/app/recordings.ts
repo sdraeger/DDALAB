@@ -151,9 +151,19 @@ type FileHandle = FileSystemFileHandle & {
   queryPermission(options: { mode: "read" }): Promise<PermissionState>;
   requestPermission(options: { mode: "read" }): Promise<PermissionState>;
 };
+const PROJECT_TYPE = {
+  description: "DDALAB project",
+  accept: { "application/x-ddalab-project": [".ddalab"] },
+};
 const picker = () =>
-  (window as { showOpenFilePicker?: (options: { multiple: boolean }) => Promise<FileHandle[]> })
-    .showOpenFilePicker;
+  (
+    window as {
+      showOpenFilePicker?: (options: {
+        multiple: boolean;
+        types?: [typeof PROJECT_TYPE];
+      }) => Promise<FileHandle[]>;
+    }
+  ).showOpenFilePicker;
 
 /** Whether the browser has its own file picker, which gives handles (Chromium). */
 export const canPickFiles = () => picker() !== undefined;
@@ -261,13 +271,16 @@ export async function openFiles(files: File[], options: OpenOptions = {}): Promi
   }
 }
 
-/** The files the user picks in the browser's own picker, which also gives handles; `undefined` without one. */
-export async function pickFiles(): Promise<
-  { files: File[]; handle?: FileSystemHandle; handles: FileHandles } | undefined
-> {
+/**
+ * The files the user picks in the browser's own picker, which also gives handles; `undefined` without one. `project`:
+ * the picker offers .ddalab projects only.
+ */
+export async function pickFiles(
+  project = false,
+): Promise<{ files: File[]; handle?: FileSystemHandle; handles: FileHandles } | undefined> {
   const show = picker();
   if (!show) return undefined;
-  const handles = await show({ multiple: true });
+  const handles = await show({ multiple: true, ...(project && { types: [PROJECT_TYPE] }) });
   return {
     files: await Promise.all(handles.map((h) => h.getFile())),
     handle: handles.length === 1 ? handles[0] : undefined,

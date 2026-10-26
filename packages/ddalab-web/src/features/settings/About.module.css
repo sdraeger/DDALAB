@@ -39,7 +39,7 @@
   line-height: 1.45;
 }
 
-/* A titled block under a rule: the tab shortcuts (each key beside what it does, set as labeled fields) and the color map credit. */
+/* A titled block under a rule: the keyboard shortcuts and the color map credit. */
 .section {
   display: flex;
   flex-direction: column;
@@ -53,13 +53,14 @@
   font-weight: var(--weight-strong);
 }
 
-.section dl {
+/* Each key beside what it does, set as labeled fields. */
+.keys {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
 }
 
-.section dl > div {
+.keys > div {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: var(--space-2);
@@ -67,11 +68,11 @@
   line-height: var(--leading-small);
 }
 
-.section kbd {
+.keys kbd {
   font: inherit;
   font-weight: var(--weight-medium);
 }
 
-.section dd {
+.keys dd {
   color: var(--muted);
 }

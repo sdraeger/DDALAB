@@ -1,6 +1,6 @@
 // The analyses run in this browser, in IndexedDB: what was asked of which recording and how the run ended. A result's
 // files are in OPFS under the same id (resultStore.ts).
-import { database } from "../store/recent";
+import { changed, database } from "../store/recent";
 import type { DDARequest, ResultDocument } from "./types";
 
 export interface AnalysisRecord {
@@ -53,8 +53,10 @@ export async function listAnalyses(): Promise<AnalysisRecord[]> {
 
 export async function saveAnalysis(record: AnalysisRecord): Promise<void> {
   await (await database()).put("analyses", record);
+  changed("analyses");
 }
 
 export async function deleteAnalysis(id: string): Promise<void> {
   await (await database()).delete("analyses", id);
+  changed("analyses");
 }
