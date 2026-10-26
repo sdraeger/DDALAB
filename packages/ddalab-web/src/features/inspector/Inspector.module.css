@@ -117,6 +117,14 @@
   border-top: var(--hairline-width) solid var(--hairline);
 }
 
+/* "Show chosen channels only" and, with none chosen, why it cannot. */
+.chosenOnly {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+}
+
 /* "Show all N groups": its text in line with the group rows'. */
 .more {
   align-self: flex-start;

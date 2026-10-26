@@ -9,7 +9,7 @@ import { paramsOf } from "../../render/display";
 import { webgl2 } from "../../render/gl";
 import { readColors, watchTheme } from "../../render/themeColors";
 import { createWaveformLayer, type Drawn, type Frame, type WaveformLayer } from "../../render/waveformLayer";
-import { CSS_PX_PER_MM, setPlotWidth, setView, useStore } from "../../store/store";
+import { CSS_PX_PER_MM, rowChannels, type State, setPlotWidth, setView, useStore } from "../../store/store";
 import { userOf } from "../annotations/model";
 import { useAnnotationGestures } from "../annotations/useAnnotationGestures";
 import { electrodeGroups } from "../inspector/groups";
@@ -31,10 +31,16 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
   const analysis = useStore((s) => s.recordings[recordingId]?.analysis_channels);
   const firstChannel = useStore((s) => s.view.firstChannel);
   const rowCount = useStore((s) => s.view.rowCount);
+  const chosenOnly = useStore((s) => s.view.chosenOnly);
   const labels = useMemo(() => analysis?.map((i) => info.channels[i].label) ?? [], [analysis, info]);
   const { groups, groupOf } = useMemo(() => electrodeGroups(labels), [labels]);
   const selected = useStore((s) => s.recordings[recordingId]?.selectedChannels);
   const chosen = useMemo(() => new Set(selected), [selected]);
+  const order = useMemo(
+    () =>
+      rowChannels({ chosenOnly }, { analysis_channels: analysis ?? [], selectedChannels: selected ?? [] }),
+    [chosenOnly, analysis, selected],
+  );
   /** Why the traces cannot be drawn, when they cannot. */
   const [glProblem, setGlProblem] = useState<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -74,8 +80,8 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
     let layer: WaveformLayer | null = null;
     let gl: WebGL2RenderingContext | null = null;
     let lastScanned = -1;
-    /** The scroller position last set for `firstChannel`, and the spacer's height. */
-    let scrolledTo = { first: -1, rowH: 0 };
+    /** The scroller position last set for `firstChannel`, and the spacer's height for `count` rows' channels. */
+    let scrolledTo = { first: -1, rowH: 0, count: 0 };
     let shownProblem: string | null = null;
 
     const schedule = () => {
@@ -103,7 +109,13 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
     };
     start();
 
-    const rowHeightCss = () => size.cssH / useStore.getState().view.rowCount;
+    /** The rows' channels and the rows on screen, fewer when fewer channels show. */
+    const rowsOf = (state: State) => {
+      const recording = state.recordings[recordingId];
+      const order = recording ? rowChannels(state.view, recording) : [];
+      return { order, rowCount: Math.min(state.view.rowCount, order.length) };
+    };
+    const rowHeightCss = () => size.cssH / rowsOf(useStore.getState()).rowCount;
 
     const paint = () => {
       raf = 0;
@@ -117,6 +129,7 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
         layer?.scanAdvanced(lastScanned);
       }
       const { view } = state;
+      const { order, rowCount } = rowsOf(state);
       const rate = recording.info.sample_rate_hz;
       const pxPerMm = (CSS_PX_PER_MM / view.mmPerCssMm) * dpr;
       const frame: Frame = {
@@ -124,9 +137,10 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
         height: H,
         s0: view.t0 * rate,
         spp: ((view.t1 - view.t0) * rate) / W,
+        order,
         firstChannel: view.firstChannel,
-        rowCount: view.rowCount,
-        rowHeight: H / view.rowCount,
+        rowCount,
+        rowHeight: H / rowCount,
         pxPerUnit: pxPerMm / view.sensitivityUvPerMm,
         pointSize: Math.max(3, Math.round(3 * dpr)),
         ink: colors.trace,
@@ -166,13 +180,14 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
         problemEl.hidden = message === null;
       }
       // The channel scroller follows the view; its position is read and written only when the rows move.
-      const rowH = rowHeightCss();
-      if (view.firstChannel !== scrolledTo.first || rowH !== scrolledTo.rowH) {
-        spacerEl.style.height = `${Math.max(0, channels - view.rowCount) * rowH}px`;
+      const rowH = size.cssH / rowCount;
+      const count = order.length;
+      if (view.firstChannel !== scrolledTo.first || rowH !== scrolledTo.rowH || count !== scrolledTo.count) {
+        spacerEl.style.height = `${Math.max(0, count - rowCount) * rowH}px`;
         if (rowH > 0 && Math.round(scrollerEl.scrollTop / rowH) !== view.firstChannel) {
           scrollerEl.scrollTop = view.firstChannel * rowH;
         }
-        scrolledTo = { first: view.firstChannel, rowH };
+        scrolledTo = { first: view.firstChannel, rowH, count };
       }
       if (!probing) return;
       if (viewerProbe.frames && gl) {
@@ -185,7 +200,8 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
         width: W,
         height: H,
         cssWidth: cssW,
-        rowCount: view.rowCount,
+        rowCount,
+        channels: order.slice(view.firstChannel, view.firstChannel + rowCount),
         mode: drawn.plan.mode,
         level: drawn.plan.mode === "tile" ? drawn.plan.level : null,
         complete: drawn.complete,
@@ -277,8 +293,8 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
   }, [recordingId]);
 
   if (!info || !analysis) return null;
-  const shown = Math.max(0, Math.min(rowCount, labels.length - firstChannel));
-  const rows = Array.from({ length: shown }, (_, i) => firstChannel + i);
+  const rowsOnScreen = Math.min(rowCount, order.length);
+  const rows = order.slice(firstChannel, firstChannel + rowsOnScreen);
   return (
     // biome-ignore lint/a11y/noNoninteractiveTabindex: the pane takes focus so that paging keys reach the viewer
     <section className={styles.waveforms} aria-label="Waveforms" tabIndex={0} data-appear>
@@ -289,13 +305,13 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
           </span>
           <canvas ref={ruler} className={styles.ruler} aria-hidden data-ruler />
           <ul className={styles.gutter} aria-label="Channel rows">
-            {rows.map((channel) => (
+            {rows.map((channel, row) => (
               <li
                 key={channel}
                 className={styles.gutterRow}
                 style={{
-                  top: `${(100 * (channel - firstChannel)) / rowCount}%`,
-                  height: `${100 / rowCount}%`,
+                  top: `${(100 * row) / rowsOnScreen}%`,
+                  height: `${100 / rowsOnScreen}%`,
                 }}
               >
                 <span className={styles.gutterLabel} data-chosen={chosen.has(channel) || undefined}>
