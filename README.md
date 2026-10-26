@@ -58,7 +58,7 @@ Start the installed app from the Dock, Launchpad, Spotlight or the Applications 
 
 Installed Chrome and Edge add a few things:
 
-- Open With, then DDALAB, in Finder or Explorer for .edf, .bdf, .vhdr, .csv, .tsv and .txt files (Chrome asks once per file type). A .vhdr opened alone asks you to choose its folder, once, to find its companion files.
+- Open With, then DDALAB, in Finder or Explorer for .edf, .bdf, .vhdr, .csv, .tsv and .txt files (Chrome asks once per file type). A .vhdr opened alone asks you to choose its folder to find its companion files, unless a folder you have open already holds it.
 - Exports go through the system Save dialog. Chrome and Edge tabs do the same. Other browsers download the file.
 - Open tabs return when you restart. Chrome asks for read access to each file again unless you choose Allow on every visit.
 
