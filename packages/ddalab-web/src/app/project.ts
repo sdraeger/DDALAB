@@ -333,11 +333,9 @@ async function openOne(file: File, handle?: FileSystemFileHandle): Promise<Outco
       );
     }
   }
-  try {
-    await addResults(project, entries, file.name, joins, problems);
-  } catch (error) {
-    return { kind: "error", message: `${file.name} was not opened: ${messageOf(error)}`, folder: false };
-  }
+  await addResults(project, entries, file.name, joins, problems).catch((error) =>
+    problems.push(`Its results were not added: ${messageOf(error)}`),
+  );
   for (const { fingerprint, annotations, files } of project.recordings) {
     if (!joins.has(fingerprint)) continue;
     await addAnnotations(fingerprint, annotations).catch((error) =>
