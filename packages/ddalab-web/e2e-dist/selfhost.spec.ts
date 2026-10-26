@@ -64,3 +64,29 @@ test("opens_a_recording_and_runs_dda", async ({ page }) => {
   if (!process.env.DIST_URL)
     expect([...wasmTypes]).toEqual([process.env.DIST_WASM_TYPE ?? "application/wasm"]);
 });
+
+// A deep link preconnects to OpenNeuro and S3 from the entry, which the policy's connect-src allows. The API answers
+// an empty snapshot here: the link fails to resolve, in the panel, without a request leaving the machine.
+test("deep_link_preconnects_within_the_policy", async ({ page }) => {
+  const violations: string[] = [];
+  await page.exposeFunction("reportViolation", (text: string) => violations.push(text));
+  await page.addInitScript(() => {
+    document.addEventListener("securitypolicyviolation", (event) =>
+      (window as unknown as { reportViolation(text: string): void }).reportViolation(
+        `CSP ${event.violatedDirective} blocked ${event.blockedURI}`,
+      ),
+    );
+  });
+  await page.route("https://openneuro.org/**", (route) =>
+    route.fulfill({
+      json: { data: { snapshot: { files: [] } } },
+      headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "content-type" },
+    }),
+  );
+  await page.goto("./?openneuro=ds003029&tag=1.0.7&file=sub-pt01/ieeg/run.vhdr");
+  for (const host of ["https://openneuro.org", "https://s3.amazonaws.com"]) {
+    await expect(page.locator(`link[rel="preconnect"][href="${host}"]`)).toHaveCount(1);
+  }
+  await expect(page.getByText("ds003029 1.0.7 has no folder sub-pt01")).toBeVisible();
+  expect(violations).toEqual([]);
+});

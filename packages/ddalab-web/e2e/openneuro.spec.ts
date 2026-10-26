@@ -151,6 +151,19 @@ test("deep_link_opens_recording", async ({ page }) => {
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
+test("deep_link_preconnects_to_openneuro_and_s3", async ({ page }) => {
+  await mockOpenNeuro(page);
+  await page.goto(`/${DEMO}`);
+  for (const host of ["https://openneuro.org", "https://s3.amazonaws.com"]) {
+    await expect(page.locator(`link[rel="preconnect"][href="${host}"]`)).toHaveCount(1);
+  }
+  await expect(page.getByRole("heading", { name: `${RUN}_ieeg.vhdr` })).toBeVisible();
+  // Without a deep link the page opens no connection it may not use.
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "OpenNeuro" })).toBeVisible();
+  await expect(page.locator('link[rel="preconnect"]')).toHaveCount(0);
+});
+
 test("range_requests_only", async ({ page }) => {
   await mockOpenNeuro(page);
   await page.goto(`/${DEMO}`);
