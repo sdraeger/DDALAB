@@ -19,6 +19,14 @@
   border-bottom: var(--hairline-width) solid var(--hairline);
   background: var(--chrome);
   white-space: nowrap;
+  container: bar / inline-size;
+}
+
+/* A narrow bar drops the variant's long name: its tab names it already. */
+@container bar (width < 860px) {
+  .name {
+    display: none;
+  }
 }
 
 .tabs {

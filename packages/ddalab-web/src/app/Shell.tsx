@@ -24,6 +24,7 @@ import { LocalData } from "../features/settings/LocalData";
 import { DetachedNote, TabPanel, TabStrip } from "../features/tabs/TabStrip";
 import { useViewerKeys } from "../features/viewer/useViewerKeys";
 import { activeRecording, openResult, setTheme, togglePanel, useStore } from "../store/store";
+import { shortNames } from "../store/tabs";
 import controls from "../styles/controls.module.css";
 import { Logo } from "./Logo";
 import styles from "./Shell.module.css";
@@ -191,11 +192,16 @@ export function IconButton({
   );
 }
 
+/** The active recording by the label its tab shows, its full name in the tooltip. */
 function RecordingName() {
   const name = useStore((s) => activeRecording(s)?.info.input_files[0]);
+  const label = useStore((s) => {
+    const i = s.tabs.findIndex((t) => t.fingerprint === s.activeTab);
+    return i < 0 ? undefined : shortNames(s.tabs.map((t) => t.name))[i];
+  });
   return name ? (
     <span className={styles.name} title={name} data-appear>
-      {name}
+      {label ?? name}
     </span>
   ) : null;
 }

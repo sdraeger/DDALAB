@@ -121,8 +121,12 @@ test("bids_names_drop_shared_entities", () => {
     "sub-01_eeg.edf",
     "sub-02_eeg.edf",
   ]);
-  // One BIDS name, or names that differ in no entity, stay whole.
-  expect(shortNames([run("01"), "fixture.edf"])).toEqual([run("01"), "fixture.edf"]);
+  // One BIDS name drops its subject and session; names that differ in no entity stay whole.
+  expect(shortNames([run("01"), "fixture.edf"])).toEqual([
+    "task-ictal_acq-ecog_run-01_ieeg.vhdr",
+    "fixture.edf",
+  ]);
+  expect(shortNames(["sub-01_eeg.edf"])).toEqual(["sub-01_eeg.edf"]);
   expect(shortNames([run("01"), run("01")])).toEqual([run("01"), run("01")]);
 });
 
