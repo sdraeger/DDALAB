@@ -66,6 +66,17 @@ export const database = () =>
     throw error;
   }));
 
+/** A store the app's windows share and list: each window reads it again when another one writes it. */
+export type Shared = "recent" | "analyses" | "batches";
+const channel = typeof BroadcastChannel === "undefined" ? undefined : new BroadcastChannel("ddalab-shared");
+
+/** Tells the other windows that `store` changed. */
+export const changed = (store: Shared) => channel?.postMessage(store);
+
+/** Calls `listener` with each store another window changed. */
+export const onChanged = (listener: (store: Shared) => void) =>
+  channel?.addEventListener("message", ({ data }: MessageEvent<Shared>) => listener(data));
+
 /** Notes that `entry` was opened at `lastOpened`, replacing its earlier entry and dropping the oldest past 20. */
 export async function rememberRecent(
   entry: Omit<RecentEntry, "lastOpened">,
@@ -77,6 +88,7 @@ export async function rememberRecent(
   const all: RecentEntry[] = await db.getAll("recent");
   const stale = all.sort((a, b) => b.lastOpened - a.lastOpened).slice(KEEP);
   await Promise.all(stale.map((e) => db.delete("recent", e.fingerprint)));
+  changed("recent");
 }
 
 /** Newest first. */
@@ -87,4 +99,5 @@ export async function listRecent(): Promise<RecentEntry[]> {
 
 export async function forgetRecent(fingerprint: string): Promise<void> {
   await (await database()).delete("recent", fingerprint);
+  changed("recent");
 }
