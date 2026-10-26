@@ -183,6 +183,9 @@ test("open_state", async ({ page }) => {
   await openBrainVision(page);
   await page.getByRole("checkbox", { name: "Select Fp1" }).check();
   await expect(runBar(page).getByText(/^Plan /)).toBeVisible();
+  // The bar's Run joins once the engine has listed its variants, which can come after the plan, and fades in: axe
+  // reads its contrast once it is there (problems waits for the fade).
+  await expect(page.getByRole("banner").getByRole("button", { name: "Run", exact: true })).toBeEnabled();
   expect(await problems(page)).toEqual([]);
 });
 
