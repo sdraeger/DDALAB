@@ -199,7 +199,7 @@ A cool neutral chrome carries the interface; color is spent on the cobalt accent
 **Character:** The platform's own face, set small and dense, so the workbench reads as a native instrument. Numerals are tabular throughout (`font-variant-numeric: tabular-nums` on the body), so paging and counters never shift.
 
 ### Hierarchy
-- **Section** (600, 15 px): the inspector's result title, popover titles (Local, About, Calibration), history detail headings and the narrow-window notice.
+- **Section** (600, 15 px): the inspector's result title, popover titles (Local, About, Calibration) and history detail headings.
 - **Body** (400, 13 px, 18 px leading): controls, values and rail entries. **Body strong** (600) ranks within a pane: the wordmark, field values that lead, popover subheadings.
 - **Label** (400, 12 px, 16 px leading): field labels, counts, metadata lines, hints, tooltips and errors.
 - **Label caps** (600, 12 px, all small caps, 0.05 to 0.06 em tracking): section names of the rail and inspector (Recent, Folder, OpenNeuro, History, Input files), result tabs and electrode acronyms beside their swatches. Each one is the heading or name itself.
@@ -216,7 +216,7 @@ The shell is a grid: a 44 px command bar across the top, then the library rail (
 
 Spacing runs on a 4 px unit (`spacing.1` to `spacing.6`). Rail sections sit 24 px apart with 16 px and 12 px insets; controls group at 8 px; control groups in the bar are split by a 20 px hairline rule.
 
-The command bar collapses by its own width alone, so zooming moves nothing. Sensitivity, timebase and epoch sit in the bar while it has room and go behind one Scale button below 1440 px, or below 1600 px when the inspector is closed. Below 1024 px the wordmark and the Local and Annotate labels give way to their icons. The widths are the window's; in a title bar the window controls take theirs off the bar first (Installed App). Below 768 px the shell is replaced by a short notice that the workbench needs a wider window. Only the recording name and the run status shrink; the name elides in the middle and keeps its tail.
+The command bar collapses by its own width alone, so zooming moves nothing. Sensitivity, timebase and epoch sit in the bar while it has room and go behind one Scale button below 1440 px, or below 1600 px when the inspector is closed. Below 1024 px the wordmark and the Local and Annotate labels give way to their icons. The widths are the window's; in a title bar the window controls take theirs off the bar first (Installed App). Below 768 px the window is a phone (Phone, below). Only the recording name and the run status shrink; the name elides in the middle and keeps its tail.
 
 A last grid row under the panels holds the update notice. It has no height until a new version is ready.
 
@@ -253,6 +253,7 @@ Controls are compact and plain: a hairline box, the system face, one accent.
 - **Toggle:** a default button that is on takes a cobalt border and text on `primary-wash` and a check before its label, which forced colors keep (Show chosen channels only). The check holds its place while off and fades in, which leaves the label still.
 - **Unavailable:** a button that cannot act now stays focusable at 45% opacity, full opacity while focused, with its reason on a line under it in aria-describedby (batch Start, Show chosen channels only). A reason that comes and goes keeps its line, which leaves everything below it in place.
 - **Press:** every button and select trigger scales to `--motion-scale` (0.97) while pressed.
+- **Touch:** under a coarse pointer every 28 px control and row grows to 40 px and every two-line row to 52 px, through the `--hit` and `--hit-two` tokens; the type and the icons keep their size.
 
 ### Inputs / Fields
 - **Style:** 28 px high (select triggers 26 px), ground fill, hairline border, 5 px radius, muted placeholder.
@@ -280,6 +281,9 @@ A band at the waveform's lower left prints an L-shaped bar with its amplitude an
 
 ### Installed App
 DDALAB installs from the browser's menu into a window of its own. In Chrome and Edge the command bar takes the title bar area (the window controls overlay): it sits beside the system's window controls, never under them, at the title bar's height or 32 px, whichever is more; its empty stretches drag the window and its controls do not. Without the overlay the bar is the 44 px bar, and the title bar takes the `chrome` gray of the theme in use, the user's pick or the system's; its icon is the Echo mark on chrome, with a maskable version that keeps the mark inside the safe circle. The app opens offline from a service worker's cache of the whole build. A new build announces itself in the notice strip at the foot of the window (chrome fill, hairline above, centered ink text and a quiet Reload); during a run it says the update waits, and Reload then reloads when the run ends. Recordings open from Finder and Explorer through Open With (.edf, .bdf, .vhdr, .csv, .tsv and .txt), and so do projects (.ddalab). Exports open the browser's Save dialog where it has one and go to the downloads elsewhere. About carries a one-line install hint. Window, then New window opens another window; each keeps its own tabs, panels and views, and history, results, annotations and the recent list stay shared and refresh in every window. A launch reopens the window used last that is not open, and Reopen window lists the others by their tabs. Browsers let no page focus another window, so the Window menu lists no open ones.
+
+### Phone
+Below 768 px the library, the waveform and the shown result take the screen one at a time over a view bar at the foot: three equal buttons with a 20 px icon over a 12 px label, the current one in cobalt, on chrome under a hairline. Opening a recording shows the waveform, and a result shown shows the results; picking a view crossfades. The command bar keeps the menu, the scale settings, Annotate, the run status, Run and the inspector toggle; the panel toggle, paging, the recording name, calibration, Local, theme and About leave it (the application menu has them). The inspector opens over the view and closes when a view is picked, apart from the inspector of a desktop window. The result header drops its facts and shortens its color bar to 48 px, and its rows grow to a fingertip each, up to half the screen. The bars clear the notch and the home indicator. On the plot one finger pans, two fingers pinch the time span about their midpoint, a tap sets the cursor and a finger held still for 450 ms and then dragged selects a range.
 
 ### Heatmap Color Bar
 The result header names the variant and its window count, then a labeled color bar with its numeric limits; signed arrays use symmetric limits about zero.

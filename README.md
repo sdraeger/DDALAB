@@ -17,7 +17,7 @@ The app opens EDF, BDF, BrainVision, and delimited text (ASCII, TXT, CSV) record
 
 ### In the browser
 
-Open <https://sdraeger.github.io/DDALAB/> in Chrome, Edge, Firefox or Safari on a desktop or laptop. Choose Open files or Open folder, or drag recordings onto the window. Files are read in place and are never uploaded. A window narrower than 768 pixels (a phone, for example) shows a notice that DDALAB needs a wider window.
+Open <https://sdraeger.github.io/DDALAB/> in Chrome, Edge, Firefox or Safari. Choose Open files or Open folder, or drag recordings onto the window. Files are read in place and are never uploaded. On a phone the library, the waveform and the results each take the screen, chosen in a bar at the bottom; pinch the waveform to zoom, and hold a finger still before dragging to select.
 
 ### Share a project
 
@@ -69,7 +69,7 @@ Install it with Python's tools. Python 3.8 or later is needed only to install it
 
 ```sh
 uv tool install ddalab      # or: pipx install ddalab, or: pip install ddalab
-ddalab --version            # prints: ddalab 2.2.0
+ddalab --version            # prints: ddalab 2.3.0
 uv tool upgrade ddalab      # or: pipx upgrade ddalab
 ```
 
