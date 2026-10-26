@@ -14,6 +14,7 @@ import {
   scanned,
   scanThroughput,
   start,
+  walkGapMs,
   widenPlot,
   writeSynthetic,
 } from "./perfMeasures";
@@ -65,6 +66,15 @@ test("memory_under_1_5gb", async ({ page }) => {
   report("memory, 2 GiB file scanned", gb(end));
   expect(midScan).toBeLessThan(1);
   for (const sample of [peak, end]) expect(sample.js + sample.wasm).toBeLessThan(1.5e9);
+});
+
+// The walk of 5,000 files, their classification and the folder tree of their 2,142 rows (folder.spec.ts checks the
+// tree) hold the page for at most 200 ms at a time.
+test("walk_of_5000_files_keeps_the_page_responsive", async ({ page }) => {
+  test.setTimeout(180_000);
+  const ms = await walkGapMs(page);
+  report("longest pause, walk of 5,000 files", `${ms.toFixed(0)} ms`);
+  expect(ms).toBeLessThan(200);
 });
 
 // The 24 h synthetic recording, 88 GB, in a context of its own. A Playwright context stores less than its 3.7 GB

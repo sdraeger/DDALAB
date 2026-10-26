@@ -390,8 +390,8 @@ test("a_run_without_storage_says_why", async ({ page }) => {
   await page.getByRole("checkbox", { name: "Select Fp1" }).check();
   await runBar(page).getByRole("button", { name: "Run DDA" }).click();
   await expect(runBar(page).getByRole("alert")).toHaveText(
-    "The run failed: Browser storage, where results are kept, is not available in this window; private browsing " +
-      "can cause this. Open DDALAB in a regular window.",
+    "The run failed: Browser storage, where overviews and results are kept, is not available in this window; " +
+      "private browsing can cause this. Open DDALAB in a regular window.",
   );
 });
 

@@ -8,7 +8,7 @@
 // whose levels the first view writes beside the array (`<array>.L<level>.f32`, `<array>.pyramid.json`); an export
 // of the bundle leaves them out.
 import { buildPyramid, FANOUT, type ResultTile, resultLevels, TILE_CELLS } from "../render/resultPyramid";
-import { put } from "./opfs";
+import { put, STORAGE_UNAVAILABLE } from "./opfs";
 import type { ResultArray } from "./protocol";
 import type { BlockChunks, BundleLayout, ResultDocument } from "./types";
 
@@ -27,11 +27,7 @@ export async function resultsDirectory() {
   try {
     root = await navigator.storage.getDirectory();
   } catch (cause) {
-    throw new Error(
-      "Browser storage, where results are kept, is not available in this window; private browsing can cause this. " +
-        "Open DDALAB in a regular window.",
-      { cause },
-    );
+    throw new Error(STORAGE_UNAVAILABLE, { cause });
   }
   return root.getDirectoryHandle("results", { create: true });
 }
