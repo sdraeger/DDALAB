@@ -13,6 +13,11 @@
   font-weight: var(--weight-strong);
 }
 
+.byline {
+  margin-top: calc(-1 * var(--space-2));
+  color: var(--muted);
+}
+
 .facts {
   display: grid;
   grid-template-columns: 76px minmax(0, 1fr);
@@ -34,8 +39,8 @@
   line-height: 1.45;
 }
 
-/* The tab shortcuts: each key beside what it does, set as labeled fields. */
-.keys {
+/* A titled block under a rule: the tab shortcuts (each key beside what it does, set as labeled fields) and the color map credit. */
+.section {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
@@ -48,13 +53,13 @@
   font-weight: var(--weight-strong);
 }
 
-.keys dl {
+.section dl {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
 }
 
-.keys dl > div {
+.section dl > div {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: var(--space-2);
@@ -62,11 +67,11 @@
   line-height: var(--leading-small);
 }
 
-.keys kbd {
+.section kbd {
   font: inherit;
   font-weight: var(--weight-medium);
 }
 
-.keys dd {
+.section dd {
   color: var(--muted);
 }
