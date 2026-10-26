@@ -12,7 +12,7 @@ import {
   zoomBy,
 } from "../../store/store";
 
-const OWN_KEYS =
+export const OWN_KEYS =
   'input:not([type="checkbox"]):not([type="radio"]), textarea, select, [contenteditable="true"], ' +
   '[role="combobox"], [role="listbox"], [role="option"], [role="menu"], [role="dialog"], [data-own-keys]';
 

@@ -61,3 +61,29 @@ a {
   color: var(--primary);
   text-underline-offset: 2px;
 }
+
+/* What appears in place fades in and rises: alerts, status lines and the panels marked data-appear, when they mount
+   or come out of `hidden`. No specificity: a component that lists its own transitions names opacity and transform,
+   and an element marked so sets neither opacity nor transform in its own rules, or it loses its entrance. Inside a
+   view transition (viewTransition.ts) nothing rises: the page crossfades as a whole. */
+:where([role="alert"], [role="status"], [aria-live], [data-appear]) {
+  transition-property: opacity, transform;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
+}
+
+@starting-style {
+  :where(:root:not([data-view-transition]) :is([role="alert"], [role="status"], [aria-live], [data-appear])) {
+    opacity: 0;
+    transform: translateY(var(--motion-rise));
+  }
+}
+
+/* Panels opening and closing, results shown and closed and the theme switch crossfade the whole page
+   (viewTransition.ts); the canvases redraw inside it. */
+::view-transition-group(root),
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--motion-duration);
+  animation-timing-function: var(--motion-ease);
+}

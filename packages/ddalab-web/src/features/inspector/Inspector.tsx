@@ -4,6 +4,7 @@ import { lazy, memo, Suspense, useCallback, useMemo, useState, useTransition } f
 import { closeRecording } from "../../app/recordings";
 import type { RecordingInfo } from "../../core/types";
 import { activeRecording, selectChannels, useStore } from "../../store/store";
+import { tabOf, updateTab } from "../../store/tabs";
 import controls from "../../styles/controls.module.css";
 import { DdaSettings } from "../analysis/DdaSettings";
 import { RunBar } from "../analysis/RunBar";
@@ -11,6 +12,7 @@ import { electrodeGroups, type Group } from "./groups";
 import styles from "./Inspector.module.css";
 
 const Provenance = lazy(() => import("../history/Provenance"));
+const Annotations = lazy(() => import("../annotations/AnnotationList"));
 
 /** The height of a channel row in CSS px; the list renders only the rows in view. */
 const ROW = 28;
@@ -20,6 +22,7 @@ const OVERSCAN = 6;
 export function Inspector() {
   const id = useStore((s) => s.activeRecordingId);
   // Each part on its own: a scan report replaces the recording but keeps these, and only Scan follows it.
+  const fingerprint = useStore((s) => activeRecording(s)?.fingerprint);
   const info = useStore((s) => activeRecording(s)?.info);
   const analysis = useStore((s) => activeRecording(s)?.analysis_channels);
   const selected = useStore((s) => activeRecording(s)?.selectedChannels);
@@ -30,16 +33,17 @@ export function Inspector() {
       <Provenance />
     </Suspense>
   );
-  if (!id || !info || !analysis || !selected) {
+  // Keyed by the recording: another recording's inspector mounts anew and fades in.
+  if (!id || !fingerprint || !info || !analysis || !selected) {
     return (
-      <section aria-label="Inspector" className={styles.inspector}>
+      <section key="none" aria-label="Inspector" className={styles.inspector} data-appear>
         {provenance}
         <p className={styles.empty}>Open a recording to see its channels.</p>
       </section>
     );
   }
   return (
-    <section aria-label="Inspector" className={styles.inspector}>
+    <section key={id} aria-label="Inspector" className={styles.inspector} data-appear>
       {provenance}
       <header className={styles.header}>
         <h2 className={styles.title}>{info.input_files[0]}</h2>
@@ -59,14 +63,17 @@ export function Inspector() {
         </dl>
         <Scan id={id} />
         {info.warnings.length > 0 && (
-          <ul aria-label="Warnings" className={styles.warnings}>
+          <ul aria-label="Warnings" className={styles.warnings} data-appear>
             {info.warnings.map((warning) => (
               <li key={warning}>{warning}</li>
             ))}
           </ul>
         )}
       </header>
-      <Channels key={id} info={info} analysis={analysis} selected={selected} />
+      <Channels key={id} fingerprint={fingerprint} info={info} analysis={analysis} selected={selected} />
+      <Suspense fallback={null}>
+        <Annotations key={id} recordingId={id} />
+      </Suspense>
       <Suspense fallback={null}>
         <DdaSettings recordingId={id} />
       </Suspense>
@@ -89,9 +96,11 @@ function Scan({ id }: { id: string }) {
   return (
     <>
       {scan.notice ? (
-        <p className={styles.note}>{scan.notice}</p>
+        <p key="notice" className={styles.note} data-appear>
+          {scan.notice}
+        </p>
       ) : (
-        <p className={styles.scan}>
+        <p key="scan" className={styles.scan}>
           <span>Overview {percent}%</span>
           <progress aria-label="Overview" max={100} value={percent} />
         </p>
@@ -107,15 +116,17 @@ function Scan({ id }: { id: string }) {
 
 /** Memoized: a new active result re-renders the inspector, which leaves the channels as they are. */
 const Channels = memo(function Channels(props: {
+  fingerprint: string;
   info: RecordingInfo;
   analysis: number[];
   selected: number[];
 }) {
-  const { info, analysis, selected } = props;
+  const { fingerprint, info, analysis, selected } = props;
   const labels = useMemo(() => analysis.map((i) => info.channels[i].label), [analysis, info]);
   const { groups, groupOf } = useMemo(() => electrodeGroups(labels), [labels]);
-  const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState("");
+  // The search is the tab's: it comes back when the tab does.
+  const [query, setQuery] = useState(() => tabOf(fingerprint)?.channelQuery ?? "");
+  const [filter, setFilter] = useState(query);
   const [filtering, startTransition] = useTransition();
   const chosen = useMemo(() => new Set(selected), [selected]);
   const shown = useMemo(() => {
@@ -146,6 +157,7 @@ const Channels = memo(function Channels(props: {
         value={query}
         onChange={(event) => {
           setQuery(event.target.value);
+          updateTab(fingerprint, { channelQuery: event.target.value });
           startTransition(() => setFilter(event.target.value));
         }}
       />
@@ -160,7 +172,7 @@ const Channels = memo(function Channels(props: {
         stale={filtering}
       />
       {others.length > 0 && (
-        <div className={styles.others}>
+        <div className={styles.others} data-appear>
           <p>Not analyzed or displayed (another sample rate):</p>
           <ul aria-label="Not analyzed">
             {others.map(({ channel, i }) => (
@@ -259,7 +271,11 @@ function ChannelList(props: {
           );
         })}
       </ul>
-      {shown.length === 0 && <p className={styles.empty}>No channel matches.</p>}
+      {shown.length === 0 && (
+        <p className={styles.empty} data-appear>
+          No channel matches.
+        </p>
+      )}
     </div>
   );
 }

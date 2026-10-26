@@ -243,11 +243,10 @@ async function pyramidOf(
   const { windows, rows, read } = await npy(source, path);
   const levels = resultLevels(windows);
   const name = (level: number) => `${array}.L${level}.f32`;
-  /** Writes every level's file, then the record. */
+  /** Writes every level's file, then the record. A full storage leaves neither. */
   async function build(): Promise<PyramidRecord> {
     const files: FileSystemSyncAccessHandle[] = [];
     let bytes = 0;
-    let record: PyramidRecord;
     try {
       for (let level = 1; level < levels; level++) {
         const file = await (
@@ -266,9 +265,15 @@ async function pyramidOf(
       );
       for (const file of files) file.flush();
       const toJson = (values: Float64Array) => Array.from(values, (v) => (Number.isFinite(v) ? v : null));
-      record = { levels, rowMin: toJson(ranges.rowMin), rowMax: toJson(ranges.rowMax) };
+      const record = { levels, rowMin: toJson(ranges.rowMin), rowMax: toJson(ranges.rowMax) };
+      await writeText(folder, `${array}.pyramid.json`, JSON.stringify(record));
+      return record;
     } catch (error) {
       if (!(error instanceof DOMException && error.name === "QuotaExceededError")) throw error;
+      // What was written goes (a file open for writing cannot be removed): the next view builds the pyramid again.
+      for (const file of files) file.close();
+      for (let level = 1; level < levels; level++) await folder.removeEntry(name(level)).catch(() => {});
+      await folder.removeEntry(`${array}.pyramid.json`).catch(() => {});
       const mb = (bytes / 1e6).toLocaleString("en", { maximumSignificantDigits: 2 });
       throw new Error(
         `Zooming out on this result needs about ${mb} MB of browser storage, more than is available. Free up space and show it again.`,
@@ -276,8 +281,6 @@ async function pyramidOf(
     } finally {
       for (const file of files) file.close();
     }
-    await writeText(folder, `${array}.pyramid.json`, JSON.stringify(record));
-    return record;
   }
   const record = await navigator.locks.request(`ddalab-pyramid:${resultId}`, { mode: "shared" }, () =>
     navigator.locks.request(`ddalab-pyramid:${path}`, async () => {

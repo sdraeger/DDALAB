@@ -46,13 +46,15 @@ export interface Engine {
   version(): Promise<EngineVersion>;
   /**
    * `analysis_channels` are the indices into `info.channels` of the display channels: `raw` returns these and DDA
-   * requests index this list. A recording already open (same fingerprint) is not opened again: its id comes back.
+   * requests index this list. A recording already open (same fingerprint) is not opened again: its id comes back,
+   * with `duplicate`: closing it is for the open that made it.
    */
   open(input: RecordingInput): Promise<{
     id: string;
     info: RecordingInfo;
     fingerprint: string;
     analysis_channels: number[];
+    duplicate?: boolean;
   }>;
   close(id: string): void;
   /**
@@ -69,11 +71,16 @@ export interface Engine {
   annotations(id: string): Promise<Annotations>;
   /** Calls `listener` with the current scan state at once and with every change after. */
   onScan(id: string, listener: (state: ScanState) => void): () => void;
+  /** The SHA-256 of each input file once all are known; fewer when the hash failed or the recording closed. */
+  hashes(id: string): Promise<Record<string, string>>;
   /**
-   * What a run of `request` takes: its windows, its blocks and the workers it runs on. Rejects with the core's
-   * message when the core refuses the request.
+   * What a run of `request` takes: its windows, its blocks, the workers it runs on and the block budget in MiB.
+   * Rejects with the core's message when the core refuses the request.
    */
-  plan(id: string, request: DDARequest): Promise<{ windows: number; blocks: number; workers: number }>;
+  plan(
+    id: string,
+    request: DDARequest,
+  ): Promise<{ windows: number; blocks: number; workers: number; budgetMb: number }>;
   /**
    * Runs `request` on a pool of DDA workers; each block's arrays are written to OPFS as it finishes (resultStore.ts).
    * `done` resolves once the manifest is written and the result is complete; a failed or cancelled run leaves no
@@ -105,7 +112,9 @@ export interface Engine {
 }
 
 /** What dev and e2e builds add for tests. */
-export type DevEngine = Engine & {
+export type DevEngine = Omit<Engine, "run"> & {
+  /** A run whose handle also sums the wasm memory its DDA workers last reported, in bytes. */
+  run(id: string, request: DDARequest): Promise<AnalysisHandle & { wasmBytes(): number }>;
   trap(): Promise<void>;
   quota(bytes: number): Promise<void>;
   /** Bytes of wasm memory of each running worker. */
@@ -123,9 +132,12 @@ const cancelled = () => new DOMException("The run was cancelled", "AbortError");
 /** Bytes of a text recording per DDA worker: each parses the whole file. */
 const TEXT_BYTES_PER_WORKER = 512 * 2 ** 20;
 
-/** The workers of a run: every core but one, and one per 512 MiB of a text recording. */
+/** The DDA workers of a run of a binary recording: every core but one. */
+export const ddaWorkers = () => Math.max(1, navigator.hardwareConcurrency - 1);
+
+/** The workers of a run: `ddaWorkers`, and one per 512 MiB of a text recording. */
 function poolSize(input: RecordingInput, info: RecordingInfo): number {
-  const cores = Math.max(1, navigator.hardwareConcurrency - 1);
+  const cores = ddaWorkers();
   if (input.kind === "synthetic" || (info.format !== "CSV" && info.format !== "ASCII")) return cores;
   const bytes = input.files.find((file) => file.name === input.primary)?.size ?? 0;
   return Math.min(cores, Math.max(1, Math.floor(TEXT_BYTES_PER_WORKER / bytes)));
@@ -136,6 +148,8 @@ function ddaPool(input: RecordingInput, request: DDARequest) {
   const idle: Worker[] = [];
   const asked = new Map<Worker, (error: Error) => void>();
   let stopped = false;
+  /** The wasm memory each worker last reported, in bytes (dev and e2e builds). */
+  const memory = new Map<Worker, number>();
   const drop = (worker: Worker) => {
     worker.terminate();
     asked.delete(worker);
@@ -150,7 +164,11 @@ function ddaPool(input: RecordingInput, request: DDARequest) {
         if ("error" in data) {
           reject(new Error(data.error));
           if (data.trapped) return drop(worker);
-        } else resolve(data.ok as T);
+        } else {
+          if ((import.meta.env.DEV || import.meta.env.MODE === "e2e") && data.wasmBytes !== undefined)
+            memory.set(worker, data.wasmBytes);
+          resolve(data.ok as T);
+        }
         asked.delete(worker);
         idle.push(worker);
       };
@@ -161,6 +179,7 @@ function ddaPool(input: RecordingInput, request: DDARequest) {
       worker.postMessage({ input, request, ...task } satisfies DdaRequest);
     });
   return {
+    memory,
     block: (block: Block) => ask<BlockChunks>({ block }),
     manifest: (extras: ManifestExtras) => ask<ResultDocument>({ extras }),
     stop() {
@@ -190,6 +209,7 @@ const stateOf = ({ scan, sha256, hashed, hashError }: Tracked): ScanState => ({
   sha256,
   hashed,
   error: scan.error ?? hashError,
+  hashError,
 });
 
 export function createEngine(): Engine {
@@ -424,7 +444,7 @@ export function createEngine(): Engine {
     async open(input) {
       const id = crypto.randomUUID();
       const { duplicateOf, ...opened } = await call({ type: "open", id, input });
-      if (duplicateOf) return { id: duplicateOf, ...opened };
+      if (duplicateOf) return { id: duplicateOf, ...opened, duplicate: true };
       held.set(id, input);
       const { info, fingerprint } = opened;
       scans.set(id, {
@@ -474,6 +494,7 @@ export function createEngine(): Engine {
       }
       return annotate(input);
     },
+    hashes: (id) => inputHashes(id, new AbortController().signal),
     onScan(id, listener) {
       const set = listeners.get(id) ?? new Set();
       listeners.set(id, set.add(listener));
@@ -485,7 +506,7 @@ export function createEngine(): Engine {
       const { input, info } = opened(id);
       const workers = poolSize(input, info);
       const plan = await call({ type: "plan", id, request, workers });
-      return { windows: plan.windows, blocks: plan.blocks.length, workers };
+      return { windows: plan.windows, blocks: plan.blocks.length, workers, budgetMb: plan.budgetMb };
     },
     async run(id, request) {
       const { input, info } = opened(id);
@@ -528,7 +549,7 @@ export function createEngine(): Engine {
           throw error;
         })
         .finally(() => pool.stop());
-      return {
+      const handle = {
         ...scheduled,
         done,
         cancel() {
@@ -537,6 +558,9 @@ export function createEngine(): Engine {
           cancelling.abort(cancelled());
         },
       };
+      return import.meta.env.DEV || import.meta.env.MODE === "e2e"
+        ? Object.assign(handle, { wasmBytes: () => [...pool.memory.values()].reduce((a, b) => a + b, 0) })
+        : handle;
     },
     sweepInterrupted: () => call({ type: "sweepResults" }),
     resultManifest: (resultId) => call({ type: "resultManifest", resultId }),

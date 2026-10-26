@@ -1,6 +1,7 @@
 // The workspace: the command bar over the library rail, the plots and the inspector.
 import { Popover } from "@base-ui/react/popover";
 import { Tooltip } from "@base-ui/react/tooltip";
+import Info from "lucide-react/dist/esm/icons/info.mjs";
 import Moon from "lucide-react/dist/esm/icons/moon.mjs";
 import PanelLeft from "lucide-react/dist/esm/icons/panel-left.mjs";
 import PanelRight from "lucide-react/dist/esm/icons/panel-right.mjs";
@@ -14,17 +15,25 @@ import {
   useSyncExternalStore,
 } from "react";
 import { RunButton } from "../features/analysis/RunBar";
+import { useAnnotationKeys } from "../features/annotations/Annotate";
 import { ResultBoundary } from "../features/history/ResultBoundary";
 import { Inspector } from "../features/inspector/Inspector";
 import { LibraryRail } from "../features/library/LibraryRail";
 import { preload } from "../features/results/loads";
+import { LocalData } from "../features/settings/LocalData";
+import { DetachedNote, TabPanel, TabStrip } from "../features/tabs/TabStrip";
 import { useViewerKeys } from "../features/viewer/useViewerKeys";
 import { activeRecording, openResult, setTheme, togglePanel, useStore } from "../store/store";
 import controls from "../styles/controls.module.css";
+import { Logo } from "./Logo";
 import styles from "./Shell.module.css";
 import { lazyPart } from "./viewerChunk";
+import { inTransition } from "./viewTransition";
 
-const Calibration = lazy(() => import("../features/settings/Calibration"));
+const loadCalibration = () => import("../features/settings/Calibration");
+const Calibration = lazy(loadCalibration);
+const loadAbout = () => import("../features/settings/About");
+const About = lazy(loadAbout);
 const ResultPanel = lazy(() => import("../features/results/ResultPanel"));
 const ViewControls = lazyPart(
   (viewer) => viewer.ViewControls,
@@ -36,7 +45,10 @@ export function Shell() {
   const { library, inspector } = useStore((s) => s.panels);
   const id = useStore((s) => s.activeRecordingId);
   const resultShown = useStore((s) => s.shownResult !== null);
+  // With no recording active, a selected tab is a detached one.
+  const activeTab = useStore((s) => s.activeTab);
   useViewerKeys();
+  useAnnotationKeys();
   return (
     <Tooltip.Provider delay={400}>
       <div
@@ -45,10 +57,17 @@ export function Shell() {
         data-inspector={inspector ? "open" : "closed"}
       >
         <header className={styles.bar}>
-          <IconButton label="Library" aria-pressed={library} onClick={() => togglePanel("library")}>
+          <IconButton
+            label="Library"
+            aria-pressed={library}
+            onClick={() => inTransition(() => togglePanel("library"))}
+          >
             <PanelLeft aria-hidden />
           </IconButton>
-          <span className={styles.wordmark}>DDALAB</span>
+          <span className={styles.brand}>
+            <Logo />
+            <h1 className={styles.wordmark}>DDALAB</h1>
+          </span>
           <RecordingName />
           <span className={styles.grow} />
           {id && (
@@ -62,30 +81,48 @@ export function Shell() {
               <RunButton recordingId={id} status={!inspector} />
             </Suspense>
           )}
-          <DisplaySettings />
-          <IconButton label="Inspector" aria-pressed={inspector} onClick={() => togglePanel("inspector")}>
+          <PanelButton label="Display calibration" icon={<Ruler aria-hidden />} preload={loadCalibration}>
+            <Calibration />
+          </PanelButton>
+          <IconButton
+            label="Inspector"
+            aria-pressed={inspector}
+            onClick={() => inTransition(() => togglePanel("inspector"))}
+          >
             <PanelRight aria-hidden />
           </IconButton>
+          <LocalData />
           <ThemeToggle />
+          <PanelButton label="About DDALAB" icon={<Info aria-hidden />} preload={loadAbout}>
+            <About />
+          </PanelButton>
         </header>
         <aside className={styles.library} aria-label="Library">
           <LibraryRail />
         </aside>
         <main className={styles.center}>
-          {id ? (
-            <>
-              <Suspense fallback={null}>
-                <Plots id={id} />
-              </Suspense>
-              <ShownResult recordingId={id} />
-            </>
-          ) : resultShown ? (
-            <ShownResult recordingId={null} />
-          ) : (
-            <p className={styles.empty}>
-              Open a recording from the library, or drop its files or folder anywhere in this window.
-            </p>
-          )}
+          <TabStrip />
+          <TabPanel>
+            {id ? (
+              <>
+                <Suspense fallback={null}>
+                  <Plots id={id} />
+                </Suspense>
+                <ShownResult recordingId={id} />
+              </>
+            ) : activeTab ? (
+              <>
+                <DetachedNote fingerprint={activeTab} brief={resultShown} />
+                {resultShown && <ShownResult recordingId={null} />}
+              </>
+            ) : resultShown ? (
+              <ShownResult recordingId={null} />
+            ) : (
+              <p className={styles.empty} data-appear>
+                Open a recording from the library, or drop its files or folder anywhere in this window.
+              </p>
+            )}
+          </TabPanel>
         </main>
         <aside className={styles.inspector}>
           {/* Closed, the inspector keeps its state and stops rendering; its effects (the run bar's plan) stop too. */}
@@ -118,7 +155,7 @@ function ShownResult({ recordingId }: { recordingId: string | null }) {
       <button type="button" className={controls.quiet} onClick={() => location.reload()}>
         Reload
       </button>
-      <button type="button" className={controls.quiet} onClick={() => openResult(null)}>
+      <button type="button" className={controls.quiet} onClick={() => inTransition(() => openResult(null))}>
         Close the result
       </button>
     </>
@@ -157,24 +194,30 @@ export function IconButton({
 function RecordingName() {
   const name = useStore((s) => activeRecording(s)?.info.input_files[0]);
   return name ? (
-    <span className={styles.name} title={name}>
+    <span className={styles.name} title={name} data-appear>
       {name}
     </span>
   ) : null;
 }
 
-function DisplaySettings() {
+/** An icon button of the command bar that opens a panel; the panel's chunk loads on pointer or focus. */
+function PanelButton(props: {
+  label: string;
+  icon: ReactElement;
+  preload: () => Promise<unknown>;
+  children: ReactElement;
+}) {
+  // A chunk that fails to preload stays quiet: opening the panel loads it again and reports a failure.
+  const preload = () => void props.preload().catch(() => {});
   return (
     <Popover.Root>
-      <IconButton label="Display calibration" render={<Popover.Trigger />}>
-        <Ruler aria-hidden />
+      <IconButton label={props.label} render={<Popover.Trigger />} onPointerEnter={preload} onFocus={preload}>
+        {props.icon}
       </IconButton>
       <Popover.Portal>
         <Popover.Positioner sideOffset={6} align="end">
           <Popover.Popup className={controls.panel}>
-            <Suspense fallback={null}>
-              <Calibration />
-            </Suspense>
+            <Suspense fallback={null}>{props.children}</Suspense>
           </Popover.Popup>
         </Popover.Positioner>
       </Popover.Portal>
@@ -189,13 +232,17 @@ const subscribeToScheme = (onChange: () => void) => {
   return () => query.removeEventListener("change", onChange);
 };
 
-/** Follows the system until pressed; the pick is remembered (theme.ts). */
+/** Follows the system until pressed; the pick is remembered (theme.ts). The page crossfades to the new theme. */
 function ThemeToggle() {
   const picked = useStore((s) => s.theme);
   const systemDark = useSyncExternalStore(subscribeToScheme, () => darkQuery().matches);
   const dark = (picked ?? (systemDark ? "dark" : "light")) === "dark";
   return (
-    <IconButton label="Dark theme" aria-pressed={dark} onClick={() => setTheme(dark ? "light" : "dark")}>
+    <IconButton
+      label="Dark theme"
+      aria-pressed={dark}
+      onClick={() => inTransition(() => setTheme(dark ? "light" : "dark"))}
+    >
       <Moon aria-hidden />
     </IconButton>
   );

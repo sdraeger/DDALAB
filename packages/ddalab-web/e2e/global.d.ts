@@ -18,6 +18,8 @@ declare global {
       viewer: typeof viewerProbe;
       /** The result heatmap's last frame and pixels, and the row plot's points. */
       results: typeof heatmapProbe;
+      /** A write of the open tabs that resolves once it is in IndexedDB. */
+      tabs: { flush(): Promise<void> };
     };
   }
 }

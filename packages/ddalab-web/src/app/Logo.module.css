@@ -1,0 +1,23 @@
+/* Sized in cap heights so the mark tracks the wordmark's text size; its container aligns on the baseline (.brand). */
+.logo {
+  flex: none;
+  block-size: calc(1.5cap);
+  inline-size: auto;
+  /* The echo's round cap reaches past the viewBox's lower edge. */
+  overflow: visible;
+}
+
+.d {
+  fill: var(--ink);
+}
+
+.point {
+  fill: var(--event);
+}
+
+.echo {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 3;
+  stroke-linecap: round;
+}

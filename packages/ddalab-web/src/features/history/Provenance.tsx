@@ -8,6 +8,7 @@ import Download from "lucide-react/dist/esm/icons/download.mjs";
 import { lazy, Suspense, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { deleteResult } from "../../app/analyses";
+import { inTransition } from "../../app/viewTransition";
 import { cliCommand } from "../../core/cliCommand";
 import { type AnalysisRecord, resultName } from "../../core/history";
 import { openResult, useStore } from "../../store/store";
@@ -49,7 +50,7 @@ const STATUS: Record<Exclude<AnalysisRecord["status"], "complete">, string> = {
 export default function Provenance() {
   const id = useStore((s) => s.activeResultId);
   const close = (
-    <button type="button" className={controls.quiet} onClick={() => openResult(null)}>
+    <button type="button" className={controls.quiet} onClick={() => inTransition(() => openResult(null))}>
       Close the result
     </button>
   );
@@ -71,15 +72,17 @@ function Details() {
   const started = imported && manifest ? Date.parse(manifest.created_at_iso) : record.createdAt;
   const listed = (parts: (string | false | undefined)[]) => parts.filter(Boolean).join(", ");
   return (
-    <section aria-label="Provenance" className={styles.provenance}>
+    <section aria-label="Provenance" className={styles.provenance} data-appear>
       <header className={styles.header}>
         <h2 className={styles.title}>{resultName(record)}</h2>
         <Actions record={record} />
       </header>
       {record.status !== "complete" && (
         <p
+          key={record.status}
           role={record.status === "failed" ? "alert" : undefined}
           className={record.status === "failed" ? styles.error : styles.note}
+          data-appear
         >
           {STATUS[record.status]}
           {record.error && `: ${record.error}`}
@@ -159,7 +162,7 @@ function Actions({ record }: { record: AnalysisRecord }) {
     return (
       <>
         {/* Keyed: the row mounts anew and Keep takes focus, where React would reuse the Close button. */}
-        <div className={styles.actions} key="confirm">
+        <div className={styles.actions} key="confirm" data-appear>
           <span className={styles.confirm}>Delete this result and its files?</span>
           <button type="button" className={controls.quiet} onClick={remove}>
             Delete
@@ -178,7 +181,7 @@ function Actions({ record }: { record: AnalysisRecord }) {
     );
   }
   return (
-    <div className={styles.actions}>
+    <div className={styles.actions} data-appear>
       <Popover.Root>
         <Popover.Trigger className={controls.button} disabled={record.status !== "complete"}>
           <Download aria-hidden />
@@ -206,7 +209,7 @@ function Actions({ record }: { record: AnalysisRecord }) {
         type="button"
         className={`${controls.quiet} ${styles.close}`}
         onClick={() => {
-          openResult(null);
+          inTransition(() => openResult(null));
           focusHistory(record.id);
         }}
       >
@@ -260,7 +263,9 @@ function InputFiles({ record }: { record: AnalysisRecord }) {
           <li key={name}>
             <span className={styles.fileName}>{name}</span>
             {sha256 ? (
-              <code className={styles.digest}>{sha256}</code>
+              <code className={styles.digest} data-appear>
+                {sha256}
+              </code>
             ) : (
               <span className={styles.note}>hashing {Math.floor(100 * hashed)}%</span>
             )}

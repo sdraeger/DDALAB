@@ -1,8 +1,10 @@
+/* Clipped: a panel that rises into place from below the window edge (base.css) never scrolls the page. */
 .shell {
   --library-width: 248px;
   --inspector-width: 304px;
   display: grid;
   height: 100%;
+  overflow: clip;
   grid-template-rows: 44px minmax(0, 1fr);
   grid-template-columns: var(--library-width) minmax(0, 1fr) var(--inspector-width);
   grid-template-areas:
@@ -29,7 +31,17 @@
   background: var(--chrome);
 }
 
+/* The mark sits on the wordmark's baseline and spans its capitals. */
+.brand {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+/* The page's one heading, set as the bar's other text. */
 .wordmark {
+  font-size: inherit;
   font-weight: var(--weight-strong);
   letter-spacing: 0.02em;
 }
@@ -51,6 +63,7 @@
 
 .view {
   display: flex;
+  flex: none;
   align-items: center;
   gap: var(--space-4);
 }
@@ -65,6 +78,67 @@
   margin-left: var(--space-2);
   color: var(--muted);
   white-space: nowrap;
+}
+
+/* The scale settings sit in the bar while it has room for them, else behind one button (ScaleChoices in Shell.tsx):
+   below 1400 px, or 1600 px with the inspector closed and the run status beside Run. Below 1024 px the wordmark and
+   the Local and Annotate labels give way to their marks. Only the recording name and the run status shrink; every
+   width depends on the window alone, and zooming moves nothing. */
+.bar > button {
+  flex-shrink: 0;
+}
+
+.scales {
+  display: contents;
+}
+
+.scaleMenu {
+  display: none;
+}
+
+.scaleList {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-3);
+  width: auto;
+}
+
+@media (width < 1400px) {
+  .scales {
+    display: none;
+  }
+
+  .scaleMenu {
+    display: contents;
+  }
+}
+
+@media (width < 1600px) {
+  .shell[data-inspector="closed"] .scales {
+    display: none;
+  }
+
+  .shell[data-inspector="closed"] .scaleMenu {
+    display: contents;
+  }
+}
+
+@media (width < 1024px) {
+  .wordmark {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+/* Tabular digits (base.css) in a box of fixed width: see Digits in Shell.tsx. */
+.digits {
+  display: inline-block;
+  text-align: end;
 }
 
 .library {
