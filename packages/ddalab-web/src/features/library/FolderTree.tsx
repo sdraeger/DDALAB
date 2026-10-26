@@ -212,7 +212,7 @@ function Recordings(props: {
         )}
         <BatchAction recordings={runnable} root={whole.root} handle={props.handle} />
       </div>
-      <BatchProgressView />
+      <BatchProgressView root={whole.root} />
       {recordings.length >= SEARCH_FROM && (
         <input
           type="search"

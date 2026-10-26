@@ -5,6 +5,7 @@
 // In a BIDS dataset the batch takes the recordings the CLI finds there (`discover_bids_recordings`).
 import type { DdaForm } from "../features/analysis/validate";
 import { changed, database } from "../store/recent";
+import type { RecordingInput } from "./engine";
 import type { AnalysisRecord } from "./history";
 import type { RecordingInfo } from "./types";
 
@@ -15,6 +16,9 @@ import type { RecordingInfo } from "./types";
 export type ChannelRule = { kind: "signal" } | { kind: "labels"; labels: string[] };
 /** "range" is clipped to each recording. */
 export type IntervalRule = { kind: "whole" } | { kind: "range"; startS: number; endS: number };
+
+/** A recording a batch runs, by its path: the files of an opened folder, or the input that streams it (OpenNeuro). */
+export type BatchInput = { path: string; files: File[] } | { path: string; input: RecordingInput };
 
 /** How one recording of a batch ended. */
 export interface BatchResult {
@@ -36,6 +40,11 @@ export interface BatchRecord {
   root: string;
   /** The opened folder's handle where the browser gives one (Chromium): Resume reads the folder through it. */
   handle?: FileSystemDirectoryHandle;
+  /**
+   * A batch on a folder of an OpenNeuro snapshot (`root` is the dataset's id): the snapshot and the folder walked, its
+   * path from the id and its tree, which Resume walks again.
+   */
+  remote?: { tag: string; path: string; tree?: string };
   form: DdaForm;
   channels: ChannelRule;
   interval: IntervalRule;
@@ -107,8 +116,8 @@ export function intervalFor(
 }
 
 /** Entries `discover_bids_recordings` (dda-rs io/bids.rs) skips at any depth, and the deepest folder it reads. */
-const SKIPPED = ["code", "derivatives", "sourcedata"];
-const MAX_DEPTH = 6;
+export const SKIPPED = ["code", "derivatives", "sourcedata"];
+export const MAX_DEPTH = 6;
 
 /** A path's file name before its last dot, as Rust's `Path::file_stem`, and after it. */
 function stemOf(path: string) {
