@@ -305,3 +305,55 @@ test("delete_removes_opfs_files", async ({ page }) => {
   expect(analyses.map((a) => a.id)).not.toContain(id);
   expect(activeResultId).toBeNull();
 });
+
+// The startup sweep runs beside the IO worker's queue: the history needs neither the engine's wasm nor its compile.
+test("history_lists_before_the_engine_compiles", async ({ page, browserName }) => {
+  test.skip(browserName !== "chromium", "the worker's wasm request is interceptable in Chromium only");
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  await page.evaluate(async () => {
+    const db: IDBDatabase = await new Promise((opened, failed) => {
+      const request = indexedDB.open("ddalab", 2);
+      request.onsuccess = () => opened(request.result);
+      request.onerror = () => failed(request.error);
+    });
+    const request = {
+      file_path: "held.edf",
+      channels: [0],
+      time_range: { start: 0, end: 1000 },
+      preprocessing_options: { highpass: null, lowpass: null },
+      algorithm_selection: { enabled_variants: ["ST"] },
+      window_parameters: { window_length: 200, window_step: 100 },
+      delay_parameters: { delays: [7, 10] },
+    };
+    const record = {
+      id: "held",
+      fingerprint: "f",
+      fileName: "held.edf",
+      request,
+      createdAt: 1,
+      status: "failed",
+    };
+    await new Promise((done) => {
+      const put = db.transaction("analyses", "readwrite");
+      put.objectStore("analyses").put(record);
+      put.oncomplete = done;
+    });
+    db.close();
+  });
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  // The module itself; the dev server also serves `ddalab.wasm?url`, a script the worker imports.
+  await page.route(/\.wasm$/, async (route) => {
+    await held;
+    await route.continue();
+  });
+  await page.reload();
+  await expect(history(page).getByRole("listitem").filter({ hasText: "ST on held.edf" })).toContainText(
+    "Failed",
+  );
+  await expect(page.getByRole("status")).toHaveText("loading");
+  release();
+  await expect(page.getByRole("status")).toHaveText(/^\d+\.\d+\.\d+/);
+});

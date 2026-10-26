@@ -185,10 +185,12 @@ async function statusOf(directory: FileSystemDirectoryHandle) {
  */
 export async function sweepInterrupted(): Promise<string[]> {
   const root = await resultsDirectory();
-  const unfinished: [string, FileSystemDirectoryHandle][] = [];
+  const directories: [string, FileSystemDirectoryHandle][] = [];
   for await (const [id, entry] of root.entries()) {
-    if (entry.kind === "directory" && (await statusOf(entry)) !== "complete") unfinished.push([id, entry]);
+    if (entry.kind === "directory") directories.push([id, entry]);
   }
+  const statuses = await Promise.all(directories.map(([, directory]) => statusOf(directory)));
+  const unfinished = directories.filter((_, i) => statuses[i] !== "complete");
   const swept: string[] = [];
   for (const [id, directory] of unfinished) {
     await navigator.locks

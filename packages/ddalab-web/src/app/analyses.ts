@@ -36,22 +36,27 @@ export async function refreshAnalyses() {
  * running whose files are already gone was cut short too; one whose files remain is a run in another tab.
  */
 export async function sweepAnalyses() {
-  const swept = new Set(await engine.sweepInterrupted().catch(() => []));
-  const results = await navigator.storage
+  const listed = listAnalyses().catch(() => []);
+  const directory = navigator.storage
     .getDirectory()
     .then((root) => root.getDirectoryHandle("results", { create: true }))
     .catch(() => undefined);
+  const swept = new Set(await engine.sweepInterrupted().catch(() => []));
+  const results = await directory;
   const kept = (id: string) =>
     results?.getDirectoryHandle(id).then(
       () => true,
       () => false,
     ) ?? false;
-  for (const record of await listAnalyses().catch(() => [])) {
+  let rewritten = false;
+  for (const record of await listed) {
     if (record.status === "running" && (swept.has(record.id) || !(await kept(record.id)))) {
       await saveAnalysis({ ...record, status: "interrupted" }).catch(() => {});
+      rewritten = true;
     }
   }
-  await refreshAnalyses();
+  if (rewritten) await refreshAnalyses();
+  else useStore.setState({ analyses: await listed });
 }
 
 /**
