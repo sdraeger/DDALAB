@@ -20,7 +20,8 @@
         "application/octet-stream": [".edf", ".bdf", ".vhdr"],
         "text/csv": [".csv"],
         "text/tab-separated-values": [".tsv"],
-        "text/plain": [".txt"]
+        "text/plain": [".txt"],
+        "application/x-ddalab-project": [".ddalab"]
       }
     }
   ]

@@ -13,7 +13,7 @@ import styles from "./LocalData.module.css";
 
 const count = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
-const size = (bytes: number) =>
+export const size = (bytes: number) =>
   bytes >= 1e9
     ? `${(bytes / 1e9).toLocaleString("en", { maximumFractionDigits: 1 })} GB`
     : bytes >= 1e6

@@ -13,6 +13,7 @@ import { BatchEntry } from "./BatchEntry";
 import styles from "./History.module.css";
 import ImportDrop from "./ImportDrop";
 import { ResultBoundary } from "./ResultBoundary";
+import { Time } from "./Time";
 
 const STATUS: Record<AnalysisRecord["status"], string> = {
   running: "Running",
@@ -23,14 +24,6 @@ const STATUS: Record<AnalysisRecord["status"], string> = {
 
 /** From this many results on the history offers a search. */
 const SEARCH_FROM = 6;
-
-/** The time of day for a result of today, else the date. */
-function when(time: number) {
-  const date = new Date(time);
-  return date.toDateString() === new Date().toDateString()
-    ? date.toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
-    : date.toLocaleDateString("en", { month: "short", day: "numeric" });
-}
 
 type Resume = (source: FolderSource, batch: string) => void;
 
@@ -57,13 +50,18 @@ function Results({ onResume }: { onResume: Resume }) {
   const shown = useMemo(() => {
     const needle = filter.trim().toLowerCase();
     const matching = needle ? analyses.filter((a) => resultName(a).toLowerCase().includes(needle)) : analyses;
-    const known = new Set(batches.map((b) => b.id));
+    // Each batch's results, in one pass over them.
+    const byBatch = new Map<string, AnalysisRecord[]>(batches.map((b) => [b.id, []]));
+    const loose: AnalysisRecord[] = [];
+    for (const a of matching) {
+      const own = a.batch ? byBatch.get(a.batch) : undefined;
+      if (own) own.push(a);
+      else loose.push(a);
+    }
     const entries: Entry[] = [
-      ...matching
-        .filter((a) => !a.batch || !known.has(a.batch))
-        .map((record) => ({ at: record.createdAt, record })),
+      ...loose.map((record) => ({ at: record.createdAt, record })),
       ...batches.flatMap((batch) => {
-        const records = matching.filter((a) => a.batch === batch.id);
+        const records = byBatch.get(batch.id) ?? [];
         return needle && records.length === 0 ? [] : [{ at: batch.createdAt, batch, records }];
       }),
     ];
@@ -138,8 +136,4 @@ function Results({ onResume }: { onResume: Resume }) {
       <ImportDrop />
     </section>
   );
-}
-
-function Time({ at }: { at: number }) {
-  return <time dateTime={new Date(at).toISOString()}>{when(at)}</time>;
 }

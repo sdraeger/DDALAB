@@ -2,7 +2,7 @@
 // for the formats the app reads. Nothing reads the manifest at build time: a slip shows only in an install.
 import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
-import { RANK } from "../src/core/sources";
+import { isProject, RANK } from "../src/core/sources";
 
 const publicFile = (name) => new URL(`../public/${name}`, import.meta.url);
 const manifest = JSON.parse(readFileSync(publicFile("manifest.webmanifest"), "utf8"));
@@ -72,7 +72,10 @@ test("the_file_handlers_cover_the_formats_the_app_reads", () => {
   }
   for (const extension of extensions) {
     expect(extension).toMatch(/^\.[a-z0-9]+$/);
-    expect(RANK, `${extension} is not a format the app opens`).toHaveProperty(extension.slice(1));
+    // A project opens as its tabs (app/project.ts); the others are recordings.
+    if (!isProject(extension)) {
+      expect(RANK, `${extension} is not a format the app opens`).toHaveProperty(extension.slice(1));
+    }
   }
-  expect(extensions.sort()).toEqual([".bdf", ".csv", ".edf", ".tsv", ".txt", ".vhdr"]);
+  expect(extensions.sort()).toEqual([".bdf", ".csv", ".ddalab", ".edf", ".tsv", ".txt", ".vhdr"]);
 });

@@ -23,6 +23,11 @@
   margin-inline-start: calc(-1 * var(--space-2));
 }
 
+/* A button on a line of its own in a section, as wide as its text. */
+.start {
+  align-self: flex-start;
+}
+
 .heading {
   display: flex;
   align-items: baseline;

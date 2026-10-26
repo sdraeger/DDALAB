@@ -1,7 +1,7 @@
 // The messages between engine.ts (main thread) and the IO worker. Every request carries a serial `n` the reply echoes.
 import type { ResultTile } from "../render/resultPyramid";
 import type { RecordingInput } from "./engine";
-import type { FolderFile } from "./imports";
+import type { FolderFile, KeptRecord } from "./imports";
 import type {
   Annotation,
   Block,
@@ -76,7 +76,8 @@ export type IoRequest =
   // Exports and imports of results (exporters.ts, imports.ts); they run beside the other requests.
   | { type: "exportDocument"; resultId: string }
   | { type: "exportCsv"; resultId: string; variant: string }
-  | { type: "importResult"; input: File | FolderFile[] }
+  | { type: "importResult"; input: File | FolderFile[]; kept?: KeptRecord }
+  | { type: "importResults"; results: { input: FolderFile[]; kept: KeptRecord }[]; batches: unknown[] }
   // Dev and e2e builds only:
   | { type: "trap" } // raises the error a Rust panic raises
   | { type: "quota"; bytes: number } // the storage fills up after this many more bytes of writes
@@ -113,6 +114,7 @@ export interface IoResults {
   exportCsv: Blob;
   /** The id of the imported result. */
   importResult: string;
+  importResults: ({ id: string } | { error: string })[];
   trap: undefined;
   quota: undefined;
   memory: number;
