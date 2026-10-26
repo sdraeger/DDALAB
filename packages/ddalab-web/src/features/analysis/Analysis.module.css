@@ -167,6 +167,13 @@
   color: var(--event);
 }
 
+/* A phone's bar (Shell.module.css) gives the status all the room its buttons leave. */
+@media (width < 768px) {
+  .barStatus {
+    flex: 1 1 auto;
+  }
+}
+
 /* The foot of the inspector: it stays in view while the settings above it scroll. */
 .runBar {
   position: sticky;
