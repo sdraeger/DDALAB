@@ -9,7 +9,6 @@ const manifest = JSON.parse(readFileSync(publicFile("manifest.webmanifest"), "ut
 
 test("the_manifest_names_an_app_that_opens_in_its_own_window_from_its_folder", () => {
   expect(manifest).toMatchObject({
-    id: "./",
     name: "DDALAB",
     short_name: "DDALAB",
     start_url: "./",
@@ -17,6 +16,22 @@ test("the_manifest_names_an_app_that_opens_in_its_own_window_from_its_folder", (
     display: "standalone",
   });
   expect(manifest.description).toBeTruthy();
+  // A later launch goes to the window that is open, where the launch queue's consumer takes its files.
+  expect(manifest.launch_handler).toEqual({ client_mode: "focus-existing" });
+});
+
+// Browsers fix the identity of an installed app at its first install. An `id` of "./" resolves to the root of the
+// origin, which every other app there shares. Without an id the identity is the start URL: the app's own folder.
+test("the_identity_is_the_apps_folder_on_every_host", () => {
+  expect(manifest).not.toHaveProperty("id");
+  for (const folder of [
+    "https://sdraeger.github.io/DDALAB/",
+    "https://snl.salk.edu/~sfdraeger/ddalab/",
+    "https://internal.example/tools/",
+  ]) {
+    expect(new URL(manifest.start_url, `${folder}manifest.webmanifest`).href).toBe(folder);
+    expect(new URL(manifest.scope, `${folder}manifest.webmanifest`).href).toBe(folder);
+  }
 });
 
 test("the_colors_are_the_light_chrome_token", () => {

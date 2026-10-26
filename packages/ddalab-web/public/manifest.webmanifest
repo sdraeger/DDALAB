@@ -1,11 +1,11 @@
 {
-  "id": "./",
   "name": "DDALAB",
   "short_name": "DDALAB",
   "description": "Delay differential analysis of EEG, iEEG and other time series, run in the browser on files that stay on your machine.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
+  "launch_handler": { "client_mode": "focus-existing" },
   "theme_color": "#F1F3F5",
   "background_color": "#F1F3F5",
   "icons": [
