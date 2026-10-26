@@ -21,7 +21,8 @@ export function DdaSettings({ recordingId }: { recordingId: string }) {
   const [windowLength, windowStep] = [Number(form.windowLength), Number(form.windowStep)];
   return (
     <section aria-labelledby={heading} className={styles.settings}>
-      <h3 id={heading} className={styles.heading}>
+      {/* The batch panel's "Change them in the inspector" brings the keyboard here. */}
+      <h3 id={heading} className={styles.heading} tabIndex={-1} data-dda-settings>
         DDA settings
       </h3>
       <fieldset className={styles.group}>

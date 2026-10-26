@@ -245,7 +245,7 @@ test("batch_progress_and_cancel_keep_the_finished_results", async ({ page }) => 
   await expect(progress(page).getByText("Recording 1 of 3")).toBeVisible();
   await expect(progress(page)).toContainText("hour-1.edf");
   // The command bar carries the batch's status; a single run waits for it.
-  await expect(page.getByRole("banner").getByText(/^Batch, recording 1 of 3, \d+%$/)).toBeVisible();
+  await expect(page.getByRole("banner").getByText(/^Batch 1 of 3, \d+%$/)).toBeVisible();
   await expect(folder(page).getByRole("treeitem", { name: /^hour-1,/ })).toContainText("Running");
   await expect(progress(page).getByText("Recording 2 of 3")).toBeVisible({ timeout: 60_000 });
   await expect(progress(page)).toContainText("1 finished, 0 failed");
@@ -299,4 +299,42 @@ test("resume_after_a_reload_runs_only_the_remaining_recordings", async ({ page }
   expect(ran.map((a) => a.status)).toEqual(["complete", "complete", "complete"]);
   expect(ran.map((a) => a.id)).toContain(first.id);
   await expect(entry).toContainText("3 of 3");
+});
+
+// Chromium keeps a picked folder's handle with the batch: Resume reads the folder through it, with no picker. An OPFS
+// folder stands in for the picked one, which Playwright cannot pick.
+test("resume_reattaches_through_the_folder_handle", async ({ page, browserName }) => {
+  test.skip(browserName !== "chromium", "only Chromium keeps directory handles");
+  test.setTimeout(180_000);
+  await page.addInitScript(() =>
+    Object.assign(window, {
+      showDirectoryPicker: async () => (await navigator.storage.getDirectory()).getDirectoryHandle("slow"),
+    }),
+  );
+  await slowly(page);
+  const files = readdirSync(slow).map((name) => [name, readFileSync(join(slow, name)).toString("base64")]);
+  await page.evaluate(async (files) => {
+    const folder = await (await navigator.storage.getDirectory()).getDirectoryHandle("slow", {
+      create: true,
+    });
+    for (const [name, base64] of files) {
+      const writable = await (await folder.getFileHandle(name, { create: true })).createWritable();
+      await writable.write(Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)));
+      await writable.close();
+    }
+  }, files);
+  await page.getByRole("button", { name: "Open folder" }).click();
+  await folder(page).getByRole("button", { name: "Run on all 3" }).click();
+  await page
+    .getByRole("dialog", { name: "Run on all 3 recordings" })
+    .getByRole("button", { name: "Start" })
+    .click();
+  await expect(progress(page).getByText("Recording 2 of 3")).toBeVisible({ timeout: 60_000 });
+  await page.reload();
+  const entry = history(page).getByRole("button", { name: /^ST on slow/ });
+  await expect(entry).toContainText(/Interrupted after [12] of 3/);
+  await entry.click();
+  await history(page).getByRole("button", { name: "Resume" }).click();
+  await expect(folder(page).getByText("Batch finished: 3 of 3.")).toBeVisible({ timeout: 120_000 });
+  await expect(history(page).getByRole("button", { name: "Choose the folder again" })).toHaveCount(0);
 });

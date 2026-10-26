@@ -203,16 +203,19 @@ function BatchPanel(props: {
           <span className={styles.range}>
             <label htmlFor={`${id}-range`}>From</label>
             {(["start", "end"] as const).map((field) => (
-              <span key={field} className={styles.unitInput}>
-                <input
-                  aria-label={field === "start" ? "Start in seconds" : "End in seconds"}
-                  inputMode="decimal"
-                  value={range[field]}
-                  aria-invalid={rangeError ? true : undefined}
-                  onFocus={() => setWhole(false)}
-                  onChange={(event) => setRange({ ...range, [field]: event.target.value })}
-                />
-                <span aria-hidden>s</span>
+              <span key={field} className={styles.range}>
+                {field === "end" && <span aria-hidden>to</span>}
+                <span className={styles.unitInput}>
+                  <input
+                    aria-label={field === "start" ? "Start in seconds" : "End in seconds"}
+                    inputMode="decimal"
+                    value={range[field]}
+                    aria-invalid={rangeError ? true : undefined}
+                    onFocus={() => setWhole(false)}
+                    onChange={(event) => setRange({ ...range, [field]: event.target.value })}
+                  />
+                  <span aria-hidden>s</span>
+                </span>
               </span>
             ))}
           </span>

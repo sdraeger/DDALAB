@@ -259,15 +259,11 @@
   color: var(--primary);
 }
 
-/* The command bar's batch status, beside Run. */
+/* The command bar's batch status, beside Run: short enough to stay whole. */
 .barStatus {
-  flex: 0 1 clamp(120px, 18vw, 280px);
-  min-width: 0;
-  overflow: hidden;
+  flex: none;
   color: var(--muted);
   font-size: var(--text-small);
-  text-align: end;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 

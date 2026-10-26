@@ -18,7 +18,7 @@ import { RunButton } from "../features/analysis/RunBar";
 import { useAnnotationKeys } from "../features/annotations/Annotate";
 import { ResultBoundary } from "../features/history/ResultBoundary";
 import { Inspector } from "../features/inspector/Inspector";
-import { BatchStatus } from "../features/library/BatchStatus";
+import { BatchAnnouncer, BatchStatus } from "../features/library/BatchStatus";
 import { LibraryRail } from "../features/library/LibraryRail";
 import { preload } from "../features/results/loads";
 import { LocalData } from "../features/settings/LocalData";
@@ -101,6 +101,7 @@ export function Shell() {
             <About />
           </PanelButton>
         </header>
+        <BatchAnnouncer />
         <aside className={styles.library} aria-label="Library">
           <LibraryRail />
         </aside>
