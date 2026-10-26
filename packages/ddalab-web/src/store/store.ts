@@ -127,6 +127,8 @@ export interface State {
   annotationEditor: { id: string; created: boolean } | null;
   /** A user annotation where a drag on the plot has it now, until the drag ends. */
   annotationDraft: UserAnnotation | null;
+  /** A new version of the app waits to take over, or took over in another window (app/update.ts). */
+  updateReady: boolean;
 }
 
 const CALIBRATION_KEY = "ddalab.mmPerCssMm";
@@ -172,6 +174,7 @@ export const useStore = create<State>()(() => ({
   pickedAnnotation: null,
   annotationEditor: null,
   annotationDraft: null,
+  updateReady: false,
 }));
 
 export const activeRecording = (s: State) =>

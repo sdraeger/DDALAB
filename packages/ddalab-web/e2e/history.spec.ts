@@ -115,7 +115,11 @@ const unzip = (zip: string) => {
 const commandOf = async (page: Page) => (await provenance(page).locator("pre").textContent()) ?? "";
 
 test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => Reflect.deleteProperty(window, "showOpenFilePicker"));
+  // No native dialogs: the exports save as downloads (save.spec.ts covers the Save dialog).
+  await page.addInitScript(() => {
+    Reflect.deleteProperty(window, "showOpenFilePicker");
+    Reflect.deleteProperty(window, "showSaveFilePicker");
+  });
   await page.goto("/");
 });
 
@@ -418,9 +422,13 @@ test("history_lists_before_the_engine_compiles", async ({ page, browserName }) =
   await expect(history(page).getByRole("listitem").filter({ hasText: "ST on held.edf" })).toContainText(
     "Failed",
   );
-  await expect(page.getByRole("status")).toHaveText("loading");
+  await expect(page.getByRole("complementary", { name: "Library" }).getByRole("status")).toHaveText(
+    "loading",
+  );
   release();
-  await expect(page.getByRole("status")).toHaveText(/^\d+\.\d+\.\d+/);
+  await expect(page.getByRole("complementary", { name: "Library" }).getByRole("status")).toHaveText(
+    /^\d+\.\d+\.\d+/,
+  );
 });
 
 /** Logs, from the next load on, what the page asks of its workers (`ask`) and the serials they answer (`reply`). */

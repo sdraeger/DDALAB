@@ -28,6 +28,7 @@ import { shortNames } from "../store/tabs";
 import controls from "../styles/controls.module.css";
 import { Logo } from "./Logo";
 import styles from "./Shell.module.css";
+import { UpdateNotice } from "./UpdateNotice";
 import { lazyPart } from "./viewerChunk";
 import { inTransition } from "./viewTransition";
 
@@ -131,6 +132,7 @@ export function Shell() {
             <Inspector />
           </Activity>
         </aside>
+        <UpdateNotice />
       </div>
       <p className={styles.narrow}>DDALAB needs a window at least 768 pixels wide.</p>
     </Tooltip.Provider>

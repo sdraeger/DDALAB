@@ -8,6 +8,7 @@ import { App } from "./app/App";
 import { sweepAnalyses } from "./app/analyses";
 import { engine, openInput, openSynthetic, refreshRecent } from "./app/recordings";
 import { flushTabs, restoreTabs } from "./app/tabs";
+import { registerWorker } from "./app/update";
 import { loadViewer } from "./app/viewerChunk";
 import { heatmapProbe } from "./features/results/probe";
 import { viewerProbe } from "./features/viewer/probe";
@@ -57,3 +58,6 @@ createRoot(root).render(
 // The viewer's chunk loads once the shell has painted: on a cold cache a recording opened later finds it in place,
 // where waiting for it beside the open would hold back the first waveform.
 requestAnimationFrame(() => setTimeout(() => loadViewer().catch(() => {})));
+// The service worker keeps the app for offline use. Dev and e2e builds register none: the e2e tests drive the page as
+// served, and a worker would answer from a cache of an earlier build.
+if (import.meta.env.MODE === "production") registerWorker();

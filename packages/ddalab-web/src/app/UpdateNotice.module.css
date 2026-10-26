@@ -1,0 +1,28 @@
+/* A strip under the panels. It takes a row of the shell's grid (Shell.module.css): the row is empty, and the strip has
+   no height, until a version is ready. Its message enters through the appear rule of base.css (data-appear). */
+.notice {
+  grid-area: notice;
+}
+
+.notice:not(:empty) {
+  min-height: 36px;
+  padding: var(--space-1) var(--space-3);
+  border-top: var(--hairline-width) solid var(--hairline);
+  background: var(--chrome);
+  color: var(--ink);
+}
+
+.message {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 28px;
+}
+
+/* A button that waits for the run to end: it stays in the tab order, and shows that a press does nothing now. */
+.message button[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: default;
+}
