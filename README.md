@@ -19,6 +19,14 @@ The app opens EDF, BDF, BrainVision, and delimited text (ASCII, TXT, CSV) record
 
 Open <https://sdraeger.github.io/DDALAB/> in Chrome, Edge, Firefox or Safari on a desktop or laptop. Choose Open files or Open folder, or drag recordings onto the window. Files are read in place and are never uploaded. A window narrower than 768 pixels (a phone, for example) shows a notice that DDALAB needs a wider window.
 
+### Share a project
+
+Export project, under Open files in the library, saves the open tabs as one .ddalab file: every file their recordings read (a BrainVision recording's .vhdr, .vmrk and .eeg, and the BIDS sidecars it used), your annotations, the chosen channels and each tab's view, and the results of those recordings with their batches. The panel shows the size before it writes. Reattach or close a detached tab first.
+
+Open a .ddalab with Open files, by dropping it onto the window, or with Open With in installed Chrome and Edge, in the web app or the installed one on any computer. Its tabs come back with their annotations, channels and views, and its results join the History. Results and annotations you already have are not added twice, and a recording you already have open keeps its tab. The recordings are read from inside the .ddalab, not copied, so keep the file where it is: a reload reads them from there again. Chrome and Edge keep access to it; other browsers ask you to choose it again.
+
+A .ddalab is a zip archive whose files are stored uncompressed, so any zip tool unpacks it. `recordings/<n>/` holds the files of each recording, which `ddalab` reads as it reads any recording, and `results/<id>/` the bundle of each result, as `ddalab run --bundle` writes it. `project.json` lists every file with its SHA-256.
+
 ### Install the web app
 
 Installing is optional. It gives DDALAB its own window and lets it start without a network.
@@ -34,7 +42,7 @@ Start the installed app from the Dock, Launchpad, Spotlight or the Applications 
 
 Installed Chrome and Edge add a few things:
 
-- Open With, then DDALAB, in Finder or Explorer for .edf, .bdf, .vhdr, .csv, .tsv and .txt files (Chrome asks once per file type). A .vhdr opened alone asks you to choose its folder to find its companion files, unless a folder you have open already holds it.
+- Open With, then DDALAB, in Finder or Explorer for .edf, .bdf, .vhdr, .csv, .tsv, .txt and .ddalab files (Chrome asks once per file type). A .vhdr opened alone asks you to choose its folder to find its companion files, unless a folder you have open already holds it.
 - Exports go through the system Save dialog. Chrome and Edge tabs do the same. Other browsers download the file.
 - Open tabs return when you restart. Chrome asks for read access to each file again unless you choose Allow on every visit.
 
