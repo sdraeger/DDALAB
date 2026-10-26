@@ -543,7 +543,7 @@ export const setSelection = (selection: State["selection"]) => useStore.setState
 export const setCursor = (cursorS: number | null) => useStore.setState({ cursorS });
 export const setPlotWidth = (plotCssWidth: number) => useStore.setState({ plotCssWidth });
 
-export function setTheme(theme: Theme) {
+export function setTheme(theme: Theme | null) {
   saveTheme(theme);
   useStore.setState({ theme });
 }
