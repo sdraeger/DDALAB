@@ -178,6 +178,40 @@ test("keyboard_moves_and_opens", async ({ page }) => {
   expect(await view()).toBe(before);
 });
 
+// A new filter result replaces the rows in one frame: no frame between two filters that match shows an empty tree.
+test("filter_change_keeps_rows_on_every_frame", async ({ page }) => {
+  await page.getByLabel("Recording folder").setInputFiles(study);
+  const rows = page.getByRole("tree", { name: "Recordings in study" }).getByRole("treeitem");
+  await expect(rows).toHaveCount(16);
+  await page.evaluate(() => {
+    const counts: number[] = [];
+    const sample = () => {
+      counts.push(document.querySelectorAll('[role="tree"] [role="treeitem"]').length);
+      Object.assign(window, { raf: requestAnimationFrame(sample) });
+    };
+    Object.assign(window, { counts });
+    sample();
+  });
+  const filter = page.getByLabel("Filter recordings");
+  for (const [text, count] of [
+    ["sub-03", 2],
+    ["pilot", 2],
+    ["sub", 14],
+    ["", 16],
+  ] as const) {
+    await filter.fill(text);
+    await expect(rows).toHaveCount(count);
+    await page.waitForTimeout(100);
+  }
+  const counts = await page.evaluate(() => {
+    const w = window as unknown as { raf: number; counts: number[] };
+    cancelAnimationFrame(w.raf);
+    return w.counts;
+  });
+  expect(counts.length).toBeGreaterThan(8);
+  expect(counts).not.toContain(0);
+});
+
 test("filter_keeps_the_folders_of_matches", async ({ page }) => {
   await page.getByLabel("Recording folder").setInputFiles(study);
   const rows = page.getByRole("tree", { name: "Recordings in study" }).getByRole("treeitem");

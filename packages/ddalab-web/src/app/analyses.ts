@@ -118,7 +118,8 @@ export async function startRun(recordingId: string, request: DDARequest) {
     setRun({ status: "failed", error: messageOf(error) });
   }
   await refreshAnalyses();
-  if (error === undefined) inTransition(() => showResult(record.id, record.fingerprint));
+  // Not in a view transition: the run ends whatever the pointer is doing, and the panel fades in by itself.
+  if (error === undefined) showResult(record.id, record.fingerprint);
 }
 
 /** Deletes a result that is not running: its files, then its record. */

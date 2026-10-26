@@ -147,8 +147,8 @@
 }
 
 /* Next to the command bar's Run while the inspector is hidden: why it cannot run, or how far the run is (in full in
-   its title). Its slot takes its width from the window, never from what it says: a run's percentages and a message
-   coming or going move nothing in the bar. It gives way first when the bar is short. */
+   its title). Its slot takes its width from the window alone: a run's percentages and a message coming or going move
+   nothing in the bar. It gives way first when the bar is short. */
 .barStatus {
   flex: 0 1 clamp(120px, 18vw, 280px);
   min-width: 0;
