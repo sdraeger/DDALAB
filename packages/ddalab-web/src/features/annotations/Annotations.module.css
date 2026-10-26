@@ -117,27 +117,20 @@
   overflow-wrap: anywhere;
 }
 
-.suggestions {
-  z-index: 3;
-}
-
-.suggestionsPopup {
-  width: var(--anchor-width);
+/* The label suggestions, in the editor under the field: at most five rows, then they scroll. */
+.suggestionList {
+  max-height: calc(5 * 24px + 2 * var(--space-1));
+  margin-top: calc(-1 * var(--space-1));
   padding: var(--space-1) 0;
+  overflow-y: auto;
   border: var(--hairline-width) solid var(--hairline);
   border-radius: var(--radius);
   background: var(--ground);
   color: var(--ink);
-  box-shadow: 0 6px 20px rgb(15 25 35 / 0.14);
-}
-
-.suggestionList {
-  max-height: min(200px, var(--available-height));
-  overflow-y: auto;
 }
 
 /* No label matches: no box. */
-.suggestionsPopup[data-empty] {
+.suggestionList[data-empty] {
   display: none;
 }
 

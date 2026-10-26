@@ -119,6 +119,10 @@ function Form(props: {
   const [duration, setDuration] = useState(seconds(a.duration_s));
   const [error, setError] = useState<string | null>(null);
   const id = useId();
+  /** The suggestion the arrow keys are on. */
+  const highlighted = useRef<string | undefined>(undefined);
+  // Suggestions once the label is edited and is not one of the recording's labels already.
+  const suggesting = label !== a.label && label.trim() !== "" && !props.labels.includes(label);
 
   /** Saves the label and the times and closes; times that are not numbers keep the editor open, saying why. */
   const save = (refocus: boolean) => {
@@ -154,7 +158,16 @@ function Form(props: {
         {created ? "New annotation" : "Annotation"}
         <span className={styles.when}>{when(a)}</span>
       </Popover.Title>
-      <Autocomplete.Root items={props.labels} value={label} onValueChange={setLabel}>
+      {/* Inline: the suggestions open under the field inside the editor, which grows to keep Save in view. Without
+          a popup the list does not fill the field: a press or Enter on a suggestion does. */}
+      <Autocomplete.Root
+        items={props.labels}
+        value={label}
+        onValueChange={setLabel}
+        onItemHighlighted={(item) => (highlighted.current = item)}
+        inline
+        open
+      >
         <div className={styles.field}>
           <label htmlFor={id}>Label</label>
           <Autocomplete.Input
@@ -162,28 +175,27 @@ function Form(props: {
             className={styles.input}
             placeholder="For example, spike"
             onFocus={(event) => event.currentTarget.select()}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" || !suggesting || highlighted.current === undefined) return;
+              event.preventDefault();
+              setLabel(highlighted.current);
+            }}
           />
         </div>
-        <Autocomplete.Portal>
-          {/* Beside the field: below it the list would cover Save and the key hint. */}
-          <Autocomplete.Positioner
-            side="inline-start"
-            align="start"
-            sideOffset={12}
-            collisionPadding={8}
-            className={styles.suggestions}
-          >
-            <Autocomplete.Popup className={styles.suggestionsPopup}>
-              <Autocomplete.List className={styles.suggestionList}>
-                {(item: string) => (
-                  <Autocomplete.Item key={item} value={item} className={styles.suggestion}>
-                    {item}
-                  </Autocomplete.Item>
-                )}
-              </Autocomplete.List>
-            </Autocomplete.Popup>
-          </Autocomplete.Positioner>
-        </Autocomplete.Portal>
+        {suggesting && (
+          <Autocomplete.List className={styles.suggestionList}>
+            {(item: string) => (
+              <Autocomplete.Item
+                key={item}
+                value={item}
+                className={styles.suggestion}
+                onClick={() => setLabel(item)}
+              >
+                {item}
+              </Autocomplete.Item>
+            )}
+          </Autocomplete.List>
+        )}
       </Autocomplete.Root>
       {!created && (
         <div className={styles.times}>
