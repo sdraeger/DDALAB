@@ -24,8 +24,13 @@ export interface OpenRecording {
 
 export type Epoch = 10 | 20 | 30;
 export const EPOCHS: Epoch[] = [10, 20, 30];
-/** The sensitivity steps of the `[` and `]` keys, in µV/mm. */
-export const SENSITIVITIES = [1, 2, 3, 5, 7, 10, 15, 20, 30, 50, 70, 100];
+/** The sensitivity steps of the `[` and `]` keys, in µV/mm: scalp EEG to the millivolts of intracranial contacts. */
+export const SENSITIVITIES = [
+  1, 2, 3, 5, 7, 10, 15, 20, 30, 50, 70, 100, 150, 200, 300, 500, 700, 1000, 1500, 2000, 3000, 5000, 7000,
+  10000,
+];
+/** A voltage in µV as it prints: its number and unit, in mV from 1,000 µV on. */
+export const voltage = (uv: number): [number, "µV" | "mV"] => (uv >= 1000 ? [uv / 1000, "mV"] : [uv, "µV"]);
 /** CSS pixels in a CSS millimeter. */
 export const CSS_PX_PER_MM = 96 / 25.4;
 /** The shortest span the view zooms to, in samples. */
