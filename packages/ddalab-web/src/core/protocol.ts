@@ -26,6 +26,8 @@ export interface ScanState {
   /** Why no overview is built, when that is by design. */
   notice?: string;
   error?: string;
+  /** Why the SHA-256 could not be computed; `error` shows it only when the scan has none of its own. */
+  hashError?: string;
 }
 
 /** One array of a complete result: its size, its pyramid's levels and the finite range of each row. */
