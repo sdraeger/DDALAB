@@ -34,7 +34,6 @@ import {
   promptsLeft,
   reattachFrom,
   requestAccess,
-  stopCheck,
 } from "../../app/tabs";
 import { useStore } from "../../store/store";
 import { hasHandles, moveTab, selectTab, shortNames, type Tab } from "../../store/tabs";
@@ -72,7 +71,9 @@ function moveBy(fingerprint: string | null, by: -1 | 1) {
   for (const region of announcers)
     region.textContent = `${tabs[from].name}, position ${to + 1} of ${tabs.length}`;
   requestAnimationFrame(() => {
-    if (!focused?.isConnected) return;
+    // Only a focus the move dropped comes back: one the user has put elsewhere since stays.
+    const dropped = document.activeElement === document.body || document.activeElement === null;
+    if (!focused?.isConnected || !(dropped || focused.disabled)) return;
     const row = focused.closest("li");
     const other = row?.querySelector<HTMLElement>("[data-move]:not(:disabled)");
     (focused.disabled ? other : focused)?.focus();
@@ -83,9 +84,9 @@ function moveBy(fingerprint: string | null, by: -1 | 1) {
  * Reattach for `tab`: retries its URL, asks for access to one of its handles, or opens a picker. A click calls it.
  * The attempt, when it starts one.
  */
-function reattach(tab: Tab, kind?: "folder" | "files"): Promise<unknown> | undefined {
-  if (!kind && tab.source?.kind === "url") return attachUrl(tab);
-  if (!kind && hasHandles(tab.source)) return requestAccess(tab);
+function reattach(tab: Tab, kind?: "folder" | "files", supersede = false): Promise<unknown> | undefined {
+  if (!kind && tab.source?.kind === "url") return attachUrl(tab, supersede);
+  if (!kind && hasHandles(tab.source)) return requestAccess(tab, supersede);
   const picker = kind ?? pickerFor(tab);
   target = tab.fingerprint;
   // The browser's own pickers (Chromium) give handles, which the next visit reattaches through on its own.
@@ -313,6 +314,14 @@ export function DetachedNote({ fingerprint, brief }: { fingerprint: string; brie
   const reason = useStore((s) => s.tabReasons[fingerprint]);
   const others = useStore((s) => detachedTabs(s).length) - 1;
   const prompts = usePromptsLeft(tab);
+  const note = useRef<HTMLDivElement>(null);
+  const retry = useRef<HTMLButtonElement>(null);
+  const verifying = tab?.verifying;
+  useEffect(() => {
+    // The pressed Reattach gives way to Retry: the focus follows it instead of falling to the page.
+    const focused = document.activeElement;
+    if (verifying && (focused === document.body || note.current?.contains(focused))) retry.current?.focus();
+  }, [verifying]);
   if (!tab) return null;
   const asks = hasHandles(tab.source);
   const picker = pickerFor(tab);
@@ -335,9 +344,13 @@ export function DetachedNote({ fingerprint, brief }: { fingerprint: string; brie
     others > 0 && `${others} other ${others === 1 ? "recording is" : "recordings are"} detached`,
   ].filter(Boolean);
   return (
-    <div className={brief ? styles.line : styles.note} data-appear>
+    <div ref={note} className={brief ? styles.line : styles.note} data-appear>
       <p>{what}</p>
-      {left.length > 0 && !brief && <p className={styles.more}>{left.join(". ")}</p>}
+      {!brief && (
+        <p className={styles.more} aria-live="polite">
+          {left.join(". ")}
+        </p>
+      )}
       {reason && (
         <p role="alert" className={styles.reason}>
           {reason}
@@ -347,12 +360,10 @@ export function DetachedNote({ fingerprint, brief }: { fingerprint: string; brie
         {tab.verifying ? (
           // A check that does not end is never the only way out: Retry stops it and starts over.
           <button
+            ref={retry}
             type="button"
             className={controls.button}
-            onClick={() => {
-              stopCheck(tab.fingerprint);
-              prompts.after(reattach(tab));
-            }}
+            onClick={() => prompts.after(reattach(tab, undefined, true))}
           >
             Retry
           </button>

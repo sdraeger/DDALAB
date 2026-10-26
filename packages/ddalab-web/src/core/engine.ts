@@ -46,13 +46,15 @@ export interface Engine {
   version(): Promise<EngineVersion>;
   /**
    * `analysis_channels` are the indices into `info.channels` of the display channels: `raw` returns these and DDA
-   * requests index this list. A recording already open (same fingerprint) is not opened again: its id comes back.
+   * requests index this list. A recording already open (same fingerprint) is not opened again: its id comes back,
+   * with `duplicate`: closing it is for the open that made it.
    */
   open(input: RecordingInput): Promise<{
     id: string;
     info: RecordingInfo;
     fingerprint: string;
     analysis_channels: number[];
+    duplicate?: boolean;
   }>;
   close(id: string): void;
   /**
@@ -442,7 +444,7 @@ export function createEngine(): Engine {
     async open(input) {
       const id = crypto.randomUUID();
       const { duplicateOf, ...opened } = await call({ type: "open", id, input });
-      if (duplicateOf) return { id: duplicateOf, ...opened };
+      if (duplicateOf) return { id: duplicateOf, ...opened, duplicate: true };
       held.set(id, input);
       const { info, fingerprint } = opened;
       scans.set(id, {

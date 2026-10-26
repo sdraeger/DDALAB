@@ -49,10 +49,28 @@ function adopt(
 }
 
 /** Why an opened recording is not the one of `expect`, which closes it again unless it was already open. */
-function unexpected(opened: { id: string; fingerprint: string }, name: string, expect?: string) {
+function unexpected(
+  opened: { id: string; fingerprint: string; duplicate?: boolean },
+  name: string,
+  expect?: string,
+  release = releaser(opened),
+) {
   if (expect === undefined || opened.fingerprint === expect) return undefined;
-  if (!useStore.getState().recordings[opened.id]) engine.close(opened.id);
+  release();
   return `${name} changed since it was opened`;
+}
+
+/**
+ * Closes the engine recording of `opened` at most once, and only when this open made it and nothing shows it: the id
+ * of an open of the same content that came first (`duplicate`), or one the store holds, belongs to someone else.
+ */
+function releaser(opened: { id: string; duplicate?: boolean }) {
+  let released = false;
+  return () => {
+    if (released || opened.duplicate || useStore.getState().recordings[opened.id]) return;
+    released = true;
+    engine.close(opened.id);
+  };
 }
 
 /**
@@ -111,18 +129,18 @@ function hashErrorOf(id: string) {
 
 /**
  * Hashes the recording `opened` before it shows: why its files are not the ones of `verify` (their SHA-256), or
- * `undefined` when they are. `signal` stops the check, and closes the recording, at any time.
+ * `undefined` when they are. `signal` stops the check at any time, and `release` then closes the recording.
  */
 async function verified(
   opened: { id: string; info: RecordingInfo },
   verify: Record<string, string>,
+  release: () => void,
   signal?: AbortSignal,
 ) {
-  const stop = () => engine.close(opened.id);
-  signal?.addEventListener("abort", stop, { once: true });
+  signal?.addEventListener("abort", release, { once: true });
   // Resolves with every file's SHA-256, or with fewer once the hash failed or the recording closed.
   const sha256 = await engine.hashes(opened.id);
-  signal?.removeEventListener("abort", stop);
+  signal?.removeEventListener("abort", release);
   if (signal?.aborted) return "The check was stopped";
   const names = opened.info.input_files;
   const differs = names.find((name) => verify[name] && sha256[name] && sha256[name] !== verify[name]);
@@ -158,16 +176,17 @@ export async function openFiles(
   if ("candidates" in set) return { kind: "choose", candidates: set.candidates };
   try {
     const opened = await engine.open({ kind: "files", files: set.files, primary: set.primary });
-    const refused = options.exact && unexpected(opened, set.primary, options.expect);
+    const release = releaser(opened);
+    const refused = options.exact && unexpected(opened, set.primary, options.expect, release);
     if (refused) return { kind: "error", message: refused, folder: false };
     if (options.signal?.aborted) {
-      if (!useStore.getState().recordings[opened.id]) engine.close(opened.id);
+      release();
       return { kind: "error", message: "The check was stopped", folder: false };
     }
     if (options.verify && !useStore.getState().recordings[opened.id]) {
-      const refusal = await verified(opened, options.verify, options.signal);
+      const refusal = await verified(opened, options.verify, release, options.signal);
       if (refusal) {
-        engine.close(opened.id);
+        release();
         return { kind: "error", message: refusal.trim(), folder: false };
       }
     }

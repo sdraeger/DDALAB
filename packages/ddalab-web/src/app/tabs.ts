@@ -15,6 +15,7 @@ import {
   setReason,
   type Tab,
   type TabSource,
+  tabOf,
   updateTab,
 } from "../store/tabs";
 import { ask, fileAt, permitted } from "./handles";
@@ -27,18 +28,50 @@ export function detachedTabs(s: State = useStore.getState()): Tab[] {
   return s.tabs.filter((t) => !idOf(t.fingerprint, s.recordings));
 }
 
-/** The checks of picked or read files under way, by tab: a later attempt or a close stops the one before. */
-const checks = new Map<string, AbortController>();
+/** An attempt to reattach a tab under way: what stops it, and its end. */
+interface Attempt {
+  controller: AbortController;
+  done: Promise<void>;
+}
 
-/** Stops the check of the tab's files under way, if any: it neither attaches nor reports. */
+/** The attempt under way by tab: one at a time. */
+const attempts = new Map<string, Attempt>();
+
+/**
+ * Runs `work` as the tab's one attempt to reattach, registered before anything is awaited. A quiet attempt gives way
+ * to one under way. A superseding one (a pick, Retry) stops it and waits for it to end first: the stopped attempt's
+ * close reaches the engine before the new open, which then gets a recording of its own. `work` gets the signal that
+ * stops it; a tab closed meanwhile is not worked on.
+ */
+async function attempt(
+  fingerprint: string,
+  supersede: boolean,
+  work: (signal: AbortSignal) => Promise<unknown>,
+) {
+  const before = attempts.get(fingerprint);
+  if (before && !supersede) return;
+  const controller = new AbortController();
+  let ended = () => {};
+  const own: Attempt = { controller, done: new Promise<void>((resolve) => (ended = resolve)) };
+  attempts.set(fingerprint, own);
+  before?.controller.abort();
+  try {
+    // Only when there is one: the work of a first attempt starts in the caller's task.
+    if (before) await before.done;
+    if (!controller.signal.aborted && tabOf(fingerprint)) await work(controller.signal);
+  } finally {
+    if (attempts.get(fingerprint) === own) attempts.delete(fingerprint);
+    ended();
+  }
+}
+
+/** Stops the tab's attempt under way, if any: it neither attaches nor reports. */
 export function stopCheck(fingerprint: string) {
-  if (!checks.has(fingerprint)) return;
-  checks.get(fingerprint)?.abort();
-  checks.delete(fingerprint);
+  attempts.get(fingerprint)?.controller.abort();
   updateTab(fingerprint, { verifying: false });
 }
 
-/** Closes a tab; a check of its files under way stops, and the tab stays closed. */
+/** Closes a tab; an attempt to reattach it stops, and the tab stays closed. */
 export function closeTab(fingerprint: string) {
   stopCheck(fingerprint);
   const id = idOf(fingerprint);
@@ -46,8 +79,9 @@ export function closeTab(fingerprint: string) {
   else forgetTab(fingerprint);
 }
 
-/** Closes every tab and recording. Results, tiles and the recent list stay. */
+/** Closes every tab and recording, and stops every attempt to reattach. Results, tiles and the recent list stay. */
 export function closeAll() {
+  for (const fingerprint of [...attempts.keys()]) stopCheck(fingerprint);
   useStore.setState({ tabs: [], activeTab: null, tabReasons: {} });
   for (const id of Object.keys(useStore.getState().recordings)) closeRecording(id);
 }
@@ -72,26 +106,27 @@ function handlesFor(chosen: File[], files: File[], handles?: FileHandles): FileH
   return { root: handles.root, files: own.every((h) => h !== undefined) ? own : undefined };
 }
 
+type Match = Exclude<ReturnType<typeof matchFiles>, null | { reason: string }>;
+
 /**
- * Opens the detached `tab` from `files` when they hold its files; `false` when they hold none of them. `handles`
- * holds the handles of `files` in their order, where the browser gives them. `picked`: the user chose these files.
+ * Opens `match`, the detached `tab`'s files among `files`, as that tab. `handles` holds the handles of `files` in
+ * their order, where the browser gives them; `picked`: the user chose these files. Stopped (`signal`), it reports
+ * nothing.
  */
-async function attachFiles(tab: Tab, files: File[], handles: FileHandles | undefined, picked: boolean) {
-  if (tab.source?.kind !== "files") return false;
+async function attachMatch(
+  tab: Tab,
+  match: Match,
+  files: File[],
+  handles: FileHandles | undefined,
+  picked: boolean,
+  signal: AbortSignal,
+) {
   const { fingerprint } = tab;
-  const match = matchFiles(tab.source.files, files);
-  if (!match) return false;
-  if ("reason" in match) {
-    setReason(fingerprint, match.reason);
-    return true;
-  }
   // Same name and size with another date (a copy, a download again): hashed against the tab's digest first. With no
   // digest kept, the fingerprint decides and the recording says its contents went unchecked.
   const verify = match.same ? undefined : tab.sha256;
-  const check = new AbortController();
-  stopCheck(fingerprint);
-  checks.set(fingerprint, check);
-  if (verify) updateTab(fingerprint, { verifying: true });
+  // Set either way: a check this attempt stopped may have left it on.
+  updateTab(fingerprint, { verifying: verify !== undefined });
   if (picked) unpicked.delete(fingerprint);
   else unpicked.add(fingerprint);
   const options = {
@@ -99,14 +134,12 @@ async function attachFiles(tab: Tab, files: File[], handles: FileHandles | undef
     expect: fingerprint,
     exact: true,
     verify,
-    signal: check.signal,
+    signal,
     handles: handlesFor(match.files, files, handles),
     activate: false,
   };
   const outcome = await openFiles(match.files, options);
-  // A later attempt or a close of the tab took over: this one is done.
-  if (checks.get(fingerprint) !== check) return true;
-  checks.delete(fingerprint);
+  if (signal.aborted) return;
   if (verify) updateTab(fingerprint, { verifying: false });
   if (outcome.kind === "error") {
     unpicked.delete(fingerprint);
@@ -115,15 +148,18 @@ async function attachFiles(tab: Tab, files: File[], handles: FileHandles | undef
     const id = idOf(fingerprint);
     if (id) warn(id, "Contents could not be verified; earlier results may not match.");
   }
-  return true;
 }
 
-export async function attachUrl(tab: Tab) {
-  if (tab.source?.kind !== "url") return;
-  unpicked.add(tab.fingerprint);
-  await openInput(tab.source.input, { expect: tab.fingerprint, activate: false }).catch((error) => {
-    unpicked.delete(tab.fingerprint);
-    setReason(tab.fingerprint, `${tab.name} could not be read: ${messageOf(error)}`);
+/** Reattaches the detached `tab` by its URL; `supersede` stops an attempt under way first. */
+export function attachUrl(tab: Tab, supersede = false) {
+  const { source, fingerprint } = tab;
+  if (source?.kind !== "url") return Promise.resolve();
+  return attempt(fingerprint, supersede, async () => {
+    unpicked.add(fingerprint);
+    await openInput(source.input, { expect: fingerprint, activate: false }).catch((error) => {
+      unpicked.delete(fingerprint);
+      setReason(fingerprint, `${tab.name} could not be read: ${messageOf(error)}`);
+    });
   });
 }
 
@@ -142,28 +178,37 @@ async function viaHandles(source: TabSource & { kind: "files" }) {
   return { files: await Promise.all(handles.map((h) => h.getFile())), handles: { files: handles } };
 }
 
-/** Reattaches `tab` when it needs no prompt: by URL, or through handles that may still be read. */
-async function attachQuietly(tab: Tab) {
-  if (tab.source?.kind === "url") return attachUrl(tab);
-  // A check under way goes on; a second one of the same files would race it.
-  if (tab.source?.kind !== "files" || checks.has(tab.fingerprint)) return;
-  try {
-    const read = await viaHandles(tab.source);
-    if (read) await attachFiles(tab, read.files, read.handles, false);
-  } catch (error) {
-    setReason(tab.fingerprint, `${tab.name} could not be read: ${messageOf(error)}`);
-  }
+/**
+ * Reattaches `tab` when it needs no prompt: by URL, or through handles that may still be read. An attempt under way
+ * goes on, unless `supersede` (Retry) stops it.
+ */
+function attachQuietly(tab: Tab, supersede = false) {
+  const { source, fingerprint } = tab;
+  if (source?.kind === "url") return attachUrl(tab, supersede);
+  if (source?.kind !== "files") return Promise.resolve();
+  return attempt(fingerprint, supersede, async (signal) => {
+    try {
+      const read = await viaHandles(source);
+      const match = read && matchFiles(source.files, read.files);
+      if (signal.aborted || !read || !match || !tabOf(fingerprint)) return;
+      if ("reason" in match) return setReason(fingerprint, match.reason);
+      await attachMatch(tab, match, read.files, read.handles, false, signal);
+    } catch (error) {
+      if (!signal.aborted) setReason(fingerprint, `${tab.name} could not be read: ${messageOf(error)}`);
+    }
+  });
 }
 
 /**
- * Reattaches every detached tab that needs no prompt, `first` started first. Each goes on its own: one whose files
- * are being hashed holds up no other.
+ * Reattaches every detached tab that needs no prompt, `first` started first; `supersede` is the tab whose attempt
+ * under way is stopped and made again (Retry). Each goes on its own: one whose files are being hashed holds up no
+ * other.
  */
-async function attachAllQuietly(first?: string | null) {
+async function attachAllQuietly(first?: string | null, supersede?: string) {
   const tabs = detachedTabs().sort(
     (a, b) => Number(b.fingerprint === first) - Number(a.fingerprint === first),
   );
-  await Promise.all(tabs.map(attachQuietly));
+  await Promise.all(tabs.map((tab) => attachQuietly(tab, tab.fingerprint === supersede)));
 }
 
 /** The prompts `tab` still needs, a click each: 1 for its folder, else one per file not allowed yet. */
@@ -176,9 +221,9 @@ export async function promptsLeft(tab: Tab): Promise<number> {
 /**
  * Asks for read access to one handle of `tab`: its folder's, else the first of its files' not granted yet. A click must
  * call it, and asks one question: a recording of loose files takes a click per file. Every tab the grant covers then
- * reattaches.
+ * reattaches; with `supersede` (Retry) this tab's attempt under way is stopped and made again.
  */
-export async function requestAccess(tab: Tab) {
+export async function requestAccess(tab: Tab, supersede = false) {
   if (tab.source?.kind !== "files") return;
   for (const handle of handlesOf(tab.source)) {
     if (await permitted(handle)) continue;
@@ -187,7 +232,7 @@ export async function requestAccess(tab: Tab) {
     if (answer !== "granted") return setReason(tab.fingerprint, "Permission not granted");
     break;
   }
-  await attachAllQuietly(tab.fingerprint);
+  await attachAllQuietly(tab.fingerprint, supersede ? tab.fingerprint : undefined);
 }
 
 /** The picker that finds `tab`'s files: the folder one when they came from a folder. */
@@ -196,13 +241,22 @@ export const pickerFor = (tab: Tab): "folder" | "files" =>
     ? "folder"
     : "files";
 
-/** Reattaches every detached tab whose files are among the picked ones; `target` says when none of its files is. */
+/**
+ * Reattaches every detached tab whose files are among the picked ones, each stopping an attempt under way for it;
+ * `target` says when none of its files is.
+ */
 export async function reattachFrom(picked: File[], target: string | null, handles?: FileHandles) {
   await Promise.all(
     detachedTabs().map(async (tab) => {
-      const found = await attachFiles(tab, picked, handles, true);
-      if (!found && tab.fingerprint === target)
-        setReason(tab.fingerprint, `None of the chosen files is ${tab.name}`);
+      const match = tab.source?.kind === "files" ? matchFiles(tab.source.files, picked) : null;
+      if (!match) {
+        if (tab.fingerprint === target) setReason(tab.fingerprint, `None of the chosen files is ${tab.name}`);
+        return;
+      }
+      if ("reason" in match) return setReason(tab.fingerprint, match.reason);
+      await attempt(tab.fingerprint, true, (signal) =>
+        attachMatch(tab, match, picked, handles, true, signal),
+      );
     }),
   );
 }

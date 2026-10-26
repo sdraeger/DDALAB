@@ -379,6 +379,69 @@ test("a_tab_closed_while_its_files_are_checked_stays_closed", async ({ page }) =
   expect(await page.evaluate(() => Object.keys(window.__ddalab.store.getState().recordings))).toEqual([]);
 });
 
+/** What the page posted to its workers since the last load: opens, and the ids closed in order. */
+type Posted = { opens: number; closed: string[] };
+const posted = (page: Page) => page.evaluate(() => (window as unknown as { posted: Posted }).posted);
+
+/**
+ * From the next load on, the first open is held back for 3 s, or until a second open is asked for, which then reaches
+ * the IO worker right behind it (the order that hands the second open the first one's recording). Opens and closes
+ * are noted.
+ */
+async function slowOpens(page: Page) {
+  await page.addInitScript(() => {
+    const post = Worker.prototype.postMessage as (this: Worker, ...args: unknown[]) => void;
+    const seen: Posted = { opens: 0, closed: [] };
+    Object.assign(window, { posted: seen });
+    let held: (() => void) | undefined;
+    const release = () => {
+      held?.();
+      held = undefined;
+    };
+    Worker.prototype.postMessage = function (this: Worker, ...args: unknown[]) {
+      const message = args[0] as { type?: string; id?: string } | null;
+      if (message?.type === "close" && message.id) seen.closed.push(message.id);
+      if (message?.type !== "open") return post.apply(this, args);
+      if (++seen.opens === 1) {
+        held = () => post.apply(this, args);
+        setTimeout(release, 3000);
+        return;
+      }
+      release();
+      post.apply(this, args);
+    } as Worker["postMessage"];
+  });
+}
+
+test("close_all_while_a_tab_is_verifying_leaves_no_tab", async ({ page }) => {
+  const root = mkdtempSync(join(tmpdir(), "ddalab-tabs-"));
+  const one = largeEdf(join(root, "first"), "one.edf", 1);
+  await page.goto("/");
+  await page.getByLabel("Recording files").setInputFiles(one);
+  const hashed = () => page.evaluate(() => window.__ddalab.store.getState().tabs.every((t) => t.sha256));
+  await expect.poll(hashed, { timeout: 30_000 }).toBe(true);
+  await flush(page);
+  await slowOpens(page);
+  await page.reload();
+  // A copy of another date: its check holds the tab "Verifying" while its open waits.
+  const copy = join(root, "one.edf");
+  copyFileSync(one, copy);
+  const moved = new Date("2025-01-02T03:04:05Z");
+  utimesSync(copy, moved, moved);
+  await page.getByLabel("Reattach files").setInputFiles(copy);
+  await expect(page.getByRole("tablist").getByText("Verifying", { exact: true })).toBeVisible();
+  await expect(tabs(page).nth(0)).toHaveAccessibleName(/^one\.edf\s*, detached, verifying$/);
+  await page.getByRole("button", { name: "All tabs" }).click();
+  await page
+    .getByRole("dialog", { name: "Switch recording" })
+    .getByRole("button", { name: "Close all" })
+    .click();
+  // The stopped check closes what its open brings back, once, and attaches nothing.
+  await expect.poll(async () => (await posted(page)).closed.length, { timeout: 10_000 }).toBe(1);
+  await expect(tabs(page)).toHaveCount(0);
+  expect(await page.evaluate(() => Object.keys(window.__ddalab.store.getState().recordings))).toEqual([]);
+});
+
 test("a_copy_with_no_digest_attaches_with_a_warning", async ({ page }) => {
   const folder = mkdtempSync(join(tmpdir(), "ddalab-tabs-"));
   const edf = join(folder, "fixture.edf");
@@ -635,4 +698,45 @@ test("a_reattach_refused_on_load_leaves_an_open_from_the_library_open", async ({
     { timeout: 30_000 },
   );
   await expect(tabs(page)).toHaveText(["big.edf"]);
+});
+
+test("a_pick_during_quiet_reattaches_gets_a_recording_of_its_own", async ({ page, browserName }) => {
+  test.skip(browserName !== "chromium", "FileSystemHandles persist only in Chromium");
+  await stubPickers(page, { "recordings/a/fixture.edf": base64Of(fixturePath("fixture.edf")) });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open folder" }).click();
+  await openFromTree(page, "recordings", ["fixture.edf"]);
+  await flush(page);
+  await slowOpens(page);
+  await page.reload();
+  // The load's quiet reattach is under way: its open waits.
+  await expect.poll(async () => (await posted(page)).opens).toBe(1);
+  // A second quiet attempt (Reattach) gives way to it. A pick of the same file stops it, waits for it to end and
+  // opens on its own.
+  await page.getByRole("button", { name: "Reattach", exact: true }).click();
+  await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory();
+    const folder = await (await root.getDirectoryHandle("recordings")).getDirectoryHandle("a");
+    const picked = new DataTransfer();
+    picked.items.add(await (await folder.getFileHandle("fixture.edf")).getFile());
+    const input = document.querySelector("input[aria-label='Reattach files']") as HTMLInputElement;
+    input.files = picked.files;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await expect(tabs(page)).toHaveText(["fixture.edf"], { timeout: 15_000 });
+  const { ids, tile } = await page.evaluate(async () => {
+    const ids = Object.keys(window.__ddalab.store.getState().recordings);
+    const tile = await window.__ddalab.engine.tile(ids[0], 0, 0).then(
+      () => "read",
+      (error: Error) => error.message,
+    );
+    return { ids, tile };
+  });
+  // One recording, readable; the stopped attempt closed its own once, and nothing else.
+  expect(ids).toHaveLength(1);
+  expect(tile).toBe("read");
+  const { opens, closed } = await posted(page);
+  expect(opens).toBe(2);
+  expect(closed).toHaveLength(1);
+  expect(closed).not.toContain(ids[0]);
 });
