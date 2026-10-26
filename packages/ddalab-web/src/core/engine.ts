@@ -92,7 +92,7 @@ export interface Engine {
   ): Promise<{ windows: number; blocks: number; workers: number; budgetMb: number }>;
   /**
    * Runs `request` on a pool of DDA workers; each block's arrays are written to OPFS as it finishes (resultStore.ts).
-   * `done` resolves once the manifest is written and the result is complete; a failed or cancelled run leaves no
+   * `done` resolves once the manifest is written and the result is complete; a failed or canceled run leaves no
    * files. The result id is the handle's id.
    */
   run(id: string, request: DDARequest): Promise<AnalysisHandle>;
@@ -136,7 +136,7 @@ const MAX_REPLACEMENTS = 3;
 /** The engine failed, and the request with it: it may be sent again once the engine has a worker. */
 export class EngineStopped extends Error {}
 
-const cancelled = () => new DOMException("The run was cancelled", "AbortError");
+const cancelled = () => new DOMException("The run was canceled", "AbortError");
 
 /** Bytes of a text recording per DDA worker: each parses the whole file. */
 const TEXT_BYTES_PER_WORKER = 512 * 2 ** 20;

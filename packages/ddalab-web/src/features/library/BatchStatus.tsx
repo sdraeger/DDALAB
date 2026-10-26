@@ -53,7 +53,7 @@ export function BatchAnnouncer() {
     if (!record) return "";
     const failed = record.results.filter((r) => r.status === "error").length;
     const of = `${record.results.length - failed} of ${record.paths.length} finished`;
-    return `The batch ${record.status === "cancelled" ? "was cancelled" : "ended"}: ${of}, ${failed} failed.`;
+    return `The batch ${record.status === "cancelled" ? "was canceled" : "ended"}: ${of}, ${failed} failed.`;
   });
   const recording = recordingOf(batch);
   return (

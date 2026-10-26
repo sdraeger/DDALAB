@@ -9,6 +9,7 @@
 import { expect, test } from "vitest";
 import { DEFAULT_FORM } from "../features/analysis/validate";
 import {
+  asBundle,
   type BatchRecord,
   batchManifest,
   batchOutcome,
@@ -75,6 +76,22 @@ test("manifest_equals_the_cli_but_for_the_digests", async () => {
   // The digest is the SHA-1 of the path the manifest names.
   for (const r of ours.results.filter((r) => r.outputPath))
     expect(r.outputPath).toBe(`dda/${await outputName(r.inputPath)}`);
+});
+
+test("a_bundle_in_place_of_a_document_warns_on_a_copy_and_is_counted", async () => {
+  const ours = batchManifest(batch, records, await outputNames(paths));
+  expect(ours.withWarnings).toBe(1);
+  const [first] = ours.results;
+  asBundle(ours, first, "The JSON document would be about 900 MB.");
+  expect(first.outputPath).toMatch(/^dda\/sub-01_task-rest_run-10_eeg\.[0-9a-f]{8}\.dda$/);
+  expect(first.warnings).toEqual([
+    "The result document is too large for the browser; this is its bundle. The JSON document would be about 900 MB.",
+  ]);
+  expect(ours.withWarnings).toBe(2);
+  // The batch's own lists, which the store holds, stay as they were.
+  expect(batch.results.map((r) => r.warnings.length)).toEqual([0, 0, 1, 0, 0]);
+  const again = batchManifest(batch, records, await outputNames(paths));
+  expect(again.results[2].warnings).not.toBe(batch.results[2].warnings);
 });
 
 test("manifest_counts_a_batch_cut_short_and_a_deleted_result", async () => {

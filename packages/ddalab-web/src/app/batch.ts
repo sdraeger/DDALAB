@@ -6,6 +6,7 @@
 // free was cut short by a reload or a crash.
 import { makeZip } from "client-zip";
 import {
+  asBundle,
   type BatchProgress,
   type BatchRecord,
   type BatchResult,
@@ -249,10 +250,11 @@ const TOO_LARGE = /^The JSON document would be about/;
  * Saves the combined export of `batch` as one zip, streamed: what `ddalab batch --bids-dir <folder> --output-dir dda`
  * writes, its manifest as `batch_manifest.json` and each result document at its `outputPath`. A result whose document
  * the export refuses as too large goes in as its bundle, at that path without `.json`, with a warning. Call it first
- * thing in a click: the Save dialog needs the click (download.ts).
+ * thing in a click: the Save dialog needs the click (download.ts). `onMake` hears when the zip starts, after the dialog.
  */
-export function exportBatch(batch: BatchRecord) {
+export function exportBatch(batch: BatchRecord, onMake: () => void) {
   return download(`${batch.root || "batch"}.batch.zip`, async () => {
+    onMake();
     const manifest = batchManifest(batch, useStore.getState().analyses, await outputNames(batch.paths));
     async function* files() {
       for (const result of manifest.results) {
@@ -262,10 +264,7 @@ export function exportBatch(batch: BatchRecord) {
           yield { name: result.outputPath, input: await engine.exportDocument(id) };
         } catch (error) {
           if (!TOO_LARGE.test(messageOf(error))) throw error;
-          result.outputPath = result.outputPath.replace(/\.json$/, "");
-          result.warnings.push(
-            `The result document is too large for the browser; this is its bundle. ${messageOf(error)}`,
-          );
+          asBundle(manifest, result, messageOf(error));
           yield* await bundleFiles(id, `${result.outputPath}/`);
         }
       }

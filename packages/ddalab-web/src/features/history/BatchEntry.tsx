@@ -30,6 +30,7 @@ export function BatchEntry(props: {
   const [choose, setChoose] = useState(false);
   // Why the export or the resume did not go through.
   const [error, setError] = useState<string>();
+  const [exporting, setExporting] = useState(false);
   const busy = useStore((s) => s.batch?.status === "running" || s.run?.status === "running");
   const folderInput = useRef<HTMLInputElement>(null);
   const head = useRef<HTMLButtonElement>(null);
@@ -38,12 +39,16 @@ export function BatchEntry(props: {
   const resumable = batch.status === "interrupted" || batch.status === "cancelled";
   const name = `${batch.form.variants.join(" ")} on ${batch.root || "a folder"}`;
 
+  // As the export dialog does: busy from when the file is made (after a Save dialog) until it is saved.
   async function save() {
+    if (exporting) return;
     setError(undefined);
     try {
-      await exportBatch(batch);
+      await exportBatch(batch, () => setExporting(true));
     } catch (failure) {
       setError(`The export failed: ${failure instanceof Error ? failure.message : failure}`);
+    } finally {
+      setExporting(false);
     }
   }
   // The button goes once the batch runs again.
@@ -111,7 +116,13 @@ export function BatchEntry(props: {
         )}
         <div className={styles.actions}>
           {ok > 0 && (
-            <button type="button" className={controls.button} onClick={save}>
+            // aria-disabled keeps the keyboard on it while a second click does nothing.
+            <button
+              type="button"
+              className={`${controls.button} ${styles.busy}`}
+              aria-disabled={exporting || undefined}
+              onClick={save}
+            >
               <Download aria-hidden />
               Export batch
             </button>
@@ -132,6 +143,11 @@ export function BatchEntry(props: {
           <p className={styles.note}>
             Choose {batch.root || "the folder"} again to run its {batch.paths.length - batch.results.length}{" "}
             remaining recordings.
+          </p>
+        )}
+        {exporting && (
+          <p className={styles.note} aria-live="polite">
+            Preparing the file
           </p>
         )}
         {error && (

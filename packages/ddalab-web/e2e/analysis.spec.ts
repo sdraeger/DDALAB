@@ -298,7 +298,7 @@ test("cancel_mid_run", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
   const id = await startLongRun(page);
   await runBar(page).getByRole("button", { name: "Cancel run" }).click();
-  await expect(runBar(page).getByText("Cancelled", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(runBar(page).getByText("Canceled", { exact: true })).toBeVisible({ timeout: 30_000 });
   const stopped = await windowsDone(page);
   await page.waitForTimeout(1000);
   expect(await windowsDone(page)).toBe(stopped);
