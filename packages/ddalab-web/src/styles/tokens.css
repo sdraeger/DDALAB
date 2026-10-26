@@ -71,12 +71,14 @@
   --radius: 5px;
   --hairline-width: 1px;
 
-  /* Motion: short ease-out moments for disclosure and state changes only. */
-  --motion-fast: 150ms;
-  --motion: 200ms;
-  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  /* Motion: one duration and one strong ease-out for every transition in the app (scripts/check-motion.mjs holds
+     everything to them). What appears rises from --motion-rise below, a popup or a pressed button scales from
+     --motion-scale. Only opacity, transform and colors move; what follows the pointer, the keys or the data stays
+     instant. */
   --motion-duration: 160ms;
   --motion-ease: cubic-bezier(0.23, 1, 0.32, 1);
+  --motion-scale: 0.97;
+  --motion-rise: 4px;
 }
 
 :root[data-theme="light"] {
@@ -87,9 +89,10 @@
   color-scheme: dark;
 }
 
+/* Reduced motion keeps the fades and the color changes and drops every movement: nothing scales or rises. */
 @media (prefers-reduced-motion: reduce) {
   :root {
-    --motion-fast: 0ms;
-    --motion: 0ms;
+    --motion-scale: 1;
+    --motion-rise: 0px;
   }
 }

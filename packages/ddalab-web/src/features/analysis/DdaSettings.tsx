@@ -45,9 +45,15 @@ export function DdaSettings({ recordingId }: { recordingId: string }) {
           ))}
         </div>
         {metadata.length === 0 ? (
-          <p className={styles.fieldError}>No variants: the engine did not start.</p>
+          <p className={styles.fieldError} data-appear>
+            No variants: the engine did not start.
+          </p>
         ) : (
-          errors.variants && <p className={styles.fieldError}>{errors.variants}</p>
+          errors.variants && (
+            <p className={styles.fieldError} data-appear>
+              {errors.variants}
+            </p>
+          )
         )}
       </fieldset>
       <fieldset className={styles.group}>
@@ -55,7 +61,7 @@ export function DdaSettings({ recordingId }: { recordingId: string }) {
         {field("windowLength", "Window", "samples")}
         {field("windowStep", "Step", "samples")}
         {windowLength > 0 && windowStep > 0 && rate > 0 && (
-          <p className={styles.note}>
+          <p className={styles.note} data-appear>
             {`${(windowLength / rate).toFixed(2)} s window, ${(windowStep / rate).toFixed(2)} s step at ${rate} Hz`}
           </p>
         )}
@@ -80,7 +86,7 @@ export function DdaSettings({ recordingId }: { recordingId: string }) {
           </>
         ) : (
           // Standard mode sends these whatever the expert fields hold.
-          <dl className={styles.facts} aria-label="Standard model">
+          <dl className={styles.facts} aria-label="Standard model" data-appear>
             <div>
               <dt>Delays</dt>
               <dd>{STANDARD.delays.join(", ")}</dd>
@@ -111,7 +117,7 @@ export function DdaSettings({ recordingId }: { recordingId: string }) {
 function Field(props: { name: TextField; label: string; unit?: string; value: string; error?: string }) {
   const id = useId();
   return (
-    <div className={styles.field}>
+    <div className={styles.field} data-appear>
       <label htmlFor={id}>{props.label}</label>
       <span className={styles.unitInput}>
         <input
@@ -125,7 +131,7 @@ function Field(props: { name: TextField; label: string; unit?: string; value: st
         {props.unit && <span aria-hidden>{props.unit}</span>}
       </span>
       {props.error && (
-        <p id={`${id}-error`} className={styles.fieldError}>
+        <p id={`${id}-error`} className={styles.fieldError} data-appear>
           {props.error}
         </p>
       )}

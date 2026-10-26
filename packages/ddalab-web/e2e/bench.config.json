@@ -1,0 +1,40 @@
+{
+  "profile_dir": "chromium-profile",
+  "browser_args": ["--enable-blink-features=ForceEagerMeasureMemory"],
+  "recording": {
+    "rate_hz": 1000,
+    "duration_s": 3600,
+    "seed": 4
+  },
+  "window_length": 1000,
+  "window_step": 200,
+  "delays": [7, 10],
+  "model_terms": [1, 2, 10],
+  "dm": 4,
+  "order": 4,
+  "nr_tau": 2,
+  "pan_steps": 300,
+  "repeats": 3,
+  "max_load_1m": 2.0,
+  "load_wait_s": 600,
+  "memory_sample_ms": 250,
+  "max_case_seconds": 1800,
+  "max_ratio": 1.5,
+  "cases": [
+    {
+      "name": "ST_32ch",
+      "variant": "ST",
+      "channels": 32
+    },
+    {
+      "name": "ST_128ch",
+      "variant": "ST",
+      "channels": 128
+    },
+    {
+      "name": "CT_16ch",
+      "variant": "CT",
+      "channels": 16
+    }
+  ]
+}

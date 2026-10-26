@@ -31,7 +31,12 @@ self.addEventListener("message", async ({ data }: MessageEvent<DdaRequest>) => {
       self.postMessage({ ok: engine.manifest(handle, request, data.extras) } satisfies DdaReply);
     } else {
       const ok = engine.runBlock(handle, request, data.block);
-      self.postMessage({ ok } satisfies DdaReply, { transfer: ok.chunks.map((chunk) => chunk.bytes) });
+      // Dev and e2e builds report the instance's memory with each block (e2e/bench.spec.ts).
+      const memory =
+        import.meta.env.DEV || import.meta.env.MODE === "e2e" ? { wasmBytes: engine.memoryBytes() } : {};
+      self.postMessage({ ok, ...memory } satisfies DdaReply, {
+        transfer: ok.chunks.map((chunk) => chunk.bytes),
+      });
     }
   } catch (error) {
     stopped ||= error instanceof WebAssembly.RuntimeError;

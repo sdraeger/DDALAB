@@ -127,7 +127,7 @@ export function OpenNeuroPanel() {
   }
 
   return (
-    <section className={rail.section} aria-labelledby="openneuro-heading">
+    <section className={rail.section} aria-labelledby="openneuro-heading" data-appear>
       <h2 id="openneuro-heading" className={rail.heading}>
         OpenNeuro
       </h2>
@@ -183,12 +183,18 @@ function StatusLine({ status }: { status: Status }) {
 
 function ResultList(props: { results: Results; onBrowse(dataset: DatasetHit): void }) {
   const { query, hits } = props.results;
-  if (hits.length === 0) return <p className={rail.hint}>No public dataset matches “{query}”.</p>;
+  if (hits.length === 0) {
+    return (
+      <p className={rail.hint} data-appear>
+        No public dataset matches “{query}”.
+      </p>
+    );
+  }
   return (
     <>
       <ul className={rail.entries} aria-label="Datasets">
         {hits.map((hit) => (
-          <li key={hit.id}>
+          <li key={hit.id} data-appear>
             <button type="button" className={rail.entry} title={hit.name} onClick={() => props.onBrowse(hit)}>
               <span className={rail.entryName}>{hit.name}</span>
               <span className={`${rail.entryMeta} ${styles.wrap}`}>
@@ -211,7 +217,9 @@ function ResultList(props: { results: Results; onBrowse(dataset: DatasetHit): vo
         ))}
       </ul>
       {hits.length === SEARCH_LIMIT && (
-        <p className={rail.hint}>First {SEARCH_LIMIT} matches. Add words to narrow the search.</p>
+        <p className={rail.hint} data-appear>
+          First {SEARCH_LIMIT} matches. Add words to narrow the search.
+        </p>
       )}
     </>
   );
@@ -254,7 +262,7 @@ function FolderView(props: {
       </p>
       <ul className={rail.entries} aria-label={`Files in ${here}`}>
         {folders.map((folder) => (
-          <li key={folder.id}>
+          <li key={folder.id} data-appear>
             <button
               type="button"
               className={rail.entry}
@@ -268,7 +276,7 @@ function FolderView(props: {
           </li>
         ))}
         {recordings.map((file) => (
-          <li key={file.id}>
+          <li key={file.id} data-appear>
             <button type="button" className={rail.entry} onClick={() => props.onOpen(file.filename)}>
               <span className={styles.name}>{file.filename}</span>
               <span className={rail.entryMeta}>
@@ -281,7 +289,7 @@ function FolderView(props: {
         ))}
       </ul>
       {others > 0 && (
-        <p className={rail.hint}>
+        <p className={rail.hint} data-appear>
           {others} other {others === 1 ? "file" : "files"}
         </p>
       )}

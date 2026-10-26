@@ -19,6 +19,7 @@ import {
   useState,
 } from "react";
 import { engine } from "../../app/recordings";
+import { inTransition } from "../../app/viewTransition";
 import type { ResultArray } from "../../core/protocol";
 import type { ResultDocument } from "../../core/types";
 import { drawMarks, drawTimeAxis } from "../../render/axis";
@@ -30,6 +31,7 @@ import { FANOUT, type ResultTile } from "../../render/resultPyramid";
 import { readColors, watchTheme } from "../../render/themeColors";
 import { openResult, setCursor, setShownResult, setView, useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
+import { userOf } from "../annotations/model";
 import { electrodeGroups } from "../inspector/groups";
 import { probing } from "../viewer/probe";
 import { usePlotPointer } from "../viewer/usePlotPointer";
@@ -48,8 +50,8 @@ export type Loaded<T> = { ok: T } | { error: string };
 const loads = new Map<string, Promise<Loaded<unknown>>>();
 
 /**
- * One promise per key, for `use`: it settles once, a failure as its message. A failure stays until Try again drops
- * it: asked again on every render, a missing file would be read again on every frame of a pan.
+ * One promise per key, for `use`, which needs the same promise on every render: a new one would suspend the view
+ * again. It settles once, a failure as its message, and a failure stays until Try again drops it.
  */
 function load<T>(key: string, make: () => Promise<T>): Promise<Loaded<T>> {
   let found = loads.get(key);
@@ -63,7 +65,8 @@ function load<T>(key: string, make: () => Promise<T>): Promise<Loaded<T>> {
   return found as Promise<Loaded<T>>;
 }
 
-const manifestOf = (id: string) => load(`${id}/manifest`, () => engine.resultManifest(id));
+const manifestKey = (id: string) => `${id}/manifest`;
+const manifestOf = (id: string) => load(manifestKey(id), () => engine.resultManifest(id));
 const arrayKey = (id: string, variant: string, array: ResultTile["array"]) => `${id}/${variant}/${array}`;
 const arrayOf = (id: string, variant: string, array: ResultTile["array"]) =>
   load(arrayKey(id, variant, array), () => engine.resultArray(id, variant, array));
@@ -85,12 +88,20 @@ export default function ResultPanel(props: { recordingId: string | null; resultI
   const loaded = use(manifestOf(props.resultId));
   // An imported result has no fingerprint (history.ts): it is recreated by importing it again.
   const imported = useStore((s) => s.analyses.find((a) => a.id === props.resultId)?.fingerprint === "");
+  const [, rerender] = useReducer((n: number) => n + 1, 0);
   if ("error" in loaded) {
+    const retry = () => {
+      loads.delete(manifestKey(props.resultId));
+      rerender();
+    };
     return (
       <section className={styles.result} aria-label="Result">
         <p role="alert" className={styles.failed}>
           The result could not be read: {loaded.error}.{" "}
-          {imported ? "Import it again to recreate it." : "Run the analysis again to recreate it."}
+          {imported ? "Import it again to recreate it." : "Run the analysis again to recreate it."}{" "}
+          <button type="button" className={controls.quiet} onClick={retry}>
+            Try again
+          </button>
         </p>
       </section>
     );
@@ -251,20 +262,22 @@ function Heatmap({
       const { view } = state;
       const span = view.t1 - view.t0;
       const { selection, cursorS } = state;
-      // The row and the window read out: under the pointer, or at the cursor in the focused row. The window is the one
-      // whose center is nearest, within its analysis interval.
-      const at =
-        pointer ??
-        (focused !== null && cursorS !== null
-          ? { x: ((cursorS - view.t0) / span) * cssW, y: ((focused + 0.5) / rows) * cssH }
-          : null);
-      let under: { row: number; window: number } | null = null;
-      if (at) {
+      // The row and the window at a point: the window is the one whose center is nearest, within its analysis interval.
+      const cellAt = (at: { x: number; y: number } | null) => {
+        if (!at) return null;
         const t = view.t0 + (at.x / cssW) * span;
         const window = Math.min(windows - 1, Math.max(0, Math.round((t - c0) / step)));
         const row = Math.min(rows - 1, Math.floor((at.y / cssH) * rows));
-        if (Math.abs(t - centers[window]) <= halfS && row >= 0) under = { row, window };
-      }
+        return Math.abs(t - centers[window]) <= halfS && row >= 0 ? { row, window } : null;
+      };
+      // The keyboard's point: the cursor in the focused row.
+      const key =
+        focused !== null && cursorS !== null
+          ? { x: ((cursorS - view.t0) / span) * cssW, y: ((focused + 0.5) / rows) * cssH }
+          : null;
+      // The readout shows the cell under the pointer, else the keyboard's.
+      const at = pointer ?? key;
+      const under = cellAt(at);
       const drawn = layer?.draw({
         width: W,
         height: H,
@@ -274,8 +287,12 @@ function Heatmap({
         hoverRow: under?.row ?? null,
       });
       marksCtx.clearRect(0, 0, W, H);
-      drawMarks(marksCtx, { W, H, dpr, view, selection, cursorS, recording, colors, over: true });
-      let words = "";
+      const events = {
+        recording,
+        user: recording && userOf(state, recording.fingerprint),
+        picked: state.pickedAnnotation,
+      };
+      drawMarks(marksCtx, { W, H, dpr, view, selection, cursorS, ...events, colors, over: true });
       if (at && under) {
         // The hovered row at full contrast, outlined; the others recede (heatmapLayer.ts).
         const line = Math.max(1, Math.round(dpr));
@@ -286,11 +303,14 @@ function Heatmap({
         const value = layer?.value(under.window, under.row);
         const center = centers[under.window];
         readout.current?.show(at.x, at.y, cssW, cssH, { row: labels[under.row], center, value, name });
-        if (!pointer && value !== undefined) {
-          words = `${labels[under.row]}, window at ${center.toFixed(3)} s, ${name} ${value.toPrecision(4)}`;
-        }
       } else readout.current?.hide();
-      // Screen readers hear the keyboard's readout, never the pointer's.
+      // Screen readers hear the keyboard's cell, also while the pointer rests on the plot; the pointer's is shown only.
+      const heard = cellAt(key);
+      const heardValue = heard ? layer?.value(heard.window, heard.row) : undefined;
+      const words =
+        heard && heardValue !== undefined
+          ? `${labels[heard.row]}, window at ${centers[heard.window].toFixed(3)} s, ${name} ${heardValue.toPrecision(4)}`
+          : "";
       if (words !== said) {
         said = words;
         spokenEl.textContent = words;
@@ -305,7 +325,7 @@ function Heatmap({
           t: (centers[w] + centers[Math.min(windows - 1, w + f - 1)]) / 2,
           v,
         }));
-        rowPlot.current?.draw({ points, view, width: W, dpr, colors });
+        rowPlot.current?.draw({ points, view, width: W, dpr, colors, events });
       }
       const message = drawn?.error ? `The result could not be read: ${drawn.error}. Trying again.` : null;
       if (message !== shownProblem) {
@@ -492,7 +512,7 @@ function Heatmap({
           className={controls.iconButton}
           aria-label="Close result"
           title="Close result"
-          onClick={() => openResult(null)}
+          onClick={() => inTransition(() => openResult(null))}
         >
           <X aria-hidden />
         </button>
@@ -523,7 +543,11 @@ function Heatmap({
         <div className={styles.plot} ref={plot}>
           <canvas ref={heat} className={styles.layer} aria-hidden data-heatmap />
           <canvas ref={marks} className={styles.layer} aria-hidden />
-          {glProblem && <p className={styles.message}>{glProblem}</p>}
+          {glProblem && (
+            <p className={styles.message} data-appear>
+              {glProblem}
+            </p>
+          )}
           <Suspense
             fallback={
               <p role="status" className={styles.message}>
@@ -573,6 +597,7 @@ function ColorBar(props: { loading: Promise<Loaded<ResultArray>>; name: string; 
   return (
     <span
       className={styles.colorBar}
+      data-appear
       role="img"
       aria-label={`${props.name} from ${print(lo)} to ${print(hi)}`}
     >

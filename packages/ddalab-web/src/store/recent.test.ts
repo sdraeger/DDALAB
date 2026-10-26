@@ -58,10 +58,10 @@ test("one_connection_serves_every_call", async () => {
 // Another tab running newer code raises the database version. Our open connection must not hold that up.
 test("a_version_upgrade_in_another_tab_is_not_blocked", async () => {
   await listRecent();
-  const upgraded = openDB("ddalab", 4, { upgrade: (db) => void db.createObjectStore("later") });
+  const upgraded = openDB("ddalab", 5, { upgrade: (db) => void db.createObjectStore("later") });
   const timeout = new Promise<string>((done) => setTimeout(() => done("blocked"), 1000));
   const outcome = await Promise.race([upgraded.then(() => "upgraded"), timeout]);
   expect(outcome).toBe("upgraded");
-  // The old code cannot open version 3 any more; it fails instead of hanging.
+  // The old code cannot open version 4 any more; it fails instead of hanging.
   await expect(listRecent()).rejects.toThrow();
 });

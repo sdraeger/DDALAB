@@ -10,9 +10,13 @@ import type { AnalysisHandle } from "../core/scheduler";
 import type { DDARequest, VariantInfo } from "../core/types";
 import { openResult, type RunState, showResult, useStore } from "../store/store";
 import { engine } from "./recordings";
+import { inTransition } from "./viewTransition";
+
+/** The engine's version and metadata, asked for once. */
+export const engineVersion = engine.version();
 
 /** The variants the core offers, from its metadata; none when the engine did not start (the library says why). */
-export const variants = engine.version().then(
+export const variants = engineVersion.then(
   (version) => version.variants,
   (): VariantInfo[] => [],
 );
@@ -114,6 +118,7 @@ export async function startRun(recordingId: string, request: DDARequest) {
     setRun({ status: "failed", error: messageOf(error) });
   }
   await refreshAnalyses();
+  // No view transition: the result often lands in a tab that is not shown (store.ts showResult).
   if (error === undefined) showResult(record.id, record.fingerprint);
 }
 
@@ -121,7 +126,7 @@ export async function startRun(recordingId: string, request: DDARequest) {
 export async function deleteResult(id: string) {
   await engine.deleteResult(id);
   await deleteAnalysis(id);
-  if (useStore.getState().activeResultId === id) openResult(null);
+  if (useStore.getState().activeResultId === id) inTransition(() => openResult(null));
   await refreshAnalyses();
 }
 

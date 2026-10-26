@@ -69,6 +69,31 @@
   margin: 0 calc(-1 * var(--space-2));
 }
 
+.entry {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition-property: background-color;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .entry:hover {
+    background: var(--chrome-hover);
+  }
+}
+
+.entry[aria-current="true"] {
+  background: var(--primary-wash);
+}
+
 .entryName {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -82,6 +107,13 @@
   color: var(--muted);
   font-size: var(--text-small);
   line-height: var(--leading-small);
+}
+
+/* A thin rule between inline metadata fields. */
+.thin {
+  width: var(--hairline-width);
+  height: 10px;
+  background: var(--hairline);
 }
 
 .recent {

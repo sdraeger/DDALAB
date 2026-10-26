@@ -1,0 +1,10 @@
+/* Below 1024 px the command bar keeps the flag alone, at the size of the bar's other icons (Shell.module.css). */
+@media (width < 1024px) {
+  .label {
+    display: none;
+  }
+
+  .button svg {
+    block-size: 16px;
+  }
+}

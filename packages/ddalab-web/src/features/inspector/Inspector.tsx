@@ -13,6 +13,7 @@ import { electrodeGroups, type Group } from "./groups";
 import styles from "./Inspector.module.css";
 
 const Provenance = lazy(() => import("../history/Provenance"));
+const Annotations = lazy(() => import("../annotations/AnnotationList"));
 
 /** The height of a channel row in CSS px; the list renders only the rows in view. */
 const ROW = 28;
@@ -29,9 +30,10 @@ export function Inspector() {
       <Provenance />
     </Suspense>
   );
+  // Keyed by the recording: another recording's inspector mounts anew and fades in.
   if (!id || !recording) {
     return (
-      <section aria-label="Inspector" className={styles.inspector}>
+      <section key="none" aria-label="Inspector" className={styles.inspector} data-appear>
         {provenance}
         <p className={styles.empty}>Open a recording to see its channels.</p>
       </section>
@@ -39,7 +41,7 @@ export function Inspector() {
   }
   const { info, scan, analysis_channels } = recording;
   return (
-    <section aria-label="Inspector" className={styles.inspector}>
+    <section key={id} aria-label="Inspector" className={styles.inspector} data-appear>
       {provenance}
       <header className={styles.header}>
         <h2 className={styles.title}>{info.input_files[0]}</h2>
@@ -59,7 +61,7 @@ export function Inspector() {
         </dl>
         <Scan scan={scan} />
         {info.warnings.length > 0 && (
-          <ul aria-label="Warnings" className={styles.warnings}>
+          <ul aria-label="Warnings" className={styles.warnings} data-appear>
             {info.warnings.map((warning) => (
               <li key={warning}>{warning}</li>
             ))}
@@ -73,6 +75,9 @@ export function Inspector() {
         analysis={analysis_channels}
         selected={recording.selectedChannels}
       />
+      <Suspense fallback={null}>
+        <Annotations key={id} recordingId={id} />
+      </Suspense>
       <Suspense fallback={null}>
         <DdaSettings recordingId={id} />
       </Suspense>
@@ -93,9 +98,11 @@ function Scan({ scan }: { scan: ScanState }) {
   return (
     <>
       {scan.notice ? (
-        <p className={styles.note}>{scan.notice}</p>
+        <p key="notice" className={styles.note} data-appear>
+          {scan.notice}
+        </p>
       ) : (
-        <p className={styles.scan}>
+        <p key="scan" className={styles.scan}>
           <span>Overview {percent}%</span>
           <progress aria-label="Overview" max={100} value={percent} />
         </p>
@@ -167,7 +174,7 @@ const Channels = memo(function Channels(props: {
         stale={filtering}
       />
       {others.length > 0 && (
-        <div className={styles.others}>
+        <div className={styles.others} data-appear>
           <p>Not analyzed or displayed (another sample rate):</p>
           <ul aria-label="Not analyzed">
             {others.map(({ channel, i }) => (
@@ -264,7 +271,11 @@ function ChannelList(props: {
           );
         })}
       </ul>
-      {shown.length === 0 && <p className={styles.empty}>No channel matches.</p>}
+      {shown.length === 0 && (
+        <p className={styles.empty} data-appear>
+          No channel matches.
+        </p>
+      )}
     </div>
   );
 }

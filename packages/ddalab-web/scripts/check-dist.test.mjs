@@ -7,6 +7,8 @@ import { afterEach, beforeEach, expect, test } from "vitest";
 import { findLeaks } from "./check-dist.mjs";
 
 const MAGIC = [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+const NOTICE =
+  "/*!\n * The batlow and vik color maps of Crameri's Scientific colour maps.\n *\n * MIT License, Copyright (c) 2020 Fabio Crameri\n */";
 let dir;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "check-dist-"));
@@ -14,6 +16,7 @@ beforeEach(() => {
   writeFileSync(join(dir, "index.html"), "<!doctype html>");
   writeFileSync(join(dir, "assets", "engine.wasm"), Buffer.from([...MAGIC, 1, 2, 3]));
   writeFileSync(join(dir, "assets", "app.js"), "export const version = () => fetch('engine.wasm');");
+  writeFileSync(join(dir, "assets", "ResultPanel.js"), `${NOTICE}const LUTS={};`);
 });
 afterEach(() => rmSync(dir, { recursive: true }));
 
@@ -37,6 +40,16 @@ test.each([
 ])("%s is found", (label, code) => {
   writeFileSync(join(dir, "assets", "worker.js"), code);
   expect(findLeaks(dir)).toEqual([expect.stringContaining(label)]);
+});
+
+test.each([
+  ["missing", "const LUTS={};"],
+  ["in a plain comment", "/* MIT License, Copyright (c) 2020 Fabio Crameri */const LUTS={};"],
+  ["in a string", "const about='Copyright (c) 2020 Fabio Crameri';"],
+  ["in a string after a legal comment", "/*! other */const about='Copyright (c) 2020 Fabio Crameri';"],
+])("the_color_maps_notice_%s_is_a_finding", (_, code) => {
+  writeFileSync(join(dir, "assets", "ResultPanel.js"), code);
+  expect(findLeaks(dir)).toEqual([expect.stringContaining("MIT notice")]);
 });
 
 test("wasm_bytes_outside_the_wasm_asset_are_found", () => {

@@ -2,6 +2,7 @@
 // its result with its provenance, where it is exported or deleted. Results the CLI wrote come in through the import
 // below the list.
 import { lazy, Suspense, useMemo, useState, useTransition } from "react";
+import { inTransition } from "../../app/viewTransition";
 import { type AnalysisRecord, resultName } from "../../core/history";
 import { openResult, useStore } from "../../store/store";
 import rail from "../library/LibraryRail.module.css";
@@ -47,7 +48,7 @@ function Results() {
     return needle ? analyses.filter((a) => resultName(a).toLowerCase().includes(needle)) : analyses;
   }, [analyses, filter]);
   return (
-    <section className={rail.section} aria-label="History">
+    <section className={rail.section} aria-label="History" data-appear>
       <h2 id="history-heading" className={rail.heading} tabIndex={-1}>
         History <span className={rail.count}>{analyses.length}</span>
       </h2>
@@ -55,6 +56,7 @@ function Results() {
         <input
           type="search"
           className={styles.search}
+          data-appear
           aria-label="Search the history"
           placeholder="Variant or file name"
           value={query}
@@ -65,17 +67,19 @@ function Results() {
         />
       )}
       {analyses.length === 0 ? (
-        <p className={rail.hint}>The results you run or import are kept here.</p>
+        <p className={rail.hint} data-appear>
+          The results you run or import are kept here.
+        </p>
       ) : (
         <ul className={`${rail.entries} ${styles.results}`} data-stale={filtering || undefined}>
           {shown.map((analysis) => (
-            <li key={analysis.id}>
+            <li key={analysis.id} data-appear>
               <button
                 type="button"
                 className={rail.entry}
                 data-result={analysis.id}
                 aria-current={analysis.id === active ? "true" : undefined}
-                onClick={() => openResult(analysis.id)}
+                onClick={() => inTransition(() => openResult(analysis.id))}
               >
                 <span className={rail.entryName}>{resultName(analysis)}</span>
                 <span className={rail.entryMeta}>

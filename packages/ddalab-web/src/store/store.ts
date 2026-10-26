@@ -4,6 +4,7 @@ import type { AnalysisRecord } from "../core/history";
 import type { ScanState } from "../core/protocol";
 import type { RunProgress } from "../core/scheduler";
 import type { Annotation, RecordingInfo } from "../core/types";
+import type { UserAnnotation } from "../core/userAnnotations";
 import { type DdaForm, DEFAULT_FORM } from "../features/analysis/validate";
 import { saveTheme, storedTheme, type Theme } from "../styles/theme";
 import type { RecentEntry } from "./recent";
@@ -26,6 +27,8 @@ export const EPOCHS: Epoch[] = [10, 20, 30];
 export const SENSITIVITIES = [1, 2, 3, 5, 7, 10, 15, 20, 30, 50, 70, 100];
 /** CSS pixels in a CSS millimetre. */
 export const CSS_PX_PER_MM = 96 / 25.4;
+/** The shortest span the view zooms to, in samples. */
+export const MIN_SPAN_SAMPLES = 8;
 
 /** What the waveform shows: seconds from the recording start, display channel rows and the physical scale. */
 export interface View {
@@ -92,6 +95,14 @@ export interface State {
   activeTab: string | null;
   /** Why a detached tab did not reattach, by fingerprint. */
   tabReasons: Record<string, string>;
+  /** The user's annotations by recording fingerprint (features/annotations/model.ts). */
+  annotations: Record<string, UserAnnotation[]>;
+  /** The annotation picked on the ruler or in the list: a user annotation's id, or `file:<index>`. */
+  pickedAnnotation: string | null;
+  /** The annotation whose editor is open; `created` until its label is first saved. */
+  annotationEditor: { id: string; created: boolean } | null;
+  /** A user annotation where a drag on the plot has it now, until the drag ends. */
+  annotationDraft: UserAnnotation | null;
 }
 
 const CALIBRATION_KEY = "ddalab.mmPerCssMm";
@@ -133,6 +144,10 @@ export const useStore = create<State>()(() => ({
   tabs: [],
   activeTab: null,
   tabReasons: {},
+  annotations: {},
+  pickedAnnotation: null,
+  annotationEditor: null,
+  annotationDraft: null,
 }));
 
 export const activeRecording = (s: State) =>
@@ -155,7 +170,7 @@ function clamp(
   }
   const { duration_s: duration, sample_rate_hz: rate } = recording.info;
   const channels = recording.analysis_channels.length;
-  const span = Math.min(duration, Math.max(8 / rate, view.t1 - view.t0));
+  const span = Math.min(duration, Math.max(MIN_SPAN_SAMPLES / rate, view.t1 - view.t0));
   const t0 = Math.min(duration - span, Math.max(0, view.t0));
   const rowCount = Math.max(1, Math.min(channels, Math.round(view.rowCount)));
   const firstChannel = Math.max(0, Math.min(channels - rowCount, Math.round(view.firstChannel)));
@@ -218,6 +233,10 @@ export function enter(
     view: saved ? clamp({ ...s.view, ...saved.view }, recording) : freshView(s.view, recording).view,
     selection: saved?.selection ?? null,
     cursorS: null,
+    // The annotation UI belongs to the recording left: its pick, open editor and drag end with the switch.
+    pickedAnnotation: null,
+    annotationEditor: null,
+    annotationDraft: null,
     ...(result ?? {
       shownResult: complete(saved?.shownResult?.id) ? (saved?.shownResult ?? null) : null,
       activeResultId: s.analyses.some((a) => a.id === saved?.activeResultId)

@@ -7,7 +7,16 @@ declare const FileReaderSync: new () => { readAsArrayBuffer(blob: Blob): ArrayBu
 
 const READS = "DDALAB reads EDF, BDF, BrainVision and delimited text";
 /** The formats DDALAB reads, best first. The text extensions share the last rank. */
-const RANK: Record<string, number> = { vhdr: 0, edf: 1, bdf: 2, txt: 3, csv: 3, tsv: 3, ascii: 3, dat: 3 };
+export const RANK: Record<string, number> = {
+  vhdr: 0,
+  edf: 1,
+  bdf: 2,
+  txt: 3,
+  csv: 3,
+  tsv: 3,
+  ascii: 3,
+  dat: 3,
+};
 /** Formats the spec names as not supported yet, by extension. */
 const UNSUPPORTED: Record<string, string> = {
   fif: "FIFF",
@@ -24,7 +33,7 @@ export type FileSet =
   | { candidates: string[] } // several recordings: the user chooses one and calls again with it
   | { error: string };
 
-const extension = (name: string) => (name.split(".").slice(1).at(-1) ?? "").toLowerCase();
+export const extension = (name: string) => (name.split(".").slice(1).at(-1) ?? "").toLowerCase();
 /** What a folder pick reports (`dir/sub/file`), or the bare name. */
 export const pathOf = (file: File) => file.webkitRelativePath || file.name;
 export const directory = (path: string) => path.slice(0, path.lastIndexOf("/") + 1);
@@ -78,13 +87,13 @@ type HandleItem = DataTransferItem & { getAsFileSystemHandle?: () => Promise<Fil
 
 /**
  * The files of a drop, descending into dropped folders. In browsers that give FileSystemHandles (Chromium), `handle`
- * is the one of a single dropped file, which lets the recent list reopen it without a picker, and `handles` holds each
- * dropped file's and the handle of a single dropped folder, which let its tabs reattach.
+ * is the one of a single dropped file, which lets the recent list reopen it without a picker, and `handles` holds every
+ * dropped file's in the order of `files` when only files were dropped, which lets its tab reattach.
  */
 export async function droppedFiles(data: DataTransfer): Promise<{
   files: File[];
   handle?: FileSystemHandle;
-  handles: { files: Map<File, FileSystemFileHandle>; root?: FileSystemDirectoryHandle };
+  handles: { files?: FileSystemFileHandle[] };
 }> {
   // The item list empties when the event ends: ask for everything before the first await.
   const items = Array.from(data.items).filter((item): item is HandleItem => item.kind === "file");
@@ -97,20 +106,10 @@ export async function droppedFiles(data: DataTransfer): Promise<{
     ),
   );
   const found = await Promise.all(pending);
-  const handles = new Map<File, FileSystemFileHandle>();
-  found.forEach((handle, i) => {
-    const file = plain[i];
-    if (handle?.kind === "file" && file && !entries[i]?.isDirectory)
-      handles.set(file, handle as FileSystemFileHandle);
-  });
-  // shortcut: a drop of several folders keeps no folder handle (their tabs reattach by picker); keep one per folder
-  // if that matters.
-  const root =
-    found.length === 1 && found[0]?.kind === "directory"
-      ? (found[0] as FileSystemDirectoryHandle)
-      : undefined;
+  // Folders are walked by the folder tree (LibraryRail): a drop of files alone keeps their handles.
+  const own = found.every((h) => h?.kind === "file") ? (found as FileSystemFileHandle[]) : undefined;
   const handle = found.length === 1 && found[0]?.kind === "file" ? found[0] : undefined;
-  return { files: files.flat(), handle, handles: { files: handles, root } };
+  return { files: files.flat(), handle, handles: { files: own } };
 }
 
 /** Fills `dst` from `offset` of `file`; throws when the file is shorter, which means it changed after opening. */

@@ -1,39 +1,33 @@
 // File System Access handles (Chromium): a folder picked with its handle, files read again through a folder handle,
-// and read permission. TypeScript's DOM library declares none of these.
+// and read permission. TypeScript's DOM library declares the permission calls nowhere.
+import type { FileHandles } from "./recordings";
+
 type Permissions = {
   queryPermission(options: { mode: "read" }): Promise<PermissionState>;
   requestPermission(options: { mode: "read" }): Promise<PermissionState>;
 };
-type Folder = FileSystemDirectoryHandle & { values(): AsyncIterable<FileSystemHandle> };
 
 const folderPicker = () =>
-  (window as { showDirectoryPicker?: (options: { mode: "read" }) => Promise<Folder> }).showDirectoryPicker;
+  (window as { showDirectoryPicker?: (options: { mode: "read" }) => Promise<FileSystemDirectoryHandle> })
+    .showDirectoryPicker;
 
 /** Whether the browser has its own folder picker, which gives a handle (Chromium). */
 export const canPickFolder = () => folderPicker() !== undefined;
 
-/** Each file under `folder` with its handle; its path from the folder's parent is its `webkitRelativePath`. */
-async function filesUnder(folder: Folder, prefix: string, out: Map<File, FileSystemFileHandle>) {
-  for await (const handle of folder.values()) {
-    if (handle.kind === "file") {
-      const file = await (handle as FileSystemFileHandle).getFile();
-      Object.defineProperty(file, "webkitRelativePath", { value: prefix + file.name });
-      out.set(file, handle as FileSystemFileHandle);
-    } else await filesUnder(handle as Folder, `${prefix}${handle.name}/`, out);
-  }
-}
-
 /**
- * The files of a folder the user picks in the browser's own picker, with the folder's handle and each file's;
- * `undefined` without the picker. Rejects when the user closes it.
+ * The files of a folder the user picks in the browser's own picker, walked as the folder tree walks one, with their
+ * handles in the same order and the folder's; `undefined` without the picker. Rejects when the user closes it.
  */
-export async function pickFolder() {
+export async function pickFolder(): Promise<{ files: File[]; handles: FileHandles } | undefined> {
   const show = folderPicker();
   if (!show) return undefined;
-  const root = await show({ mode: "read" });
-  const files = new Map<File, FileSystemFileHandle>();
-  await filesUnder(root, `${root.name}/`, files);
-  return { files: [...files.keys()], handles: { files, root } };
+  const handle = await show({ mode: "read" });
+  // Loaded with the walk, which the folder tree's chunk holds too.
+  const { walk } = await import("../core/folder");
+  const walked = await walk({ kind: "handle", handle }, new AbortController().signal, () => {});
+  const files = walked.files.filter((file) => walked.handles.has(file));
+  const own = files.map((file) => walked.handles.get(file) as FileSystemFileHandle);
+  return { files, handles: { files: own, root: walked.root } };
 }
 
 /** The file at `path` (`root/sub/name`) under `root`, with that path. */

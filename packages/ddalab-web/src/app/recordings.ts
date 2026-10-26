@@ -3,6 +3,7 @@ import { createEngine, type RecordingInput } from "../core/engine";
 import { buildFileSet } from "../core/sources";
 import type { SyntheticSpec } from "../core/synthetic";
 import type { RecordingInfo } from "../core/types";
+import { restoreAnnotations } from "../features/annotations/model";
 import { forgetRecent, listRecent, type RecentEntry, rememberRecent } from "../store/recent";
 import {
   activateRecording,
@@ -42,6 +43,7 @@ function adopt(
   if (!useStore.getState().recordings[id]) {
     addRecording(id, { info, fingerprint, analysis_channels, source }, activate);
     follow(id);
+    void restoreAnnotations(fingerprint);
   } else if (activate) activateRecording(id);
   tabOpened(id, fingerprint, info.input_files[0], origin);
 }
@@ -72,9 +74,12 @@ export const openSynthetic = (spec: SyntheticSpec) => openInput({ kind: "synthet
 
 /** What the UI tells the user after an attempt to open. */
 export type Outcome =
-  | { kind: "opened"; warning?: string }
+  | { kind: "opened"; id: string; warning?: string }
   | { kind: "error"; message: string; folder: boolean }
   | { kind: "choose"; candidates: string[] };
+
+/** The handles of a recording's files and of the folder they were walked from, where the browser gives them. */
+export type FileHandles = { files?: FileSystemFileHandle[]; root?: FileSystemDirectoryHandle };
 
 // The core's reply to a header whose data file is not in the set.
 const MISSING_COMPANION = /names .+, which is not among the opened files/;
@@ -93,12 +98,6 @@ export const canPickFiles = () => picker() !== undefined;
 export async function refreshRecent() {
   // The list is a convenience: without IndexedDB (some private windows) it stays empty.
   useStore.setState({ recent: await listRecent().catch(() => []) });
-}
-
-/** Where picked files can be read again (Chromium): a handle per file, and the folder's when a folder was picked. */
-export interface Handles {
-  files?: Map<File, FileSystemFileHandle>;
-  root?: FileSystemDirectoryHandle;
 }
 
 /** Why the hash of the open recording `id` could not be computed, apart from any error of its scan. */
@@ -137,8 +136,9 @@ async function verified(
  * Opens the recording in `files`. `choice` picks among several (see `buildFileSet`). `expect` is the fingerprint of
  * the recording the user is locating again; another file opens, with a warning, or with `exact` is refused. `verify`
  * holds the SHA-256 its files must have: they are hashed before the recording shows, other content is refused, and
- * `signal` stops the check. `handle` lets the recent list reopen a single-file recording without a picker; `handles`
- * let its tab reattach (tabs.ts). `activate` false opens it beside the active recording.
+ * `signal` stops the check. `handle` lets the recent list reopen a single-file recording without a picker. `handles`
+ * (from a folder walk or the browser's file picker) keeps the files' and the folder's handles in its tab, which then
+ * reattaches on the next visit (tabs.ts). `activate` false opens it beside the active recording.
  */
 export async function openFiles(
   files: File[],
@@ -149,7 +149,7 @@ export async function openFiles(
     verify?: Record<string, string>;
     signal?: AbortSignal;
     handle?: FileSystemHandle;
-    handles?: Handles;
+    handles?: FileHandles;
     activate?: boolean;
   } = {},
 ): Promise<Outcome> {
@@ -172,17 +172,21 @@ export async function openFiles(
       }
     }
     const { info, fingerprint } = opened;
-    const single = options.handle?.kind === "file" && files.length === 1;
-    const handles = single
-      ? { files: new Map([[files[0], options.handle as FileSystemFileHandle]]) }
-      : options.handles;
+    // Each file's handle, from `handles` in the order of `files`, or the one `handle` of a single file.
+    const byFile = new Map<File, FileSystemFileHandle>();
+    for (const [i, file] of files.entries()) {
+      const own = options.handles?.files?.[i];
+      if (own) byFile.set(file, own);
+    }
+    if (options.handle?.kind === "file" && files.length === 1) {
+      byFile.set(files[0], options.handle as FileSystemFileHandle);
+    }
     const used = [set.primary, ...info.input_files.filter((name) => name !== set.primary)];
-    adopt(opened, "files", filesSource(set.files, used, handles), options.activate);
+    const source = filesSource(set.files, used, { files: byFile, root: options.handles?.root });
+    adopt(opened, "files", source, options.activate);
     const primary = set.files.find((file) => file.name === set.primary);
     const handle =
-      info.input_files.length === 1
-        ? (options.handle ?? (primary && handles?.files?.get(primary)))
-        : undefined;
+      info.input_files.length === 1 ? (options.handle ?? (primary && byFile.get(primary))) : undefined;
     await rememberRecent({ fingerprint, primary: set.primary, names: info.input_files, handle }).catch(
       () => {},
     );
@@ -190,6 +194,7 @@ export async function openFiles(
     const differs = options.expect !== undefined && options.expect !== fingerprint;
     return {
       kind: "opened",
+      id: opened.id,
       warning: differs ? "This file differs from the recording you opened before" : undefined,
     };
   } catch (error) {
@@ -200,16 +205,15 @@ export async function openFiles(
 
 /** The files the user picks in the browser's own picker, which also gives handles; `undefined` without one. */
 export async function pickFiles(): Promise<
-  { files: File[]; handle?: FileSystemHandle; handles: Handles } | undefined
+  { files: File[]; handle?: FileSystemHandle; handles: FileHandles } | undefined
 > {
   const show = picker();
   if (!show) return undefined;
   const handles = await show({ multiple: true });
-  const files = await Promise.all(handles.map((h) => h.getFile()));
   return {
-    files,
+    files: await Promise.all(handles.map((h) => h.getFile())),
     handle: handles.length === 1 ? handles[0] : undefined,
-    handles: { files: new Map(files.map((file, i) => [file, handles[i]])) },
+    handles: { files: handles },
   };
 }
 
