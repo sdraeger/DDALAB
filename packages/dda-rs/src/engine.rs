@@ -1,10 +1,10 @@
-mod dataset;
+pub(crate) mod dataset;
 #[cfg(feature = "cuda")]
 mod gpu;
-mod model;
+pub(crate) mod model;
 mod regression_batch;
 mod solver;
-mod variant_config;
+pub(crate) mod variant_config;
 mod window;
 
 #[cfg(test)]
@@ -12,6 +12,7 @@ mod tests;
 
 use crate::ccd_stats::{legacy_rmse_gain_from_rmse, log_mse_ratio_from_rmse, partial_r2_from_rmse};
 use crate::error::{DDAError, Result};
+use crate::profiling::Instant;
 use crate::types::{CcdConditioningStrategy, DDARequest, DDAResult, VariantResult};
 use dataset::{AnalysisBounds, MatrixDataset};
 use model::ModelSpec;
@@ -26,7 +27,8 @@ use solver::{
 };
 use std::fmt;
 use std::str::FromStr;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(not(target_arch = "wasm32"))]
 use uuid::Uuid;
 use variant_config::{
     collect_analysis_channels, flip_pairs, labels_for_channels, labels_for_groups,
@@ -1133,7 +1135,10 @@ impl PureRustRunner {
         }
 
         Ok(DDAResult {
+            #[cfg(not(target_arch = "wasm32"))]
             id: Uuid::new_v4().to_string(),
+            #[cfg(target_arch = "wasm32")]
+            id: String::new(),
             file_path: request.file_path.clone(),
             channels: dataset.channel_labels.clone(),
             q_matrix: primary_q,
@@ -1141,7 +1146,10 @@ impl PureRustRunner {
             raw_output: None,
             window_parameters: request.window_parameters.clone(),
             delay_parameters: request.delay_parameters.clone(),
+            #[cfg(not(target_arch = "wasm32"))]
             created_at: chrono::Utc::now().to_rfc3339(),
+            #[cfg(target_arch = "wasm32")]
+            created_at: String::new(),
             error_values: Some(native_window_markers),
             engine_notes,
         })
@@ -1301,7 +1309,7 @@ fn solve_all_selected_ccd_values_with_full_model_reuse(
     )
 }
 
-fn analysis_window_count(bounds: &AnalysisBounds, model: &ModelSpec) -> Result<usize> {
+pub(crate) fn analysis_window_count(bounds: &AnalysisBounds, model: &ModelSpec) -> Result<usize> {
     let native_window_marker = model.window_length + model.max_delay + 2 * model.dm;
     let required_rows = native_window_marker.saturating_sub(1);
     if bounds.len < required_rows {

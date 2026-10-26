@@ -1,0 +1,66 @@
+{
+  "format": "EDF+",
+  "channels": [
+    {
+      "label": "Fp1",
+      "unit": "V",
+      "sample_rate_hz": 256.0,
+      "gain": 1e-7,
+      "offset": 0.0,
+      "kind": "Signal",
+      "bids_status": null,
+      "bids_type": null
+    },
+    {
+      "label": "Fp2",
+      "unit": "V",
+      "sample_rate_hz": 256.0,
+      "gain": 1e-7,
+      "offset": 0.0,
+      "kind": "Signal",
+      "bids_status": null,
+      "bids_type": null
+    },
+    {
+      "label": "Resp",
+      "unit": "V",
+      "sample_rate_hz": 64.0,
+      "gain": 0.0001,
+      "offset": 0.0,
+      "kind": "Signal",
+      "bids_status": null,
+      "bids_type": null
+    },
+    {
+      "label": "EDF Annotations",
+      "unit": "",
+      "sample_rate_hz": 13.0,
+      "gain": 1.0,
+      "offset": 0.0,
+      "kind": "Annotation",
+      "bids_status": null,
+      "bids_type": null
+    }
+  ],
+  "sample_rate_hz": 256.0,
+  "sample_count": 7680,
+  "duration_s": 30.0,
+  "raw_type": "I16",
+  "annotations": [
+    {
+      "onset_s": 2.5,
+      "duration_s": 1.0,
+      "label": "eyes closed",
+      "source": "EDF Annotations"
+    },
+    {
+      "onset_s": 20.0,
+      "duration_s": 0.0,
+      "label": "spike",
+      "source": "EDF Annotations"
+    }
+  ],
+  "warnings": [],
+  "input_files": ["fixture.edf"],
+  "analysis_channels": [0, 1]
+}

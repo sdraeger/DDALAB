@@ -1,0 +1,256 @@
+/* The settings below the channels scroll with them once the panel is short; the run bar stays at its foot. */
+.inspector {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.inspector > :not(.channels) {
+  flex: none;
+}
+
+.empty {
+  padding: var(--space-4);
+  color: var(--muted);
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4) var(--space-3);
+}
+
+.title {
+  overflow-wrap: anywhere;
+  font-size: var(--text-section);
+  font-weight: var(--weight-strong);
+  line-height: 1.3;
+}
+
+/* Inline labeled fields: label above value, separated by space and a thin rule. */
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) 0;
+}
+
+.facts > div {
+  padding: 0 var(--space-3);
+  border-left: var(--hairline-width) solid var(--hairline);
+}
+
+.facts > div:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.facts dt {
+  color: var(--muted);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+.facts dd {
+  font-weight: var(--weight-medium);
+}
+
+.scan {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.scan progress {
+  flex: 1;
+  height: 4px;
+  appearance: none;
+  border: 0;
+  border-radius: 2px;
+  background: var(--hairline);
+  overflow: hidden;
+}
+
+.scan progress::-webkit-progress-bar {
+  background: var(--hairline);
+}
+
+.scan progress::-webkit-progress-value {
+  background: var(--primary);
+}
+
+.scan progress::-moz-progress-bar {
+  background: var(--primary);
+}
+
+.note {
+  color: var(--muted);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+.error,
+.warnings {
+  color: var(--event);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+.warnings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* The heading, at most eight group rows (the rest behind "Show all") and the search field at their own height; under
+   them the channel list, six rows high, comes to rest on whole rows. The annotations and the settings follow. */
+.channels {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4) 0;
+  border-top: var(--hairline-width) solid var(--hairline);
+}
+
+/* "Show all N groups": its text in line with the group rows'. */
+.more {
+  align-self: flex-start;
+  height: 24px;
+  margin: calc(-1 * var(--space-1)) 0 0 calc(-1 * var(--space-2));
+  font-size: var(--text-small);
+}
+
+.heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: var(--text-body);
+  font-weight: var(--weight-strong);
+}
+
+.count {
+  color: var(--muted);
+  font-size: var(--text-small);
+  font-weight: var(--weight-regular);
+  white-space: nowrap;
+}
+
+.groups {
+  display: flex;
+  flex-direction: column;
+}
+
+.group,
+.channel {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  min-height: 26px;
+  cursor: pointer;
+}
+
+.group input,
+.channel input {
+  margin: 0;
+}
+
+.swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.acronym {
+  flex: 1;
+  font-weight: var(--weight-strong);
+  font-variant-caps: all-small-caps;
+  letter-spacing: 0.05em;
+}
+
+.search {
+  height: 28px;
+  padding: 0 var(--space-2);
+  border: var(--hairline-width) solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--ground);
+}
+
+.search::placeholder {
+  color: var(--muted);
+}
+
+.scroller {
+  max-height: calc(6 * 28px);
+  overflow-y: auto;
+  margin: 0 calc(-1 * var(--space-4));
+  transition-property: opacity;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
+}
+
+.scroller[data-stale] {
+  opacity: 0.6;
+}
+
+.list {
+  position: relative;
+}
+
+.row {
+  position: absolute;
+  inset: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 28px;
+  padding: 0 var(--space-4);
+  transition-property: background-color;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .row:hover {
+    background: var(--chrome-hover);
+  }
+}
+
+.label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kind {
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.bad {
+  color: var(--event);
+  font-size: var(--text-small);
+  font-weight: var(--weight-strong);
+}
+
+.others {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) 0;
+  color: var(--muted);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+.footer {
+  padding: var(--space-3) var(--space-4);
+  border-top: var(--hairline-width) solid var(--hairline);
+}

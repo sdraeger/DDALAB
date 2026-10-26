@@ -18,8 +18,7 @@ enum RayonMode {
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
-    let prefer_ui_responsiveness = matches!(&cli.command, cli::Command::Serve(_));
-    configure_rayon_pool(prefer_ui_responsiveness);
+    configure_rayon_pool();
 
     let log_level = match cli.verbose {
         0 => log::LevelFilter::Warn,
@@ -38,13 +37,14 @@ async fn main() {
         cli::Command::Variants(args) => commands::variants::execute(args),
         cli::Command::Validate(args) => commands::validate::execute(args),
         cli::Command::Batch(args) => commands::batch::execute(args).await,
-        cli::Command::Serve(args) => commands::serve::execute(args).await,
+        cli::Command::Inspect(args) => commands::inspect::execute(args),
+        cli::Command::Samples(args) => commands::samples::execute(args),
     };
 
     std::process::exit(exit_code);
 }
 
-fn configure_rayon_pool(prefer_ui_responsiveness: bool) {
+fn configure_rayon_pool() {
     let available_threads = std::thread::available_parallelism()
         .map(|count| count.get())
         .unwrap_or(1);
@@ -54,7 +54,6 @@ fn configure_rayon_pool(prefer_ui_responsiveness: bool) {
         .and_then(|value| value.parse::<usize>().ok())
         .filter(|value| *value > 0);
     let target_threads = resolve_rayon_thread_count(
-        prefer_ui_responsiveness,
         available_threads,
         mode_override.as_deref(),
         explicit_threads,
@@ -67,7 +66,6 @@ fn configure_rayon_pool(prefer_ui_responsiveness: bool) {
 }
 
 fn resolve_rayon_thread_count(
-    prefer_ui_responsiveness: bool,
     available_threads: usize,
     mode_override: Option<&str>,
     explicit_threads: Option<usize>,
@@ -76,12 +74,7 @@ fn resolve_rayon_thread_count(
         return explicit;
     }
 
-    let default_mode = if prefer_ui_responsiveness {
-        RayonMode::Desktop
-    } else {
-        RayonMode::Throughput
-    };
-    let mode = parse_rayon_mode(mode_override).unwrap_or(default_mode);
+    let mode = parse_rayon_mode(mode_override).unwrap_or(RayonMode::Throughput);
 
     let target_threads = match mode {
         RayonMode::Desktop => {
@@ -128,38 +121,24 @@ mod tests {
     }
 
     #[test]
-    fn resolve_rayon_thread_count_prefers_desktop_for_sidecar() {
-        assert_eq!(resolve_rayon_thread_count(true, 8, None, None), 6);
-        assert_eq!(resolve_rayon_thread_count(true, 4, None, None), 3);
-        assert_eq!(resolve_rayon_thread_count(true, 2, None, None), 2);
-    }
-
-    #[test]
-    fn resolve_rayon_thread_count_prefers_throughput_for_cli_runs() {
-        assert_eq!(resolve_rayon_thread_count(false, 8, None, None), 8);
-        assert_eq!(resolve_rayon_thread_count(false, 1, None, None), 1);
+    fn resolve_rayon_thread_count_defaults_to_throughput() {
+        assert_eq!(resolve_rayon_thread_count(8, None, None), 8);
+        assert_eq!(resolve_rayon_thread_count(1, None, None), 1);
     }
 
     #[test]
     fn resolve_rayon_thread_count_honors_mode_override() {
-        assert_eq!(
-            resolve_rayon_thread_count(true, 8, Some("throughput"), None),
-            8
-        );
-        assert_eq!(
-            resolve_rayon_thread_count(false, 8, Some("desktop"), None),
-            6
-        );
+        assert_eq!(resolve_rayon_thread_count(8, Some("desktop"), None), 6);
+        assert_eq!(resolve_rayon_thread_count(4, Some("desktop"), None), 3);
+        assert_eq!(resolve_rayon_thread_count(2, Some("desktop"), None), 2);
+        assert_eq!(resolve_rayon_thread_count(8, Some("throughput"), None), 8);
     }
 
     #[test]
     fn resolve_rayon_thread_count_honors_explicit_threads() {
+        assert_eq!(resolve_rayon_thread_count(8, Some("desktop"), Some(3)), 3);
         assert_eq!(
-            resolve_rayon_thread_count(true, 8, Some("desktop"), Some(3)),
-            3
-        );
-        assert_eq!(
-            resolve_rayon_thread_count(false, 8, Some("throughput"), Some(5)),
+            resolve_rayon_thread_count(8, Some("throughput"), Some(5)),
             5
         );
     }

@@ -1,0 +1,1 @@
+A build of the DDALAB web app. scripts/deploy-snl.mjs replaces a folder only when it holds this file.

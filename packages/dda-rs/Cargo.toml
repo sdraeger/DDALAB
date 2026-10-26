@@ -1,6 +1,6 @@
 [package]
 name = "dda-rs"
-version = "0.2.0"
+version = "2.0.0"
 edition = "2021"
 authors = ["DDALAB Contributors"]
 description = "Pure Rust Delay Differential Analysis engine"
@@ -18,6 +18,7 @@ include = [
 	"src/**/*.rs",
 	"src/bin/**/*.rs",
 	"tests/**/*.rs",
+	"tests/fixtures/**",
 ]
 
 [features]
@@ -29,23 +30,31 @@ name = "ddalab"
 path = "src/bin/ddalab/main.rs"
 
 [dependencies]
-clap = { version = "4", features = ["derive", "env", "color"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-uuid = { version = "1", features = ["v4"] }
 log = "0.4"
-env_logger = "0.11"
-glob = "0.3"
 thiserror = "2.0.17"
-chrono = { version = "0.4", features = ["serde"] }
-cudarc = { version = "0.19", optional = true, default-features = false, features = ["std", "driver", "cublas", "dynamic-loading", "cuda-11040"] }
 dirs = "6.0.0"
 memmap2 = "0.9.9"
-nalgebra = { version = "0.33", default-features = false, features = ["std"] }
+nalgebra = { version = "0.33", default-features = false, features = ["std", "libm-force"] }
 rayon = "1.11"
+rand = { version = "0.8", default-features = false }
+rand_chacha = { version = "0.3", default-features = false }
+libm = "0.2"
+sha2 = "0.10"
+
+# Native only: wasm32-unknown-unknown has no clock, OS randomness, threads or cudarc build; the host stamps id and created_at.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+chrono = { version = "0.4", default-features = false, features = ["serde", "clock", "std"] }
+uuid = { version = "1", features = ["v4"] }
+clap = { version = "4", features = ["derive", "env", "color"] }
+env_logger = "0.11"
+glob = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-rand = "0.8"
-rand_chacha = "0.3"
+cudarc = { version = "0.19", optional = true, default-features = false, features = ["std", "driver", "cublas", "dynamic-loading", "cuda-11040"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+chrono = { version = "0.4", default-features = false, features = ["serde", "std"] }
 
 [dev-dependencies]
 assert_cmd = "2"

@@ -1,0 +1,44 @@
+{
+  "name": "ddalab-web",
+  "private": true,
+  "version": "2.0.0",
+  "type": "module",
+  "scripts": {
+    "build:wasm": "node scripts/build-wasm.mjs",
+    "dev": "npm run build:wasm && vite",
+    "build": "npm run build:wasm && tsc && vite build && node scripts/check-dist.mjs && node scripts/check-bundle-size.mjs",
+    "typecheck": "tsc",
+    "check": "biome check .",
+    "test": "npm run build:wasm && vitest run",
+    "test:e2e": "npm run build:wasm && playwright test",
+    "test:perf": "npm run build:wasm && PERF=1 playwright test --project=perf",
+    "bench": "npm run build:wasm && PERF=1 DDALAB_DIST=1 playwright test --project=bench",
+    "test:dist": "playwright test -c playwright.dist.config.ts",
+    "deploy:snl": "node scripts/deploy-snl.mjs",
+    "check:live": "node scripts/check-live.mjs",
+    "check:pages": "node scripts/check-live.mjs --pages"
+  },
+  "dependencies": {
+    "@base-ui/react": "1.9.0",
+    "@headless-tree/core": "1.7.0",
+    "client-zip": "2.5.1",
+    "idb": "8.0.4",
+    "lucide-react": "1.53.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "zustand": "5.0.16"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@biomejs/biome": "2.6.3",
+    "@playwright/test": "1.64.1",
+    "@types/node": "26.6.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "fake-indexeddb": "6.2.6",
+    "typescript": "7.0.2",
+    "vite": "8.3.5",
+    "vitest": "5.0.5"
+  }
+}

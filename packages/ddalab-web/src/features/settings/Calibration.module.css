@@ -1,0 +1,34 @@
+.calibration {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.title {
+  font-size: var(--text-section);
+  font-weight: var(--weight-strong);
+}
+
+.text {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+/* The bar to match with a ruler, with end ticks like a printed scale. */
+.bar {
+  height: 10px;
+  border: 2px solid var(--ink);
+  border-top: 0;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}

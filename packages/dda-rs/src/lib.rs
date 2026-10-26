@@ -1,12 +1,19 @@
+pub mod blocks;
 pub mod ccd_stats;
+pub mod document;
 pub mod engine;
 pub mod error;
 pub mod input_io;
+pub mod io;
 pub mod mmap_utils;
 pub mod network_motifs;
 pub mod profiling;
+pub mod tiles;
 pub mod types;
 pub mod variants;
+
+/// The dda-rs version, as result documents record it.
+pub const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub use ccd_stats::*;
 pub use engine::{
@@ -19,9 +26,11 @@ pub use engine::{
 };
 pub use error::{DDAError, Result};
 pub use input_io::{
-    load_ascii_matrix_from_path, load_f64_matrix_from_path, run_request_on_ascii_file,
-    run_request_on_ascii_file_with_progress, run_request_on_f64_matrix_file_with_progress,
+    load_ascii_matrix_from_path, run_request_on_ascii_file, run_request_on_ascii_file_with_progress,
 };
+#[cfg(not(target_arch = "wasm32"))]
+pub use io::MmapSource;
+pub use io::{BlockCache, ByteSource, FileSet, MemorySource};
 pub use network_motifs::*;
 pub use types::*;
 pub use variants::*;

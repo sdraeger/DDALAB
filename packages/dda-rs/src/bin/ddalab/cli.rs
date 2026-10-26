@@ -29,18 +29,23 @@ pub enum Command {
     Validate(ValidateArgs),
     /// Run batch DDA analysis across multiple files
     Batch(BatchArgs),
-    #[command(hide = true)]
-    Serve(ServeArgs),
+    /// Show a recording's channels, annotations and warnings
+    Inspect(InspectArgs),
+    /// Write physical samples of a recording to a .npy file
+    Samples(SamplesArgs),
 }
+
+/// Default `--block-mb`.
+pub const DEFAULT_BLOCK_MB: u64 = 512;
 
 #[derive(Args)]
 pub struct RunArgs {
-    /// Input data file path (EDF, ASCII/TXT/CSV)
+    /// Input data file path (EDF, BDF, BrainVision .vhdr, ASCII/TXT/CSV)
     #[arg(long)]
     pub file: String,
 
-    /// 0-based channel indices
-    /// Optional when --variant-configs provides per-variant channels/pairs.
+    /// 0-based indices into the analysis channels (`ddalab inspect` shows the list).
+    /// Defaults to every analysis channel BIDS channels.tsv does not mark bad.
     #[arg(long, num_args = 1..)]
     pub channels: Option<Vec<usize>>,
 
@@ -59,11 +64,11 @@ pub struct RunArgs {
     #[arg(long, default_value_t = dda_rs::DEFAULT_WINDOW_STEP)]
     pub ws: u32,
 
-    /// CT-specific window length
+    /// Channels per CT and DE group when no pairs are given (default: every selected channel)
     #[arg(long)]
     pub ct_wl: Option<u32>,
 
-    /// CT-specific window step
+    /// Channel stride between CT and DE groups (default: --ct-wl)
     #[arg(long)]
     pub ct_ws: Option<u32>,
 
@@ -140,9 +145,17 @@ pub struct RunArgs {
     #[arg(long, env = "DDA_BINARY_PATH")]
     pub binary: Option<String>,
 
-    /// Output file (default: stdout)
-    #[arg(short, long)]
+    /// Result document file (default: stdout)
+    #[arg(short, long, conflicts_with = "bundle")]
     pub output: Option<String>,
+
+    /// Write a bundle directory instead of one document: `manifest.json` and one .npy file per array
+    #[arg(long)]
+    pub bundle: Option<String>,
+
+    /// Memory budget for the samples one block of windows reads, in MiB
+    #[arg(long, default_value_t = DEFAULT_BLOCK_MB)]
+    pub block_mb: u64,
 
     /// Compact JSON output (no indentation)
     #[arg(long, default_value_t = false)]
@@ -152,7 +165,7 @@ pub struct RunArgs {
     #[arg(long, default_value_t = false)]
     pub quiet: bool,
 
-    /// Compute device: cpu, cuda, or cuda:N
+    /// Compute device: cpu, cuda, or cuda:N (a non-cpu device runs the recording whole)
     #[arg(long, default_value = "cpu")]
     pub device: dda_rs::ComputeDevice,
 }
@@ -187,6 +200,48 @@ pub struct ValidateArgs {
 }
 
 #[derive(Args)]
+pub struct InspectArgs {
+    /// Recording path (EDF, BDF, BrainVision .vhdr, ASCII/CSV)
+    #[arg(long)]
+    pub file: String,
+
+    /// Sampling rate in Hz for text files, which store none
+    #[arg(long)]
+    pub sr: Option<f64>,
+
+    /// Output as JSON
+    #[arg(long, default_value_t = false)]
+    pub json: bool,
+}
+
+#[derive(Args)]
+pub struct SamplesArgs {
+    /// Recording path (EDF, BDF, BrainVision .vhdr, ASCII/CSV)
+    #[arg(long)]
+    pub file: String,
+
+    /// 0-based channel indices in the analysis channel list (`ddalab inspect` shows it)
+    #[arg(long, num_args = 1.., required = true)]
+    pub channels: Vec<usize>,
+
+    /// First sample to write
+    #[arg(long, default_value_t = 0)]
+    pub start_sample: u64,
+
+    /// Number of samples to write per channel
+    #[arg(long)]
+    pub count: usize,
+
+    /// Sampling rate in Hz for text files, which store none
+    #[arg(long)]
+    pub sr: Option<f64>,
+
+    /// Output .npy file: little-endian f64, shape (count, channels), SI units
+    #[arg(short, long)]
+    pub output: String,
+}
+
+#[derive(Args)]
 pub struct BatchArgs {
     /// Glob pattern to match input files (e.g., "data/*.edf")
     #[arg(long, group = "input")]
@@ -200,8 +255,8 @@ pub struct BatchArgs {
     #[arg(long, group = "input")]
     pub bids_dir: Option<String>,
 
-    /// 0-based channel indices
-    /// Optional when --variant-configs provides per-variant channels/pairs.
+    /// 0-based indices into the analysis channels (`ddalab inspect` shows the list).
+    /// Defaults to every analysis channel BIDS channels.tsv does not mark bad.
     #[arg(long, num_args = 1..)]
     pub channels: Option<Vec<usize>>,
 
@@ -220,11 +275,11 @@ pub struct BatchArgs {
     #[arg(long, default_value_t = dda_rs::DEFAULT_WINDOW_STEP)]
     pub ws: u32,
 
-    /// CT-specific window length
+    /// Channels per CT and DE group when no pairs are given (default: every selected channel)
     #[arg(long)]
     pub ct_wl: Option<u32>,
 
-    /// CT-specific window step
+    /// Channel stride between CT and DE groups (default: --ct-wl)
     #[arg(long)]
     pub ct_ws: Option<u32>,
 
@@ -281,9 +336,14 @@ pub struct BatchArgs {
     #[arg(long, env = "DDA_BINARY_PATH")]
     pub binary: Option<String>,
 
-    /// Output directory for per-file JSON results (default: JSONL to stdout)
+    /// Output directory for the result documents `<stem>.<sha8>.dda.json`
+    /// (default: each document is inlined in the manifest on stdout)
     #[arg(long)]
     pub output_dir: Option<String>,
+
+    /// Memory budget for the samples one block of windows reads, in MiB
+    #[arg(long, default_value_t = DEFAULT_BLOCK_MB)]
+    pub block_mb: u64,
 
     /// Continue processing remaining files after a failure
     #[arg(long, default_value_t = false)]
@@ -301,24 +361,9 @@ pub struct BatchArgs {
     #[arg(long, default_value_t = false)]
     pub quiet: bool,
 
-    /// Compute device: cpu, cuda, or cuda:N
+    /// Compute device: cpu, cuda, or cuda:N (a non-cpu device runs the recording whole)
     #[arg(long, default_value = "cpu")]
     pub device: dda_rs::ComputeDevice,
-}
-
-#[derive(Args)]
-pub struct ServeArgs {
-    /// Legacy native DDA binary path (ignored; native backend disabled)
-    #[arg(long, env = "DDA_BINARY_PATH")]
-    pub binary: Option<String>,
-
-    /// Legacy no-op flag retained for compatibility
-    #[arg(long, default_value_t = false)]
-    pub disable_native_fallback: bool,
-
-    /// Maximum number of columns to include in preview responses
-    #[arg(long, default_value_t = 2048)]
-    pub preview_columns: usize,
 }
 
 /// Parse a channel pair string "i,j" into [usize; 2].

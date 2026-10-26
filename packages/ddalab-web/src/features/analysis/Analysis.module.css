@@ -1,0 +1,258 @@
+/* The DDA settings and the run bar, in the inspector. */
+
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  border-top: var(--hairline-width) solid var(--hairline);
+}
+
+.heading {
+  font-size: var(--text-body);
+  font-weight: var(--weight-strong);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.group legend {
+  padding: 0 0 var(--space-1);
+  color: var(--muted);
+  font-size: var(--text-small);
+  font-weight: var(--weight-strong);
+  font-variant-caps: all-small-caps;
+  letter-spacing: 0.06em;
+}
+
+.variants {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+}
+
+.variants label,
+.expert {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 24px;
+  cursor: pointer;
+}
+
+.variants input,
+.expert input {
+  margin: 0;
+}
+
+.acronym {
+  font-weight: var(--weight-strong);
+  font-variant-caps: all-small-caps;
+  letter-spacing: 0.05em;
+}
+
+/* A label before its input, the inputs of a group in one column. */
+.field {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--space-2);
+}
+
+.field label,
+.timeField label {
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+/* An input with its unit inside the same box. */
+.unitInput {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  min-width: 0;
+  border: var(--hairline-width) solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--ground);
+  transition-property: border-color;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
+}
+
+/* The focus ring shows at once. */
+.unitInput:focus-within {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.unitInput input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 var(--space-2);
+  border: 0;
+  background: transparent;
+  outline: 0;
+  text-align: right;
+}
+
+.unitInput span {
+  padding-right: var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.unitInput:has(input[aria-invalid]) {
+  border-color: var(--event);
+}
+
+.fieldError {
+  color: var(--event);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+.field .fieldError {
+  grid-column: 2;
+}
+
+.note {
+  color: var(--muted);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+/* Labeled fields in columns, separated by space. */
+.facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2) var(--space-3);
+}
+
+.facts dt {
+  color: var(--muted);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+.facts dd {
+  font-weight: var(--weight-medium);
+}
+
+/* Next to the command bar's Run while the inspector is hidden: why it cannot run, or how far the run is (in full in
+   its title). Its slot takes its width from the window alone: a run's percentages and a message coming or going move
+   nothing in the bar. It gives way first when the bar is short. */
+.barStatus {
+  flex: 0 1 clamp(120px, 18vw, 280px);
+  min-width: 0;
+  overflow: hidden;
+  text-align: end;
+  color: var(--muted);
+  font-size: var(--text-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition-property: opacity, transform, color;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
+}
+
+.barStatus[data-refused] {
+  color: var(--event);
+}
+
+/* The foot of the inspector: it stays in view while the settings above it scroll. */
+.runBar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: var(--hairline-width) solid var(--hairline);
+  background: var(--ground);
+}
+
+.interval {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+}
+
+.timeField {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.plan {
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+.plan b {
+  font-weight: var(--weight-strong);
+}
+
+.run {
+  justify-content: center;
+  width: 100%;
+  height: 32px;
+}
+
+.error {
+  color: var(--event);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+  overflow-wrap: anywhere;
+}
+
+.progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.progress progress {
+  width: 100%;
+  height: 4px;
+  appearance: none;
+  border: 0;
+  border-radius: 2px;
+  background: var(--hairline);
+  overflow: hidden;
+}
+
+.progress progress::-webkit-progress-bar {
+  background: var(--hairline);
+}
+
+.progress progress::-webkit-progress-value {
+  background: var(--primary);
+}
+
+.progress progress::-moz-progress-bar {
+  background: var(--primary);
+}
+
+.complete {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  font-size: var(--text-small);
+  font-weight: var(--weight-strong);
+}
+
+.complete svg {
+  block-size: 1cap;
+  inline-size: auto;
+  stroke-width: 2.5;
+  color: var(--primary);
+}

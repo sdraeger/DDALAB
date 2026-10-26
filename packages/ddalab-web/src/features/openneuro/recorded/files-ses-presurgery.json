@@ -1,0 +1,38 @@
+{
+  "data": {
+    "snapshot": {
+      "files": [
+        {
+          "id": "1e127e6f7a86868e4fc8b67134aa74190d5838bc",
+          "filename": "sub-pt01_ses-presurgery_scans.json",
+          "size": 182,
+          "directory": false,
+          "urls": [
+            "https://openneuro.org/crn/datasets/ds003029/objects/1e127e6f7a86868e4fc8b67134aa74190d5838bc?filename=sub-pt01_ses-presurgery_scans.json"
+          ]
+        },
+        {
+          "id": "fc4b53be715db75856bd0c32d3251318648ffedc",
+          "filename": "sub-pt01_ses-presurgery_scans.tsv",
+          "size": 443,
+          "directory": false,
+          "urls": [
+            "https://openneuro.org/crn/datasets/ds003029/objects/fc4b53be715db75856bd0c32d3251318648ffedc?filename=sub-pt01_ses-presurgery_scans.tsv"
+          ]
+        },
+        {
+          "id": "c6d5b37e1c9fa09bd6c487af66b241cdf3129196",
+          "filename": "ieeg",
+          "size": 0,
+          "directory": true,
+          "urls": []
+        }
+      ]
+    }
+  },
+  "extensions": {
+    "openneuro": {
+      "version": "5.10.1"
+    }
+  }
+}

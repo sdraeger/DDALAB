@@ -285,7 +285,7 @@ pub fn log_mse_ratio_from_rmse(baseline_rmse: f64, full_rmse: f64, epsilon: f64)
     if !baseline_rmse.is_finite() || !full_rmse.is_finite() || epsilon < 0.0 {
         return f64::NAN;
     }
-    ((baseline_rmse.powi(2) + epsilon) / (full_rmse.powi(2) + epsilon)).ln()
+    libm::log((baseline_rmse.powi(2) + epsilon) / (full_rmse.powi(2) + epsilon))
 }
 
 pub fn empirical_p_value(observed: f64, null_values: &[f64]) -> f64 {
@@ -407,8 +407,8 @@ pub fn endpoint_summary(
 ) -> EndpointSummary {
     let legacy_ratio = t_ictal / t_pre;
     let null_ratio = t_null2 / t_null1;
-    let log_ratio = ((t_ictal + config.epsilon) / (t_pre + config.epsilon)).ln();
-    let null_log_ratio = ((t_null2 + config.epsilon) / (t_null1 + config.epsilon)).ln();
+    let log_ratio = libm::log((t_ictal + config.epsilon) / (t_pre + config.epsilon));
+    let null_log_ratio = libm::log((t_null2 + config.epsilon) / (t_null1 + config.epsilon));
     let null_median = median(pseudo_null);
     let null_mad = mad(pseudo_null, null_median);
     EndpointSummary {
@@ -557,7 +557,7 @@ fn partial_r2(sse0: f64, sse1: f64) -> f64 {
 }
 
 fn log_ratio(mse0: f64, mse1: f64, epsilon: f64) -> f64 {
-    ((mse0 + epsilon) / (mse1 + epsilon)).ln()
+    libm::log((mse0 + epsilon) / (mse1 + epsilon))
 }
 
 fn median(values: &[f64]) -> f64 {

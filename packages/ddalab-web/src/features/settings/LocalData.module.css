@@ -1,0 +1,64 @@
+/* The command bar's "Local" note (a quiet button in muted ink) and its popover. Its label never changes: the bar
+   keeps its width. */
+.trigger {
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.trigger[data-popup-open] {
+  color: var(--ink);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .trigger:hover:not(:disabled) {
+    color: var(--ink);
+  }
+}
+
+/* Below 1024 px the command bar keeps the icon alone, at the size of the bar's other icons. */
+@media (width < 1024px) {
+  .label {
+    display: none;
+  }
+
+  .trigger svg {
+    block-size: 16px;
+  }
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.title {
+  font-size: var(--text-section);
+  font-weight: var(--weight-strong);
+}
+
+.text {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+/* Storage: below a hairline, a small heading, the usage line and the clear action. */
+.storage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-block-start: var(--space-3);
+  border-block-start: var(--hairline-width) solid var(--hairline);
+}
+
+.heading {
+  font-size: var(--text-body);
+  font-weight: var(--weight-strong);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}

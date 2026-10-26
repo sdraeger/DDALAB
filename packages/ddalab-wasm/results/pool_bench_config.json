@@ -1,0 +1,172 @@
+{
+  "config_file": "pool-bench.config.json",
+  "config": {
+    "fixtures_dir": "pool-bench",
+    "output_dir": "pool-bench/out",
+    "spare_cores": 1,
+    "max_case_seconds": 1800,
+    "window_length": 1000,
+    "delays": [
+      7,
+      10
+    ],
+    "dm": 4,
+    "order": 4,
+    "nr_tau": 2,
+    "cases": [
+      {
+        "name": "ST_32ch_64MiB_cache64",
+        "file": "large_32ch.edf",
+        "variant": "ST",
+        "channels": 32,
+        "ct_pairs": [],
+        "window_step": 200,
+        "budget_mb": 64,
+        "cache_mb": 64
+      },
+      {
+        "name": "ST_128ch_64MiB_cache64",
+        "file": "large_128ch.edf",
+        "variant": "ST",
+        "channels": 128,
+        "ct_pairs": [],
+        "window_step": 200,
+        "budget_mb": 64,
+        "cache_mb": 64
+      },
+      {
+        "name": "CT_16ch_64MiB_cache64",
+        "file": "large_16ch.edf",
+        "variant": "CT",
+        "channels": 16,
+        "ct_pairs": "all",
+        "window_step": 200,
+        "budget_mb": 64,
+        "cache_mb": 64
+      },
+      {
+        "name": "ST_32ch_16MiB_cache64",
+        "file": "large_32ch.edf",
+        "variant": "ST",
+        "channels": 32,
+        "ct_pairs": [],
+        "window_step": 200,
+        "budget_mb": 16,
+        "cache_mb": 64
+      },
+      {
+        "name": "ST_128ch_16MiB_cache64",
+        "file": "large_128ch.edf",
+        "variant": "ST",
+        "channels": 128,
+        "ct_pairs": [],
+        "window_step": 200,
+        "budget_mb": 16,
+        "cache_mb": 64
+      },
+      {
+        "name": "CT_16ch_16MiB_cache64",
+        "file": "large_16ch.edf",
+        "variant": "CT",
+        "channels": 16,
+        "ct_pairs": "all",
+        "window_step": 200,
+        "budget_mb": 16,
+        "cache_mb": 64
+      },
+      {
+        "name": "ST_32ch_64MiB_cache8",
+        "file": "large_32ch.edf",
+        "variant": "ST",
+        "channels": 32,
+        "ct_pairs": [],
+        "window_step": 200,
+        "budget_mb": 64,
+        "cache_mb": 8
+      },
+      {
+        "name": "ST_128ch_64MiB_cache8",
+        "file": "large_128ch.edf",
+        "variant": "ST",
+        "channels": 128,
+        "ct_pairs": [],
+        "window_step": 200,
+        "budget_mb": 64,
+        "cache_mb": 8
+      },
+      {
+        "name": "CT_16ch_64MiB_cache8",
+        "file": "large_16ch.edf",
+        "variant": "CT",
+        "channels": 16,
+        "ct_pairs": "all",
+        "window_step": 200,
+        "budget_mb": 64,
+        "cache_mb": 8
+      },
+      {
+        "name": "ST_32ch_16MiB_cache8",
+        "file": "large_32ch.edf",
+        "variant": "ST",
+        "channels": 32,
+        "ct_pairs": [],
+        "window_step": 200,
+        "budget_mb": 16,
+        "cache_mb": 8
+      },
+      {
+        "name": "ST_128ch_16MiB_cache8",
+        "file": "large_128ch.edf",
+        "variant": "ST",
+        "channels": 128,
+        "ct_pairs": [],
+        "window_step": 200,
+        "budget_mb": 16,
+        "cache_mb": 8
+      },
+      {
+        "name": "CT_16ch_16MiB_cache8",
+        "file": "large_16ch.edf",
+        "variant": "CT",
+        "channels": 16,
+        "ct_pairs": "all",
+        "window_step": 200,
+        "budget_mb": 16,
+        "cache_mb": 8
+      },
+      {
+        "name": "ST_4ch_WS1_16MiB_cache8",
+        "file": "large_16ch.edf",
+        "variant": "ST",
+        "channels": 4,
+        "ct_pairs": [],
+        "window_step": 1,
+        "budget_mb": 16,
+        "cache_mb": 8
+      },
+      {
+        "name": "CT_128ch_16MiB_cache8",
+        "file": "large_128ch.edf",
+        "variant": "CT",
+        "channels": 128,
+        "ct_pairs": "all",
+        "window_step": 200,
+        "budget_mb": 16,
+        "cache_mb": 8
+      }
+    ]
+  },
+  "cpu_model": "Apple M5 Pro",
+  "logical_cores": 18,
+  "total_memory_gb": 24,
+  "node_version": "v26.12.1",
+  "commit": "2fa0acd146ef6590f2e6a5f935afa4dc17fbe14b",
+  "worktree_dirty": false,
+  "wasm_sha256": "827c9b29ce3867bb31acf7e44d0921e184131ddfbb451b1fbc638e1da00e77c9",
+  "cli_sha256": "64be5d8879f6fd08019f78ff00a0031f682a77970c309f0f82833511cf78f8e8",
+  "input_sha256": {
+    "large_32ch.edf": "bf2f629bc6e7f5a9c087e22d95c24beabb9217da71c9e5441b5e781f0a1573ca",
+    "large_128ch.edf": "0b9f775d4afbc17ccaa19b60e53b24df28207b92c8323ea4820e500b7f172b77",
+    "large_16ch.edf": "0bd301aa765c7803943cded89ba35752921c5e1316942389de09ffdfb7002067"
+  }
+}

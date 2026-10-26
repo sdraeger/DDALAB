@@ -1,0 +1,223 @@
+name: DDALAB Web
+
+on:
+  pull_request:
+    paths:
+      - "packages/ddalab-web/**"
+      - "packages/ddalab-wasm/**"
+      - "packages/dda-rs/**"
+      - ".github/workflows/web.yml"
+  push:
+    branches: ["main"]
+    tags: ["v*"]
+    # GitHub does not evaluate path filters for pushes of tags.
+    paths:
+      - "packages/ddalab-web/**"
+      - "packages/ddalab-wasm/**"
+      - "packages/dda-rs/**"
+      - ".github/workflows/web.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    name: Web app (lint, unit tests, build, self-hosting smoke test)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: packages/ddalab-web
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Rust artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            packages/dda-rs -> target
+            packages/ddalab-wasm -> target
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "26"
+          cache: npm
+          cache-dependency-path: packages/ddalab-web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the wasm core
+        run: npm run build:wasm
+
+      - name: Biome
+        run: npm run check
+
+      # Unit tests compare exports with the native CLI and fail under CI when it is missing.
+      - name: Build the native CLI
+        working-directory: packages/dda-rs
+        run: cargo build --release --locked
+
+      - name: Unit tests
+        run: npx vitest run
+
+      # The self-hosting smoke test runs the three browsers; the e2e tests have jobs of their own (below).
+      - name: Install browsers
+        run: npx playwright install --with-deps chromium firefox webkit
+
+      # Type check, vite build, then the dist check (no test hooks) and the bundle size check.
+      - name: Production build
+        run: npm run build
+
+      - name: Self-hosting smoke test
+        run: npm run test:dist
+
+      - name: Self-hosting smoke test with the wasm served without its MIME type
+        run: npm run test:dist
+        env:
+          DIST_WASM_TYPE: application/octet-stream
+
+      # What the pages job deploys: this dist, after its tests. The artifact leaves out hidden files, which are the
+      # .htaccess (the build copied its policy into index.html as a meta element) and the .ddalab-web marker.
+      - name: Keep the site for GitHub Pages
+        if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: packages/ddalab-web/dist
+
+      - name: Zip the bundle
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          (cd dist && zip -qr "../ddalab-web-${GITHUB_REF_NAME#v}.zip" .)
+          unzip -l "ddalab-web-${GITHUB_REF_NAME#v}.zip"
+
+      - name: Keep the bundle for the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v7
+        with:
+          name: web-bundle
+          path: packages/ddalab-web/ddalab-web-*.zip
+          if-no-files-found: error
+
+  # One job per browser: three browsers in one job ran past the time limit. Each builds its own wasm core and native CLI
+  # (the tests compare the browser's results with the CLI's bundles) and does not wait for the web job.
+  e2e:
+    name: End-to-end tests (${{ matrix.browser }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    defaults:
+      run:
+        working-directory: packages/ddalab-web
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Rust artifacts
+        uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: |
+            packages/dda-rs -> target
+            packages/ddalab-wasm -> target
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "26"
+          cache: npm
+          cache-dependency-path: packages/ddalab-web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the wasm core
+        run: npm run build:wasm
+
+      - name: Build the native CLI
+        working-directory: packages/dda-rs
+        run: cargo build --release --locked
+
+      - name: Install the browser
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+
+      - name: End-to-end tests
+        run: npx playwright test --project=${{ matrix.browser }}
+
+      # playwright.config.ts writes the HTML report and keeps the traces of failed tests under CI.
+      - name: Keep the report and traces
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-${{ matrix.browser }}
+          path: |
+            packages/ddalab-web/playwright-report
+            packages/ddalab-web/test-results
+          retention-days: 7
+          if-no-files-found: ignore
+
+  release:
+    name: Attach the bundle to the release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [web, e2e]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Download the bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: web-bundle
+
+      # The release workflow creates the same release for the tag and can run at the same time. When it wins the race
+      # between this view and create, the create fails and the release exists: view it again before giving up.
+      - name: Attach the bundle
+        run: |
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --title "DDALAB ${GITHUB_REF_NAME#v}" --generate-notes ||
+              { sleep 10; gh release view "$GITHUB_REF_NAME" >/dev/null; }
+          fi
+          gh release upload "$GITHUB_REF_NAME" ddalab-web-*.zip --clobber
+
+  # Publishes the dist the web job built and tested at https://sdraeger.github.io/DDALAB/ (the base path is relative).
+  # The github-pages environment must allow deployments from v* tags. A tag with a "-" is a pre-release and stays off
+  # the site: every installed copy would offer it as an update.
+  pages:
+    name: Deploy to GitHub Pages
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
+    needs: [web, e2e]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
