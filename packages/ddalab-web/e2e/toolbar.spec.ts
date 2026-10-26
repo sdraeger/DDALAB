@@ -91,13 +91,13 @@ test("bar_holds_still_while_zooming", async ({ page }) => {
 });
 
 // Where the bar is short the scale settings move behind one button, then the wordmark and the Local and Annotate
-// labels give way to their marks; nothing falls past the window's edge. The widths include both sides of 1400 px,
+// labels give way to their marks; nothing falls past the window's edge. The widths include both sides of 1440 px,
 // where the settings move with the inspector open. The run status keeps clamp(120px, 18vw, 280px) while the bar has
 // room to spare, and gives way, alone, where it has none.
 test("bar_fits_the_window", async ({ page }) => {
   test.setTimeout(60_000);
   await openDay(page);
-  for await (const layout of layouts(page, [768, 1024, 1280, 1390, 1399, 1400, 1600])) {
+  for await (const layout of layouts(page, [768, 1024, 1280, 1430, 1439, 1440, 1600])) {
     const slot = await page.evaluate(() => {
       const bar = document.querySelector("header") as HTMLElement;
       const status = bar.querySelector("[aria-live]");
@@ -145,7 +145,7 @@ test("bar_fits_the_window", async ({ page }) => {
   }
 });
 
-// Below 1400 px the scale settings sit in a popover: picking an option there keeps it open (the Select belongs to
+// Below 1440 px the scale settings sit in a popover: picking an option there keeps it open (the Select belongs to
 // the popover), Escape closes it, and a resize that moves the settings back into the bar closes it too.
 test("scale_settings_behind_their_button", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
