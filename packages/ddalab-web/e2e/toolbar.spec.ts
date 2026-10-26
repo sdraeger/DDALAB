@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { ddaPoolSize } from "../src/core/engine";
-import { expect, type Page, test } from "./test";
+import { expect, hasStorage, NO_STORAGE, type Page, test } from "./test";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
@@ -94,13 +94,13 @@ test("bar_holds_still_while_zooming", async ({ page }) => {
 });
 
 // Where the bar is short the scale settings move behind one button, then the wordmark and the Local and Annotate
-// labels give way to their marks; nothing falls past the window's edge. The widths include both sides of 1400 px,
+// labels give way to their marks; nothing falls past the window's edge. The widths include both sides of 1440 px,
 // where the settings move with the inspector open. The run status keeps clamp(120px, 18vw, 280px) while the bar has
 // room to spare, and gives way, alone, where it has none.
 test("bar_fits_the_window", async ({ page }) => {
   test.setTimeout(60_000);
   await openDay(page);
-  for await (const layout of layouts(page, [768, 1024, 1280, 1390, 1399, 1400, 1600])) {
+  for await (const layout of layouts(page, [768, 1024, 1280, 1430, 1439, 1440, 1600])) {
     const slot = await page.evaluate(() => {
       const bar = document.querySelector("header") as HTMLElement;
       const status = bar.querySelector("[aria-live]");
@@ -148,7 +148,7 @@ test("bar_fits_the_window", async ({ page }) => {
   }
 });
 
-// Below 1400 px the scale settings sit in a popover: picking an option there keeps it open (the Select belongs to
+// Below 1440 px the scale settings sit in a popover: picking an option there keeps it open (the Select belongs to
 // the popover), Escape closes it, and a resize that moves the settings back into the bar closes it too.
 test("scale_settings_behind_their_button", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
@@ -171,7 +171,11 @@ test("scale_settings_behind_their_button", async ({ page }) => {
   await expect(scales).toBeFocused();
   await scales.click();
   await expect(popover).toBeVisible();
-  await page.setViewportSize({ width: 1600, height: 800 });
+  // A pixel short of 1440 px the settings stay behind their button, open; at 1440 px they move into the bar.
+  await page.setViewportSize({ width: 1439, height: 800 });
+  await expect(scales).toBeVisible();
+  await expect(popover).toBeVisible();
+  await page.setViewportSize({ width: 1440, height: 800 });
   await expect(popover).toBeHidden();
   await expect(page.getByRole("combobox", { name: "Epoch" })).toBeVisible();
   await page.setViewportSize({ width: 1280, height: 800 });
@@ -221,20 +225,16 @@ test("local_note_opens_and_closes", async ({ page }) => {
 
 // The note's Storage section says what the site keeps and clears the cached tiles, except those of open recordings.
 test("storage_clears_cached_tiles_but_an_open_recordings", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
   const tileFolders = () =>
     page.evaluate(async () => {
-      try {
-        const tiles = await (await navigator.storage.getDirectory()).getDirectoryHandle("tiles", {
-          create: true,
-        });
-        const names: string[] = [];
-        for await (const [name] of tiles.entries()) names.push(name);
-        return names.length;
-      } catch {
-        return -1;
-      }
+      const tiles = await (await navigator.storage.getDirectory()).getDirectoryHandle("tiles", {
+        create: true,
+      });
+      const names: string[] = [];
+      for await (const [name] of tiles.entries()) names.push(name);
+      return names.length;
     });
-  test.skip((await tileFolders()) < 0, "this browser window has no OPFS");
   const edf = fileURLToPath(new URL("../../dda-rs/tests/fixtures/fixture.edf", import.meta.url));
   await page.getByLabel("Recording files").setInputFiles(edf);
   await expect.poll(tileFolders).toBe(1);

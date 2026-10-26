@@ -4,6 +4,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
+import { hasStorage } from "../e2e/test";
 // @ts-expect-error The policy reader is plain JavaScript without declarations.
 import { cspOf, metaCspOf } from "../scripts/policy.mjs";
 
@@ -43,7 +44,7 @@ test("opens_a_recording_and_runs_dda", async ({ page }, testInfo) => {
   await expect(page.getByRole("alert")).toHaveCount(0);
 
   // Base UI adds an inline <style> to an opened Select unless the app turns that off; style-src 'self' blocks it. Below
-  // 1400 px the scale settings sit behind their button.
+  // 1440 px the scale settings sit behind their button.
   const scales = page.getByRole("button", { name: "Epoch, sensitivity and timebase" });
   if (await scales.isVisible()) await scales.click();
   await page.getByRole("combobox", { name: "Epoch" }).click();
@@ -52,13 +53,7 @@ test("opens_a_recording_and_runs_dda", async ({ page }, testInfo) => {
   await expect(page.getByRole("listbox")).toHaveCount(0);
 
   // Playwright's WebKit has no OPFS, where results are written; Safari itself has.
-  const hasStorage = await page.evaluate(() =>
-    navigator.storage.getDirectory().then(
-      () => true,
-      () => false,
-    ),
-  );
-  if (hasStorage) {
+  if (await hasStorage(page)) {
     const run = page.getByRole("region", { name: "Run" });
     await page.getByRole("checkbox", { name: "Select Fp1" }).check();
     await page.getByRole("checkbox", { name: "Select Fp2" }).check();

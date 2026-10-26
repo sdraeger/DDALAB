@@ -2,7 +2,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, type Page, test } from "./test";
+import { expect, hasStorage, NO_STORAGE, type Page, test } from "./test";
 
 const fixturePath = (name: string) =>
   fileURLToPath(new URL(`../../dda-rs/tests/fixtures/${name}`, import.meta.url));
@@ -240,6 +240,13 @@ test("filter_keeps_the_folders_of_matches", async ({ page }) => {
 // not beside it.
 test("folder_drop_lists_its_recordings", async ({ page }) => {
   const header = readFileSync(fixturePath("fixture.vhdr"), "utf8");
+  // The library listens for drops from an effect, which WebKit may run well after the library shows: a drop before
+  // then is lost. A dragover it cancels says it listens.
+  const listening = () =>
+    page.evaluate(
+      () => !document.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true })),
+    );
+  await expect.poll(listening).toBe(true);
   await page.evaluate((text) => {
     const file = {
       name: "x.vhdr",
@@ -279,12 +286,12 @@ test("folder_drop_lists_its_recordings", async ({ page }) => {
 // The header's data file is listed, then deleted before the recording opens: the core cannot read it, and the error
 // shows in the Folder section beside the tree.
 test("open_error_shows_beside_the_tree", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
   const parts = ["fixture.vhdr", "fixture.eeg", "fixture.vmrk"].map((name) => ({
     name,
     base64: readFileSync(fixturePath(name)).toString("base64"),
   }));
-  const writable = await page.evaluate(async (files) => {
-    if (!("createWritable" in FileSystemFileHandle.prototype)) return false;
+  await page.evaluate(async (files) => {
     const folder = await (await navigator.storage.getDirectory()).getDirectoryHandle("vanishing", {
       create: true,
     });
@@ -294,9 +301,7 @@ test("open_error_shows_beside_the_tree", async ({ page }) => {
       await stream.close();
     }
     Object.assign(window, { showDirectoryPicker: async () => folder });
-    return true;
   }, parts);
-  test.skip(!writable, "this browser cannot write to its private file system");
   await page.getByRole("button", { name: "Open folder" }).click();
   const folder = page.getByRole("region", { name: /^Folder/ });
   const row = folder.getByRole("treeitem", { name: "fixture.vhdr" });
@@ -345,6 +350,7 @@ test("walk_shows_its_count_and_cancels", async ({ page }) => {
 // more than 200 ms at a time.
 test("walk_of_5000_files_keeps_the_page_responsive", async ({ page }) => {
   test.setTimeout(180_000);
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
   const made = await page.evaluate(async () => {
     const big = await (await navigator.storage.getDirectory()).getDirectoryHandle("big", { create: true });
     const top = ["dataset_description.json", "participants.tsv"];

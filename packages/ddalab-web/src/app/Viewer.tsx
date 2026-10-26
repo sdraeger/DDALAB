@@ -131,7 +131,7 @@ function ScaleChoices({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   // A resize across a width of Shell.module.css moves the settings back into the bar: the popover closes.
   useEffect(() => {
-    const queries = ["(width < 1400px)", "(width < 1600px)"].map((query) => matchMedia(query));
+    const queries = ["(width < 1440px)", "(width < 1600px)"].map((query) => matchMedia(query));
     const close = () => setOpen(false);
     for (const query of queries) query.addEventListener("change", close);
     return () => {
