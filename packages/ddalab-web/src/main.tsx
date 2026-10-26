@@ -6,6 +6,7 @@ import { preconnect } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { App } from "./app/App";
 import { sweepAnalyses } from "./app/analyses";
+import { sweepSpool } from "./app/download";
 import { engine, openInput, openSynthetic, refreshRecent } from "./app/recordings";
 import { flushTabs, restoreTabs } from "./app/tabs";
 import { registerWorker } from "./app/update";
@@ -42,6 +43,7 @@ if (location.search.includes("openneuro=")) {
 }
 void refreshRecent();
 const listed = sweepAnalyses();
+void sweepSpool();
 // Batches cut short by the last visit read as interrupted; their chunk is the history's.
 void import("./app/batch").then((batch) => batch.sweepBatches()).catch(() => {});
 restoreSession(listed);
