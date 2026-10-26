@@ -491,3 +491,38 @@ test("webgl_program_failure_message", async ({ page }) => {
   );
   await expect(page.getByRole("heading", { name: "fixture.edf" })).toBeVisible();
 });
+
+// The viewer is a chunk of its own: the start screen goes without it, and the plots come in the same commit as the
+// rest of the recording's workspace, with no fallback in between.
+test("viewer_chunk_comes_with_the_first_recording", async ({ page }) => {
+  const viewer = /\/src\/app\/Viewer\.tsx|\/assets\/Viewer-/;
+  const asked: string[] = [];
+  page.on("request", (request) => asked.push(request.url()));
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "OpenNeuro" })).toBeVisible();
+  expect(asked.filter((url) => viewer.test(url))).toEqual([]);
+  await page.evaluate(() => {
+    const batches: string[][] = [];
+    Object.assign(window, { batches });
+    new MutationObserver((records) => {
+      const added = records.flatMap((record) => [...record.addedNodes]);
+      const found = added.flatMap((node) =>
+        node instanceof Element
+          ? [node, ...node.querySelectorAll("*")].flatMap((element) =>
+              element.matches("canvas[data-traces]")
+                ? ["traces"]
+                : element.matches("h2") && element.textContent === "fixture.edf"
+                  ? ["heading"]
+                  : [],
+            )
+          : [],
+      );
+      if (found.length > 0) batches.push(found);
+    }).observe(document.body, { childList: true, subtree: true });
+  });
+  await openFixture(page);
+  await expect(page.locator("canvas[data-traces]")).toHaveCount(1);
+  expect(asked.filter((url) => viewer.test(url)).length).toBeGreaterThan(0);
+  const batches = await page.evaluate(() => (window as unknown as { batches: string[][] }).batches);
+  expect(batches[0]).toEqual(expect.arrayContaining(["heading", "traces"]));
+});
