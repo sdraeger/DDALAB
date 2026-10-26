@@ -207,6 +207,25 @@ test("a_project_opens_elsewhere_as_it_was_exported", async ({ page, browser }) =
   expect(await workspace(other)).toEqual(before);
   expect(await bundle(other, id)).toEqual(stored);
 
+  // Opened again, it adds nothing twice: the same tabs, annotations and result. The library says Opening until it is.
+  await other.evaluate(() => {
+    const opened = new Promise<void>((resolve) => {
+      let seen = false;
+      new MutationObserver((_, observer) => {
+        const shown = [...document.querySelectorAll("p[aria-live]")].some((p) => p.textContent === "Opening");
+        seen ||= shown;
+        if (seen && !shown) {
+          observer.disconnect();
+          resolve();
+        }
+      }).observe(document.body, { subtree: true, childList: true, characterData: true });
+    });
+    Object.assign(window, { opened });
+  });
+  await other.getByLabel("Recording files").setInputFiles(path);
+  await other.evaluate(() => (window as unknown as { opened: Promise<void> }).opened);
+  expect(await workspace(other)).toEqual(before);
+
   // A reload finds the tabs detached; choosing the same project reattaches both.
   await other.reload();
   await expect(tabsOf(other)).toHaveCount(2);
