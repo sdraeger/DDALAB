@@ -1,0 +1,392 @@
+/* The result under the waveform: a bar with the variant tabs, facts and color bar over a grid of the waveform's
+   gutter and plot columns, which reserves the waveform scroller's scrollbar gutter: both time axes align. */
+.result {
+  --gutter: 76px;
+  --axis: 22px;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  border-top: var(--hairline-width) solid var(--hairline);
+  background: var(--ground);
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 36px;
+  padding: 0 var(--space-2) 0 var(--space-3);
+  border-bottom: var(--hairline-width) solid var(--hairline);
+  background: var(--chrome);
+  white-space: nowrap;
+  container: bar / inline-size;
+}
+
+/* A narrow bar drops the variant's long name: its tab names it already. */
+@container bar (width < 860px) {
+  .name {
+    display: none;
+  }
+}
+
+.tabs {
+  display: flex;
+  align-self: flex-end;
+  gap: 2px;
+}
+
+.tab {
+  height: 30px;
+  margin-bottom: -1px;
+  padding: 0 var(--space-3);
+  border: var(--hairline-width) solid transparent;
+  border-bottom: 0;
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--text-small);
+  font-variant-caps: all-small-caps;
+  font-weight: var(--weight-strong);
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition-property: color, background-color, border-color;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .tab:hover {
+    color: var(--ink);
+  }
+}
+
+.tab[data-active] {
+  border-color: var(--hairline);
+  background: var(--ground);
+  color: var(--ink);
+  box-shadow: inset 0 2px var(--primary);
+}
+
+.toggles {
+  display: flex;
+}
+
+.toggle {
+  height: 24px;
+  margin-left: -1px;
+  padding: 0 var(--space-2);
+  border: var(--hairline-width) solid var(--hairline);
+  background: var(--ground);
+  color: var(--muted);
+  font-size: var(--text-small);
+  cursor: pointer;
+  transition-property: color, background-color, border-color;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
+}
+
+.toggle:first-child {
+  margin-left: 0;
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+
+.toggle:last-child {
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.toggle[data-pressed] {
+  position: relative;
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-ink);
+}
+
+/* The variant's name gives way first when the bar is narrow. */
+.facts {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.facts > span {
+  flex: none;
+}
+
+.facts b {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-weight: var(--weight-strong);
+  text-overflow: ellipsis;
+}
+
+/* A thin rule between inline facts. */
+.thin {
+  flex: none;
+  width: var(--hairline-width);
+  height: 12px;
+  background: var(--hairline);
+}
+
+.colorBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+  font-size: var(--text-small);
+}
+
+.colorBar b {
+  font-weight: var(--weight-strong);
+}
+
+.colorBar small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.ramp {
+  width: 128px;
+  height: 10px;
+  border: var(--hairline-width) solid var(--hairline);
+}
+
+.panel {
+  display: grid;
+  grid-template-columns: var(--gutter) minmax(0, 1fr);
+  overflow-y: hidden;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  outline-offset: -2px;
+}
+
+/* Rows of 24 px up to a third of the window; past that the rows share the height. */
+.gutter,
+.plot {
+  height: clamp(56px, calc(var(--rows) * 24px), 32vh);
+}
+
+.gutter {
+  position: relative;
+  overflow: hidden;
+  border-right: var(--hairline-width) solid var(--hairline);
+}
+
+.gutterRow {
+  position: absolute;
+  right: 0;
+  left: 0;
+  display: flex;
+  justify-content: flex-end;
+  container-type: size;
+}
+
+.rowButton {
+  flex: 1;
+  min-width: 0;
+  padding: 0 6px 0 var(--space-1);
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--text-small);
+  font-weight: var(--weight-medium);
+  line-height: 1;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition-property: color;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .rowButton:hover {
+    color: var(--ink);
+  }
+}
+
+/* The plotted row: primary and heavier, the weight carrying it where color cannot. */
+.rowButton[aria-pressed="true"] {
+  color: var(--primary);
+  font-weight: var(--weight-strong);
+}
+
+.rowButton:focus-visible {
+  outline-offset: -2px;
+}
+
+/* Rows too short for a label keep their tint only. */
+@container (height < 12px) {
+  .rowButton {
+    color: transparent;
+  }
+}
+
+/* The electrode group's tint, a 4 px bar beside the row, as in the waveform's gutter; a pair across two groups
+   splits it. */
+.tint {
+  flex: none;
+  width: 4px;
+  margin: 1px 0;
+}
+
+@container (height < 4px) {
+  .tint {
+    margin: 0;
+  }
+}
+
+.plot {
+  position: relative;
+  overflow: hidden;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.plot[data-dragging="pan"] {
+  cursor: grabbing;
+}
+
+.plot[data-dragging="select"] {
+  cursor: col-resize;
+}
+
+.layer {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.message {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  color: var(--muted);
+  text-align: center;
+}
+
+.problem {
+  position: absolute;
+  z-index: 1;
+  top: var(--space-2);
+  left: var(--space-2);
+  max-width: 60ch;
+  padding: var(--space-1) var(--space-2);
+  border: var(--hairline-width) solid var(--event);
+  border-radius: var(--radius);
+  background: var(--ground);
+  color: var(--event);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+/* What the pointer is over: row, window center and value, separated by thin rules. */
+.readout {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-small);
+  background: var(--ink);
+  color: var(--ground);
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.readout[hidden] {
+  display: none;
+}
+
+.readout > span {
+  padding-left: 6px;
+  border-left: var(--hairline-width) solid color-mix(in srgb, var(--ground) 35%, transparent);
+}
+
+.rowGutter {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: var(--space-1) 10px var(--space-1) var(--space-1);
+  border-top: var(--hairline-width) solid var(--hairline);
+  border-right: var(--hairline-width) solid var(--hairline);
+  text-align: right;
+}
+
+.rowLabel {
+  overflow: hidden;
+  color: var(--primary);
+  font-size: var(--text-small);
+  font-weight: var(--weight-strong);
+  line-height: var(--leading-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scale {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 14px;
+}
+
+.rowCell {
+  border-top: var(--hairline-width) solid var(--hairline);
+}
+
+.rowCanvas {
+  display: block;
+  width: 100%;
+}
+
+/* The time axis under the heatmap and the row plot (axis.ts drawTimeAxis): its hairline on top, as in the sketch. */
+.unit {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: var(--space-2);
+  border-top: var(--hairline-width) solid var(--hairline);
+  border-right: var(--hairline-width) solid var(--hairline);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.axis {
+  display: block;
+  width: 100%;
+  height: var(--axis);
+}
+
+/* Read by screen readers only: the keyboard readout. */
+.spoken {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.failed {
+  padding: var(--space-3);
+  color: var(--event);
+  font-size: var(--text-small);
+}

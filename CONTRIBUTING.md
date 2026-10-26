@@ -20,7 +20,7 @@ We embrace the use of **Large Language Models (LLMs)** and AI coding assistants 
 
 - **Check the Issue Tracker:** See if the bug has already been reported.
 - **Provide Context:** Include your Operating System, DDALAB version, and the type of data you were processing (e.g., EDF, BIDS).
-- **Provide Logs:** You can find diagnostic logs in the app under **Settings → Debug Information**.
+- **Provide Logs:** For the web app, include the browser console output and the browser name and version. For the CLI, include the output of `ddalab -vv`.
 
 ### Pull Requests
 
@@ -28,10 +28,10 @@ We embrace the use of **Large Language Models (LLMs)** and AI coding assistants 
 2. **Setup the environment** as described in the `README.md`.
 3. **Follow the architecture:**
 
-- Desktop application, CLI, and Python runtime changes belong in `packages/ddalab`.
-- Computational changes belong in `packages/dda-rs`.
+- Web application changes belong in `packages/ddalab-web`.
+- Computational, reader, and CLI changes belong in `packages/dda-rs`. The browser runs the same crate through `packages/ddalab-wasm`.
 
-4. **Update documentation:** If you add a feature, please update the relevant documentation in the `docs/` folder.
+4. **Update documentation:** If you add a feature, please update the relevant documentation in the `README.md` of the package you changed.
 
 ## Style & Formatting Guidelines
 
@@ -42,10 +42,9 @@ For Rust changes, run:
 
 ## Development Workflow
 
-### Desktop GUI
+### Web application
 
-The active desktop application is the Qt shell inside the unified Python package.
-`cd packages/ddalab && ./start.sh`
+`cd packages/ddalab-web && npm ci && npm run dev`
 
 ### Backend (Rust)
 

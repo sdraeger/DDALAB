@@ -1,0 +1,95 @@
+/* The OpenNeuro section of the library rail; its lists and notes use the rail's own classes. */
+
+/* Browsers without the search element would set it inline. */
+.search {
+  display: block;
+}
+
+/* The status lines under the field take no room while empty. */
+.status {
+  overflow-wrap: anywhere;
+}
+
+.status:not(:empty) {
+  margin-top: var(--space-2);
+}
+
+.field {
+  width: 100%;
+  height: 28px;
+  padding: 0 var(--space-2);
+  border: var(--hairline-width) solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--ground);
+}
+
+.field::placeholder {
+  color: var(--muted);
+}
+
+/* Long BIDS names wrap anywhere: their run number sits at the end. */
+.name {
+  overflow-wrap: anywhere;
+}
+
+.wrap {
+  flex-wrap: wrap;
+}
+
+/* The path from the results to this folder. */
+.trail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--space-1);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+  overflow-wrap: anywhere;
+}
+
+.trailItem {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.slash {
+  color: var(--muted);
+}
+
+/* The underline is always drawn, in a transparent color that turns visible on hover. */
+.step {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--primary);
+  text-align: left;
+  text-decoration: underline transparent;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  transition-property: text-decoration-color;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .step:hover {
+    text-decoration-color: currentColor;
+  }
+}
+
+.folder {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.folder svg {
+  flex: none;
+  block-size: 1cap;
+  inline-size: auto;
+  color: var(--muted);
+  stroke-width: 2;
+}

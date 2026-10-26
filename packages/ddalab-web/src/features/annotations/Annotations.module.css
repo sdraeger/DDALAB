@@ -1,0 +1,309 @@
+/* Annotations: the editor popover at a flag and the inspector's list, both loaded lazily (the tip over a ruler flag
+ * is in Viewer.module.css). Yours are solid ink, the file's events outlined red, in the list as on the ruler. */
+
+.editor {
+  width: 288px;
+  padding: var(--space-3);
+  border: var(--hairline-width) solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--ground);
+  color: var(--ink);
+  box-shadow: 0 6px 20px rgb(15 25 35 / 0.14);
+  transform-origin: var(--transform-origin);
+  transition:
+    opacity var(--motion-duration) var(--motion-ease),
+    transform var(--motion-duration) var(--motion-ease);
+}
+
+/* Grows out of its flag and shrinks back into it, as the other popups do (controls.module.css). */
+.editor[data-starting-style],
+.editor[data-ending-style] {
+  opacity: 0;
+  transform: scale(var(--motion-scale));
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--text-body);
+  font-weight: var(--weight-strong);
+}
+
+.when {
+  color: var(--muted);
+  font-size: var(--text-small);
+  font-weight: var(--weight-regular);
+  white-space: nowrap;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.field > span,
+.field > label {
+  color: var(--muted);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+.input {
+  width: 100%;
+  height: 28px;
+  padding: 0 var(--space-2);
+  border: var(--hairline-width) solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--ground);
+}
+
+.input::placeholder {
+  color: var(--muted);
+}
+
+.times {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+}
+
+.error {
+  color: var(--event);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.hint {
+  flex: 1;
+  color: var(--muted);
+  font-size: var(--text-small);
+  white-space: nowrap;
+}
+
+.delete {
+  margin-left: calc(-1 * var(--space-2));
+  color: var(--event);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+}
+
+.facts dt {
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.facts dd {
+  overflow-wrap: anywhere;
+}
+
+/* The label suggestions, in the editor under the field: at most five rows, then they scroll. */
+.suggestionList {
+  max-height: calc(5 * 24px + 2 * var(--space-1));
+  margin-top: calc(-1 * var(--space-1));
+  padding: var(--space-1) 0;
+  overflow-y: auto;
+  border: var(--hairline-width) solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--ground);
+  color: var(--ink);
+}
+
+/* Read by screen readers only: how many suggestions there are. */
+.spoken {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.suggestion {
+  padding: 3px var(--space-2);
+  cursor: default;
+  user-select: none;
+  outline: 0;
+}
+
+.suggestion[data-highlighted] {
+  background: var(--primary);
+  color: var(--primary-ink);
+}
+
+/* The inspector section, between the channels and the DDA settings. */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: var(--hairline-width) solid var(--hairline);
+}
+
+.heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: var(--text-body);
+  font-weight: var(--weight-strong);
+}
+
+.count {
+  color: var(--muted);
+  font-size: var(--text-small);
+  font-weight: var(--weight-regular);
+}
+
+.empty {
+  color: var(--muted);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+.tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.filter {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 var(--space-2);
+  border: var(--hairline-width) solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--ground);
+}
+
+.filter::placeholder {
+  color: var(--muted);
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-small);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.toggle input {
+  margin: 0;
+}
+
+.list {
+  position: relative;
+  max-height: 240px;
+  margin: 0 calc(-1 * var(--space-4));
+  overflow-y: auto;
+}
+
+.row {
+  position: relative;
+}
+
+.rowButton {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "flag label source"
+    ". time time";
+  align-items: baseline;
+  column-gap: var(--space-2);
+  width: 100%;
+  padding: 6px var(--space-4) 8px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--motion-duration) var(--motion-ease);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .rowButton:hover {
+    background: var(--chrome-hover);
+  }
+}
+
+.rowButton:focus-visible {
+  outline-offset: -2px;
+}
+
+/* The picked annotation: a wash and a hairline ring, as the ring on its ruler flag. */
+.row[data-picked] .rowButton {
+  background: var(--primary-wash);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+/* The flag's shape, as on the ruler: solid ink for yours, outlined red for the file's. */
+.flag {
+  grid-area: flag;
+  block-size: 1cap;
+  inline-size: 1cap;
+  border-radius: 1px;
+  background: var(--ink);
+}
+
+.flag:not([data-user]) {
+  border: 1.5px solid var(--event);
+  background: var(--ground);
+}
+
+.rowLabel {
+  grid-area: label;
+  overflow: hidden;
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source {
+  grid-area: source;
+  max-width: 12ch;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--text-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.time {
+  grid-area: time;
+  color: var(--muted);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+.use {
+  position: absolute;
+  right: var(--space-2);
+  bottom: 2px;
+  height: 24px;
+  font-size: var(--text-small);
+}
+
+.export {
+  align-self: flex-start;
+}

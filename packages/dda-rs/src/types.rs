@@ -228,7 +228,10 @@ impl DDAResult {
             raw_output: None,
             window_parameters,
             delay_parameters,
+            #[cfg(not(target_arch = "wasm32"))]
             created_at: chrono::Utc::now().to_rfc3339(),
+            #[cfg(target_arch = "wasm32")]
+            created_at: String::new(),
             error_values: None,
             engine_notes: Vec::new(),
         }

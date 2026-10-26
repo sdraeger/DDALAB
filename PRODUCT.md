@@ -1,9 +1,5 @@
 # DDALAB Product
 
-## Register
-
-product
-
 ## Users
 
 DDALAB is an integrated workbench for clinicians and physiological-data
@@ -14,19 +10,19 @@ interpret outputs, and preserve reproducible analysis artifacts.
 
 The application keeps data navigation, waveform inspection, DDA configuration,
 execution, synchronized result visualization, and export in one controllable
-desktop workflow. The recording and its outputs remain the primary workspace;
+browser workflow. The recording and its outputs remain the primary workspace;
 configuration supports the task without dominating it.
 
 ## Brand Personality
 
 Precise, calm, and capable. DDALAB should feel like a dependable scientific
-instrument rather than a generic desktop form or a web dashboard.
+instrument rather than a generic form or a dashboard.
 
 ## Anti-references
 
 - Dense walls of permanently visible controls.
 - Nested cards and group boxes around every section.
-- Platform-default Qt Widgets styling.
+- Default browser form styling.
 - Browser-style application state split between presentation components.
 - Decorative clinical imagery or color conventions.
 
@@ -34,12 +30,12 @@ instrument rather than a generic desktop form or a web dashboard.
 
 1. Keep data and results visually dominant.
 2. Reveal advanced controls when they are relevant.
-3. Preserve one authoritative Python state model.
+3. Preserve one authoritative state model.
 4. Keep interactions predictable, keyboard-accessible, and reversible.
 5. Make performance and analysis provenance visible without adding clutter.
 
 ## Accessibility & Inclusion
 
-Use WCAG AA principles as a practical desktop target: sufficient contrast,
+Use WCAG AA principles as a practical target: sufficient contrast,
 visible focus, complete keyboard operation, non-color status cues, scalable
 text, and layouts that remain usable with display scaling.

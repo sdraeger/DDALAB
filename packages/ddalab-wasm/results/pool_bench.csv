@@ -1,0 +1,15 @@
+case,variant,channels,window_step,budget_mb,cache_mb,blocks,workers,wall_s,peak_rss_mb,worker_wasm_mb,native_cli_wall_s,outputs_identical
+ST_32ch_64MiB_cache64,ST,32,200,64,64,15,17,2.22,1677,100,2.96,true
+ST_128ch_64MiB_cache64,ST,128,200,64,64,60,17,9.82,3038,164,11.15,true
+CT_16ch_64MiB_cache64,CT,16,200,64,64,11,17,11.20,1070,81,12.71,true
+ST_32ch_16MiB_cache64,ST,32,200,16,64,60,17,1.88,1189,63,2.92,true
+ST_128ch_16MiB_cache64,ST,128,200,16,64,250,17,7.30,2277,117,12.31,true
+CT_16ch_16MiB_cache64,CT,16,200,16,64,44,17,8.49,938,48,12.67,true
+ST_32ch_64MiB_cache8,ST,32,200,64,8,15,17,2.32,1488,86,2.84,true
+ST_128ch_64MiB_cache8,ST,128,200,64,8,60,17,8.11,2117,108,10.87,true
+CT_16ch_64MiB_cache8,CT,16,200,64,8,11,17,10.62,970,69,12.57,true
+ST_32ch_16MiB_cache8,ST,32,200,16,8,60,17,1.79,867,39,2.89,true
+ST_128ch_16MiB_cache8,ST,128,200,16,8,250,17,6.49,1327,61,12.13,true
+CT_16ch_16MiB_cache8,CT,16,200,16,8,44,17,8.26,808,32,12.45,true
+ST_4ch_WS1_16MiB_cache8,ST,4,1,16,8,111,17,45.45,820,39,126.59,true
+CT_128ch_16MiB_cache8,CT,128,200,16,8,1385,17,502.91,1212,53,787.57,true

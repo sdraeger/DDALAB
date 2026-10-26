@@ -1,0 +1,85 @@
+// The export panel of a complete result: the bundle as a zip, the JSON result document, or one variant's Q values as
+// CSV, each a plain row, named after the recording as the CLI names its bundle. The IO worker builds the document and
+// the CSV.
+import { Popover } from "@base-ui/react/popover";
+import { useState } from "react";
+import { download, type Saveable } from "../../app/download";
+import { engine } from "../../app/recordings";
+import { bundleZip } from "../../core/exporters";
+import type { AnalysisRecord } from "../../core/history";
+import styles from "./History.module.css";
+
+export default function ExportDialog({ record }: { record: AnalysisRecord }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const stem = record.fileName.replace(/\.[^.]*$/, "");
+  const variants = record.manifest?.variants.map((v) => v.id) ?? [];
+
+  // The save dialog opens first (download.ts): busy starts when the file is made.
+  async function save(name: string, make: () => Promise<Saveable>) {
+    setError(null);
+    try {
+      await download(name, () => {
+        setBusy(true);
+        return make();
+      });
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setBusy(false);
+    }
+  }
+  const zip = () => bundleZip(record.id);
+
+  return (
+    <div className={styles.export} data-appear>
+      <Popover.Title className={styles.subheading}>Export result</Popover.Title>
+      <button
+        type="button"
+        className={styles.option}
+        disabled={busy}
+        onClick={() => save(`${stem}.dda.zip`, zip)}
+      >
+        <b>Bundle</b>
+        <span>
+          manifest.json and the .npy arrays in a zip, as{" "}
+          <span className={styles.flag}>ddalab run --bundle</span> writes them
+        </span>
+      </button>
+      <button
+        type="button"
+        className={styles.option}
+        disabled={busy}
+        onClick={() => save(`${stem}.dda.json`, () => engine.exportDocument(record.id))}
+      >
+        <b>Document</b>
+        <span>
+          One JSON file with the matrices inline, as <span className={styles.flag}>ddalab run --output</span>{" "}
+          writes it
+        </span>
+      </button>
+      {variants.map((variant) => (
+        <button
+          key={variant}
+          type="button"
+          className={styles.option}
+          disabled={busy}
+          onClick={() => save(`${stem}.${variant}.csv`, () => engine.exportCsv(record.id, variant))}
+        >
+          <b>CSV of {variant}</b>
+          <span>The Q values of {variant}, a window per line</span>
+        </button>
+      ))}
+      {busy && (
+        <p className={styles.note} aria-live="polite">
+          Preparing the file
+        </p>
+      )}
+      {error && (
+        <p role="alert" className={styles.error}>
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}

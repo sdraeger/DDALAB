@@ -1,0 +1,312 @@
+.overview,
+.waveforms {
+  --gutter: 76px;
+  --ruler: 22px;
+}
+
+/* The overview reserves the scrollbar gutter of the waveform scroller below it: both time axes align. */
+.overview {
+  position: relative;
+  display: grid;
+  flex: none;
+  grid-template-columns: var(--gutter) minmax(0, 1fr);
+  height: 64px;
+  overflow-y: hidden;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  border-bottom: var(--hairline-width) solid var(--hairline);
+  background: var(--ground);
+}
+
+.overviewLabel {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 var(--space-3);
+  border-right: var(--hairline-width) solid var(--hairline);
+  font-size: var(--text-small);
+  font-weight: var(--weight-strong);
+  line-height: var(--leading-small);
+}
+
+.muted {
+  color: var(--muted);
+  font-weight: var(--weight-regular);
+}
+
+.strip {
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.stripCanvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* The locator: the part of the recording on screen. It follows the view at once, as the traces do. */
+.outline {
+  position: absolute;
+  top: 16px;
+  bottom: 2px;
+  left: 0;
+  border: 1.5px solid var(--ink);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  pointer-events: none;
+}
+
+.tab {
+  position: absolute;
+  top: -16px;
+  left: 0;
+  height: 15px;
+  padding: 0 6px;
+  border-radius: 2px;
+  background: var(--ink);
+  color: var(--ground);
+  font-size: 11px;
+  font-weight: var(--weight-strong);
+  line-height: 15px;
+  white-space: nowrap;
+}
+
+.waveforms {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  outline-offset: -2px;
+}
+
+/* The gutter is always reserved: a scrollbar appearing would resize the plot it scrolls. */
+.scroller {
+  flex: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+.sticky {
+  position: sticky;
+  top: 0;
+  display: grid;
+  height: 100%;
+  grid-template-columns: var(--gutter) minmax(0, 1fr);
+  grid-template-rows: var(--ruler) minmax(0, 1fr) auto;
+}
+
+.unit {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: var(--space-2);
+  border-right: var(--hairline-width) solid var(--hairline);
+  border-bottom: var(--hairline-width) solid var(--hairline);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.ruler {
+  display: block;
+  width: 100%;
+  height: var(--ruler);
+}
+
+.gutter {
+  position: relative;
+  overflow: hidden;
+  border-right: var(--hairline-width) solid var(--hairline);
+  background: var(--ground);
+}
+
+.gutterRow {
+  position: absolute;
+  right: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.gutterLabel {
+  overflow: hidden;
+  font-size: var(--text-small);
+  font-weight: var(--weight-medium);
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A channel chosen for analysis: primary and heavier, the weight carrying it where color cannot. */
+.gutterLabel[data-chosen] {
+  color: var(--primary);
+  font-weight: var(--weight-strong);
+}
+
+/* Read by screen readers only. */
+.spoken {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* The electrode group's tint, a 4 px bar beside its rows. */
+.tint {
+  flex: none;
+  align-self: stretch;
+  width: 4px;
+  margin: 1px 0;
+}
+
+.plot {
+  position: relative;
+  overflow: hidden;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.plot[data-dragging="pan"] {
+  cursor: grabbing;
+}
+
+.plot[data-dragging="select"] {
+  cursor: col-resize;
+}
+
+.layer {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.glMissing {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-6);
+  color: var(--muted);
+  text-align: center;
+}
+
+/* The printed scale: physical bars and the scale settings, in a band of its own under the last trace. */
+.readouts {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-3) var(--space-1) calc(var(--gutter) + var(--space-2));
+  border-top: var(--hairline-width) solid var(--hairline);
+  background: var(--ground);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+  pointer-events: none;
+}
+
+.amplitude,
+.time {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-1);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+
+.amplitudeBar {
+  width: 2px;
+  background: var(--ink);
+}
+
+.timeBar {
+  height: 2px;
+  margin-bottom: 7px;
+  background: var(--ink);
+}
+
+.scale {
+  display: flex;
+}
+
+.scale > div {
+  padding: 0 var(--space-3);
+  border-left: var(--hairline-width) solid var(--hairline);
+}
+
+.scale > div:first-child {
+  border-left: 0;
+}
+
+.scale dt {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 14px;
+}
+
+.scale dd {
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+
+/* Why data could not be read, over the top left of the plot or the strip, until a read succeeds. */
+.problem {
+  position: absolute;
+  z-index: 1;
+  top: var(--space-2);
+  left: calc(var(--gutter) + var(--space-2));
+  max-width: 60ch;
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  border: var(--hairline-width) solid var(--event);
+  border-radius: var(--radius);
+  background: var(--ground);
+  color: var(--event);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+.plot .problem {
+  left: var(--space-2);
+}
+
+/* The full name of the annotation flag under the pointer, under the ruler (features/annotations). */
+.tip {
+  position: fixed;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  max-width: 36ch;
+  padding: 3px var(--space-2);
+  border-radius: var(--radius-small);
+  background: var(--ink);
+  color: var(--ground);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+  pointer-events: none;
+}
+
+.tip[hidden] {
+  display: none;
+}
+
+.tip b {
+  overflow-wrap: anywhere;
+  font-weight: var(--weight-strong);
+}
+
+.tip span {
+  color: color-mix(in srgb, var(--ground) 78%, var(--ink));
+}

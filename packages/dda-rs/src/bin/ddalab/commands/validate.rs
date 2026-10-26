@@ -1,8 +1,10 @@
 use crate::cli::ValidateArgs;
 use crate::exit_codes;
 use crate::output;
-use dda_rs::FileType;
+use dda_rs::io::{open_recording, FileSet};
+use dda_rs::DDAError;
 use serde::Serialize;
+use std::collections::BTreeMap;
 use std::path::Path;
 
 #[derive(Serialize)]
@@ -16,6 +18,18 @@ struct ValidateOutput {
     error: Option<String>,
 }
 
+/// Whether `open_recording` reads files named like `name`: it refuses an unknown extension before it looks at any file.
+fn supported(name: &str) -> bool {
+    let files = FileSet {
+        primary: name.to_string(),
+        files: BTreeMap::new(),
+    };
+    !matches!(
+        open_recording(&files, None),
+        Err(DDAError::UnsupportedFileType(_))
+    )
+}
+
 pub fn execute(args: ValidateArgs) -> i32 {
     let path = Path::new(&args.file);
 
@@ -23,14 +37,24 @@ pub fn execute(args: ValidateArgs) -> i32 {
     let readable = path.is_file() && std::fs::File::open(path).is_ok();
 
     let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-
-    let file_type = FileType::from_extension(extension);
-    let supported = file_type.is_some();
+    let supported = supported(&args.file);
 
     let size_bytes = if readable {
         std::fs::metadata(path).ok().map(|m| m.len())
     } else {
         None
+    };
+
+    // The file must open: its header parses and the sidecars that belong to it are found.
+    let opened = (readable && supported).then(|| {
+        FileSet::from_path(path)
+            .and_then(|files| open_recording(&files, None))
+            .map(|reader| reader.info().format.clone())
+    });
+    let (file_type, open_error) = match opened {
+        Some(Ok(format)) => (Some(format), None),
+        Some(Err(error)) => (None, Some(error)),
+        None => (None, None),
     };
 
     let error = if !exists {
@@ -39,11 +63,11 @@ pub fn execute(args: ValidateArgs) -> i32 {
         Some(format!("File is not readable: {}", args.file))
     } else if !supported {
         Some(format!(
-            "Unsupported file extension '{}'. Supported: edf, ascii, txt, csv",
+            "Unsupported file extension '{}'. Supported: edf, bdf, vhdr, txt, csv, tsv, ascii, dat",
             extension
         ))
     } else {
-        None
+        open_error.map(|error| format!("Could not open {}: {}", args.file, error))
     };
 
     let result = ValidateOutput {
@@ -51,7 +75,7 @@ pub fn execute(args: ValidateArgs) -> i32 {
         exists,
         readable,
         supported,
-        file_type: file_type.map(|ft| format!("{:?}", ft)),
+        file_type,
         size_bytes,
         error,
     };
@@ -67,7 +91,7 @@ pub fn execute(args: ValidateArgs) -> i32 {
         println!(
             "File '{}' is valid ({}, {} bytes)",
             result.file,
-            file_type.map(|ft| format!("{:?}", ft)).unwrap_or_default(),
+            result.file_type.as_deref().unwrap_or_default(),
             size_bytes.unwrap_or(0)
         );
     }

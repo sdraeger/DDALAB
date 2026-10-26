@@ -1,0 +1,99 @@
+/* Element defaults on the tokens: the parts of the page no component draws still carry the design. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--chrome);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: var(--numerals);
+  accent-color: var(--primary);
+  caret-color: var(--primary);
+  scrollbar-color: var(--hairline) transparent;
+}
+
+::selection {
+  background: var(--primary);
+  color: var(--primary-ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+h1,
+h2,
+h3,
+p,
+ul,
+dl,
+dd {
+  margin: 0;
+}
+
+ul {
+  padding: 0;
+  list-style: none;
+}
+
+a {
+  color: var(--primary);
+  text-underline-offset: 2px;
+}
+
+/* What appears in place fades in and rises: alerts, status lines and the panels marked data-appear, when they mount
+   or come out of `hidden`. No specificity: a component that lists its own transitions names opacity and transform,
+   and an element marked so sets neither opacity nor transform in its own rules, or it loses its entrance. Inside a
+   view transition (viewTransition.ts) nothing rises: the page crossfades as a whole. */
+:where([role="alert"], [role="status"], [aria-live], [data-appear]) {
+  transition-property: opacity, transform;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
+}
+
+@starting-style {
+  :where(:root:not([data-view-transition]) :is([role="alert"], [role="status"], [aria-live], [data-appear])) {
+    opacity: 0;
+    transform: translateY(var(--motion-rise));
+  }
+}
+
+/* Panels opening and closing, results shown and closed and the theme switch crossfade the whole page
+   (viewTransition.ts); the canvases redraw inside it. */
+::view-transition-group(root),
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--motion-duration);
+  animation-timing-function: var(--motion-ease);
+}
+
+/* A contrast theme replaces the fills and borders some controls mark focus and the highlighted option with. */
+@media (forced-colors: active) {
+  :focus-visible,
+  [data-highlighted] {
+    /* biome-ignore lint/complexity/noImportantStyles: it must win over each component's outline: 0 */
+    outline: 2px solid Highlight !important;
+    outline-offset: -2px;
+  }
+}

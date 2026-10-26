@@ -1,0 +1,315 @@
+/* The history's additions to the library rail, the import drop target, the provenance and the export panel. */
+
+.results {
+  transition-property: opacity;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
+}
+
+.results[data-stale] {
+  opacity: 0.6;
+}
+
+.failed,
+.error {
+  color: var(--event);
+}
+
+.search {
+  height: 28px;
+  padding: 0 var(--space-2);
+  border: var(--hairline-width) solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--ground);
+}
+
+.search::placeholder {
+  color: var(--muted);
+}
+
+/* A drop target that shows itself only while something is dragged over it: its frame and wash fade in. It does not
+   rise, which would move it under the pointer. */
+.import {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-1) calc(-1 * var(--space-2)) 0;
+  padding: var(--space-2);
+  border: var(--hairline-width) dashed transparent;
+  border-radius: var(--radius);
+  transition-property: border-color, background-color;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
+}
+
+.import[data-over] {
+  border-color: var(--primary);
+  background: var(--primary-wash);
+}
+
+/* A result view that could not be shown, in place of it. */
+.failure {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+}
+
+.provenance {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-bottom: var(--hairline-width) solid var(--hairline);
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--text-section);
+  font-weight: var(--weight-strong);
+  line-height: 1.3;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* Delete stands alone at the far end, past a hairline, in the event tone. */
+/* The hairline and Delete wrap as one. */
+.end {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: auto;
+}
+
+.divider {
+  width: var(--hairline-width);
+  height: 16px;
+  background: var(--hairline);
+}
+
+.actions .delete {
+  color: var(--event);
+}
+
+.confirm {
+  margin-right: var(--space-1);
+}
+
+/* Labels in a column of their own, as in the DDA settings; space separates the rows. */
+.fields {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: var(--space-1) var(--space-2);
+}
+
+.fields dt {
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.fields dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.subheading {
+  margin: var(--space-1) 0 0;
+  color: var(--muted);
+  font-size: var(--text-small);
+  font-weight: var(--weight-strong);
+  font-variant-caps: all-small-caps;
+  letter-spacing: 0.06em;
+}
+
+.note,
+.diagnostics,
+.error {
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+.note {
+  color: var(--muted);
+}
+
+.diagnostics {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  color: var(--event);
+}
+
+.files {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.files li {
+  display: flex;
+  flex-direction: column;
+}
+
+.fileName {
+  font-weight: var(--weight-medium);
+}
+
+/* Digests and the command are data to compare and copy: monospace, wrapped anywhere. */
+.digest,
+.command {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+  overflow-wrap: anywhere;
+}
+
+.digest {
+  color: var(--muted);
+}
+
+.command {
+  margin: 0;
+  padding: var(--space-2);
+  border: var(--hairline-width) solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--ground);
+  white-space: pre-wrap;
+  user-select: all;
+}
+
+.copy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.export {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* An export: a plain row, its text in line with the title above, a wash under the pointer. */
+.option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: calc(100% + 2 * var(--space-2));
+  margin: 0 calc(-1 * var(--space-2));
+  padding: var(--space-2);
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition-property: background-color, opacity;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .option:hover:not(:disabled) {
+    background: var(--chrome-hover);
+  }
+}
+
+.option:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.option b {
+  font-weight: var(--weight-strong);
+}
+
+.option span {
+  color: var(--muted);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+/* A CLI command stays whole: a line breaks around it. */
+.option .flag {
+  white-space: nowrap;
+}
+
+/* A batch: its row opens to show its results, indented under it, its failures, the export and Resume. */
+.batchName {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.chevron {
+  flex: none;
+  block-size: 1cap;
+  inline-size: auto;
+  color: var(--muted);
+  stroke-width: 2.5;
+  transition: transform var(--motion-duration) var(--motion-ease);
+}
+
+[aria-expanded="true"] > .batchName .chevron {
+  transform: rotate(90deg);
+}
+
+/* The lines under a batch's name start under the name, past its chevron. */
+.indent,
+.settingsLine {
+  padding-left: calc(1cap + var(--space-1));
+}
+
+.settingsLine {
+  color: var(--muted);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+.batchBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-1) 0 var(--space-2) var(--space-4);
+}
+
+.batchBody > .actions,
+.batchBody > .note,
+.batchBody > .error {
+  padding-left: var(--space-2);
+}
+
+.failures {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+.failures li {
+  display: flex;
+  flex-direction: column;
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chevron {
+    transition: none;
+  }
+}

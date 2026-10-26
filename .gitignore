@@ -31,6 +31,7 @@ deployments/*/
 *.db-wal
 *.edf
 *.npy
+!/packages/dda-rs/tests/fixtures/**
 *.pem
 
 .coverage
@@ -110,7 +111,6 @@ CLAUDE.md
 
 data/
 !packages/ddalab-tauri/src/data/
-paper/
 website/
 packages/dda-cli/target/
 
@@ -121,12 +121,11 @@ DDA_Intro
 # External package repositories kept as local checkouts only.
 /packages/dda-py/
 /packages/DelayDifferentialAnalysis.jl/
-/packages/dda-rs/examples/
+/packages/dda-rs/examples/*
+!/packages/dda-rs/examples/make_fixtures.rs
+!/packages/dda-rs/examples/dump_tiles.rs
 
-# Local paper/research artifacts kept out of the DDALAB application repo.
-/ccd_paper/
-/paper/
-/paper_*/
+# Local research artifacts kept out of the DDALAB application repo.
 /figures/
 /configs/
 /results/

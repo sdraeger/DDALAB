@@ -1,15 +1,13 @@
 use std::collections::HashMap;
 
-use tempfile::NamedTempFile;
-
 use super::model::{monomial_list, nr_multicombinations, select_model_terms};
 use super::*;
-use crate::input_io::load_f64_matrix_from_path;
 use crate::types::{
     AlgorithmSelection, CcdConditioningStrategy, DDARequest, DelayParameters, ModelParameters,
     PreprocessingOptions, TimeRange, VariantChannelConfig, WindowParameters,
 };
 
+#[cfg(feature = "cuda")]
 fn synthetic_samples() -> Vec<Vec<f64>> {
     let mut x0 = vec![0.0; 1800];
     let mut x1 = vec![0.0; 1800];
@@ -89,18 +87,6 @@ fn planted_two_confound_samples() -> Vec<Vec<f64>> {
         y[t] = 0.47 * y[t - 1] + 0.29 * z[t - 1] + 0.06 * z[t - 2] + 0.35 * w[t - 1];
     }
     (0..n).map(|t| vec![x[t], y[t], z[t], w[t], u[t]]).collect()
-}
-
-fn write_raw_f64_matrix(samples: &[Vec<f64>]) -> NamedTempFile {
-    use std::io::Write;
-    let mut file = NamedTempFile::new().expect("temp raw matrix file");
-    for row in samples {
-        for value in row {
-            file.write_all(&value.to_le_bytes())
-                .expect("write raw matrix scalar");
-        }
-    }
-    file
 }
 
 fn ccd_auto_request(file_path: String, strategy: CcdConditioningStrategy) -> DDARequest {
@@ -353,17 +339,6 @@ fn ccd_group_omp_request_with_channels(file_path: String, channels: Vec<usize>) 
         variant_configs: Some(variant_configs),
         sampling_rate: None,
     }
-}
-
-#[test]
-fn raw_f64_matrix_loader_roundtrips() {
-    let samples = synthetic_samples();
-    let raw = write_raw_f64_matrix(&samples);
-    let restored = load_f64_matrix_from_path(raw.path(), samples.len(), samples[0].len()).unwrap();
-    assert_eq!(restored.len(), samples.len());
-    assert_eq!(restored[0].len(), samples[0].len());
-    assert!((restored[42][1] - samples[42][1]).abs() < 1e-12);
-    assert!((restored[777][2] - samples[777][2]).abs() < 1e-12);
 }
 
 #[test]

@@ -981,7 +981,7 @@ pub(crate) fn bic_like_score(rmse: f64, sample_count: usize, parameter_count: us
     }
     let n = sample_count as f64;
     let k = parameter_count as f64;
-    n * (rmse * rmse).ln() + k * n.ln()
+    n * libm::log(rmse * rmse) + k * libm::log(n)
 }
 
 pub(crate) fn synchronization_value(mode: u8, forward_rmse: f64, reverse_rmse: f64) -> f64 {

@@ -1,0 +1,216 @@
+/* Clipped: a panel that rises into place from below the window edge (base.css) never scrolls the page. */
+.shell {
+  --library-width: 248px;
+  --inspector-width: 304px;
+  display: grid;
+  height: 100%;
+  overflow: clip;
+  grid-template-rows: 44px minmax(0, 1fr) auto;
+  grid-template-columns: var(--library-width) minmax(0, 1fr) var(--inspector-width);
+  grid-template-areas:
+    "bar bar bar"
+    "library center inspector"
+    "notice notice notice";
+}
+
+.shell[data-library="closed"] {
+  --library-width: 0px;
+}
+
+.shell[data-inspector="closed"] {
+  --inspector-width: 0px;
+}
+
+.bar {
+  grid-area: bar;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 0 var(--space-2);
+  border-bottom: var(--hairline-width) solid var(--hairline);
+  background: var(--chrome);
+}
+
+/* The mark sits on the wordmark's baseline and spans its capitals. */
+.brand {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+/* The page's one heading, set as the bar's other text. */
+.wordmark {
+  font-size: inherit;
+  font-weight: var(--weight-strong);
+  letter-spacing: 0.02em;
+}
+
+/* The recording's name: its head elides, its tail stays whole. */
+.name {
+  display: flex;
+  min-width: 0;
+  max-width: 32ch;
+  overflow: hidden;
+  padding-left: var(--space-3);
+  border-left: var(--hairline-width) solid var(--hairline);
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.nameHead {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nameTail {
+  flex: none;
+}
+
+.grow {
+  flex: 1 1 0;
+}
+
+.view {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.paging {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.page {
+  margin-left: var(--space-2);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* The scale settings sit in the bar while it has room for them, else behind one button (ScaleChoices in Shell.tsx):
+   below 1440 px, or 1600 px with the inspector closed and the run status beside Run. Below 1024 px the wordmark and
+   the Local and Annotate labels give way to their marks. Only the recording name and the run status shrink; every
+   width depends on the window alone, and zooming moves nothing. With the inspector open and up to 9,999 pages the bar
+   needs 1385 px in Noto Sans and up to 1430 px (Firefox) in DejaVu Sans, the system-ui of the headless Ubuntu CI
+   runner. Each further page digit widens it by 16 px or more: at 1440 px in DejaVu Sans, 10,000 pages (about 27.8 h
+   at 10 s a page) overflow it by 6 px in Firefox, and 100,000 pages by 23 to 31 px in every browser. */
+.bar > button {
+  flex-shrink: 0;
+}
+
+.scales {
+  display: contents;
+}
+
+.scaleMenu {
+  display: none;
+}
+
+.scaleList {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-3);
+  width: auto;
+}
+
+@media (width < 1440px) {
+  .scales {
+    display: none;
+  }
+
+  .scaleMenu {
+    display: contents;
+  }
+}
+
+@media (width < 1600px) {
+  .shell[data-inspector="closed"] .scales {
+    display: none;
+  }
+
+  .shell[data-inspector="closed"] .scaleMenu {
+    display: contents;
+  }
+}
+
+@media (width < 1024px) {
+  .wordmark {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+/* Tabular digits (base.css) in a box of fixed width: see Digits in Shell.tsx. */
+.digits {
+  display: inline-block;
+  text-align: end;
+}
+
+.library {
+  grid-area: library;
+  min-height: 0;
+  overflow-y: auto;
+  border-right: var(--hairline-width) solid var(--hairline);
+  background: var(--chrome);
+}
+
+.center {
+  grid-area: center;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--ground);
+}
+
+.inspector {
+  grid-area: inspector;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-left: var(--hairline-width) solid var(--hairline);
+  background: var(--chrome);
+}
+
+/* A closed panel stays mounted (the library keeps listening for dropped files) but leaves the layout. */
+.shell[data-library="closed"] .library,
+.shell[data-inspector="closed"] .inspector {
+  display: none;
+}
+
+.empty {
+  margin: auto;
+  max-width: 44ch;
+  padding: var(--space-6);
+  color: var(--muted);
+  text-align: center;
+}
+
+.narrow {
+  display: none;
+}
+
+@media (width < 768px) {
+  .shell {
+    display: none;
+  }
+
+  .narrow {
+    display: block;
+    max-width: 36ch;
+    margin: 0 auto;
+    padding: var(--space-6) var(--space-4);
+    font-size: var(--text-section);
+    line-height: 1.5;
+  }
+}
