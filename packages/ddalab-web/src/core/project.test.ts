@@ -6,15 +6,18 @@ import { fileURLToPath } from "node:url";
 import { deflateRawSync } from "node:zlib";
 import { makeZip } from "client-zip";
 import { expect, test } from "vitest";
-import { unzip, zipEntries } from "./imports";
+import { PROJECT_RECORDS_LIMIT, RECORD_LIMIT, unzip, utf8, zipEntries } from "./imports";
 import {
   batchIds,
+  type Carried,
   checkProject,
   fingerprintOfFiles,
   type Kept,
+  kept,
   type Project,
   readProject,
   refusal,
+  resultsBudget,
   SCHEMA,
   sameFiles,
   verdict,
@@ -523,3 +526,38 @@ test("each_refusal_says_its_cause_and_its_next_step", () => {
       "project again.",
   );
 });
+
+// An export counts its results as an open counts them (imports.ts importResults): at the limit they go, one byte more
+// and they do not.
+test("results_at_the_project_limit_go_and_one_byte_more_does_not", async () => {
+  const record = { id: ID, fingerprint: "a".repeat(64), fileName: "a.edf", createdAt: 1 };
+  /** A manifest of exactly `bytes` bytes. */
+  const manifestOf = (bytes: number) => {
+    const of = (pad: string) =>
+      ({
+        diagnostics: [pad],
+        reproduction: { selected_channel_names: [], request: {} },
+      }) as unknown as Carried["manifest"];
+    return of("x".repeat(bytes - utf8(of(""))));
+  };
+  /** A result whose record and kept fields come to exactly `bytes`. */
+  const carried = (bytes: number): Carried => ({ manifest: manifestOf(bytes - utf8(kept(record))), record });
+  const quarter = PROJECT_RECORDS_LIMIT / 8;
+  const eight = Array.from({ length: 8 }, () => carried(quarter));
+  expect(resultsBudget(eight, [])).toEqual({ bytes: PROJECT_RECORDS_LIMIT, refused: [], fits: true });
+  const over = [...eight.slice(1), carried(quarter + 1)];
+  expect(resultsBudget(over, [])).toEqual({ bytes: PROJECT_RECORDS_LIMIT + 1, refused: [], fits: false });
+  // A batch counts 4 KiB at least, as a result does.
+  const { document } = await project();
+  const [batch] = checkProject(document, "p.ddalab").batches;
+  const room = Array.from({ length: 8 }, () => carried(quarter - 4096));
+  expect(resultsBudget(room, Array(8).fill(batch))).toMatchObject({
+    bytes: PROJECT_RECORDS_LIMIT,
+    fits: true,
+  });
+  expect(resultsBudget(room, Array(9).fill(batch))).toMatchObject({ fits: false });
+  // One record past its own bound would be refused alone, though the total fits.
+  const one = (bytes: number): Carried => ({ manifest: manifestOf(bytes), record });
+  expect(resultsBudget([one(RECORD_LIMIT)], [])).toMatchObject({ refused: [], fits: true });
+  expect(resultsBudget([one(RECORD_LIMIT + 1)], [])).toMatchObject({ refused: [0], fits: false });
+}, 60_000);

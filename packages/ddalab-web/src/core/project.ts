@@ -9,7 +9,23 @@
 import type { TabView } from "../store/tabs";
 import type { BatchRecord } from "./batch";
 import { fingerprintOf, sha256Hex } from "./fingerprint";
-import { at, isNumber, isObject, isString, type KeptRecord, listOf, optional, zipEntries } from "./imports";
+import {
+  at,
+  batchCost,
+  isNumber,
+  isObject,
+  isString,
+  type KeptRecord,
+  listOf,
+  optional,
+  PROJECT_RECORDS_LIMIT,
+  pairsWithin,
+  RECORD_LIMIT,
+  resultCost,
+  utf8,
+  zipEntries,
+} from "./imports";
+import type { ResultDocument } from "./types";
 import type { UserAnnotation } from "./userAnnotations";
 
 export const SCHEMA = "ddalab.project/1";
@@ -422,6 +438,30 @@ export function refusal(name: string, project: string, why: "differs" | "unknown
     kept.tiles && "clear cached tiles in Local data",
   ].filter((step) => typeof step === "string");
   return `${name} was not opened from ${project}: this browser keeps another ${name} with the same name, size, start and end but other contents, and the project's copy cannot be opened while yours is here. ${stays} To use the project's copy, first remove your ${name} from this browser: ${listed(remove)}. Then open the project again.`;
+}
+
+/** A result as an export carries it: its record's manifest as the history keeps it, and the record. */
+export interface Carried {
+  manifest: Omit<ResultDocument, "window_centers_seconds">;
+  record: KeptRecord;
+}
+
+/**
+ * What a project's results come to as another DDALAB counts them when it opens the project (imports.ts
+ * `importResults`), and whether it takes them: each record within RECORD_LIMIT and its channel pairs within its
+ * channels (`refused` lists, by index, the results it would refuse one by one), and the records with their kept
+ * fields and the batches, each at least ENTRY_BYTES, within PROJECT_RECORDS_LIMIT together.
+ */
+export function resultsBudget(results: Carried[], batches: ProjectBatch[]) {
+  const refused = results.flatMap(({ manifest }, i) =>
+    utf8(manifest) > RECORD_LIMIT || !pairsWithin(manifest) ? [i] : [],
+  );
+  const records = results.reduce(
+    (sum, { manifest, record }) => sum + resultCost(utf8(manifest), kept(record)),
+    0,
+  );
+  const bytes = records + batches.reduce((sum, batch) => sum + batchCost(batchOf(batch)), 0);
+  return { bytes, refused, fits: refused.length === 0 && bytes <= PROJECT_RECORDS_LIMIT };
 }
 
 /** Whether `files` have exactly the SHA-256 digests `known` holds, by file name. */
