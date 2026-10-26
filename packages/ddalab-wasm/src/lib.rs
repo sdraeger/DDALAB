@@ -12,13 +12,13 @@
 
 use dda_rs::blocks::{block_of, plan_blocks, run_block, validate_request};
 use dda_rs::document::{build_manifest, bundle_layout, encode_block};
-use dda_rs::io::{open_recording, BlockCache, ByteSource, FileSet, Reader};
+use dda_rs::io::{open_recording, BlockCache, BlockPool, ByteSource, FileSet, Reader};
 use dda_rs::tiles::{encode_tile, raw_tile, PyramidBuilder, Sha256Stream, Tile};
 use dda_rs::{DDAError, DDARequest, PureRustProgress, Result, VariantMetadata, ENGINE_VERSION};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
 #[link(wasm_import_module = "host")]
 extern "C" {
@@ -225,7 +225,8 @@ struct OpenRequest {
     primary: String,
     files: Vec<OpenFile>,
     sample_rate_hz: Option<f64>,
-    /// MiB of 4 MiB blocks cached per file: 64 when absent, at least one block.
+    /// MiB of 4 MiB blocks this instance caches for all its open files together: 64 when absent, at least one block.
+    /// Each open sets it.
     cache_mb: Option<u32>,
 }
 
@@ -236,16 +237,21 @@ struct OpenFile {
     len: u64,
 }
 
+/// The file blocks of every recording this instance holds open, under one capacity: a recording not read for a while
+/// gives way to the one being read. A closed recording's blocks go with it.
+static BLOCKS: LazyLock<Arc<BlockPool>> = LazyLock::new(|| Arc::new(BlockPool::new(16)));
+
 fn open(bytes: &[u8]) -> Result<Value> {
     let opened: OpenRequest = parse(bytes, "open")?;
-    let blocks = (opened.cache_mb.unwrap_or(64) / 4).max(1) as usize;
+    BLOCKS.set_capacity((opened.cache_mb.unwrap_or(64) / 4).max(1) as usize);
     let files = opened.files.into_iter().map(|f| {
         let source = HostFile {
             file_id: f.file_id,
             len: f.len,
             name: f.name.clone(),
         };
-        let cached: Arc<dyn ByteSource> = Arc::new(BlockCache::new(source, 4 << 20, blocks));
+        let cached: Arc<dyn ByteSource> =
+            Arc::new(BlockCache::in_pool(source, 4 << 20, BLOCKS.clone()));
         (f.name, cached)
     });
     let files = FileSet {

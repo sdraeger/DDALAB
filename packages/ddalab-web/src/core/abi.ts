@@ -19,7 +19,7 @@ export type HostRead = (fileId: number, offset: number, dst: Uint8Array) => void
 
 export interface Core {
   version(): EngineVersion;
-  /** `cacheMb` is the file cache of each file in MiB (the engine's default is 64). */
+  /** `cacheMb` is the instance's file cache in MiB, shared by all its open files; each open sets it (default 64). */
   open(input: OpenRequest, options?: { cacheMb?: number }): Opened;
   /** Also drops the pyramids built from `handle`. */
   close(handle: number): void;
