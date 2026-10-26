@@ -11,13 +11,17 @@ DDALAB runs **Delay Differential Analysis (DDA)** on neurophysiological recordin
 
 Open **<https://sdraeger.github.io/DDALAB/>**. There is nothing to install.
 
-The app opens EDF, BDF, BrainVision, and delimited text (ASCII, TXT, CSV) recordings, shows the waveform at pixel resolution, runs the ST, CT, CD, DE, and SY flavors, and exports result bundles (a manifest plus `.npy` arrays), result JSON, and CSV. Analysis history and caches stay in your browser (OPFS and IndexedDB).
+The app opens EDF, BDF, BrainVision, EEGLAB (.set, with its .fdt or with the samples inside), and delimited text (ASCII, TXT, CSV) recordings, shows the waveform at pixel resolution, runs the ST, CT, CD, DE, and SY flavors, and exports result bundles (a manifest plus `.npy` arrays), result JSON, and CSV. Analysis history and caches stay in your browser (OPFS and IndexedDB).
 
 ## Use DDALAB
 
 ### In the browser
 
 Open <https://sdraeger.github.io/DDALAB/> in Chrome, Edge, Firefox or Safari. Choose Open files or Open folder, or drag recordings onto the window. Files are read in place and are never uploaded. On a phone the library, the waveform and the results each take the screen, chosen in a bar at the bottom; pinch the waveform to zoom, and hold a finger still before dragging to select.
+
+### Public data from OpenNeuro
+
+Search OpenNeuro in the library by words, by modality (EEG or iEEG) or both, ordered by relevance, newest first or by name; More datasets loads the next page. A dataset shows its name, authors, license, DOI and README, with a version menu for its older snapshots and Copy the citation. Its recordings stream in place, a range at a time, and the result of every run on one names the dataset, its snapshot and its citation in its provenance. Find recordings to run on, in any folder of a snapshot, lists the EEG and iEEG recordings there and below as `ddalab batch` finds them; Run on all runs the batch on them, streamed one at a time, and Resume in the History walks the folder again. In the inspector, Keep a copy on this device stores a streamed recording in the browser, which then opens it without the network, where the browser lets a page write files to its storage (Chrome, Edge and Firefox; elsewhere the button does not show); Remove the copy deletes it.
 
 ### Share a project
 
@@ -38,11 +42,11 @@ Installing is optional. It gives DDALAB its own window and lets it start without
 | Safari 17 or later, macOS 14 or later | Choose File, then Add to Dock. |
 | Firefox | Firefox has no desktop install. Bookmark the address. |
 
-Start the installed app from the Dock, Launchpad, Spotlight or the Applications folder on macOS, or from the Start menu, the taskbar or a desktop shortcut on Windows. It runs in its own window and works offline after the first launch. Offline, OpenNeuro search and streaming stay unavailable.
+Start the installed app from the Dock, Launchpad, Spotlight or the Applications folder on macOS, or from the Start menu, the taskbar or a desktop shortcut on Windows. It runs in its own window and works offline after the first launch. Offline, OpenNeuro search and streaming stay unavailable; a recording kept on the device still opens.
 
 Installed Chrome and Edge add a few things:
 
-- Open With, then DDALAB, in Finder or Explorer for .edf, .bdf, .vhdr, .csv, .tsv, .txt and .ddalab files (Chrome asks once per file type). A .vhdr opened alone asks you to choose its folder to find its companion files, unless a folder you have open already holds it.
+- Open With, then DDALAB, in Finder or Explorer for .edf, .bdf, .vhdr, .set, .csv, .tsv, .txt and .ddalab files (Chrome asks once per file type). A .vhdr opened alone asks you to choose its folder to find its companion files, unless a folder you have open already holds it.
 - Exports go through the system Save dialog. Chrome and Edge tabs do the same. Other browsers download the file.
 - Open tabs return when you restart. Chrome asks for read access to each file again unless you choose Allow on every visit.
 - DDALAB's command bar takes the window's title bar, beside the system's window controls. Drag the bar's empty space to move the window. To get the browser's own title bar back, use the chevron beside the window controls (Hide title bar or Show title bar).
