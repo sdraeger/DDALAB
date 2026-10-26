@@ -1,7 +1,12 @@
-// The workspace: the command bar over the library rail, the plots and the inspector.
+// The workspace: the command bar over the library rail, the plots and the inspector. On a phone the library, the
+// waveform and the shown result take the screen one at a time, chosen in a bar at the bottom, and the inspector
+// covers them when it is open.
 import { Popover } from "@base-ui/react/popover";
 import { Tooltip } from "@base-ui/react/tooltip";
+import AudioWaveform from "lucide-react/dist/esm/icons/audio-waveform.mjs";
+import ChartColumn from "lucide-react/dist/esm/icons/chart-column.mjs";
 import Info from "lucide-react/dist/esm/icons/info.mjs";
+import Library from "lucide-react/dist/esm/icons/library.mjs";
 import Moon from "lucide-react/dist/esm/icons/moon.mjs";
 import PanelLeft from "lucide-react/dist/esm/icons/panel-left.mjs";
 import PanelRight from "lucide-react/dist/esm/icons/panel-right.mjs";
@@ -12,6 +17,7 @@ import {
   lazy,
   type ReactElement,
   Suspense,
+  useEffect,
   useSyncExternalStore,
 } from "react";
 import { RunButton } from "../features/analysis/RunBar";
@@ -24,11 +30,21 @@ import { preload } from "../features/results/loads";
 import { LocalData } from "../features/settings/LocalData";
 import { DetachedNote, TabPanel, TabStrip } from "../features/tabs/TabStrip";
 import { useViewerKeys } from "../features/viewer/useViewerKeys";
-import { activeRecording, openResult, setTheme, togglePanel, useStore } from "../store/store";
+import {
+  activeRecording,
+  openResult,
+  type PhoneView,
+  setTheme,
+  showPhoneView,
+  togglePanel,
+  togglePhoneInspector,
+  useStore,
+} from "../store/store";
 import { shortNames } from "../store/tabs";
 import controls from "../styles/controls.module.css";
 import menu from "./AppMenu.module.css";
 import { Logo } from "./Logo";
+import { usePhone } from "./phone";
 import styles from "./Shell.module.css";
 import { UpdateNotice } from "./UpdateNotice";
 import { lazyPart } from "./viewerChunk";
@@ -58,26 +74,42 @@ const ViewControls = lazyPart(
 const Plots = lazyPart((viewer) => viewer.Plots, ViewerMissing);
 
 export function Shell() {
-  const { library, inspector } = useStore((s) => s.panels);
+  const panels = useStore((s) => s.panels);
+  const phoneState = useStore((s) => s.phone);
+  const phone = usePhone();
+  // A phone has an inspector state of its own: the desktop's open inspector would cover every view.
+  const library = panels.library;
+  const inspector = phone ? phoneState.inspector : panels.inspector;
   const id = useStore((s) => s.activeRecordingId);
-  const resultShown = useStore((s) => s.shownResult !== null);
+  const resultId = useStore((s) => s.shownResult?.id);
+  const resultShown = resultId !== undefined;
   // With no recording active, a selected tab is a detached one.
   const activeTab = useStore((s) => s.activeTab);
   // A batch's status takes the run-status slot while it runs.
   const batching = useStore((s) => s.batch?.status === "running");
   useViewerKeys();
   useAnnotationKeys();
+  // A recording opened goes to the waveform, a result shown to the results; a desktop window ignores the view.
+  useEffect(() => {
+    if (id) showPhoneView("waveform");
+  }, [id]);
+  useEffect(() => {
+    if (resultId) showPhoneView("results");
+  }, [resultId]);
   return (
     <Tooltip.Provider delay={400}>
       <div
         className={styles.shell}
         data-library={library ? "open" : "closed"}
         data-inspector={inspector ? "open" : "closed"}
+        data-view={phoneState.view}
       >
         <header className={styles.bar}>
-          <IconButton label="Library" aria-pressed={library} onClick={() => toggle("library")}>
-            <PanelLeft aria-hidden />
-          </IconButton>
+          <span className={styles.wide}>
+            <IconButton label="Library" aria-pressed={library} onClick={() => toggle("library")}>
+              <PanelLeft aria-hidden />
+            </IconButton>
+          </span>
           <Suspense fallback={<Brand />}>
             <AppMenu />
           </Suspense>
@@ -95,56 +127,75 @@ export function Shell() {
               <RunButton recordingId={id} status={!inspector && !batching} />
             </Suspense>
           )}
-          <PanelButton
-            label="Display calibration"
-            icon={<Ruler aria-hidden />}
-            preload={loadCalibration}
-            handle={calibrationPanel}
-            id={CALIBRATION_TRIGGER}
+          {/* On a phone these live in the application menu (View, Help). */}
+          <span className={styles.wide}>
+            <PanelButton
+              label="Display calibration"
+              icon={<Ruler aria-hidden />}
+              preload={loadCalibration}
+              handle={calibrationPanel}
+              id={CALIBRATION_TRIGGER}
+            >
+              <Calibration />
+            </PanelButton>
+          </span>
+          <IconButton
+            label="Inspector"
+            aria-pressed={inspector}
+            onClick={() => (phone ? togglePhoneInspector() : toggle("inspector"))}
           >
-            <Calibration />
-          </PanelButton>
-          <IconButton label="Inspector" aria-pressed={inspector} onClick={() => toggle("inspector")}>
             <PanelRight aria-hidden />
           </IconButton>
-          <LocalData />
-          <ThemeToggle />
-          <PanelButton
-            label="About DDALAB"
-            icon={<Info aria-hidden />}
-            preload={loadAbout}
-            handle={aboutPanel}
-            id={ABOUT_TRIGGER}
-          >
-            <About />
-          </PanelButton>
+          <span className={styles.wide}>
+            <LocalData />
+            <ThemeToggle />
+            <PanelButton
+              label="About DDALAB"
+              icon={<Info aria-hidden />}
+              preload={loadAbout}
+              handle={aboutPanel}
+              id={ABOUT_TRIGGER}
+            >
+              <About />
+            </PanelButton>
+          </span>
         </header>
         <BatchAnnouncer />
-        <aside className={styles.library} aria-label="Library">
+        {/* On a phone what the inspector or the library covers takes no focus and no screen reader reads it. */}
+        <aside className={styles.library} aria-label="Library" inert={phone && inspector}>
           <LibraryRail />
         </aside>
-        <main className={styles.center}>
+        <main className={styles.center} inert={phone && (inspector || phoneState.view === "library")}>
           <TabStrip />
           <TabPanel>
             {id ? (
               <>
-                <Suspense fallback={null}>
-                  <Plots id={id} />
-                </Suspense>
-                <ShownResult recordingId={id} />
+                <div className={styles.waveform}>
+                  <Suspense fallback={null}>
+                    <Plots id={id} />
+                  </Suspense>
+                </div>
+                <div className={styles.results}>
+                  <ShownResult recordingId={id} />
+                </div>
               </>
             ) : activeTab ? (
               <>
-                <DetachedNote fingerprint={activeTab} brief={resultShown} />
-                {resultShown && <ShownResult recordingId={null} />}
+                <div className={styles.waveform}>
+                  <DetachedNote fingerprint={activeTab} brief={resultShown} />
+                </div>
+                <div className={styles.results}>{resultShown && <ShownResult recordingId={null} />}</div>
               </>
             ) : resultShown ? (
-              <ShownResult recordingId={null} />
+              <div className={styles.results}>
+                <ShownResult recordingId={null} />
+              </div>
             ) : (
-              <p className={styles.empty} data-appear>
+              <p className={`${styles.empty} ${styles.waveform}`} data-appear>
                 Open a recording from the library, or drop its files or folder anywhere in this window.
               </p>
             )}
+            <NoResult recordingId={id} />
           </TabPanel>
         </main>
         <aside className={styles.inspector}>
@@ -154,9 +205,44 @@ export function Shell() {
           </Activity>
         </aside>
         <UpdateNotice />
+        <nav className={styles.views} aria-label="Views">
+          <ViewButton view="library" label="Library" icon={<Library aria-hidden />} />
+          <ViewButton view="waveform" label="Waveform" icon={<AudioWaveform aria-hidden />} />
+          <ViewButton view="results" label="Results" icon={<ChartColumn aria-hidden />} />
+        </nav>
       </div>
-      <p className={styles.narrow}>DDALAB needs a window at least 768 pixels wide.</p>
     </Tooltip.Provider>
+  );
+}
+
+/** A button of the phone's view bar; the view shows in a crossfade and closes the inspector. */
+function ViewButton({ view, label, icon }: { view: PhoneView; label: string; icon: ReactElement }) {
+  const current = useStore((s) => s.phone.view === view);
+  return (
+    <button
+      type="button"
+      className={styles.viewButton}
+      aria-current={current ? "page" : undefined}
+      onClick={() => inTransition(() => showPhoneView(view))}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+/** The Results view on a phone with no result of the active recording to show. */
+function NoResult({ recordingId }: { recordingId: string | null }) {
+  const shown = useStore(
+    (s) =>
+      s.shownResult !== null &&
+      (recordingId === null || s.shownResult.fingerprint === s.recordings[recordingId]?.fingerprint),
+  );
+  if (shown) return null;
+  return (
+    <p className={`${styles.empty} ${styles.noResult}`}>
+      Run DDA from the inspector, or pick a result in the library’s history, to see it here.
+    </p>
   );
 }
 

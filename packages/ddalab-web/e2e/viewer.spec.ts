@@ -5,7 +5,8 @@ import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { readSynthetic, type SyntheticSpec, syntheticEdfSize } from "../src/core/synthetic";
 import type { View } from "../src/store/store";
-import { expect, hasStorage, hasWebGL2, NO_WEBGL2, type Page, test } from "./test";
+import { showFixture } from "./resultFixture";
+import { expect, hasStorage, hasWebGL2, NO_STORAGE, NO_WEBGL2, type Page, test } from "./test";
 
 const EDF = fileURLToPath(new URL("../../dda-rs/tests/fixtures/fixture.edf", import.meta.url));
 const channels = (page: Page) => page.getByRole("list", { name: "Channels" }).getByRole("listitem");
@@ -666,9 +667,71 @@ test("webgl2_missing_message", async ({ page }) => {
   await expect(page.getByRole("region", { name: "Waveforms" })).toContainText("WebGL2");
 });
 
-test("narrow_viewport_notice", async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.getByText("DDALAB needs a window at least 768 pixels wide.")).toBeVisible();
+test.describe("phone", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+  const views = (page: Page) => page.getByRole("navigation", { name: "Views" });
+  const current = (page: Page) => views(page).locator("[aria-current='page']");
+  /** The controls of `bar` past either edge of the window, and how far it overflows. */
+  const outside = (bar: ReturnType<Page["locator"]>) =>
+    bar.evaluate((b) => [
+      ...[...b.querySelectorAll("button")]
+        .filter((e) => e.checkVisibility())
+        .filter((e) => e.getBoundingClientRect().left < 0 || e.getBoundingClientRect().right > innerWidth)
+        .map((e) => e.getAttribute("aria-label") ?? e.textContent),
+      ...(b.scrollWidth > b.clientWidth ? [`overflows by ${b.scrollWidth - b.clientWidth} px`] : []),
+    ]);
+
+  test("one_view_at_a_time_and_the_inspector_over_it", async ({ page }) => {
+    test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
+    const library = page.getByRole("button", { name: "Open files" });
+    const traces = page.locator("canvas[data-traces]");
+    await expect(current(page)).toHaveText("Library");
+    await expect(library).toBeVisible();
+    // A recording opened shows its waveform in place of the library.
+    await page.getByLabel("Recording files").setInputFiles(EDF);
+    await expect(current(page)).toHaveText("Waveform");
+    await expect(traces).toBeVisible();
+    await expect(library).toBeHidden();
+    for (const width of [360, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      expect(await outside(page.locator("header").first()), `${width} px`).toEqual([]);
+      for (const name of ["Annotate", "Run", "Inspector"])
+        await expect(page.getByRole("button", { name, exact: true })).toBeInViewport({ ratio: 1 });
+    }
+    // The inspector covers the view; picking a view closes it.
+    await page.getByRole("button", { name: "Inspector" }).click();
+    await expect(page.getByRole("list", { name: "Channels" })).toBeVisible();
+    await views(page).getByRole("button", { name: "Results" }).click();
+    await expect(page.getByRole("list", { name: "Channels" })).toBeHidden();
+    await expect(page.getByText(/^Run DDA from the inspector/)).toBeVisible();
+    await expect(traces).toBeHidden();
+    // A desktop window keeps its own panels: the library and the inspector as they were, and no view bar.
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await expect(views(page)).toBeHidden();
+    await expect(traces).toBeVisible();
+    await expect(library).toBeVisible();
+    await expect(page.getByRole("list", { name: "Channels" })).toBeVisible();
+    await expect(page.getByText(/^Run DDA from the inspector/)).toBeHidden();
+  });
+
+  test("a_result_shown_takes_the_results_view_and_fits_it", async ({ page }) => {
+    test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
+    test.skip(!(await hasStorage(page)), NO_STORAGE);
+    await page.getByLabel("Recording files").setInputFiles(EDF);
+    await expect(current(page)).toHaveText("Waveform");
+    await showFixture(page, { id: "phone", windows: 40, rows: 2, first: 0.5, step: 0.25, values: [] });
+    await expect(current(page)).toHaveText("Results");
+    const result = page.getByRole("region", { name: "Result" });
+    await expect(result.locator("canvas[data-heatmap]")).toBeVisible();
+    await expect(page.locator("canvas[data-traces]")).toBeHidden();
+    await page.setViewportSize({ width: 360, height: 844 });
+    expect(await outside(result.locator("> div").first())).toEqual([]);
+    await expect(result.getByRole("button", { name: "Close result" })).toBeInViewport({ ratio: 1 });
+    // Back to the waveform it came from.
+    await views(page).getByRole("button", { name: "Waveform" }).click();
+    await expect(page.locator("canvas[data-traces]")).toBeVisible();
+    await expect(result).toBeHidden();
+  });
 });
 
 test("theme_toggle_remembers_the_pick", async ({ page }) => {
