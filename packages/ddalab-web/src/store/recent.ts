@@ -40,11 +40,15 @@ export const database = () =>
         void upgrading
           .objectStore("annotations")
           .getAll()
-          .then((lists: { fingerprint: string; annotations: { id: string }[] }[]) => {
+          .then((lists: { fingerprint: string; annotations?: { id?: unknown }[] }[]) => {
             db.deleteObjectStore("annotations");
             const store = perRecord();
             for (const { fingerprint, annotations } of lists) {
-              for (const a of annotations) void store.put({ ...a, fingerprint });
+              for (const a of annotations ?? []) {
+                // One without an id has no key: putting it would abort the whole upgrade.
+                if (typeof a?.id === "string") void store.put({ ...a, fingerprint });
+                else console.warn("An annotation without an id was left out of the upgrade", fingerprint, a);
+              }
             }
           });
       }

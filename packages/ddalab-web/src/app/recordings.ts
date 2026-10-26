@@ -35,7 +35,8 @@ async function fileAnnotations(id: string, fingerprint: string): Promise<Annotat
   const kept: Annotations | undefined = await db?.get("fileAnnotations", fingerprint).catch(() => undefined);
   if (kept) return kept;
   const found = await engine.annotations(id);
-  await db?.put("fileAnnotations", found, fingerprint).catch(() => {});
+  // A skipped pass is not the file's list: the next open asks again.
+  if (!found.skipped) await db?.put("fileAnnotations", found, fingerprint).catch(() => {});
   return found;
 }
 

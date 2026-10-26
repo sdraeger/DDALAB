@@ -257,6 +257,7 @@ test.each([
   const found = await engine.annotations(id);
   expect(found.annotations).toEqual([marker]);
   expect(found.warnings.map((w) => (w.includes("above 1 GiB") ? "above 1 GiB" : w))).toEqual(warned);
+  expect(found.skipped).toBe(true);
   expect(FakeWorker.annotators).toHaveLength(0);
 });
 
@@ -373,6 +374,26 @@ test("a_failed_hash_worker_lets_the_run_finish_and_says_so", async () => {
   expect(FakeWorker.hashers).toHaveLength(2);
 });
 
+test("a_failed_hash_worker_leaves_recordings_it_was_not_asked_to_hash", async () => {
+  runner(computes, (worker) => worker.fail("the hash worker crashed"));
+  FakeWorker.onMessage = ((next) => (worker: FakeWorker, message: Message) => {
+    if (message.type !== "open" || message.input.kind !== "url") return next(worker, message);
+    worker.ok(message, { info: info("u.edf"), fingerprint: "print-url", analysis_channels: [0] });
+  })(FakeWorker.onMessage);
+  const engine = createEngine();
+  const remote = await engine.open({
+    kind: "url",
+    primary: "u.edf",
+    files: [{ name: "u.edf", url: "https://x/u.edf", size: 1000 }],
+  });
+  const local = await engine.open(input("a.edf"));
+  await expect(engine.hashes(local.id)).resolves.toEqual({});
+  expect(states(engine, remote.id).at(-1)?.hashError).toBeUndefined();
+  // Asked later, the URL recording gets a hash worker of its own.
+  void engine.hashes(remote.id);
+  expect(FakeWorker.hashers).toHaveLength(2);
+});
+
 test("a_run_writes_every_block_and_the_manifest_of_a_dda_worker", async () => {
   runner(computes);
   const engine = createEngine();
@@ -478,20 +499,21 @@ test("a_trapped_dda_worker_fails_the_run_with_its_message", async () => {
   expect(sentToIo()).not.toContain("finishResult");
 });
 
-// The memory contract sizes the pool (spec sizing rule): 290 MB + the app's caches at budget (512 MiB) + workers x
-// (32.64 + 0.23 channels) MiB stays under 1.5 GB, with between one worker and every core but one.
+// The memory contract sizes the pool (spec sizing rule): 290 MB + the app's caches at budget (520 MiB, the annotation
+// worker's file cache included) + workers x (32.64 + 0.23 channels) MiB stays 50 MB under 1.5 GB, with between one
+// worker and every core but one.
 test.each([
-  [8, [7, 7, 7, 4]],
-  [18, [17, 16, 10, 4]],
-  [32, [19, 16, 10, 4]],
-  [64, [19, 16, 10, 4]],
+  [8, [7, 7, 7, 3]],
+  [18, [17, 14, 9, 3]],
+  [32, [17, 14, 9, 3]],
+  [64, [17, 14, 9, 3]],
 ])("the_pool_on_%i_cores_fits_the_memory_contract", (cores, expected) => {
   const channels = [1, 32, 128, 512];
   expect(channels.map((c) => ddaPoolSize(cores, c))).toEqual(expected);
   for (const c of channels) {
     const workers = ddaPoolSize(cores, c);
-    const bytes = 290e6 + (512 + workers * (8 + 1.04 * 16 + 0.23 * c + 8)) * 2 ** 20;
-    expect(bytes).toBeLessThan(1.5e9);
+    const bytes = 290e6 + (520 + workers * (8 + 1.04 * 16 + 0.23 * c + 8)) * 2 ** 20;
+    expect(bytes).toBeLessThan(1.5e9 - 50e6);
   }
   expect(ddaPoolSize(1, 1)).toBe(1);
   expect(ddaPoolSize(64, 10_000)).toBe(1);
