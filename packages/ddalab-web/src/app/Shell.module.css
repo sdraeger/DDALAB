@@ -1,11 +1,13 @@
-/* Clipped: a panel that rises into place from below the window edge (base.css) never scrolls the page. */
+/* Clipped: a panel that rises into place from below the window edge (base.css) never scrolls the page. The bar is
+   44 px high, or takes the title bar area (below). */
 .shell {
   --library-width: 248px;
   --inspector-width: 304px;
+  --bar-height: calc(var(--titlebar-y, 0px) + max(32px, var(--titlebar-height, 44px)));
   display: grid;
   height: 100%;
   overflow: clip;
-  grid-template-rows: 44px minmax(0, 1fr) auto;
+  grid-template-rows: var(--bar-height) minmax(0, 1fr) auto;
   grid-template-columns: var(--library-width) minmax(0, 1fr) var(--inspector-width);
   grid-template-areas:
     "bar bar bar"
@@ -21,30 +23,42 @@
   --inspector-width: 0px;
 }
 
+/* Its content box is what the widths below count. */
 .bar {
   grid-area: bar;
   display: flex;
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
-  padding: 0 var(--space-2);
+  padding: var(--titlebar-y, 0px)
+    calc(100% - var(--titlebar-x, 0px) - var(--titlebar-width, 100%) + var(--space-2)) 0
+    calc(var(--titlebar-x, 0px) + var(--space-2));
   border-bottom: var(--hairline-width) solid var(--hairline);
   background: var(--chrome);
+  container: commandbar / inline-size;
 }
 
-/* The mark sits on the wordmark's baseline and spans its capitals. */
-.brand {
-  display: flex;
-  flex: none;
-  align-items: baseline;
-  gap: var(--space-2);
-}
+/* An installed window whose title bar the app draws (Chromium's window controls overlay): the bar takes the title bar
+   area, beside the system's window controls (left on macOS, right elsewhere) and never under them, at its height or
+   32 px, whichever is more, for the 28 px controls. Its empty stretches drag the window, its controls do not. The
+   e2e tests set the four properties to stand in for the overlay. */
+@media (display-mode: window-controls-overlay) {
+  :root {
+    --titlebar-x: env(titlebar-area-x, 0px);
+    --titlebar-y: env(titlebar-area-y, 0px);
+    --titlebar-width: env(titlebar-area-width, 100%);
+    --titlebar-height: env(titlebar-area-height, 44px);
+  }
 
-/* The page's one heading, set as the bar's other text. */
-.wordmark {
-  font-size: inherit;
-  font-weight: var(--weight-strong);
-  letter-spacing: 0.02em;
+  .bar {
+    -webkit-app-region: drag;
+    app-region: drag;
+  }
+
+  .bar :is(button, input, select, a, [role], [tabindex]) {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+  }
 }
 
 /* The recording's name: its head elides, its tail stays whole. */
@@ -94,8 +108,9 @@
 
 /* The scale settings sit in the bar while it has room for them, else behind one button (ScaleChoices in Shell.tsx):
    below 1440 px, or 1600 px with the inspector closed and the run status beside Run. Below 1024 px the wordmark and
-   the Local and Annotate labels give way to their marks. Only the recording name and the run status shrink; every
-   width depends on the window alone, and zooming moves nothing. With the inspector open and up to 9,999 pages the bar
+   the Local and Annotate labels give way to their marks. The widths are the window's: the bar's content box is 16 px
+   less, and less again by the window controls in the title bar. Only the recording name and the run status shrink;
+   every width depends on the window alone, and zooming moves nothing. With the inspector open and up to 9,999 pages the bar
    needs 1385 px in Noto Sans and up to 1430 px (Firefox) in DejaVu Sans, the system-ui of the headless Ubuntu CI
    runner. Each further page digit widens it by 16 px or more: at 1440 px in DejaVu Sans, 10,000 pages (about 27.8 h
    at 10 s a page) overflow it by 6 px in Firefox, and 100,000 pages by 23 to 31 px in every browser. */
@@ -119,7 +134,7 @@
   width: auto;
 }
 
-@media (width < 1440px) {
+@container commandbar (width < 1424px) {
   .scales {
     display: none;
   }
@@ -129,24 +144,13 @@
   }
 }
 
-@media (width < 1600px) {
+@container commandbar (width < 1584px) {
   .shell[data-inspector="closed"] .scales {
     display: none;
   }
 
   .shell[data-inspector="closed"] .scaleMenu {
     display: contents;
-  }
-}
-
-@media (width < 1024px) {
-  .wordmark {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
   }
 }
 
