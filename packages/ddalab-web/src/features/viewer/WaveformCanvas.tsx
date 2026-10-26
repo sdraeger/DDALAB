@@ -10,7 +10,6 @@ import { webgl2 } from "../../render/gl";
 import { readColors, watchTheme } from "../../render/themeColors";
 import { createWaveformLayer, type Drawn, type Frame, type WaveformLayer } from "../../render/waveformLayer";
 import { CSS_PX_PER_MM, setPlotWidth, setView, useStore } from "../../store/store";
-import annotationStyles from "../annotations/Annotations.module.css";
 import { userOf } from "../annotations/model";
 import { useAnnotationGestures } from "../annotations/useAnnotationGestures";
 import { electrodeGroups } from "../inspector/groups";
@@ -301,7 +300,7 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
             <p ref={problem} className={styles.problem} role="alert" hidden />
             <Readouts ref={readouts} />
           </div>
-          <div ref={tip} className={annotationStyles.tip} hidden>
+          <div ref={tip} className={styles.tip} hidden>
             <b />
             <span />
           </div>

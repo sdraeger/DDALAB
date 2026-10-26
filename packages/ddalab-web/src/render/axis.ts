@@ -112,6 +112,23 @@ export interface MarksScene extends EventsScene {
   cursorS: number | null;
 }
 
+/**
+ * Fills a vertical line `w` device pixels wide from `y` down `h`. Dashed (4 CSS px on, 3 off) it marks a file
+ * event, solid a user annotation: on every plot the two kinds differ by more than their color.
+ */
+export function column(
+  ctx: CanvasRenderingContext2D,
+  px: number,
+  y: number,
+  w: number,
+  h: number,
+  dashed: boolean,
+  dpr: number,
+) {
+  if (!dashed) return ctx.fillRect(px, y, w, h);
+  for (let at = y; at < y + h; at += 7 * dpr) ctx.fillRect(px, at, w, Math.min(4 * dpr, y + h - at));
+}
+
 /** A vertical line `line` device pixels wide at `px`; over opaque data it stands on a halo of the ground color. */
 function vline(
   ctx: CanvasRenderingContext2D,
@@ -120,19 +137,23 @@ function vline(
   color: string,
   scene: EventsScene,
   alpha = 1,
+  dashed = false,
 ) {
   if (scene.over) {
     ctx.globalAlpha = 0.6;
     ctx.fillStyle = scene.colors.ground;
-    ctx.fillRect(px - line, 0, 3 * line, scene.H);
+    column(ctx, px - line, 0, 3 * line, scene.H, dashed, scene.dpr);
   }
   ctx.globalAlpha = alpha;
   ctx.fillStyle = color;
-  ctx.fillRect(px, 0, line, scene.H);
+  column(ctx, px, 0, line, scene.H, dashed, scene.dpr);
   ctx.globalAlpha = 1;
 }
 
-/** The events of the view: a line at each onset (and at the end of a user span) and a light wash over spans. */
+/**
+ * The events of the view: a line at each onset (and at the end of a user span) and a light wash over spans. The
+ * file's lines are dashed red, the user's solid ink.
+ */
 export function drawEvents(ctx: CanvasRenderingContext2D, scene: EventsScene) {
   const { W, H, dpr, view, colors } = scene;
   const x = (t: number) => ((t - view.t0) / (view.t1 - view.t0)) * W;
@@ -148,7 +169,7 @@ export function drawEvents(ctx: CanvasRenderingContext2D, scene: EventsScene) {
   for (const a of scene.recording?.info.annotations ?? []) {
     if (!shown(a)) continue;
     if (a.duration_s > 0) wash(a, colors.event, 0.08);
-    vline(ctx, Math.round(x(a.onset_s)), line, colors.event, scene);
+    vline(ctx, Math.round(x(a.onset_s)), line, colors.event, scene, 1, true);
   }
   for (const a of scene.user ?? []) {
     if (!shown(a)) continue;

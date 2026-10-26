@@ -1,5 +1,6 @@
 // The exports of a recording's annotations: a BIDS events.tsv (onset, duration and trial_type, tab-separated, in
-// seconds) and a JSON array of the same records.
+// seconds) and a JSON array of the same records. A point annotation has duration 0, BIDS's impulse; n/a would mean
+// the duration is unknown, and dda-rs reads both as 0.
 import type { Listed } from "./model";
 
 type Event = Pick<Listed, "onset_s" | "duration_s" | "label">;

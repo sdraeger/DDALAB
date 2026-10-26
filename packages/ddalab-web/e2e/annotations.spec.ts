@@ -280,7 +280,14 @@ test("annotations_survive_a_reload", async ({ page }) => {
 
 test("export_writes_the_listed_annotations_as_events_tsv_and_json", async ({ page }) => {
   await mark(page, 4, "burst", { onset: "4.25", duration: "1.5" });
+  // With a filter on, the export says it writes part of the list.
+  await page.getByLabel("Filter annotations by label").fill("bur");
   await page.getByRole("button", { name: "Export annotations" }).click();
+  await expect(page.getByRole("dialog").getByText("Export 1 of 3 annotations")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.getByLabel("Filter annotations by label").fill("");
+  await page.getByRole("button", { name: "Export annotations" }).click();
+  await expect(page.getByRole("dialog").getByText("Export 3 annotations")).toBeVisible();
   const tsv = page.waitForEvent("download");
   await page.getByRole("button", { name: /BIDS events\.tsv/ }).click();
   const tsvFile = await tsv;
