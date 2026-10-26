@@ -306,40 +306,58 @@ test("delete_removes_opfs_files", async ({ page }) => {
   expect(activeResultId).toBeNull();
 });
 
+/**
+ * Records of results `ids` in IndexedDB, on files `<id>.edf`, with `status`. A complete one also gets a manifest in
+ * OPFS: what pointing at its row reads.
+ */
+const seedResults = (page: Page, ids: string[], status: "complete" | "failed") =>
+  page.evaluate(
+    async ({ ids, status }) => {
+      const results = await (await navigator.storage.getDirectory()).getDirectoryHandle("results", {
+        create: true,
+      });
+      const db: IDBDatabase = await new Promise((opened, failed) => {
+        const request = indexedDB.open("ddalab", 2);
+        request.onsuccess = () => opened(request.result);
+        request.onerror = () => failed(request.error);
+      });
+      for (const [i, id] of ids.entries()) {
+        const request = {
+          file_path: `${id}.edf`,
+          channels: [0],
+          time_range: { start: 0, end: 1000 },
+          preprocessing_options: { highpass: null, lowpass: null },
+          algorithm_selection: { enabled_variants: ["ST"] },
+          window_parameters: { window_length: 200, window_step: 100 },
+          delay_parameters: { delays: [7, 10] },
+        };
+        const record = { id, fingerprint: "f", fileName: `${id}.edf`, request, createdAt: i + 1, status };
+        await new Promise((done) => {
+          const put = db.transaction("analyses", "readwrite");
+          put.objectStore("analyses").put(record);
+          put.oncomplete = done;
+        });
+        if (status !== "complete") continue;
+        const directory = await results.getDirectoryHandle(id, { create: true });
+        for (const [name, text] of [
+          ["manifest.json", JSON.stringify({ id, variants: [], window_centers_seconds: [0.5] })],
+          ["status", "complete"],
+        ]) {
+          const file = await (await directory.getFileHandle(name, { create: true })).createWritable();
+          await file.write(text);
+          await file.close();
+        }
+      }
+      db.close();
+    },
+    { ids, status },
+  );
+
 // The startup sweep runs beside the IO worker's queue: the history needs neither the engine's wasm nor its compile.
 test("history_lists_before_the_engine_compiles", async ({ page, browserName }) => {
   test.skip(browserName !== "chromium", "the worker's wasm request is interceptable in Chromium only");
   test.skip(!(await hasStorage(page)), NO_STORAGE);
-  await page.evaluate(async () => {
-    const db: IDBDatabase = await new Promise((opened, failed) => {
-      const request = indexedDB.open("ddalab", 2);
-      request.onsuccess = () => opened(request.result);
-      request.onerror = () => failed(request.error);
-    });
-    const request = {
-      file_path: "held.edf",
-      channels: [0],
-      time_range: { start: 0, end: 1000 },
-      preprocessing_options: { highpass: null, lowpass: null },
-      algorithm_selection: { enabled_variants: ["ST"] },
-      window_parameters: { window_length: 200, window_step: 100 },
-      delay_parameters: { delays: [7, 10] },
-    };
-    const record = {
-      id: "held",
-      fingerprint: "f",
-      fileName: "held.edf",
-      request,
-      createdAt: 1,
-      status: "failed",
-    };
-    await new Promise((done) => {
-      const put = db.transaction("analyses", "readwrite");
-      put.objectStore("analyses").put(record);
-      put.oncomplete = done;
-    });
-    db.close();
-  });
+  await seedResults(page, ["held"], "failed");
   let release = () => {};
   const held = new Promise<void>((resolve) => {
     release = resolve;
@@ -381,7 +399,10 @@ const logWorkers = (page: Page) =>
 const workerLog = (page: Page) =>
   page.evaluate(() => (window as unknown as { workerLog: [string, unknown][] }).workerLog);
 
-test("pointing_at_a_result_reads_its_view_before_the_click", async ({ page }) => {
+const asked = async (page: Page, what: string) =>
+  (await workerLog(page)).filter(([kind, type]) => kind === "ask" && type === what).length;
+
+test("pointing_at_a_result_reads_its_manifest_before_the_click", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
   await runBrainVision(page);
   await page.evaluate(() => window.__ddalab.store.setState({ activeResultId: null, shownResult: null }));
@@ -389,12 +410,47 @@ test("pointing_at_a_result_reads_its_view_before_the_click", async ({ page }) =>
   await page.reload();
   const row = history(page).getByRole("button", { name: /^ST on fixture\.vhdr/ });
   await row.hover();
-  await expect.poll(async () => (await workerLog(page)).map(([, what]) => what)).toContain("resultArray");
+  await expect.poll(() => asked(page, "resultManifest")).toBe(1);
+  // The arrays wait for the click: a pointer passes over rows it does not open.
+  await page.waitForTimeout(300);
+  expect(await asked(page, "resultArray")).toBe(0);
   await row.click();
   await expect(result(page)).toBeVisible();
   expect((await heatmapDrawn(page)).frame).toMatchObject({ complete: true });
-  // The click found both reads made: the manifest was read once.
-  expect((await workerLog(page)).filter(([, what]) => what === "resultManifest")).toHaveLength(1);
+  // The click found the manifest read: it was read once.
+  expect(await asked(page, "resultManifest")).toBe(1);
+  expect(await asked(page, "resultArray")).toBe(1);
+});
+
+test("pointing_keeps_the_last_three_manifests_and_the_shown_result", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  // The BrainVision result stays shown across the reload; four more results come with their manifests.
+  await runBrainVision(page);
+  await seedResults(page, ["r1", "r2", "r3", "r4"], "complete");
+  await logWorkers(page);
+  await page.reload();
+  await expect(result(page)).toBeVisible();
+  expect((await heatmapDrawn(page)).frame).toMatchObject({ complete: true });
+  const arrays = await asked(page, "resultArray");
+  const manifests = await asked(page, "resultManifest");
+  const point = async (id: string, reads: number) => {
+    await page.locator(`[data-result="${id}"]`).hover();
+    await expect.poll(() => asked(page, "resultManifest")).toBe(manifests + reads);
+  };
+  for (const [i, id] of ["r1", "r2", "r3", "r4"].entries()) await point(id, i + 1);
+  // r2 to r4 are kept and read no more; r1, the fourth from last, was dropped and is read again.
+  await page.locator('[data-result="r2"]').hover();
+  await page.locator('[data-result="r4"]').hover();
+  await page.waitForTimeout(300);
+  expect(await asked(page, "resultManifest")).toBe(manifests + 4);
+  await point("r1", 5);
+  // The shown result kept its reads through all of it.
+  const shown = await page.evaluate(() => window.__ddalab.store.getState().shownResult?.id as string);
+  await page.locator(`[data-result="${shown}"]`).hover();
+  await page.waitForTimeout(300);
+  expect(await asked(page, "resultManifest")).toBe(manifests + 5);
+  // No array was read for a row pointed at.
+  expect(await asked(page, "resultArray")).toBe(arrays);
 });
 
 test("a_restored_result_is_read_while_the_history_lists", async ({ page }) => {

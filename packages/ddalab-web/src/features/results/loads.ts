@@ -28,7 +28,8 @@ export function load<T>(key: string, make: () => Promise<T>): Promise<Loaded<T>>
   return found as Promise<Loaded<T>>;
 }
 
-export const manifestOf = (id: string) => load(`${id}/manifest`, () => engine.resultManifest(id));
+export const manifestKey = (id: string) => `${id}/manifest`;
+export const manifestOf = (id: string) => load(manifestKey(id), () => engine.resultManifest(id));
 export const arrayKey = (id: string, variant: string, array: ResultTile["array"]) =>
   `${id}/${variant}/${array}`;
 export const arrayOf = (id: string, variant: string, array: ResultTile["array"]) =>
@@ -45,21 +46,57 @@ export function pick(manifest: ResultDocument, shown: ShownResult | null | undef
 /** The result panel's chunk; a chunk that does not load is reported where the panel renders (Shell.tsx). */
 export const preloadPanel = () => void import("./ResultPanel").catch(() => {});
 
+/** The results a pointer or the keyboard pointed at in the history, the latest last; at most `INTENDED`. */
+const intended: string[] = [];
+const INTENDED = 3;
+
+/**
+ * Bounds the cache: the reads of the shown result stay, and the manifests of the results last pointed at; the rest
+ * goes, to be read again when it is shown.
+ */
+function evict() {
+  const shown = useStore.getState().shownResult?.id;
+  for (const key of loads.keys()) {
+    const id = key.slice(0, key.indexOf("/"));
+    if (id !== shown && !(key === manifestKey(id) && intended.includes(id))) loads.delete(key);
+  }
+}
+
+/** Reads the manifest of `id`; a failure while the result is not shown is dropped, to be read again when it is. */
+function readManifest(id: string) {
+  return manifestOf(id).then((manifest) => {
+    if ("error" in manifest && useStore.getState().shownResult?.id !== id) loads.delete(manifestKey(id));
+    return manifest;
+  });
+}
+
+/**
+ * A history row pointed at or focused: the panel's chunk and the manifest load, which the IO worker reads beside its
+ * queue. The arrays wait for the click, as a pointer passes over rows it does not open.
+ */
+export function prefetch(id: string) {
+  preloadPanel();
+  const at = intended.indexOf(id);
+  if (at >= 0) intended.splice(at, 1);
+  intended.push(id);
+  if (intended.length > INTENDED) intended.shift();
+  evict();
+  void readManifest(id);
+}
+
 /**
  * Starts what showing result `id` takes: the panel's chunk, the manifest, then the array the view opens on. A read
  * that fails while the result is not shown is dropped: opening it reads again, as it would without the preload.
  */
 export function preload(id: string) {
   preloadPanel();
+  evict();
   const shown = () => {
     const { shownResult } = useStore.getState();
     return shownResult?.id === id ? shownResult : null;
   };
-  void manifestOf(id).then((manifest) => {
-    if ("error" in manifest) {
-      if (!shown()) loads.delete(`${id}/manifest`);
-      return;
-    }
+  void readManifest(id).then((manifest) => {
+    if ("error" in manifest) return;
     const { variant, array } = pick(manifest.ok, shown());
     void arrayOf(id, variant.id, array).then((loaded) => {
       if ("error" in loaded && !shown()) loads.delete(arrayKey(id, variant.id, array));

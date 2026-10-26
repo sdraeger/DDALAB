@@ -267,7 +267,8 @@ let queue = Promise.resolve();
 /**
  * Requests that use no engine and can take seconds (a large result, a lock another tab holds): tiles and rows go on
  * while they run. The startup sweep runs here too, without waiting for the wasm compile; a result being written holds
- * its lock from before its directory exists (createResultFiles), which the sweep skips.
+ * its lock from before its directory exists (createResultFiles), which the sweep skips. So do manifest reads, which a
+ * pointer over the history makes and which must not hold back the waveform's reads.
  */
 const BESIDE = new Set<IoRequest["type"]>([
   "exportDocument",
@@ -275,6 +276,7 @@ const BESIDE = new Set<IoRequest["type"]>([
   "importResult",
   "deleteResult",
   "sweepResults",
+  "resultManifest",
 ]);
 
 async function answer(data: IoRequest & { n: number }) {
