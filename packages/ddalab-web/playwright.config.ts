@@ -30,6 +30,8 @@ export default defineConfig({
         ].join(" && ")
       : `npx vite --port ${port} --strictPort`,
     url: origin,
+    // The build before `vite preview` takes longer than the dev server's start.
+    timeout: dist ? 600_000 : 60_000,
     env: perf ? { DDALAB_ISOLATE: "1" } : {},
     reuseExistingServer: false,
   },

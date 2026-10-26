@@ -1,4 +1,6 @@
 {
+  "profile_dir": "chromium-profile",
+  "browser_args": ["--enable-blink-features=ForceEagerMeasureMemory"],
   "recording": {
     "rate_hz": 1000,
     "duration_s": 3600,
