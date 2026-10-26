@@ -4,7 +4,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundleDir, WIDE } from "./global-setup";
-import { expect, type Page, test } from "./test";
+import { expect, hasStorage, NO_STORAGE, type Page, test } from "./test";
 
 const fixturePath = (name: string) =>
   fileURLToPath(new URL(`../../dda-rs/tests/fixtures/${name}`, import.meta.url));
@@ -14,16 +14,6 @@ const BRAINVISION = ["fixture.vhdr", "fixture.eeg", "fixture.vmrk"].map(fixtureP
  * thousands of windows take seconds each.
  */
 const LONG = { channels: 8, rateHz: 256, durationS: 2 * 3600, seed: 5 };
-
-// Playwright's WebKit has no OPFS (getDirectory throws UnknownError); Safari itself has.
-const hasStorage = (page: Page) =>
-  page.evaluate(() =>
-    navigator.storage.getDirectory().then(
-      () => true,
-      () => false,
-    ),
-  );
-const NO_STORAGE = "this browser window has no OPFS";
 
 const settings = (page: Page) => page.getByRole("region", { name: "DDA settings" });
 const runBar = (page: Page) => page.getByRole("region", { name: "Run" });

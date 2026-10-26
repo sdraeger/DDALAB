@@ -24,25 +24,44 @@ export const test = base.extend<{ renderUpdateGuard: undefined }>({
   ],
 });
 
+/** `ok`, or a failed test where `capability` is missing outside the one project CI runs without it. */
+function expected(ok: boolean, capability: string, missingIn: string) {
+  const { name } = test.info().project;
+  if (!ok && name !== missingIn) throw new Error(`${name} has no ${capability}`);
+  return ok;
+}
+
 // Playwright's WebKit has no OPFS (getDirectory throws UnknownError); Safari itself has.
-export const hasStorage = (page: Page) =>
-  page.evaluate(() =>
-    navigator.storage.getDirectory().then(
-      () => true,
-      () => false,
+export const hasStorage = async (page: Page) =>
+  expected(
+    await page.evaluate(() =>
+      navigator.storage.getDirectory().then(
+        () => true,
+        () => false,
+      ),
     ),
+    "OPFS",
+    "webkit",
   );
 export const NO_STORAGE = "this browser window has no OPFS";
 
 // Headless Firefox on Linux makes no WebGL context ("AllowWebgl2:false restricts context creation on this system"),
-// and the waveform and the heatmap draw only with WebGL2. The probe's context is released at once.
-export const hasWebGL2 = (page: Page) =>
-  page.evaluate(() => {
-    const gl = document.createElement("canvas").getContext("webgl2");
-    gl?.getExtension("WEBGL_lose_context")?.loseContext();
-    return gl !== null;
-  });
+// and the waveform and the heatmap draw only with WebGL2. The probe asks for the app's context (render/gl.ts) and
+// releases it at once.
+export const hasWebGL2 = async (page: Page) =>
+  expected(
+    await page.evaluate(() => {
+      const gl = document.createElement("canvas").getContext("webgl2", { antialias: false, depth: false });
+      gl?.getExtension("WEBGL_lose_context")?.loseContext();
+      return gl !== null;
+    }),
+    "WebGL2",
+    "firefox",
+  );
 export const NO_WEBGL2 = "this browser makes no WebGL2 context (headless Firefox on Linux)";
 
-/** The overview scan is over: at 100%, or not stored at all in a window without OPFS (Playwright's WebKit). */
-export const scanned = (page: Page) => page.getByText(/^Overview 100%$|no overview is stored\.$/);
+/** The overview scan is over: at 100%, or, in Playwright's WebKit, which has no OPFS, not stored at all. */
+export const scanned = (page: Page) =>
+  page.getByText(
+    test.info().project.name === "webkit" ? /^Overview 100%$|no overview is stored\.$/ : "Overview 100%",
+  );
