@@ -11,6 +11,7 @@ import {
   setScan,
   useStore,
 } from "../store/store";
+import { filesSource, forgetTab, type TabSource, tabOpened } from "../store/tabs";
 
 export const engine = createEngine();
 
@@ -26,18 +27,43 @@ function follow(id: string) {
     .then((found) => setAnnotations(id, found));
 }
 
-/** Shows an opened recording: a new one joins the store; one that was already open becomes the active one. */
-function adopt(opened: Awaited<ReturnType<typeof engine.open>>, source: "files" | "url" | "synthetic") {
+/**
+ * Shows an opened recording: a new one joins the store and its tab the tabs; one that was already open becomes the
+ * active one. `origin` is where its tab reads it again; `activate` false leaves the active recording as it is.
+ */
+function adopt(
+  opened: Awaited<ReturnType<typeof engine.open>>,
+  source: "files" | "url" | "synthetic",
+  origin: TabSource | null,
+  activate = true,
+) {
   const { id, info, fingerprint, analysis_channels } = opened;
-  if (useStore.getState().recordings[id]) return activateRecording(id);
-  addRecording(id, { info, fingerprint, analysis_channels, source });
-  follow(id);
+  if (!useStore.getState().recordings[id]) {
+    addRecording(id, { info, fingerprint, analysis_channels, source }, activate);
+    follow(id);
+  } else if (activate) activateRecording(id);
+  tabOpened(id, fingerprint, info.input_files[0], origin);
 }
 
-/** Opens an input as the UI opens files: an OpenNeuro recording, or a synthetic one in dev and e2e builds. */
-export async function openInput(input: RecordingInput) {
+/** Why an opened recording is not the one of `expect`, which closes it again unless it was already open. */
+function unexpected(opened: { id: string; fingerprint: string }, name: string, expect?: string) {
+  if (expect === undefined || opened.fingerprint === expect) return undefined;
+  if (!useStore.getState().recordings[opened.id]) engine.close(opened.id);
+  return `${name} changed since it was opened`;
+}
+
+/**
+ * Opens an input as the UI opens files: an OpenNeuro recording, or a synthetic one in dev and e2e builds. With
+ * `expect`, another recording than the one of that fingerprint is refused.
+ */
+export async function openInput(
+  input: RecordingInput,
+  options: { expect?: string; activate?: boolean } = {},
+) {
   const opened = await engine.open(input);
-  adopt(opened, input.kind);
+  const refused = unexpected(opened, "primary" in input ? input.primary : "The recording", options.expect);
+  if (refused) throw new Error(refused);
+  adopt(opened, input.kind, input.kind === "url" ? { kind: "url", input } : null, options.activate);
   return opened.id;
 }
 
@@ -68,23 +94,48 @@ export async function refreshRecent() {
   useStore.setState({ recent: await listRecent().catch(() => []) });
 }
 
+/** Where picked files can be read again (Chromium): a handle per file, and the folder's when a folder was picked. */
+export interface Handles {
+  files?: Map<File, FileSystemFileHandle>;
+  root?: FileSystemDirectoryHandle;
+}
+
 /**
  * Opens the recording in `files`. `choice` picks among several (see `buildFileSet`). `expect` is the fingerprint of
- * the recording the user is locating again; another file opens, with a warning. `handle` lets the recent list
- * reopen a single-file recording without a picker.
+ * the recording the user is locating again; another file opens, with a warning, or with `exact` is refused. `handle`
+ * lets the recent list reopen a single-file recording without a picker; `handles` let its tab reattach (tabs.ts).
+ * `activate` false opens it beside the active recording.
  */
 export async function openFiles(
   files: File[],
-  options: { choice?: string; expect?: string; handle?: FileSystemHandle } = {},
+  options: {
+    choice?: string;
+    expect?: string;
+    exact?: boolean;
+    handle?: FileSystemHandle;
+    handles?: Handles;
+    activate?: boolean;
+  } = {},
 ): Promise<Outcome> {
   const set = buildFileSet(files, options.choice);
   if ("error" in set) return { kind: "error", message: set.error, folder: false };
   if ("candidates" in set) return { kind: "choose", candidates: set.candidates };
   try {
     const opened = await engine.open({ kind: "files", files: set.files, primary: set.primary });
-    adopt(opened, "files");
+    const refused = options.exact && unexpected(opened, set.primary, options.expect);
+    if (refused) return { kind: "error", message: refused, folder: false };
     const { info, fingerprint } = opened;
-    const handle = info.input_files.length === 1 ? options.handle : undefined;
+    const single = options.handle?.kind === "file" && files.length === 1;
+    const handles = single
+      ? { files: new Map([[files[0], options.handle as FileSystemFileHandle]]) }
+      : options.handles;
+    const used = [set.primary, ...info.input_files.filter((name) => name !== set.primary)];
+    adopt(opened, "files", filesSource(set.files, used, handles), options.activate);
+    const primary = set.files.find((file) => file.name === set.primary);
+    const handle =
+      info.input_files.length === 1
+        ? (options.handle ?? (primary && handles?.files?.get(primary)))
+        : undefined;
     await rememberRecent({ fingerprint, primary: set.primary, names: info.input_files, handle }).catch(
       () => {},
     );
@@ -101,13 +152,17 @@ export async function openFiles(
 }
 
 /** The files the user picks in the browser's own picker, which also gives handles; `undefined` without one. */
-export async function pickFiles(): Promise<{ files: File[]; handle?: FileSystemHandle } | undefined> {
+export async function pickFiles(): Promise<
+  { files: File[]; handle?: FileSystemHandle; handles: Handles } | undefined
+> {
   const show = picker();
   if (!show) return undefined;
   const handles = await show({ multiple: true });
+  const files = await Promise.all(handles.map((h) => h.getFile()));
   return {
-    files: await Promise.all(handles.map((h) => h.getFile())),
+    files,
     handle: handles.length === 1 ? handles[0] : undefined,
+    handles: { files: new Map(files.map((file, i) => [file, handles[i]])) },
   };
 }
 
@@ -131,7 +186,10 @@ export async function forget(entry: RecentEntry) {
   await refreshRecent();
 }
 
+/** Closes a recording and its tab, which leaves the remembered set; the recording stays in the recent list. */
 export function closeRecording(id: string) {
+  const fingerprint = useStore.getState().recordings[id]?.fingerprint;
+  if (fingerprint) forgetTab(fingerprint);
   engine.close(id);
   removeRecording(id);
 }

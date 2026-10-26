@@ -5,6 +5,7 @@ import { closeRecording } from "../../app/recordings";
 import type { ScanState } from "../../core/protocol";
 import type { RecordingInfo } from "../../core/types";
 import { activeRecording, selectChannels, useStore } from "../../store/store";
+import { tabOf, updateTab } from "../../store/tabs";
 import controls from "../../styles/controls.module.css";
 import { DdaSettings } from "../analysis/DdaSettings";
 import { RunBar } from "../analysis/RunBar";
@@ -65,7 +66,13 @@ export function Inspector() {
           </ul>
         )}
       </header>
-      <Channels key={id} info={info} analysis={analysis_channels} selected={recording.selectedChannels} />
+      <Channels
+        key={id}
+        fingerprint={recording.fingerprint}
+        info={info}
+        analysis={analysis_channels}
+        selected={recording.selectedChannels}
+      />
       <Suspense fallback={null}>
         <DdaSettings recordingId={id} />
       </Suspense>
@@ -104,15 +111,17 @@ function Scan({ scan }: { scan: ScanState }) {
 
 /** Kept apart from the scan, which re-renders the inspector ten times a second while it runs. */
 const Channels = memo(function Channels(props: {
+  fingerprint: string;
   info: RecordingInfo;
   analysis: number[];
   selected: number[];
 }) {
-  const { info, analysis, selected } = props;
+  const { fingerprint, info, analysis, selected } = props;
   const labels = useMemo(() => analysis.map((i) => info.channels[i].label), [analysis, info]);
   const { groups, groupOf } = useMemo(() => electrodeGroups(labels), [labels]);
-  const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState("");
+  // The search is the tab's: it comes back when the tab does.
+  const [query, setQuery] = useState(() => tabOf(fingerprint)?.channelQuery ?? "");
+  const [filter, setFilter] = useState(query);
   const [filtering, startTransition] = useTransition();
   const chosen = useMemo(() => new Set(selected), [selected]);
   const shown = useMemo(() => {
@@ -143,6 +152,7 @@ const Channels = memo(function Channels(props: {
         value={query}
         onChange={(event) => {
           setQuery(event.target.value);
+          updateTab(fingerprint, { channelQuery: event.target.value });
           startTransition(() => setFilter(event.target.value));
         }}
       />

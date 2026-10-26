@@ -1,0 +1,316 @@
+/* The tab strip over the central canvas: one tab per open recording, the strip's controls at its end. */
+.strip {
+  display: flex;
+  flex: none;
+  height: 32px;
+  background: var(--chrome);
+  /* The hairline under the strip; the selected tab paints over it and joins the canvas. */
+  box-shadow: inset 0 calc(-1 * var(--hairline-width)) var(--hairline);
+}
+
+.tabs {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  max-width: 224px;
+  user-select: none;
+}
+
+.tab:hover:not([data-selected]) {
+  background: var(--chrome-hover);
+  transition: background-color var(--motion-duration) var(--motion-ease);
+}
+
+/* A short hairline between two tabs, left out beside the selected one. */
+.tab + .tab::before {
+  content: "";
+  position: absolute;
+  top: 9px;
+  bottom: 9px;
+  left: 0;
+  width: var(--hairline-width);
+  background: var(--hairline);
+}
+
+.tab[data-selected]::before,
+.tab[data-selected] + .tab::before,
+.tab:hover::before,
+.tab:hover + .tab::before {
+  display: none;
+}
+
+.tab[data-selected] {
+  background: var(--ground);
+  box-shadow:
+    inset 0 2px var(--primary),
+    inset var(--hairline-width) 0 var(--hairline),
+    inset calc(-1 * var(--hairline-width)) 0 var(--hairline);
+}
+
+/* The rail's own hairline is the first tab's left edge. */
+.tab[data-selected]:first-child {
+  box-shadow:
+    inset 0 2px var(--primary),
+    inset calc(-1 * var(--hairline-width)) 0 var(--hairline);
+}
+
+.tab[data-dragging] {
+  z-index: 1;
+  background: var(--ground);
+  box-shadow:
+    inset 0 2px var(--primary),
+    0 2px 8px rgb(15 25 35 / 0.14);
+}
+
+.tabs[data-dragging] .tab:not([data-dragging]) {
+  transition: transform var(--motion-duration) var(--motion-ease);
+}
+
+.select {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 100%;
+  padding: 0 var(--space-1) 0 var(--space-3);
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  cursor: default;
+  outline-offset: -2px;
+}
+
+.tab[data-detached] .select {
+  color: var(--muted);
+}
+
+/* The name and its marks sit on one baseline. */
+.row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.row svg {
+  flex: none;
+  block-size: 1cap;
+  inline-size: auto;
+  stroke-width: 2;
+}
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.running {
+  flex: none;
+  align-self: center;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary);
+}
+
+.close {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-right: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-small);
+  background: transparent;
+  color: var(--muted);
+  opacity: 0;
+}
+
+.close svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 2;
+}
+
+.tab:hover .close,
+.tab:focus-within .close,
+.tab[data-selected] .close {
+  opacity: 1;
+}
+
+.close:hover {
+  background: var(--chrome-hover);
+  color: var(--ink);
+}
+
+.end {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: auto;
+  padding: 0 var(--space-1) 0 var(--space-2);
+}
+
+.end button {
+  height: 26px;
+}
+
+.spoken {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* The canvas of a detached tab: what to do, and why it did not reattach when it tried. */
+.note {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: 100%;
+  margin: auto;
+  padding: var(--space-6);
+  text-align: center;
+  text-wrap: balance;
+}
+
+.reason {
+  color: var(--event);
+  overflow-wrap: anywhere;
+}
+
+.noteActions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* The quick switcher: every tab, filtered as the user types. */
+.switcher {
+  width: min(440px, calc(100vw - 32px));
+  max-height: min(440px, 72vh);
+  margin: 14vh auto auto;
+  padding: 0;
+  overflow: hidden;
+  border: var(--hairline-width) solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--ground);
+  color: var(--ink);
+  box-shadow: 0 12px 32px rgb(15 25 35 / 0.2);
+}
+
+.switcher[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.switcher::backdrop {
+  background: rgb(10 16 22 / 0.24);
+}
+
+.find {
+  flex: none;
+  height: 38px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-bottom: var(--hairline-width) solid var(--hairline);
+  background: transparent;
+  outline: 0;
+}
+
+.find:focus-visible {
+  border-bottom-color: var(--primary);
+}
+
+.find::placeholder {
+  color: var(--muted);
+}
+
+.options {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-1) 0;
+}
+
+.option {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 5px var(--space-3);
+  cursor: default;
+}
+
+.option[aria-selected="true"] {
+  background: var(--primary);
+  color: var(--primary-ink);
+}
+
+.optionName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.optionState {
+  flex: none;
+  margin-left: auto;
+  font-size: var(--text-small);
+}
+
+.none {
+  padding: var(--space-3);
+  color: var(--muted);
+}
+
+.foot {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
+  border-top: var(--hairline-width) solid var(--hairline);
+  color: var(--muted);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+.foot button {
+  flex: none;
+  margin-left: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tabs[data-dragging] .tab:not([data-dragging]) {
+    transition: none;
+  }
+}

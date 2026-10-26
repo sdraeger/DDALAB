@@ -18,6 +18,7 @@ import { RunButton } from "../features/analysis/RunBar";
 import { ResultBoundary } from "../features/history/ResultBoundary";
 import { Inspector } from "../features/inspector/Inspector";
 import { LibraryRail } from "../features/library/LibraryRail";
+import { DetachedNote, TabPanel, TabStrip } from "../features/tabs/TabStrip";
 import { Overview } from "../features/viewer/Overview";
 import { useViewerKeys } from "../features/viewer/useViewerKeys";
 import { WaveformCanvas } from "../features/viewer/WaveformCanvas";
@@ -39,6 +40,7 @@ import {
   togglePanel,
   useStore,
 } from "../store/store";
+import { useTabs } from "../store/tabs";
 import controls from "../styles/controls.module.css";
 import styles from "./Shell.module.css";
 
@@ -51,6 +53,8 @@ export function Shell() {
   const { library, inspector } = useStore((s) => s.panels);
   const id = useStore((s) => s.activeRecordingId);
   const resultShown = useStore((s) => s.shownResult !== null);
+  // With no recording active, the active tab is a detached one.
+  const detached = useTabs((s) => s.active);
   useViewerKeys();
   return (
     <Tooltip.Provider delay={400}>
@@ -83,19 +87,24 @@ export function Shell() {
           <LibraryRail />
         </aside>
         <main className={styles.center}>
-          {id ? (
-            <>
-              <Overview key={`overview-${id}`} recordingId={id} />
-              <WaveformCanvas key={id} recordingId={id} />
-              <ShownResult recordingId={id} />
-            </>
-          ) : resultShown ? (
-            <ShownResult recordingId={null} />
-          ) : (
-            <p className={styles.empty}>
-              Open a recording from the library, or drop its files or folder anywhere in this window.
-            </p>
-          )}
+          <TabStrip />
+          <TabPanel>
+            {id ? (
+              <>
+                <Overview key={`overview-${id}`} recordingId={id} />
+                <WaveformCanvas key={id} recordingId={id} />
+                <ShownResult recordingId={id} />
+              </>
+            ) : detached ? (
+              <DetachedNote fingerprint={detached} />
+            ) : resultShown ? (
+              <ShownResult recordingId={null} />
+            ) : (
+              <p className={styles.empty}>
+                Open a recording from the library, or drop its files or folder anywhere in this window.
+              </p>
+            )}
+          </TabPanel>
         </main>
         <aside className={styles.inspector}>
           <Inspector />

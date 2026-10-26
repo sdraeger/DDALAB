@@ -26,8 +26,8 @@ export type FileSet =
 
 const extension = (name: string) => (name.split(".").slice(1).at(-1) ?? "").toLowerCase();
 /** What a folder pick reports (`dir/sub/file`), or the bare name. */
-const pathOf = (file: File) => file.webkitRelativePath || file.name;
-const directory = (path: string) => path.slice(0, path.lastIndexOf("/") + 1);
+export const pathOf = (file: File) => file.webkitRelativePath || file.name;
+export const directory = (path: string) => path.slice(0, path.lastIndexOf("/") + 1);
 
 /**
  * Picks the recording to open (`choice` is one of its `candidates`) and passes every file of its directory:
@@ -77,24 +77,40 @@ async function filesUnder(entry: FileSystemEntry, parent = ""): Promise<File[]> 
 type HandleItem = DataTransferItem & { getAsFileSystemHandle?: () => Promise<FileSystemHandle | null> };
 
 /**
- * The files of a drop, descending into dropped folders. `handle` is the FileSystemHandle of a single dropped file
- * in browsers that give one (Chromium), which lets the recent list reopen it without a picker.
+ * The files of a drop, descending into dropped folders. In browsers that give FileSystemHandles (Chromium), `handle`
+ * is the one of a single dropped file, which lets the recent list reopen it without a picker, and `handles` holds each
+ * dropped file's and the handle of a single dropped folder, which let its tabs reattach.
  */
-export async function droppedFiles(
-  data: DataTransfer,
-): Promise<{ files: File[]; handle?: FileSystemHandle }> {
+export async function droppedFiles(data: DataTransfer): Promise<{
+  files: File[];
+  handle?: FileSystemHandle;
+  handles: { files: Map<File, FileSystemFileHandle>; root?: FileSystemDirectoryHandle };
+}> {
   // The item list empties when the event ends: ask for everything before the first await.
   const items = Array.from(data.items).filter((item): item is HandleItem => item.kind === "file");
   const entries = items.map((item) => item.webkitGetAsEntry());
   const plain = items.map((item) => item.getAsFile());
-  const pending = items.length === 1 ? items[0].getAsFileSystemHandle?.() : undefined;
+  const pending = items.map((item) => item.getAsFileSystemHandle?.().catch(() => null));
   const files = await Promise.all(
     entries.map((entry, i) =>
       entry?.isDirectory ? filesUnder(entry) : [plain[i]].filter((f) => f !== null),
     ),
   );
-  const handle = await pending?.catch(() => null);
-  return { files: files.flat(), handle: handle?.kind === "file" ? handle : undefined };
+  const found = await Promise.all(pending);
+  const handles = new Map<File, FileSystemFileHandle>();
+  found.forEach((handle, i) => {
+    const file = plain[i];
+    if (handle?.kind === "file" && file && !entries[i]?.isDirectory)
+      handles.set(file, handle as FileSystemFileHandle);
+  });
+  // shortcut: a drop of several folders keeps no folder handle (their tabs reattach by picker); keep one per folder
+  // if that matters.
+  const root =
+    found.length === 1 && found[0]?.kind === "directory"
+      ? (found[0] as FileSystemDirectoryHandle)
+      : undefined;
+  const handle = found.length === 1 && found[0]?.kind === "file" ? found[0] : undefined;
+  return { files: files.flat(), handle, handles: { files: handles, root } };
 }
 
 /** Fills `dst` from `offset` of `file`; throws when the file is shorter, which means it changed after opening. */

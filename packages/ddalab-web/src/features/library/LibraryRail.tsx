@@ -1,12 +1,14 @@
-// The library rail: opening recordings (picker, folder, drop anywhere in the window), the open ones, the recent ones,
-// OpenNeuro and the history of results.
+// The library rail: opening recordings (picker, folder, drop anywhere in the window), the recent ones, OpenNeuro and
+// the history of results. The open ones are the tabs over the canvas.
 import FilePlus from "lucide-react/dist/esm/icons/file-plus.mjs";
 import FolderOpen from "lucide-react/dist/esm/icons/folder-open.mjs";
 import { type ChangeEvent, lazy, Suspense, use, useEffect, useEffectEvent, useRef, useState } from "react";
+import { canPickFolder, pickFolder } from "../../app/handles";
 import {
   canPickFiles,
   engine,
   forget,
+  type Handles,
   type Outcome,
   openFiles,
   pickFiles,
@@ -14,7 +16,7 @@ import {
 } from "../../app/recordings";
 import { droppedFiles } from "../../core/sources";
 import type { RecentEntry } from "../../store/recent";
-import { activateRecording, useStore } from "../../store/store";
+import { useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
 import styles from "./LibraryRail.module.css";
 
@@ -40,6 +42,7 @@ const version = engine.version().then(
 interface Attempt {
   files: File[];
   handle?: FileSystemHandle;
+  handles?: Handles;
   expect?: string;
 }
 
@@ -76,9 +79,12 @@ export function LibraryRail() {
     locating.current = undefined;
     if (chosen) await run({ ...chosen, expect });
   }
-  function openFolder() {
+  async function openFolder() {
     locating.current = undefined;
-    folderInput.current?.click();
+    // The browser's own folder picker (Chromium) gives the folder's handle: its tabs reattach on the next visit.
+    if (!canPickFolder()) return folderInput.current?.click();
+    const chosen = await pickFolder().catch(() => null); // null: the user closed the picker
+    if (chosen) await run(chosen);
   }
   async function open(entry: RecentEntry) {
     if (!entry.handle) return chooseFiles(entry.fingerprint);
@@ -138,7 +144,6 @@ export function LibraryRail() {
           onFolder={openFolder}
         />
       </section>
-      <OpenRecordings />
       <Recent entries={recent} onOpen={open} />
       <Suspense>
         <OpenNeuroPanel />
@@ -203,39 +208,6 @@ function Notice(props: {
       {outcome.warning}
     </p>
   ) : null;
-}
-
-function OpenRecordings() {
-  const recordings = useStore((s) => s.recordings);
-  const active = useStore((s) => s.activeRecordingId);
-  const ids = Object.keys(recordings);
-  if (ids.length === 0) return null;
-  return (
-    <section className={styles.section} aria-labelledby="open-heading">
-      <h2 id="open-heading" className={styles.heading}>
-        Open <span className={styles.count}>{ids.length}</span>
-      </h2>
-      <ul className={styles.entries}>
-        {ids.map((id) => (
-          <li key={id}>
-            <button
-              type="button"
-              className={styles.entry}
-              aria-current={id === active ? "true" : undefined}
-              onClick={() => activateRecording(id)}
-            >
-              <span className={styles.entryName}>{recordings[id].info.input_files[0]}</span>
-              <span className={styles.entryMeta}>
-                {recordings[id].info.format}
-                <span className={styles.thin} aria-hidden />
-                {recordings[id].analysis_channels.length} channels
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
 }
 
 function Recent(props: { entries: RecentEntry[]; onOpen(entry: RecentEntry): void }) {
