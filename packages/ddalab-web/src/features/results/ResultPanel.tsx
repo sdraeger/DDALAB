@@ -124,17 +124,6 @@ function Heatmap({
   const rowPlot = useRef<RowPlotHandle>(null);
   usePlotPointer(plot, recordingId);
 
-  // Alone, the result fills the time axis with its analysis interval, which then bounds the view.
-  useEffect(() => {
-    if (recordingId !== null) return;
-    const interval = {
-      t0: manifest.reproduction.start_time_seconds,
-      t1: manifest.reproduction.end_time_seconds,
-    };
-    setShownResult({ interval });
-    setView(interval);
-  }, [recordingId, manifest]);
-
   useEffect(() => {
     const [plotEl, heatEl, marksEl, axisEl, gutterEl, problemEl, spokenEl] = [
       plot.current,
