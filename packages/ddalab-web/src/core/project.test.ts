@@ -11,10 +11,13 @@ import {
   batchIds,
   checkProject,
   fingerprintOfFiles,
+  type Kept,
   type Project,
   readProject,
+  refusal,
   SCHEMA,
   sameFiles,
+  verdict,
 } from "./project";
 
 const FIXTURES = fileURLToPath(new URL("../../../dda-rs/tests/fixtures/", import.meta.url));
@@ -444,4 +447,79 @@ test("its_files_must_be_in_the_archive_with_their_fingerprint", async () => {
   );
   const bare = await zipped([{ name: "recordings/0/fixture.edf", input: fixture("fixture.edf") }]);
   await expect(readProject(bare, "b.ddalab")).rejects.toThrow("b.ddalab holds no project.json");
+});
+
+const keptOf = (change: Partial<Kept> = {}): Kept => ({
+  tab: "none",
+  annotations: 0,
+  results: 0,
+  tiles: false,
+  digests: [],
+  ...change,
+});
+const edf = { path: "recordings/0/a.edf", name: "a.edf", size: 1, sha256: SHA, last_modified: 0 };
+const recordingOf = (files = [edf]) => ({ fingerprint: "f".repeat(64), files, annotations: [], saved: null });
+
+// A project's copy of a recording this browser keeps anything of joins only with bytes whose digests every complete set
+// known here has; each other outcome says why.
+test("a_copy_is_judged_by_its_bytes_against_what_is_kept_here", async () => {
+  let hashed = 0;
+  const hash = (digest: string) => async () => {
+    hashed++;
+    return { "a.edf": digest };
+  };
+  const failed = async () => Promise.reject(new Error("unreadable"));
+  const known = [{ "a.edf": SHA }];
+  expect(await verdict(recordingOf(), keptOf(), failed)).toBe("new");
+  expect(await verdict(recordingOf(), keptOf({ annotations: 2 }), failed)).toBe("unknown");
+  expect(await verdict(recordingOf(), keptOf({ tiles: true, digests: known }), hash(SHA))).toBe("same");
+  expect(await verdict(recordingOf(), keptOf({ results: 1, digests: known }), hash("b".repeat(64)))).toBe(
+    "differs",
+  );
+  expect(await verdict(recordingOf(), keptOf({ results: 1, digests: known }), failed)).toBe("unread");
+  // Digests listed other than those known: refused before a byte is read.
+  hashed = 0;
+  const other = keptOf({ tab: "open", digests: [{ "a.edf": "c".repeat(64) }] });
+  expect(await verdict(recordingOf(), other, hash(SHA))).toBe("differs");
+  expect(hashed).toBe(0);
+  // A set that lacks one of the project's files compares nothing.
+  const both = recordingOf([edf, { ...edf, path: "recordings/0/a.json", name: "a.json" }]);
+  expect(await verdict(both, keptOf({ results: 1, digests: known }), hash(SHA))).toBe("unknown");
+});
+
+test("each_refusal_says_its_cause_and_its_next_step", () => {
+  const stays =
+    "Your a.edf, its annotations and its results stay as they are, and the project's annotations and results for it " +
+    "were not added.";
+  expect(refusal("a.edf", "p.ddalab", "unread", keptOf({ tab: "open" }))).toBe(
+    `a.edf was not opened from p.ddalab: the project's copy could not be read to check it against your a.edf. ${stays} ` +
+      "Open the project again.",
+  );
+  const unknown =
+    "a.edf was not opened from p.ddalab: this browser has never checked the contents of your a.edf, which has the " +
+    `same name, size, start and end, so the project's copy cannot be compared with it. ${stays} `;
+  expect(refusal("a.edf", "p.ddalab", "unknown", keptOf({ annotations: 3 }))).toBe(
+    `${unknown}Open your a.edf here once, which checks it, then open the project again.`,
+  );
+  expect(refusal("a.edf", "p.ddalab", "unknown", keptOf({ tab: "detached" }))).toBe(
+    `${unknown}Reattach your tab of a.edf, which checks it, then open the project again.`,
+  );
+  expect(refusal("a.edf", "p.ddalab", "unknown", keptOf({ tab: "open" }))).toBe(
+    `${unknown}Close your tab of a.edf and open your file of it again, which checks it, then open the project again.`,
+  );
+  // Only a copy that differs is a reason to remove the user's.
+  expect(
+    refusal(
+      "a.edf",
+      "p.ddalab",
+      "differs",
+      keptOf({ tab: "detached", annotations: 1, results: 2, tiles: true }),
+    ),
+  ).toBe(
+    "a.edf was not opened from p.ddalab: this browser keeps another a.edf with the same name, size, start and end " +
+      `but other contents, and the project's copy cannot be opened while yours is here. ${stays} To use the ` +
+      "project's copy, first remove your a.edf from this browser: delete its 1 annotation (open the recording to do " +
+      "so), delete its 2 results in History, close its tab and clear cached tiles in Local data. Then open the " +
+      "project again.",
+  );
 });

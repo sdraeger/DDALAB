@@ -120,9 +120,13 @@ export interface Engine {
   exportCsv(resultId: string, variant: string): Promise<Blob>;
   /** Stores and records a result the CLI wrote (imports.ts), or one of an opened project with its `kept` record; its id. */
   importResult(input: File | FolderFile[], kept?: KeptRecord): Promise<string>;
-  /** Stores and records an opened project's results (imports.ts `importResults`); each one's id or why it was not added. */
+  /**
+   * Stores and records an opened project's results, counted with the `batches` it would add (imports.ts
+   * `importResults`); each one's id or why it was not added.
+   */
   importResults(
     results: { input: FolderFile[]; kept: KeptRecord }[],
+    batches: unknown[],
   ): Promise<({ id: string } | { error: string })[]>;
   /** What the open recording `id` was opened from; `undefined` once it closed. */
   input(id: string): RecordingInput | undefined;
@@ -691,7 +695,7 @@ export function createEngine(): Engine {
     exportDocument: (resultId) => call({ type: "exportDocument", resultId }),
     exportCsv: (resultId, variant) => call({ type: "exportCsv", resultId, variant }),
     importResult: (input, kept) => call({ type: "importResult", input, kept }),
-    importResults: (results) => call({ type: "importResults", results }),
+    importResults: (results, batches) => call({ type: "importResults", results, batches }),
     input: (id) => held.get(id),
   };
   return import.meta.env.DEV || import.meta.env.MODE === "e2e"

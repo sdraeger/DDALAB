@@ -545,31 +545,42 @@ export async function importResult(input: File | FolderFile[], kept?: KeptRecord
   return id;
 }
 
-/** The most the history records of one project's results may take together, in bytes (UTF-8). */
+/** The most the history records and batches of one project may take together, in bytes (UTF-8). */
 export const PROJECT_RECORDS_LIMIT = 32 * 2 ** 20;
+/**
+ * What each record and each batch counts toward PROJECT_RECORDS_LIMIT at least: every one is an entry the history
+ * lists at each start, so a project adds at most 8,192 of them however small.
+ */
+export const ENTRY_BYTES = 4096;
 
 const mebibytes = (bytes: number) => (bytes / 2 ** 20).toLocaleString("en", { maximumFractionDigits: 1 });
+const utf8 = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /**
  * Imports the results of a project (app/project.ts), each as `importResult` imports a bundle folder with its `kept`
- * record. The history loads every record at each start, so their records may take PROJECT_RECORDS_LIMIT together:
- * they are read and checked first, and above it none is stored and this rejects. The outcome of each: its id, or why
- * it was not added.
+ * record, beside the `batches` the project would add with them. The history loads every record and batch at each
+ * start, so together they may take PROJECT_RECORDS_LIMIT, each counting at least ENTRY_BYTES: they are read and
+ * checked first, and above it no result is stored and this rejects. The outcome of each: its id, or why it was not
+ * added.
  */
 export async function importResults(
   results: { input: FolderFile[]; kept: KeptRecord }[],
+  batches: unknown[],
 ): Promise<({ id: string } | { error: string })[]> {
-  let bytes = 0;
+  let bytes = batches.reduce<number>((sum, batch) => sum + Math.max(ENTRY_BYTES, utf8(batch)), 0);
   // One at a time: a manifest is up to 96 MiB of text.
-  for (const { input } of results) {
-    bytes += await prepared(input).then(
+  for (const { input, kept } of results) {
+    if (bytes > PROJECT_RECORDS_LIMIT) break;
+    const record = await prepared(input).then(
       ({ manifest }) => recordBytes(manifest),
       () => 0,
     );
+    bytes += Math.max(ENTRY_BYTES, record + utf8(kept));
   }
   if (bytes > PROJECT_RECORDS_LIMIT) {
     throw new Error(
-      `together they would add ${mebibytes(bytes)} MiB to the history, more than the ${mebibytes(PROJECT_RECORDS_LIMIT)} MiB a project may add`,
+      `its ${plural(results.length, "result")} and ${plural(batches.length, "batch", "batches")} would add more than the ${mebibytes(PROJECT_RECORDS_LIMIT)} MiB a project may add to the history`,
     );
   }
   const outcomes: ({ id: string } | { error: string })[] = [];

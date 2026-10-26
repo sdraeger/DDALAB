@@ -239,13 +239,13 @@ test("a_project_s_results_past_their_total_add_nothing", async () => {
     },
   });
   const stored = () => [...((root.get("results") as Tree | undefined) ?? new Map()).keys()];
-  await expect(importResults([result(1, 11), result(2, 11), result(3, 11)])).rejects.toThrow(
-    "together they would add 33 MiB to the history, more than the 32 MiB a project may add",
+  await expect(importResults([result(1, 11), result(2, 11), result(3, 11)], [])).rejects.toThrow(
+    "its 3 results and 0 batches would add more than the 32 MiB a project may add to the history",
   );
   expect(stored()).toEqual([]);
   expect(await listAnalyses()).toEqual([]);
   // One past its own bound is refused alone, and the others are added.
-  const outcomes = await importResults([result(1, 17), result(2, 1)]);
+  const outcomes = await importResults([result(1, 17), result(2, 1)], []);
   expect(outcomes).toEqual([
     { error: "The manifest of a.dda is above 16 MiB without its window centers" },
     { id: "00000000-0000-4000-8000-000000000002" },
@@ -261,6 +261,33 @@ test("a_project_s_results_past_their_total_add_nothing", async () => {
   await expect(importResult(pairs)).rejects.toThrow(
     "a.dda lists more channel pairs than its 1 channels make",
   );
+}, 120_000);
+
+// Each result and each batch is an entry the history lists at each start: however small, each counts 4 KiB toward a
+// project's total, so tens of thousands of minimal ones are refused before anything is stored.
+test("a_project_of_many_small_results_adds_nothing", async () => {
+  const minimal = (n: number) => ({
+    input: bundle(() => {}),
+    kept: {
+      id: `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`,
+      fingerprint: "a".repeat(64),
+      fileName: "a.edf",
+      createdAt: 1,
+    },
+  });
+  const many = Array.from({ length: 8193 }, (_, n) => minimal(n));
+  await expect(importResults(many, [])).rejects.toThrow(
+    "its 8193 results and 0 batches would add more than the 32 MiB a project may add to the history",
+  );
+  // Batches count the same, one result with them.
+  await expect(
+    importResults(
+      many.slice(0, 1),
+      Array.from({ length: 8192 }, () => ({})),
+    ),
+  ).rejects.toThrow("its 1 result and 8192 batches would add more than the 32 MiB a project may add");
+  expect([...((root.get("results") as Tree | undefined) ?? new Map()).keys()]).toEqual([]);
+  expect(await listAnalyses()).toEqual([]);
 }, 120_000);
 
 test("refuses_a_document_that_is_not_one", async () => {

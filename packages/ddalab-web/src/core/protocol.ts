@@ -77,7 +77,7 @@ export type IoRequest =
   | { type: "exportDocument"; resultId: string }
   | { type: "exportCsv"; resultId: string; variant: string }
   | { type: "importResult"; input: File | FolderFile[]; kept?: KeptRecord }
-  | { type: "importResults"; results: { input: FolderFile[]; kept: KeptRecord }[] }
+  | { type: "importResults"; results: { input: FolderFile[]; kept: KeptRecord }[]; batches: unknown[] }
   // Dev and e2e builds only:
   | { type: "trap" } // raises the error a Rust panic raises
   | { type: "quota"; bytes: number } // the storage fills up after this many more bytes of writes

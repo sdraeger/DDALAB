@@ -263,7 +263,7 @@ async function handle(request: IoRequest): Promise<unknown> {
     case "importResult":
       return importResult(request.input, request.kept);
     case "importResults":
-      return importResults(request.results);
+      return importResults(request.results, request.batches);
     case "trap": {
       if (!(import.meta.env.DEV || import.meta.env.MODE === "e2e")) throw new Error("unknown request");
       // A module whose export runs `unreachable`, the instruction a Rust panic compiles to.
