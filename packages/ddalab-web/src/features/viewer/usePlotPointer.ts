@@ -25,8 +25,16 @@ export function usePlotPointer(plot: RefObject<HTMLElement | null>, recordingId:
         });
       } else zoomBy(Math.exp(dy * 0.002), timeAt(event.clientX));
     };
-    let drag: { x: number; t0: number; t1: number; anchor: number; select: boolean; moved: boolean } | null =
-      null;
+    /** The drag under way; the plot's width is read once, as the move writes the dataset its styles match. */
+    let drag: {
+      x: number;
+      t0: number;
+      t1: number;
+      anchor: number;
+      select: boolean;
+      moved: boolean;
+      width: number;
+    } | null = null;
     const down = (event: PointerEvent) => {
       // A button over the plot (Try again) keeps its own click: capturing the pointer would take it.
       if (event.button !== 0 || (event.target as Element).closest("button")) return;
@@ -34,21 +42,24 @@ export function usePlotPointer(plot: RefObject<HTMLElement | null>, recordingId:
       const { view } = useStore.getState();
       const anchor = timeAt(event.clientX);
       const select = event.shiftKey && recordingId !== null;
-      drag = { x: event.clientX, t0: view.t0, t1: view.t1, anchor, select, moved: false };
+      const width = plotEl.clientWidth;
+      drag = { x: event.clientX, t0: view.t0, t1: view.t1, anchor, select, moved: false, width };
     };
     const move = (event: PointerEvent) => {
       if (!drag) return;
       const dx = event.clientX - drag.x;
-      drag.moved ||= Math.abs(dx) > 3;
-      if (!drag.moved) return;
-      plotEl.dataset.dragging = drag.select ? "select" : "pan";
+      if (!drag.moved) {
+        if (Math.abs(dx) <= 3) return;
+        drag.moved = true;
+        plotEl.dataset.dragging = drag.select ? "select" : "pan";
+      }
       if (drag.select) {
         const duration =
           recordingId === null ? 0 : (useStore.getState().recordings[recordingId]?.info.duration_s ?? 0);
         const t = Math.min(duration, Math.max(0, timeAt(event.clientX)));
         setSelection({ t0: Math.min(drag.anchor, t), t1: Math.max(drag.anchor, t) });
       } else {
-        const shift = (-dx / plotEl.clientWidth) * (drag.t1 - drag.t0);
+        const shift = (-dx / drag.width) * (drag.t1 - drag.t0);
         setView({ t0: drag.t0 + shift, t1: drag.t1 + shift });
       }
     };

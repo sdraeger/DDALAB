@@ -17,6 +17,8 @@ const CONTINUOUS_MS = 150;
 const RETRY_MS = 5000;
 
 const compact = (s: number) => Number(s.toFixed(2)).toString();
+/** A text with every digit the same, which stands for its width in tabular numerals. */
+const digitless = (text: string) => text.replace(/\d/g, "0");
 
 export function Overview({ recordingId }: { recordingId: string }) {
   const duration = useStore((s) => s.recordings[recordingId]?.info.duration_s ?? 0);
@@ -50,6 +52,8 @@ export function Overview({ recordingId }: { recordingId: string }) {
     let size = { cssW: 0, W: 0, H: 0, dpr: 1 };
     let raf = 0;
     let last = { t0: Number.NaN, t1: Number.NaN, at: 0 };
+    /** The strip width the outline was last placed for. */
+    let outlinedW = Number.NaN;
     let colors = readColors(stripEl);
     /** What the canvas last showed: it is redrawn when that changes, not on every move of the view. */
     let drawnScene: unknown[] = [];
@@ -124,6 +128,11 @@ export function Overview({ recordingId }: { recordingId: string }) {
         });
       }
       const { t0, t1 } = state.view;
+      if (t0 === last.t0 && t1 === last.t1 && size.cssW === outlinedW) return;
+      outlinedW = size.cssW;
+      // Read before the writes, from the last frame's layout: the tabular numerals (base.css) give a text that differs
+      // only in its digits the same width. Any other change of the text is measured after it is written.
+      let tabW = tabEl.offsetWidth;
       if (t0 !== last.t0 || t1 !== last.t1) {
         const now = performance.now();
         outlineEl.dataset.live = String(now - last.at < CONTINUOUS_MS);
@@ -133,9 +142,11 @@ export function Overview({ recordingId }: { recordingId: string }) {
       const width = Math.max(2, ((t1 - t0) / span) * size.cssW);
       outlineEl.style.transform = `translateX(${left}px)`;
       outlineEl.style.width = `${width}px`;
-      tabEl.textContent = `${compact(t0)} to ${compact(t1)} s`;
+      const text = `${compact(t0)} to ${compact(t1)} s`;
+      const resized = digitless(text) !== digitless(tabEl.textContent ?? "");
+      tabEl.textContent = text;
+      if (resized) tabW = tabEl.offsetWidth;
       // The tab sits over the middle of the outline and stays inside the strip.
-      const tabW = tabEl.offsetWidth;
       const centered = width / 2 - tabW / 2;
       tabEl.style.transform = `translateX(${Math.min(size.cssW - left - tabW, Math.max(-left, centered))}px)`;
     };
