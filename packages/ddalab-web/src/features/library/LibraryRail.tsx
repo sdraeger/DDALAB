@@ -6,7 +6,6 @@ import { type ChangeEvent, lazy, Suspense, use, useEffect, useEffectEvent, useRe
 import {
   canPickFiles,
   engine,
-  type FileHandles,
   forget,
   type Outcome,
   openFiles,
@@ -52,7 +51,6 @@ const version = engine.version().then(
 interface Attempt {
   files: File[];
   handle?: FileSystemHandle;
-  handles?: FileHandles;
   expect?: string;
 }
 
@@ -72,9 +70,7 @@ export function LibraryRail() {
     attempt.current = next;
     setOpening(true);
     try {
-      const result = await openFiles(next.files, { ...next, choice });
-      setOutcome(result);
-      return result;
+      setOutcome(await openFiles(next.files, { ...next, choice }));
     } finally {
       setOpening(false);
     }
@@ -186,7 +182,8 @@ export function LibraryRail() {
           <FolderTree
             key={folder.key}
             source={folder.source}
-            onOpen={(recording, handles) => run({ files: recording.files, handles }, recording.path)}
+            // The tree shows how its own opens went, beside its rows.
+            onOpen={(recording, handles) => openFiles(recording.files, { choice: recording.path, handles })}
             onClose={() => setFolder(null)}
           />
         </Suspense>

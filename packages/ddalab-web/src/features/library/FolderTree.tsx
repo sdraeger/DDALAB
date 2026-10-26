@@ -104,9 +104,11 @@ export default function FolderTree(props: {
   );
 }
 
+const counted = (n: number, what: string) => `${n.toLocaleString("en-US")} ${what}${n === 1 ? "" : "s"}`;
+
 function Recordings(props: {
   recordings: FolderRecording[];
-  unreadable: number;
+  unreadable: Walked["unreadable"];
   onOpen(recording: FolderRecording): Promise<Outcome>;
 }) {
   const { recordings, unreadable, onOpen } = props;
@@ -123,16 +125,27 @@ function Recordings(props: {
       r.name.toLowerCase().includes(needle) || r.path.slice(below).toLowerCase().includes(needle);
     return folderTree(recordings.filter(matches), true);
   }, [recordings, whole, filter]);
-  const skipped = unreadable > 0 && (
-    <p className={rail.hint}>
-      {unreadable.toLocaleString("en-US")} {unreadable === 1 ? "file" : "files"} could not be read.
+  const lost = [
+    unreadable.files > 0 && counted(unreadable.files, "file"),
+    unreadable.folders > 0 && counted(unreadable.folders, "folder"),
+  ].filter(Boolean);
+  const skipped = lost.length > 0 && (
+    <p role="status" className={rail.hint}>
+      {lost.join(" and ")} could not be read.
     </p>
   );
   // Which tree row opened which recording; a recording closed since then is no longer marked.
   const [opened, setOpened] = useState<Record<string, string>>({});
+  // An open in progress, or why the last one failed, shown beside the tree.
+  const [opening, setOpening] = useState<string>();
+  const [failure, setFailure] = useState<string>();
   const open = useCallback(
     async (recording: FolderRecording) => {
+      setFailure(undefined);
+      setOpening(recording.name);
       const outcome = await onOpen(recording);
+      setOpening(undefined);
+      if (outcome.kind === "error") setFailure(outcome.message);
       if (outcome.kind === "opened") setOpened((ids) => ({ ...ids, [recording.path]: outcome.id }));
     },
     [onOpen],
@@ -180,6 +193,16 @@ function Recordings(props: {
         />
       ) : (
         <p className={rail.hint}>No recording matches.</p>
+      )}
+      {opening && (
+        <p className={rail.hint} aria-live="polite">
+          Opening {opening}
+        </p>
+      )}
+      {failure && (
+        <p role="alert" className={rail.error}>
+          {failure}
+        </p>
       )}
       {skipped}
     </>

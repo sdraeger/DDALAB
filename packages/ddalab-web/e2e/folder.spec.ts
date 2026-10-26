@@ -242,6 +242,41 @@ test("folder_drop_lists_its_recordings", async ({ page }) => {
   expect(await openCount(page)).toBe(0);
 });
 
+// The header's data file is listed, then deleted before the recording opens: the core cannot read it, and the error
+// shows in the Folder section beside the tree.
+test("open_error_shows_beside_the_tree", async ({ page }) => {
+  const parts = ["fixture.vhdr", "fixture.eeg", "fixture.vmrk"].map((name) => ({
+    name,
+    base64: readFileSync(fixturePath(name)).toString("base64"),
+  }));
+  const writable = await page.evaluate(async (files) => {
+    if (!("createWritable" in FileSystemFileHandle.prototype)) return false;
+    const folder = await (await navigator.storage.getDirectory()).getDirectoryHandle("vanishing", {
+      create: true,
+    });
+    for (const { name, base64 } of files) {
+      const stream = await (await folder.getFileHandle(name, { create: true })).createWritable();
+      await stream.write(Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)));
+      await stream.close();
+    }
+    Object.assign(window, { showDirectoryPicker: async () => folder });
+    return true;
+  }, parts);
+  test.skip(!writable, "this browser cannot write to its private file system");
+  await page.getByRole("button", { name: "Open folder" }).click();
+  const folder = page.getByRole("region", { name: /^Folder/ });
+  const row = folder.getByRole("treeitem", { name: "fixture.vhdr" });
+  await expect(row).toBeVisible();
+  await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory();
+    await (await root.getDirectoryHandle("vanishing")).removeEntry("fixture.eeg");
+  });
+  await row.click();
+  await expect(folder.getByRole("alert")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Drop zone" }).getByRole("alert")).toHaveCount(0);
+  expect(await openCount(page)).toBe(0);
+});
+
 test("walk_shows_its_count_and_cancels", async ({ page }) => {
   // A directory that lists one file and a folder that never answers.
   await page.evaluate(() => {
