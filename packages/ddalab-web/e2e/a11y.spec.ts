@@ -3,23 +3,13 @@
 // the export panel.
 import { fileURLToPath } from "node:url";
 import AxeBuilder from "@axe-core/playwright";
-import { expect, type Page, test } from "./test";
+import { expect, hasStorage, hasWebGL2, NO_STORAGE, NO_WEBGL2, type Page, scanned, test } from "./test";
 
 const BRAINVISION = ["fixture.vhdr", "fixture.eeg", "fixture.vmrk"].map((name) =>
   fileURLToPath(new URL(`../../dda-rs/tests/fixtures/${name}`, import.meta.url)),
 );
 /** Eight channels for two hours with 4,000-sample windows every 10 samples: a run of many seconds. */
 const LONG = { channels: 8, rateHz: 256, durationS: 2 * 3600, seed: 5 };
-
-// Playwright's WebKit has no OPFS (getDirectory throws UnknownError); Safari itself has.
-const hasStorage = (page: Page) =>
-  page.evaluate(() =>
-    navigator.storage.getDirectory().then(
-      () => true,
-      () => false,
-    ),
-  );
-const NO_STORAGE = "this browser window has no OPFS";
 
 const runBar = (page: Page) => page.getByRole("region", { name: "Run" });
 const settings = (page: Page) => page.getByRole("region", { name: "DDA settings" });
@@ -146,7 +136,7 @@ async function problems(page: Page) {
 async function openBrainVision(page: Page) {
   await page.getByLabel("Recording files").setInputFiles(BRAINVISION);
   await expect(page.getByRole("heading", { name: "fixture.vhdr" })).toBeVisible();
-  await expect(page.getByText("Overview 100%")).toBeVisible();
+  await expect(scanned(page)).toBeVisible();
 }
 
 test.beforeEach(async ({ page }) => {
@@ -213,6 +203,7 @@ test("running_state", async ({ page }) => {
 test("result_state", async ({ page }) => {
   test.setTimeout(90_000);
   test.skip(!(await hasStorage(page)), NO_STORAGE);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   await openBrainVision(page);
   await page.getByRole("checkbox", { name: "Select Fp1" }).check();
   await page.getByRole("checkbox", { name: "Select Fp2" }).check();
