@@ -86,10 +86,17 @@
 }
 
 /* Delete stands alone at the far end, past a hairline, in the event tone. */
+/* The hairline and Delete wrap as one. */
+.end {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: auto;
+}
+
 .divider {
   width: var(--hairline-width);
   height: 16px;
-  margin-left: auto;
   background: var(--hairline);
 }
 
