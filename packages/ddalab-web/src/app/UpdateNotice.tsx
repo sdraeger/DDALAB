@@ -1,5 +1,5 @@
 // The notice at the foot of the window when a new version of the app is ready: Reload switches to it. While a DDA run is
-// in progress the notice says so, and Reload reloads when the run has ended. The live region is always in the page, so
+// in progress the notice says so, and Reload reloads when the run has ended. The live region is always in the page:
 // a screen reader hears the text that comes into it.
 import { useEffect, useState } from "react";
 import { useStore } from "../store/store";
