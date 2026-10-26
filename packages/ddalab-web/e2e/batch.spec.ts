@@ -1,7 +1,9 @@
 // The batch run of an opened folder: every recording through the engine one at a time, a failure recorded and passed,
 // progress in the Folder section and the command bar, the results grouped in the history, Cancel, Resume after a
-// reload, and the combined export equal to the native CLI's `ddalab batch` manifest and `ddalab run --bundle` bundles.
+// reload, the keyboard's way through, and the combined export equal to what the native `ddalab batch --bids-dir
+// --output-dir dda` writes for the same dataset.
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   copyFileSync,
   mkdirSync,
@@ -14,13 +16,15 @@ import {
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { cliCommand } from "../src/core/cliCommand";
 import { readSynthetic, syntheticEdfSize } from "../src/core/synthetic";
 import { CLI } from "./global-setup";
 import { expect, type Page, test } from "./test";
 
 const DDA_RS = fileURLToPath(new URL("../../dda-rs/", import.meta.url));
 const fixturePath = (name: string) => join(DDA_RS, "tests/fixtures", name);
+/** The recordings `ddalab batch --bids-dir fixtures` finds, in its order (src/core/golden/batch-manifest.json). */
+const RUN_10 = "sub-01_task-rest_run-10_eeg";
+const RUN_2 = "sub-01_task-rest_run-2_eeg";
 const stem = (n: number) => `sub-0${n}_task-rest_eeg`;
 /**
  * Two minutes of eight channels: with 4,000-sample windows every 10 samples on one DDA worker, a run of several
@@ -39,8 +43,9 @@ const hasStorage = (page: Page) =>
 const NO_STORAGE = "this browser window has no OPFS";
 
 /**
- * `fixtures/`: the EDF fixture, the truncated one (a warning) and 17 bytes that are no EDF (a failure), one per
- * subject folder as a BIDS dataset lays them out. `slow/`: three synthetic recordings, each a run of seconds.
+ * `fixtures/`: a BIDS dataset (src/core/golden/batch-manifest.json says what the CLI makes of it): two runs of the EDF
+ * fixture, the truncated one (a warning), 17 bytes that are no EDF and a header without its data file (two failures),
+ * and a stray EDF and a derivative the CLI does not count. `slow/`: three synthetic recordings, each a run of seconds.
  */
 let root = "";
 let fixtures = "";
@@ -48,14 +53,20 @@ let slow = "";
 test.beforeAll(() => {
   root = mkdtempSync(join(tmpdir(), "ddalab-batch-"));
   fixtures = join(root, "fixtures");
-  const files = ["fixture.edf", "fixture_truncated.edf", null];
-  for (const [i, source] of files.entries()) {
-    const eeg = join(fixtures, `sub-0${i + 1}`, "eeg");
-    mkdirSync(eeg, { recursive: true });
-    const file = join(eeg, `${stem(i + 1)}.edf`);
-    if (source) copyFileSync(fixturePath(source), file);
-    else writeFileSync(file, "not an edf header");
-  }
+  const at = (path: string) => {
+    mkdirSync(join(fixtures, path, ".."), { recursive: true });
+    return join(fixtures, path);
+  };
+  writeFileSync(at("dataset_description.json"), '{"Name": "fixtures", "BIDSVersion": "1.8.0"}');
+  copyFileSync(fixturePath("fixture.edf"), at("notes.edf"));
+  copyFileSync(fixturePath("fixture.edf"), at(`derivatives/sub-01/eeg/${stem(1)}.edf`));
+  copyFileSync(fixturePath("fixture.edf"), at(`sub-01/eeg/${RUN_2}.edf`));
+  copyFileSync(fixturePath("fixture.edf"), at(`sub-01/eeg/${RUN_10}.edf`));
+  copyFileSync(fixturePath("fixture_truncated.edf"), at(`sub-02/eeg/${stem(2)}.edf`));
+  writeFileSync(at(`sub-03/eeg/${stem(3)}.edf`), "not an edf header");
+  const header = readFileSync(fixturePath("fixture.vhdr"), "utf8").replaceAll("fixture.", `${stem(4)}.`);
+  writeFileSync(at(`sub-04/eeg/${stem(4)}.vhdr`), header);
+  copyFileSync(fixturePath("fixture.vmrk"), at(`sub-04/eeg/${stem(4)}.vmrk`));
   slow = join(root, "slow");
   mkdirSync(slow);
   for (const seed of [1, 2, 3]) {
@@ -129,54 +140,76 @@ test.beforeEach(async ({ page }) => {
   await page.goto("/");
 });
 
-test("batch_runs_every_recording_into_the_history_and_one_export", async ({ page }) => {
+/** The paths under `dir` with each digest of a `<stem>.<sha8>.dda.json` name masked. */
+const maskedNames = (paths: string[]) =>
+  paths.map((p) => p.replace(/\.[0-9a-f]{8}\.dda\.json$/, ".<sha8>.dda.json")).sort();
+// biome-ignore lint/suspicious/noExplicitAny: parsed JSON
+const maskedManifest = (m: any) => ({
+  ...m,
+  // biome-ignore lint/suspicious/noExplicitAny: parsed JSON
+  results: m.results.map((r: any) => ({ ...r, outputPath: r.outputPath && maskedNames([r.outputPath])[0] })),
+});
+
+test("batch_runs_the_datasets_recordings_into_the_history_and_the_clis_layout", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
   await page.getByLabel("Recording folder").setInputFiles(fixtures);
-  await folder(page).getByRole("button", { name: "Run on all 3" }).click();
-  const panel = page.getByRole("dialog", { name: "Run on all 3 recordings" });
-  // The settings it takes, read-only, and the rules it applies to each recording.
+  // The CLI's five: the stray EDF and the derivative stay out, the header without its data file is in.
+  const run = folder(page).getByRole("button", { name: "Run on all 5" });
+  // By keyboard: the range fields stay out of the way, and Start runs the whole recordings.
+  await run.focus();
+  await page.keyboard.press("Enter");
+  const panel = page.getByRole("dialog", { name: "Run on all 5 recordings" });
   await expect(panel.getByRole("definition").first()).toHaveText("ST");
   await expect(panel.getByRole("radio", { name: /^Signal channels/ })).toBeChecked();
   await expect(panel.getByRole("radio", { name: "Whole recording" })).toBeChecked();
+  await expect(panel.getByRole("textbox", { name: "Start in seconds" })).toBeDisabled();
+  await expect(panel.getByRole("textbox", { name: "End in seconds" })).toBeDisabled();
   await expect(panel).toContainText("Open a recording to change them in the inspector.");
-  await panel.getByRole("button", { name: "Start" }).click();
-  // The failure is recorded and the batch goes on; the words say how each recording ended.
-  await expect(folder(page).getByText("Batch finished: 2 of 3, 1 failed.")).toBeVisible({ timeout: 60_000 });
+  const start = panel.getByRole("button", { name: "Start" });
+  for (let tab = 0; tab < 12 && !(await start.evaluate((e) => e === document.activeElement)); tab++)
+    await page.keyboard.press("Tab");
+  await expect(start).toBeFocused();
+  await page.keyboard.press("Enter");
+  // The failures are recorded and the batch goes on; the words say how each recording ended.
+  await expect(folder(page).getByText("Batch finished: 3 of 5, 2 failed.")).toBeVisible({ timeout: 60_000 });
+  expect(await page.evaluate(() => document.activeElement !== document.body)).toBe(true);
   const tree = folder(page).getByRole("tree");
-  for (const [n, mark] of [
-    [1, "Done"],
-    [2, "Done"],
-    [3, "Failed"],
-  ] as const) {
-    await expect(tree.getByRole("treeitem", { name: new RegExp(`^${stem(n)},`) })).toContainText(mark);
+  // A row is named by its shown label, then its file name.
+  const row = (name: string) => tree.getByRole("treeitem", { name: new RegExp(`, ${name}\\.`) });
+  for (const [name, mark] of [
+    [RUN_10, "Done"],
+    [RUN_2, "Done"],
+    [stem(2), "Done"],
+    [stem(3), "Failed"],
+    [stem(4), "Failed"],
+  ]) {
+    await expect(row(name)).toContainText(mark);
   }
-  // No tab opened; the engine holds no recording of the batch.
+  await expect(row("notes")).not.toContainText(/Done|Failed/);
+  // No tab opened.
   expect(await page.evaluate(() => Object.keys(window.__ddalab.store.getState().recordings))).toEqual([]);
 
-  // One history entry for the batch, opened to its two results and the failure with its reason.
+  // One history entry for the batch, opened to its three results and the failures with their reasons.
   const entry = history(page).getByRole("button", { name: /^ST on fixtures/ });
-  await expect(entry).toContainText("2 of 3, 1 failed");
+  await expect(entry).toContainText("3 of 5, 2 failed");
   await expect(entry).toContainText("signal channels, whole recordings");
   await expect(entry).toHaveAttribute("aria-expanded", "false");
   await entry.click();
   const results = history(page).getByRole("list", { name: "Results of ST on fixtures" });
-  await expect(results.getByRole("listitem")).toHaveCount(2);
+  await expect(results.getByRole("listitem")).toHaveCount(3);
   await expect(history(page).getByRole("list", { name: "Failed recordings" })).toContainText(
     `${stem(3)}.edf`,
   );
   const { analyses, batches } = await state(page);
   expect(batches).toHaveLength(1);
   const [batch] = batches;
-  expect(batch).toMatchObject({ status: "complete", root: "fixtures" });
-  expect(analyses.filter((a) => a.batch === batch.id && a.status === "complete")).toHaveLength(2);
+  expect(batch).toMatchObject({ status: "complete", root: "fixtures", interval: { kind: "whole" } });
+  expect(analyses.filter((a) => a.batch === batch.id && a.status === "complete")).toHaveLength(3);
   // A result opens as any other, with its provenance.
-  await results.getByRole("button", { name: new RegExp(`^ST on ${stem(1)}\\.edf`) }).click();
+  await results.getByRole("button", { name: new RegExp(`^ST on ${stem(2)}\\.edf`) }).click();
   await expect(page.getByRole("region", { name: "Provenance" })).toBeVisible();
-  expect((await page.evaluate(() => window.__ddalab.store.getState().activeResultId)) ?? "").toBe(
-    batch.results[0].resultId,
-  );
 
-  // The combined export: the CLI's batch manifest, and each result's bundle as `ddalab run --bundle` writes it.
+  // The combined export holds what `ddalab batch --bids-dir fixtures --output-dir dda` writes beside the dataset.
   const [download] = await Promise.all([
     page.waitForEvent("download"),
     history(page).getByRole("button", { name: "Export batch" }).click(),
@@ -192,47 +225,43 @@ test("batch_runs_every_recording_into_the_history_and_one_export", async ({ page
     unzipped,
   ]);
   const exported = filesUnder(unzipped);
-  const manifest = JSON.parse(exported["batch.json"].toString());
   const native = spawnSync(
     CLI,
-    ["batch", "--bids-dir", "fixtures", "--continue-on-error", "--output-dir", "out", "--quiet"],
+    [
+      "batch",
+      "--bids-dir",
+      "fixtures",
+      "--continue-on-error",
+      "--output-dir",
+      "dda",
+      "--model",
+      "1",
+      "2",
+      "10",
+    ],
     { cwd: root, encoding: "utf8" },
   );
   expect(native.status, native.stderr).toBe(4); // some failed
-  const cli = JSON.parse(native.stdout);
-  // The same keys in the same order, and the same values but where the outputs go and how the error is worded.
-  const keys = (m: typeof cli) => [Object.keys(m), ...m.results.map((r: object) => Object.keys(r))];
-  expect(keys(manifest)).toEqual(keys(cli));
-  const values = (m: typeof cli) => ({
-    ...m,
-    // biome-ignore lint/suspicious/noExplicitAny: parsed JSON
-    results: m.results.map(({ outputPath: _, error: __, ...rest }: any) => rest),
-  });
-  expect(values(manifest)).toEqual(values(cli));
-
-  for (const result of batch.results.filter((r) => r.status === "ok")) {
-    const record = analyses.find((a) => a.id === result.resultId);
-    if (!record) throw new Error(`no record of ${result.path}`);
-    const dir = mkdtempSync(join(tmpdir(), "ddalab-batch-cli-"));
-    copyFileSync(join(root, result.path), join(dir, record.fileName));
-    execFileSync("sh", ["-c", cliCommand(record.request, record.fileName)], {
-      cwd: dir,
-      env: { ...process.env, PATH: `${join(DDA_RS, "target/release")}:${process.env.PATH}` },
-      stdio: "pipe",
-    });
-    const bundle = filesUnder(join(dir, record.fileName.replace(/\.edf$/, ".dda")));
-    const prefix = `${manifest.results.find((r: { inputPath: string }) => r.inputPath === result.path).outputPath}/`;
-    const ours = Object.fromEntries(
-      Object.entries(exported)
-        .filter(([path]) => path.startsWith(prefix))
-        .map(([path, bytes]) => [path.slice(prefix.length), bytes]),
+  const cli = { ...filesUnder(join(root, "dda")), "batch_manifest.json": Buffer.from(native.stdout) };
+  const cliFiles = Object.fromEntries(
+    Object.entries(cli).map(([p, b]) => [p.startsWith("batch") ? p : `dda/${p}`, b]),
+  );
+  // The same tree and names, but the digest: the CLI hashes the absolute path, the page the dataset's path.
+  expect(maskedNames(Object.keys(exported))).toEqual(maskedNames(Object.keys(cliFiles)));
+  const manifest = JSON.parse(exported["batch_manifest.json"].toString());
+  const theirs = JSON.parse(native.stdout);
+  expect(JSON.stringify(maskedManifest(manifest))).toBe(JSON.stringify(maskedManifest(theirs)));
+  for (const result of manifest.results.filter((r: { status: string }) => r.status === "ok")) {
+    const sha8 = createHash("sha1").update(result.inputPath).digest("hex").slice(0, 8);
+    expect(result.outputPath).toMatch(new RegExp(`^dda/[\\w.-]+\\.${sha8}\\.dda\\.json$`));
+    // The result documents of `ddalab batch` (and `ddalab run --output`), their run's id, time and commit aside.
+    const stemOf = (path: string) => path.split("/").at(-1)?.split(".")[0];
+    const counterpart = Object.keys(cliFiles).find(
+      (p) => p.startsWith("dda/") && stemOf(p) === stemOf(result.outputPath),
     );
-    expect(Object.keys(ours).sort()).toEqual(Object.keys(bundle).sort());
-    for (const path of Object.keys(bundle).filter((p) => p.endsWith(".npy"))) {
-      expect(ours[path].equals(bundle[path]), `${result.path}: ${path}`).toBe(true);
-    }
-    expect(comparable(JSON.parse(ours["manifest.json"].toString()))).toEqual(
-      comparable(JSON.parse(bundle["manifest.json"].toString())),
+    if (!counterpart) throw new Error(`the CLI wrote no document for ${result.inputPath}`);
+    expect(comparable(JSON.parse(exported[result.outputPath].toString()))).toEqual(
+      comparable(JSON.parse(cliFiles[counterpart].toString())),
     );
   }
 });
@@ -250,8 +279,14 @@ test("batch_progress_and_cancel_keep_the_finished_results", async ({ page }) => 
   await expect(progress(page).getByText("Recording 2 of 3")).toBeVisible({ timeout: 60_000 });
   await expect(progress(page)).toContainText("1 finished, 0 failed");
   await expect(progress(page).getByText(/^\d+%$/)).toBeVisible();
-  await progress(page).getByRole("button", { name: "Cancel" }).click();
-  await expect(folder(page).getByText("Batch stopped: cancelled after 1 of 3.")).toBeVisible();
+  await progress(page).getByRole("button", { name: "Cancel" }).focus();
+  await page.keyboard.press("Enter");
+  const ended = folder(page).getByText("Batch stopped: cancelled after 1 of 3.");
+  await expect(ended).toBeVisible();
+  // The keyboard lands on the line that replaced Cancel.
+  await expect(
+    folder(page).locator("p", { hasText: "Batch stopped: cancelled after 1 of 3." }),
+  ).toBeFocused();
   await expect(folder(page).getByRole("treeitem", { name: /^hour-1,/ })).toContainText("Done");
   await expect(folder(page).getByRole("treeitem", { name: /^hour-2,/ })).not.toContainText("Running");
   const { analyses, batches, run } = await state(page);
@@ -262,6 +297,15 @@ test("batch_progress_and_cancel_keep_the_finished_results", async ({ page }) => 
   });
   // The finished result stays; the one cancelled leaves no record.
   expect(analyses.map((a) => [a.batch, a.status])).toEqual([[batches[0].id, "complete"]]);
+  // A batch's opens make no overview scan: no tiles are stored for its recordings.
+  const tiled = await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory();
+    const tiles = await root.getDirectoryHandle("tiles").catch(() => null);
+    const names: string[] = [];
+    if (tiles) for await (const name of tiles.keys()) names.push(name);
+    return names;
+  });
+  expect(tiled.filter((name) => analyses.some((a) => a.fingerprint === name))).toEqual([]);
   const entry = history(page).getByRole("button", { name: /^ST on slow/ });
   await expect(entry).toContainText("Cancelled after 1 of 3");
   await entry.click();
@@ -282,10 +326,13 @@ test("resume_after_a_reload_runs_only_the_remaining_recordings", async ({ page }
   const done = batches[0].results.length;
   await entry.click();
   // A folder opened through its <input> has no handle to read again: the user chooses it once more.
-  await history(page).getByRole("button", { name: "Resume" }).click();
-  await expect(history(page).getByRole("button", { name: "Choose the folder again" })).toBeVisible();
+  await history(page).getByRole("button", { name: "Resume" }).focus();
+  await page.keyboard.press("Enter");
+  // The same button now asks for the folder, and keeps the keyboard.
+  await expect(history(page).getByRole("button", { name: "Choose the folder again" })).toBeFocused();
   await expect(history(page)).toContainText(`Choose slow again to run its ${3 - done} remaining recordings.`);
   await page.getByLabel("Folder of ST on slow").setInputFiles(slow);
+  await expect(entry).toBeFocused();
   await expect(folder(page).getByText("Batch finished: 3 of 3.")).toBeVisible({ timeout: 120_000 });
   const after = await state(page);
   expect(after.batches[0]).toMatchObject({ status: "complete" });
@@ -335,6 +382,7 @@ test("resume_reattaches_through_the_folder_handle", async ({ page, browserName }
   await expect(entry).toContainText(/Interrupted after [12] of 3/);
   await entry.click();
   await history(page).getByRole("button", { name: "Resume" }).click();
+  await expect(entry).toBeFocused();
   await expect(folder(page).getByText("Batch finished: 3 of 3.")).toBeVisible({ timeout: 120_000 });
   await expect(history(page).getByRole("button", { name: "Choose the folder again" })).toHaveCount(0);
 });
