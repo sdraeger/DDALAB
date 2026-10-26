@@ -37,9 +37,28 @@ import type {
   ResultDocument,
 } from "./types";
 
+/**
+ * Where a recording streamed from OpenNeuro comes from: its dataset, snapshot and path there, which its results cite
+ * by `citation`, the dataset's reference in OpenNeuro's own form (features/openneuro/api.ts).
+ */
+export interface DatasetSource {
+  id: string;
+  tag: string;
+  path: string;
+  name: string;
+  doi: string;
+  license: string;
+  citation: string;
+}
+
 export type RecordingInput =
   | { kind: "files"; files: File[]; primary: string }
-  | { kind: "url"; files: { name: string; url: string; size: number }[]; primary: string }
+  | {
+      kind: "url";
+      files: { name: string; url: string; size: number }[];
+      primary: string;
+      dataset?: DatasetSource;
+    }
   | { kind: "synthetic"; spec: SyntheticSpec }; // dev and e2e builds only
 
 export interface Engine {

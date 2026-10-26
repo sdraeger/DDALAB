@@ -188,6 +188,17 @@ const RESULT: Fields = [
   ["record.createdAt", isTime],
   ["record.finishedAt", optional(isTime)],
   ["record.batch", optional(isId)],
+  [
+    "record.dataset",
+    optional(
+      shaped(
+        ["id", "tag", "path", "name", "doi", "license", "citation"].map((key): [string, Test] => [
+          key,
+          isString,
+        ]),
+      ),
+    ),
+  ],
 ];
 
 const BATCH: Fields = [
@@ -195,6 +206,16 @@ const BATCH: Fields = [
   ["createdAt", isTime],
   ["finishedAt", optional(isTime)],
   ["root", isString],
+  [
+    "remote",
+    optional(
+      shaped([
+        ["tag", isString],
+        ["path", isString],
+        ["tree", optional(isString)],
+      ]),
+    ),
+  ],
   ["form.expert", isBoolean],
   ["form.variants", listOf(isString)],
   ...["windowLength", "windowStep", "delays", "modelTerms", "dm", "order", "nrTau"].map(
@@ -241,12 +262,16 @@ const only = <T extends object, K extends keyof T>(value: T, keys: readonly K[])
 /** What a project keeps of a result's record; the bundle's manifest gives the rest. */
 export const kept = (record: KeptRecord): KeptRecord => ({
   ...only(record, ["id", "fingerprint", "fileName", "inputFiles", "createdAt", "finishedAt", "batch"]),
+  ...(record.dataset && {
+    dataset: only(record.dataset, ["id", "tag", "path", "name", "doi", "license", "citation"]),
+  }),
   ...(record.plan && { plan: only(record.plan, ["windows", "blocks", "workers"]) }),
 });
 
 /** A batch with the fields of BatchRecord and nothing else, in one order (two of them compare as JSON). */
 export const batchOf = (b: ProjectBatch): ProjectBatch => ({
   ...only(b, ["id", "createdAt", "finishedAt", "root", "paths", "status"]),
+  ...(b.remote && { remote: only(b.remote, ["tag", "path", "tree"]) }),
   form: only(b.form, [
     "expert",
     "variants",

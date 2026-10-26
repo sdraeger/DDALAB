@@ -1,18 +1,34 @@
-// OpenNeuro in the library rail: search public datasets, walk a snapshot's folders, stream a recording in place.
-// It also opens the recording a deep link names (see deepLink.ts). The rail loads it lazily.
+// OpenNeuro in the library rail: search public datasets by words, modality and order a page at a time, read a
+// snapshot's description and pick another snapshot, walk its folders, stream a recording in place, and run a batch on
+// the recordings of a folder and below. It also opens the recording a deep link names (see deepLink.ts). The rail
+// loads it lazily.
+import { Select } from "@base-ui/react/select";
+import Check from "lucide-react/dist/esm/icons/check.mjs";
+import ChevronDown from "lucide-react/dist/esm/icons/chevron-down.mjs";
 import Folder from "lucide-react/dist/esm/icons/folder.mjs";
 import { type FormEvent, type MouseEvent, useEffect, useRef, useState } from "react";
 import { openInput } from "../../app/recordings";
+import type { BatchRecord } from "../../core/batch";
 import { useStore } from "../../store/store";
+import controls from "../../styles/controls.module.css";
+import { BatchAction, BatchProgressView } from "../library/Batch";
 import rail from "../library/LibraryRail.module.css";
 import {
+  citationOf,
   type DatasetHit,
+  type DatasetInfo,
+  datasetInfo,
   listFiles,
+  RECORDING,
   type RemoteFile,
+  type RemoteRecording,
   recordingFiles,
   recordingInput,
-  SEARCH_LIMIT,
+  type Search,
+  type Sort,
   searchDatasets,
+  sourceOf,
+  walkRecordings,
 } from "./api";
 import { DEMO, type DeepLink, linkedInput, parseDeepLink } from "./deepLink";
 import styles from "./OpenNeuroPanel.module.css";
@@ -39,22 +55,38 @@ const linked = link
   : undefined;
 const opening = (target: DeepLink) => `Opening ${target.path.split("/").at(-1)}`;
 
-/** The formats the panel offers to open; the BIDS text files beside them are sidecars. */
-const RECORDING = /\.(vhdr|edf|bdf)$/i;
 const megabytes = new Intl.NumberFormat("en-US", {
   style: "unit",
   unit: "megabyte",
   maximumSignificantDigits: 3,
 });
 
+/** The modalities a search may ask for: those DDALAB reads, by OpenNeuro's names. */
+const MODALITIES = [
+  { value: "", label: "Any" },
+  { value: "eeg", label: "EEG" },
+  { value: "ieeg", label: "iEEG" },
+];
+const SORTS: { value: Sort; label: string }[] = [
+  { value: "relevance", label: "Relevance" },
+  { value: "newest", label: "Newest" },
+  { value: "name_asc", label: "Name" },
+];
+
 interface Results {
-  query: string;
+  search: Search;
   hits: DatasetHit[];
+  count: number;
+  next: string | null;
 }
 
-/** A folder of a snapshot: its dataset, the folders walked from the top (each with its tree), its listing. */
+/**
+ * A folder of a snapshot: its dataset (with the snapshot shown), the snapshot's description where it came, the folders
+ * walked from the top (each with its tree), its listing.
+ */
 interface Place {
   dataset: DatasetHit;
+  info: DatasetInfo | undefined;
   trail: { name: string; tree: string }[];
   files: RemoteFile[];
 }
@@ -63,6 +95,8 @@ export function OpenNeuroPanel() {
   const [status, setStatus] = useState<Status>(link ? { kind: "busy", text: opening(link) } : IDLE);
   const [results, setResults] = useState<Results | null>(null);
   const [place, setPlace] = useState<Place | null>(null);
+  const [filters, setFilters] = useState({ modality: "", sort: "relevance" as Sort });
+  const form = useRef<HTMLFormElement>(null);
   // The hint is for a first open: it goes once a recording has a tab.
   const untouched = useStore((s) => s.tabs.length === 0);
   const searching = useRef<AbortController | null>(null);
@@ -91,28 +125,57 @@ export function OpenNeuroPanel() {
     }
   }
 
-  function search(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const query = String(new FormData(event.currentTarget).get("query")).trim();
-    if (!query) return;
+  /** A new request to OpenNeuro's search, which stops the one before it. */
+  function signal() {
     searching.current?.abort();
-    const controller = new AbortController();
-    searching.current = controller;
+    searching.current = new AbortController();
+    return searching.current.signal;
+  }
+
+  /** Searches with the words in the field and the filters `chosen`; with neither words nor a modality, it waits. */
+  function search(chosen = filters) {
+    const keywords = String(new FormData(form.current ?? undefined).get("query") ?? "").trim();
+    if (!keywords && !chosen.modality) return;
+    const asked: Search = { keywords, ...chosen };
+    const stop = signal();
     void run(
       "Searching",
-      () => searchDatasets(query, controller.signal),
-      (hits) => {
-        setResults({ query, hits });
+      () => searchDatasets(asked, null, stop),
+      (page) => {
+        setResults({ search: asked, ...page });
         setPlace(null);
       },
     );
   }
 
-  const browse = (dataset: DatasetHit, trail: Place["trail"]) =>
+  function filter(change: Partial<typeof filters>) {
+    const chosen = { ...filters, ...change };
+    setFilters(chosen);
+    search(chosen);
+  }
+
+  function more() {
+    if (!results?.next) return;
+    const { search: asked, next } = results;
+    const stop = signal();
+    void run(
+      "Loading more datasets",
+      () => searchDatasets(asked, next, stop),
+      (page) =>
+        setResults((r) => r && { ...r, hits: [...r.hits, ...page.hits], count: page.count, next: page.next }),
+    );
+  }
+
+  /** Lists folder `trail` of `dataset`'s snapshot; `info` describes it, fetched again for another snapshot. */
+  const browse = (dataset: DatasetHit, trail: Place["trail"], info?: DatasetInfo) =>
     run(
       `Listing ${trail.at(-1)?.name ?? dataset.id}`,
-      () => listFiles(dataset.id, dataset.tag, trail.at(-1)?.tree),
-      (files) => setPlace({ dataset, trail, files }),
+      () =>
+        Promise.all([
+          listFiles(dataset.id, dataset.tag, trail.at(-1)?.tree),
+          info ?? datasetInfo(dataset.id, dataset.tag).catch(() => undefined),
+        ]),
+      ([files, described]) => setPlace({ dataset, info: described, trail, files }),
     );
 
   function showResults() {
@@ -135,7 +198,13 @@ export function OpenNeuroPanel() {
         OpenNeuro
       </h2>
       <search className={styles.search}>
-        <form onSubmit={search}>
+        <form
+          ref={form}
+          onSubmit={(event: FormEvent) => {
+            event.preventDefault();
+            search();
+          }}
+        >
           <input
             type="search"
             name="query"
@@ -144,17 +213,36 @@ export function OpenNeuroPanel() {
             placeholder="Search public datasets"
           />
         </form>
+        <div className={styles.filters}>
+          <Pick
+            label="Modality"
+            value={filters.modality}
+            items={MODALITIES}
+            onChange={(modality) => filter({ modality })}
+          />
+          <Pick
+            label="Order"
+            value={filters.sort}
+            items={SORTS}
+            onChange={(sort) => filter({ sort: sort as Sort })}
+          />
+        </div>
         <StatusLine status={status} />
       </search>
       {place ? (
         <FolderView
           place={place}
           onResults={showResults}
-          onBrowse={(trail) => browse(place.dataset, trail)}
-          onOpen={(name) => run(`Opening ${name}`, () => openInput(recordingInput(place.files, name)))}
+          onBrowse={(trail) => browse(place.dataset, trail, place.info)}
+          onVersion={(tag) => browse({ ...place.dataset, tag }, [])}
+          onOpen={(name) => {
+            const path = [...place.trail.map((step) => step.name), name].join("/");
+            const source = sourceOf(place.dataset.id, place.dataset.tag, path, place.info);
+            return run(`Opening ${name}`, () => openInput(recordingInput(place.files, name, source)));
+          }}
         />
       ) : results ? (
-        <ResultList results={results} onBrowse={(dataset) => browse(dataset, [])} />
+        <ResultList results={results} onBrowse={(dataset) => browse(dataset, [])} onMore={more} />
       ) : (
         untouched && (
           <p className={rail.hint}>
@@ -167,6 +255,48 @@ export function OpenNeuroPanel() {
         )
       )}
     </section>
+  );
+}
+
+/** A labeled choice of the search, in the house select. */
+function Pick(props: {
+  label: string;
+  value: string;
+  items: { value: string; label: string }[];
+  onChange(value: string): void;
+}) {
+  return (
+    <Select.Root
+      value={props.value}
+      items={props.items}
+      onValueChange={(value) => value !== null && props.onChange(value as string)}
+    >
+      <div className={controls.field}>
+        <Select.Label className={controls.label}>{props.label}</Select.Label>
+        <Select.Trigger className={controls.trigger}>
+          <Select.Value />
+          <Select.Icon>
+            <ChevronDown aria-hidden />
+          </Select.Icon>
+        </Select.Trigger>
+      </div>
+      <Select.Portal>
+        <Select.Positioner sideOffset={4} alignItemWithTrigger={false}>
+          <Select.Popup className={controls.popup}>
+            <Select.List className={controls.list}>
+              {props.items.map((item) => (
+                <Select.Item key={item.value} value={item.value} className={controls.item}>
+                  <Select.ItemIndicator>
+                    <Check aria-hidden />
+                  </Select.ItemIndicator>
+                  <Select.ItemText className={controls.itemText}>{item.label}</Select.ItemText>
+                </Select.Item>
+              ))}
+            </Select.List>
+          </Select.Popup>
+        </Select.Positioner>
+      </Select.Portal>
+    </Select.Root>
   );
 }
 
@@ -186,17 +316,22 @@ function StatusLine({ status }: { status: Status }) {
   );
 }
 
-function ResultList(props: { results: Results; onBrowse(dataset: DatasetHit): void }) {
-  const { query, hits } = props.results;
+const plural = (n: number, one: string) => `${n.toLocaleString("en-US")} ${n === 1 ? one : `${one}s`}`;
+
+function ResultList(props: { results: Results; onBrowse(dataset: DatasetHit): void; onMore(): void }) {
+  const { search, hits, count, next } = props.results;
   if (hits.length === 0) {
     return (
       <p className={rail.hint} data-appear>
-        No public dataset matches “{query}”.
+        No public dataset matches {search.keywords ? `“${search.keywords}”` : "these filters"}.
       </p>
     );
   }
   return (
     <>
+      <p className={rail.hint} data-appear>
+        {hits.length < count ? `${hits.length} of ${plural(count, "dataset")}` : plural(count, "dataset")}
+      </p>
       <ul className={rail.entries} aria-label="Datasets">
         {hits.map((hit) => (
           <li key={hit.id} data-appear>
@@ -213,7 +348,7 @@ function ResultList(props: { results: Results; onBrowse(dataset: DatasetHit): vo
                 {hit.subjects > 0 && (
                   <>
                     <span className={rail.thin} aria-hidden />
-                    {hit.subjects} {hit.subjects === 1 ? "subject" : "subjects"}
+                    {plural(hit.subjects, "subject")}
                   </>
                 )}
               </span>
@@ -221,10 +356,15 @@ function ResultList(props: { results: Results; onBrowse(dataset: DatasetHit): vo
           </li>
         ))}
       </ul>
-      {hits.length === SEARCH_LIMIT && (
-        <p className={rail.hint} data-appear>
-          First {SEARCH_LIMIT} matches. Add words to narrow the search.
-        </p>
+      {next && (
+        <button
+          type="button"
+          className={`${controls.quiet} ${rail.ghost} ${rail.start}`}
+          onClick={props.onMore}
+          data-appear
+        >
+          More datasets
+        </button>
       )}
     </>
   );
@@ -234,13 +374,19 @@ function FolderView(props: {
   place: Place;
   onResults(): void;
   onBrowse(trail: Place["trail"]): void;
+  onVersion(tag: string): void;
   onOpen(name: string): void;
 }) {
-  const { dataset, trail, files } = props.place;
+  const { dataset, info, trail, files } = props.place;
   const folders = files.filter((file) => file.directory);
   const recordings = files.filter((file) => !file.directory && RECORDING.test(file.filename));
   const others = files.length - folders.length - recordings.length;
   const here = trail.at(-1)?.name ?? dataset.id;
+  const remote = {
+    tag: dataset.tag,
+    path: [dataset.id, ...trail.map((step) => step.name)].join("/"),
+    tree: trail.at(-1)?.tree,
+  };
   return (
     <>
       <nav aria-label="Folder" className={styles.trail}>
@@ -262,9 +408,8 @@ function FolderView(props: {
           </span>
         ))}
       </nav>
-      <p className={rail.hint}>
-        {dataset.name}, version {dataset.tag}
-      </p>
+      <About dataset={dataset} info={info} onVersion={props.onVersion} />
+      <RemoteBatch key={`${remote.tag}/${remote.path}`} root={dataset.id} remote={remote} info={info} />
       <ul className={rail.entries} aria-label={`Files in ${here}`}>
         {folders.map((folder) => (
           <li key={folder.id} data-appear>
@@ -299,5 +444,112 @@ function FolderView(props: {
         </p>
       )}
     </>
+  );
+}
+
+/** The most authors the description names before "and N more". */
+const AUTHORS = 3;
+
+/** The snapshot's description: name, version (another is picked here), authors, license, DOI, citation, README. */
+function About(props: { dataset: DatasetHit; info: DatasetInfo | undefined; onVersion(tag: string): void }) {
+  const { dataset, info } = props;
+  const [copied, setCopied] = useState(false);
+  const tags = info && info.tags.length > 0 ? info.tags : [dataset.tag];
+  const citation = citationOf(dataset.id, dataset.tag, info);
+  const authors = info?.authors ?? [];
+  const named =
+    authors.length > AUTHORS
+      ? `${authors.slice(0, AUTHORS).join(", ")} and ${authors.length - AUTHORS} more`
+      : authors.join(", ");
+  function copy() {
+    navigator.clipboard.writeText(citation).then(
+      () => setCopied(true),
+      () => {},
+    );
+  }
+  return (
+    <section className={styles.about} aria-label="Dataset" data-appear>
+      <p className={styles.title}>{info?.name ?? dataset.name}</p>
+      <Pick
+        label="Version"
+        value={dataset.tag}
+        items={tags.map((tag) => ({ value: tag, label: tag === tags[0] ? `${tag}, latest` : tag }))}
+        onChange={props.onVersion}
+      />
+      {info && (
+        <dl className={styles.facts}>
+          {named && (
+            <>
+              <dt>Authors</dt>
+              <dd>{named}</dd>
+            </>
+          )}
+          {info.license && (
+            <>
+              <dt>License</dt>
+              <dd>{info.license}</dd>
+            </>
+          )}
+          {info.doi && (
+            <>
+              <dt>DOI</dt>
+              <dd>
+                <a href={`https://doi.org/${info.doi}`} target="_blank" rel="noreferrer">
+                  {info.doi}
+                </a>
+              </dd>
+            </>
+          )}
+        </dl>
+      )}
+      <p className={styles.citation}>{citation}</p>
+      {info?.acknowledge && <p className={rail.hint}>{info.acknowledge}</p>}
+      <button type="button" className={`${controls.quiet} ${rail.ghost} ${rail.start}`} onClick={copy}>
+        {copied ? "Citation copied" : "Copy the citation"}
+      </button>
+      {info?.readme && (
+        <details className={styles.readme}>
+          <summary>README</summary>
+          <pre>{info.readme}</pre>
+        </details>
+      )}
+    </section>
+  );
+}
+
+/**
+ * The batch on a folder of a snapshot: Find recordings walks the folder and those below it as `ddalab batch` would,
+ * then "Run on all N" runs them as a local folder's batch does, one streamed recording at a time.
+ */
+function RemoteBatch(props: { root: string; remote: Required<BatchRecord>["remote"]; info?: DatasetInfo }) {
+  const [found, setFound] = useState<RemoteRecording[] | "walking" | Error | null>(null);
+  function walk() {
+    setFound("walking");
+    walkRecordings(props.root, props.remote.tag, props.remote, props.info).then(setFound, (error: unknown) =>
+      setFound(error instanceof Error ? error : new Error(String(error))),
+    );
+  }
+  return (
+    <div className={styles.batch}>
+      {found === null || found === "walking" ? (
+        <button
+          type="button"
+          className={`${controls.quiet} ${rail.ghost} ${rail.start}`}
+          aria-disabled={found === "walking" || undefined}
+          onClick={() => found === null && walk()}
+        >
+          {found === "walking" ? "Finding recordings" : "Find recordings to run on"}
+        </button>
+      ) : found instanceof Error ? (
+        <p role="alert" className={rail.error}>
+          {found.message}
+        </p>
+      ) : found.length === 0 ? (
+        <p className={rail.hint}>No EEG or iEEG recording here or below for a batch.</p>
+      ) : (
+        <BatchAction recordings={found} root={props.root} remote={props.remote} />
+      )}
+      <BatchProgressView root={props.root} />
+    </div>
   );
 }

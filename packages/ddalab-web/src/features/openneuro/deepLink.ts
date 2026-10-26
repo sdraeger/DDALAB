@@ -1,6 +1,6 @@
 // Links that open an OpenNeuro recording: `?openneuro=<dataset>&tag=<snapshot>&file=<path in the dataset>`.
 import type { RecordingInput } from "../../core/engine";
-import { listFiles, recordingInput } from "./api";
+import { datasetInfo, listFiles, recordingInput, sourceOf } from "./api";
 
 export interface DeepLink {
   datasetId: string;
@@ -18,8 +18,12 @@ export function parseDeepLink(search: string): DeepLink | null {
   return /^ds\d+$/.test(datasetId) && tag && path ? { datasetId, tag, path } : null;
 }
 
-/** The input of the recording `link` names, found by walking its path one directory at a time. */
+/**
+ * The input of the recording `link` names, found by walking its path one directory at a time. It cites the dataset as
+ * its description reads, or by its id and snapshot where the description does not come.
+ */
 export async function linkedInput({ datasetId, tag, path }: DeepLink): Promise<RecordingInput> {
+  const info = datasetInfo(datasetId, tag).catch(() => undefined);
   const names = path.split("/").filter(Boolean);
   const primary = names.pop() ?? "";
   let files = await listFiles(datasetId, tag);
@@ -31,5 +35,5 @@ export async function linkedInput({ datasetId, tag, path }: DeepLink): Promise<R
   if (!files.some((file) => !file.directory && file.filename === primary)) {
     throw new Error(`${datasetId} ${tag} has no file ${path}`);
   }
-  return recordingInput(files, primary);
+  return recordingInput(files, primary, sourceOf(datasetId, tag, path, await info));
 }

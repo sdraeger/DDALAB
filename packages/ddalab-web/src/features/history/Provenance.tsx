@@ -10,6 +10,7 @@ import { useShallow } from "zustand/react/shallow";
 import { deleteResult } from "../../app/analyses";
 import { inTransition } from "../../app/viewTransition";
 import { cliCommand } from "../../core/cliCommand";
+import type { DatasetSource } from "../../core/engine";
 import { type AnalysisRecord, resultName } from "../../core/history";
 import { openResult, useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
@@ -133,6 +134,7 @@ function Details() {
           {imported && " by the CLI, imported"}
         </dd>
       </dl>
+      {record.dataset && <Dataset source={record.dataset} />}
       <h3 className={styles.subheading}>Input files</h3>
       <InputFiles record={record} />
       {manifest && manifest.diagnostics.length > 0 && (
@@ -281,6 +283,38 @@ function InputFiles({ record }: { record: AnalysisRecord }) {
         );
       })}
     </ul>
+  );
+}
+
+/** The OpenNeuro dataset the recording streamed from: its reference, to copy, and the recording's place in it. */
+function Dataset({ source }: { source: DatasetSource }) {
+  const [copied, setCopied] = useState<boolean | null>(null);
+  const copy = () =>
+    Promise.resolve()
+      .then(() => navigator.clipboard.writeText(source.citation))
+      .then(
+        () => setCopied(true),
+        () => setCopied(false),
+      );
+  return (
+    <>
+      <h3 className={styles.subheading}>Dataset</h3>
+      <p className={styles.citation}>{source.citation}</p>
+      <p className={styles.note}>
+        OpenNeuro {source.id}, version {source.tag}: {source.path}
+        {source.license && `. License ${source.license}`}
+      </p>
+      <div className={styles.copy}>
+        <button type="button" className={controls.button} onClick={copy}>
+          <Copy aria-hidden />
+          Copy citation
+        </button>
+        <span className={styles.note} aria-live="polite">
+          {copied === true && "Copied"}
+          {copied === false && "The browser did not allow copying; select the citation instead."}
+        </span>
+      </div>
+    </>
   );
 }
 

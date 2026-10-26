@@ -99,6 +99,9 @@ export async function startRun(recordingId: string, request: DDARequest) {
   if (cancelling) handle.cancel();
   setRun({ id: handle.id });
   handle.progress((p) => setRun({ progress: p }));
+  // A recording streamed from OpenNeuro: its result cites the dataset.
+  const source = useStore.getState().tabs.find((t) => t.fingerprint === recording.fingerprint)?.source;
+  const dataset = source?.kind === "url" ? source.input.dataset : undefined;
   const record: AnalysisRecord = {
     id: handle.id,
     fingerprint: recording.fingerprint,
@@ -108,6 +111,7 @@ export async function startRun(recordingId: string, request: DDARequest) {
     plan: handle.plan,
     createdAt: Date.now(),
     status: "running",
+    ...(dataset && { dataset }),
   };
   await saveAnalysis(record).catch(() => {});
   await refreshAnalyses();
