@@ -6,17 +6,25 @@ import { makeZip } from "client-zip";
 import { version } from "../../package.json";
 import { type BatchRecord, listBatches, saveBatch } from "../core/batch";
 import { bundleFiles } from "../core/exporters";
-import { type AnalysisRecord, listAnalyses, persistStorage, resultName } from "../core/history";
+import {
+  type AnalysisRecord,
+  listAnalyses,
+  persistStorage,
+  recordedManifest,
+  resultName,
+} from "../core/history";
 import { hasTiles } from "../core/opfs";
 import {
   batchIds,
   batchOf,
+  type Carried,
   type Kept,
   kept,
   type Project,
   type ProjectRecording,
   readProject,
   refusal,
+  resultsBudget,
   SCHEMA,
   sameFiles,
   verdict,
@@ -58,6 +66,11 @@ export interface Contents {
   results: { record: AnalysisRecord; files: { name: string; input: File }[] }[];
   batches: BatchRecord[];
   active: string | null;
+  /**
+   * The results as a DDALAB opening the project counts them (core/project.ts `resultsBudget`): their bytes, the names of
+   * those it would refuse one by one, and whether it takes them all.
+   */
+  budget: { bytes: number; refused: string[]; fits: boolean };
   /** Bytes of the recordings' files and the results' bundles. */
   bytes: number;
   /** A sentence per tab or result that cannot go in, with what to do. */
@@ -130,7 +143,25 @@ export async function projectContents(): Promise<Contents> {
   const batches = s.batches.filter((b) => results.some((r) => r.record.batch === b.id));
   const sizes = [...members.flatMap((m) => m.files), ...results.flatMap((r) => r.files.map((f) => f.input))];
   const bytes = sizes.reduce((sum, f) => sum + f.size, 0);
-  return { members, results, batches, active: active && prints.has(active) ? active : null, bytes, problems };
+  // The results as another DDALAB counts them on open: a project it would refuse is never written.
+  const carried = await Promise.all(results.map(carriedOf));
+  const budget = resultsBudget(carried, batches);
+  return {
+    members,
+    results,
+    batches,
+    active: active && prints.has(active) ? active : null,
+    bytes,
+    problems,
+    budget: { ...budget, refused: budget.refused.map((i) => resultName(results[i].record)) },
+  };
+}
+
+/** A result as the budget counts it: its record's manifest, read from its bundle where the record has none. */
+async function carriedOf({ record, files }: Contents["results"][number]): Promise<Carried> {
+  const stored = files.find((f) => f.name.endsWith("/manifest.json"))?.input;
+  const manifest = record.manifest ?? recordedManifest(JSON.parse(await (stored as File).text()));
+  return { manifest, record };
 }
 
 /** A recording streamed from its address, as client-zip reads it. */
@@ -195,7 +226,12 @@ const dayOf = (date: Date) =>
  * every recording's files, every result's bundle, and project.json last. Call it first thing in a click: the Save
  * dialog needs the click (download.ts). `onMake` hears when the making starts, after the dialog.
  */
-export function exportProject(contents: Contents, onMake: () => void) {
+export function exportProject(all: Contents, onMake: () => void, withResults = true) {
+  // Without its results, a project keeps its recordings, annotations, channel choices and views.
+  const contents = withResults ? all : { ...all, results: [], batches: [] };
+  // Never a project that a DDALAB opening it would refuse the results of.
+  if (withResults && !all.budget.fits)
+    throw new Error("The project's results are more than a project may carry");
   const created = new Date();
   return download(`project-${dayOf(created)}.ddalab`, async () => {
     onMake();

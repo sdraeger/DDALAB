@@ -52,13 +52,13 @@ async function run(page: Page) {
 }
 
 /** Exports the open tabs once the panel says it holds `holds`, as a download; the saved file's path. */
-async function exportProject(page: Page, holds: RegExp) {
+async function exportProject(page: Page, holds: RegExp, save = "Save project") {
   await page.getByRole("button", { name: "Export project" }).click();
   const panel = page.getByRole("dialog", { name: "Export project" });
   await expect(panel.getByText(holds)).toBeVisible();
   const [download] = await Promise.all([
     page.waitForEvent("download"),
-    panel.getByRole("button", { name: "Save project" }).click(),
+    panel.getByRole("button", { name: save }).click(),
   ]);
   expect(download.suggestedFilename()).toMatch(/^project-\d{4}-\d{2}-\d{2}\.ddalab$/);
   const path = join(mkdtempSync(join(tmpdir(), "ddalab-project-")), download.suggestedFilename());
@@ -522,4 +522,59 @@ test("a_project_never_takes_a_recording_kept_here_without_a_tab", async ({ page,
   await expect(tabsOf(here)).toHaveCount(1);
   await expect.poll(() => keptHere(here, fingerprint)).toEqual({ ...before, labels: ["mine", "theirs"] });
   await mine.close();
+});
+
+// Results that a DDALAB opening the project would refuse (here three, whose records are made 11 MiB each in the
+// store) are never written: the panel says how much they come to and offers the project without them, which opens
+// elsewhere with its recording and annotations.
+test("an_export_past_the_results_limit_offers_the_project_without_them", async ({ page, browser }) => {
+  await start(page);
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  await page.getByLabel("Recording files").setInputFiles(fixture("fixture.edf"));
+  await expect(page.getByRole("heading", { name: "fixture.edf" })).toBeVisible();
+  await page
+    .getByRole("list", { name: "Channels" })
+    .getByRole("checkbox", { name: /^Select / })
+    .last()
+    .check();
+  await annotate(page, 3, 4, "kept");
+  for (let i = 0; i < 3; i++) await run(page);
+  await page.evaluate(() =>
+    window.__ddalab.store.setState((s) => ({
+      analyses: s.analyses.map((a) =>
+        a.manifest
+          ? {
+              ...a,
+              manifest: { ...a.manifest, diagnostics: Array.from({ length: 176 }, () => "d".repeat(65536)) },
+            }
+          : a,
+      ),
+    })),
+  );
+  await page.getByRole("button", { name: "Export project" }).click();
+  const panel = page.getByRole("dialog", { name: "Export project" });
+  await expect(panel.getByText(/^The results come to 33(\.\d)? MiB/)).toHaveText(
+    /^The results come to 33(\.\d)? MiB, and a project can carry at most 32 MiB of results\. Export without results, which keeps the recordings, annotations, chosen channels and views, or delete results you do not need in History and export again\.$/,
+  );
+  await expect(panel.getByRole("button", { name: "Save project" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  const path = await exportProject(page, /^1 recording, 3 results: /, "Export without results");
+  const listing = execFileSync("python3", [
+    "-c",
+    "import sys, zipfile\nprint('\\n'.join(zipfile.ZipFile(sys.argv[1]).namelist()))",
+    path,
+  ])
+    .toString()
+    .trim()
+    .split("\n");
+  expect(listing.sort()).toEqual(["project.json", "recordings/0/fixture.edf"]);
+
+  const elsewhere = await browser.newContext();
+  const other = await elsewhere.newPage();
+  await start(other);
+  await other.getByLabel("Recording files").setInputFiles(path);
+  await expect(other.getByRole("heading", { name: "fixture.edf" })).toBeVisible();
+  const fingerprint = await other.evaluate(() => window.__ddalab.store.getState().tabs[0].fingerprint);
+  await expect.poll(() => keptHere(other, fingerprint)).toEqual({ labels: ["kept"], results: [] });
+  await elsewhere.close();
 });
