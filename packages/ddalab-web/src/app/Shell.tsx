@@ -192,18 +192,22 @@ export function IconButton({
   );
 }
 
-/** The active recording by the label its tab shows, its full name in the tooltip. */
+/** The active recording by the label its tab shows, short of its modality suffix; its full name in the tooltip. */
 function RecordingName() {
   const name = useStore((s) => activeRecording(s)?.info.input_files[0]);
   const label = useStore((s) => {
     const i = s.tabs.findIndex((t) => t.fingerprint === s.activeTab);
     return i < 0 ? undefined : shortNames(s.tabs.map((t) => t.name))[i];
   });
-  return name ? (
+  if (!name) return null;
+  // A BIDS name gives up its modality suffix and elides in the middle: its last entity (run-01) stays in view.
+  const bids = /^(.*_)([a-z0-9]+-[a-z0-9]+)_[a-z0-9]+\.[a-z0-9.]+$/i.exec(label ?? name);
+  return (
     <span className={styles.name} title={name} data-appear>
-      {label ?? name}
+      <span className={styles.nameHead}>{bids ? bids[1] : (label ?? name)}</span>
+      {bids && <span className={styles.nameTail}>{bids[2]}</span>}
     </span>
-  ) : null;
+  );
 }
 
 /** An icon button of the command bar that opens a panel; the panel's chunk loads on pointer or focus. */

@@ -46,15 +46,26 @@
   letter-spacing: 0.02em;
 }
 
+/* The recording's name: its head elides, its tail stays whole. */
 .name {
+  display: flex;
   min-width: 0;
   max-width: 32ch;
   overflow: hidden;
   padding-left: var(--space-3);
   border-left: var(--hairline-width) solid var(--hairline);
   color: var(--ink);
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.nameHead {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nameTail {
+  flex: none;
 }
 
 .grow {
