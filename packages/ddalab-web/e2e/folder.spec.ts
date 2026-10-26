@@ -186,10 +186,10 @@ test("filter_keeps_the_folders_of_matches", async ({ page }) => {
   await filter.fill("sub-03");
   await expect(rows).toHaveCount(2);
   const names = () => rows.evaluateAll((items) => items.map((item) => item.getAttribute("aria-label")));
-  expect(await names()).toEqual(["sub-03 / eeg", "sub-03_task-rest_eeg, sub-03_task-rest_eeg.edf"]);
+  await expect.poll(names).toEqual(["sub-03 / eeg", "sub-03_task-rest_eeg, sub-03_task-rest_eeg.edf"]);
+  // Both filters match two rows: the count alone passes before the tree has changed.
   await filter.fill("pilot");
-  await expect(rows).toHaveCount(2);
-  expect(await names()).toEqual(["pilot", "pilot, pilot.edf"]);
+  await expect.poll(names).toEqual(["pilot", "pilot, pilot.edf"]);
   await rows.nth(1).click();
   await expect(page.getByRole("heading", { name: "pilot.edf" })).toBeVisible();
   // The opened folder's own name is in every path and matches none.
