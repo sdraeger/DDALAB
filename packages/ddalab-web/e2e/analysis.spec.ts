@@ -177,6 +177,40 @@ test("escape_puts_back_the_interval", async ({ page }) => {
   await expect(end).toHaveValue("6");
 });
 
+// Start typed, Enter, then Escape before the committed interval has rested (200 ms): Escape takes the commit back,
+// and Start and End show the interval the run would take, then and after it rests.
+test("escape_within_200_ms_of_enter_leaves_no_stale_interval", async ({ page }) => {
+  await openBrainVision(page);
+  const start = runBar(page).getByLabel("Start", { exact: true });
+  const end = runBar(page).getByLabel("End", { exact: true });
+  await expect(start).toHaveValue("0");
+  await page.evaluate(() => {
+    const keys: [string, number][] = [];
+    Object.assign(window, { keys });
+    addEventListener("keydown", (event) => keys.push([event.key, performance.now()]), true);
+  });
+  await start.fill("2");
+  await start.press("Enter");
+  await start.press("Escape");
+  const pressed = await page.evaluate(() => (window as unknown as { keys: [string, number][] }).keys);
+  const at = (key: string) => pressed.find(([k]) => k === key)?.[1] ?? Number.NaN;
+  expect(at("Escape") - at("Enter")).toBeLessThan(200);
+  /** The interval a run takes now (the selection, else the view), as the fields print it. */
+  const committed = () =>
+    page.evaluate(() => {
+      const { selection, view } = window.__ddalab.store.getState();
+      const { t0, t1 } = selection ?? view;
+      return [t0, t1].map((t) => String(Number(t.toFixed(3))));
+    });
+  const fields = async () => [await start.inputValue(), await end.inputValue()];
+  expect(await fields()).toEqual(await committed());
+  expect(await fields()).toEqual(["0", "6"]);
+  // Past the rest the fields still show it: nothing stale comes back.
+  await page.waitForTimeout(400);
+  expect(await fields()).toEqual(await committed());
+  expect(await fields()).toEqual(["0", "6"]);
+});
+
 test("st_result_equals_cli_bundle", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
   await openBrainVision(page);
