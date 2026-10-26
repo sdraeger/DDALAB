@@ -60,7 +60,11 @@ async function attempt(
     if (before) await before.done;
     if (!controller.signal.aborted && tabOf(fingerprint)) await work(controller.signal);
   } finally {
-    if (attempts.get(fingerprint) === own) attempts.delete(fingerprint);
+    if (attempts.get(fingerprint) === own) {
+      attempts.delete(fingerprint);
+      // However it ended, no check of this tab's files goes on: it never sits "Verifying" with nothing under way.
+      if (tabOf(fingerprint)?.verifying) updateTab(fingerprint, { verifying: false });
+    }
     ended();
   }
 }
@@ -154,11 +158,11 @@ async function attachMatch(
 export function attachUrl(tab: Tab, supersede = false) {
   const { source, fingerprint } = tab;
   if (source?.kind !== "url") return Promise.resolve();
-  return attempt(fingerprint, supersede, async () => {
+  return attempt(fingerprint, supersede, async (signal) => {
     unpicked.add(fingerprint);
-    await openInput(source.input, { expect: fingerprint, activate: false }).catch((error) => {
+    await openInput(source.input, { expect: fingerprint, activate: false, signal }).catch((error) => {
       unpicked.delete(fingerprint);
-      setReason(fingerprint, `${tab.name} could not be read: ${messageOf(error)}`);
+      if (!signal.aborted) setReason(fingerprint, `${tab.name} could not be read: ${messageOf(error)}`);
     });
   });
 }

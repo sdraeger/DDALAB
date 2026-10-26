@@ -223,6 +223,15 @@
   color: var(--muted);
 }
 
+/* Empty, it stays a live region out of the flow: the note's gap does not open around it. */
+.more[data-empty] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
 /* The note as one line over a result shown alone. */
 .line {
   display: flex;

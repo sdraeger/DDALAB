@@ -42,6 +42,8 @@ test("version_2_database_upgrades_with_its_recent_list", async () => {
   expect(await listRecent()).toEqual([
     { fingerprint: "f", primary: "a.edf", names: ["a.edf"], lastOpened: 1 },
   ]);
+  const stores = [...(await database()).objectStoreNames].sort();
+  expect(stores).toEqual(["analyses", "annotations", "recent", "tabs"]);
 });
 
 // Two branches each took version 3 for one store: a browser can sit at version 3 with either, and version 4 adds the
