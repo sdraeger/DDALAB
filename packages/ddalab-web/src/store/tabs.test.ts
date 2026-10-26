@@ -10,6 +10,7 @@ import {
   removeRecording,
   setSelection,
   setView,
+  showChosenOnly,
   showResult,
   useStore,
 } from "./store";
@@ -282,15 +283,18 @@ test("each_tab_keeps_its_view", () => {
   useStore.setState((s) => ({
     recordings: { ...s.recordings, A: { ...s.recordings.A, selectedChannels: [0, 2] } },
   }));
+  showChosenOnly(true);
   openResult("r");
   useStore.setState((s) => ({ shownResult: s.shownResult && { ...s.shownResult, row: 1 } }));
   selectTab("fb");
-  // B comes back as it was left: at its first epoch, with no selection or result.
+  // B comes back as it was left: at its first epoch, with no selection or result, every channel shown.
   expect(viewOf()).toMatchObject({ t0: 0, t1: 10 });
+  expect(useStore.getState().view.chosenOnly).toBe(false);
   expect(useStore.getState()).toMatchObject({ selection: null, shownResult: null, activeResultId: null });
   setView({ t0: 70, t1: 90 });
   selectTab("fa");
   expect(viewOf()).toMatchObject({ t0: 40, t1: 60 });
+  expect(useStore.getState().view.chosenOnly).toBe(true);
   expect(useStore.getState()).toMatchObject({
     selection: { t0: 42, t1: 45 },
     shownResult: { id: "r", row: 1 },

@@ -40,8 +40,12 @@ export const MIN_SPAN_SAMPLES = 8;
 export interface View {
   t0: number;
   t1: number;
+  /** The top row on screen, as an index into the rows' channels (`rowChannels`). */
   firstChannel: number;
+  /** Rows on screen; fewer while fewer channels show. */
   rowCount: number;
+  /** Only the display channels chosen for analysis show, in their order (on only while some are chosen). */
+  chosenOnly: boolean;
   epochS: Epoch;
   sensitivityUvPerMm: number;
   /** Physical millimeters in one CSS millimeter on this display (the calibration setting). */
@@ -170,6 +174,7 @@ export const useStore = create<State>()(() => ({
     t1: 10,
     firstChannel: 0,
     rowCount: DEFAULT_ROWS,
+    chosenOnly: false,
     epochS: 10,
     sensitivityUvPerMm: 70,
     mmPerCssMm: storedCalibration(),
@@ -191,8 +196,18 @@ export const useStore = create<State>()(() => ({
 export const activeRecording = (s: State) =>
   s.activeRecordingId ? s.recordings[s.activeRecordingId] : undefined;
 
+/** The display channels of the waveform's rows, top to bottom: the chosen ones while only those show, else all. */
+export const rowChannels = (
+  { chosenOnly }: Pick<View, "chosenOnly">,
+  recording: Pick<OpenRecording, "analysis_channels" | "selectedChannels">,
+) =>
+  chosenOnly && recording.selectedChannels.length > 0
+    ? recording.selectedChannels
+    : recording.analysis_channels.map((_, i) => i);
+
 /**
- * `view` moved inside the recording: whole span in range, at least 8 samples, rows within the channels. Without a
+ * `view` moved inside the recording: whole span in range, at least 8 samples, rows within the channels they show
+ * (chosen ones only while some are chosen). Without a
  * recording it stays inside `interval`, the analysis interval of a result shown alone, when there is one, and spans at
  * least a millionth of it (the most windows a result has): a zoom never reaches a span of zero.
  */
@@ -209,12 +224,27 @@ function clamp(
     return { ...view, t0, t1: t0 + span };
   }
   const { duration_s: duration, sample_rate_hz: rate } = recording.info;
-  const channels = recording.analysis_channels.length;
   const span = Math.min(duration, Math.max(MIN_SPAN_SAMPLES / rate, view.t1 - view.t0));
   const t0 = Math.min(duration - span, Math.max(0, view.t0));
-  const rowCount = Math.max(1, Math.min(channels, Math.round(view.rowCount)));
-  const firstChannel = Math.max(0, Math.min(channels - rowCount, Math.round(view.firstChannel)));
-  return { ...view, t0, t1: t0 + span, rowCount, firstChannel };
+  // The row count is held against all channels: it comes back when every channel shows again.
+  const rowCount = Math.max(1, Math.min(recording.analysis_channels.length, Math.round(view.rowCount)));
+  const chosenOnly = view.chosenOnly && recording.selectedChannels.length > 0;
+  const shown = rowChannels({ chosenOnly }, recording).length;
+  const firstChannel = Math.max(
+    0,
+    Math.min(shown - Math.min(rowCount, shown), Math.round(view.firstChannel)),
+  );
+  return { ...view, t0, t1: t0 + span, rowCount, firstChannel, chosenOnly };
+}
+
+/**
+ * `next`, a view of `recording` whose rows were the channels `rows` from `first`: its top row keeps its channel, or
+ * the first channel after it that shows.
+ */
+function keepTop(rows: number[], first: number, next: View, recording: OpenRecording): View {
+  const shown = rowChannels(next, recording);
+  const at = shown.findIndex((c) => c >= (rows[first] ?? 0));
+  return clamp({ ...next, firstChannel: at < 0 ? shown.length : at }, recording);
 }
 
 /** The first epoch and the first rows of `recording`; scale settings carry over. */
@@ -222,7 +252,14 @@ function freshView(
   view: View,
   recording: OpenRecording | undefined,
 ): Pick<State, "view" | "selection" | "cursorS"> {
-  const next = { ...view, t0: 0, t1: view.epochS, firstChannel: 0, rowCount: DEFAULT_ROWS };
+  const next = {
+    ...view,
+    t0: 0,
+    t1: view.epochS,
+    firstChannel: 0,
+    rowCount: DEFAULT_ROWS,
+    chosenOnly: false,
+  };
   return { view: clamp(next, recording), selection: null, cursorS: null };
 }
 
@@ -233,7 +270,14 @@ export function tabViewOf(s: State, kept?: TabView): TabView {
   const result = { shownResult: s.shownResult, activeResultId: s.activeResultId };
   if (recording)
     return { view, selection: s.selection, selectedChannels: recording.selectedChannels, ...result };
-  const first = { ...view, t0: 0, t1: view.epochS, firstChannel: 0, rowCount: DEFAULT_ROWS };
+  const first = {
+    ...view,
+    t0: 0,
+    t1: view.epochS,
+    firstChannel: 0,
+    rowCount: DEFAULT_ROWS,
+    chosenOnly: false,
+  };
   return { ...(kept ?? { view: first, selection: null, selectedChannels: [] }), ...result };
 }
 
@@ -258,19 +302,20 @@ export function enter(
   const complete = (resultId?: string | null) =>
     s.analyses.some((a) => a.id === resultId && a.status === "complete");
   const channels = recording?.analysis_channels.length ?? 0;
-  const recordings =
-    id !== null && recording && saved
-      ? {
-          ...all,
-          [id]: { ...recording, selectedChannels: saved.selectedChannels.filter((c) => c < channels) },
-        }
-      : all;
+  const restored =
+    recording && saved
+      ? { ...recording, selectedChannels: saved.selectedChannels.filter((c) => c < channels) }
+      : recording;
+  const recordings = id !== null && restored && saved ? { ...all, [id]: restored } : all;
   return shownAlone(s, {
     tabs,
     recordings,
     activeTab: fingerprint,
     activeRecordingId: id,
-    view: saved ? clamp({ ...s.view, ...saved.view }, recording) : freshView(s.view, recording).view,
+    // A view saved by 2.0.0 has no chosenOnly: it shows every channel.
+    view: saved
+      ? clamp({ ...s.view, ...saved.view, chosenOnly: saved.view.chosenOnly ?? false }, restored)
+      : freshView(s.view, recording).view,
     selection: saved?.selection ?? null,
     cursorS: null,
     // The annotation UI belongs to the recording left: its pick, open editor and drag end with the switch.
@@ -340,7 +385,10 @@ export function setAnnotations(id: string, found: { annotations: Annotation[]; w
   });
 }
 
-/** Adds (`on`) or removes display channels from the active recording's analysis choice. */
+/**
+ * Adds (`on`) or removes display channels from the active recording's analysis choice. While only the chosen channels
+ * show, the rows follow the choice; with none left every channel shows.
+ */
 export function selectChannels(channels: number[], on: boolean) {
   useStore.setState((s) => {
     const recording = activeRecording(s);
@@ -350,8 +398,23 @@ export function selectChannels(channels: number[], on: boolean) {
       if (on) chosen.add(c);
       else chosen.delete(c);
     }
-    const selectedChannels = [...chosen].sort((a, b) => a - b);
-    return { recordings: { ...s.recordings, [s.activeRecordingId]: { ...recording, selectedChannels } } };
+    const updated = { ...recording, selectedChannels: [...chosen].sort((a, b) => a - b) };
+    const recordings = { ...s.recordings, [s.activeRecordingId]: updated };
+    if (!s.view.chosenOnly) return { recordings };
+    return {
+      recordings,
+      view: keepTop(rowChannels(s.view, recording), s.view.firstChannel, s.view, updated),
+    };
+  });
+}
+
+/** Shows only the display channels chosen for analysis (`on`), or all of them; the top row keeps its channel. */
+export function showChosenOnly(on: boolean) {
+  useStore.setState((s) => {
+    const recording = activeRecording(s);
+    if (!recording) return s;
+    const rows = rowChannels(s.view, recording);
+    return { view: keepTop(rows, s.view.firstChannel, { ...s.view, chosenOnly: on }, recording) };
   });
 }
 

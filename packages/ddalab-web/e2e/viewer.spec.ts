@@ -49,7 +49,7 @@ async function zoom(page: Page, samplesPerPixel: number, t0: number, channel: nu
 /**
  * Compares every column of every row of the drawn traces with the full polyline through the raw samples. The
  * mapping from samples to pixels comes from the store, the recording's channel list and the canvas size, as the
- * spec states it, not from the renderer. In column c (sample positions p0 = s0 + c * spp to p1 = p0 + spp) the
+ * spec states it, not from the renderer; the rows draw every display channel, or the chosen ones alone. In column c (sample positions p0 = s0 + c * spp to p1 = p0 + spp) the
  * polyline spans the samples strictly inside and its values at p0 and p1. The drawn span must contain that span and
  * lie within the union of the spans of columns c - 1 to c + 1, both clipped to the row's band of pixel rows: a row
  * inks its own band only, which tells the rows' pixels apart. A value within TOLERANCE px of a pixel edge may fall on
@@ -62,7 +62,7 @@ const checkPixels = (page: Page) =>
     const frame = await viewer.settled();
     const { view, recordings, activeRecordingId } = store.getState();
     const id = activeRecordingId as string;
-    const { info, analysis_channels } = recordings[id];
+    const { info, analysis_channels, selectedChannels } = recordings[id];
     const rate = info.sample_rate_hz;
     const N = info.sample_count;
     const C = analysis_channels.length;
@@ -70,15 +70,17 @@ const checkPixels = (page: Page) =>
     const s0 = view.t0 * rate;
     const spp = ((view.t1 - view.t0) * rate) / W;
     const pxPerUnit = ((96 / 25.4 / view.mmPerCssMm) * devicePixelRatio) / view.sensitivityUvPerMm;
-    const rowHeight = H / view.rowCount;
+    const order = view.chosenOnly ? selectedChannels : analysis_channels.map((_, i) => i);
+    const rows = Math.min(view.rowCount, order.length);
+    const rowHeight = H / rows;
     const first = Math.max(0, Math.floor(s0) - 1);
     const last = Math.min(N - 1, Math.ceil(s0 + W * spp) + 1);
     const raw = await engine.raw(id, first, last - first + 1);
     const failures: string[] = [];
     let inked = 0;
     let clipped = 0;
-    for (let r = 0; r < Math.min(view.rowCount, C - view.firstChannel); r++) {
-      const ch = view.firstChannel + r;
+    for (let r = 0; r < Math.min(rows, order.length - view.firstChannel); r++) {
+      const ch = order[view.firstChannel + r];
       const { unit, gain, offset } = info.channels[analysis_channels[ch]];
       const scale = unit === "V" ? 1e6 : 1;
       const v = (i: number) => raw[(i - first) * C + ch] * gain * scale + offset * scale;
@@ -374,6 +376,63 @@ test("paging_keys", async ({ page }) => {
   await page.getByRole("option", { name: "20 s" }).click();
   await page.keyboard.press("End");
   await expect(page.getByText("Page 2 of 2")).toBeVisible();
+});
+
+// Twelve channels: "Show chosen channels only" shows the chosen ones alone, in order, paged by the same keys and
+// scrolling; the rows follow the choice and each draws its own channel (CH3, CH7 and CH10 are not a run of channels).
+// Off, every channel shows from the top row's channel.
+test("chosen_channels_alone", async ({ page }) => {
+  test.setTimeout(120_000);
+  const gl = await hasWebGL2(page);
+  await openSynthetic(page, { channels: 12, rateHz: 256, durationS: 60, seed: 5 });
+  const toggle = page.getByRole("button", { name: "Show chosen channels only" });
+  const rows = page.getByRole("list", { name: "Channel rows" }).getByRole("listitem");
+  const choose = (label: string, on = true) =>
+    page.getByRole("checkbox", { name: `Select ${label}`, exact: true }).setChecked(on);
+  const drawn = () => page.evaluate(async () => (await window.__ddalab.viewer.settled()).channels);
+  // With none chosen it cannot act, and says why.
+  await expect(toggle).toHaveAttribute("aria-disabled", "true");
+  await expect(toggle).toHaveAccessibleDescription("No channel is chosen.");
+  // Playwright waits for an aria-disabled button to turn enabled before it clicks; a pointer reaches it at once.
+  await toggle.click({ force: true });
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  for (const label of ["CH10", "CH3", "CH7"]) await choose(label);
+  await expect(toggle).not.toHaveAttribute("aria-disabled");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await expect(rows).toHaveText([/^CH3\b/, /^CH7\b/, /^CH10\b/]);
+  if (gl) {
+    expect(await drawn()).toEqual([2, 6, 9]);
+    await zoom(page, 5, 3.1, 0, 3);
+    expect(await checkPixels(page)).toMatchObject({ mode: "rawSpan", failures: [] });
+  }
+  // Two rows: the arrow keys and the scroller page through the chosen channels.
+  await setView(page, { rowCount: 2 });
+  await page.getByRole("region", { name: "Waveforms" }).focus();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await expect(rows).toHaveText([/^CH7\b/, /^CH10\b/]);
+  await page
+    .getByRole("region", { name: "Waveforms" })
+    .evaluate((pane) => pane.firstElementChild?.scrollTo(0, 0));
+  await expect(rows).toHaveText([/^CH3\b/, /^CH7\b/]);
+  // A channel chosen joins in order; the top row's channel unchosen gives way to the next.
+  await choose("CH5");
+  await expect(rows).toHaveText([/^CH3\b/, /^CH5\b/]);
+  await choose("CH3", false);
+  await expect(rows).toHaveText([/^CH5\b/, /^CH7\b/]);
+  if (gl) expect(await drawn()).toEqual([4, 6]);
+  // Off: every channel, from the top row's.
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await expect(rows).toHaveText([/^CH5\b/, /^CH6\b/]);
+  if (gl) expect(await drawn()).toEqual([4, 5]);
+  // Unchoosing the last channel while on shows every channel again, and the note says why it is off.
+  await toggle.click();
+  for (const label of ["CH5", "CH7", "CH10"]) await choose(label, false);
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await expect(toggle).toHaveAttribute("aria-disabled", "true");
+  await expect(rows).toHaveText([/^CH10\b/, /^CH11\b/]);
 });
 
 test("escape_and_a_press_off_the_plot_let_the_cursor_go", async ({ page }) => {

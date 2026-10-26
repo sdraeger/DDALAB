@@ -5,8 +5,9 @@
 // own raster.
 //
 // Two R32F texture arrays hold the data. A tile layer holds one pyramid tile of every display channel (1,024 minima
-// rows, then 1,024 maxima rows). A raw layer holds 2,048 raw rows of a window of channels around those on screen,
-// so raw layers cost what the rows shown need, whatever the channel count. A slot texture maps the slots of a frame
+// rows, then 1,024 maxima rows). A raw layer holds 2,048 raw rows of a window of the rows' channels (all display
+// channels, or those chosen for analysis) around those on screen, so raw layers cost what the rows shown need,
+// whatever the channel count. A slot texture maps the slots of a frame
 // (consecutive raw chunks, or consecutive tiles of the planned level) to layers. A slot whose own data has not
 // arrived draws from the finest loaded coarser tile over it: every frame asks for a few tiles covering the whole
 // view and for the top tile, which stay loaded. The plot never blanks once a region is scanned.
@@ -61,6 +62,8 @@ export interface Frame {
   /** Sample position at the left edge, and samples per device pixel. */
   s0: number;
   spp: number;
+  /** The display channels of the rows, top to bottom; `firstChannel` is the index in it of the top row on screen. */
+  order: number[];
   firstChannel: number;
   rowCount: number;
   /** Device pixels per row, and per display unit (µV for voltage channels). */
@@ -98,7 +101,7 @@ uniform sampler2DArray u_raw;
 uniform sampler2D u_slots;
 uniform sampler2D u_params;
 uniform int u_channel;
-uniform int u_rawFirst;
+uniform int u_column;
 uniform int u_slotCount;
 uniform float u_slotRows;
 uniform float u_s0;
@@ -115,7 +118,7 @@ const int BUCKETS = ${TILE_BUCKETS};
 // first row within the layer's tile, w: 1 for a raw layer.
 vec4 slotOf(int s) { return texelFetch(u_slots, ivec2(s, 0), 0); }
 
-float rawAt(int y, int layer) { return texelFetch(u_raw, ivec3(u_channel - u_rawFirst, y, layer), 0).r; }
+float rawAt(int y, int layer) { return texelFetch(u_raw, ivec3(u_column, y, layer), 0).r; }
 
 // Row r (relative to slot 0) as a raw value; ok is false when its slot holds no raw rows.
 float sampleAt(float r, out bool ok) {
@@ -332,7 +335,7 @@ export function createWaveformLayer(
   /** Tiles kept whatever their age: the view's cover and the top tile. */
   const pinned = new Set<string>();
   /** The raw chunks of the last frame and their channel window, put into layers as they arrive. */
-  let wanted = { chunks: new Set<number>(), first: 0 };
+  let wanted = { chunks: new Set<number>(), columns: [] as number[] };
   /** Rows the scan has stored tiles for: covers there are read from storage alone. */
   let scannedRows = 0;
   let frameNumber = 0;
@@ -380,17 +383,28 @@ export function createWaveformLayer(
     tiles.resident.set(key, { layer, used: frameNumber });
   }
 
-  /** Puts the channels `first..first + width` of a raw chunk (rows of every channel) into a raw layer. */
-  function uploadRaw(chunk: number, values: Float32Array, first: number) {
-    const key = `${chunk}@${first}`;
+  /**
+   * Puts the channels `columns` (ascending) of a raw chunk (rows of every channel) into a raw layer: a run of channels
+   * straight from the chunk, others gathered first.
+   */
+  function uploadRaw(chunk: number, values: Float32Array, columns: number[]) {
+    const key = `${chunk}@${columns.join()}`;
     if (!usable() || raws.resident.has(key)) return;
     const layer = acquire(raws);
     if (layer === undefined) return;
-    gl.bindTexture(gl.TEXTURE_2D_ARRAY, raws.texture);
-    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, channels);
-    gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, first);
     const n = values.length / channels;
-    gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, layer, raws.width, n, 1, gl.RED, gl.FLOAT, values, 0);
+    const width = columns.length;
+    const run = columns[width - 1] - columns[0] === width - 1;
+    let data = values;
+    if (!run) {
+      data = new Float32Array(n * width);
+      for (let y = 0; y < n; y++)
+        for (let i = 0; i < width; i++) data[y * width + i] = values[y * channels + columns[i]];
+    }
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, raws.texture);
+    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, run ? channels : width);
+    gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, run ? columns[0] : 0);
+    gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, layer, width, n, 1, gl.RED, gl.FLOAT, data, 0);
     gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
     gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
     raws.resident.set(key, { layer, used: frameNumber });
@@ -449,7 +463,7 @@ export function createWaveformLayer(
           // A copy: a view would keep the whole request's buffer alive while the cache counts the chunk alone.
           const chunk = values.slice(start * channels, (start + n) * channels);
           remember(first + i, chunk);
-          if (wanted.chunks.has(first + i)) uploadRaw(first + i, chunk, wanted.first);
+          if (wanted.chunks.has(first + i)) uploadRaw(first + i, chunk, wanted.columns);
         });
       })
       .catch((error) => failed(keys, error))
@@ -508,13 +522,16 @@ export function createWaveformLayer(
     const lastRow = Math.min(rows - 1, Math.ceil(s0 + width * spp) + 1);
     if (lastRow < firstRow || disposed) return { plan, complete: true, gaps: [], error: null };
 
-    // Raw layers hold a window of channels around the rows on screen.
-    const rawWidth = Math.min(channels, Math.max(frame.rowCount, MIN_RAW_CHANNELS));
+    // Raw layers hold a window of the rows' channels around the rows on screen.
+    const { order } = frame;
+    const rawWidth = Math.min(order.length, Math.max(frame.rowCount, MIN_RAW_CHANNELS));
     if (rawWidth > raws.width) {
       gl.deleteTexture(raws.texture);
       raws = createPool(rawWidth, RAW_BUDGET);
     }
-    const rawFirst = Math.min(frame.firstChannel, channels - raws.width);
+    const rawFirst = Math.max(0, Math.min(frame.firstChannel, order.length - raws.width));
+    const columns = order.slice(rawFirst, rawFirst + raws.width);
+    const at = columns.join();
     // shortcut: raw rows of a view wider than half the raw layers draw from level 0 tiles, whose 64-row buckets can
     // widen a span past its neighbors; split such a view into passes if screens that wide appear.
     const rawChunks = Math.floor(lastRow / LAYER_ROWS) - Math.floor(firstRow / LAYER_ROWS) + 1;
@@ -561,16 +578,16 @@ export function createWaveformLayer(
     let complete = true;
     let uploads = 0;
     let deferred = false;
-    wanted = { chunks: new Set(), first: rawFirst };
+    wanted = { chunks: new Set(), columns };
     for (let s = 0; s < count; s++) {
       const k = first + s;
-      const key = raw ? `${k}@${rawFirst}` : `${level}/${k}`;
+      const key = raw ? `${k}@${at}` : `${level}/${k}`;
       needed.push(raw ? `r${k}` : key);
       if (raw) {
         wanted.chunks.add(k);
         const values = !raws.resident.has(key) && uploads < UPLOADS_PER_FRAME ? cached(k) : undefined;
         if (values) {
-          uploadRaw(k, values, rawFirst);
+          uploadRaw(k, values, columns);
           uploads++;
         }
       }
@@ -618,7 +635,7 @@ export function createWaveformLayer(
         const around: number[] = [];
         for (let i = 1; i <= ahead; i++) {
           for (const k of [lastChunk + i, firstChunk - i]) {
-            const loaded = rawCache.has(chunkKey(k)) || raws.resident.has(`${k}@${rawFirst}`);
+            const loaded = rawCache.has(chunkKey(k)) || raws.resident.has(`${k}@${at}`);
             if (k >= 0 && k * LAYER_ROWS < rows && !loaded) around.push(k);
           }
         }
@@ -639,7 +656,7 @@ export function createWaveformLayer(
     bind(1, gl.TEXTURE_2D_ARRAY, raws.texture);
     bind(2, gl.TEXTURE_2D, slots);
     bind(3, gl.TEXTURE_2D, params);
-    const rowsShown = Math.min(frame.rowCount, channels - frame.firstChannel);
+    const rowsShown = Math.min(frame.rowCount, order.length - frame.firstChannel);
     const common = (p: ReturnType<typeof program>) => {
       // biome-ignore lint/correctness/useHookAtTopLevel: WebGL's useProgram, not a React hook
       gl.useProgram(p.program);
@@ -647,7 +664,6 @@ export function createWaveformLayer(
       gl.uniform1i(p.uniform("u_raw"), 1);
       gl.uniform1i(p.uniform("u_slots"), 2);
       gl.uniform1i(p.uniform("u_params"), 3);
-      gl.uniform1i(p.uniform("u_rawFirst"), rawFirst);
       gl.uniform1i(p.uniform("u_slotCount"), count);
       gl.uniform1f(p.uniform("u_slotRows"), slotRows);
       gl.uniform1f(p.uniform("u_s0"), s0 - base);
@@ -669,7 +685,8 @@ export function createWaveformLayer(
     gl.uniform1i(spans.uniform("u_round"), 0);
     for (let r = 0; r < rowsShown; r++) {
       band(r);
-      gl.uniform1i(spans.uniform("u_channel"), frame.firstChannel + r);
+      gl.uniform1i(spans.uniform("u_channel"), order[frame.firstChannel + r]);
+      gl.uniform1i(spans.uniform("u_column"), frame.firstChannel + r - rawFirst);
       gl.uniform1f(spans.uniform("u_center"), (r + 0.5) * frame.rowHeight);
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, width);
     }
@@ -683,7 +700,8 @@ export function createWaveformLayer(
       gl.uniform1i(dots.uniform("u_round"), 1);
       for (let r = 0; r < rowsShown && samples > 0; r++) {
         band(r);
-        gl.uniform1i(dots.uniform("u_channel"), frame.firstChannel + r);
+        gl.uniform1i(dots.uniform("u_channel"), order[frame.firstChannel + r]);
+        gl.uniform1i(dots.uniform("u_column"), frame.firstChannel + r - rawFirst);
         gl.uniform1f(dots.uniform("u_center"), (r + 0.5) * frame.rowHeight);
         gl.drawArraysInstanced(gl.POINTS, 0, 1, samples);
       }
