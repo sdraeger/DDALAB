@@ -7,14 +7,26 @@ import { deflateRawSync } from "node:zlib";
 import { makeZip } from "client-zip";
 import { expect, test } from "vitest";
 import { unzip, zipEntries } from "./imports";
-import { checkProject, fingerprintOfFiles, type Project, readProject, SCHEMA } from "./project";
+import {
+  batchIds,
+  checkProject,
+  fingerprintOfFiles,
+  type Project,
+  readProject,
+  SCHEMA,
+  sameFiles,
+} from "./project";
 
 const FIXTURES = fileURLToPath(new URL("../../../dda-rs/tests/fixtures/", import.meta.url));
 const fixture = (name: string): Bytes => new Uint8Array(readFileSync(FIXTURES + name));
 const bytesOf = async (blob: Blob | undefined) => new Uint8Array(await (blob as Blob).arrayBuffer());
 
 type Bytes = Uint8Array<ArrayBuffer>;
-type Entry = { name: string; bytes: Bytes; method?: 0 | 8; size?: number };
+/** An entry: stored, or deflated (`method` 8, `size` its unpacked size); `at`: its local header is already there. */
+type Entry = { name: string; bytes: Bytes; method?: 0 | 8; size?: number; at?: number };
+
+const FULL = 0xffffffff;
+const encode = (text: string) => new TextEncoder().encode(text);
 
 const record = (size: number, fill: (v: DataView) => void) => {
   const view = new DataView(new ArrayBuffer(size));
@@ -22,26 +34,32 @@ const record = (size: number, fill: (v: DataView) => void) => {
   return new Uint8Array(view.buffer);
 };
 
+/** The local header of `entry` and its name; its bytes follow. */
+function localOf({ name, bytes, method = 0, size = bytes.length }: Entry, zip64 = false) {
+  const n = encode(name);
+  const local = record(30, (v) => {
+    v.setUint32(0, 0x04034b50, true);
+    v.setUint16(4, 45, true);
+    v.setUint16(8, method, true);
+    v.setUint32(18, zip64 ? FULL : bytes.length, true);
+    v.setUint32(22, zip64 ? FULL : size, true);
+    v.setUint16(26, n.length, true);
+  });
+  return [local, n];
+}
+
 /**
- * A zip of `entries` written by hand: an entry stored, or deflated (`method` 8, `size` its unpacked size). With `zip64`
- * every size and offset is in the ZIP64 fields and the end records are ZIP64's, as client-zip writes an archive above
- * 4 GiB.
+ * A zip of `entries` written by hand, in their order, each local header and its bytes, then the directory; an entry
+ * with `at` is listed there and nothing of it is written. With `zip64` every size and offset is in the ZIP64 fields and
+ * the end records are ZIP64's, as client-zip writes an archive above 4 GiB.
  */
 function handZip(entries: Entry[], zip64 = false) {
-  const FULL = 0xffffffff;
   const parts: Bytes[] = [];
   const directory: Bytes[] = [];
   let offset = 0;
-  for (const { name, bytes, method = 0, size = bytes.length } of entries) {
-    const n = new TextEncoder().encode(name);
-    const local = record(30, (v) => {
-      v.setUint32(0, 0x04034b50, true);
-      v.setUint16(4, 45, true);
-      v.setUint16(8, method, true);
-      v.setUint32(18, zip64 ? FULL : bytes.length, true);
-      v.setUint32(22, zip64 ? FULL : size, true);
-      v.setUint16(26, n.length, true);
-    });
+  for (const entry of entries) {
+    const { name, bytes, method = 0, size = bytes.length, at = offset } = entry;
+    const n = encode(name);
     const central = record(46, (v) => {
       v.setUint32(0, 0x02014b50, true);
       v.setUint16(4, 45, true);
@@ -51,7 +69,7 @@ function handZip(entries: Entry[], zip64 = false) {
       v.setUint32(24, zip64 ? FULL : size, true);
       v.setUint16(28, n.length, true);
       v.setUint16(30, zip64 ? 28 : 0, true);
-      v.setUint32(42, zip64 ? FULL : offset, true);
+      v.setUint32(42, zip64 ? FULL : at, true);
     });
     const extra = record(zip64 ? 28 : 0, (v) => {
       if (!zip64) return;
@@ -59,11 +77,13 @@ function handZip(entries: Entry[], zip64 = false) {
       v.setUint16(2, 24, true);
       v.setBigUint64(4, BigInt(size), true);
       v.setBigUint64(12, BigInt(bytes.length), true);
-      v.setBigUint64(20, BigInt(offset), true);
+      v.setBigUint64(20, BigInt(at), true);
     });
-    parts.push(local, n, bytes);
     directory.push(central, n, extra);
-    offset += local.length + n.length + bytes.length;
+    if (entry.at !== undefined) continue;
+    const written = [...localOf(entry, zip64), bytes];
+    parts.push(...written);
+    offset += written.reduce((sum, part) => sum + part.length, 0);
   }
   const size = directory.reduce((sum, part) => sum + part.length, 0);
   const end = record(22, (v) => {
@@ -126,6 +146,27 @@ test("an_entry_must_be_where_the_directory_says", async () => {
   );
 });
 
+test("entries_that_share_bytes_are_refused", async () => {
+  const data = encode("one range");
+  // b's local header and bytes lie inside a's bytes: each would be read, and stored, as a file of its own.
+  const inner = new Uint8Array(await new Blob([...localOf({ name: "b", bytes: data }), data]).arrayBuffer());
+  const nested = handZip([
+    { name: "a", bytes: inner },
+    { name: "b", bytes: data, at: 30 + 1 },
+  ]);
+  await expect(zipEntries(nested, "n.zip")).rejects.toThrow(
+    "n.zip is not a readable zip archive: a overlaps b",
+  );
+  // Two directory entries of one local header.
+  const twice = handZip([
+    { name: "a", bytes: data },
+    { name: "a", bytes: data, at: 0 },
+  ]);
+  await expect(zipEntries(twice, "t.zip")).rejects.toThrow(
+    "t.zip is not a readable zip archive: a overlaps a",
+  );
+});
+
 test("a_directory_of_more_than_65535_entries_reads_by_its_size", async () => {
   // client-zip writes no ZIP64 record for the count alone: the end record says 65535.
   const many = Array.from({ length: 65_536 }, (_, i) => ({ name: `e${i}`, input: "x" }));
@@ -146,8 +187,11 @@ const saved = {
   activeResultId: ID,
 };
 
-/** A project of the EDF fixture (with a result in a batch) and the BrainVision one, its document and its archive. */
-async function project(edit: (document: Project) => void = () => {}) {
+/**
+ * A project of the EDF fixture (with a result in a batch) and the BrainVision one, its document and its archive; `raw`
+ * edits the text of its project.json.
+ */
+async function project(edit: (document: Project) => void = () => {}, raw = (json: string) => json) {
   const fingerprintOf = (names: string[]) =>
     fingerprintOfFiles(names.map((name) => ({ name, bytes: new Blob([fixture(name)]) })));
   const filesOf = (k: number, names: string[]) =>
@@ -225,7 +269,7 @@ async function project(edit: (document: Project) => void = () => {}) {
     { name: "recordings/0/fixture.edf", input: fixture("fixture.edf") },
     ...brainVision.map((name) => ({ name: `recordings/1/${name}`, input: fixture(name) })),
     { name: `results/${ID}/manifest.json`, input: "{}" },
-    { name: "project.json", input: JSON.stringify(document) },
+    { name: "project.json", input: raw(JSON.stringify(document)) },
   ];
   return { document, zip: await zipped(files) };
 }
@@ -256,8 +300,82 @@ test("a_newer_schema_asks_for_an_update", () => {
   expect(() => checkProject({ schema: "ddalab.project/2" }, "new.ddalab")).toThrow(
     "new.ddalab was written by a newer DDALAB (ddalab.project/2). Update DDALAB to open it.",
   );
-  expect(() => checkProject({ schema: "ddalab.result/2" }, "r.ddalab")).toThrow(/not a DDALAB project/);
+  for (const schema of ["ddalab.result/2", "ddalab.project/0", "ddalab.project/x"]) {
+    expect(() => checkProject({ schema }, "r.ddalab")).toThrow(/not a DDALAB project/);
+  }
   expect(() => checkProject(null, "n.ddalab")).toThrow(/not a DDALAB project/);
+});
+
+// A time a Date cannot hold would make the History throw on every load, until the site's data is cleared.
+test("a_time_no_date_holds_is_refused", async () => {
+  const { zip } = await project((d) => {
+    d.batches[0].createdAt = 1e300;
+  });
+  await expect(readProject(zip, "t.ddalab")).rejects.toThrow(
+    `t.ddalab is not a DDALAB project (schema ${SCHEMA}): batches[0].createdAt is missing or malformed`,
+  );
+});
+
+// Two recordings of one project with one annotation id would file one annotation over the other.
+test("an_annotation_id_twice_in_a_project_is_refused", async () => {
+  const { zip } = await project((d) => {
+    d.recordings[1].annotations.push({ ...d.recordings[0].annotations[0], onset_s: 9 });
+  });
+  await expect(readProject(zip, "a.ddalab")).rejects.toThrow(
+    `a.ddalab is not a DDALAB project (schema ${SCHEMA}): recordings[0].annotations[0].id is missing or malformed`,
+  );
+});
+
+test("a_batch_id_held_here_for_another_batch_gets_a_new_one", async () => {
+  const { document } = await project();
+  const [batch] = checkProject(document, "p.ddalab").batches;
+  expect(batchIds([batch], [])).toEqual(new Map([[BATCH, BATCH]]));
+  // The same batch back again keeps its id; another of that id keeps its place, and the incoming one moves.
+  expect(batchIds([batch], [batch]).get(BATCH)).toBe(BATCH);
+  const moved = batchIds([batch], [{ ...batch, root: "elsewhere" }]).get(BATCH);
+  expect(moved).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+  expect(moved).not.toBe(BATCH);
+});
+
+test("a_recording_here_joins_only_with_the_digests_the_project_lists", () => {
+  const files = [{ path: "recordings/0/a.edf", name: "a.edf", size: 1, sha256: SHA, last_modified: 0 }];
+  expect(sameFiles(files, { "a.edf": SHA })).toBe(true);
+  expect(sameFiles(files, { "a.edf": "b".repeat(64) })).toBe(false);
+  // A tab never hashed here is not known to hold the same files.
+  expect(sameFiles(files, {})).toBe(false);
+  expect(sameFiles(files, { "a.edf": SHA, "a.json": SHA })).toBe(false);
+});
+
+// Only the fields checked reach the store: extra keys, however large or deep, stay out.
+test("only_the_fields_checked_reach_the_app", async () => {
+  const base = (await readProject((await project()).zip, "p.ddalab")).project;
+  const deep = `${"[".repeat(100_000)}0${"]".repeat(100_000)}`;
+  const { zip } = await project(
+    (d) => {
+      // biome-ignore lint/suspicious/noExplicitAny: fields a project from elsewhere may carry
+      const loose = d as any;
+      loose.extra = 1;
+      loose.recordings[0].extra = 1;
+      loose.recordings[0].files[0].extra = 1;
+      loose.recordings[0].annotations[0].x = "x".repeat(2 ** 20);
+      loose.recordings[0].saved.notes = "@deep@";
+      loose.recordings[0].saved.view.evil = { nested: true };
+      loose.recordings[0].saved.view.mmPerCssMm = 2;
+      loose.recordings[0].saved.selection.extra = 1;
+      loose.results[0].extra = 1;
+      loose.results[0].record.manifest = { forged: true };
+      loose.results[0].record.plan.extra = 1;
+      loose.batches[0].handle = { kind: "directory" };
+      loose.batches[0].form.extra = 1;
+      loose.batches[0].channels.extra = 1;
+      loose.batches[0].results[0].extra = 1;
+    },
+    (json) => json.replace('"@deep@"', deep),
+  );
+  const { project: read } = await readProject(zip, "x.ddalab");
+  expect(read).toStrictEqual(base);
+  // 2.0.1's "Show chosen channels only" travels as a boolean.
+  expect(read.recordings[0].saved?.view).toHaveProperty("chosenOnly", true);
 });
 
 // biome-ignore lint/suspicious/noExplicitAny: edits of a parsed document
@@ -269,8 +387,14 @@ test.each<[string, Edit]>([
   ["recordings[0].fingerprint", (d) => (d.recordings[0].fingerprint = "../../x")],
   ["recordings[1].fingerprint", (d) => (d.recordings[1].fingerprint = d.recordings[0].fingerprint)],
   ["recordings[0].annotations[0].id", (d) => (d.recordings[0].annotations[0].id = "file:0")],
-  ["recordings[0].saved", (d) => (d.recordings[0].saved.view.extra = { nested: true })],
+  ["recordings[0].saved", (d) => (d.recordings[0].saved.view.chosenOnly = "no")],
+  ["recordings[0].saved", (d) => (d.recordings[0].saved.view.sensitivityUvPerMm = 1e-300)],
   ["recordings[0].saved", (d) => (d.recordings[0].saved.selectedChannels = [-1])],
+  ["recordings[0].files[0].last_modified", (d) => (d.recordings[0].files[0].last_modified = 1e300)],
+  ["results[0].record.createdAt", (d) => (d.results[0].record.createdAt = 1e300)],
+  ["results[0].record.finishedAt", (d) => (d.results[0].record.finishedAt = -1e300)],
+  ["results[0].record.batch", (d) => (d.batches = [])],
+  ["batches[0].finishedAt", (d) => (d.batches[0].finishedAt = 9e15)],
   ["active_tab", (d) => (d.active_tab = "b".repeat(64))],
   ["results[0].path", (d) => (d.results[0].path = "results/../")],
   ["results[0].record.id", (d) => (d.results[0].record.id = "../results")],
@@ -296,7 +420,7 @@ test("what_the_app_does_not_read_stays_out", async () => {
     loose.batches[0].status = "running";
   });
   const read = checkProject(JSON.parse(JSON.stringify(document)), "loose.ddalab");
-  // The calibration belongs to the display; a viewer setting of another version rides along.
+  // The calibration belongs to the display.
   expect(read.recordings[0].saved?.view).toEqual(saved.view);
   expect(read.results[0].record).not.toHaveProperty("manifest");
   expect(read.results[0].record).not.toHaveProperty("status");
