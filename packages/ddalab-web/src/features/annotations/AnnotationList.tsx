@@ -17,8 +17,8 @@ import { centerOn, type Listed, listed, openEditor, remove, when } from "./model
 
 const EMPTY: UserAnnotation[] = [];
 const count = (n: number) => `${n} annotation${n === 1 ? "" : "s"}`;
-/** The name a row is read by: its label, when, and whose. */
-const spoken = (a: Listed) => `${a.label || "event"}, ${when(a)}, ${a.user ? "yours" : `from ${a.source}`}`;
+/** The name a row is read by: its label, when, and whose, in the order of its text (WCAG 2.5.3). */
+const spoken = (a: Listed) => `${a.label || "event"}, ${when(a)}, ${a.user ? "yours" : a.source}`;
 
 export default function AnnotationList({ recordingId }: { recordingId: string }) {
   const files = useStore((s) => s.recordings[recordingId]?.info.annotations);
@@ -125,9 +125,11 @@ export default function AnnotationList({ recordingId }: { recordingId: string })
                   onDoubleClick={() => openEditor(a.id)}
                 >
                   <span className={styles.flag} data-user={a.user || undefined} />
-                  <span className={styles.rowLabel}>{a.label || "event"}</span>
+                  {/* The spaces render nothing in the grid; they keep the words apart in the text the name is
+                      checked against. */}
+                  <span className={styles.rowLabel}>{a.label || "event"}</span>{" "}
+                  <span className={styles.time}>{when(a)}</span>{" "}
                   <span className={styles.source}>{a.source}</span>
-                  <span className={styles.time}>{when(a)}</span>
                 </button>
                 {a.duration_s > 0 && (
                   <button

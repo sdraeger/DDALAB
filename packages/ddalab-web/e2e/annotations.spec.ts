@@ -214,7 +214,7 @@ test("a_span_edge_dragged_on_the_plot_resizes_it", async ({ page }) => {
 test("the_list_moves_jumps_renames_and_deletes_from_the_keyboard", async ({ page }) => {
   await mark(page, 4, "first", { onset: "4", duration: "0" });
   await mark(page, 25, "second", { onset: "25", duration: "0" });
-  const rows = list(page).getByRole("button", { name: /, (yours|from fixture\.edf)$/ });
+  const rows = list(page).getByRole("button", { name: /, (yours|fixture\.edf)$/ });
   await expect(rows).toHaveCount(4);
   await showFrom(page, 0);
   // By time: eyes closed (2.5 s), first (4 s), spike (20 s), second (25 s).
