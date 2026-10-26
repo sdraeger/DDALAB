@@ -7,7 +7,7 @@ import { sha256Hex } from "./fingerprint";
 
 type UrlInput = Extract<RecordingInput, { kind: "url" }>;
 
-/** Whether this browser writes files into its private storage from a page (Safari before 26 does not). */
+/** Whether this browser lets a page write files into its private storage (Chromium and Firefox do; older Safari does not). */
 export const canKeep = () =>
   typeof FileSystemFileHandle !== "undefined" && "createWritable" in FileSystemFileHandle.prototype;
 
