@@ -13,6 +13,7 @@ import { BatchEntry } from "./BatchEntry";
 import styles from "./History.module.css";
 import ImportDrop from "./ImportDrop";
 import { ResultBoundary } from "./ResultBoundary";
+import { Time } from "./Time";
 
 const STATUS: Record<AnalysisRecord["status"], string> = {
   running: "Running",
@@ -23,14 +24,6 @@ const STATUS: Record<AnalysisRecord["status"], string> = {
 
 /** From this many results on the history offers a search. */
 const SEARCH_FROM = 6;
-
-/** The time of day for a result of today, else the date. */
-function when(time: number) {
-  const date = new Date(time);
-  return date.toDateString() === new Date().toDateString()
-    ? date.toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
-    : date.toLocaleDateString("en", { month: "short", day: "numeric" });
-}
 
 type Resume = (source: FolderSource, batch: string) => void;
 
@@ -138,11 +131,4 @@ function Results({ onResume }: { onResume: Resume }) {
       <ImportDrop />
     </section>
   );
-}
-
-/** When a record was made; one whose time no Date holds (from elsewhere) reads as unknown and the rest still shows. */
-function Time({ at }: { at: number }) {
-  const date = new Date(at);
-  if (Number.isNaN(date.getTime())) return <span>unknown time</span>;
-  return <time dateTime={date.toISOString()}>{when(at)}</time>;
 }
