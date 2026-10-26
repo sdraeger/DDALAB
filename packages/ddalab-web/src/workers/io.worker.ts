@@ -266,9 +266,16 @@ let stopped = false;
 let queue = Promise.resolve();
 /**
  * Requests that use no engine and can take seconds (a large result, a lock another tab holds): tiles and rows go on
- * while they run.
+ * while they run. The startup sweep runs here too, without waiting for the wasm compile; a result being written holds
+ * its lock from before its directory exists (createResultFiles), which the sweep skips.
  */
-const BESIDE = new Set<IoRequest["type"]>(["exportDocument", "exportCsv", "importResult", "deleteResult"]);
+const BESIDE = new Set<IoRequest["type"]>([
+  "exportDocument",
+  "exportCsv",
+  "importResult",
+  "deleteResult",
+  "sweepResults",
+]);
 
 async function answer(data: IoRequest & { n: number }) {
   const { n } = data;
