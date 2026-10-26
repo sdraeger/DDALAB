@@ -3,7 +3,7 @@
 // a reload, and the events.tsv export.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { expect, type Page, test } from "./test";
+import { expect, hasStorage, NO_STORAGE, type Page, test } from "./test";
 
 const EDF = fileURLToPath(new URL("../../dda-rs/tests/fixtures/fixture.edf", import.meta.url));
 
@@ -257,6 +257,7 @@ test("the_list_moves_jumps_renames_and_deletes_from_the_keyboard", async ({ page
 });
 
 test("use_as_selection_sets_the_run_interval_a_run_takes", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
   await mark(page, 2, "segment", { onset: "2", duration: "4" });
   await list(page).getByRole("button", { name: "Use as selection: segment" }).click();
   await expect(runBar(page).getByLabel("Start", { exact: true })).toHaveValue("2");

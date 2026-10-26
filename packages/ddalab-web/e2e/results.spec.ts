@@ -10,21 +10,11 @@ import { FANOUT, resultLevels } from "../src/render/resultPyramid";
 import type { View } from "../src/store/store";
 import { type Bundle, bundleDir } from "./global-setup";
 import { type Fixture, showFixture } from "./resultFixture";
-import { expect, type Page, test } from "./test";
+import { expect, hasStorage, hasWebGL2, NO_STORAGE, NO_WEBGL2, type Page, test } from "./test";
 
 const fixturePath = (name: string) =>
   fileURLToPath(new URL(`../../dda-rs/tests/fixtures/${name}`, import.meta.url));
 const BRAINVISION = ["fixture.vhdr", "fixture.eeg", "fixture.vmrk"].map(fixturePath);
-
-// Playwright's WebKit has no OPFS (getDirectory throws UnknownError); Safari itself has.
-const hasStorage = (page: Page) =>
-  page.evaluate(() =>
-    navigator.storage.getDirectory().then(
-      () => true,
-      () => false,
-    ),
-  );
-const NO_STORAGE = "this browser window has no OPFS";
 
 const settings = (page: Page) => page.getByRole("region", { name: "DDA settings" });
 const runBar = (page: Page) => page.getByRole("region", { name: "Run" });
@@ -106,6 +96,7 @@ test.beforeEach(async ({ page }) => {
 
 test("heatmap_aligns_with_waveform", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   await runFixture(page, ["ST"]);
   const q = npy("st", "ST/q.npy");
   const centers = manifest("st").window_centers_seconds;
@@ -160,6 +151,7 @@ test("heatmap_aligns_with_waveform", async ({ page }) => {
 
 test("outlier_window_survives_zoom_out", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   // Two hours of four channels and a result of 57,000 windows every 0.125 s: one window of row 2 is -10, the rest
   // lie between 0.2 and 0.6. Vik with symmetric limits draws the outlier as its first entry.
   await openTwoHours(page);
@@ -236,6 +228,7 @@ test("outlier_window_survives_zoom_out", async ({ page }) => {
 
 test("row_plot_values_match_document", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   await runFixture(page, ["ST"]);
   const q = npy("st", "ST/q.npy");
   const centers = manifest("st").window_centers_seconds;
@@ -257,6 +250,7 @@ test("row_plot_values_match_document", async ({ page }) => {
 
 test("variant_tabs_switch", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   await runFixture(page, ["CT", "CD", "DE", "SY"]);
   const tabs = result(page).getByRole("tab");
   await expect(tabs).toHaveText(["CT", "CD", "DE", "SY"]);
@@ -303,6 +297,7 @@ test("variant_tabs_switch", async ({ page }) => {
 
 test("short_result_outlier_visible_far_out", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   // 1,000 windows (125 s) of a two-hour recording, seen whole: a few pixels hold all of them, about 90 windows a
   // pixel. The outlier must still draw, from a coarse level of the pyramid.
   await openTwoHours(page);
@@ -327,6 +322,7 @@ test("short_result_outlier_visible_far_out", async ({ page }) => {
 
 test("keyboard_reads_window_values", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   await runFixture(page, ["ST"]);
   const q = npy("st", "ST/q.npy");
   const centers = manifest("st").window_centers_seconds;
@@ -368,6 +364,7 @@ test("keyboard_reads_window_values", async ({ page }) => {
 
 test("array_read_failure_offers_try_again", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   await openTwoHours(page);
   const fixture: Fixture = { id: "fixture-late", windows: 400, rows: 2, first: 10, step: 0.125, values: [] };
   await showFixture(page, { ...fixture, noArray: true });
@@ -396,6 +393,7 @@ test("a_result_chunk_that_does_not_load_offers_reload", async ({ page }) => {
 
 test("manifest_read_failure_offers_try_again", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   await openTwoHours(page);
   // Shown before its files exist: the manifest cannot be read.
   await page.evaluate(() => {

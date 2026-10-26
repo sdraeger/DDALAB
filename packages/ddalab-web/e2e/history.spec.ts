@@ -8,21 +8,11 @@ import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundleDir } from "./global-setup";
 import { showFixture } from "./resultFixture";
-import { expect, type Page, test } from "./test";
+import { expect, hasStorage, hasWebGL2, NO_STORAGE, NO_WEBGL2, type Page, test } from "./test";
 
 const DDA_RS = fileURLToPath(new URL("../../dda-rs/", import.meta.url));
 const fixturePath = (name: string) => join(DDA_RS, "tests/fixtures", name);
 const BRAINVISION = ["fixture.vhdr", "fixture.eeg", "fixture.vmrk"];
-
-// Playwright's WebKit has no OPFS (getDirectory throws UnknownError); Safari itself has.
-const hasStorage = (page: Page) =>
-  page.evaluate(() =>
-    navigator.storage.getDirectory().then(
-      () => true,
-      () => false,
-    ),
-  );
-const NO_STORAGE = "this browser window has no OPFS";
 
 const runBar = (page: Page) => page.getByRole("region", { name: "Run" });
 const history = (page: Page) => page.getByRole("region", { name: "History" });
@@ -199,6 +189,7 @@ const heatmapDrawn = (page: Page) =>
 
 test("import_cli_bundle_shows_heatmap_without_recording", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   const manifest = JSON.parse(readFileSync(join(bundleDir("st"), "manifest.json"), "utf8"));
   await page.getByLabel("Result file").setInputFiles(stZip());
   const row = history(page).getByRole("listitem").filter({ hasText: "ST on fixture.vhdr" });
@@ -226,6 +217,7 @@ test("import_cli_bundle_shows_heatmap_without_recording", async ({ page }) => {
 
 test("import_with_another_recording_open_shows_alone", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   await page.getByLabel("Recording files").setInputFiles(fixturePath("fixture.edf"));
   await expect(page.getByRole("heading", { name: "fixture.edf" })).toBeVisible();
   await page.getByLabel("Result file").setInputFiles(stZip());
@@ -243,6 +235,7 @@ test("import_with_another_recording_open_shows_alone", async ({ page }) => {
 
 test("history_row_activates_its_recording", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   const id = await runBrainVision(page);
   // Another recording becomes the active one; the result of the first one waits in the history.
   await page.getByLabel("Recording files").setInputFiles(fixturePath("fixture.edf"));
@@ -411,6 +404,7 @@ const asked = async (page: Page, what: string) =>
 
 test("pointing_at_a_result_reads_its_manifest_before_the_click", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   await runBrainVision(page);
   await page.evaluate(() => window.__ddalab.store.setState({ activeResultId: null, shownResult: null }));
   await logWorkers(page);
@@ -431,6 +425,7 @@ test("pointing_at_a_result_reads_its_manifest_before_the_click", async ({ page }
 
 test("pointing_keeps_the_last_three_manifests_and_the_shown_result", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   // The BrainVision result stays shown across the reload; four more results come with their manifests.
   await runBrainVision(page);
   await seedResults(page, ["r1", "r2", "r3", "r4"], "complete");
@@ -475,6 +470,7 @@ test("a_restored_result_is_read_while_the_history_lists", async ({ page }) => {
 
 test("a_finished_run_reads_its_manifest_once", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   await logWorkers(page);
   await page.reload();
   const id = await runBrainVision(page);
@@ -487,6 +483,7 @@ test("a_finished_run_reads_its_manifest_once", async ({ page }) => {
 
 test("a_run_whose_manifest_read_fails_shows_on_its_request", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   // The run's own read of its manifest fails; the view's read after it succeeds.
   await page.evaluate(() => {
     const { engine } = window.__ddalab;
@@ -512,6 +509,7 @@ test("a_run_whose_manifest_read_fails_shows_on_its_request", async ({ page }) =>
 // Each tab shows its own result again after a switch, from the reads it made: the loader cache keeps what the tabs show.
 test("a_tab_switch_shows_its_own_result_read_once", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   await logWorkers(page);
   await page.reload();
   /** A recording with a result of its own, which it shows; the result's record is complete. */

@@ -2,7 +2,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, type Page, test } from "./test";
+import { expect, hasStorage, NO_STORAGE, type Page, test } from "./test";
 
 const fixturePath = (name: string) =>
   fileURLToPath(new URL(`../../dda-rs/tests/fixtures/${name}`, import.meta.url));
@@ -291,10 +291,10 @@ test("open_error_shows_beside_the_tree", async ({ page }) => {
     base64: readFileSync(fixturePath(name)).toString("base64"),
   }));
   const writable = await page.evaluate(async (files) => {
-    if (!("createWritable" in FileSystemFileHandle.prototype)) return false;
-    const folder = await (await navigator.storage.getDirectory()).getDirectoryHandle("vanishing", {
-      create: true,
-    });
+    // Playwright's WebKit has no OPFS (getDirectory throws UnknownError).
+    const root = await navigator.storage.getDirectory().catch(() => null);
+    if (!root || !("createWritable" in FileSystemFileHandle.prototype)) return false;
+    const folder = await root.getDirectoryHandle("vanishing", { create: true });
     for (const { name, base64 } of files) {
       const stream = await (await folder.getFileHandle(name, { create: true })).createWritable();
       await stream.write(Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)));
@@ -352,6 +352,7 @@ test("walk_shows_its_count_and_cancels", async ({ page }) => {
 // more than 200 ms at a time.
 test("walk_of_5000_files_keeps_the_page_responsive", async ({ page }) => {
   test.setTimeout(180_000);
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
   const made = await page.evaluate(async () => {
     const big = await (await navigator.storage.getDirectory()).getDirectoryHandle("big", { create: true });
     const top = ["dataset_description.json", "participants.tsv"];
