@@ -1,8 +1,17 @@
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 // @ts-expect-error The policy reader is plain JavaScript without declarations.
 import { cspOf } from "./scripts/policy.mjs";
+// @ts-expect-error The service worker's build step is plain JavaScript without declarations.
+import { bakeServiceWorker } from "./scripts/precache.mjs";
+
+/** Production builds only: not the dev server, and not `vite build --mode e2e`, whose app registers no worker. */
+const production: Plugin["apply"] = (config, { command }) =>
+  command === "build" && config.mode === "production";
+
+let outDir = "";
 
 // The perf tests (dev server) and the benchmark (`vite preview`) measure memory with
 // performance.measureUserAgentSpecificMemory, which needs cross-origin isolation. Only they set DDALAB_ISOLATE; the
@@ -27,7 +36,7 @@ export default defineConfig({
       // sandbox), so keep those out of that line, and it does not govern worker scripts: a worker runs under the
       // headers of its own response, which on Pages hold no policy. First in <head>, since it covers only what follows.
       name: "csp-meta",
-      apply: (config, { command }) => command === "build" && config.mode === "production",
+      apply: production,
       transformIndexHtml: () => [
         {
           tag: "meta",
@@ -38,6 +47,16 @@ export default defineConfig({
           injectTo: "head-prepend",
         },
       ],
+    },
+    {
+      // The service worker (public/sw.js) keeps every file of the build: bake its list and version into dist/sw.js once
+      // all the files are in dist.
+      name: "service-worker",
+      apply: production,
+      configResolved: (config) => {
+        outDir = resolve(config.root, config.build.outDir);
+      },
+      closeBundle: () => bakeServiceWorker(outDir),
     },
     {
       // The entry applies the stored theme before React renders; holding the first paint for it (in browsers that
