@@ -118,7 +118,8 @@ export async function startRun(recordingId: string, request: DDARequest) {
     setRun({ status: "failed", error: messageOf(error) });
   }
   await refreshAnalyses();
-  // No view transition: the result often lands in a tab that is not shown (store.ts showResult).
+  // Not in a view transition: the run ends whatever the pointer is doing, the panel fades in by itself, and the result
+  // often lands in a tab that is not shown (store.ts showResult).
   if (error === undefined) showResult(record.id, record.fingerprint);
 }
 

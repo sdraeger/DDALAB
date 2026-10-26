@@ -10,6 +10,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -253,6 +254,12 @@ function Tree(props: {
     },
     features: [syncDataLoaderFeature, hotkeysCoreFeature],
   });
+  // useTree builds the rows in an effect, which can run after a paint: a new filter result (a new Tree) would show
+  // no rows for that frame. Built before the paint, the old rows give way to the new ones in one frame.
+  useLayoutEffect(() => {
+    tree.setMounted(true);
+    tree.rebuildTree();
+  }, [tree]);
   const items = tree.getItems();
 
   // Typeahead: printable keys typed within 600 ms of each other move focus to the next row whose label starts with

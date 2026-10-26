@@ -71,7 +71,7 @@ function Details() {
   const started = imported && manifest ? Date.parse(manifest.created_at_iso) : record.createdAt;
   const listed = (parts: (string | false | undefined)[]) => parts.filter(Boolean).join(", ");
   return (
-    <section aria-label="Provenance" className={styles.provenance}>
+    <section aria-label="Provenance" className={styles.provenance} data-appear>
       <header className={styles.header}>
         <h2 className={styles.title}>{resultName(record)}</h2>
         <Actions record={record} />

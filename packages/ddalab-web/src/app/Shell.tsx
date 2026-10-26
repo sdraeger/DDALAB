@@ -20,6 +20,8 @@ import {
   type ReactElement,
   type ReactNode,
   Suspense,
+  useEffect,
+  useState,
   useSyncExternalStore,
 } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -64,6 +66,8 @@ const About = lazy(loadAbout);
 const ResultPanel = lazy(() => import("../features/results/ResultPanel"));
 
 const TIMEBASES = [10, 15, 20, 30, 60, 120];
+/** The name of the button and the popover that hold the scale settings where the bar is short. */
+const SCALES = "Epoch, sensitivity and timebase";
 
 /** A timebase at three significant digits, as the bar shows it. */
 const print = (mmPerS: number) => Number(mmPerS.toPrecision(3));
@@ -290,17 +294,29 @@ function ViewControls() {
  * Shell.module.css). The popover mounts its copy only while open, when the bar's own is hidden.
  */
 function ScaleChoices({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  // A resize across a width of Shell.module.css moves the settings back into the bar: the popover closes.
+  useEffect(() => {
+    const queries = ["(width < 1400px)", "(width < 1600px)"].map((query) => matchMedia(query));
+    const close = () => setOpen(false);
+    for (const query of queries) query.addEventListener("change", close);
+    return () => {
+      for (const query of queries) query.removeEventListener("change", close);
+    };
+  }, []);
   return (
     <>
       <div className={styles.scales}>{children}</div>
       <span className={styles.scaleMenu}>
-        <Popover.Root>
-          <IconButton label="Epoch, sensitivity and timebase" render={<Popover.Trigger />}>
+        <Popover.Root open={open} onOpenChange={setOpen}>
+          <IconButton label={SCALES} render={<Popover.Trigger />}>
             <SlidersHorizontal aria-hidden />
           </IconButton>
           <Popover.Portal>
             <Popover.Positioner sideOffset={6}>
-              <Popover.Popup className={`${controls.panel} ${styles.scaleList}`}>{children}</Popover.Popup>
+              <Popover.Popup className={`${controls.panel} ${styles.scaleList}`} aria-label={SCALES}>
+                {children}
+              </Popover.Popup>
             </Popover.Positioner>
           </Popover.Portal>
         </Popover.Root>
