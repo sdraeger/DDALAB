@@ -324,7 +324,7 @@ const seedResults = (page: Page, ids: string[], status: "complete" | "failed") =
         create: true,
       });
       const db: IDBDatabase = await new Promise((opened, failed) => {
-        const request = indexedDB.open("ddalab", 2);
+        const request = indexedDB.open("ddalab");
         request.onsuccess = () => opened(request.result);
         request.onerror = () => failed(request.error);
       });
