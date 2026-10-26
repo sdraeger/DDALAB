@@ -160,7 +160,15 @@ export function Overview({ recordingId }: { recordingId: string }) {
       paint();
     });
     resize.observe(canvasEl);
-    const unsubscribe = useStore.subscribe(schedule);
+    // A paint follows what it draws: the view, the selection and the recording (its scan, its events).
+    const unsubscribe = useStore.subscribe((s, p) => {
+      if (
+        s.view !== p.view ||
+        s.selection !== p.selection ||
+        s.recordings[recordingId] !== p.recordings[recordingId]
+      )
+        schedule();
+    });
     const unwatch = watchTheme(() => {
       colors = readColors(stripEl);
       schedule();

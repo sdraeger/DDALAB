@@ -308,7 +308,17 @@ function Heatmap({
       paint();
     });
 
-    const unsubscribe = useStore.subscribe(schedule);
+    // A paint follows what it draws: the view, the selection, the cursor, the plotted row and the recording's events.
+    const unsubscribe = useStore.subscribe((s, p) => {
+      if (
+        s.view !== p.view ||
+        s.selection !== p.selection ||
+        s.cursorS !== p.cursorS ||
+        s.shownResult !== p.shownResult ||
+        (recordingId !== null && s.recordings[recordingId] !== p.recordings[recordingId])
+      )
+        schedule();
+    });
     const unwatch = watchTheme(() => {
       colors = readColors(plotEl);
       schedule();
