@@ -1,5 +1,5 @@
 // The max-magnitude pyramid of a result array (spec, "Results stream to storage"): level L has cells of 4^L windows,
-// each keeping the signed value of largest magnitude among its windows, so no outlier window disappears when the
+// each keeping the signed value of largest magnitude among its windows: no outlier window disappears when the
 // heatmap is zoomed out. Level 0 is the windows themselves; the top level is one cell. Arrays are window-major.
 
 /** Cells per tile, at every level. */

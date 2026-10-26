@@ -12,7 +12,7 @@ export interface AnalysisRecord {
   inputFiles?: string[];
   request: DDARequest;
   /**
-   * The result's manifest.json once it is complete, without its window centres: a long run has a million of them, and
+   * The result's manifest.json once it is complete, without its window centers: a long run has a million of them, and
    * they stay in OPFS.
    */
   manifest?: Omit<ResultDocument, "window_centers_seconds">;

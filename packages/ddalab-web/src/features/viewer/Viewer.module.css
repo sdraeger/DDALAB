@@ -146,7 +146,7 @@
   white-space: nowrap;
 }
 
-/* A channel chosen for analysis: primary and heavier, the weight carrying it where colour cannot. */
+/* A channel chosen for analysis: primary and heavier, the weight carrying it where color cannot. */
 .gutterLabel[data-chosen] {
   color: var(--primary);
   font-weight: var(--weight-strong);

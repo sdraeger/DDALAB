@@ -56,7 +56,7 @@ test("a_scan_re_renders_its_progress_only", async ({ page }) => {
   await expect(page.getByRole("region", { name: "Provenance" })).toBeVisible();
   const counts = await rendersDuring(
     page,
-    ["Scan", "Inspector", "DdaSettings", "RunBar", "Details", "Command", "OpenRecordings", "OpenRecording"],
+    ["Scan", "Inspector", "DdaSettings", "RunBar", "Details", "Command", "TabStrip"],
     () =>
       expect
         .poll(
@@ -72,16 +72,9 @@ test("a_scan_re_renders_its_progress_only", async ({ page }) => {
   const writes = await page.evaluate(() => (window as unknown as { writes: number }).writes);
   expect(writes).toBeGreaterThan(5);
   expect(counts.Scan).toBeGreaterThan(5);
-  // The annotations replace the recording's info once; nothing else these show changes.
-  for (const name of [
-    "Inspector",
-    "DdaSettings",
-    "RunBar",
-    "Details",
-    "Command",
-    "OpenRecordings",
-    "OpenRecording",
-  ]) {
+  // The annotations replace the recording's info once and the tab takes the digest once; nothing else these show
+  // changes.
+  for (const name of ["Inspector", "DdaSettings", "RunBar", "Details", "Command", "TabStrip"]) {
     expect(counts[name], name).toBeLessThanOrEqual(2);
   }
 });

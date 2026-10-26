@@ -1,8 +1,8 @@
-// The bridge from the CSS colour tokens to canvas drawing, and the signal that the theme changed: the user's pick
-// (`data-theme` on <html>) or, while none is set, the system's colour scheme.
+// The bridge from the CSS color tokens to canvas drawing, and the signal that the theme changed: the user's pick
+// (`data-theme` on <html>) or, while none is set, the system's color scheme.
 
 /**
- * The colour a CSS value resolves to on `element` (tokens are light-dark() pairs, resolved by the element's colour
+ * The color a CSS value resolves to on `element` (tokens are light-dark() pairs, resolved by the element's color
  * scheme), as `rgb()` text for 2D canvases and as 0..1 components for WebGL.
  */
 export function cssColor(

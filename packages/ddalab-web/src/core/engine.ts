@@ -129,7 +129,7 @@ export type DevEngine = Omit<Engine, "run"> & {
 /** Replacements allowed in a row, none of which got a reply. */
 const MAX_REPLACEMENTS = 3;
 
-/** The engine, not the request, failed: the request may be sent again once the engine has a worker. */
+/** The engine failed, and the request with it: it may be sent again once the engine has a worker. */
 export class EngineStopped extends Error {}
 
 const cancelled = () => new DOMException("The run was cancelled", "AbortError");

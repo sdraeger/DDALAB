@@ -1,6 +1,6 @@
 /*
  * Design tokens of the DDALAB workbench (direction contract: .impeccable/surfaces/packages-ddalab-web-src-app-app-tsx.md).
- * Every colour role holds its light and its dark value in one light-dark() pair. The theme follows the system
+ * Every color role holds its light and its dark value in one light-dark() pair. The theme follows the system
  * (`color-scheme: light dark`) until the user picks one, which theme.ts sets as `data-theme` on <html>.
  * The dark values are for dim reading rooms: no pure black, ink and marks at AA contrast on their grounds.
  */
@@ -39,7 +39,7 @@
   --group-7: light-dark(#d8cf9c, #9a9061);
   --group-8: light-dark(#e4b7a5, #a57a68);
 
-  /* Heatmap colour-bar endpoints: Crameri batlow (sequential) and vik (diverging, centred at zero). */
+  /* Heatmap color-bar endpoints: Crameri batlow (sequential) and vik (diverging, centered at zero). */
   --batlow-low: #011959;
   --batlow-high: #faccfa;
   --vik-low: #001261;
