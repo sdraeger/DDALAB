@@ -12,6 +12,7 @@ import { electrodeGroups, type Group } from "./groups";
 import styles from "./Inspector.module.css";
 
 const Provenance = lazy(() => import("../history/Provenance"));
+const Annotations = lazy(() => import("../annotations/AnnotationList"));
 
 /** The height of a channel row in CSS px; the list renders only the rows in view. */
 const ROW = 28;
@@ -67,6 +68,9 @@ export function Inspector() {
         )}
       </header>
       <Channels key={id} info={info} analysis={analysis_channels} selected={recording.selectedChannels} />
+      <Suspense fallback={null}>
+        <Annotations key={id} recordingId={id} />
+      </Suspense>
       <Suspense fallback={null}>
         <DdaSettings recordingId={id} />
       </Suspense>

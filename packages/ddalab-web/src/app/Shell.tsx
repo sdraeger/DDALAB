@@ -24,6 +24,7 @@ import {
 } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { RunButton } from "../features/analysis/RunBar";
+import { AnnotateButton, useAnnotationKeys } from "../features/annotations/Annotate";
 import { ResultBoundary } from "../features/history/ResultBoundary";
 import { Inspector } from "../features/inspector/Inspector";
 import { LibraryRail } from "../features/library/LibraryRail";
@@ -78,6 +79,7 @@ export function Shell() {
   const id = useStore((s) => s.activeRecordingId);
   const resultShown = useStore((s) => s.shownResult !== null);
   useViewerKeys();
+  useAnnotationKeys();
   return (
     <Tooltip.Provider delay={400}>
       <div
@@ -266,6 +268,8 @@ function ViewControls() {
           onChange={setTimebase}
         />
       </ScaleChoices>
+      <span className={controls.rule} />
+      <AnnotateButton />
     </div>
   );
 }
