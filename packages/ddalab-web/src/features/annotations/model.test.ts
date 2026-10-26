@@ -163,16 +163,18 @@ test("file_and_user_annotations_listed_by_time_with_their_source", () => {
   expect(labelsOf(files, user)).toEqual(["eyes closed", "spike"]);
 });
 
+const byId = (list: { id: string }[]) => [...list].sort((a, b) => (a.id < b.id ? -1 : 1));
+
 test("stored_by_fingerprint_and_read_back", async () => {
-  const { loadAnnotations, saveAnnotations } = idb;
+  const { loadAnnotations, storeChanges } = idb;
   const a = { id: "a", onset_s: 1, duration_s: 0, label: "spike" };
   const b = { id: "b", onset_s: 2, duration_s: 3, label: "seizure" };
-  await saveAnnotations("one", [a]);
-  await saveAnnotations("two", [b]);
+  await storeChanges("one", [], [a]);
+  await storeChanges("two", [], [b]);
   expect(await loadAnnotations("one")).toEqual([a]);
   expect(await loadAnnotations("two")).toEqual([b]);
   expect(await loadAnnotations("three")).toEqual([]);
-  await saveAnnotations("one", []);
+  await storeChanges("one", [a], []);
   expect(await loadAnnotations("one")).toEqual([]);
 });
 
@@ -185,35 +187,70 @@ test("each_change_is_stored", async () => {
   expect(await idb.loadAnnotations(fp)).toEqual([{ ...a, label: "kept" }]);
 });
 
+test("two_instances_editing_one_recording_keep_each_others_changes", async () => {
+  const { loadAnnotations, storeChanges } = idb;
+  const fp = "shared";
+  const a = { id: "a", onset_s: 1, duration_s: 0, label: "spike" };
+  const b = { id: "b", onset_s: 2, duration_s: 0, label: "seizure" };
+  // One instance has [a], the other [a] too; each changes another field or annotation from its own list.
+  await storeChanges(fp, [], [a]);
+  await Promise.all([
+    storeChanges(fp, [a], [{ ...a, label: "renamed" }]),
+    storeChanges(fp, [a], [{ ...a, onset_s: 4 }, b]),
+  ]);
+  expect(byId(await loadAnnotations(fp))).toEqual([{ ...a, onset_s: 4, label: "renamed" }, b]);
+  // A deletion elsewhere is not undone by an edit made from an older list.
+  await storeChanges(fp, [b], []);
+  await storeChanges(fp, [b], [{ ...b, label: "late" }]);
+  expect(await loadAnnotations(fp)).toEqual([{ ...a, onset_s: 4, label: "renamed" }]);
+});
+
+test("undo_takes_back_only_what_its_step_touched", async () => {
+  const { create, restoreAnnotations, saved, undo, redo } = m;
+  const fp = "undo-own";
+  await restoreAnnotations(fp);
+  const mine = create(fp, 1, 0);
+  // Another window adds an annotation, which this one reads again.
+  const theirs = { id: "theirs", onset_s: 9, duration_s: 0, label: "theirs" };
+  await saved();
+  await idb.storeChanges(fp, [], [theirs]);
+  useStore.setState((s) => ({ annotations: { ...s.annotations, [fp]: [...s.annotations[fp], theirs] } }));
+  expect(undo(fp)).toBe(true);
+  expect(useStore.getState().annotations[fp]).toEqual([theirs]);
+  expect(redo(fp)).toBe(true);
+  expect(byId(useStore.getState().annotations[fp])).toEqual(byId([mine, theirs]));
+  await saved();
+  expect(byId(await idb.loadAnnotations(fp))).toEqual(byId([mine, theirs]));
+});
+
 test("an_annotation_made_while_the_stored_list_loads_joins_it", async () => {
   const { create, restoreAnnotations, saved, undo } = m;
   const fp = "race";
   const stored = { id: "s", onset_s: 1, duration_s: 0, label: "stored" };
-  await idb.saveAnnotations(fp, [stored]);
+  await idb.storeChanges(fp, [], [stored]);
   const restoring = restoreAnnotations(fp);
   const made = create(fp, 5, 0); // before the read resolves
   await restoring;
   await saved();
-  expect(useStore.getState().annotations[fp]).toEqual([stored, made]);
-  expect(await idb.loadAnnotations(fp)).toEqual([stored, made]);
-  // The creation's undo step knew nothing of the stored list: it is dropped, and undo cannot delete what was stored.
-  expect(undo(fp)).toBe(false);
+  expect(byId(useStore.getState().annotations[fp])).toEqual(byId([stored, made]));
+  expect(byId(await idb.loadAnnotations(fp))).toEqual(byId([stored, made]));
+  // Undo takes back the creation and leaves what was stored.
+  expect(undo(fp)).toBe(true);
+  expect(useStore.getState().annotations[fp]).toEqual([stored]);
 });
 
 test("a_creation_deleted_while_the_stored_list_loads_leaves_the_stored_list", async () => {
-  const { create, remove, restoreAnnotations, saved, undo, redo } = m;
+  const { create, remove, restoreAnnotations, saved } = m;
   const fp = "race-delete";
   const stored = { id: "s", onset_s: 1, duration_s: 0, label: "stored" };
-  await idb.saveAnnotations(fp, [stored]);
+  await idb.storeChanges(fp, [], [stored]);
   const restoring = restoreAnnotations(fp);
-  // Before the read resolves: a creation and its deletion, which store an empty list.
+  // Before the read resolves: a creation and its deletion.
   remove(fp, create(fp, 5, 0).id);
   await restoring;
   await saved();
   expect(useStore.getState().annotations[fp]).toEqual([stored]);
   expect(await idb.loadAnnotations(fp)).toEqual([stored]);
-  expect(undo(fp)).toBe(false);
-  expect(redo(fp)).toBe(false);
 });
 
 test("events_tsv_matches_the_hand_written_file", () => {

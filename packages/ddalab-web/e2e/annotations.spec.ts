@@ -40,10 +40,12 @@ const stored = (page: Page) =>
           const all = db.transaction("annotations").objectStore("annotations").getAll();
           all.onsuccess = () => {
             db.close();
-            const records = all.result as {
-              annotations: { onset_s: number; duration_s: number; label: string }[];
-            }[];
-            resolve(records.flatMap((r) => r.annotations.map((a) => [a.onset_s, a.duration_s, a.label])));
+            const records = all.result as { onset_s: number; duration_s: number; label: string }[];
+            resolve(
+              records
+                .map((a): [number, number, string] => [a.onset_s, a.duration_s, a.label])
+                .sort((a, b) => a[0] - b[0]),
+            );
           };
         };
       }),
@@ -270,6 +272,33 @@ test("use_as_selection_sets_the_run_interval_a_run_takes", async ({ page }) => {
   await expect(runBar(page).getByText("Complete", { exact: true })).toBeVisible({ timeout: 60_000 });
   const range = await page.evaluate(() => window.__ddalab.store.getState().analyses[0].request.time_range);
   expect(range).toEqual({ start: 2 * 256, end: 6 * 256 });
+});
+
+test("two_windows_on_one_recording_keep_each_others_annotations", async ({ page }) => {
+  const other = await page.context().newPage();
+  await other.goto("/");
+  await openFixture(other);
+  await mark(page, 4, "alpha", { onset: "4", duration: "0" });
+  await mark(other, 8, "beta", { onset: "8", duration: "0" });
+  const both = [
+    [4, 0, "alpha"],
+    [8, 0, "beta"],
+  ];
+  await expect.poll(() => stored(page)).toEqual(both);
+  // Each window reads the other's change: both show both.
+  for (const p of [page, other]) await expect.poll(() => mine(p)).toEqual(both);
+  // Each edits a different annotation at the same time: one renames alpha, the other deletes beta.
+  const alpha = list(page).getByRole("button", { name: /^alpha,/ });
+  await alpha.focus();
+  await page.keyboard.press("F2");
+  await editor(page).getByLabel("Label").fill("renamed");
+  await list(other)
+    .getByRole("button", { name: /^beta,/ })
+    .focus();
+  await Promise.all([page.keyboard.press("Enter"), other.keyboard.press("Delete")]);
+  await expect.poll(() => stored(page)).toEqual([[4, 0, "renamed"]]);
+  for (const p of [page, other]) await expect.poll(() => mine(p)).toEqual([[4, 0, "renamed"]]);
+  await other.close();
 });
 
 test("annotations_survive_a_reload", async ({ page }) => {
