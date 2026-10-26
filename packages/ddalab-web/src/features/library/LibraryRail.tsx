@@ -1,5 +1,7 @@
 // The library rail: opening recordings (picker, folder, drop anywhere in the window), the recent ones, OpenNeuro and
 // the history of results. The open ones are the tabs over the canvas.
+
+import { Popover } from "@base-ui/react/popover";
 import FilePlus from "lucide-react/dist/esm/icons/file-plus.mjs";
 import FolderOpen from "lucide-react/dist/esm/icons/folder-open.mjs";
 import { type ChangeEvent, lazy, Suspense, use, useEffect, useEffectEvent, useRef, useState } from "react";
@@ -17,7 +19,7 @@ import {
   reopen,
 } from "../../app/recordings";
 import type { FolderSource } from "../../core/folder";
-import { droppedFiles } from "../../core/sources";
+import { droppedFiles, isProject } from "../../core/sources";
 import type { RecentEntry } from "../../store/recent";
 import { useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
@@ -35,6 +37,11 @@ function OpenNeuroMissing() {
   return <p className={styles.hint}>OpenNeuro search did not load. Reload the page to use it.</p>;
 }
 const HistoryRail = lazy(() => import("../history/HistoryRail"));
+const ProjectExport = lazy(() =>
+  import("./ProjectExport").catch(() => ({
+    default: () => <p className={styles.hint}>The export did not load. Reload the page to export.</p>,
+  })),
+);
 // Loaded the first time a folder opens.
 const FolderTree = lazy(() =>
   import("./FolderTree").catch(() => ({
@@ -50,6 +57,21 @@ const version = engineVersion.then(
   (v) => v.engine_version,
   (error: Error) => `failed: ${error.message}`,
 );
+
+/**
+ * Opens the project `file`, one of the attempt's files, with its handle where the browser gives one. The project code
+ * loads with the first.
+ */
+async function openProjectIn(file: File, { files, handle, handles }: Attempt): Promise<Outcome> {
+  const own = handles?.files?.[files.indexOf(file)] ?? (handle?.kind === "file" ? handle : undefined);
+  try {
+    const { openProject } = await import("../../app/project");
+    return await openProject(file, own as FileSystemFileHandle | undefined);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { kind: "error", message: `${file.name} could not be opened: ${message}`, folder: false };
+  }
+}
 
 /** The files of one attempt to open, kept for when the user chooses among several recordings. */
 interface Attempt {
@@ -83,7 +105,10 @@ export function LibraryRail() {
     attempt.current = next;
     setOpening(true);
     try {
-      setOutcome(await openFiles(next.files, { ...next, choice }));
+      const project = next.files.find((file) => isProject(file.name));
+      setOutcome(
+        project ? await openProjectIn(project, next) : await openFiles(next.files, { ...next, choice }),
+      );
     } finally {
       setOpening(false);
     }
@@ -154,6 +179,9 @@ export function LibraryRail() {
   // Files the system opens the installed app with (Chromium). The consumer is set once, when the rail first mounts.
   const launched = useEffectEvent(async (handles: FileSystemFileHandle[]) => {
     locating.current = undefined;
+    if (handles.some((handle) => isProject(handle.name))) {
+      return run({ files: await Promise.all(handles.map((h) => h.getFile())), handles: { files: handles } });
+    }
     setOpening(true);
     try {
       const result = await openLaunched(handles, { open: openFiles, roots: grantedRoots });
@@ -191,10 +219,25 @@ export function LibraryRail() {
             Open folder
           </button>
         </div>
-        {untouched && (
+        {untouched ? (
           <p className={styles.hint}>
-            Or drop a recording, or the folder that holds it, anywhere in this window.
+            Or drop a recording, the folder that holds it, or a .ddalab project anywhere in this window.
           </p>
+        ) : (
+          <Popover.Root>
+            <Popover.Trigger className={`${controls.quiet} ${styles.ghost} ${styles.start}`}>
+              Export project
+            </Popover.Trigger>
+            <Popover.Portal>
+              <Popover.Positioner sideOffset={6} align="start">
+                <Popover.Popup className={controls.panel}>
+                  <Suspense fallback={null}>
+                    <ProjectExport />
+                  </Suspense>
+                </Popover.Popup>
+              </Popover.Positioner>
+            </Popover.Portal>
+          </Popover.Root>
         )}
         <input ref={filesInput} type="file" multiple hidden aria-label="Recording files" onChange={picked} />
         <input

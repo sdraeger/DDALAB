@@ -10,10 +10,11 @@ import { unzip, zipEntries } from "./imports";
 import { checkProject, fingerprintOfFiles, type Project, readProject, SCHEMA } from "./project";
 
 const FIXTURES = fileURLToPath(new URL("../../../dda-rs/tests/fixtures/", import.meta.url));
-const fixture = (name: string) => new Uint8Array(readFileSync(FIXTURES + name));
+const fixture = (name: string): Bytes => new Uint8Array(readFileSync(FIXTURES + name));
 const bytesOf = async (blob: Blob | undefined) => new Uint8Array(await (blob as Blob).arrayBuffer());
 
-type Entry = { name: string; bytes: Uint8Array; method?: 0 | 8; size?: number };
+type Bytes = Uint8Array<ArrayBuffer>;
+type Entry = { name: string; bytes: Bytes; method?: 0 | 8; size?: number };
 
 const record = (size: number, fill: (v: DataView) => void) => {
   const view = new DataView(new ArrayBuffer(size));
@@ -28,8 +29,8 @@ const record = (size: number, fill: (v: DataView) => void) => {
  */
 function handZip(entries: Entry[], zip64 = false) {
   const FULL = 0xffffffff;
-  const parts: Uint8Array[] = [];
-  const directory: Uint8Array[] = [];
+  const parts: Bytes[] = [];
+  const directory: Bytes[] = [];
   let offset = 0;
   for (const { name, bytes, method = 0, size = bytes.length } of entries) {
     const n = new TextEncoder().encode(name);
@@ -233,7 +234,8 @@ test("a_project_reads_back_with_its_recordings_in_place", async () => {
   const { document, zip } = await project();
   const { project: read, entries } = await readProject(zip, "study.ddalab");
   expect(read).toEqual(document);
-  for (const name of brainVision) expect(await bytesOf(entries.get(`recordings/1/${name}`))).toEqual(fixture(name));
+  for (const name of brainVision)
+    expect(await bytesOf(entries.get(`recordings/1/${name}`))).toEqual(fixture(name));
   // Each entry is a byte range of the archive, which an opened project's recording reads.
   const edf = (await zipEntries(zip, "study.ddalab")).find((e) => e.name.endsWith(".edf"));
   const start = edf?.start ?? 0;
@@ -242,7 +244,9 @@ test("a_project_reads_back_with_its_recordings_in_place", async () => {
 
 test("an_entry_that_is_not_stored_is_refused", async () => {
   const text = new TextEncoder().encode("{}");
-  const zip = handZip([{ name: "project.json", bytes: new Uint8Array(deflateRawSync(text)), method: 8, size: 2 }]);
+  const zip = handZip([
+    { name: "project.json", bytes: new Uint8Array(deflateRawSync(text)), method: 8, size: 2 },
+  ]);
   await expect(readProject(zip, "packed.ddalab")).rejects.toThrow(
     "project.json in packed.ddalab is compressed: DDALAB reads a project's files in place, so each is stored",
   );

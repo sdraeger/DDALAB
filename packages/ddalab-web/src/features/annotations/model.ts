@@ -116,6 +116,19 @@ export function restoreAnnotations(fingerprint: string) {
   return useStore.getState().annotations[fingerprint] ? Promise.resolve() : reload(fingerprint);
 }
 
+/**
+ * Adds the annotations of `incoming` (an opened project's) that the recording lacks by id, and stores them, as a change
+ * that undo does not take back; resolves once they are stored.
+ */
+export async function addAnnotations(fingerprint: string, incoming: UserAnnotation[]) {
+  await restoreAnnotations(fingerprint);
+  const current = listOf(fingerprint);
+  const known = new Set(current.map((a) => a.id));
+  const added = incoming.filter((a) => !known.has(a.id));
+  if (added.length > 0) show(fingerprint, [...current, ...added]);
+  await saved();
+}
+
 // Another window stored a change: a recording shown here reads its annotations again.
 onStoredElsewhere((fingerprint) => {
   if (useStore.getState().annotations[fingerprint]) void reload(fingerprint);

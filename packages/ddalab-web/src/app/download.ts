@@ -1,4 +1,4 @@
-// Saving a file the page made, for the result, annotation and batch exports: through the browser's own Save dialog
+// Saving a file the page made, for the result, annotation, batch and project exports: through the browser's own Save dialog
 // where it has one (Chromium), else through its downloads. A stream bound for the downloads is spooled into a file of
 // the origin's private storage (`exports/`) first; the window that spooled one holds the Web Lock `ddalab-exports`,
 // shared, for the rest of its life, and a page that starts while no window holds it deletes the spool.
@@ -14,6 +14,7 @@ type SavePicker = (options: {
 /** What the dialog offers for the extensions of the exports: a description and the MIME type. */
 const FORMATS: Record<string, { description: string; type: string }> = {
   zip: { description: "Result bundle", type: "application/zip" },
+  ddalab: { description: "DDALAB project", type: "application/x-ddalab-project" },
   json: { description: "JSON", type: "application/json" },
   csv: { description: "CSV", type: "text/csv" },
   tsv: { description: "Tab-separated values", type: "text/tab-separated-values" },
