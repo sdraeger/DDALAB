@@ -197,15 +197,23 @@
   color: var(--muted);
 }
 
+/* Format, size and the row's status words on one line, which ends in an ellipsis where the rail is too narrow for it
+   (a shown row deep in a tree, with "Viewing" and a batch mark); the row's description keeps all of it. */
 .meta {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
   min-width: 0;
+  overflow: hidden;
   color: var(--muted);
   font-size: var(--text-small);
   line-height: var(--leading-small);
+  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The thin rules between the fields, inline in that line. */
+.meta > [aria-hidden="true"] {
+  display: inline-block;
+  margin: 0 var(--space-2);
+  vertical-align: middle;
 }
 
 .missing {
@@ -221,7 +229,7 @@
 
 /* A row's batch mark: its icon and its word; the color repeats the word. */
 .mark {
-  display: flex;
+  display: inline-flex;
   align-items: baseline;
   gap: 2px;
   font-weight: var(--weight-medium);
