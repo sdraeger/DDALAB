@@ -7,6 +7,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "./app/App";
 import { sweepAnalyses } from "./app/analyses";
 import { engine, openInput, openSynthetic, refreshRecent } from "./app/recordings";
+import { loadViewer } from "./app/viewerChunk";
 import { heatmapProbe } from "./features/results/probe";
 import { viewerProbe } from "./features/viewer/probe";
 import { restoreSession } from "./store/session";
@@ -49,3 +50,6 @@ createRoot(root).render(
     </CSPProvider>
   </StrictMode>,
 );
+// The viewer's chunk loads once the shell has painted: on a cold cache a recording opened later finds it in place,
+// where waiting for it beside the open would hold back the first waveform.
+requestAnimationFrame(() => setTimeout(() => loadViewer().catch(() => {})));
