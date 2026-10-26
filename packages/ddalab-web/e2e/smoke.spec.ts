@@ -3,7 +3,9 @@ import { expect, test } from "./test";
 
 test("page_shows_engine_version", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("status")).toHaveText(/^\d+\.\d+\.\d+/);
+  await expect(page.getByRole("complementary", { name: "Library" }).getByRole("status")).toHaveText(
+    /^\d+\.\d+\.\d+/,
+  );
 });
 
 test("about_names_the_versions_and_credits_the_color_maps", async ({ page }) => {

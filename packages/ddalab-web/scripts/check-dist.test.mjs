@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { findLeaks } from "./check-dist.mjs";
+import { bakeServiceWorker } from "./precache.mjs";
 
 const MAGIC = [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
 const NOTICE =
@@ -17,11 +18,28 @@ beforeEach(() => {
   writeFileSync(join(dir, "assets", "engine.wasm"), Buffer.from([...MAGIC, 1, 2, 3]));
   writeFileSync(join(dir, "assets", "app.js"), "export const version = () => fetch('engine.wasm');");
   writeFileSync(join(dir, "assets", "ResultPanel.js"), `${NOTICE}const LUTS={};`);
+  bakeServiceWorker(dir);
 });
 afterEach(() => rmSync(dir, { recursive: true }));
 
 test("a_clean_dist_passes", () => {
   expect(findLeaks(dir)).toEqual([]);
+});
+
+test.each([
+  ["missing", () => rmSync(join(dir, "sw.js"))],
+  ["unbaked", () => writeFileSync(join(dir, "sw.js"), 'const BUILD = { version: "dev", files: [] };')],
+  [
+    "listing_no_page",
+    () =>
+      writeFileSync(
+        join(dir, "sw.js"),
+        'const BUILD = {"version":"0123456789ab","files":["assets/app.js"]};',
+      ),
+  ],
+])("the_service_worker_%s_is_a_finding", (_, spoil) => {
+  spoil();
+  expect(findLeaks(dir)).toEqual([expect.stringContaining("sw.js is missing or holds no baked file list")]);
 });
 
 test.each([

@@ -15,7 +15,8 @@
     "bench": "npm run build:wasm && PERF=1 DDALAB_DIST=1 playwright test --project=bench",
     "test:dist": "playwright test -c playwright.dist.config.ts",
     "deploy:userdir": "node scripts/deploy-userdir.mjs",
-    "check:live": "node scripts/check-live.mjs"
+    "check:live": "node scripts/check-live.mjs",
+    "check:pages": "node scripts/check-live.mjs --pages"
   },
   "dependencies": {
     "@base-ui/react": "1.9.0",

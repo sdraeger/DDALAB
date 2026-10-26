@@ -102,7 +102,9 @@ test("a_worker_that_does_not_load_ends_in_a_clear_error", async ({ page, browser
   test.skip(browserName !== "chromium", "worker script requests are not interceptable here");
   await page.route(/io\.worker/, (route) => route.abort());
   await page.goto("/");
-  await expect(page.getByRole("status")).toHaveText(/^failed: The engine could not start/);
+  await expect(page.getByRole("complementary", { name: "Library" }).getByRole("status")).toHaveText(
+    /^failed: The engine could not start/,
+  );
 });
 
 test("trap_recreates_the_worker", async ({ page }) => {

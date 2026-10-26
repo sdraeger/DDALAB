@@ -123,7 +123,6 @@ export async function startRun(recordingId: string, request: DDARequest) {
     const complete: AnalysisRecord = { ...record, status: "complete", manifest, finishedAt };
     // The result shows before its record is saved and the history listed again.
     useStore.setState((s) => ({ analyses: s.analyses.map((a) => (a.id === record.id ? complete : a)) }));
-    setRun({ status: "complete" });
     // Without its manifest, the interval comes from the request, in samples of the recording. Not in a view
     // transition: the run ends whatever the pointer is doing, the panel fades in by itself, and the result often lands
     // in a tab that is not shown (store.ts showResult).
@@ -132,6 +131,8 @@ export async function startRun(recordingId: string, request: DDARequest) {
     showResult(complete, manifest ? undefined : asked);
     await saveAnalysis(complete).catch(() => {});
     void persistStorage();
+    // The run ends once its record is saved: a reload that waited for the run (UpdateNotice) must not cut the save off.
+    setRun({ status: "complete" });
   } else if (error instanceof DOMException && error.name === "AbortError") {
     await deleteAnalysis(record.id).catch(() => {});
     setRun({ status: "cancelled" });

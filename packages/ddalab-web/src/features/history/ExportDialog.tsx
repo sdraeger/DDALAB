@@ -3,7 +3,7 @@
 // the CSV.
 import { Popover } from "@base-ui/react/popover";
 import { useState } from "react";
-import { download } from "../../app/download";
+import { download, type Saveable } from "../../app/download";
 import { engine } from "../../app/recordings";
 import { bundleZip } from "../../core/exporters";
 import type { AnalysisRecord } from "../../core/history";
@@ -15,20 +15,21 @@ export default function ExportDialog({ record }: { record: AnalysisRecord }) {
   const stem = record.fileName.replace(/\.[^.]*$/, "");
   const variants = record.manifest?.variants.map((v) => v.id) ?? [];
 
-  async function save(name: string, make: () => Promise<Blob>) {
-    setBusy(true);
+  // The save dialog opens first (download.ts): busy starts when the file is made.
+  async function save(name: string, make: () => Promise<Saveable>) {
     setError(null);
     try {
-      download(await make(), name);
+      await download(name, () => {
+        setBusy(true);
+        return make();
+      });
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
     } finally {
       setBusy(false);
     }
   }
-  // shortcut: the zip becomes one Blob before it is saved (browsers keep large blobs on disk); stream it into
-  // showSaveFilePicker if bundles of many GB need it.
-  const zip = async () => new Response(await bundleZip(record.id)).blob();
+  const zip = () => bundleZip(record.id);
 
   return (
     <div className={styles.export} data-appear>
