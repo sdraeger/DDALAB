@@ -13,6 +13,13 @@ The **web app** needs no installation: open <https://sdraeger.github.io/DDALAB/>
 
 ## Table of Contents
 
+- [Use DDALAB](#use-ddalab)
+  - [In the browser](#in-the-browser)
+  - [Install the web app](#install-the-web-app)
+  - [Updates](#updates)
+  - [Uninstall](#uninstall)
+  - [Command line](#command-line)
+  - [Sites that block outside websites](#sites-that-block-outside-websites)
 - [Download & Installation](#download--installation)
   - [macOS](#macos)
   - [Windows](#windows)
@@ -29,6 +36,59 @@ The **web app** needs no installation: open <https://sdraeger.github.io/DDALAB/>
 - [Configuration & Data Storage](#configuration--data-storage)
 - [Citation](#citation)
 - [Acknowledgments](#acknowledgments)
+
+## Use DDALAB
+
+### In the browser
+
+Open <https://sdraeger.github.io/DDALAB/> in Chrome, Edge, Firefox or Safari on a desktop or laptop. Choose Open files or Open folder, or drag recordings onto the window. Files are read in place and are never uploaded. A window narrower than 768 pixels (a phone, for example) shows a notice that DDALAB needs a wider window.
+
+### Install the web app
+
+Installing is optional. It gives DDALAB its own window and lets it start without a network.
+
+| Browser | Steps |
+| --- | --- |
+| Chrome | Click the install icon at the right of the address bar. Or open the ⋮ menu, choose Cast, save, and share, then Install DDALAB. |
+| Edge | Click App available in the address bar. Or open the ⋯ menu, choose Apps, then Install DDALAB. |
+| Safari 17 or later, macOS 14 or later | Choose File, then Add to Dock. |
+| Firefox | Firefox has no desktop install. Bookmark the address. |
+
+Start the installed app from the Dock, Launchpad, Spotlight or the Applications folder on macOS, or from the Start menu, the taskbar or a desktop shortcut on Windows. It runs in its own window and works offline after the first launch. Offline, OpenNeuro search and streaming stay unavailable.
+
+Installed Chrome and Edge add a few things:
+
+- Open With, then DDALAB, in Finder or Explorer for .edf, .bdf, .vhdr, .csv, .tsv and .txt files (Chrome asks once per file type). A .vhdr opened alone asks you to choose its folder, once, to find its companion files.
+- Exports go through the system Save dialog. Chrome and Edge tabs do the same. Other browsers download the file.
+- Open tabs return when you restart. Chrome asks for read access to each file again unless you choose Allow on every visit.
+
+### Updates
+
+Updates are automatic. A new version is published when a `v*` tag is pushed. The next launch with a network connection downloads it in the background and shows "A new version of DDALAB is ready" with a Reload button. While an analysis runs, the notice says the new version will be ready after the run, and Reload waits for the run to end.
+
+If you ignore the notice, the new version takes over once every DDALAB window has been closed and opened again. Without a network the cached version keeps working. About shows the version and the engine commit. Results, history, annotations and tabs stay across updates.
+
+### Uninstall
+
+In Chrome or Edge, open the menu of the app window and choose Uninstall DDALAB. In Safari, remove DDALAB from the Dock and from the Applications folder. Stored results stay in the browser until you clear that site's data.
+
+### Command line
+
+The `ddalab` command needs Python 3.11 or 3.12 (uv fetches one when you have none):
+
+```sh
+uv tool install ddalab      # or: pipx install ddalab
+ddalab --help
+uv tool upgrade ddalab      # or: pipx upgrade ddalab
+```
+
+The wheels cover macOS (Apple silicon and Intel), Linux x86-64 and Windows x86-64. The analyses run in the bundled native engine, `dda-rs`. The same package installs the desktop app as `ddalab-gui`. Installing through uv or pipx also avoids the macOS warning for unsigned downloads.
+
+Without Python, build the standalone command with Rust: run `cargo build --release --locked` in `packages/dda-rs` and put `target/release/ddalab` on your PATH.
+
+### Sites that block outside websites
+
+Download `ddalab-web-<version>.zip` from the [release page](https://github.com/sdraeger/DDALAB/releases) and unzip it onto any internal static web server. The server must use HTTPS (or be `localhost`), because the app needs a secure context. Users open that address and everything above applies. Update by replacing the files. Opening `index.html` from disk does not work, because browsers do not start workers from `file://` pages. See [`packages/ddalab-web`](packages/ddalab-web/README.md) for the server settings and a warning about hosts that share one origin between users.
 
 ## Download & Installation
 
