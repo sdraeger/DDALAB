@@ -14,15 +14,23 @@ export function storedTheme(): Theme | null {
   }
 }
 
+/** The `chrome` token of each theme (tokens.css), which the window's title bar takes through `theme-color`. */
+const CHROME = { light: "#F1F3F5", dark: "#1D2226" };
+
 export function applyTheme(theme: Theme | null) {
   if (theme) document.documentElement.dataset.theme = theme;
   else delete document.documentElement.dataset.theme;
+  // index.html gives each system theme its color; a pick gives both the picked one.
+  for (const meta of document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')) {
+    meta.content = CHROME[theme ?? (meta.media.includes("dark") ? "dark" : "light")];
+  }
 }
 
-/** Applies and remembers the user's pick; without storage it lasts for this page. */
-export function saveTheme(theme: Theme) {
+/** Applies and remembers the user's pick, `null` to follow the system; without storage it lasts for this page. */
+export function saveTheme(theme: Theme | null) {
   try {
-    localStorage.setItem(KEY, theme);
+    if (theme) localStorage.setItem(KEY, theme);
+    else localStorage.removeItem(KEY);
   } catch {}
   applyTheme(theme);
 }

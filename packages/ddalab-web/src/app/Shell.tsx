@@ -27,6 +27,7 @@ import { useViewerKeys } from "../features/viewer/useViewerKeys";
 import { activeRecording, openResult, setTheme, togglePanel, useStore } from "../store/store";
 import { shortNames } from "../store/tabs";
 import controls from "../styles/controls.module.css";
+import menu from "./AppMenu.module.css";
 import { Logo } from "./Logo";
 import styles from "./Shell.module.css";
 import { UpdateNotice } from "./UpdateNotice";
@@ -38,6 +39,18 @@ const Calibration = lazy(loadCalibration);
 const loadAbout = () => import("../features/settings/About");
 const About = lazy(loadAbout);
 const ResultPanel = lazy(() => import("../features/results/ResultPanel"));
+// A chunk that does not load leaves the mark and wordmark without their menu; the bar's own controls stay.
+const AppMenu = lazy(() => import("./AppMenu").catch(() => ({ default: Brand })));
+
+/** The popovers of the bar's Calibration and About buttons, which the application menu opens too, by trigger id. */
+export const calibrationPanel = Popover.createHandle();
+export const aboutPanel = Popover.createHandle();
+export const CALIBRATION_TRIGGER = "calibration";
+export const ABOUT_TRIGGER = "about";
+
+/** Shows or hides a side panel, crossfading the layout: the bar's toggles and the View menu. */
+export const toggle = (panel: "library" | "inspector") => inTransition(() => togglePanel(panel));
+
 const ViewControls = lazyPart(
   (viewer) => viewer.ViewControls,
   () => null,
@@ -62,17 +75,12 @@ export function Shell() {
         data-inspector={inspector ? "open" : "closed"}
       >
         <header className={styles.bar}>
-          <IconButton
-            label="Library"
-            aria-pressed={library}
-            onClick={() => inTransition(() => togglePanel("library"))}
-          >
+          <IconButton label="Library" aria-pressed={library} onClick={() => toggle("library")}>
             <PanelLeft aria-hidden />
           </IconButton>
-          <span className={styles.brand}>
-            <Logo />
-            <h1 className={styles.wordmark}>DDALAB</h1>
-          </span>
+          <Suspense fallback={<Brand />}>
+            <AppMenu />
+          </Suspense>
           <RecordingName />
           <span className={styles.grow} />
           {id && (
@@ -87,19 +95,27 @@ export function Shell() {
               <RunButton recordingId={id} status={!inspector && !batching} />
             </Suspense>
           )}
-          <PanelButton label="Display calibration" icon={<Ruler aria-hidden />} preload={loadCalibration}>
+          <PanelButton
+            label="Display calibration"
+            icon={<Ruler aria-hidden />}
+            preload={loadCalibration}
+            handle={calibrationPanel}
+            id={CALIBRATION_TRIGGER}
+          >
             <Calibration />
           </PanelButton>
-          <IconButton
-            label="Inspector"
-            aria-pressed={inspector}
-            onClick={() => inTransition(() => togglePanel("inspector"))}
-          >
+          <IconButton label="Inspector" aria-pressed={inspector} onClick={() => toggle("inspector")}>
             <PanelRight aria-hidden />
           </IconButton>
           <LocalData />
           <ThemeToggle />
-          <PanelButton label="About DDALAB" icon={<Info aria-hidden />} preload={loadAbout}>
+          <PanelButton
+            label="About DDALAB"
+            icon={<Info aria-hidden />}
+            preload={loadAbout}
+            handle={aboutPanel}
+            id={ABOUT_TRIGGER}
+          >
             <About />
           </PanelButton>
         </header>
@@ -177,6 +193,18 @@ function ShownResult({ recordingId }: { recordingId: string | null }) {
   );
 }
 
+/** The mark and wordmark as the application menu draws its trigger (AppMenu.tsx), while its chunk loads. */
+function Brand() {
+  return (
+    <h1 className={menu.brand}>
+      <span className={menu.trigger}>
+        <Logo />
+        <span className={menu.wordmark}>DDALAB</span>
+      </span>
+    </h1>
+  );
+}
+
 function ViewerMissing() {
   return <p className={styles.empty}>The viewer did not load. Reload the page to see the recording.</p>;
 }
@@ -217,23 +245,35 @@ function RecordingName() {
   );
 }
 
-/** An icon button of the command bar that opens a panel; the panel's chunk loads on pointer or focus. */
+/**
+ * An icon button of the command bar that opens a panel; the panel's chunk loads on pointer or focus. The application
+ * menu opens it too, through `handle` and the button's `id`.
+ */
 function PanelButton(props: {
   label: string;
   icon: ReactElement;
   preload: () => Promise<unknown>;
+  handle: ReturnType<typeof Popover.createHandle>;
+  id: string;
   children: ReactElement;
 }) {
   // A chunk that fails to preload stays quiet: opening the panel loads it again and reports a failure.
   const preload = () => void props.preload().catch(() => {});
   return (
-    <Popover.Root>
-      <IconButton label={props.label} render={<Popover.Trigger />} onPointerEnter={preload} onFocus={preload}>
+    <Popover.Root handle={props.handle}>
+      <IconButton
+        label={props.label}
+        render={<Popover.Trigger />}
+        id={props.id}
+        onPointerEnter={preload}
+        onFocus={preload}
+      >
         {props.icon}
       </IconButton>
       <Popover.Portal>
         <Popover.Positioner sideOffset={6} align="end">
-          <Popover.Popup className={controls.panel}>
+          {/* Named by its button; a panel with a Popover.Title (About) is named by that instead. */}
+          <Popover.Popup className={controls.panel} aria-label={props.label}>
             <Suspense fallback={null}>{props.children}</Suspense>
           </Popover.Popup>
         </Popover.Positioner>

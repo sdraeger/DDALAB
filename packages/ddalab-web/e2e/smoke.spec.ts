@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { TAB_KEYS } from "../src/features/tabs/keys";
+import { MENU_KEYS, TAB_KEYS } from "../src/features/tabs/keys";
 import { expect, test } from "./test";
 
 test("page_shows_engine_version", async ({ page }) => {
@@ -16,12 +16,12 @@ test("about_names_the_authors_and_versions_and_credits_the_color_maps", async ({
   await expect(about).toContainText("By Simon Dräger, Claudia Lainscsek and Terrence J. Sejnowski");
   const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
   const engine = await page.evaluate(() => window.__ddalab.engine.version());
-  // The versions, then what each tab shortcut does.
+  // The versions, then what each shortcut does: the menu's, then the tabs'.
   await expect(about.getByRole("definition")).toHaveText([
     version,
     engine.engine_version,
     engine.git_commit ?? "not recorded in this build",
-    ...TAB_KEYS.map(([, action]) => action),
+    ...[...MENU_KEYS, ...TAB_KEYS].map(([, action]) => action),
   ]);
   // The color map credit stands under its own heading, apart from DDALAB's authors.
   const colorMaps = about.getByRole("region", { name: "Color maps" });

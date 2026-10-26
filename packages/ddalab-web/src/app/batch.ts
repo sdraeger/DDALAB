@@ -66,6 +66,11 @@ export async function sweepBatches() {
   useStore.setState({ batches: swept });
 }
 
+/** Lists the batches again: another window changed them. */
+export async function refreshBatches() {
+  useStore.setState({ batches: await listBatches().catch(() => useStore.getState().batches) });
+}
+
 /** Why a batch cannot start now, or `undefined`. */
 export function busy(): string | undefined {
   if (running) return "A batch is running.";

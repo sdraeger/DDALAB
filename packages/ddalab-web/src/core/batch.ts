@@ -4,7 +4,7 @@
 // --output-dir dda` writes: its stdout as `batch_manifest.json` and each result document as `dda/<stem>.<sha8>.dda.json`.
 // In a BIDS dataset the batch takes the recordings the CLI finds there (`discover_bids_recordings`).
 import type { DdaForm } from "../features/analysis/validate";
-import { database } from "../store/recent";
+import { changed, database } from "../store/recent";
 import type { AnalysisRecord } from "./history";
 import type { RecordingInfo } from "./types";
 
@@ -265,4 +265,5 @@ export async function listBatches(): Promise<BatchRecord[]> {
 
 export async function saveBatch(batch: BatchRecord): Promise<void> {
   await (await database()).put("batches", batch);
+  changed("batches");
 }

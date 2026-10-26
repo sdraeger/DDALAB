@@ -1,11 +1,11 @@
 // The session a reload restores. The lists (recent recordings, history) come from IndexedDB on startup; this adds
 // the side panels, set before the first render, the active result, set once the history is listed and the first
 // frame is painted (its views are the heavy part), and the view of a recording, applied when that recording opens
-// again. It is small and needed before the first render, as the theme is: localStorage, written as the page goes.
+// again. It is small and needed before the first render, as the theme is: localStorage, written as the page goes,
+// one per window (windows.ts).
 import { preload } from "../features/results/loads";
 import { activeRecording, openResult, setView, useStore, type View } from "./store";
-
-const KEY = "ddalab.session";
+import { sessionKey } from "./windows";
 
 interface Session {
   panels: { library: boolean; inspector: boolean };
@@ -16,7 +16,7 @@ interface Session {
 
 function stored(): Partial<Session> {
   try {
-    return JSON.parse(localStorage.getItem(KEY) ?? "{}");
+    return JSON.parse(localStorage.getItem(sessionKey()) ?? "{}");
   } catch {
     return {};
   }
@@ -32,11 +32,11 @@ function save() {
     view: recording ? { ...view, fingerprint: recording.fingerprint } : stored().view,
   };
   try {
-    localStorage.setItem(KEY, JSON.stringify(session));
+    localStorage.setItem(sessionKey(), JSON.stringify(session));
   } catch {}
 }
 
-/** Restores the session; `listed` resolves once the history is in the store. */
+/** Restores the window's session, once it has its id; `listed` resolves once the history is in the store. */
 export function restoreSession(listed: Promise<unknown>) {
   const saved = stored();
   if (saved.panels) {
