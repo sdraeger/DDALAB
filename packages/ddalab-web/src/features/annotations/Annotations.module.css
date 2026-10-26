@@ -243,8 +243,10 @@
   transition: background-color var(--motion-duration) var(--motion-ease);
 }
 
-.rowButton:hover {
-  background: var(--chrome-hover);
+@media (hover: hover) and (pointer: fine) {
+  .rowButton:hover {
+    background: var(--chrome-hover);
+  }
 }
 
 .rowButton:focus-visible {

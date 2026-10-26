@@ -88,9 +88,11 @@
 }
 
 /* Hover leaves the shown recording's wash in place. */
-.folder:hover,
-.recording:hover:not([aria-disabled], [aria-selected="true"]) {
-  background: var(--chrome-hover);
+@media (hover: hover) and (pointer: fine) {
+  .folder:hover,
+  .recording:hover:not([aria-disabled], [aria-selected="true"]) {
+    background: var(--chrome-hover);
+  }
 }
 
 .folder {

@@ -81,6 +81,7 @@ a {
 
 /* Panels opening and closing, results shown and closed and the theme switch crossfade the whole page
    (viewTransition.ts); the canvases redraw inside it. */
+::view-transition-group(root),
 ::view-transition-old(root),
 ::view-transition-new(root) {
   animation-duration: var(--motion-duration);
