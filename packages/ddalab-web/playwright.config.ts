@@ -14,6 +14,8 @@ const origin = `http://localhost:${port}`;
 
 export default defineConfig({
   testDir: "e2e",
+  // e2e/*.test.ts are unit tests of the e2e helpers, which vitest runs.
+  testMatch: /\.spec\.ts$/,
   retries: process.env.CI ? 1 : 0,
   // The CLI bundles e2e/analysis.spec.ts compares the browser's results with.
   globalSetup: "./e2e/global-setup.ts",

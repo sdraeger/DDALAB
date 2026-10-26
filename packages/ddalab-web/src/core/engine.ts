@@ -108,7 +108,9 @@ export interface Engine {
 }
 
 /** What dev and e2e builds add for tests. */
-export type DevEngine = Engine & {
+export type DevEngine = Omit<Engine, "run"> & {
+  /** A run whose handle also sums the wasm memory its DDA workers last reported, in bytes. */
+  run(id: string, request: DDARequest): Promise<AnalysisHandle & { wasmBytes(): number }>;
   trap(): Promise<void>;
   quota(bytes: number): Promise<void>;
   /** Bytes of wasm memory of each running worker. */
@@ -139,6 +141,8 @@ function ddaPool(input: RecordingInput, request: DDARequest) {
   const idle: Worker[] = [];
   const asked = new Map<Worker, (error: Error) => void>();
   let stopped = false;
+  /** The wasm memory each worker last reported, in bytes (dev and e2e builds). */
+  const memory = new Map<Worker, number>();
   const drop = (worker: Worker) => {
     worker.terminate();
     asked.delete(worker);
@@ -153,7 +157,11 @@ function ddaPool(input: RecordingInput, request: DDARequest) {
         if ("error" in data) {
           reject(new Error(data.error));
           if (data.trapped) return drop(worker);
-        } else resolve(data.ok as T);
+        } else {
+          if ((import.meta.env.DEV || import.meta.env.MODE === "e2e") && data.wasmBytes !== undefined)
+            memory.set(worker, data.wasmBytes);
+          resolve(data.ok as T);
+        }
         asked.delete(worker);
         idle.push(worker);
       };
@@ -164,6 +172,7 @@ function ddaPool(input: RecordingInput, request: DDARequest) {
       worker.postMessage({ input, request, ...task } satisfies DdaRequest);
     });
   return {
+    memory,
     block: (block: Block) => ask<BlockChunks>({ block }),
     manifest: (extras: ManifestExtras) => ask<ResultDocument>({ extras }),
     stop() {
@@ -522,7 +531,7 @@ export function createEngine(): Engine {
           throw error;
         })
         .finally(() => pool.stop());
-      return {
+      const handle = {
         ...scheduled,
         done,
         cancel() {
@@ -531,6 +540,9 @@ export function createEngine(): Engine {
           abort(cancelled());
         },
       };
+      return import.meta.env.DEV || import.meta.env.MODE === "e2e"
+        ? Object.assign(handle, { wasmBytes: () => [...pool.memory.values()].reduce((a, b) => a + b, 0) })
+        : handle;
     },
     sweepInterrupted: () => call({ type: "sweepResults" }),
     resultManifest: (resultId) => call({ type: "resultManifest", resultId }),

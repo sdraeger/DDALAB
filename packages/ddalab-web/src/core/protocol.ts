@@ -161,7 +161,9 @@ export type DdaRequest =
   | { input: RecordingInput; request: DDARequest; extras: ManifestExtras };
 
 /** A DDA worker has one request at a time. `trapped`: the wasm instance trapped and is unusable. */
-export type DdaReply = { ok: BlockChunks | ResultDocument } | { error: string; trapped: boolean };
+export type DdaReply =
+  /** `wasmBytes`: the instance's memory after a block, in dev and e2e builds. */
+  { ok: BlockChunks | ResultDocument; wasmBytes?: number } | { error: string; trapped: boolean };
 
 export type AnnotationsReply =
   | { n: number; ok: Annotations }
