@@ -4,6 +4,8 @@ import FilePlus from "lucide-react/dist/esm/icons/file-plus.mjs";
 import FolderOpen from "lucide-react/dist/esm/icons/folder-open.mjs";
 import { type ChangeEvent, lazy, Suspense, use, useEffect, useEffectEvent, useRef, useState } from "react";
 import { engineVersion } from "../../app/analyses";
+import { beside } from "../../app/handles";
+import { consumeLaunches, grantedRoots, launchQueue, openLaunched } from "../../app/launch";
 import {
   canPickFiles,
   type FileHandles,
@@ -99,10 +101,17 @@ export function LibraryRail() {
   };
   async function openFolder() {
     locating.current = undefined;
+    // A header opened alone (a .vhdr from the picker or launched by the system) has its handle: when the folder chosen
+    // holds it, the recording opens from there with its companions, where the tree would ask for another click.
+    const lone =
+      outcome?.kind === "error" && outcome.folder ? attempt.current.handles?.files?.[0] : undefined;
     const pick = (window as { showDirectoryPicker?: DirectoryPicker }).showDirectoryPicker;
     if (!pick) return folderInput.current?.click();
     const handle = await pick({ mode: "read" }).catch(() => null); // null: the user closed the picker
-    if (handle) showFolder({ kind: "handle", handle });
+    if (!handle) return;
+    const found = lone && (await beside(handle, lone).catch(() => undefined));
+    if (found) return void run({ files: found.files, handles: found.handles }, found.choice);
+    showFolder({ kind: "handle", handle });
   }
   async function open(entry: RecentEntry) {
     if (!entry.handle) return chooseFiles(entry.fingerprint);
@@ -134,6 +143,19 @@ export function LibraryRail() {
     }
     await run(await droppedFiles(data));
   });
+  // Files the system opens the installed app with (Chromium). The consumer is set once, when the rail first mounts.
+  const launched = useEffectEvent(async (handles: FileSystemFileHandle[]) => {
+    locating.current = undefined;
+    setOpening(true);
+    try {
+      const result = await openLaunched(handles, { open: openFiles, roots: grantedRoots });
+      attempt.current = result.attempt;
+      setOutcome(result.outcome);
+    } finally {
+      setOpening(false);
+    }
+  });
+  useEffect(() => consumeLaunches(launchQueue(), (handles) => void launched(handles)), []);
   useEffect(() => {
     const over = (event: DragEvent) => event.preventDefault();
     const drop = (event: DragEvent) => {
