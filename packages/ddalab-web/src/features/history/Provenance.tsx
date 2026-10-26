@@ -207,15 +207,17 @@ function Actions({ record }: { record: AnalysisRecord }) {
       >
         Close
       </button>
-      <span className={styles.divider} aria-hidden />
-      <button
-        type="button"
-        className={`${controls.quiet} ${styles.delete}`}
-        disabled={record.status === "running"}
-        onClick={() => setConfirming(true)}
-      >
-        Delete
-      </button>
+      <span className={styles.end}>
+        <span className={styles.divider} aria-hidden />
+        <button
+          type="button"
+          className={`${controls.quiet} ${styles.delete}`}
+          disabled={record.status === "running"}
+          onClick={() => setConfirming(true)}
+        >
+          Delete
+        </button>
+      </span>
     </div>
   );
 }
