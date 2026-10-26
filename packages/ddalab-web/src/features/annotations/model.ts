@@ -7,6 +7,7 @@ import type { Annotation } from "../../core/types";
 import {
   loadAnnotations,
   onStoredElsewhere,
+  ownersOf,
   storeChanges,
   type UserAnnotation,
 } from "../../core/userAnnotations";
@@ -118,13 +119,23 @@ export function restoreAnnotations(fingerprint: string) {
 
 /**
  * Adds the annotations of `incoming` (an opened project's) that the recording lacks by id, and stores them, as a change
- * that undo does not take back; resolves once they are stored.
+ * that undo does not take back; resolves once they are stored. An id this browser keeps under another recording stays
+ * with it: the incoming annotation gets an id of its own, unless the recording has one at the same time with the same
+ * label already. Rejects, adding nothing, when the stored ids cannot be read.
  */
 export async function addAnnotations(fingerprint: string, incoming: UserAnnotation[]) {
   await restoreAnnotations(fingerprint);
+  const owners = await ownersOf(incoming.map((a) => a.id));
   const current = listOf(fingerprint);
   const known = new Set(current.map((a) => a.id));
-  const added = incoming.filter((a) => !known.has(a.id));
+  const held = (a: UserAnnotation) =>
+    current.some((b) => b.onset_s === a.onset_s && b.duration_s === a.duration_s && b.label === a.label);
+  const added = incoming.flatMap((a) => {
+    const owner = owners.get(a.id);
+    if (known.has(a.id) || owner === fingerprint) return [];
+    if (owner === undefined) return [a];
+    return held(a) ? [] : [{ ...a, id: crypto.randomUUID() }];
+  });
   if (added.length > 0) show(fingerprint, [...current, ...added]);
   await saved();
 }
