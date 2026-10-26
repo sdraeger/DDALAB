@@ -18,8 +18,15 @@ const writing = new Map<
   { files: FileSystemSyncAccessHandle[]; bytes: number; release: () => void }
 >();
 
-export const resultsDirectory = async () =>
-  (await navigator.storage.getDirectory()).getDirectoryHandle("results", { create: true });
+/** A window without OPFS (private browsing can cause it) rejects with an UnknownError that says "transient". */
+export const resultsDirectory = async () => {
+  const root = await navigator.storage.getDirectory().catch(() => {
+    throw new Error(
+      "Browser storage is not available in this window, which private browsing can cause; results cannot be kept.",
+    );
+  });
+  return root.getDirectoryHandle("results", { create: true });
+};
 
 const arrayBytes = ({ header, shape }: BundleLayout["arrays"][number]) =>
   header.length + 8 * shape.reduce((n, d) => n * d, 1);
