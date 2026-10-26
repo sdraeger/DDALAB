@@ -135,4 +135,12 @@ test("a_result_that_comes_to_show_alone_starts_on_its_interval", () => {
   // A run that ends with its recording closed shows alone too.
   setView({ t0: 0, t1: 10 });
   expect(viewWhenShown("run", () => showResult(analyzed("run", "fa")))).toMatchObject({ t0: 100, t1: 160 });
+  // Without a manifest, on the interval its run asked for.
+  setView({ t0: 0, t1: 10 });
+  const unread = record("unread", "fa", "complete");
+  expect(viewWhenShown("unread", () => showResult(unread, { t0: 20, t1: 30 }))).toMatchObject({
+    t0: 20,
+    t1: 30,
+  });
+  expect(useStore.getState().shownResult?.interval).toEqual({ t0: 20, t1: 30 });
 });

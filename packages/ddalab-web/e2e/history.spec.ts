@@ -477,3 +477,27 @@ test("a_finished_run_reads_its_manifest_once", async ({ page }) => {
   expect((await workerLog(page)).filter(([, what]) => what === "resultManifest")).toHaveLength(1);
   expect((await state(page)).analyses[0]).toMatchObject({ id, status: "complete" });
 });
+
+test("a_run_whose_manifest_read_fails_shows_on_its_request", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  // The run's own read of its manifest fails; the view's read after it succeeds.
+  await page.evaluate(() => {
+    const { engine } = window.__ddalab;
+    const read = engine.resultManifest.bind(engine);
+    let failed = false;
+    engine.resultManifest = (id: string) => {
+      if (failed) return read(id);
+      failed = true;
+      return Promise.reject(new Error("unreadable"));
+    };
+  });
+  const id = await runBrainVision(page);
+  // Samples 500 to 2500 at 500 Hz.
+  expect(await page.evaluate(() => window.__ddalab.store.getState().shownResult)).toMatchObject({
+    id,
+    interval: { t0: 1, t1: 5 },
+  });
+  expect((await state(page)).analyses[0].manifest).toBeUndefined();
+  await expect(result(page)).toBeVisible();
+  expect((await heatmapDrawn(page)).frame).toMatchObject({ resultId: id, complete: true });
+});

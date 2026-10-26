@@ -8,7 +8,7 @@ import {
 } from "../core/history";
 import type { AnalysisHandle } from "../core/scheduler";
 import type { DDARequest, VariantInfo } from "../core/types";
-import { loads, manifestOf, preloadPanel } from "../features/results/loads";
+import { loads, manifestKey, manifestOf, preloadPanel } from "../features/results/loads";
 import { openResult, type RunState, showResult, useStore } from "../store/store";
 import { engine } from "./recordings";
 
@@ -112,13 +112,16 @@ export async function startRun(recordingId: string, request: DDARequest) {
     const finishedAt = Date.now();
     // The result view takes this read from the cache. A failed read is left for the view to make again.
     const document = await manifestOf(record.id);
-    if ("error" in document) loads.delete(`${record.id}/manifest`);
+    if ("error" in document) loads.delete(manifestKey(record.id));
     const manifest = "ok" in document ? recordedManifest(document.ok) : undefined;
     const complete: AnalysisRecord = { ...record, status: "complete", manifest, finishedAt };
     // The result shows before its record is saved and the history listed again.
     useStore.setState((s) => ({ analyses: s.analyses.map((a) => (a.id === record.id ? complete : a)) }));
     setRun({ status: "complete" });
-    showResult(complete);
+    // Without its manifest, the interval comes from the request, in samples of the recording.
+    const rate = recording.info.sample_rate_hz;
+    const asked = { t0: request.time_range.start / rate, t1: request.time_range.end / rate };
+    showResult(complete, manifest ? undefined : asked);
     await saveAnalysis(complete).catch(() => {});
   } else if (error instanceof DOMException && error.name === "AbortError") {
     await deleteAnalysis(record.id).catch(() => {});
