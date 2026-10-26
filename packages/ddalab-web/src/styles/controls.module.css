@@ -5,8 +5,8 @@
   display: inline-grid;
   place-items: center;
   flex: none;
-  width: 28px;
-  height: 28px;
+  width: var(--hit);
+  height: var(--hit);
   padding: 0;
   border: 0;
   border-radius: var(--radius);
@@ -46,7 +46,7 @@
   align-content: center;
   align-items: baseline;
   gap: var(--space-2);
-  height: 28px;
+  height: var(--hit);
   padding: 0 var(--space-3);
   border: var(--hairline-width) solid var(--hairline);
   border-radius: var(--radius);
@@ -135,7 +135,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-1);
-  height: 26px;
+  height: calc(var(--hit) - 2px);
   min-width: 84px;
   padding: 0 var(--space-1) 0 var(--space-2);
   border: var(--hairline-width) solid var(--hairline);

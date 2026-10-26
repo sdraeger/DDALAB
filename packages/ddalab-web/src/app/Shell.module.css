@@ -200,21 +200,121 @@
   text-align: center;
 }
 
-.narrow {
+/* The phone's parts (Shell.tsx): in a wider window the waveform and the result stack in the center, the controls of
+   the wide bar show, and the view bar and the hint for an empty Results view do not. */
+.waveform,
+.results,
+.wide {
+  display: contents;
+}
+
+.views,
+.noResult {
   display: none;
 }
 
+/* A phone: one view at a time over the view bar, clear of the notch and the home indicator (viewport-fit=cover in
+   index.html). The inspector covers the view while it is open; a desktop window's open panels leave it alone. */
 @media (width < 768px) {
   .shell {
+    --bar-height: calc(env(safe-area-inset-top, 0px) + max(44px, var(--hit-two)));
+    grid-template-rows: var(--bar-height) minmax(0, 1fr) auto auto;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "bar"
+      "view"
+      "notice"
+      "views";
+  }
+
+  .bar {
+    padding: env(safe-area-inset-top, 0px) calc(env(safe-area-inset-right, 0px) + var(--space-2)) 0
+      calc(env(safe-area-inset-left, 0px) + var(--space-2));
+  }
+
+  /* The bar keeps the menu, the scale and Annotate buttons, the run status, Run and the inspector. */
+  .wide,
+  .name,
+  .paging,
+  .divider {
     display: none;
   }
 
-  .narrow {
+  .view {
+    gap: var(--space-2);
+  }
+
+  .library,
+  .center,
+  .inspector {
+    grid-area: view;
+    border: 0;
+  }
+
+  /* The center stays laid out under the library and the inspector, which cover it while it is inert (Shell.tsx): the
+     waveform keeps its size. */
+  .library,
+  .inspector {
+    z-index: 1;
+  }
+
+  .shell[data-view] .library {
+    display: none;
+  }
+
+  .shell[data-view="library"] .library {
     display: block;
-    max-width: 36ch;
-    margin: 0 auto;
-    padding: var(--space-6) var(--space-4);
-    font-size: var(--text-section);
-    line-height: 1.5;
+  }
+
+  .shell[data-view="results"] .waveform,
+  .shell[data-view="waveform"] .results {
+    display: none;
+  }
+
+  .shell[data-view="results"] .noResult {
+    display: block;
+  }
+
+  .views {
+    grid-area: views;
+    display: flex;
+    padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+    border-top: var(--hairline-width) solid var(--hairline);
+    background: var(--chrome);
+  }
+
+  .viewButton {
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    height: var(--hit-two);
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: var(--text-small);
+    cursor: pointer;
+    transition-property: color;
+    transition-duration: var(--motion-duration);
+    transition-timing-function: var(--motion-ease);
+  }
+
+  .viewButton svg {
+    width: 20px;
+    height: 20px;
+    stroke-width: 1.75;
+  }
+
+  .viewButton[aria-current="page"] {
+    color: var(--primary);
+  }
+
+  .viewButton:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: -2px;
   }
 }

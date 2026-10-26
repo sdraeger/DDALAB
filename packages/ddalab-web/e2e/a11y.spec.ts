@@ -183,6 +183,27 @@ test("about_by_keyboard", async ({ page }) => {
   await expect(about).toBeFocused();
 });
 
+test("phone_views", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const views = page.getByRole("navigation", { name: "Views" });
+  // The library and the inspector cover the main view of a phone, which is inert meanwhile: the page then has the
+  // banner, their landmark and the view bar, and no main landmark.
+  const covered = async () => (await problems(page)).filter((p) => !p.includes(": landmark-one-main ("));
+  expect(await covered()).toEqual([]);
+  await page.getByLabel("Recording files").setInputFiles(BRAINVISION);
+  await expect(views.getByRole("button", { name: "Waveform" })).toHaveAttribute("aria-current", "page");
+  // The bar's status says why it cannot run yet, in the color of a refusal, which fades in.
+  await expect(page.getByRole("banner").getByText("Choose at least one channel")).toBeVisible();
+  expect(await problems(page)).toEqual([]);
+  await page.getByRole("banner").getByRole("button", { name: "Inspector" }).click();
+  await expect(page.getByRole("heading", { name: "fixture.vhdr" })).toBeVisible();
+  await expect(scanned(page)).toBeVisible();
+  expect(await covered()).toEqual([]);
+  await views.getByRole("button", { name: "Results" }).click();
+  await expect(page.getByText(/^Run DDA from the inspector/)).toBeVisible();
+  expect(await problems(page)).toEqual([]);
+});
+
 test("open_state", async ({ page }) => {
   await openBrainVision(page);
   await page.getByRole("checkbox", { name: "Select Fp1" }).check();

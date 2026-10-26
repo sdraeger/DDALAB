@@ -3,7 +3,7 @@
 
 .action {
   flex: none;
-  height: 24px;
+  height: calc(var(--hit) - 4px);
   margin-right: calc(-1 * var(--space-2));
   font-size: var(--text-small);
 }
@@ -62,7 +62,7 @@
 
 .link {
   align-self: flex-start;
-  height: 24px;
+  height: calc(var(--hit) - 4px);
   margin-left: calc(-1 * var(--space-2));
   font-size: var(--text-small);
 }
@@ -122,7 +122,7 @@
 
 .start {
   justify-content: center;
-  height: 32px;
+  height: calc(var(--hit) + 4px);
 }
 
 /* The batch while it runs: which recording of how many, its file, its run's progress and the counts so far. Its bar
@@ -146,7 +146,7 @@
 }
 
 .line button {
-  height: 24px;
+  height: calc(var(--hit) - 4px);
   font-size: var(--text-small);
 }
 

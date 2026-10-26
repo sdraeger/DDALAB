@@ -50,7 +50,7 @@
 }
 
 .filter {
-  height: 28px;
+  height: var(--hit);
   padding: 0 var(--space-2);
   border: var(--hairline-width) solid var(--hairline);
   border-radius: var(--radius);
@@ -109,7 +109,7 @@
   align-content: center;
   align-items: baseline;
   gap: var(--space-1);
-  height: 28px;
+  height: var(--hit);
   padding-left: calc(var(--space-2) + var(--level) * var(--space-3));
 }
 
@@ -128,7 +128,7 @@
 
 /* A chain of folders too long for one line takes two; FolderTree.tsx measures which. */
 .folder[data-wrap] {
-  height: 40px;
+  height: var(--hit-two);
 }
 
 .chain {
@@ -170,7 +170,7 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
-  height: 40px;
+  height: var(--hit-two);
   padding-left: calc(var(--space-2) + var(--level) * var(--space-3) + 1cap + var(--space-1));
 }
 

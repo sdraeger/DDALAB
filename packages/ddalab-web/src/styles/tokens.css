@@ -67,6 +67,11 @@
   --space-5: 20px;
   --space-6: 24px;
 
+  /* Hit sizes: the height of a control or a list row, and of a row that takes two lines. A coarse pointer (a touch
+     screen) gets 40 px, the size of a fingertip; styles/hit.ts gives code that places rows the same values. */
+  --hit: 28px;
+  --hit-two: 40px;
+
   --radius-small: 3px;
   --radius: 5px;
   --hairline-width: 1px;
@@ -87,6 +92,13 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
+}
+
+@media (pointer: coarse) {
+  :root {
+    --hit: 40px;
+    --hit-two: 52px;
+  }
 }
 
 /* Reduced motion keeps the fades and the color changes and drops every movement: nothing scales or rises. */

@@ -77,6 +77,7 @@ export function ViewControls() {
   });
   return (
     <div className={styles.view} data-appear>
+      {/* A phone pages with a drag and the overview; its bar leaves the room to the run status. */}
       <div className={styles.paging}>
         <IconButton label="First page" onClick={pageToStart}>
           <ChevronFirst aria-hidden />
@@ -94,7 +95,7 @@ export function ViewControls() {
           Page <Digits value={page} chars={String(pages).length} /> of {pages}
         </span>
       </div>
-      <span className={controls.rule} />
+      <span className={`${controls.rule} ${styles.divider}`} />
       <ScaleChoices>
         <Choice
           label="Epoch"
@@ -122,7 +123,7 @@ export function ViewControls() {
           onChange={setTimebase}
         />
       </ScaleChoices>
-      <span className={controls.rule} />
+      <span className={`${controls.rule} ${styles.divider}`} />
       <AnnotateButton />
     </div>
   );
