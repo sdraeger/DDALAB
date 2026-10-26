@@ -70,8 +70,14 @@ jobs:
         run: npx vitest run
 
       # The self-hosting smoke test runs the three browsers; the e2e tests have jobs of their own (below).
+      # The system packages of --with-deps have hung on apt until the job timed out: each try gets 10 minutes.
       - name: Install browsers
-        run: npx playwright install --with-deps chromium firefox webkit
+        run: |
+          for try in 1 2 3; do
+            timeout 600 npx playwright install --with-deps chromium firefox webkit && exit 0
+            echo "Browser install try $try failed or hung" >&2
+          done
+          exit 1
 
       # Type check, vite build, then the dist check (no test hooks) and the bundle size check.
       - name: Production build
@@ -154,8 +160,14 @@ jobs:
         working-directory: packages/dda-rs
         run: cargo build --release --locked
 
+      # Each try gets 10 minutes, as in the web job.
       - name: Install the browser
-        run: npx playwright install --with-deps ${{ matrix.browser }}
+        run: |
+          for try in 1 2 3; do
+            timeout 600 npx playwright install --with-deps ${{ matrix.browser }} && exit 0
+            echo "Browser install try $try failed or hung" >&2
+          done
+          exit 1
 
       - name: End-to-end tests
         run: npx playwright test --project=${{ matrix.browser }}
