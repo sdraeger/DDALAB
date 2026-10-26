@@ -266,7 +266,7 @@ Controls are compact and plain: a hairline box, the system face, one accent.
 ### Navigation
 - **Command bar:** chrome fill, hairline under it; panel toggle, the Echo mark and wordmark, the recording name after a hairline, paging, the scale settings, Annotate, Run, then the Local note and icon-only theme and About buttons at the far right.
 - **Recording tabs:** 32 px strip on chrome, short hairlines between tabs; the selected tab is ground with a cobalt top edge and joins the canvas.
-- **Library rail:** sections Recent, Folder (a filterable folder tree), OpenNeuro and History, each under a small-caps heading with its count at the right. The current entry is washed in `primary-wash`; metadata lines are muted 12 px fields split by a 10 px hairline.
+- **Library rail:** Open files (primary) and Open folder at the top, with the workspace's own action under them once a tab is open: a quiet Export project, whose popover states what the project holds and its size above a primary Save project. Then sections Recent, Folder (a filterable folder tree), OpenNeuro and History, each under a small-caps heading with its count at the right. The current entry is washed in `primary-wash`; metadata lines are muted 12 px fields split by a 10 px hairline.
 - **Inspector:** channel groups as swatch, small-caps acronym and count; DDA settings; the annotation list; a run bar that states windows, blocks and workers above the full-width primary Run DDA.
 
 ### Locator Strip (signature)
@@ -276,7 +276,7 @@ The overview draws the whole recording with events in red; an ink outline (1.5 p
 A band at the waveform's lower left prints an L-shaped bar with its amplitude and time lengths, then sensitivity, timebase and view as labeled fields split by hairlines.
 
 ### Installed App
-DDALAB installs from the browser's menu into a standalone window whose title bar takes the `chrome` gray of the system theme; its icon is the Echo mark on chrome, with a maskable version that keeps the mark inside the safe circle. The app opens offline from a service worker's cache of the whole build. A new build announces itself in the notice strip at the foot of the window (chrome fill, hairline above, centered ink text and a quiet Reload); during a run it says the update waits, and Reload then reloads when the run ends. Recordings open from Finder and Explorer through Open With (.edf, .bdf, .vhdr, .csv, .tsv and .txt). Exports open the browser's Save dialog where it has one and go to the downloads elsewhere. About carries a one-line install hint.
+DDALAB installs from the browser's menu into a standalone window whose title bar takes the `chrome` gray of the system theme; its icon is the Echo mark on chrome, with a maskable version that keeps the mark inside the safe circle. The app opens offline from a service worker's cache of the whole build. A new build announces itself in the notice strip at the foot of the window (chrome fill, hairline above, centered ink text and a quiet Reload); during a run it says the update waits, and Reload then reloads when the run ends. Recordings open from Finder and Explorer through Open With (.edf, .bdf, .vhdr, .csv, .tsv and .txt), and so do projects (.ddalab). Exports open the browser's Save dialog where it has one and go to the downloads elsewhere. About carries a one-line install hint.
 
 ### Heatmap Color Bar
 The result header names the variant and its window count, then a labeled color bar with its numeric limits; signed arrays use symmetric limits about zero.
