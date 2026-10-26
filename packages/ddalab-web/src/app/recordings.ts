@@ -75,15 +75,22 @@ function releaser(opened: { id: string; duplicate?: boolean }) {
 
 /**
  * Opens an input as the UI opens files: an OpenNeuro recording, or a synthetic one in dev and e2e builds. With
- * `expect`, another recording than the one of that fingerprint is refused.
+ * `expect`, another recording than the one of that fingerprint is refused. Stopped (`signal`) before it shows, it
+ * closes what it opened and throws.
  */
 export async function openInput(
   input: RecordingInput,
-  options: { expect?: string; activate?: boolean } = {},
+  options: { expect?: string; activate?: boolean; signal?: AbortSignal } = {},
 ) {
   const opened = await engine.open(input);
-  const refused = unexpected(opened, "primary" in input ? input.primary : "The recording", options.expect);
+  const release = releaser(opened);
+  const name = "primary" in input ? input.primary : "The recording";
+  const refused = unexpected(opened, name, options.expect, release);
   if (refused) throw new Error(refused);
+  if (options.signal?.aborted) {
+    release();
+    throw new Error("The check was stopped");
+  }
   adopt(opened, input.kind, input.kind === "url" ? { kind: "url", input } : null, options.activate);
   return opened.id;
 }

@@ -1,22 +1,22 @@
 // The tabs over the central canvas: one per open recording, in the order opened, each keeping its own view
 // (store/tabs.ts). A click, Alt+1 to Alt+9, Alt+[ and Alt+], the arrow keys in the strip or the quick switcher (Alt+K)
 // change tabs; a drag, Alt+Shift+[ and Alt+Shift+] or the switcher's Move buttons reorder them; the close button, a
-// middle click or Delete closes one. A detached tab, whose files the browser cannot read since the last visit, shows a
-// note in the canvas with Reattach (app/tabs.ts).
+// middle click, Delete or Backspace closes one. A detached tab, whose files the browser cannot read since the last
+// visit, shows a note in the canvas with Reattach (app/tabs.ts).
 import { Tooltip } from "@base-ui/react/tooltip";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down.mjs";
-import ChevronLeft from "lucide-react/dist/esm/icons/chevron-left.mjs";
-import ChevronRight from "lucide-react/dist/esm/icons/chevron-right.mjs";
 import Link2 from "lucide-react/dist/esm/icons/link-2.mjs";
 import Link2Off from "lucide-react/dist/esm/icons/link-2-off.mjs";
 import X from "lucide-react/dist/esm/icons/x.mjs";
 import {
   type ChangeEvent,
   type KeyboardEvent,
+  lazy,
   type PointerEvent,
   type ReactElement,
   type ReactNode,
   type RefObject,
+  Suspense,
   useEffect,
   useEffectEvent,
   useRef,
@@ -27,7 +27,6 @@ import { canPickFolder, pickFolder } from "../../app/handles";
 import { canPickFiles, pickFiles } from "../../app/recordings";
 import {
   attachUrl,
-  closeAll,
   closeTab,
   detachedTabs,
   pickerFor,
@@ -41,6 +40,8 @@ import controls from "../../styles/controls.module.css";
 import { ALT, KEYS, LINUX_NOTE } from "./keys";
 import styles from "./TabStrip.module.css";
 
+const Switcher = lazy(() => import("./Switcher"));
+
 const PANEL = "recording-panel";
 const tabId = (fingerprint: string) => `tab-${fingerprint}`;
 const HINT = `All tabs (${ALT}+K). ${KEYS} ${LINUX_NOTE}`.trim();
@@ -51,7 +52,7 @@ const TEXT_FIELDS =
 const inputs: Record<"folder" | "files", HTMLInputElement | null> = { folder: null, files: null };
 /** The live regions that say where a moved tab is: the strip's, and the switcher's while the rest is inert. */
 const announcers = new Set<HTMLElement>();
-const announcer = (element: HTMLElement | null) => {
+export const announcer = (element: HTMLElement | null) => {
   for (const kept of announcers) if (!kept.isConnected) announcers.delete(kept);
   if (element) announcers.add(element);
 };
@@ -59,7 +60,7 @@ const announcer = (element: HTMLElement | null) => {
 let target: string | null = null;
 
 /** Moves the tab of `fingerprint` one place left (-1) or right (1) and says where it is now. */
-function moveBy(fingerprint: string | null, by: -1 | 1) {
+export function moveBy(fingerprint: string | null, by: -1 | 1) {
   const { tabs } = useStore.getState();
   const from = tabs.findIndex((t) => t.fingerprint === fingerprint);
   const to = from + by;
@@ -99,7 +100,7 @@ function reattach(tab: Tab, kind?: "folder" | "files", supersede = false): Promi
 }
 
 /** Which tabs are attached and which one runs, by fingerprint. */
-function useAttached() {
+export function useAttached() {
   const open = useStore(useShallow((s) => Object.values(s.recordings).map((r) => r.fingerprint)));
   const running = useStore((s) =>
     s.run?.status === "running" ? s.recordings[s.run.recordingId]?.fingerprint : undefined,
@@ -137,7 +138,8 @@ export function TabStrip() {
     const n = buttons.length;
     const to = { ArrowLeft: (at - 1 + n) % n, ArrowRight: (at + 1) % n, Home: 0, End: n - 1 }[event.key];
     if (to !== undefined) buttons[to].focus();
-    else if (event.key === "Delete") {
+    // Backspace too: a Mac keyboard's delete key sends it.
+    else if (event.key === "Delete" || event.key === "Backspace") {
       closeTab(tabs[at].fingerprint);
       focusSelected();
     } else return;
@@ -190,7 +192,7 @@ export function TabStrip() {
                 id={tabId(fingerprint)}
                 aria-selected={selected}
                 aria-controls={PANEL}
-                aria-keyshortcuts="Delete"
+                aria-keyshortcuts="Delete Backspace"
                 tabIndex={selected || (active === null && i === 0) ? 0 : -1}
                 className={styles.select}
                 title={tab.name}
@@ -208,7 +210,7 @@ export function TabStrip() {
                   {runs && <span className={styles.running} title="Run in progress" />}
                 </span>
               </button>
-              {/* The mouse's way to close; the keyboard's is Delete on the tab. */}
+              {/* The mouse's way to close; the keyboard's is Delete or Backspace on the tab. */}
               <button
                 type="button"
                 tabIndex={-1}
@@ -273,7 +275,11 @@ export function TabStrip() {
         onChange={picked}
         {...{ webkitdirectory: "" }}
       />
-      {switching && <Switcher onClose={() => setSwitching(false)} />}
+      {switching && (
+        <Suspense fallback={null}>
+          <Switcher onClose={() => setSwitching(false)} />
+        </Suspense>
+      )}
     </div>
   );
 }
@@ -314,14 +320,27 @@ export function DetachedNote({ fingerprint, brief }: { fingerprint: string; brie
   const reason = useStore((s) => s.tabReasons[fingerprint]);
   const others = useStore((s) => detachedTabs(s).length) - 1;
   const prompts = usePromptsLeft(tab);
-  const note = useRef<HTMLDivElement>(null);
   const retry = useRef<HTMLButtonElement>(null);
-  const verifying = tab?.verifying;
+  const again = useRef<HTMLButtonElement>(null);
+  // A Reattach or Retry the user pressed: its button gives way to the other, and only then the focus follows.
+  const pressed = useRef(false);
+  const verifying = Boolean(tab?.verifying);
+  const before = useRef(verifying);
   useEffect(() => {
-    // The pressed Reattach gives way to Retry: the focus follows it instead of falling to the page.
-    const focused = document.activeElement;
-    if (verifying && (focused === document.body || note.current?.contains(focused))) retry.current?.focus();
+    const swapped = before.current !== verifying;
+    before.current = verifying;
+    const dropped = document.activeElement === document.body || document.activeElement === null;
+    if (!swapped || !dropped) return;
+    // A check on page load, which nobody pressed for, moves no focus to Retry; Reattach coming back takes a focus
+    // that vanished with Retry.
+    if (verifying && pressed.current) retry.current?.focus();
+    else if (!verifying) again.current?.focus();
+    pressed.current = false;
   }, [verifying]);
+  const press = (attempt: Promise<unknown> | undefined) => {
+    pressed.current = true;
+    prompts.after(attempt);
+  };
   if (!tab) return null;
   const asks = hasHandles(tab.source);
   const picker = pickerFor(tab);
@@ -344,10 +363,11 @@ export function DetachedNote({ fingerprint, brief }: { fingerprint: string; brie
     others > 0 && `${others} other ${others === 1 ? "recording is" : "recordings are"} detached`,
   ].filter(Boolean);
   return (
-    <div ref={note} className={brief ? styles.line : styles.note} data-appear>
+    <div className={brief ? styles.line : styles.note} data-appear>
       <p>{what}</p>
+      {/* A polite region from the start, at no height while it is empty. */}
       {!brief && (
-        <p className={styles.more} aria-live="polite">
+        <p className={styles.more} aria-live="polite" data-empty={left.length === 0 || undefined}>
           {left.join(". ")}
         </p>
       )}
@@ -363,13 +383,18 @@ export function DetachedNote({ fingerprint, brief }: { fingerprint: string; brie
             ref={retry}
             type="button"
             className={controls.button}
-            onClick={() => prompts.after(reattach(tab, undefined, true))}
+            onClick={() => press(reattach(tab, undefined, true))}
           >
             Retry
           </button>
         ) : (
           <>
-            <button type="button" className={controls.primary} onClick={() => prompts.after(reattach(tab))}>
+            <button
+              ref={again}
+              type="button"
+              className={controls.primary}
+              onClick={() => press(reattach(tab))}
+            >
               <Link2 aria-hidden />
               Reattach
             </button>
@@ -489,122 +514,4 @@ function useReorder(list: RefObject<HTMLDivElement | null>) {
     };
   }, [list]);
   return dragging;
-}
-
-/**
- * The quick switcher and the menu of all tabs: every tab, filtered as the user types, each with Move left and Move
- * right. Enter in the field switches to the first match; Down moves into the list; Escape closes.
- */
-function Switcher({ onClose }: { onClose(): void }) {
-  const dialog = useRef<HTMLDialogElement>(null);
-  const rows = useRef<HTMLUListElement>(null);
-  const tabs = useStore((s) => s.tabs);
-  const active = useStore((s) => s.activeTab);
-  const { open, running } = useAttached();
-  const [query, setQuery] = useState("");
-  useEffect(() => {
-    const element = dialog.current;
-    if (element && !element.open) element.showModal();
-  }, []);
-  const needle = query.trim().toLowerCase();
-  const shown = tabs.filter((t) => t.name.toLowerCase().includes(needle));
-  const choose = (fingerprint?: string) => {
-    dialog.current?.close();
-    if (fingerprint) selectTab(fingerprint);
-  };
-  /** Moves the focus `by` rows from the row holding the focus; from the field, Down goes to the first row. */
-  const focusRow = (by: number) => {
-    const buttons = Array.from(rows.current?.querySelectorAll<HTMLElement>("[data-choose]") ?? []);
-    const at = buttons.findIndex((button) => button.closest("li")?.contains(document.activeElement));
-    if (at < 0 && by > 0) return buttons[0]?.focus();
-    if (at + by < 0) return dialog.current?.querySelector<HTMLElement>("input")?.focus();
-    buttons[Math.min(buttons.length - 1, at + by)]?.focus();
-  };
-  const onKey = (event: KeyboardEvent<HTMLElement>) => {
-    if (event.key === "ArrowDown") focusRow(1);
-    else if (event.key === "ArrowUp") focusRow(-1);
-    else if (event.key === "Enter" && event.target instanceof HTMLInputElement) choose(shown[0]?.fingerprint);
-    else return;
-    event.preventDefault();
-  };
-  return (
-    <dialog
-      ref={dialog}
-      className={styles.switcher}
-      data-appear
-      aria-label="Switch recording"
-      data-own-keys
-      onClose={onClose}
-      onKeyDown={onKey}
-      onClick={(event) => event.target === dialog.current && choose()}
-    >
-      <input
-        type="search"
-        className={styles.find}
-        aria-label="Find an open recording"
-        placeholder="Switch to a recording"
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-      />
-      <ul ref={rows} aria-label="Matching recordings" className={styles.options}>
-        {shown.map((tab) => {
-          const i = tabs.indexOf(tab);
-          const state = !open.includes(tab.fingerprint)
-            ? "Detached"
-            : running === tab.fingerprint
-              ? "Running"
-              : "";
-          return (
-            <li key={tab.fingerprint} className={styles.option}>
-              <button
-                type="button"
-                className={styles.choose}
-                aria-current={tab.fingerprint === active || undefined}
-                data-choose
-                onClick={() => choose(tab.fingerprint)}
-              >
-                <span className={styles.optionName}>{tab.name}</span>
-                {state && <span className={styles.optionState}>{state}</span>}
-              </button>
-              <button
-                type="button"
-                className={controls.iconButton}
-                aria-label={`Move ${tab.name} left`}
-                data-move
-                disabled={i === 0}
-                onClick={() => moveBy(tab.fingerprint, -1)}
-              >
-                <ChevronLeft aria-hidden />
-              </button>
-              <button
-                type="button"
-                className={controls.iconButton}
-                aria-label={`Move ${tab.name} right`}
-                data-move
-                disabled={i === tabs.length - 1}
-                onClick={() => moveBy(tab.fingerprint, 1)}
-              >
-                <ChevronRight aria-hidden />
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-      {shown.length === 0 && <p className={styles.none}>No open recording matches.</p>}
-      <p ref={announcer} className={styles.spoken} aria-live="polite" />
-      <div className={styles.foot}>
-        <span>{KEYS}</span>
-        <button
-          type="button"
-          className={controls.quiet}
-          onClick={() => {
-            choose();
-            closeAll();
-          }}
-        >
-          Close all
-        </button>
-      </div>
-    </dialog>
-  );
 }

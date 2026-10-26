@@ -186,9 +186,10 @@ test("reorder_by_drag_and_close", async ({ page }) => {
   await tabs(page).nth(0).click({ button: "middle" });
   await expect(tabs(page)).toHaveText(["fixture.vhdr", "fixture.edf"]);
   await expect(page.getByRole("button", { name: "Forget fixture.bdf" })).toBeVisible();
-  // Delete closes the focused tab, and the next one becomes active.
+  // Delete or Backspace (a Mac's delete key) closes the focused tab, and the next one becomes active.
   await tabs(page).nth(0).click();
-  await page.keyboard.press("Delete");
+  await expect(tabs(page).nth(0)).toHaveAttribute("aria-keyshortcuts", "Delete Backspace");
+  await page.keyboard.press("Backspace");
   await expect(tabs(page)).toHaveText(["fixture.edf"]);
   await expect(tabs(page).nth(0)).toHaveAttribute("aria-selected", "true");
   await expect(heading(page, "fixture.edf")).toBeVisible();
@@ -291,6 +292,16 @@ test("url_tabs_reattach_without_a_prompt", async ({ page }) => {
     await expect(tabs(page)).toHaveText(["remote.edf", "fixture.bdf, detached"]);
     await expect(heading(page, "remote.edf")).toBeVisible();
     await expect(page.getByRole("list", { name: "Channels" }).getByRole("listitem")).toHaveCount(2);
+
+    // Closed while its open is on the way, the URL tab stays closed: the open closes what it brought back.
+    await flush(page);
+    await slowOpens(page);
+    await page.reload();
+    await expect.poll(async () => (await posted(page)).opens).toBe(1);
+    await page.getByTitle("Close remote.edf").click({ force: true });
+    await expect.poll(async () => (await posted(page)).closed.length, { timeout: 10_000 }).toBe(1);
+    await expect(tabs(page)).toHaveText(["fixture.bdf, detached"]);
+    expect(await page.evaluate(() => Object.keys(window.__ddalab.store.getState().recordings))).toEqual([]);
   } finally {
     server.close();
   }
