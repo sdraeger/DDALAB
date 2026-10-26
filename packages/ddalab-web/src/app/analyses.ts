@@ -69,7 +69,7 @@ export async function sweepAnalyses() {
  * too, as Firefox stops the workers of a reloading page before `pagehide`. A page restored from the back-forward
  * cache is back.
  */
-let leaving = false;
+export let leaving = false;
 for (const type of ["beforeunload", "pagehide", "pageshow"]) {
   addEventListener(type, () => {
     leaving = type !== "pageshow";

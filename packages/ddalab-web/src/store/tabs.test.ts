@@ -43,11 +43,11 @@ test("version_2_database_upgrades_with_its_recent_list", async () => {
     { fingerprint: "f", primary: "a.edf", names: ["a.edf"], lastOpened: 1 },
   ]);
   const stores = [...(await database()).objectStoreNames].sort();
-  expect(stores).toEqual(["analyses", "annotations", "recent", "tabs"]);
+  expect(stores).toEqual(["analyses", "annotations", "batches", "recent", "tabs"]);
 });
 
 // Two branches each took version 3 for one store: a browser can sit at version 3 with either, and version 4 adds the
-// missing one and keeps the other's records.
+// missing one and keeps the other's records (version 5 adds the batches).
 test.each([
   ["annotations", { fingerprint: "f", annotations: [] }, "f"],
   ["tabs", { tabs: [], active: null }, "open"],
@@ -65,7 +65,7 @@ test.each([
   await (store === "annotations" ? old.put(store, record) : old.put(store, record, key));
   old.close();
   const db = await database();
-  expect([...db.objectStoreNames].sort()).toEqual(["analyses", "annotations", "recent", "tabs"]);
+  expect([...db.objectStoreNames].sort()).toEqual(["analyses", "annotations", "batches", "recent", "tabs"]);
   expect(await db.get(store, key)).toEqual(record);
 });
 
