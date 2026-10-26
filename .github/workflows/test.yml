@@ -24,7 +24,8 @@ jobs:
         with:
           workspaces: "./packages/dda-rs -> target"
 
+      # Release profile: blocks_equal_single_run alone takes 17 minutes unoptimized.
       - name: Run dda-rs tests
         run: |
-          cargo test --locked --manifest-path packages/dda-rs/Cargo.toml
-          cargo test --locked --features cuda --manifest-path packages/dda-rs/Cargo.toml
+          cargo test --release --locked --manifest-path packages/dda-rs/Cargo.toml
+          cargo test --release --locked --features cuda --manifest-path packages/dda-rs/Cargo.toml
