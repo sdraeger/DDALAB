@@ -3,7 +3,7 @@
 // - Apache with public/.htaccess (the userdir site; the default): each must carry what public/.htaccess sets: the file's
 //   Content-Type, exactly one Cache-Control of the policy, no Expires and the Content-Security-Policy header. A host that
 //   ignores the .htaccess, or adds defaults of its own, fails here.
-// - --pages (GitHub Pages; npm run check:pages): Pages sends its own headers and ignores the .htaccess, so the header
+// - --pages (GitHub Pages; npm run check:pages): Pages sends its own headers and ignores the .htaccess. The header
 //   checks are skipped: Cache-Control, Expires and the Content-Security-Policy header. Each file must carry its
 //   Content-Type (application/wasm for the module), and index.html must carry the <meta> Content-Security-Policy of
 //   public/.htaccess.

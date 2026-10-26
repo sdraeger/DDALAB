@@ -47,7 +47,7 @@ test("baking_writes_the_list_into_the_worker", () => {
   const baked = readFileSync(join(dir, "sw.js"), "utf8");
   const line = baked.split("\n").find((l) => l.startsWith("const BUILD = "));
   expect(JSON.parse(line.slice("const BUILD = ".length, -1))).toEqual(precacheOf(dir));
-  // The worker is not in its own list, so baking again changes nothing.
+  // The worker is not in its own list: baking again changes nothing.
   bakeServiceWorker(dir);
   expect(readFileSync(join(dir, "sw.js"), "utf8")).toBe(baked);
 });

@@ -35,7 +35,7 @@ export interface Attempt {
 }
 
 /**
- * Opens the launched `handles` as a picked file opens: their handles go to the tab, so the recording reattaches on the
+ * Opens the launched `handles` as a picked file opens: their handles go to the tab and the recording reattaches on the
  * next visit. A header that arrives without its companions (a .vhdr alone) is looked for in the folders the app may
  * read already, `roots`: the first that holds the file gives its folder's files. With none, the outcome is the core's
  * message, which offers to choose the folder.

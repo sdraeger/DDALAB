@@ -94,7 +94,7 @@ test.each([
   ["a_listed_wasm_module", { url: `${SCOPE}assets/engine.wasm` }, `cached ${SCOPE}assets/engine.wasm`],
   ["the_manifest", { url: `${SCOPE}manifest.webmanifest` }, `cached ${SCOPE}manifest.webmanifest`],
   ["a_page_of_the_site_outside_the_app", { url: `${SCOPE}docs/`, mode: "navigate" }, "passed"],
-  // A file of the scope that is not in the build: no older cache holds it, so the network answers.
+  // A file of the scope that is not in the build and in no older cache: the network answers.
   ["an_unlisted_file", { url: `${SCOPE}assets/other.js` }, `network ${SCOPE}assets/other.js`],
   ["the_worker_itself", { url: `${SCOPE}sw.js` }, `network ${SCOPE}sw.js`],
   ["openneuro", { url: "https://openneuro.org/crn/graphql" }, "passed"],

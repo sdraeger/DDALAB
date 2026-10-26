@@ -1,5 +1,5 @@
 // public/manifest.webmanifest: the fields an installable app needs, icons that exist at their sizes, and file handlers
-// for the formats the app reads. The browser reads none of this at build time, so a slip shows only in an install.
+// for the formats the app reads. Nothing reads the manifest at build time: a slip shows only in an install.
 import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 import { RANK } from "../src/core/sources";
