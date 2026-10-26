@@ -5,6 +5,7 @@ import { engine } from "../../app/recordings";
 import { EngineStopped } from "../../core/engine";
 import { tileCount, tileRows } from "../../core/opfs";
 import type { ScanState } from "../../core/protocol";
+import { observeDevicePixels, type PlotSize } from "../../render/devicePixels";
 import { paramsOf } from "../../render/display";
 import { drawOverview, envelope, overviewLevel } from "../../render/overviewLayer";
 import { readColors, watchTheme } from "../../render/themeColors";
@@ -45,7 +46,7 @@ export function Overview({ recordingId }: { recordingId: string }) {
     /** Why each tile was last asked for; a tile asked for before the scan reached it is asked again after. */
     const asked = new Map<number, "scanned" | "idle" | "failed">();
     const pending = new Set<number>();
-    let size = { cssW: 0, W: 0, H: 0, dpr: 1 };
+    let size: PlotSize = { cssW: 0, cssH: 0, dpr: 1, W: 0, H: 0 };
     let raf = 0;
     let colors = readColors(stripEl);
     /** What the canvas last showed: it is redrawn when that changes, not on every move of the view. */
@@ -132,23 +133,20 @@ export function Overview({ recordingId }: { recordingId: string }) {
       tabEl.style.transform = `translateX(${Math.min(size.cssW - left - tabW, Math.max(-left, centered))}px)`;
     };
 
-    const resize = new ResizeObserver(([entry]) => {
-      const dpr = window.devicePixelRatio || 1;
-      const { width, height } = entry.contentRect;
-      size = { cssW: width, W: Math.round(width * dpr), H: Math.round(height * dpr), dpr };
+    const stopResize = observeDevicePixels(canvasEl, (next) => {
+      size = next;
       canvasEl.width = size.W;
       canvasEl.height = size.H;
       paint();
     });
-    resize.observe(canvasEl);
     const unsubscribe = useStore.subscribe(schedule);
     const unwatch = watchTheme(() => {
       colors = readColors(stripEl);
       schedule();
     });
 
-    // Pointing at the strip centres the view there; dragging moves it along.
-    const centre = (clientX: number) => {
+    // Pointing at the strip centers the view there; dragging moves it along.
+    const center = (clientX: number) => {
       const box = canvasEl.getBoundingClientRect();
       const at = ((clientX - box.left) / box.width) * span;
       setView((v) => ({ t0: at - (v.t1 - v.t0) / 2, t1: at + (v.t1 - v.t0) / 2 }));
@@ -158,10 +156,10 @@ export function Overview({ recordingId }: { recordingId: string }) {
       if (event.button !== 0) return;
       dragging = true;
       stripEl.setPointerCapture(event.pointerId);
-      centre(event.clientX);
+      center(event.clientX);
     };
     const move = (event: PointerEvent) => {
-      if (dragging) centre(event.clientX);
+      if (dragging) center(event.clientX);
     };
     const up = () => {
       dragging = false;
@@ -173,7 +171,7 @@ export function Overview({ recordingId }: { recordingId: string }) {
 
     return () => {
       cancelAnimationFrame(raf);
-      resize.disconnect();
+      stopResize();
       unsubscribe();
       unwatch();
       stripEl.removeEventListener("pointerdown", down);

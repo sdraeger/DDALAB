@@ -3,15 +3,8 @@
 import FilePlus from "lucide-react/dist/esm/icons/file-plus.mjs";
 import FolderOpen from "lucide-react/dist/esm/icons/folder-open.mjs";
 import { type ChangeEvent, lazy, Suspense, use, useEffect, useEffectEvent, useRef, useState } from "react";
-import {
-  canPickFiles,
-  engine,
-  forget,
-  type Outcome,
-  openFiles,
-  pickFiles,
-  reopen,
-} from "../../app/recordings";
+import { engineVersion } from "../../app/analyses";
+import { canPickFiles, forget, type Outcome, openFiles, pickFiles, reopen } from "../../app/recordings";
 import { droppedFiles } from "../../core/sources";
 import type { RecentEntry } from "../../store/recent";
 import { activateRecording, useStore } from "../../store/store";
@@ -31,7 +24,7 @@ function OpenNeuroMissing() {
 }
 const HistoryRail = lazy(() => import("../history/HistoryRail"));
 
-const version = engine.version().then(
+const version = engineVersion.then(
   (v) => v.engine_version,
   (error: Error) => `failed: ${error.message}`,
 );

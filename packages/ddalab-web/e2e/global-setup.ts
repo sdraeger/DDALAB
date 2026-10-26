@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { readSynthetic, syntheticEdfSize } from "../src/core/synthetic";
 
 const DDA_RS = fileURLToPath(new URL("../../dda-rs", import.meta.url));
-const CLI = join(DDA_RS, "target/release/ddalab");
+export const CLI = join(DDA_RS, "target/release/ddalab");
 const VHDR = join(DDA_RS, "tests/fixtures/fixture.vhdr");
 
 /** 64 channels: all of them over 0 to 30 s plan five blocks at the browser's 1 MiB floor with eight workers. */

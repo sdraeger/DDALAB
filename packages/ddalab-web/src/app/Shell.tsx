@@ -8,6 +8,7 @@ import ChevronFirst from "lucide-react/dist/esm/icons/chevron-first.mjs";
 import ChevronLast from "lucide-react/dist/esm/icons/chevron-last.mjs";
 import ChevronLeft from "lucide-react/dist/esm/icons/chevron-left.mjs";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right.mjs";
+import Info from "lucide-react/dist/esm/icons/info.mjs";
 import Moon from "lucide-react/dist/esm/icons/moon.mjs";
 import PanelLeft from "lucide-react/dist/esm/icons/panel-left.mjs";
 import PanelRight from "lucide-react/dist/esm/icons/panel-right.mjs";
@@ -54,7 +55,10 @@ import { Logo } from "./Logo";
 import styles from "./Shell.module.css";
 import { inTransition } from "./viewTransition";
 
-const Calibration = lazy(() => import("../features/settings/Calibration"));
+const loadCalibration = () => import("../features/settings/Calibration");
+const Calibration = lazy(loadCalibration);
+const loadAbout = () => import("../features/settings/About");
+const About = lazy(loadAbout);
 const ResultPanel = lazy(() => import("../features/results/ResultPanel"));
 
 const TIMEBASES = [10, 15, 20, 30, 60, 120];
@@ -91,7 +95,7 @@ export function Shell() {
           </IconButton>
           <span className={styles.brand}>
             <Logo />
-            <span className={styles.wordmark}>DDALAB</span>
+            <h1 className={styles.wordmark}>DDALAB</h1>
           </span>
           <RecordingName />
           <span className={styles.grow} />
@@ -102,7 +106,9 @@ export function Shell() {
               <RunButton recordingId={id} status={!inspector} />
             </Suspense>
           )}
-          <DisplaySettings />
+          <PanelButton label="Display calibration" icon={<Ruler aria-hidden />} preload={loadCalibration}>
+            <Calibration />
+          </PanelButton>
           <IconButton
             label="Inspector"
             aria-pressed={inspector}
@@ -112,6 +118,9 @@ export function Shell() {
           </IconButton>
           <LocalData />
           <ThemeToggle />
+          <PanelButton label="About DDALAB" icon={<Info aria-hidden />} preload={loadAbout}>
+            <About />
+          </PanelButton>
         </header>
         <aside className={styles.library} aria-label="Library">
           <LibraryRail />
@@ -349,18 +358,24 @@ function Choice(props: {
   );
 }
 
-function DisplaySettings() {
+/** An icon button of the command bar that opens a panel; the panel's chunk loads on pointer or focus. */
+function PanelButton(props: {
+  label: string;
+  icon: ReactElement;
+  preload: () => Promise<unknown>;
+  children: ReactElement;
+}) {
+  // A chunk that fails to preload stays quiet: opening the panel loads it again and reports a failure.
+  const preload = () => void props.preload().catch(() => {});
   return (
     <Popover.Root>
-      <IconButton label="Display calibration" render={<Popover.Trigger />}>
-        <Ruler aria-hidden />
+      <IconButton label={props.label} render={<Popover.Trigger />} onPointerEnter={preload} onFocus={preload}>
+        {props.icon}
       </IconButton>
       <Popover.Portal>
         <Popover.Positioner sideOffset={6} align="end">
           <Popover.Popup className={controls.panel}>
-            <Suspense fallback={null}>
-              <Calibration />
-            </Suspense>
+            <Suspense fallback={null}>{props.children}</Suspense>
           </Popover.Popup>
         </Popover.Positioner>
       </Popover.Portal>

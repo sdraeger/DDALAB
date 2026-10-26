@@ -1,6 +1,6 @@
 // Fails the build when dist holds what only dev and e2e builds may have: the `__ddalab` test hook, the IO worker's
 // trap and quota hooks, the workers' wasm memory hook, the synthetic recording generator, or a wasm module other than
-// the engine's own .wasm asset.
+// the engine's own .wasm asset. It fails too when no script keeps the color maps' MIT notice as a legal comment.
 // Usage: node scripts/check-dist.mjs [dist directory]
 import { readdirSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
@@ -24,15 +24,19 @@ const FORBIDDEN = [
   ["wasm bytes in code", /\\0asm|\\x00asm|AGFzbQEAAAA/],
 ];
 
+/** The notice of src/render/colormaps.ts, which the build keeps as a legal comment. */
+const NOTICE = /\/\*!(?:(?!\*\/)[\s\S])*Copyright \(c\) 2020 Fabio Crameri/;
+
 function files(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
     entry.isDirectory() ? files(join(dir, entry.name)) : [join(dir, entry.name)],
   );
 }
 
-/** One line per forbidden thing found in `dir`; empty when it is clean. */
+/** One line per forbidden thing found in `dir`, and one when the notice is missing; empty when it is clean. */
 export function findLeaks(dir) {
   const found = [];
+  let notice = false;
   for (const path of files(dir)) {
     const bytes = readFileSync(path);
     if (path.endsWith(".wasm")) {
@@ -42,11 +46,13 @@ export function findLeaks(dir) {
     }
     if (bytes.includes(MAGIC)) found.push(`${path}: wasm bytes outside a .wasm asset`);
     const text = bytes.toString("latin1");
+    notice ||= path.endsWith(".js") && NOTICE.test(text);
     for (const [label, pattern] of FORBIDDEN) {
       if (typeof pattern === "string" ? text.includes(pattern) : pattern.test(text))
         found.push(`${path}: ${label}`);
     }
   }
+  if (!notice) found.push(`${dir}: no script keeps the color maps' MIT notice (src/render/colormaps.ts)`);
   return found;
 }
 
@@ -55,5 +61,5 @@ if (realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url
   const found = findLeaks(dir);
   for (const line of found) console.error(line);
   if (found.length > 0) process.exit(1);
-  console.log(`${dir} holds no test hooks`);
+  console.log(`${dir} holds no test hooks and keeps the color maps' notice`);
 }

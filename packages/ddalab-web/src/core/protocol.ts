@@ -93,7 +93,8 @@ export interface IoResults {
   raw: Float32Array;
   /** `null` while the scan has not reached the tile and reading it from the file would take too long. */
   tile: Tile | null;
-  plan: Plan;
+  /** With the block budget it was made with, in MiB. */
+  plan: Plan & { budgetMb: number };
   createResult: undefined;
   writeChunks: undefined;
   finishResult: undefined;
@@ -160,7 +161,9 @@ export type DdaRequest =
   | { input: RecordingInput; request: DDARequest; extras: ManifestExtras };
 
 /** A DDA worker has one request at a time. `trapped`: the wasm instance trapped and is unusable. */
-export type DdaReply = { ok: BlockChunks | ResultDocument } | { error: string; trapped: boolean };
+export type DdaReply =
+  /** `wasmBytes`: the instance's memory after a block, in dev and e2e builds. */
+  { ok: BlockChunks | ResultDocument; wasmBytes?: number } | { error: string; trapped: boolean };
 
 export type AnnotationsReply =
   | { n: number; ok: Annotations }

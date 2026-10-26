@@ -70,10 +70,13 @@ export interface Engine {
   /** Calls `listener` with the current scan state at once and with every change after. */
   onScan(id: string, listener: (state: ScanState) => void): () => void;
   /**
-   * What a run of `request` takes: its windows, its blocks and the workers it runs on. Rejects with the core's
-   * message when the core refuses the request.
+   * What a run of `request` takes: its windows, its blocks, the workers it runs on and the block budget in MiB.
+   * Rejects with the core's message when the core refuses the request.
    */
-  plan(id: string, request: DDARequest): Promise<{ windows: number; blocks: number; workers: number }>;
+  plan(
+    id: string,
+    request: DDARequest,
+  ): Promise<{ windows: number; blocks: number; workers: number; budgetMb: number }>;
   /**
    * Runs `request` on a pool of DDA workers; each block's arrays are written to OPFS as it finishes (resultStore.ts).
    * `done` resolves once the manifest is written and the result is complete; a failed or cancelled run leaves no
@@ -105,7 +108,9 @@ export interface Engine {
 }
 
 /** What dev and e2e builds add for tests. */
-export type DevEngine = Engine & {
+export type DevEngine = Omit<Engine, "run"> & {
+  /** A run whose handle also sums the wasm memory its DDA workers last reported, in bytes. */
+  run(id: string, request: DDARequest): Promise<AnalysisHandle & { wasmBytes(): number }>;
   trap(): Promise<void>;
   quota(bytes: number): Promise<void>;
   /** Bytes of wasm memory of each running worker. */
@@ -139,6 +144,8 @@ function ddaPool(input: RecordingInput, request: DDARequest) {
   const idle: Worker[] = [];
   const asked = new Map<Worker, (error: Error) => void>();
   let stopped = false;
+  /** The wasm memory each worker last reported, in bytes (dev and e2e builds). */
+  const memory = new Map<Worker, number>();
   const drop = (worker: Worker) => {
     worker.terminate();
     asked.delete(worker);
@@ -153,7 +160,11 @@ function ddaPool(input: RecordingInput, request: DDARequest) {
         if ("error" in data) {
           reject(new Error(data.error));
           if (data.trapped) return drop(worker);
-        } else resolve(data.ok as T);
+        } else {
+          if ((import.meta.env.DEV || import.meta.env.MODE === "e2e") && data.wasmBytes !== undefined)
+            memory.set(worker, data.wasmBytes);
+          resolve(data.ok as T);
+        }
         asked.delete(worker);
         idle.push(worker);
       };
@@ -164,6 +175,7 @@ function ddaPool(input: RecordingInput, request: DDARequest) {
       worker.postMessage({ input, request, ...task } satisfies DdaRequest);
     });
   return {
+    memory,
     block: (block: Block) => ask<BlockChunks>({ block }),
     manifest: (extras: ManifestExtras) => ask<ResultDocument>({ extras }),
     stop() {
@@ -488,7 +500,7 @@ export function createEngine(): Engine {
       const { input, info } = opened(id);
       const workers = poolSize(input, info);
       const plan = await call({ type: "plan", id, request, workers });
-      return { windows: plan.windows, blocks: plan.blocks.length, workers };
+      return { windows: plan.windows, blocks: plan.blocks.length, workers, budgetMb: plan.budgetMb };
     },
     async run(id, request) {
       const { input, info } = opened(id);
@@ -531,7 +543,7 @@ export function createEngine(): Engine {
           throw error;
         })
         .finally(() => pool.stop());
-      return {
+      const handle = {
         ...scheduled,
         done,
         cancel() {
@@ -540,6 +552,9 @@ export function createEngine(): Engine {
           cancelling.abort(cancelled());
         },
       };
+      return import.meta.env.DEV || import.meta.env.MODE === "e2e"
+        ? Object.assign(handle, { wasmBytes: () => [...pool.memory.values()].reduce((a, b) => a + b, 0) })
+        : handle;
     },
     sweepInterrupted: () => call({ type: "sweepResults" }),
     resultManifest: (resultId) => call({ type: "resultManifest", resultId }),
