@@ -5,7 +5,14 @@ import Moon from "lucide-react/dist/esm/icons/moon.mjs";
 import PanelLeft from "lucide-react/dist/esm/icons/panel-left.mjs";
 import PanelRight from "lucide-react/dist/esm/icons/panel-right.mjs";
 import Ruler from "lucide-react/dist/esm/icons/ruler.mjs";
-import { type ButtonHTMLAttributes, lazy, type ReactElement, Suspense, useSyncExternalStore } from "react";
+import {
+  Activity,
+  type ButtonHTMLAttributes,
+  lazy,
+  type ReactElement,
+  Suspense,
+  useSyncExternalStore,
+} from "react";
 import { RunButton } from "../features/analysis/RunBar";
 import { ResultBoundary } from "../features/history/ResultBoundary";
 import { Inspector } from "../features/inspector/Inspector";
@@ -81,7 +88,10 @@ export function Shell() {
           )}
         </main>
         <aside className={styles.inspector}>
-          <Inspector />
+          {/* Closed, the inspector keeps its state and stops rendering; its effects (the run bar's plan) stop too. */}
+          <Activity mode={inspector ? "visible" : "hidden"}>
+            <Inspector />
+          </Activity>
         </aside>
       </div>
       <p className={styles.narrow}>DDALAB needs a window at least 768 pixels wide.</p>
