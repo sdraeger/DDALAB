@@ -256,7 +256,7 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
   const rows = Array.from({ length: shown }, (_, i) => firstChannel + i);
   return (
     // biome-ignore lint/a11y/noNoninteractiveTabindex: the pane takes focus so that paging keys reach the viewer
-    <section className={styles.waveforms} aria-label="Waveforms" tabIndex={0}>
+    <section className={styles.waveforms} aria-label="Waveforms" tabIndex={0} data-appear>
       <div className={styles.scroller} ref={scroller}>
         <div className={styles.sticky}>
           <span className={styles.unit} aria-hidden>
@@ -284,7 +284,11 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
           <div className={styles.plot} ref={plot}>
             <canvas ref={under} className={styles.layer} aria-hidden />
             <canvas ref={traces} className={styles.layer} aria-hidden data-traces />
-            {glProblem && <p className={styles.glMissing}>{glProblem}</p>}
+            {glProblem && (
+              <p className={styles.glMissing} data-appear>
+                {glProblem}
+              </p>
+            )}
             <p ref={problem} className={styles.problem} role="alert" hidden />
             <Readouts ref={readouts} />
           </div>

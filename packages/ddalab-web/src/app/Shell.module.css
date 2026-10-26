@@ -67,6 +67,12 @@
   white-space: nowrap;
 }
 
+/* Tabular digits (base.css) in a box of fixed width: see Digits in Shell.tsx. */
+.digits {
+  display: inline-block;
+  text-align: end;
+}
+
 .library {
   grid-area: library;
   min-height: 0;

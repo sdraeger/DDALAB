@@ -1,4 +1,5 @@
-/* Controls shared by the shell, the library and the inspector: buttons, fields, selects, tooltips, popovers. */
+/* Controls shared by the shell, the library and the inspector: buttons, fields, selects, tooltips, popovers. Every
+   transition runs on the motion tokens (tokens.css); hover styles apply only where a pointer can hover. */
 
 .iconButton {
   display: inline-grid;
@@ -12,9 +13,9 @@
   background: transparent;
   color: var(--muted);
   cursor: pointer;
-  transition:
-    background-color var(--motion-fast) var(--ease-out),
-    color var(--motion-fast) var(--ease-out);
+  transition-property: background-color, color, opacity, transform;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
 }
 
 .iconButton svg {
@@ -23,9 +24,11 @@
   stroke-width: 1.75;
 }
 
-.iconButton:hover:not(:disabled) {
-  background: var(--chrome-hover);
-  color: var(--ink);
+@media (hover: hover) and (pointer: fine) {
+  .iconButton:hover:not(:disabled) {
+    background: var(--chrome-hover);
+    color: var(--ink);
+  }
 }
 
 .iconButton[aria-pressed="true"] {
@@ -51,7 +54,9 @@
   color: var(--ink);
   font-weight: var(--weight-medium);
   cursor: pointer;
-  transition: background-color var(--motion-fast) var(--ease-out);
+  transition-property: background-color, color, border-color, opacity, transform;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
 }
 
 .button svg {
@@ -60,8 +65,17 @@
   stroke-width: 2;
 }
 
-.button:hover:not(:disabled) {
-  background: var(--chrome-hover);
+@media (hover: hover) and (pointer: fine) {
+  .button:hover:not(:disabled) {
+    background: var(--chrome-hover);
+  }
+}
+
+/* A press sinks a button a little; under reduced motion --motion-scale is 1. */
+.iconButton:active:not(:disabled),
+.button:active:not(:disabled),
+.trigger:active:not([data-disabled]) {
+  transform: scale(var(--motion-scale));
 }
 
 .primary {
@@ -71,8 +85,10 @@
   color: var(--primary-ink);
 }
 
-.primary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--primary) 88%, var(--ink));
+@media (hover: hover) and (pointer: fine) {
+  .primary:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--primary) 88%, var(--ink));
+  }
 }
 
 .quiet {
@@ -110,10 +126,15 @@
   color: var(--ink);
   cursor: pointer;
   user-select: none;
+  transition-property: border-color, color, transform;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
 }
 
-.trigger:hover:not([data-disabled]) {
-  border-color: color-mix(in srgb, var(--hairline) 60%, var(--muted));
+@media (hover: hover) and (pointer: fine) {
+  .trigger:hover:not([data-disabled]) {
+    border-color: color-mix(in srgb, var(--hairline) 60%, var(--muted));
+  }
 }
 
 .trigger[data-disabled] {
@@ -135,16 +156,23 @@
   background: var(--ground);
   color: var(--ink);
   box-shadow: 0 6px 20px rgb(15 25 35 / 0.14);
+}
+
+/* Popups grow out of their trigger (Base UI sets --transform-origin there) and shrink back into it. */
+.popup,
+.tooltip {
   transform-origin: var(--transform-origin);
-  transition:
-    opacity var(--motion-fast) var(--ease-out),
-    transform var(--motion-fast) var(--ease-out);
+  transition-property: opacity, transform;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
 }
 
 .popup[data-starting-style],
-.popup[data-ending-style] {
+.popup[data-ending-style],
+.tooltip[data-starting-style],
+.tooltip[data-ending-style] {
   opacity: 0;
-  transform: scale(0.98);
+  transform: scale(var(--motion-scale));
 }
 
 .list {
@@ -163,6 +191,7 @@
   outline: 0;
 }
 
+/* The highlight follows the pointer and the arrow keys at once: it has no transition. */
 .item[data-highlighted] {
   background: var(--primary);
   color: var(--primary-ink);
@@ -185,12 +214,6 @@
   color: var(--ground);
   font-size: var(--text-small);
   line-height: var(--leading-small);
-  transition: opacity var(--motion-fast) var(--ease-out);
-}
-
-.tooltip[data-starting-style],
-.tooltip[data-ending-style] {
-  opacity: 0;
 }
 
 .panel {

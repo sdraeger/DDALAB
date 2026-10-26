@@ -1,5 +1,5 @@
 // The overview locator: the whole recording, the view outlined with its range tab, the selection and the events.
-// Paging glides the outline to its new place (the one authored motion); dragging and wheel moves follow at once.
+// The outline follows every view change at once, paging included: it moves with the traces.
 import { useEffect, useRef } from "react";
 import { engine } from "../../app/recordings";
 import { EngineStopped } from "../../core/engine";
@@ -11,8 +11,6 @@ import { readColors, watchTheme } from "../../render/themeColors";
 import { setView, useStore } from "../../store/store";
 import styles from "./Viewer.module.css";
 
-/** View changes closer together than this are a continuous move: the outline follows without gliding. */
-const CONTINUOUS_MS = 150;
 /** A tile that failed to read is asked for again after this pause. */
 const RETRY_MS = 5000;
 
@@ -49,7 +47,6 @@ export function Overview({ recordingId }: { recordingId: string }) {
     const pending = new Set<number>();
     let size = { cssW: 0, W: 0, H: 0, dpr: 1 };
     let raf = 0;
-    let last = { t0: Number.NaN, t1: Number.NaN, at: 0 };
     let colors = readColors(stripEl);
     /** What the canvas last showed: it is redrawn when that changes, not on every move of the view. */
     let drawnScene: unknown[] = [];
@@ -124,11 +121,6 @@ export function Overview({ recordingId }: { recordingId: string }) {
         });
       }
       const { t0, t1 } = state.view;
-      if (t0 !== last.t0 || t1 !== last.t1) {
-        const now = performance.now();
-        outlineEl.dataset.live = String(now - last.at < CONTINUOUS_MS);
-        last = { t0, t1, at: now };
-      }
       const left = (t0 / span) * size.cssW;
       const width = Math.max(2, ((t1 - t0) / span) * size.cssW);
       outlineEl.style.transform = `translateX(${left}px)`;
@@ -192,7 +184,7 @@ export function Overview({ recordingId }: { recordingId: string }) {
   }, [recordingId]);
 
   return (
-    <div className={styles.overview}>
+    <div className={styles.overview} data-appear>
       <div className={styles.overviewLabel}>
         <span>Overview</span>
         <span className={styles.muted}>{compact(duration)} s</span>

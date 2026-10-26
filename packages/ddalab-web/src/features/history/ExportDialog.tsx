@@ -42,7 +42,7 @@ export default function ExportDialog({ record }: { record: AnalysisRecord }) {
   const zip = async () => new Response(await bundleZip(record.id)).blob();
 
   return (
-    <div className={styles.export}>
+    <div className={styles.export} data-appear>
       <Popover.Title className={styles.subheading}>Export result</Popover.Title>
       <button
         type="button"

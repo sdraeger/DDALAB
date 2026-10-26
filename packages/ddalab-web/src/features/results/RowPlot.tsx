@@ -88,14 +88,14 @@ export function RowPlot(props: {
 
   return (
     <>
-      <div className={styles.rowGutter}>
+      <div className={styles.rowGutter} data-appear>
         <span className={styles.rowLabel}>{props.label}</span>
         <ul className={styles.scale} aria-label="Line plot scale">
           {known && <li>{print(hi)}</li>}
           {known && <li>{print(lo)}</li>}
         </ul>
       </div>
-      <div className={styles.rowCell}>
+      <div className={styles.rowCell} data-appear>
         <canvas
           ref={canvas}
           role="img"

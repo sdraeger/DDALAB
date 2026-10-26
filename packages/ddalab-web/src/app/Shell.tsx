@@ -18,6 +18,7 @@ import { RunButton } from "../features/analysis/RunBar";
 import { ResultBoundary } from "../features/history/ResultBoundary";
 import { Inspector } from "../features/inspector/Inspector";
 import { LibraryRail } from "../features/library/LibraryRail";
+import { LocalData } from "../features/settings/LocalData";
 import { Overview } from "../features/viewer/Overview";
 import { useViewerKeys } from "../features/viewer/useViewerKeys";
 import { WaveformCanvas } from "../features/viewer/WaveformCanvas";
@@ -25,6 +26,7 @@ import {
   activeRecording,
   EPOCHS,
   type Epoch,
+  MIN_SPAN_SAMPLES,
   openResult,
   pageBy,
   pageOf,
@@ -46,6 +48,16 @@ const Calibration = lazy(() => import("../features/settings/Calibration"));
 const ResultPanel = lazy(() => import("../features/results/ResultPanel"));
 
 const TIMEBASES = [10, 15, 20, 30, 60, 120];
+
+/** A timebase at three significant digits, as the bar shows it. */
+const print = (mmPerS: number) => Number(mmPerS.toPrecision(3));
+
+/**
+ * The characters of the longest timebase from `lo` to `hi` mm/s prints in: below 1 its smallest decade (0.00123), from
+ * 1 to 100 four (12.3), past that `hi` itself (12300).
+ */
+const timebaseChars = (lo: number, hi: number) =>
+  Math.max(4, String(print(hi)).length, lo > 0 && lo < 1 ? 4 - Math.floor(Math.log10(lo)) : 0);
 
 export function Shell() {
   const { library, inspector } = useStore((s) => s.panels);
@@ -77,9 +89,10 @@ export function Shell() {
           <IconButton label="Inspector" aria-pressed={inspector} onClick={() => togglePanel("inspector")}>
             <PanelRight aria-hidden />
           </IconButton>
+          <LocalData />
           <ThemeToggle />
         </header>
-        <aside className={styles.library} aria-label="Library">
+        <aside className={styles.library} aria-label="Library" data-appear>
           <LibraryRail />
         </aside>
         <main className={styles.center}>
@@ -92,12 +105,12 @@ export function Shell() {
           ) : resultShown ? (
             <ShownResult recordingId={null} />
           ) : (
-            <p className={styles.empty}>
+            <p className={styles.empty} data-appear>
               Open a recording from the library, or drop its files or folder anywhere in this window.
             </p>
           )}
         </main>
-        <aside className={styles.inspector}>
+        <aside className={styles.inspector} data-appear>
           <Inspector />
         </aside>
       </div>
@@ -158,7 +171,7 @@ function IconButton({
 function RecordingName() {
   const name = useStore((s) => activeRecording(s)?.info.input_files[0]);
   return name ? (
-    <span className={styles.name} title={name}>
+    <span className={styles.name} title={name} data-appear>
       {name}
     </span>
   ) : null;
@@ -167,14 +180,20 @@ function RecordingName() {
 /** Paging and the physical scale of the plot. */
 function ViewControls() {
   const duration = useStore((s) => activeRecording(s)?.info.duration_s ?? 0);
+  const rate = useStore((s) => activeRecording(s)?.info.sample_rate_hz ?? 1);
   const epochS = useStore((s) => s.view.epochS);
   // Whole pages only: they change on paging, not on every pan frame.
   const [page, pages] = useStore(useShallow((s) => pageOf(s.view, duration)));
   const sensitivity = useStore((s) => s.view.sensitivityUvPerMm);
   // Three significant digits: it changes on zoom, not on every pan frame.
-  const timebase = useStore((s) => Number(timebaseOf(s.view, s.plotCssWidth).toPrecision(3)));
+  const timebase = useStore((s) => print(timebaseOf(s.view, s.plotCssWidth)));
+  // Its width holds over every span the view can take, from the whole recording to the shortest.
+  const timebaseWidth = useStore((s) => {
+    const across = (span: number) => timebaseOf({ ...s.view, t0: 0, t1: span }, s.plotCssWidth);
+    return timebaseChars(across(duration), across(MIN_SPAN_SAMPLES / rate));
+  });
   return (
-    <div className={styles.view}>
+    <div className={styles.view} data-appear>
       <div className={styles.paging}>
         <IconButton label="First page" onClick={pageToStart}>
           <ChevronFirst aria-hidden />
@@ -189,52 +208,69 @@ function ViewControls() {
           <ChevronLast aria-hidden />
         </IconButton>
         <span className={styles.page}>
-          Page {page} of {pages}
+          Page <Digits value={page} chars={String(pages).length} /> of {pages}
         </span>
       </div>
       <span className={controls.rule} />
-      <Choice
-        label="Epoch"
-        value={epochS}
-        items={EPOCHS.map((e) => ({ value: e, label: `${e} s` }))}
-        onChange={(e) => setEpoch(e as Epoch)}
-      />
+      <Choice label="Epoch" value={epochS} values={EPOCHS} unit="s" onChange={(e) => setEpoch(e as Epoch)} />
       <Choice
         label="Sensitivity"
         value={sensitivity}
-        items={SENSITIVITIES.map((s) => ({ value: s, label: `${s} µV/mm` }))}
+        values={SENSITIVITIES}
+        unit="µV/mm"
         onChange={(s) => setView({ sensitivityUvPerMm: s })}
       />
       <Choice
         label="Timebase"
         value={timebase}
-        items={TIMEBASES.map((t) => ({ value: t, label: `${t} mm/s` }))}
+        values={TIMEBASES}
+        unit="mm/s"
+        chars={timebaseWidth}
         onChange={setTimebase}
-        format={(t) => `${t} mm/s`}
       />
     </div>
   );
 }
 
-/** A labeled select of numbers; `format` shows a value that is not among the items. */
+/** A number in a box `chars` digits wide, aligned to its end: a value that changes moves nothing beside it. */
+function Digits({ value, chars }: { value: number; chars: number }) {
+  return (
+    <span className={styles.digits} style={{ inlineSize: `${chars}ch` }}>
+      {value}
+    </span>
+  );
+}
+
+/**
+ * A labeled select of numbers in `unit`. The value may lie between the items (the timebase); its number keeps the
+ * width of the longest it can show, `chars` or else the longest item.
+ */
 function Choice(props: {
   label: string;
   value: number;
-  items: { value: number; label: string }[];
+  values: number[];
+  unit: string;
+  chars?: number;
   onChange(value: number): void;
-  format?: (value: number) => string;
 }) {
-  const { format } = props;
+  const { values, unit } = props;
+  const chars = Math.max(props.chars ?? 0, ...values.map((v) => String(v).length));
   return (
     <Select.Root
       value={props.value}
-      items={props.items}
+      items={values.map((value) => ({ value, label: `${value} ${unit}` }))}
       onValueChange={(value) => value !== null && props.onChange(value as number)}
     >
       <div className={controls.field}>
         <Select.Label className={controls.label}>{props.label}</Select.Label>
         <Select.Trigger className={controls.trigger}>
-          <Select.Value>{format ? (value: number) => format(value) : undefined}</Select.Value>
+          <Select.Value>
+            {(value: number) => (
+              <>
+                <Digits value={value} chars={chars} /> {unit}
+              </>
+            )}
+          </Select.Value>
           <Select.Icon>
             <ChevronDown aria-hidden />
           </Select.Icon>
@@ -244,12 +280,12 @@ function Choice(props: {
         <Select.Positioner sideOffset={4} alignItemWithTrigger={false}>
           <Select.Popup className={controls.popup}>
             <Select.List className={controls.list}>
-              {props.items.map((item) => (
-                <Select.Item key={item.value} value={item.value} className={controls.item}>
+              {values.map((value) => (
+                <Select.Item key={value} value={value} className={controls.item}>
                   <Select.ItemIndicator>
                     <Check aria-hidden />
                   </Select.ItemIndicator>
-                  <Select.ItemText className={controls.itemText}>{item.label}</Select.ItemText>
+                  <Select.ItemText className={controls.itemText}>{`${value} ${unit}`}</Select.ItemText>
                 </Select.Item>
               ))}
             </Select.List>
@@ -286,13 +322,21 @@ const subscribeToScheme = (onChange: () => void) => {
   return () => query.removeEventListener("change", onChange);
 };
 
-/** Follows the system until pressed; the pick is remembered (theme.ts). */
+/**
+ * Follows the system until pressed; the pick is remembered (theme.ts). The page crossfades to the new theme where the
+ * browser has view transitions (base.css times it); elsewhere it switches at once.
+ */
 function ThemeToggle() {
   const picked = useStore((s) => s.theme);
   const systemDark = useSyncExternalStore(subscribeToScheme, () => darkQuery().matches);
   const dark = (picked ?? (systemDark ? "dark" : "light")) === "dark";
+  const toggle = () => setTheme(dark ? "light" : "dark");
   return (
-    <IconButton label="Dark theme" aria-pressed={dark} onClick={() => setTheme(dark ? "light" : "dark")}>
+    <IconButton
+      label="Dark theme"
+      aria-pressed={dark}
+      onClick={() => (document.startViewTransition ? document.startViewTransition(toggle) : toggle())}
+    >
       <Moon aria-hidden />
     </IconButton>
   );

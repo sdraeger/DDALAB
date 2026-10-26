@@ -167,16 +167,17 @@ function Notice(props: {
   onFolder(): void;
 }) {
   const { outcome } = props;
+  // Keyed: a notice of another kind mounts anew and fades in, where React would reuse the paragraph.
   if (props.opening) {
     return (
-      <p className={styles.hint} aria-live="polite">
+      <p key="opening" className={styles.hint} aria-live="polite">
         Opening
       </p>
     );
   }
   if (outcome?.kind === "error") {
     return (
-      <div role="alert" className={styles.error}>
+      <div key="error" role="alert" className={styles.error}>
         <p>{outcome.message}</p>
         {outcome.folder && (
           <button type="button" className={controls.quiet} onClick={props.onFolder}>
@@ -188,7 +189,7 @@ function Notice(props: {
   }
   if (outcome?.kind === "choose") {
     return (
-      <fieldset className={styles.choose}>
+      <fieldset key="choose" className={styles.choose} data-appear>
         <legend>Several recordings found</legend>
         {outcome.candidates.map((path) => (
           <button type="button" className={controls.quiet} key={path} onClick={() => props.onChoose(path)}>
@@ -199,7 +200,7 @@ function Notice(props: {
     );
   }
   return outcome?.kind === "opened" && outcome.warning ? (
-    <p role="alert" className={styles.error}>
+    <p key="warning" role="alert" className={styles.error}>
       {outcome.warning}
     </p>
   ) : null;
@@ -211,13 +212,13 @@ function OpenRecordings() {
   const ids = Object.keys(recordings);
   if (ids.length === 0) return null;
   return (
-    <section className={styles.section} aria-labelledby="open-heading">
+    <section className={styles.section} aria-labelledby="open-heading" data-appear>
       <h2 id="open-heading" className={styles.heading}>
         Open <span className={styles.count}>{ids.length}</span>
       </h2>
       <ul className={styles.entries}>
         {ids.map((id) => (
-          <li key={id}>
+          <li key={id} data-appear>
             <button
               type="button"
               className={styles.entry}
@@ -241,13 +242,13 @@ function OpenRecordings() {
 function Recent(props: { entries: RecentEntry[]; onOpen(entry: RecentEntry): void }) {
   if (props.entries.length === 0) return null;
   return (
-    <section className={styles.section} aria-label="Recent recordings">
+    <section className={styles.section} aria-label="Recent recordings" data-appear>
       <h2 className={styles.heading}>
         Recent <span className={styles.count}>{props.entries.length}</span>
       </h2>
       <ul className={styles.entries}>
         {props.entries.map((entry) => (
-          <li key={entry.fingerprint} className={styles.recent}>
+          <li key={entry.fingerprint} className={styles.recent} data-appear>
             <span className={styles.entryName} title={entry.names.join(", ")}>
               {entry.primary}
             </span>

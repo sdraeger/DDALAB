@@ -123,9 +123,12 @@ const cancelled = () => new DOMException("The run was cancelled", "AbortError");
 /** Bytes of a text recording per DDA worker: each parses the whole file. */
 const TEXT_BYTES_PER_WORKER = 512 * 2 ** 20;
 
-/** The workers of a run: every core but one, and one per 512 MiB of a text recording. */
+/** The DDA workers of a run of a binary recording: every core but one. */
+export const ddaWorkers = () => Math.max(1, navigator.hardwareConcurrency - 1);
+
+/** The workers of a run: `ddaWorkers`, and one per 512 MiB of a text recording. */
 function poolSize(input: RecordingInput, info: RecordingInfo): number {
-  const cores = Math.max(1, navigator.hardwareConcurrency - 1);
+  const cores = ddaWorkers();
   if (input.kind === "synthetic" || (info.format !== "CSV" && info.format !== "ASCII")) return cores;
   const bytes = input.files.find((file) => file.name === input.primary)?.size ?? 0;
   return Math.min(cores, Math.max(1, Math.floor(TEXT_BYTES_PER_WORKER / bytes)));

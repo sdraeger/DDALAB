@@ -1,0 +1,32 @@
+/* The command bar's "Local" note (a quiet button in muted ink) and its popover. Its label never changes: the bar
+   keeps its width. */
+.trigger {
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.trigger[data-popup-open] {
+  color: var(--ink);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .trigger:hover:not(:disabled) {
+    color: var(--ink);
+  }
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.title {
+  font-size: var(--text-section);
+  font-weight: var(--weight-strong);
+}
+
+.text {
+  color: var(--muted);
+  line-height: 1.45;
+}
