@@ -14,6 +14,8 @@ test("the_manifest_names_an_app_that_opens_in_its_own_window_from_its_folder", (
     start_url: "./",
     scope: "./",
     display: "standalone",
+    // Chromium draws the command bar in the title bar (Shell.module.css); other browsers keep standalone.
+    display_override: ["window-controls-overlay"],
   });
   expect(manifest.description).toBeTruthy();
   // A later launch goes to the window that is open, where the launch queue's consumer takes its files.
