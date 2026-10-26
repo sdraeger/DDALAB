@@ -8,7 +8,7 @@ import { findLeaks } from "./check-dist.mjs";
 
 const MAGIC = [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
 const NOTICE =
-  "/*!\n * Scientific colour maps batlow and vik.\n *\n * MIT License, Copyright (c) 2020 Fabio Crameri\n */";
+  "/*!\n * The batlow and vik color maps of Crameri's Scientific colour maps.\n *\n * MIT License, Copyright (c) 2020 Fabio Crameri\n */";
 let dir;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "check-dist-"));

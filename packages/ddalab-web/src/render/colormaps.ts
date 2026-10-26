@@ -3,7 +3,7 @@
 // below is a legal comment the build keeps (scripts/check-dist.mjs checks it); fixtures/CRAMERI-LICENSE.txt is the
 // license as cmcrameri ships it.
 /*!
- * Scientific colour maps batlow and vik.
+ * The batlow and vik color maps of Crameri's Scientific colour maps.
  * Crameri, F. (2018). Scientific colour maps. Zenodo. doi:10.5281/zenodo.1243862
  *
  * MIT License, Copyright (c) 2020 Fabio Crameri

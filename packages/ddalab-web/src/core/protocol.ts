@@ -93,7 +93,8 @@ export interface IoResults {
   raw: Float32Array;
   /** `null` while the scan has not reached the tile and reading it from the file would take too long. */
   tile: Tile | null;
-  plan: Plan;
+  /** With the block budget it was made with, in MiB. */
+  plan: Plan & { budgetMb: number };
   createResult: undefined;
   writeChunks: undefined;
   finishResult: undefined;

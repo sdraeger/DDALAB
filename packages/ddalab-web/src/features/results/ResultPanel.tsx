@@ -29,7 +29,6 @@ import { FANOUT, type ResultTile } from "../../render/resultPyramid";
 import { readColors, watchTheme } from "../../render/themeColors";
 import { openResult, setCursor, setShownResult, setView, useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
-import { ResultBoundary } from "../history/ResultBoundary";
 import { electrodeGroups } from "../inspector/groups";
 import { probing } from "../viewer/probe";
 import { usePlotPointer } from "../viewer/usePlotPointer";
@@ -82,16 +81,7 @@ function scaleOfArray(map: MapName, { rows, rowMin, rowMax }: ResultArray) {
 /** The channels a row label names: "A", "A & B", "A <- B" or "A <-> B". */
 const channelsOf = (label: string) => label.split(/ (?:<->|<-|&) /);
 
-/** A view that throws gives way to the reason instead of unmounting the app. */
 export default function ResultPanel(props: { recordingId: string | null; resultId: string }) {
-  return (
-    <ResultBoundary key={props.resultId} what="This result">
-      <Result {...props} />
-    </ResultBoundary>
-  );
-}
-
-function Result(props: { recordingId: string | null; resultId: string }) {
   const loaded = use(manifestOf(props.resultId));
   const [, rerender] = useReducer((n: number) => n + 1, 0);
   if ("error" in loaded) {

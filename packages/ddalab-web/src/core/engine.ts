@@ -70,10 +70,13 @@ export interface Engine {
   /** Calls `listener` with the current scan state at once and with every change after. */
   onScan(id: string, listener: (state: ScanState) => void): () => void;
   /**
-   * What a run of `request` takes: its windows, its blocks and the workers it runs on. Rejects with the core's
-   * message when the core refuses the request.
+   * What a run of `request` takes: its windows, its blocks, the workers it runs on and the block budget in MiB.
+   * Rejects with the core's message when the core refuses the request.
    */
-  plan(id: string, request: DDARequest): Promise<{ windows: number; blocks: number; workers: number }>;
+  plan(
+    id: string,
+    request: DDARequest,
+  ): Promise<{ windows: number; blocks: number; workers: number; budgetMb: number }>;
   /**
    * Runs `request` on a pool of DDA workers; each block's arrays are written to OPFS as it finishes (resultStore.ts).
    * `done` resolves once the manifest is written and the result is complete; a failed or cancelled run leaves no
@@ -472,7 +475,7 @@ export function createEngine(): Engine {
       const { input, info } = opened(id);
       const workers = poolSize(input, info);
       const plan = await call({ type: "plan", id, request, workers });
-      return { windows: plan.windows, blocks: plan.blocks.length, workers };
+      return { windows: plan.windows, blocks: plan.blocks.length, workers, budgetMb: plan.budgetMb };
     },
     async run(id, request) {
       const { input, info } = opened(id);

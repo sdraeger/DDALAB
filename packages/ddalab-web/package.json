@@ -12,7 +12,7 @@
     "test": "npm run build:wasm && vitest run",
     "test:e2e": "npm run build:wasm && playwright test",
     "test:perf": "npm run build:wasm && PERF=1 playwright test --project=perf",
-    "bench": "npm run build:wasm && PERF=1 playwright test --project=bench",
+    "bench": "npm run build:wasm && PERF=1 DDALAB_DIST=1 playwright test --project=bench",
     "test:dist": "playwright test -c playwright.dist.config.ts",
     "deploy:userdir": "node scripts/deploy-userdir.mjs",
     "check:live": "node scripts/check-live.mjs"
