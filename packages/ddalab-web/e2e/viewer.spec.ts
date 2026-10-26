@@ -463,6 +463,47 @@ test("escape_and_a_press_off_the_plot_let_the_cursor_go", async ({ page }) => {
   expect(await cursor()).toBeNull();
 });
 
+test.describe("touch", () => {
+  test.use({ hasTouch: true });
+
+  test("pinch_zooms_about_the_fingers_and_a_held_drag_selects", async ({ page, browserName }) => {
+    // Two fingers at once go through the DevTools protocol, which only Chromium speaks; they arrive as real pointers.
+    test.skip(browserName !== "chromium", "multi-touch is sent through the Chromium DevTools protocol");
+    test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
+    await openFixture(page);
+    const box = await page.locator("canvas[data-traces]").boundingBox();
+    if (!box) throw new Error("the plot has no box");
+    const y = box.y + 40;
+    const cdp = await page.context().newCDPSession(page);
+    const touch = (type: "touchStart" | "touchMove" | "touchEnd", xs: number[]) =>
+      cdp.send("Input.dispatchTouchEvent", { type, touchPoints: xs.map((x, id) => ({ x, y, id })) });
+    const state = () => page.evaluate(() => window.__ddalab.store.getState());
+    const mid = box.x + box.width / 2;
+    const before = (await state()).view;
+    const midS = before.t0 + ((mid - box.x) / box.width) * (before.t1 - before.t0);
+    await touch("touchStart", [mid - 40, mid + 40]);
+    await touch("touchMove", [mid - 120, mid + 120]);
+    await touch("touchEnd", []);
+    const after = await state();
+    // Fingers three times as far apart show a third of the span, with the time under their midpoint kept.
+    expect((after.view.t1 - after.view.t0) / (before.t1 - before.t0)).toBeCloseTo(1 / 3, 2);
+    expect(after.view.t0 + ((mid - box.x) / box.width) * (after.view.t1 - after.view.t0)).toBeCloseTo(
+      midS,
+      3,
+    );
+    expect(after.cursorS).toBeNull();
+    // A finger held still, then moved, selects the interval of a run; a quick drag would have panned.
+    await touch("touchStart", [box.x + 100]);
+    await page.waitForTimeout(600);
+    await touch("touchMove", [box.x + 300]);
+    await touch("touchEnd", []);
+    const { selection, view: kept } = await state();
+    expect(selection).not.toBeNull();
+    expect((selection?.t1 ?? 0) - (selection?.t0 ?? 0)).toBeGreaterThan(0);
+    expect(kept).toEqual(after.view);
+  });
+});
+
 test("sensitivity_steps", async ({ page }) => {
   // The scale settings sit in the bar from 1440 px with the inspector open (Shell.module.css).
   await page.setViewportSize({ width: 1440, height: 720 });
