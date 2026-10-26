@@ -9,8 +9,13 @@ import type { VariantDocument } from "./types";
 
 /** Above this estimated size a text export is refused: the bundle holds the same arrays at a fraction of it. */
 export const TEXT_LIMIT = 512 * 2 ** 20;
-/** Bytes of text per value, as `-0.17573526565987174,` takes. */
-const TEXT_BYTES_PER_VALUE = 20;
+/**
+ * Bytes of text per value. In the CSV, as `-0.17573526565987174,` takes. In the document's pretty layout, a value of a
+ * matrix also takes its line and its indent: measured, 33.8 over the 6.4 million values of exporters.test.ts
+ * `text_exports_hold_a_slice_on_the_heap` (216.3 MB), and 30 to 34 for the Q values, coefficients and fit errors of a
+ * `ddalab batch` document of fixture.edf.
+ */
+const TEXT_BYTES_PER_VALUE = { csv: 20, document: 34 };
 /** Bytes of an array read at a time. */
 const SLICE_BYTES = 4 * 2 ** 20;
 /** Bytes of whole rows gathered per pass over a window-major array, to write them row by row. */
@@ -23,8 +28,9 @@ type Stored = Npy & { file: Blob };
 const megabytes = (bytes: number) => (bytes / 1e6).toLocaleString("en", { maximumSignificantDigits: 2 });
 
 /** Throws when `values` would make more text than a browser tab should hold. */
-function refuseAbove(values: number, what: string) {
-  const bytes = values * TEXT_BYTES_PER_VALUE;
+function refuseAbove(values: number, text: keyof typeof TEXT_BYTES_PER_VALUE) {
+  const bytes = values * TEXT_BYTES_PER_VALUE[text];
+  const what = text === "csv" ? "CSV table" : "JSON document";
   if (bytes > TEXT_LIMIT) {
     throw new Error(`The ${what} would be about ${megabytes(bytes)} MB. Export the bundle instead.`);
   }
@@ -203,7 +209,7 @@ export async function documentJson(resultId: string): Promise<Blob> {
   }
   refuseAbove(
     [...arrays.values()].reduce((sum, { shape }) => sum + count(shape), 0),
-    "JSON document",
+    "document",
   );
   const stored = (path?: string) => {
     const found = path && arrays.get(path);
@@ -239,7 +245,7 @@ export async function variantCsv(resultId: string, variant: string): Promise<Blo
   const file = await fileAt(await resultDirectory(resultId), path);
   const array = { file, ...(await readNpyHeader(file, path)) };
   const [windows, rows] = array.shape;
-  refuseAbove(windows * (rows + 1), "CSV table");
+  refuseAbove(windows * (rows + 1), "csv");
   const centers = manifest.window_centers_seconds;
   const parts: BlobPart[] = [`${["window_center_s", ...found.row_labels].map(csvField).join(",")}\n`];
   // A part of text per 64 Ki values: a string built of many more pieces costs several times its length on the heap.
