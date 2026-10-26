@@ -19,10 +19,9 @@ import { loadViewer, viewerLoaded } from "./viewerChunk";
 export const engine = createEngine();
 
 /**
- * The viewer's chunk, which main.tsx loads once the shell has painted, awaited before an open: the recording then
- * renders with its plots at once (viewerChunk.ts). Before the open, never between it and `adopt`: the hash a tab keeps
- * (tabs.ts) is taken from the scan reports that follow `adopt`. A chunk that does not load is reported where the plots
- * go.
+ * The viewer's chunk, which main.tsx loads once the shell has painted, awaited beside an open that comes before: the
+ * recording then renders with its plots at once (viewerChunk.ts). A chunk that does not load is reported where the
+ * plots go.
  */
 const viewerReady = () => (viewerLoaded() ? undefined : loadViewer().catch(() => {}));
 
@@ -49,12 +48,15 @@ function adopt(
   activate = true,
 ) {
   const { id, info, fingerprint, analysis_channels } = opened;
-  if (!useStore.getState().recordings[id]) {
-    addRecording(id, { info, fingerprint, analysis_channels, source }, activate);
-    follow(id);
-    void restoreAnnotations(fingerprint);
-  } else if (activate) activateRecording(id);
+  if (useStore.getState().recordings[id]) {
+    if (activate) activateRecording(id);
+    return tabOpened(id, fingerprint, info.input_files[0], origin);
+  }
+  addRecording(id, { info, fingerprint, analysis_channels, source }, activate);
+  // The tab before the scan reports: a hash that finished while the open waited (for the viewer's chunk) reaches it.
   tabOpened(id, fingerprint, info.input_files[0], origin);
+  follow(id);
+  void restoreAnnotations(fingerprint);
 }
 
 /** Why an opened recording is not the one of `expect`, which closes it again unless it was already open. */
@@ -91,8 +93,7 @@ export async function openInput(
   input: RecordingInput,
   options: { expect?: string; activate?: boolean; signal?: AbortSignal } = {},
 ) {
-  await viewerReady();
-  const opened = await engine.open(input);
+  const [opened] = await Promise.all([engine.open(input), viewerReady()]);
   const release = releaser(opened);
   const name = "primary" in input ? input.primary : "The recording";
   const refused = unexpected(opened, name, options.expect, release);
@@ -192,8 +193,8 @@ export async function openFiles(
   if ("error" in set) return { kind: "error", message: set.error, folder: false };
   if ("candidates" in set) return { kind: "choose", candidates: set.candidates };
   try {
-    await viewerReady();
-    const opened = await engine.open({ kind: "files", files: set.files, primary: set.primary });
+    const input = { kind: "files", files: set.files, primary: set.primary } as const;
+    const [opened] = await Promise.all([engine.open(input), viewerReady()]);
     const release = releaser(opened);
     const refused = options.exact && unexpected(opened, set.primary, options.expect, release);
     if (refused) return { kind: "error", message: refused, folder: false };
