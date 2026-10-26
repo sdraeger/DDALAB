@@ -2,6 +2,7 @@
 // transitions `all`, popups grow out of their trigger and, under reduced motion, appear without scaling. Panels and
 // results open and close, and the theme switches, in a view transition on the same tokens.
 import type { Locator } from "@playwright/test";
+import { bundleDir } from "./global-setup";
 import { showFixture } from "./resultFixture";
 import { expect, type Page, test } from "./test";
 
@@ -192,6 +193,45 @@ test("panels_and_results_toggle_in_a_view_transition", async ({ page }) => {
   expect(await counted(), "closing the result").toEqual(once);
 });
 
+// A result's first open loads its view and its manifest after the crossfade has ended: the result and its provenance
+// fade in by themselves. Neither appears at full opacity outside a view transition.
+test("cold_result_open_fades_in", async ({ page }) => {
+  test.skip(
+    !(await page.evaluate(() => navigator.storage.getDirectory().then(Boolean, () => false))),
+    "no OPFS",
+  );
+  const names = ["Result", "Provenance"];
+  await page.evaluate((names) => {
+    const seen: Record<string, [opacity: number, inTransition: boolean][]> = {};
+    for (const name of names) seen[name] = [];
+    const sample = () => {
+      for (const name of names) {
+        const section = document.querySelector(`section[aria-label="${name}"]`);
+        if (section) {
+          const transition = "viewTransition" in document.documentElement.dataset;
+          seen[name].push([Number(getComputedStyle(section).opacity), transition]);
+        }
+      }
+      Object.assign(window, { raf: requestAnimationFrame(sample) });
+    };
+    Object.assign(window, { seen });
+    sample();
+  }, names);
+  await page.getByLabel("Result folder").setInputFiles(bundleDir("st"));
+  for (const name of names) await expect(page.getByRole("region", { name })).toBeVisible();
+  await page.waitForTimeout(400);
+  const seen = await page.evaluate(() => {
+    const w = window as unknown as { raf: number; seen: Record<string, [number, boolean][]> };
+    cancelAnimationFrame(w.raf);
+    return w.seen;
+  });
+  for (const name of names) {
+    const [opacity, inTransition] = seen[name][0];
+    expect(inTransition || opacity < 1, `${name} on its first frame: opacity ${opacity}`).toBe(true);
+    expect(seen[name].at(-1)?.[0], name).toBe(1);
+  }
+});
+
 test("theme_switch_crossfades_on_the_tokens", async ({ page }) => {
   test.skip(!(await page.evaluate(() => "startViewTransition" in document)), "no view transitions here");
   await page.evaluate(() => {
@@ -200,11 +240,13 @@ test("theme_switch_crossfades_on_the_tokens", async ({ page }) => {
     document.startViewTransition = (update) => {
       const transition = start(update);
       void transition.ready.then(() => {
-        const style = getComputedStyle(document.documentElement, "::view-transition-new(root)");
-        (window as unknown as { crossfades: string[][] }).crossfades.push([
-          style.animationDuration,
-          style.animationTimingFunction,
-        ]);
+        for (const part of ["group", "old", "new"]) {
+          const style = getComputedStyle(document.documentElement, `::view-transition-${part}(root)`);
+          (window as unknown as { crossfades: string[][] }).crossfades.push([
+            style.animationDuration,
+            style.animationTimingFunction,
+          ]);
+        }
       });
       return transition;
     };
@@ -216,5 +258,9 @@ test("theme_switch_crossfades_on_the_tokens", async ({ page }) => {
     .not.toBe(before);
   await expect
     .poll(() => page.evaluate(() => (window as unknown as { crossfades: string[][] }).crossfades))
-    .toEqual([[DURATION, EASE]]);
+    .toEqual([
+      [DURATION, EASE],
+      [DURATION, EASE],
+      [DURATION, EASE],
+    ]);
 });

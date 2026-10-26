@@ -95,7 +95,7 @@ export default function ResultPanel(props: { recordingId: string | null; resultI
       rerender();
     };
     return (
-      <section className={styles.result} aria-label="Result">
+      <section className={styles.result} aria-label="Result" data-appear>
         <p role="alert" className={styles.failed}>
           The result could not be read: {loaded.error}.{" "}
           {imported ? "Import it again to recreate it." : "Run the analysis again to recreate it."}{" "}
@@ -473,7 +473,7 @@ function Heatmap({
     <Tabs.Root
       value={variant.id}
       onValueChange={(value) => setShownResult({ variant: value as string, row: null })}
-      render={<section className={styles.result} aria-label="Result" />}
+      render={<section className={styles.result} aria-label="Result" data-appear />}
     >
       <div className={styles.bar}>
         <VariantTabs

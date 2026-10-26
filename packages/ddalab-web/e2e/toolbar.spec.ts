@@ -1,6 +1,6 @@
 // The command bar holds still while the view zooms: wheel zooming across the whole range moves no element of the bar,
 // at 1024, 1280 and 1600 px, with the inspector open and with it closed (the run status then shows in the bar). At
-// every width from 768 px every control stays inside the window.
+// every width from 768 px every control stays inside the window, and the scale settings behind their button work.
 import { expect, type Page, test } from "./test";
 
 test.beforeEach(async ({ page }) => {
@@ -91,10 +91,28 @@ test("bar_holds_still_while_zooming", async ({ page }) => {
 });
 
 // Where the bar is short the scale settings move behind one button, then the wordmark and the Local and Annotate
-// labels give way to their marks; nothing falls past the window's edge.
+// labels give way to their marks; nothing falls past the window's edge. The widths include both sides of 1400 px,
+// where the settings move with the inspector open. The run status keeps clamp(120px, 18vw, 280px) while the bar has
+// room to spare, and gives way, alone, where it has none.
 test("bar_fits_the_window", async ({ page }) => {
+  test.setTimeout(60_000);
   await openDay(page);
-  for await (const layout of layouts(page, [768, 1024, 1280, 1600])) {
+  for await (const layout of layouts(page, [768, 1024, 1280, 1390, 1399, 1400, 1600])) {
+    const slot = await page.evaluate(() => {
+      const bar = document.querySelector("header") as HTMLElement;
+      const status = bar.querySelector("[aria-live]");
+      const spare = [...bar.children]
+        .filter((e) => e.className.includes("grow"))
+        .reduce((sum, e) => sum + e.getBoundingClientRect().width, 0);
+      const basis = Math.min(280, Math.max(120, 0.18 * innerWidth));
+      return status && { width: status.getBoundingClientRect().width, spare, basis };
+    });
+    if (layout.endsWith("closed")) {
+      expect(slot, layout).not.toBeNull();
+      const { width, spare, basis } = slot as { width: number; spare: number; basis: number };
+      if (spare > 0.5) expect(Math.abs(width - basis), layout).toBeLessThan(0.5);
+      else expect(width, layout).toBeLessThanOrEqual(basis + 0.5);
+    }
     const outside = await page.evaluate(() => {
       const bar = document.querySelector("header") as HTMLElement;
       const controls = [...bar.querySelectorAll("button, [role='combobox']")].filter((e) =>
@@ -127,6 +145,36 @@ test("bar_fits_the_window", async ({ page }) => {
   }
 });
 
+// Below 1400 px the scale settings sit in a popover: picking an option there keeps it open (the Select belongs to
+// the popover), Escape closes it, and a resize that moves the settings back into the bar closes it too.
+test("scale_settings_behind_their_button", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openDay(page);
+  const scales = page.getByRole("button", { name: "Epoch, sensitivity and timebase" });
+  const popover = page.getByRole("dialog", { name: "Epoch, sensitivity and timebase" });
+  await expect(scales).toHaveAttribute("aria-expanded", "false");
+  await scales.click();
+  await expect(popover).toBeVisible();
+  await expect(scales).toHaveAttribute("aria-expanded", "true");
+  await popover.getByRole("combobox", { name: "Epoch" }).click();
+  await page.getByRole("option", { name: "20 s" }).click();
+  await expect.poll(() => page.evaluate(() => window.__ddalab.store.getState().view.epochS)).toBe(20);
+  await expect(page.getByRole("listbox")).toBeHidden();
+  await expect(popover).toBeVisible();
+  await expect(popover.getByRole("combobox", { name: "Epoch" })).toHaveText("20 s");
+  await page.keyboard.press("Escape");
+  await expect(popover).toBeHidden();
+  await expect(scales).toHaveAttribute("aria-expanded", "false");
+  await expect(scales).toBeFocused();
+  await scales.click();
+  await expect(popover).toBeVisible();
+  await page.setViewportSize({ width: 1600, height: 800 });
+  await expect(popover).toBeHidden();
+  await expect(page.getByRole("combobox", { name: "Epoch" })).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await expect(scales).toHaveAttribute("aria-expanded", "false");
+});
+
 // The note beside the theme toggle opens by pointer and by keyboard, says what stays local and what this device has,
 // and closes with Escape, giving focus back to its trigger.
 test("local_note_opens_and_closes", async ({ page }) => {
@@ -153,7 +201,7 @@ test("local_note_opens_and_closes", async ({ page }) => {
     await expect(note).toBeVisible();
     await expect(note.getByRole("paragraph")).toHaveText([
       "Recordings are read directly in your browser. Nothing is uploaded, and the site keeps no copy of your data or results.",
-      "Every analysis runs on this device. How long a recording or an analysis can be depends on the device's memory and processor.",
+      "Every analysis runs on this device. Its memory and processor set how large a recording and how long an analysis can be.",
       `This device: ${device}.`,
       "OpenNeuro recordings stream from OpenNeuro to this device.",
     ]);
@@ -161,4 +209,9 @@ test("local_note_opens_and_closes", async ({ page }) => {
     await expect(note).toBeHidden();
     await expect(trigger).toBeFocused();
   }
+  // Below 1024 px the mark stands alone; its tooltip says what it means.
+  await page.setViewportSize({ width: 900, height: 800 });
+  await expect(trigger.getByText("Local", { exact: true })).toBeHidden();
+  await trigger.hover();
+  await expect(page.getByText("Data stays on this device", { exact: true })).toBeVisible();
 });
