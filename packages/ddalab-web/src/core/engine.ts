@@ -4,7 +4,7 @@
 // that never get a reply (the worker script does not load) stop after a few, with the engine unavailable.
 // A DDA run gets a pool of workers of its own, which end with it: a trap or a failed worker fails the run.
 import type { ResultTile } from "../render/resultPyramid";
-import type { FolderFile } from "./imports";
+import type { FolderFile, KeptRecord } from "./imports";
 import type {
   Annotations,
   AnnotationsReply,
@@ -116,8 +116,10 @@ export interface Engine {
   exportDocument(resultId: string): Promise<Blob>;
   /** One variant's Q values as CSV (exporters.ts), built in the IO worker. */
   exportCsv(resultId: string, variant: string): Promise<Blob>;
-  /** Stores and records a result the CLI wrote (imports.ts); its id. */
-  importResult(input: File | FolderFile[]): Promise<string>;
+  /** Stores and records a result the CLI wrote (imports.ts), or one of an opened project with its `kept` record; its id. */
+  importResult(input: File | FolderFile[], kept?: KeptRecord): Promise<string>;
+  /** What the open recording `id` was opened from; `undefined` once it closed. */
+  input(id: string): RecordingInput | undefined;
 }
 
 /** What dev and e2e builds add for tests. */
@@ -647,7 +649,8 @@ export function createEngine(): Engine {
     deleteResult: (resultId) => call({ type: "deleteResult", resultId }),
     exportDocument: (resultId) => call({ type: "exportDocument", resultId }),
     exportCsv: (resultId, variant) => call({ type: "exportCsv", resultId, variant }),
-    importResult: (input) => call({ type: "importResult", input }),
+    importResult: (input, kept) => call({ type: "importResult", input, kept }),
+    input: (id) => held.get(id),
   };
   return import.meta.env.DEV || import.meta.env.MODE === "e2e"
     ? Object.assign(engine, {
