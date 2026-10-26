@@ -16,7 +16,9 @@ const HTACCESS = readFileSync(new URL("../public/.htaccess", import.meta.url), "
 // Header lines of recorded responses (`curl -I`). The live-* files are the SNL host on 2026-10-25, before any publish:
 // its own defaults only. The apache-* files are an Apache 2.4.67 with those same defaults (mod_expires for HTML and
 // CSS, three security headers) and public/.htaccess applied, recorded with `curl -I -H 'Accept-Encoding: gzip'`;
-// apache-folder is the folder URL (Apache answers it with index.html).
+// apache-folder is the folder URL (Apache answers it with index.html). The pages-* files are GitHub Pages on
+// 2026-10-26: the Docusaurus site now at https://sdraeger.github.io/DDALAB/ for index, js and css, and
+// https://mdn.github.io/webassembly-examples/js-api-examples/simple.wasm for the wasm module (this site has none yet).
 const lines = (name) =>
   readFileSync(new URL(`fixtures/headers/${name}.txt`, import.meta.url), "utf8")
     .split("\n")
@@ -134,8 +136,11 @@ afterEach(() => {
   rmSync(dist, { recursive: true });
 });
 
-/** Starts a server that answers with the recorded fixture of each kind; the folder and index.html get `html`. */
-async function serving({ html, js, css, wasm }) {
+/**
+ * Starts a server that answers with the recorded fixture of each kind; the folder and index.html get `html`, and a GET
+ * of them the body `page`.
+ */
+async function serving({ html, js, css, wasm, page = "" }) {
   const skip = new Set([
     "date",
     "server",
@@ -151,12 +156,15 @@ async function serving({ html, js, css, wasm }) {
       200,
       lines(name).filter(([key]) => !skip.has(key.toLowerCase())),
     );
-    response.end();
+    response.end(request.method === "GET" ? page : undefined);
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   return `http://127.0.0.1:${server.address().port}/~sfdraeger/ddalab`;
 }
-const check = (site) => run("node", [SCRIPT, site, dist]).catch((error) => error);
+const check = (site, ...flags) => run("node", [SCRIPT, ...flags, site, dist]).catch((error) => error);
+const PAGES = { html: "pages-index", js: "pages-js", css: "pages-css", wasm: "pages-wasm" };
+const withMeta = (policy) =>
+  `<!doctype html><head><meta http-equiv="Content-Security-Policy" content="${policy.replaceAll("'", "&#39;")}"></head>`;
 
 test("the_script_passes_a_host_that_sends_the_policy", async () => {
   const site = await serving({
@@ -195,4 +203,33 @@ test("the_script_reports_a_host_that_does_not_answer", async () => {
   const error = await check(site);
   expect(error.code).toBe(1);
   expect(error.stderr).toContain(`${site}/index.html: no answer (`);
+});
+
+// The site sends max-age=600 and an Expires date and no policy header, which the Apache check would flag.
+test("pages_passes_with_its_own_headers_and_the_meta_policy", async () => {
+  const site = await serving({ ...PAGES, page: withMeta(CSP) });
+  // The documented address ends with a slash.
+  const { stdout } = await check(`${site}/`, "--pages");
+  expect(stdout).toContain("skipped: Cache-Control, Expires and the Content-Security-Policy header");
+  expect(stdout).toContain("carries the policy of public/.htaccess as the <meta> of index.html");
+  const error = await check(site);
+  expect(error.stderr).toContain(`${site}/index.html: Cache-Control is "max-age=600"`);
+});
+
+test.each([
+  ["a_changed_policy", "default-src 'self'", `is "default-src 'self'", expected "${CSP}"`],
+  ["no_meta", undefined, `is missing, expected "${CSP}"`],
+])("pages_fails_on_%s_in_the_page", async (_, policy, message) => {
+  const site = await serving({ ...PAGES, page: policy ? withMeta(policy) : "<!doctype html>" });
+  const error = await check(site, "--pages");
+  expect(error.code).toBe(1);
+  expect(error.stderr).toContain(`${site}/: the <meta> Content-Security-Policy ${message}`);
+  expect(error.stderr).toContain(`${site}/index.html: the <meta> Content-Security-Policy ${message}`);
+});
+
+test("pages_fails_on_a_wasm_module_without_its_mime_type", async () => {
+  const site = await serving({ ...PAGES, wasm: "live-script-js", page: withMeta(CSP) });
+  const error = await check(site, "--pages");
+  expect(error.code).toBe(1);
+  expect(error.stderr).toContain(`${site}/assets/engine.wasm: Content-Type is "application/javascript"`);
 });
