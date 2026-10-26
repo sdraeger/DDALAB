@@ -44,6 +44,7 @@
   color: var(--muted);
   font-size: var(--text-small);
   line-height: var(--leading-small);
+  text-wrap: pretty;
 }
 
 .error {
