@@ -511,13 +511,16 @@ function Row(props: {
     >
       <span className={styles.name}>{label}</span>
       <span className={styles.meta} id={props.describe}>
-        {recording.format}
-        <span className={rail.thin} aria-hidden />
-        {recording.missing ? (
-          <span className={styles.missing}>{recording.missing}</span>
-        ) : (
-          sizeOf(recording.size)
-        )}
+        {/* Format and size give way first, in an ellipsis: the status words after them stay whole. */}
+        <span className={styles.facts}>
+          {recording.format}
+          <span className={rail.thin} aria-hidden />
+          {recording.missing ? (
+            <span className={styles.missing}>{recording.missing}</span>
+          ) : (
+            sizeOf(recording.size)
+          )}
+        </span>
         {props.open && (
           <>
             <span className={rail.thin} aria-hidden />
