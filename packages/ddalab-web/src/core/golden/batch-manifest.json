@@ -1,12 +1,25 @@
 {
-  "failed": 1,
-  "matchedFiles": 3,
-  "processedFiles": 3,
+  "failed": 2,
+  "matchedFiles": 5,
+  "processedFiles": 5,
   "results": [
     {
-      "inputPath": "fixtures/sub-01/eeg/sub-01_task-rest_eeg.edf",
-      "outputPath": "out/sub-01_task-rest_eeg.e8c4a6f8.dda.json",
-      "resolvedDatasetPath": "fixtures/sub-01/eeg/sub-01_task-rest_eeg.edf",
+      "inputPath": "fixtures/sub-01/eeg/sub-01_task-rest_run-10_eeg.edf",
+      "outputPath": "dda/sub-01_task-rest_run-10_eeg.9527ac93.dda.json",
+      "resolvedDatasetPath": "fixtures/sub-01/eeg/sub-01_task-rest_run-10_eeg.edf",
+      "result": {
+        "rows": {
+          "ST": 2
+        },
+        "windows": 75
+      },
+      "status": "ok",
+      "warnings": []
+    },
+    {
+      "inputPath": "fixtures/sub-01/eeg/sub-01_task-rest_run-2_eeg.edf",
+      "outputPath": "dda/sub-01_task-rest_run-2_eeg.d6ea3f53.dda.json",
+      "resolvedDatasetPath": "fixtures/sub-01/eeg/sub-01_task-rest_run-2_eeg.edf",
       "result": {
         "rows": {
           "ST": 2
@@ -18,7 +31,7 @@
     },
     {
       "inputPath": "fixtures/sub-02/eeg/sub-02_task-rest_eeg.edf",
-      "outputPath": "out/sub-02_task-rest_eeg.ee72234b.dda.json",
+      "outputPath": "dda/sub-02_task-rest_eeg.675292c3.dda.json",
       "resolvedDatasetPath": "fixtures/sub-02/eeg/sub-02_task-rest_eeg.edf",
       "result": {
         "rows": {
@@ -38,8 +51,16 @@
       "resolvedDatasetPath": "fixtures/sub-03/eeg/sub-03_task-rest_eeg.edf",
       "status": "error",
       "warnings": []
+    },
+    {
+      "error": "fixtures/sub-04/eeg/sub-04_task-rest_eeg.vhdr: Input file not found: sub-04_task-rest_eeg.vhdr names sub-04_task-rest_eeg.eeg, which is not among the opened files",
+      "inputPath": "fixtures/sub-04/eeg/sub-04_task-rest_eeg.vhdr",
+      "outputPath": null,
+      "resolvedDatasetPath": "fixtures/sub-04/eeg/sub-04_task-rest_eeg.vhdr",
+      "status": "error",
+      "warnings": []
     }
   ],
-  "succeeded": 2,
+  "succeeded": 3,
   "withWarnings": 1
 }
