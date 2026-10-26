@@ -1,7 +1,8 @@
 // The waveform traces in WebGL2. Every device-pixel column of a channel row is one instance: the vertex shader
 // folds the minimum and maximum of every raw sample or pyramid bucket the column overlaps (spec, "Display is
-// pixel-exact") and emits a quad over exactly those pixel rows. Below one sample per pixel it folds the polyline
-// through the raw samples instead, interpolated at the column edges, which is the polyline's own raster.
+// pixel-exact") and emits a quad over exactly those pixel rows, clipped to the row's band. Below one sample per pixel
+// it folds the polyline through the raw samples instead, interpolated at the column edges, which is the polyline's
+// own raster.
 //
 // Two R32F texture arrays hold the data. A tile layer holds one pyramid tile of every display channel (1,024 minima
 // rows, then 1,024 maxima rows). A raw layer holds 2,048 raw rows of a window of channels around those on screen,
@@ -657,10 +658,17 @@ export function createWaveformLayer(
       gl.uniform1f(p.uniform("u_pxPerUnit"), frame.pxPerUnit);
       gl.uniform4fv(p.uniform("u_ink"), frame.ink);
     };
+    // Each row draws inside its own band of pixel rows only: a trace taller than its row never covers a neighbor.
+    const band = (r: number) => {
+      const [top, bottom] = [Math.floor(r * frame.rowHeight), Math.floor((r + 1) * frame.rowHeight)];
+      gl.scissor(0, height - bottom, width, bottom - top);
+    };
+    gl.enable(gl.SCISSOR_TEST);
     common(spans);
     gl.uniform1i(spans.uniform("u_line"), plan.mode === "line" ? 1 : 0);
     gl.uniform1i(spans.uniform("u_round"), 0);
     for (let r = 0; r < rowsShown; r++) {
+      band(r);
       gl.uniform1i(spans.uniform("u_channel"), frame.firstChannel + r);
       gl.uniform1f(spans.uniform("u_center"), (r + 0.5) * frame.rowHeight);
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, width);
@@ -674,11 +682,13 @@ export function createWaveformLayer(
       gl.uniform1f(dots.uniform("u_pointSize"), frame.pointSize);
       gl.uniform1i(dots.uniform("u_round"), 1);
       for (let r = 0; r < rowsShown && samples > 0; r++) {
+        band(r);
         gl.uniform1i(dots.uniform("u_channel"), frame.firstChannel + r);
         gl.uniform1f(dots.uniform("u_center"), (r + 0.5) * frame.rowHeight);
         gl.drawArraysInstanced(gl.POINTS, 0, 1, samples);
       }
     }
+    gl.disable(gl.SCISSOR_TEST); // the next frame's clear covers the whole canvas
     return { plan, complete, gaps, error };
   }
 
