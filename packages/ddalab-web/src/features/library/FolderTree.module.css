@@ -218,42 +218,47 @@
   text-overflow: ellipsis;
 }
 
-/* The rules between the status words keep their width. */
-.meta > [aria-hidden="true"] {
+/* The status words keep their width while format and size have any; past that (a row more than six folders down),
+   they end in an ellipsis of their own. The gap before them is left out of their width. */
+.status {
   flex-shrink: 0;
-}
-
-/* The thin rule between format and size, inline in the part that gives way. */
-.facts > [aria-hidden="true"] {
-  display: inline-block;
-  margin: 0 var(--space-2);
-  vertical-align: middle;
-}
-
-.missing {
+  max-width: calc(100% - var(--space-2));
   overflow: hidden;
-  color: var(--event);
   text-overflow: ellipsis;
 }
 
+/* The thin rules between the fields, inline in the line of their part, after the space that separates the words. */
+.facts > [aria-hidden="true"],
+.status > [aria-hidden="true"] {
+  display: inline-block;
+  margin: 0 var(--space-2) 0 var(--space-1);
+  vertical-align: middle;
+}
+
+.status > [aria-hidden="true"]:first-child {
+  margin-left: 0;
+}
+
+.missing {
+  color: var(--event);
+}
+
 .open {
-  flex-shrink: 0;
   color: var(--primary);
   font-weight: var(--weight-medium);
 }
 
-/* A row's batch mark: its icon and its word; the color repeats the word. */
+/* A row's batch mark: its icon and its word, inline so that an ellipsis can cut the word; the color repeats the word.
+   The icon sits on the baseline and spans the capitals (1cap). */
 .mark {
-  display: flex;
-  flex-shrink: 0;
-  align-items: baseline;
-  gap: 2px;
   font-weight: var(--weight-medium);
 }
 
 .mark svg {
   block-size: 1cap;
   inline-size: auto;
+  margin-right: 2px;
+  vertical-align: baseline;
   stroke-width: 2.5;
 }
 
