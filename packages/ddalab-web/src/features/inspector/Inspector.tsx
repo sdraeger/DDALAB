@@ -1,5 +1,6 @@
 // The inspector: the active result's provenance, the active recording's facts and scan, and its channels by electrode
 // group, chosen for analysis.
+import Check from "lucide-react/dist/esm/icons/check.mjs";
 import { lazy, memo, Suspense, useCallback, useId, useMemo, useState, useTransition } from "react";
 import { closeRecording } from "../../app/recordings";
 import type { RecordingInfo } from "../../core/types";
@@ -205,8 +206,10 @@ const Channels = memo(function Channels(props: {
 });
 
 /**
- * Shows the chosen channels alone in the waveform. With none chosen it cannot, and its note says why; the note is
- * announced when the last channel is unchosen, which turns it off.
+ * Shows the chosen channels alone in the waveform; a check beside the label marks it on where forced colors drop the
+ * color.
+ * With none chosen it cannot, and its note says why; the note is announced when the last channel is unchosen, which
+ * turns it off.
  */
 function ChosenOnly({ chosen }: { chosen: number }) {
   const on = useStore((s) => s.view.chosenOnly);
@@ -223,9 +226,10 @@ function ChosenOnly({ chosen }: { chosen: number }) {
         aria-describedby={reason ? `${id}-reason` : undefined}
         onClick={() => !reason && showChosenOnly(!on)}
       >
+        {on && <Check aria-hidden />}
         Show chosen channels only
       </button>
-      <span id={`${id}-reason`} className={styles.note} aria-live="polite">
+      <span id={`${id}-reason`} className={styles.reason} aria-live="polite">
         {reason}
       </span>
     </div>

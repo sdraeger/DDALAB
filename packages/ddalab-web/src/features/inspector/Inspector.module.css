@@ -117,12 +117,18 @@
   border-top: var(--hairline-width) solid var(--hairline);
 }
 
-/* "Show chosen channels only" and, with none chosen, why it cannot. */
+/* "Show chosen channels only" over the line that says why it cannot act. The line keeps its height when empty: the
+   first channel chosen moves nothing below it. */
 .chosenOnly {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-1) var(--space-3);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+
+.reason {
+  composes: note;
+  min-block-size: var(--leading-small);
 }
 
 /* "Show all N groups": its text in line with the group rows'. */

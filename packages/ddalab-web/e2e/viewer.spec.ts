@@ -397,10 +397,17 @@ test("chosen_channels_alone", async ({ page }) => {
   // Playwright waits for an aria-disabled button to turn enabled before it clicks; a pointer reaches it at once.
   await toggle.click({ force: true });
   await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  // The note's line stays when the first channel is chosen: nothing below it moves.
+  const groups = page.getByRole("list", { name: "Electrode groups" });
+  const groupsAt = await groups.boundingBox();
   for (const label of ["CH10", "CH3", "CH7"]) await choose(label);
   await expect(toggle).not.toHaveAttribute("aria-disabled");
+  expect(await groups.boundingBox()).toEqual(groupsAt);
+  // On, a check marks it besides the color.
+  await expect(toggle.locator("svg")).toHaveCount(0);
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await expect(toggle.locator("svg")).toHaveCount(1);
   await expect(rows).toHaveText([/^CH3\b/, /^CH7\b/, /^CH10\b/]);
   if (gl) {
     expect(await drawn()).toEqual([2, 6, 9]);
@@ -409,13 +416,15 @@ test("chosen_channels_alone", async ({ page }) => {
   }
   // Two rows: the arrow keys and the scroller page through the chosen channels.
   await setView(page, { rowCount: 2 });
-  await page.getByRole("region", { name: "Waveforms" }).focus();
+  const pane = page.getByRole("region", { name: "Waveforms" });
+  await pane.focus();
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowDown");
   await expect(rows).toHaveText([/^CH7\b/, /^CH10\b/]);
-  await page
-    .getByRole("region", { name: "Waveforms" })
-    .evaluate((pane) => pane.firstElementChild?.scrollTo(0, 0));
+  // The next frame moves the scroller to the row; a scroll back to the top then shows the first row again.
+  const scroller = () => pane.evaluate((p) => (p.firstElementChild as HTMLElement).scrollTop);
+  await expect.poll(scroller).toBeGreaterThan(0);
+  await pane.evaluate((p) => p.firstElementChild?.scrollTo(0, 0));
   await expect(rows).toHaveText([/^CH3\b/, /^CH7\b/]);
   // A channel chosen joins in order; the top row's channel unchosen gives way to the next.
   await choose("CH5");
