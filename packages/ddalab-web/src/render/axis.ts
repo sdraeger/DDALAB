@@ -261,8 +261,8 @@ function elide(ctx: CanvasRenderingContext2D, text: string, room: number): strin
 
 /**
  * The time ruler: labeled ticks and a flag at each event in the view, a bar under a span. The recording's events
- * have outlined red flags, the user's solid ink ones. A flag takes the room up to the next one and elides its label
- * to fit; one with no room left is a narrow pin. Returns the flags as drawn.
+ * have outlined red flags, the user's solid ink ones. A flag takes the room up to the next flag or tick label and
+ * elides its label to fit; one with no room left is a narrow pin. Returns the flags as drawn.
  */
 export function drawRuler(ctx: CanvasRenderingContext2D, scene: RulerScene): Flag[] {
   const { W, H, dpr, view, recording, colors } = scene;
@@ -280,29 +280,32 @@ export function drawRuler(ctx: CanvasRenderingContext2D, scene: RulerScene): Fla
     .map((e) => ({ ...e, left: Math.max(0, Math.round(x(e.a.onset_s))) }))
     .sort((p, q) => p.left - q.left);
   const [top, h, pad, pin] = [2 * dpr, H - 6 * dpr, 4 * dpr, 4 * dpr];
-  ctx.font = `600 ${11 * dpr}px ${colors.font}`;
-  const flags = events.map(({ a, left }, k) => {
-    const room = (events[k + 1]?.left ?? W) - left - 2 * dpr;
-    const text = elide(ctx, a.label || "event", room - 2 * pad);
-    return { text, x0: left, x1: left + (text ? ctx.measureText(text).width + 2 * pad : pin) };
-  });
-  // The ticks first. A label a flag would cover moves to the left of its tick, or is left out.
+  // The tick labels first: one a flag starts on moves to the left of its tick, else it is left out.
   ctx.font = `${11 * dpr}px ${colors.font}`;
   const { step, at } = ticks(view.t0, view.t1, W / dpr, 96);
-  const free = (l0: number, l1: number) =>
-    l0 >= 0 && !flags.some((f) => f.x0 < l1 + 2 * dpr && f.x1 > l0 - 2 * dpr);
-  for (const t of at) {
+  const blocked = (l0: number, l1: number) =>
+    l0 < 0 || events.some(({ left }) => left > l0 - pin - 4 * dpr && left < l1 + 2 * dpr);
+  const labels = at.map((t) => {
     const px = Math.round(x(t));
-    ctx.fillStyle = colors.hairline;
-    ctx.fillRect(px, H - 5 * dpr, line, 5 * dpr);
     const text = tickLabel(t, step);
     const w = ctx.measureText(text).width;
-    const l0 = [px + 3 * dpr, px - 3 * dpr - w].find((l) => free(l, l + w));
+    return { px, text, l0: [px + 3 * dpr, px - 3 * dpr - w].find((l) => !blocked(l, l + w)) };
+  });
+  for (const { px, text, l0 } of labels) {
+    ctx.fillStyle = colors.hairline;
+    ctx.fillRect(px, H - 5 * dpr, line, 5 * dpr);
     if (l0 === undefined) continue;
     ctx.fillStyle = colors.muted;
     ctx.fillText(text, l0, H / 2 - dpr);
   }
+  // Then each flag up to the next flag or tick label, its label elided to fit.
+  const stops = labels.flatMap(({ l0 }) => (l0 === undefined ? [] : [l0]));
   ctx.font = `600 ${11 * dpr}px ${colors.font}`;
+  const flags = events.map(({ a, left }, k) => {
+    const next = Math.min(events[k + 1]?.left ?? W, ...stops.filter((l) => l > left));
+    const text = elide(ctx, a.label || "event", next - left - 2 * dpr - 2 * pad);
+    return { text, x0: left, x1: left + (text ? ctx.measureText(text).width + 2 * pad : pin) };
+  });
   events.forEach(({ a, id, user, left }, k) => {
     const { text, x1 } = flags[k];
     const w = x1 - left;

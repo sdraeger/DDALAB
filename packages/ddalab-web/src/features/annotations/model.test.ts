@@ -1,24 +1,19 @@
 import "fake-indexeddb/auto";
 import { readFileSync } from "node:fs";
-import { expect, test } from "vitest";
-import { loadAnnotations, saveAnnotations } from "../../core/userAnnotations";
-import { type OpenRecording, useStore } from "../../store/store";
+import { beforeEach, expect, test, vi } from "vitest";
+import type { OpenRecording } from "../../store/store";
 import { eventsJson, eventsTsv } from "./events";
-import {
-  annotate,
-  create,
-  discard,
-  labelCreated,
-  labelsOf,
-  listed,
-  pointer,
-  redo,
-  remove,
-  resized,
-  undo,
-  update,
-  within,
-} from "./model";
+
+// Each test gets fresh modules: an empty store, and the model's undo history and last label as at startup.
+let m: typeof import("./model");
+let useStore: typeof import("../../store/store").useStore;
+let idb: typeof import("../../core/userAnnotations");
+beforeEach(async () => {
+  vi.resetModules();
+  m = await import("./model");
+  ({ useStore } = await import("../../store/store"));
+  idb = await import("../../core/userAnnotations");
+});
 
 const list = (fingerprint: string) =>
   (useStore.getState().annotations[fingerprint] ?? []).map(({ onset_s, duration_s, label }) => [
@@ -28,6 +23,7 @@ const list = (fingerprint: string) =>
   ]);
 
 test("create_edit_move_resize_delete_and_undo_each", () => {
+  const { create, update, remove, resized, undo, redo } = m;
   const fp = "model";
   const a = create(fp, 1, 0);
   update(fp, a.id, { label: "spike" });
@@ -66,6 +62,7 @@ test("create_edit_move_resize_delete_and_undo_each", () => {
 });
 
 test("a_created_annotation_and_its_label_are_one_step", () => {
+  const { create, labelCreated, undo } = m;
   const fp = "label";
   const a = create(fp, 2, 0);
   labelCreated(fp, a.id, "artifact");
@@ -75,6 +72,7 @@ test("a_created_annotation_and_its_label_are_one_step", () => {
 });
 
 test("a_discarded_creation_leaves_nothing_to_undo", () => {
+  const { create, discard, undo, redo } = m;
   const fp = "discard";
   const kept = create(fp, 1, 0);
   const dropped = create(fp, 5, 0);
@@ -87,6 +85,7 @@ test("a_discarded_creation_leaves_nothing_to_undo", () => {
 });
 
 test("removing_the_picked_annotation_lets_it_go", () => {
+  const { create, remove } = m;
   const fp = "picked";
   const a = create(fp, 1, 0);
   useStore.setState({ pickedAnnotation: a.id, annotationEditor: { id: a.id, created: false } });
@@ -95,7 +94,22 @@ test("removing_the_picked_annotation_lets_it_go", () => {
   expect(useStore.getState().annotationEditor).toBeNull();
 });
 
+test("undo_and_redo_close_an_open_editor", () => {
+  const { create, update, openEditor, undo, redo } = m;
+  const fp = "editing";
+  const a = create(fp, 1, 0);
+  update(fp, a.id, { label: "before" });
+  openEditor(a.id);
+  undo(fp);
+  expect(useStore.getState().annotationEditor).toBeNull();
+  openEditor(a.id);
+  redo(fp);
+  expect(useStore.getState().annotationEditor).toBeNull();
+  expect(list(fp)).toEqual([[1, 0, "before"]]);
+});
+
 test("a_resized_span_turns_over_past_its_other_edge", () => {
+  const { resized, within } = m;
   const a = { id: "x", onset_s: 10, duration_s: 4, label: "" };
   expect(resized(a, "end", 12)).toMatchObject({ onset_s: 10, duration_s: 2 });
   expect(resized(a, "end", 7)).toMatchObject({ onset_s: 7, duration_s: 3 });
@@ -106,6 +120,7 @@ test("a_resized_span_turns_over_past_its_other_edge", () => {
 });
 
 test("annotate_marks_the_selection_the_pointer_the_cursor_or_the_middle", () => {
+  const { annotate, pointer } = m;
   const recording = { fingerprint: "here", info: { duration_s: 30 } } as unknown as OpenRecording;
   const view = { ...useStore.getState().view, t0: 10, t1: 20 };
   useStore.setState({ recordings: { r: recording }, activeRecordingId: "r", view, cursorS: null });
@@ -133,6 +148,7 @@ test("annotate_marks_the_selection_the_pointer_the_cursor_or_the_middle", () => 
 });
 
 test("file_and_user_annotations_listed_by_time_with_their_source", () => {
+  const { listed, labelsOf } = m;
   const files = [
     { onset_s: 20, duration_s: 0, label: "spike", source: "EDF Annotations" },
     { onset_s: 2.5, duration_s: 1, label: "eyes closed", source: "events.tsv" },
@@ -148,6 +164,7 @@ test("file_and_user_annotations_listed_by_time_with_their_source", () => {
 });
 
 test("stored_by_fingerprint_and_read_back", async () => {
+  const { loadAnnotations, saveAnnotations } = idb;
   const a = { id: "a", onset_s: 1, duration_s: 0, label: "spike" };
   const b = { id: "b", onset_s: 2, duration_s: 3, label: "seizure" };
   await saveAnnotations("one", [a]);
@@ -160,11 +177,27 @@ test("stored_by_fingerprint_and_read_back", async () => {
 });
 
 test("each_change_is_stored", async () => {
+  const { create, update, saved } = m;
   const fp = "stored";
   const a = create(fp, 1, 0);
   update(fp, a.id, { label: "kept" });
-  await new Promise((done) => setTimeout(done, 50));
-  expect(await loadAnnotations(fp)).toEqual([{ ...a, label: "kept" }]);
+  await saved();
+  expect(await idb.loadAnnotations(fp)).toEqual([{ ...a, label: "kept" }]);
+});
+
+test("an_annotation_made_while_the_stored_list_loads_joins_it", async () => {
+  const { create, restoreAnnotations, saved, undo } = m;
+  const fp = "race";
+  const stored = { id: "s", onset_s: 1, duration_s: 0, label: "stored" };
+  await idb.saveAnnotations(fp, [stored]);
+  const restoring = restoreAnnotations(fp);
+  const made = create(fp, 5, 0); // before the read resolves
+  await restoring;
+  await saved();
+  expect(useStore.getState().annotations[fp]).toEqual([stored, made]);
+  expect(await idb.loadAnnotations(fp)).toEqual([stored, made]);
+  // The creation's undo step knew nothing of the stored list: it is dropped, and undo cannot delete what was stored.
+  expect(undo(fp)).toBe(false);
 });
 
 test("events_tsv_matches_the_hand_written_file", () => {

@@ -1,14 +1,15 @@
 // The inspector's annotations of a recording, the user's and the file's, by time, with a filter by label and a
-// switch for the file's events. The arrow keys move along the rows, Enter centers the view on one, F2 opens its
-// editor and Delete removes one of the user's. Use as selection makes a span the run interval. Export annotations
-// saves the listed rows as a BIDS events.tsv or as JSON. Loaded lazily with the inspector's recording.
+// switch for the file's events. The arrow keys move along the rows, Enter (or a click) centers the view on one, F2
+// (or a double-click) opens its editor and Delete removes one of the user's. The picked row scrolls into view. Use
+// as selection makes a span the run interval. Export annotations saves the listed rows as a BIDS events.tsv or as
+// JSON. Loaded lazily with the inspector's recording.
 import { Popover } from "@base-ui/react/popover";
 import Download from "lucide-react/dist/esm/icons/download.mjs";
-import { type KeyboardEvent, useDeferredValue, useMemo, useState } from "react";
+import { type KeyboardEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { download } from "../../app/download";
 import type { UserAnnotation } from "../../core/userAnnotations";
 import { setSelection, useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
-import { download } from "../history/ExportDialog";
 import history from "../history/History.module.css";
 import styles from "./Annotations.module.css";
 import { eventsJson, eventsTsv } from "./events";
@@ -36,6 +37,17 @@ export default function AnnotationList({ recordingId }: { recordingId: string })
   /** The row the list's Tab stop is on: the one last focused, else the first. */
   const [active, setActive] = useState<string | null>(null);
   const focusable = shown.some((a) => a.id === active) ? active : shown[0]?.id;
+  const listRef = useRef<HTMLUListElement>(null);
+  // The picked row, a new one say, scrolls into view within the list; the inspector stays where it is.
+  useEffect(() => {
+    const list = listRef.current;
+    const row = picked && list?.querySelector<HTMLElement>(`[data-id="${CSS.escape(picked)}"]`);
+    if (!list || !row) return;
+    if (row.offsetTop < list.scrollTop) list.scrollTop = row.offsetTop;
+    else if (row.offsetTop + row.offsetHeight > list.scrollTop + list.clientHeight) {
+      list.scrollTop = row.offsetTop + row.offsetHeight - list.clientHeight;
+    }
+  }, [picked]);
   const stem = (names?.[0] ?? "recording").replace(/\.[^.]*$/, "").replace(/_(eeg|ieeg|meg)$/, "");
 
   const onKey = (event: KeyboardEvent<HTMLUListElement>) => {
@@ -91,17 +103,26 @@ export default function AnnotationList({ recordingId }: { recordingId: string })
             )}
           </div>
           {/* Page keys scroll this list instead of paging the recording. */}
-          <ul aria-label="Annotations" className={styles.list} onKeyDown={onKey} data-own-keys>
+          <ul aria-label="Annotations" className={styles.list} onKeyDown={onKey} data-own-keys ref={listRef}>
             {shown.map((a, i) => (
-              <li key={a.id} data-index={i} className={styles.row} data-picked={a.id === picked || undefined}>
+              <li
+                key={a.id}
+                data-index={i}
+                data-id={a.id}
+                className={styles.row}
+                data-picked={a.id === picked || undefined}
+              >
                 <button
                   type="button"
                   data-row
                   className={styles.rowButton}
                   aria-label={spoken(a)}
+                  aria-current={a.id === picked || undefined}
+                  aria-keyshortcuts={a.user ? "Enter F2 Delete" : "Enter F2"}
                   tabIndex={a.id === focusable ? 0 : -1}
                   onFocus={() => setActive(a.id)}
                   onClick={() => centerOn(a)}
+                  onDoubleClick={() => openEditor(a.id)}
                 >
                   <span className={styles.flag} data-user={a.user || undefined} />
                   <span className={styles.rowLabel}>{a.label || "event"}</span>
@@ -112,6 +133,7 @@ export default function AnnotationList({ recordingId }: { recordingId: string })
                   <button
                     type="button"
                     className={`${controls.quiet} ${styles.use}`}
+                    aria-label={`Use as selection: ${a.label || "event"}`}
                     tabIndex={a.id === focusable ? 0 : -1}
                     onClick={() => {
                       setSelection({ t0: a.onset_s, t1: a.onset_s + a.duration_s });

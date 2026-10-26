@@ -16,6 +16,16 @@ const redos = new Map<string, UserAnnotation[][]>();
 let lastLabel = "";
 /** The time under the pointer while it is over the waveform plot, else null. */
 export const pointer: { s: number | null } = { s: null };
+/** The writes to IndexedDB, one after another in the order of the changes. */
+let saving: Promise<void> = Promise.resolve();
+
+/** Resolves once every change made so far is stored (or has warned that it could not be). */
+export const saved = () => saving;
+
+/** Stores the recording's list after the writes before it. */
+function store(fingerprint: string, list: UserAnnotation[]) {
+  saving = saving.then(() => saveAnnotations(fingerprint, list).catch((error) => warn(fingerprint, error)));
+}
 
 /** The user's annotations of a recording, with the one being dragged where the drag has it. */
 export function userOf(state: State, fingerprint: string): UserAnnotation[] {
@@ -48,7 +58,7 @@ function show(fingerprint: string, next: UserAnnotation[]) {
       annotationEditor: gone(s.annotationEditor?.id) ? null : s.annotationEditor,
     };
   });
-  saveAnnotations(fingerprint, next).catch((error) => warn(fingerprint, error));
+  store(fingerprint, next);
 }
 
 const push = (stacks: Map<string, UserAnnotation[][]>, fingerprint: string, list: UserAnnotation[]) =>
@@ -61,7 +71,10 @@ function commit(fingerprint: string, next: UserAnnotation[]) {
   show(fingerprint, next);
 }
 
-/** Reads the stored list of a recording that has none in the store yet; one made meanwhile is kept. */
+/**
+ * Reads the stored list of a recording that has none in the store yet. Annotations made while it loads join it:
+ * the merged list is stored, and their undo steps, which knew nothing of the stored ones, are dropped.
+ */
 export async function restoreAnnotations(fingerprint: string) {
   if (useStore.getState().annotations[fingerprint]) return;
   const stored = await loadAnnotations(fingerprint).catch((error) => {
@@ -69,7 +82,12 @@ export async function restoreAnnotations(fingerprint: string) {
     return EMPTY;
   });
   const made = listOf(fingerprint);
-  useStore.setState((s) => ({ annotations: { ...s.annotations, [fingerprint]: [...stored, ...made] } }));
+  const merged = [...stored, ...made];
+  useStore.setState((s) => ({ annotations: { ...s.annotations, [fingerprint]: merged } }));
+  if (made.length === 0) return;
+  undos.delete(fingerprint);
+  redos.delete(fingerprint);
+  store(fingerprint, merged);
 }
 
 /** An onset and a duration held inside a recording of `length` seconds. */
@@ -123,7 +141,7 @@ export function discard(fingerprint: string, id: string) {
   );
 }
 
-/** Steps back (`undo`) or forward (`redo`) one change; false when there is none. */
+/** Steps back (`undo`) or forward (`redo`) one change, closing an open editor; false when there is none. */
 function step(
   from: Map<string, UserAnnotation[][]>,
   to: Map<string, UserAnnotation[][]>,
@@ -132,6 +150,8 @@ function step(
   const list = from.get(fingerprint)?.pop();
   if (!list) return false;
   push(to, fingerprint, listOf(fingerprint));
+  // An editor still holding the values from before would put them back on Save.
+  closeEditor();
   show(fingerprint, list);
   return true;
 }
