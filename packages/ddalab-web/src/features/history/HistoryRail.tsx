@@ -140,6 +140,9 @@ function Results({ onResume }: { onResume: Resume }) {
   );
 }
 
+/** When a record was made; one whose time no Date holds (from elsewhere) reads as unknown and the rest still shows. */
 function Time({ at }: { at: number }) {
-  return <time dateTime={new Date(at).toISOString()}>{when(at)}</time>;
+  const date = new Date(at);
+  if (Number.isNaN(date.getTime())) return <span>unknown time</span>;
+  return <time dateTime={date.toISOString()}>{when(at)}</time>;
 }
