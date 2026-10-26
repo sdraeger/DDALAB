@@ -440,6 +440,14 @@ function Tree(props: {
   );
 }
 
+/** A thin rule between two fields of a row's meta, after a space that keeps their words apart in its description. */
+const Rule = () => (
+  <>
+    {" "}
+    <span className={rail.thin} aria-hidden />
+  </>
+);
+
 const MARK: Record<Mark, { word: string; Icon: typeof Check }> = {
   done: { word: "Done", Icon: Check },
   failed: { word: "Failed", Icon: X },
@@ -511,28 +519,32 @@ function Row(props: {
     >
       <span className={styles.name}>{label}</span>
       <span className={styles.meta} id={props.describe}>
-        {/* Format and size give way first, in an ellipsis: the status words after them stay whole. */}
+        {/* Format and size give way first, in an ellipsis; then the status words, in one of their own. */}
         <span className={styles.facts}>
           {recording.format}
-          <span className={rail.thin} aria-hidden />
+          <Rule />
           {recording.missing ? (
             <span className={styles.missing}>{recording.missing}</span>
           ) : (
             sizeOf(recording.size)
           )}
         </span>
-        {props.open && (
-          <>
-            <span className={rail.thin} aria-hidden />
-            {/* The words tell the shown recording from the other open ones; color only repeats them. */}
-            <span className={styles.open}>{props.active ? "Viewing" : "Open"}</span>
-          </>
-        )}
-        {props.mark && (
-          <>
-            <span className={rail.thin} aria-hidden />
-            <RowMark mark={props.mark} />
-          </>
+        {(props.open || props.mark) && (
+          <span className={styles.status}>
+            {props.open && (
+              <>
+                <Rule />
+                {/* The words tell the shown recording from the other open ones; color only repeats them. */}
+                <span className={styles.open}>{props.active ? "Viewing" : "Open"}</span>
+              </>
+            )}
+            {props.mark && (
+              <>
+                <Rule />
+                <RowMark mark={props.mark} />
+              </>
+            )}
+          </span>
         )}
       </span>
     </div>
