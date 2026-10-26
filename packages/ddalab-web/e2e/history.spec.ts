@@ -115,7 +115,11 @@ const unzip = (zip: string) => {
 const commandOf = async (page: Page) => (await provenance(page).locator("pre").textContent()) ?? "";
 
 test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => Reflect.deleteProperty(window, "showOpenFilePicker"));
+  // No native dialogs: the exports save as downloads (save.spec.ts covers the Save dialog).
+  await page.addInitScript(() => {
+    Reflect.deleteProperty(window, "showOpenFilePicker");
+    Reflect.deleteProperty(window, "showSaveFilePicker");
+  });
   await page.goto("/");
 });
 

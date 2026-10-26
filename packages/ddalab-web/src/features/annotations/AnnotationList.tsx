@@ -171,8 +171,8 @@ export default function AnnotationList({ recordingId }: { recordingId: string })
                   className={history.option}
                   onClick={() =>
                     download(
-                      new Blob([eventsTsv(shown)], { type: "text/tab-separated-values" }),
                       `${stem}_events.tsv`,
+                      () => new Blob([eventsTsv(shown)], { type: "text/tab-separated-values" }),
                     )
                   }
                 >
@@ -184,8 +184,8 @@ export default function AnnotationList({ recordingId }: { recordingId: string })
                   className={history.option}
                   onClick={() =>
                     download(
-                      new Blob([eventsJson(shown)], { type: "application/json" }),
                       `${stem}_annotations.json`,
+                      () => new Blob([eventsJson(shown)], { type: "application/json" }),
                     )
                   }
                 >
