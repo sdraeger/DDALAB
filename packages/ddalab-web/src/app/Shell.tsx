@@ -42,6 +42,7 @@ import {
   useStore,
 } from "../store/store";
 import controls from "../styles/controls.module.css";
+import { Logo } from "./Logo";
 import styles from "./Shell.module.css";
 
 const Calibration = lazy(() => import("../features/settings/Calibration"));
@@ -75,7 +76,10 @@ export function Shell() {
           <IconButton label="Library" aria-pressed={library} onClick={() => togglePanel("library")}>
             <PanelLeft aria-hidden />
           </IconButton>
-          <span className={styles.wordmark}>DDALAB</span>
+          <span className={styles.brand}>
+            <Logo />
+            <span className={styles.wordmark}>DDALAB</span>
+          </span>
           <RecordingName />
           <span className={styles.grow} />
           {id && <ViewControls />}
