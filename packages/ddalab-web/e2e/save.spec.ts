@@ -20,7 +20,7 @@ type Saves = {
 };
 const saves = (page: Page) => page.evaluate(() => (window as unknown as Saves).saved);
 
-/** Whether Save dialogs are on (the stub) or off (no dialog, so downloads). */
+/** Whether Save dialogs are on (the stub) or off (no dialog: the exports download). */
 const dialogs = (page: Page, on: boolean) =>
   page.evaluate((on) => {
     if (on) Object.assign(window, { showSaveFilePicker: (window as unknown as Saves).saveStub });

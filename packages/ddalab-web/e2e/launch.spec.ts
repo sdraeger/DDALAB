@@ -1,5 +1,5 @@
-// Files the system opens the installed app with. Playwright cannot start a real file-handler launch (that needs the
-// installed app and its "Open with" entry), so the page's launch queue is replaced by one that keeps the consumer the app
+// Files the system opens the installed app with. Playwright cannot start a real file-handler launch: that needs the
+// installed app and its "Open with" entry. The page's launch queue is replaced by one that keeps the consumer the app
 // sets, and the test calls it with handles of files in the origin private file system (reading them needs no prompt,
 // and their folder answers `resolve` as a folder on disk does). What is checked: the consumer, the open through the
 // existing path with handles, the missing-companions message with its folder action, and the search of a granted
@@ -117,5 +117,5 @@ test("a_launched_header_next_to_a_folder_already_granted_opens_without_asking", 
   await launch(page, "second.vhdr");
   await expect(page.getByRole("heading", { name: "second.vhdr" })).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
-  expect(await picks(page)).toBe(1); // the folder was found among the tabs', not asked for again
+  expect(await picks(page)).toBe(1); // the open tab's folder held the file: no second picker
 });

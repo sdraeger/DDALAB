@@ -31,10 +31,10 @@ export default defineConfig({
   plugins: [
     react(),
     {
-      // GitHub Pages cannot send headers and ignores .htaccess, so the production page carries the policy of
+      // GitHub Pages cannot send headers and ignores .htaccess. The production page carries the policy of
       // public/.htaccess, the one source, as a <meta> too. A meta policy cannot hold frame-ancestors (nor report-uri or
-      // sandbox), so keep those out of that line, and it does not govern worker scripts: a worker runs under the
-      // headers of its own response, which on Pages hold no policy. First in <head>, since it covers only what follows.
+      // sandbox): keep those out of that line. It does not govern worker scripts either: a worker runs under the
+      // headers of its own response, which on Pages hold no policy. It goes first in <head> and covers what follows.
       name: "csp-meta",
       apply: production,
       transformIndexHtml: () => [
