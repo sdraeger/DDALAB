@@ -235,3 +235,8 @@
   font-size: var(--text-small);
   line-height: var(--leading-small);
 }
+
+/* A CLI command breaks before or after itself, never at its own hyphens. */
+.option .flag {
+  white-space: nowrap;
+}

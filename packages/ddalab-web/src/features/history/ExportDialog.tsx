@@ -40,7 +40,10 @@ export default function ExportDialog({ record }: { record: AnalysisRecord }) {
         onClick={() => save(`${stem}.dda.zip`, zip)}
       >
         <b>Bundle</b>
-        <span>manifest.json and the .npy arrays in a zip, as ddalab run --bundle writes them</span>
+        <span>
+          manifest.json and the .npy arrays in a zip, as{" "}
+          <span className={styles.flag}>ddalab run --bundle</span> writes them
+        </span>
       </button>
       <button
         type="button"
@@ -49,7 +52,10 @@ export default function ExportDialog({ record }: { record: AnalysisRecord }) {
         onClick={() => save(`${stem}.dda.json`, () => engine.exportDocument(record.id))}
       >
         <b>Document</b>
-        <span>One JSON file with the matrices inline, as ddalab run --output writes it</span>
+        <span>
+          One JSON file with the matrices inline, as <span className={styles.flag}>ddalab run --output</span>{" "}
+          writes it
+        </span>
       </button>
       {variants.map((variant) => (
         <button
