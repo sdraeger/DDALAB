@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { TAB_KEYS } from "../src/features/tabs/keys";
 import { expect, test } from "./test";
 
 test("page_shows_engine_version", async ({ page }) => {
@@ -12,10 +13,12 @@ test("about_names_the_versions_and_credits_the_color_maps", async ({ page }) => 
   const about = page.getByRole("dialog", { name: "About DDALAB" });
   const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
   const engine = await page.evaluate(() => window.__ddalab.engine.version());
+  // The versions, then what each tab shortcut does.
   await expect(about.getByRole("definition")).toHaveText([
     version,
     engine.engine_version,
     engine.git_commit ?? "not recorded in this build",
+    ...TAB_KEYS.map(([, action]) => action),
   ]);
   await expect(about).toContainText(
     "Crameri, F. (2018). Scientific colour maps. Zenodo. doi:10.5281/zenodo.1243862",
