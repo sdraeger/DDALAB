@@ -196,7 +196,9 @@ function Recordings(props: {
   if (recordings.length === 0) {
     return (
       <>
-        <p className={rail.hint}>No recording here. DDALAB reads EDF, BDF, BrainVision and delimited text.</p>
+        <p className={rail.hint}>
+          No recording here. DDALAB reads EDF, BDF, BrainVision, EEGLAB and delimited text.
+        </p>
         {skipped}
       </>
     );

@@ -79,5 +79,5 @@ test("the_file_handlers_cover_the_formats_the_app_reads", () => {
       expect(RANK, `${extension} is not a format the app opens`).toHaveProperty(extension.slice(1));
     }
   }
-  expect(extensions.sort()).toEqual([".bdf", ".csv", ".ddalab", ".edf", ".tsv", ".txt", ".vhdr"]);
+  expect(extensions.sort()).toEqual([".bdf", ".csv", ".ddalab", ".edf", ".set", ".tsv", ".txt", ".vhdr"]);
 });

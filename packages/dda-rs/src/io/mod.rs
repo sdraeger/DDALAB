@@ -4,6 +4,8 @@ mod ascii;
 mod bids;
 mod brainvision;
 mod edf;
+mod eeglab;
+mod mat;
 mod recording;
 mod source;
 
@@ -13,6 +15,7 @@ pub use bids::apply_bids_sidecars;
 pub use bids::discover_bids_recordings;
 pub use brainvision::open_brainvision;
 pub use edf::open_edf;
+pub use eeglab::open_eeglab;
 pub use recording::*;
 pub use source::*;
 
@@ -52,7 +55,7 @@ impl Reader for WithSidecars {
     }
 }
 
-/// Opens the recording `files.primary` names with the reader its extension selects (`.edf` `.bdf`, `.vhdr`,
+/// Opens the recording `files.primary` names with the reader its extension selects (`.edf` `.bdf`, `.vhdr`, `.set`,
 /// `.txt` `.csv` `.tsv` `.ascii` `.dat`) and applies the BIDS sidecars in `files`.
 /// `sample_rate_hz` only reaches the text formats, which store no rate.
 pub fn open_recording(files: &FileSet, sample_rate_hz: Option<f64>) -> Result<Box<dyn Reader>> {
@@ -61,6 +64,7 @@ pub fn open_recording(files: &FileSet, sample_rate_hz: Option<f64>) -> Result<Bo
     let reader = match extension.to_ascii_lowercase().as_str() {
         "edf" | "bdf" => open_edf(files, name)?,
         "vhdr" => open_brainvision(files, name)?,
+        "set" => open_eeglab(files, name)?,
         "txt" | "csv" | "tsv" | "ascii" | "dat" => open_ascii(files, name, sample_rate_hz)?,
         _ => return Err(DDAError::UnsupportedFileType(name.to_string())),
     };

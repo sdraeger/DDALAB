@@ -6,7 +6,7 @@ import { discovered, MAX_DEPTH, SKIPPED } from "../../core/batch";
 import type { DatasetSource, RecordingInput } from "../../core/engine";
 
 /** The files a recording opens from; the BIDS text files beside them are its sidecars. */
-export const RECORDING = /\.(vhdr|edf|bdf)$/i;
+export const RECORDING = /\.(vhdr|set|edf|bdf)$/i;
 
 const ENDPOINT = "https://openneuro.org/crn/graphql";
 const UNREACHABLE = "OpenNeuro could not be reached. Recordings on this computer still open.";
