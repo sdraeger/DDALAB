@@ -5,7 +5,7 @@
 // With hands the installed app a project's handle, which its tab keeps.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, mkdtempSync, readFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -294,28 +294,53 @@ test("a_launched_project_reattaches_through_its_handle", async ({ page, browser,
   await elsewhere.close();
 });
 
-/** `path`'s project with its project.json `p` changed by the Python expression `edit`, written stored; its path. */
-function rewritten(path: string, edit: string) {
+/** `path`'s project with the bytes `data` of its entry `entry` changed by the Python lines `edit`, stored; its path. */
+function rewritten(path: string, entry: string, edit: string) {
   const crafted = join(mkdtempSync(join(tmpdir(), "ddalab-crafted-")), basename(path));
+  const lines = edit
+    .split("\n")
+    .map((line) => `      ${line}\n`)
+    .join("");
   execFileSync("python3", [
     "-c",
     "import json, sys, zipfile\n" +
       "with zipfile.ZipFile(sys.argv[1]) as a, zipfile.ZipFile(sys.argv[2], 'w', zipfile.ZIP_STORED) as b:\n" +
       "  for i in a.infolist():\n" +
       "    data = a.read(i)\n" +
-      "    if i.filename == 'project.json':\n" +
-      "      p = json.loads(data)\n" +
-      `      ${edit}\n` +
-      "      data = json.dumps(p).encode()\n" +
+      "    if i.filename == sys.argv[3]:\n" +
+      lines +
       "    b.writestr(i.filename, data)",
     path,
     crafted,
+    entry,
   ]);
   return crafted;
 }
 
-/** `path`'s project with the SHA-256 its project.json lists for `fixture.edf` replaced; its path. */
-const misdigested = (path: string) => rewritten(path, "p['recordings'][0]['files'][0]['sha256'] = '0' * 64");
+/** `path`'s project with its project.json `p` changed by the Python expression `edit`; its path. */
+const reworded = (path: string, edit: string) =>
+  rewritten(path, "project.json", `p = json.loads(data)\n${edit}\ndata = json.dumps(p).encode()`);
+
+/** `path`'s project with the SHA-256 its project.json lists for its first file replaced; its path. */
+const misdigested = (path: string) => reworded(path, "p['recordings'][0]['files'][0]['sha256'] = '0' * 64");
+
+/** `path`'s project with one digit in the middle of its entry `entry` changed, its size and edges kept; its path. */
+const altered = (path: string, entry: string) =>
+  rewritten(
+    path,
+    entry,
+    "k = len(data) // 2\n" +
+      "while not data[k:k + 1].isdigit(): k += 1\n" +
+      "data = data[:k] + (b'1' if data[k:k + 1] != b'1' else b'2') + data[k + 1:]",
+  );
+
+/** A text recording longer than the fingerprint's two 64 KiB edges, in a folder of its own; its path. */
+function longCsv() {
+  const rows = Array.from({ length: 20_000 }, (_, i) => `${(i / 250).toFixed(3)},${i % 100}.5,${i % 37}.5`);
+  const path = join(mkdtempSync(join(tmpdir(), "ddalab-long-")), "long.csv");
+  writeFileSync(path, `time,A,B\n${rows.join("\n")}\n`);
+  return path;
+}
 
 const chosenOnly = (page: Page) => page.getByRole("button", { name: "Show chosen channels only" });
 
@@ -351,47 +376,66 @@ test("chosen_only_travels_with_a_project", async ({ page, browser }) => {
   await chosenOnly(older).click();
   await expect(chosenOnly(older)).toHaveAttribute("aria-pressed", "true");
   const views = "[r['saved']['view'].pop('chosenOnly') for r in p['recordings'] if r['saved']]";
-  await older.getByLabel("Recording files").setInputFiles(rewritten(path, views));
+  await older.getByLabel("Recording files").setInputFiles(reworded(path, views));
   await expect(older.getByRole("heading", { name: "fixture.edf" })).toBeVisible();
   await expect(chosenOnly(older)).toHaveAttribute("aria-pressed", "false");
   await before.close();
 });
 
-// A recording here and the project's agree on the fingerprint (the name, the size and the edges of each file) but not
-// on the SHA-256 the project lists: the user's tab, its source and annotations stay as they are, and the project's copy
-// is not opened. Without a tab here, the project's recording opens, and the hash then detaches it.
+// A project whose copy of a recording has the fingerprint of the user's (the name, the size and both 64 KiB edges) and
+// even lists the user's SHA-256, over other bytes in the middle: the project's bytes are hashed before anything joins,
+// and with the user's tab open or detached, the tab, its source and its annotations stay as they are, nothing of that
+// recording is added, and the user reads what happened and what to do. Without a tab here, a project whose listed
+// SHA-256 its bytes do not have opens, and the hash then detaches it as damaged or altered.
 test("a_project_never_takes_a_recording_whose_files_differ", async ({ page, browser }) => {
+  const csv = longCsv();
   await start(page);
-  await page.getByLabel("Recording files").setInputFiles(fixture("fixture.edf"));
-  await expect(page.getByRole("heading", { name: "fixture.edf" })).toBeVisible();
+  await page.getByLabel("Recording files").setInputFiles(csv);
+  await expect(page.getByRole("heading", { name: "long.csv" })).toBeVisible();
   await annotate(page, 3, 4, "theirs");
-  const crafted = misdigested(await exportProject(page, /^1 recording, 0 results: /));
+  const path = await exportProject(page, /^1 recording, 0 results: /);
+  const crafted = altered(path, "recordings/0/long.csv");
   const fingerprint = await page.evaluate(() => window.__ddalab.store.getState().tabs[0].fingerprint);
-  const digest = sha256(readFileSync(fixture("fixture.edf")));
 
   const mine = await browser.newContext();
   const here = await mine.newPage();
   await start(here);
-  await here.getByLabel("Recording files").setInputFiles(fixture("fixture.edf"));
-  await expect.poll(() => hashes(here)).toEqual({ [fingerprint]: { "fixture.edf": digest } });
-  await here.getByLabel("Recording files").setInputFiles(crafted);
-  await expect(here.getByRole("alert").filter({ hasText: "was not opened" })).toHaveText(
-    "fixture.edf was not opened: a tab here holds a recording of that name whose files are not the project's.",
-  );
+  await here.getByLabel("Recording files").setInputFiles(csv);
+  await expect.poll(() => hashes(here)).toEqual({ [fingerprint]: { "long.csv": sha256(readFileSync(csv)) } });
+  const refusal =
+    `long.csv was not opened from ${basename(crafted)}: it has the name, size, start and end of the long.csv ` +
+    "already in a tab here, but other contents. The project's annotations and results for it were not added. To " +
+    "use the project's copy instead, close the tab of long.csv and open the project again.";
   const state = () =>
     here.evaluate((fp) => {
       const s = window.__ddalab.store.getState();
-      return { sources: s.tabs.map((t) => t.source?.kind), annotations: s.annotations[fp] ?? [] };
+      return {
+        sources: s.tabs.map((t) => t.source?.kind),
+        open: Object.keys(s.recordings).length,
+        annotations: s.annotations[fp] ?? [],
+      };
     }, fingerprint);
-  expect(await state()).toEqual({ sources: ["files"], annotations: [] });
+  for (const open of [1, 0]) {
+    await here.getByLabel("Recording files").setInputFiles(crafted);
+    await expect(here.getByRole("alert").filter({ hasText: "was not opened" })).toHaveText(refusal);
+    expect(await state()).toEqual({ sources: ["files"], open, annotations: [] });
+    // Next the user's tab is detached, as after a reload where its file is not readable yet.
+    await here.evaluate(() => window.__ddalab.tabs.flush());
+    await here.reload();
+    await expect(tabsOf(here)).toHaveCount(1);
+  }
   await mine.close();
 
   const fresh = await browser.newContext();
   const there = await fresh.newPage();
   await start(there);
-  await there.getByLabel("Recording files").setInputFiles(crafted);
+  const listed = misdigested(path);
+  await there.getByLabel("Recording files").setInputFiles(listed);
   await expect(
-    there.getByText(`fixture.edf in ${basename(crafted)} is not the file its tab holds (SHA-256)`),
+    there.getByText(
+      `long.csv in ${basename(listed)} does not have the SHA-256 that the project lists for it: ` +
+        "the project is damaged or was altered",
+    ),
   ).toBeVisible({ timeout: 30_000 });
   expect(await opened(there)).toBe(0);
   await fresh.close();

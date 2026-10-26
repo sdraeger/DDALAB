@@ -264,22 +264,42 @@ export const pickerFor = (tab: Tab): "folder" | "files" =>
 
 /**
  * Reattaches every detached tab whose files are among the picked ones, each stopping an attempt under way for it;
- * `target` says when none of its files is.
+ * `target` says when none of its files is. `among`: only the tabs of these fingerprints.
  */
-export async function reattachFrom(picked: File[], target: string | null, handles?: FileHandles) {
+export async function reattachFrom(
+  picked: File[],
+  target: string | null,
+  handles?: FileHandles,
+  among?: Set<string>,
+) {
   await Promise.all(
-    detachedTabs().map(async (tab) => {
-      const match = local(tab.source) ? matchOf(tab.source, picked) : null;
-      if (!match) {
-        if (tab.fingerprint === target) setReason(tab.fingerprint, `None of the chosen files is ${tab.name}`);
-        return;
-      }
-      if ("reason" in match) return setReason(tab.fingerprint, match.reason);
-      await attempt(tab.fingerprint, true, (signal) =>
-        attachMatch(tab, match, picked, handles, true, signal),
-      );
-    }),
+    detachedTabs()
+      .filter((tab) => !among || among.has(tab.fingerprint))
+      .map(async (tab) => {
+        const match = local(tab.source) ? matchOf(tab.source, picked) : null;
+        if (!match) {
+          if (tab.fingerprint === target)
+            setReason(tab.fingerprint, `None of the chosen files is ${tab.name}`);
+          return;
+        }
+        if ("reason" in match) return setReason(tab.fingerprint, match.reason);
+        await attempt(tab.fingerprint, true, (signal) =>
+          attachMatch(tab, match, picked, handles, true, signal),
+        );
+      }),
   );
+}
+
+/**
+ * Reattaches the detached `tab` from `files`, whose SHA-256 the caller has found equal to the tab's (a project's copy
+ * of its recording), as the tab's one attempt. The tab keeps its own source: the next visit reads its own files again.
+ */
+export function attachChecked(tab: Tab, files: File[]) {
+  return attempt(tab.fingerprint, true, async (signal) => {
+    const options = { choice: files[0].name, expect: tab.fingerprint, exact: true, signal, activate: false };
+    const outcome = await openFiles(files, { ...options, origin: tab.source ?? undefined });
+    if (!signal.aborted && outcome.kind === "error") setReason(tab.fingerprint, outcome.message);
+  });
 }
 
 /** Writes are held until the stored set has been read: an earlier write would replace it. */
@@ -355,7 +375,7 @@ useStore.subscribe((now, before) => {
       if (changed && quiet && tab.source?.kind === "project") {
         return detach(
           fingerprint,
-          `${changed} in ${tab.source.project.name} is not the file its tab holds (SHA-256)`,
+          `${changed} in ${tab.source.project.name} does not have the SHA-256 that the project lists for it: the project is damaged or was altered`,
         );
       }
       if (changed && quiet) return detach(fingerprint, `${changed} changed since it was opened`);
