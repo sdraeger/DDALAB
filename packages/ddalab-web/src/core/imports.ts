@@ -23,34 +23,98 @@ const DOCUMENT_LIMIT = 96 * 2 ** 20;
 /** A result to import: its manifest and each array's `.npy` bytes by bundle path. */
 type Incoming = { manifest: ResultDocument; arrays: Map<string, Blob> };
 
+/** An entry of a zip archive: its name, how it is compressed, its sizes and where its bytes start. */
+export interface ZipEntry {
+  name: string;
+  /** 0: stored, 8: deflated. */
+  method: number;
+  /** Bytes in the archive. */
+  compressed: number;
+  /** Bytes once unpacked. */
+  size: number;
+  start: number;
+}
+
+/** A central directory above this size is refused: it is read whole (about 600,000 entries). */
+const DIRECTORY_LIMIT = 64 * 2 ** 20;
+
+const u64 = (view: DataView, at: number) => Number(view.getBigUint64(at, true));
+
 /**
- * The entries of a zip archive by name; stored and deflated entries.
- * shortcut: no ZIP64 (archives above 4 GiB); such a bundle imports as a folder, upgrade if large zips matter.
+ * The entries of the zip archive `zip`, from its central directory, ZIP64 where it has it. The directory is read by
+ * its size, as Python's zipfile reads it: an archive of more than 65,535 entries with no ZIP64 record (client-zip
+ * writes none for the count alone) reads whole. Each entry's local header must name it as the directory does, and its
+ * bytes must lie before the directory.
  */
-export async function unzip(zip: File): Promise<Map<string, Blob>> {
+export async function zipEntries(zip: Blob, source: string): Promise<ZipEntry[]> {
+  const broken = (what: string) => new Error(`${source} is not a readable zip archive: ${what}`);
   // The end of central directory record is in the last 22 bytes plus a comment of up to 64 KiB.
   const tail = new DataView(await zip.slice(Math.max(0, zip.size - 22 - 0xffff)).arrayBuffer());
   let end = tail.byteLength - 22;
   while (end >= 0 && tail.getUint32(end, true) !== 0x06054b50) end--;
-  if (end < 0) throw new Error(`${zip.name} is not a zip archive`);
-  const entries = tail.getUint16(end + 10, true);
-  const size = tail.getUint32(end + 12, true);
-  const offset = tail.getUint32(end + 16, true);
-  if (entries === 0xffff || offset === 0xffffffff) {
-    throw new Error(`${zip.name} is above 4 GiB; unpack it and import its folder instead`);
+  if (end < 0) throw new Error(`${source} is not a zip archive`);
+  let size = tail.getUint32(end + 12, true);
+  let offset = tail.getUint32(end + 16, true);
+  // ZIP64: a locator right before the end record gives the place of the ZIP64 end record and its full values.
+  if (end >= 20 && tail.getUint32(end - 20, true) === 0x07064b50) {
+    const at = u64(tail, end - 20 + 8);
+    const record = new DataView(await zip.slice(at, at + 56).arrayBuffer());
+    if (record.byteLength < 56 || record.getUint32(0, true) !== 0x06064b50)
+      throw broken("its ZIP64 end record");
+    size = u64(record, 40);
+    offset = u64(record, 48);
   }
+  if (size > DIRECTORY_LIMIT || offset + size > zip.size) throw broken("its central directory");
   const directory = new DataView(await zip.slice(offset, offset + size).arrayBuffer());
-  const found = new Map<string, Blob>();
-  for (let at = 0, i = 0; i < entries; i++) {
+  const decoder = new TextDecoder();
+  const entries: ZipEntry[] = [];
+  for (let at = 0; at < size; ) {
+    if (at + 46 > size || directory.getUint32(at, true) !== 0x02014b50) throw broken("its central directory");
     const method = directory.getUint16(at + 10, true);
-    const compressed = directory.getUint32(at + 20, true);
+    let compressed = directory.getUint32(at + 20, true);
+    let length = directory.getUint32(at + 24, true);
     const nameBytes = directory.getUint16(at + 28, true);
-    const local = directory.getUint32(at + 42, true);
-    const name = new TextDecoder().decode(new Uint8Array(directory.buffer, at + 46, nameBytes));
-    at += 46 + nameBytes + directory.getUint16(at + 30, true) + directory.getUint16(at + 32, true);
+    const extra = at + 46 + nameBytes;
+    const next = extra + directory.getUint16(at + 30, true) + directory.getUint16(at + 32, true);
+    let local = directory.getUint32(at + 42, true);
+    if (next > size) throw broken("its central directory");
+    const raw = new Uint8Array(directory.buffer, at + 46, nameBytes);
+    const name = decoder.decode(raw);
+    // The ZIP64 field holds, in this order, each of these that the 32-bit field leaves at 0xffffffff.
+    for (let x = extra; x + 4 <= next; x += 4 + directory.getUint16(x + 2, true)) {
+      if (directory.getUint16(x, true) !== 1) continue;
+      let y = x + 4;
+      if (length === 0xffffffff) {
+        length = u64(directory, y);
+        y += 8;
+      }
+      if (compressed === 0xffffffff) {
+        compressed = u64(directory, y);
+        y += 8;
+      }
+      if (local === 0xffffffff) local = u64(directory, y);
+    }
+    at = next;
+    const header = new Uint8Array(await zip.slice(local, local + 30 + nameBytes).arrayBuffer());
+    const view = new DataView(header.buffer);
+    const named =
+      header.length === 30 + nameBytes &&
+      view.getUint32(0, true) === 0x04034b50 &&
+      view.getUint16(26, true) === nameBytes &&
+      header.subarray(30).every((b, i) => b === raw[i]);
+    if (!named) throw broken(`the local header of ${name}`);
+    const start = local + 30 + nameBytes + view.getUint16(28, true);
+    if (start + compressed > offset) throw broken(`${name} reaches into the central directory`);
+    entries.push({ name, method, compressed, size: length, start });
+  }
+  return entries;
+}
+
+/** The entries of a zip archive by name; stored and deflated entries. */
+export async function unzip(zip: File): Promise<Map<string, Blob>> {
+  const found = new Map<string, Blob>();
+  for (const { name, method, compressed, start } of await zipEntries(zip, zip.name)) {
     if (name.endsWith("/")) continue;
-    const header = new DataView(await zip.slice(local, local + 30).arrayBuffer());
-    const start = local + 30 + header.getUint16(26, true) + header.getUint16(28, true);
     const data = zip.slice(start, start + compressed);
     if (method === 0) found.set(name, data);
     else if (method === 8) {
@@ -61,12 +125,13 @@ export async function unzip(zip: File): Promise<Map<string, Blob>> {
   return found;
 }
 
-const isObject = (v: unknown): v is Record<string, unknown> =>
+export const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
-const isString = (v: unknown) => typeof v === "string";
-const isNumber = (v: unknown) => typeof v === "number" && Number.isFinite(v);
-const listOf = (item: (v: unknown) => boolean) => (v: unknown) => Array.isArray(v) && v.every(item);
-const optional = (test: (v: unknown) => boolean) => (v: unknown) => v === undefined || v === null || test(v);
+export const isString = (v: unknown) => typeof v === "string";
+export const isNumber = (v: unknown) => typeof v === "number" && Number.isFinite(v);
+export const listOf = (item: (v: unknown) => boolean) => (v: unknown) => Array.isArray(v) && v.every(item);
+export const optional = (test: (v: unknown) => boolean) => (v: unknown) =>
+  v === undefined || v === null || test(v);
 const pair = (v: unknown) => Array.isArray(v) && v.length === 2 && v.every(isNumber);
 
 /** What the history, the provenance and the CLI command read, by path, and what each must be. */
@@ -107,7 +172,7 @@ const FIELDS: [string, (v: unknown) => boolean][] = [
   ["reproduction.request.time_range.end", isNumber],
 ];
 
-const at = (value: unknown, path: string) =>
+export const at = (value: unknown, path: string) =>
   path.split(".").reduce<unknown>((v, key) => (isObject(v) ? v[key] : undefined), value);
 
 /** The first field of `document` that is missing or malformed, or of one of its variants; `undefined` if none. */
@@ -249,11 +314,18 @@ async function layoutOf({ manifest, arrays }: Incoming, source: string) {
 const isZip = async (file: Blob) =>
   new Uint8Array(await file.slice(0, 4).arrayBuffer()).every((b, i) => b === [0x50, 0x4b, 0x03, 0x04][i]);
 
+/** What an opened project keeps of a result's record (app/project.ts): its id, its recording, its times and batch. */
+export type KeptRecord = Pick<
+  AnalysisRecord,
+  "id" | "fingerprint" | "fileName" | "inputFiles" | "plan" | "createdAt" | "finishedAt" | "batch"
+>;
+
 /**
  * Imports a result the CLI wrote: a bundle as a zip or as a folder's files, or a JSON result document. It is stored
- * under a new id and recorded in the history as complete; the id.
+ * under a new id, or under the id of `kept` with the rest of that record, and recorded in the history as complete;
+ * the id.
  */
-export async function importResult(input: File | FolderFile[]): Promise<string> {
+export async function importResult(input: File | FolderFile[], kept?: KeptRecord): Promise<string> {
   let incoming: Incoming;
   let source: string;
   if (Array.isArray(input)) {
@@ -276,17 +348,18 @@ export async function importResult(input: File | FolderFile[]): Promise<string> 
     incoming = fromDocument(document, source);
   }
   const { layout, values } = await layoutOf(incoming, source);
-  const id = crypto.randomUUID();
+  const id = kept?.id ?? crypto.randomUUID();
   const { manifest } = incoming;
   await storeResult(id, layout, values, manifest);
   const record: AnalysisRecord = {
-    id,
     fingerprint: "",
     fileName: manifest.file_name,
+    createdAt: Date.now(),
+    ...kept,
+    id,
     request: manifest.reproduction.request,
     manifest: recordedManifest(manifest),
-    plan: { windows: manifest.window_centers_seconds.length },
-    createdAt: Date.now(),
+    plan: kept?.plan ?? { windows: manifest.window_centers_seconds.length },
     status: "complete",
   };
   await saveAnalysis(record);
