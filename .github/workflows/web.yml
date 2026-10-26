@@ -61,6 +61,11 @@ jobs:
       - name: Biome
         run: npm run check
 
+      # Unit tests compare exports with the native CLI and fail under CI when it is missing.
+      - name: Build the native CLI
+        working-directory: packages/dda-rs
+        run: cargo build --release --locked
+
       - name: Unit tests
         run: npx vitest run
 
