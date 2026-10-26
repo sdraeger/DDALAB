@@ -85,17 +85,16 @@
   gap: var(--space-1);
 }
 
-.close {
+/* Delete stands alone at the far end, past a hairline, in the event tone. */
+.divider {
+  width: var(--hairline-width);
+  height: 16px;
   margin-left: auto;
+  background: var(--hairline);
 }
 
-/* Delete takes the event tone, kept apart from Export. */
 .actions .delete {
   color: var(--event);
-}
-
-.apart {
-  margin-left: var(--space-3);
 }
 
 .confirm {
