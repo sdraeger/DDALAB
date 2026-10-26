@@ -324,7 +324,7 @@ test("read_failure_is_reported", async ({ page }) => {
 });
 
 test("paging_keys", async ({ page }) => {
-  // The scale settings sit in the bar from 1400 px with the inspector open (Shell.module.css).
+  // The scale settings sit in the bar from 1440 px with the inspector open (Shell.module.css).
   await page.setViewportSize({ width: 1440, height: 720 });
   await openFixture(page);
   expect(await view(page)).toMatchObject({ t0: 0, t1: 10, epochS: 10 });
@@ -354,7 +354,7 @@ test("paging_keys", async ({ page }) => {
 });
 
 test("sensitivity_steps", async ({ page }) => {
-  // The scale settings sit in the bar from 1400 px with the inspector open (Shell.module.css).
+  // The scale settings sit in the bar from 1440 px with the inspector open (Shell.module.css).
   await page.setViewportSize({ width: 1440, height: 720 });
   await openFixture(page);
   const sensitivity = async () => (await view(page)).sensitivityUvPerMm;

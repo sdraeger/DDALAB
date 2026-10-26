@@ -262,7 +262,7 @@ test("history_row_activates_its_recording", async ({ page }) => {
 });
 
 test("session_restores_view", async ({ page }) => {
-  // The scale settings sit in the bar from 1400 px with the inspector open (Shell.module.css).
+  // The scale settings sit in the bar from 1440 px with the inspector open (Shell.module.css).
   await page.setViewportSize({ width: 1440, height: 720 });
   test.skip(!(await hasStorage(page)), NO_STORAGE);
   const id = await runBrainVision(page);
