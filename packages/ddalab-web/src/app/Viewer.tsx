@@ -202,7 +202,8 @@ function Choice(props: {
           <Select.Value>
             {(value: number) => (
               <>
-                <Digits value={show(value)[0]} chars={chars} /> <Units units={units}>{show(value)[1]}</Units>
+                <Digits value={show(value)[0]} chars={chars} />{" "}
+                {units.length > 1 ? <Units units={units}>{show(value)[1]}</Units> : show(value)[1]}
               </>
             )}
           </Select.Value>
