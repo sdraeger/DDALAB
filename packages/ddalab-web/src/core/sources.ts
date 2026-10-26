@@ -5,22 +5,22 @@ import type { OpenRequest } from "./types";
 
 declare const FileReaderSync: new () => { readAsArrayBuffer(blob: Blob): ArrayBuffer };
 
-const READS = "DDALAB reads EDF, BDF, BrainVision and delimited text";
+const READS = "DDALAB reads EDF, BDF, BrainVision, EEGLAB and delimited text";
 /** The formats DDALAB reads, best first. The text extensions share the last rank. */
 export const RANK: Record<string, number> = {
   vhdr: 0,
-  edf: 1,
-  bdf: 2,
-  txt: 3,
-  csv: 3,
-  tsv: 3,
-  ascii: 3,
-  dat: 3,
+  set: 1,
+  edf: 2,
+  bdf: 3,
+  txt: 4,
+  csv: 4,
+  tsv: 4,
+  ascii: 4,
+  dat: 4,
 };
 /** Formats the spec names as not supported yet, by extension. */
 const UNSUPPORTED: Record<string, string> = {
   fif: "FIFF",
-  set: "EEGLAB",
   nwb: "NWB",
   xdf: "XDF",
   nii: "NIfTI",

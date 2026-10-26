@@ -319,3 +319,9 @@
     transition: none;
   }
 }
+
+/* A dataset's reference, as a reader copies it into a paper. */
+.citation {
+  line-height: var(--leading-small);
+  overflow-wrap: anywhere;
+}

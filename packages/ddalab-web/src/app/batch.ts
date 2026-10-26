@@ -1,12 +1,14 @@
-// Running a batch (core/batch.ts): the settings of one moment on each recording of an opened folder, one recording at
-// a time through the engine and its worker pool, which keeps memory to one run's. A recording opens in the engine
-// without a tab or an overview scan and closes after its run; its result becomes an ordinary analysis record. A
+// Running a batch (core/batch.ts): the settings of one moment on each recording of an opened folder, or of a folder of
+// an OpenNeuro snapshot streamed, one recording at a time through the engine and its worker pool, which keeps memory to
+// one run's. A recording opens in the engine without a tab or an overview scan and closes after its run; its result
+// becomes an ordinary analysis record, which cites the dataset a streamed recording came from. A
 // failure is recorded in the CLI's words and the batch goes on; Cancel stops the run in progress, which leaves no
 // files, and keeps the results before it. The batch holds a Web Lock while it runs: one found running whose lock is
 // free was cut short by a reload or a crash.
 import { makeZip } from "client-zip";
 import {
   asBundle,
+  type BatchInput,
   type BatchProgress,
   type BatchRecord,
   type BatchResult,
@@ -18,8 +20,8 @@ import {
   outputNames,
   saveBatch,
 } from "../core/batch";
+import type { RecordingInput } from "../core/engine";
 import { bundleFiles } from "../core/exporters";
-import type { FolderRecording } from "../core/folder";
 import { type AnalysisRecord, persistStorage, recordedManifest, saveAnalysis } from "../core/history";
 import type { AnalysisHandle } from "../core/scheduler";
 import { buildFileSet } from "../core/sources";
@@ -85,8 +87,8 @@ export function cancelBatch() {
 
 /** Starts a batch of `recordings` with the settings of this moment. */
 export function startBatch(
-  settings: Pick<BatchRecord, "channels" | "interval" | "root" | "handle">,
-  recordings: FolderRecording[],
+  settings: Pick<BatchRecord, "channels" | "interval" | "root" | "handle" | "remote">,
+  recordings: BatchInput[],
 ) {
   const batch: BatchRecord = {
     id: crypto.randomUUID(),
@@ -100,8 +102,8 @@ export function startBatch(
   return runBatch(batch, recordings);
 }
 
-/** Runs the recordings of batch `id` it has not run, from `recordings` (the folder read again). */
-export function resumeBatch(id: string, recordings: FolderRecording[], handle?: FileSystemDirectoryHandle) {
+/** Runs the recordings of batch `id` it has not run, from `recordings` (the folder read or walked again). */
+export function resumeBatch(id: string, recordings: BatchInput[], handle?: FileSystemDirectoryHandle) {
   const batch = useStore.getState().batches.find((b) => b.id === id);
   if (!batch || batch.status === "running" || batch.status === "complete") return;
   return runBatch(
@@ -110,7 +112,7 @@ export function resumeBatch(id: string, recordings: FolderRecording[], handle?: 
   );
 }
 
-async function runBatch(start: BatchRecord, recordings: FolderRecording[]) {
+async function runBatch(start: BatchRecord, recordings: BatchInput[]) {
   if (busy()) return;
   running = true;
   cancelled = false;
@@ -170,18 +172,23 @@ async function runBatch(start: BatchRecord, recordings: FolderRecording[]) {
  * as `ddalab batch` words it: an open or a plan refused after `<path>: `, and a failure after the open followed by the
  * recording's warnings, each after a space, with no warnings of its own.
  */
-async function runOne(batch: BatchRecord, recording: FolderRecording): Promise<BatchResult | undefined> {
+async function runOne(batch: BatchRecord, recording: BatchInput): Promise<BatchResult | undefined> {
   const { path } = recording;
   const fail = (error: string): BatchResult => ({ path, status: "error", warnings: [], error });
   // The run state keeps a single run from starting beside the batch; no tab owns it.
   const zero = { blocksDone: 0, blocks: 0, windowsDone: 0, windows: 0, etaS: null };
   useStore.setState({ run: { id: "", recordingId: "", status: "running", progress: zero } });
-  const set = buildFileSet(recording.files, path);
-  if (!("primary" in set))
-    return fail(`${path}: ${"error" in set ? set.error : "one of several recordings"}`);
+  let input: RecordingInput;
+  if ("input" in recording) input = recording.input;
+  else {
+    const set = buildFileSet(recording.files, path);
+    if (!("primary" in set))
+      return fail(`${path}: ${"error" in set ? set.error : "one of several recordings"}`);
+    input = { kind: "files", files: set.files, primary: set.primary };
+  }
   let opened: Awaited<ReturnType<typeof engine.open>>;
   try {
-    opened = await engine.open({ kind: "files", files: set.files, primary: set.primary }, { scan: false });
+    opened = await engine.open(input, { scan: false });
   } catch (error) {
     return fail(`${path}: ${messageOf(error)}`);
   }
@@ -230,6 +237,7 @@ async function runOne(batch: BatchRecord, recording: FolderRecording): Promise<B
       status: "complete",
       manifest: recordedManifest(await engine.resultManifest(handle.id)),
       batch: batch.id,
+      ...(input.kind === "url" && input.dataset && { dataset: input.dataset }),
     };
     await saveAnalysis(record).catch(() => {});
     void persistStorage();

@@ -18,7 +18,7 @@
     {
       "action": "./",
       "accept": {
-        "application/octet-stream": [".edf", ".bdf", ".vhdr"],
+        "application/octet-stream": [".edf", ".bdf", ".vhdr", ".set"],
         "text/csv": [".csv"],
         "text/tab-separated-values": [".tsv"],
         "text/plain": [".txt"],

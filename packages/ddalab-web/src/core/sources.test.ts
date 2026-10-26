@@ -15,6 +15,7 @@ test("primary_preference", () => {
   expect(set("a.csv", "b.eeg", "b.vhdr", "b.vmrk", "c.edf", "d.bdf")).toMatchObject({ primary: "b.vhdr" });
   expect(set("a.csv", "c.edf", "d.bdf")).toMatchObject({ primary: "c.edf" });
   expect(set("a.csv", "d.bdf")).toMatchObject({ primary: "d.bdf" });
+  expect(set("a.csv", "e.fdt", "e.set", "c.edf")).toMatchObject({ primary: "e.set" });
   expect(set("a.CSV")).toMatchObject({ primary: "a.CSV" });
   expect(set("a.tsv", "a.json")).toMatchObject({ primary: "a.tsv" });
 });
@@ -48,11 +49,8 @@ test("several_primaries_ask", () => {
 });
 
 test("unsupported_formats_say_why", () => {
-  const FORMATS = "DDALAB reads EDF, BDF, BrainVision and delimited text";
+  const FORMATS = "DDALAB reads EDF, BDF, BrainVision, EEGLAB and delimited text";
   expect(buildFileSet(files("scan.fif"))).toEqual({ error: `FIFF files are not supported yet; ${FORMATS}` });
-  expect(buildFileSet(files("scan.set", "scan.fdt"))).toEqual({
-    error: `EEGLAB files are not supported yet; ${FORMATS}`,
-  });
   expect(buildFileSet(files("notes.pdf"))).toEqual({
     error: `notes.pdf is not a format DDALAB reads; ${FORMATS}`,
   });

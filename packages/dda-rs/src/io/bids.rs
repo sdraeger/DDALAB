@@ -190,7 +190,7 @@ fn is_recording(path: &Path) -> bool {
     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
     let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     (stem.ends_with("_ieeg") || stem.ends_with("_eeg"))
-        && ["edf", "bdf", "vhdr"]
+        && ["edf", "bdf", "vhdr", "set"]
             .iter()
             .any(|e| extension.eq_ignore_ascii_case(e))
 }

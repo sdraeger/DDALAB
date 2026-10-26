@@ -93,3 +93,82 @@
   color: var(--muted);
   stroke-width: 2;
 }
+
+/* The search's modality and order, under its field. */
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin-top: var(--space-2);
+}
+
+/* The snapshot's description over its folder, its facts as the batch panel sets them. */
+.about {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.title {
+  color: var(--ink);
+  font-weight: var(--weight-strong);
+  overflow-wrap: anywhere;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: var(--space-1) var(--space-2);
+  width: 100%;
+  margin: 0;
+}
+
+.facts dt {
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.facts dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.citation {
+  color: var(--muted);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+  overflow-wrap: anywhere;
+}
+
+/* The README as its authors wrapped it, in a box that scrolls past a third of the window. */
+.readme {
+  width: 100%;
+  font-size: var(--text-small);
+}
+
+.readme summary {
+  color: var(--primary);
+  cursor: pointer;
+}
+
+.readme pre {
+  max-height: 33vh;
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2);
+  overflow: auto;
+  border: var(--hairline-width) solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--ground);
+  font-family: inherit;
+  line-height: var(--leading-small);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.batch {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}

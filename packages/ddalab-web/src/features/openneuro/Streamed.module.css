@@ -1,0 +1,31 @@
+/* The inspector's lines on a streamed recording, under its facts. */
+.streamed {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.copy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.copy progress {
+  flex: 1 1 64px;
+}
+
+.note,
+.error {
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+.note {
+  color: var(--muted);
+}
+
+.error {
+  color: var(--event);
+}
