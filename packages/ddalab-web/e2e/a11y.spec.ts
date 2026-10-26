@@ -153,6 +153,20 @@ test("empty_state", async ({ page }) => {
   expect(await problems(page)).toEqual([]);
 });
 
+test("application_menu_open", async ({ page }) => {
+  await page.getByRole("menubar").getByRole("menuitem", { name: "DDALAB" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("menuitem", { name: "File", exact: true })).toBeFocused();
+  // A frame for the trigger's own check of where the focus went (desktop.spec.ts).
+  await page.evaluate(() => new Promise(requestAnimationFrame));
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByRole("menuitemcheckbox", { name: /^Library/ })).toBeFocused();
+  // The menus render at the end of the page, outside the banner their trigger is in, and hold the focus while open:
+  // axe's best practice that content sit in a landmark does not apply to them.
+  expect((await problems(page)).filter((p) => !p.includes(": region ("))).toEqual([]);
+});
+
 test("about_by_keyboard", async ({ page }) => {
   const tab = test.info().project.name === "webkit" ? "Alt+Tab" : "Tab";
   const about = page.getByRole("banner").getByRole("button", { name: "About DDALAB" });
