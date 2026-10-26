@@ -259,7 +259,17 @@ test("scrolling_the_channels_renders_once_a_row", async ({ page }) => {
   // The scan and the annotations are in, which change what sits above the list and so its height.
   await expect(page.getByText("Overview 100%")).toBeVisible();
   await page.evaluate((id) => window.__ddalab.engine.annotations(id), id);
-  await page.waitForTimeout(300);
+  // Settled: the list no longer renders across two frames.
+  const listRenders = async () => (await renders(page)).ChannelList;
+  await expect
+    .poll(async () => {
+      const before = await listRenders();
+      await page.evaluate(
+        () => new Promise((frame) => requestAnimationFrame(() => requestAnimationFrame(frame))),
+      );
+      return (await listRenders()) === before;
+    })
+    .toBe(true);
   let events = 0;
   const counts = await rendersDuring(page, ["ChannelList", "Channels"], async () => {
     // 140 px in steps of 2 px, a frame apart: five rows of 28 px.

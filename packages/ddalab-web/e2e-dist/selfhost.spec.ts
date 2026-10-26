@@ -66,7 +66,7 @@ test("opens_a_recording_and_runs_dda", async ({ page }) => {
 });
 
 // A deep link preconnects to OpenNeuro and S3 from the entry, which the policy's connect-src allows. The API answers
-// an empty snapshot here: the link fails to resolve, in the panel, without a request leaving the machine.
+// an empty snapshot here and the link fails to resolve, in the panel; the preconnects themselves do reach both hosts.
 test("deep_link_preconnects_within_the_policy", async ({ page }) => {
   const violations: string[] = [];
   await page.exposeFunction("reportViolation", (text: string) => violations.push(text));
