@@ -9,6 +9,8 @@
 
 It combines a Python command-line interface, a Qt desktop application, and a native **Rust** analysis engine. Analysis runs locally and recordings never leave the machine. The app goes online only to check for updates, search OpenNeuro, and manage NSG jobs.
 
+The **web app** needs no installation: open <https://sdraeger.github.io/DDALAB/>. Its engine runs in the browser as WebAssembly and recordings stay on your machine (see [`packages/ddalab-web`](packages/ddalab-web/README.md)).
+
 ## Table of Contents
 
 - [Download & Installation](#download--installation)
