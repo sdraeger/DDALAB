@@ -1,7 +1,4 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="packages/ddalab-web/public/logo-dark.svg">
-  <img src="packages/ddalab-web/public/logo-light.svg" alt="DDALAB logo" height="48">
-</picture>
+<img src="packages/ddalab-web/public/favicon.svg" alt="DDALAB logo" height="56">
 
 # DDALAB: Delay Differential Analysis Laboratory
 
