@@ -168,7 +168,11 @@ test("scale_settings_behind_their_button", async ({ page }) => {
   await expect(scales).toBeFocused();
   await scales.click();
   await expect(popover).toBeVisible();
-  await page.setViewportSize({ width: 1600, height: 800 });
+  // A pixel short of 1440 px the settings stay behind their button, open; at 1440 px they move into the bar.
+  await page.setViewportSize({ width: 1439, height: 800 });
+  await expect(scales).toBeVisible();
+  await expect(popover).toBeVisible();
+  await page.setViewportSize({ width: 1440, height: 800 });
   await expect(popover).toBeHidden();
   await expect(page.getByRole("combobox", { name: "Epoch" })).toBeVisible();
   await page.setViewportSize({ width: 1280, height: 800 });
