@@ -1,5 +1,6 @@
 // Opening recordings: the app's engine, and what happens between a chosen file and an open recording.
 import { createEngine, type RecordingInput } from "../core/engine";
+import { keptFiles } from "../core/offline";
 import type { Annotations } from "../core/protocol";
 import { buildFileSet } from "../core/sources";
 import type { SyntheticSpec } from "../core/synthetic";
@@ -99,7 +100,8 @@ function releaser(opened: { id: string; duplicate?: boolean }) {
 }
 
 /**
- * Opens an input as the UI opens files: an OpenNeuro recording, or a synthetic one in dev and e2e builds. With
+ * Opens an input as the UI opens files: an OpenNeuro recording, or a synthetic one in dev and e2e builds. An OpenNeuro
+ * recording kept on this device (core/offline.ts) opens from its copy, its tab still knowing it by its URLs. With
  * `expect`, another recording than the one of that fingerprint is refused. Stopped (`signal`) before it shows, it
  * closes what it opened and throws.
  */
@@ -107,7 +109,10 @@ export async function openInput(
   input: RecordingInput,
   options: { expect?: string; activate?: boolean; signal?: AbortSignal } = {},
 ) {
-  const [opened] = await Promise.all([engine.open(input), viewerReady()]);
+  const copy = input.kind === "url" ? await keptFiles(input) : undefined;
+  const read: RecordingInput =
+    copy && input.kind === "url" ? { kind: "files", files: copy, primary: input.primary } : input;
+  const [opened] = await Promise.all([engine.open(read), viewerReady()]);
   const release = releaser(opened);
   const name = "primary" in input ? input.primary : "The recording";
   const refused = unexpected(opened, name, options.expect, release);
@@ -116,7 +121,7 @@ export async function openInput(
     release();
     throw new Error("The check was stopped");
   }
-  adopt(opened, input.kind, input.kind === "url" ? { kind: "url", input } : null, options.activate);
+  adopt(opened, read.kind, input.kind === "url" ? { kind: "url", input } : null, options.activate);
   return opened.id;
 }
 

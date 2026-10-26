@@ -10,6 +10,7 @@ import controls from "../../styles/controls.module.css";
 import { useHit } from "../../styles/hit";
 import { DdaSettings } from "../analysis/DdaSettings";
 import { RunBar } from "../analysis/RunBar";
+import { Streamed } from "../openneuro/Streamed";
 import { electrodeGroups, type Group } from "./groups";
 import styles from "./Inspector.module.css";
 
@@ -64,6 +65,7 @@ export function Inspector() {
           </div>
         </dl>
         <Scan id={id} />
+        <Streamed fingerprint={fingerprint} />
         {info.warnings.length > 0 && (
           <ul aria-label="Warnings" className={styles.warnings} data-appear>
             {info.warnings.map((warning) => (

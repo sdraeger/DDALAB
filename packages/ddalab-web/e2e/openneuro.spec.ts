@@ -6,7 +6,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { DEMO } from "../src/features/openneuro/deepLink";
-import { expect, type Page, test } from "./test";
+import { expect, hasStorage, NO_STORAGE, type Page, test } from "./test";
 
 const fixturePath = (name: string) =>
   fileURLToPath(new URL(`../../dda-rs/tests/fixtures/${name}`, import.meta.url));
@@ -94,32 +94,72 @@ const recorded = JSON.parse(
     "utf8",
   ),
 );
-/** The recorded search answer; the query "many" answers 25 hits, as many as a search shows. */
-const searchAnswer = (keyword: string) => {
+/**
+ * The recorded search answer; the words "many" answer 30 datasets, 25 on the first page and 5 after cursor "p2", as
+ * OpenNeuro pages them.
+ */
+const searchAnswer = (keyword: string | undefined, after: string | null) => {
   if (keyword !== "many") return recorded;
   const { node } = recorded.data.advancedSearch.edges[0];
-  const edges = Array.from({ length: 25 }, (_, i) => ({ node: { ...node, id: `ds9000${10 + i}` } }));
-  return { data: { advancedSearch: { edges } } };
+  const ids = after === "p2" ? [25, 30] : [0, 25];
+  const edges = Array.from({ length: ids[1] - ids[0] }, (_, i) => ({
+    node: { ...node, id: `ds9000${10 + ids[0] + i}` },
+  }));
+  const pageInfo = { count: 30, hasNextPage: after !== "p2", endCursor: after === "p2" ? null : "p2" };
+  return { data: { advancedSearch: { pageInfo, edges } } };
 };
+/** ds003029's description: two snapshots, its authors, license and DOI. */
+const INFO = {
+  data: {
+    dataset: {
+      snapshots: [
+        { tag: "1.0.6", created: "2023-09-05T23:05:39.000Z" },
+        { tag: "1.0.7", created: "2023-11-28T15:39:44.000Z" },
+      ],
+    },
+    snapshot: {
+      readme: "Fragility Multi-Center Retrospective Study",
+      description: {
+        Name: "Epilepsy-iEEG-Multicenter-Dataset",
+        Authors: ["Adam Li", "Sara Inati", "Kareem Zaghloul", "Nathan Crone"],
+        License: "CC0",
+        DatasetDOI: "doi:10.18112/openneuro.ds003029.v1.0.7",
+        HowToAcknowledge: "Please cite the fragility paper.",
+      },
+    },
+  },
+};
+const CITATION =
+  "Adam Li, Sara Inati, Kareem Zaghloul, Nathan Crone (2023). Epilepsy-iEEG-Multicenter-Dataset. OpenNeuro. [Dataset] doi:10.18112/openneuro.ds003029.v1.0.7";
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "content-type" };
 
-/** Mocks GraphQL; the listing of tree `slow` answers after 1.5 s. Returns the trees answered so far. */
+/**
+ * Mocks GraphQL; the listing of tree `slow` answers after 1.5 s. Returns the trees answered so far, each with the
+ * snapshot it was asked of, and the search variables sent.
+ */
 async function mockOpenNeuro(page: Page, slow?: string) {
   const listing = tree();
   const answered: string[] = [];
+  const tags: string[] = [];
+  const searches: { query: Record<string, unknown>; after: string | null }[] = [];
   await page.route("https://openneuro.org/crn/graphql", async (route) => {
     if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers: CORS });
-    const { variables } = route.request().postDataJSON();
+    const { query, variables } = route.request().postDataJSON();
+    if (query.includes("advancedSearch")) {
+      searches.push(variables);
+      return route.fulfill({
+        json: searchAnswer(variables.query.keywords?.[0], variables.after),
+        headers: CORS,
+      });
+    }
+    if (query.includes("snapshots")) return route.fulfill({ json: INFO, headers: CORS });
     const at = variables.tree ?? "root";
     if (at === slow) await new Promise((done) => setTimeout(done, 1500));
-    const json =
-      "query" in variables
-        ? searchAnswer(variables.query.keywords[0])
-        : { data: { snapshot: { files: listing[at] } } };
-    await route.fulfill({ json, headers: CORS });
-    if (!("query" in variables)) answered.push(at);
+    await route.fulfill({ json: { data: { snapshot: { files: listing[at] } } }, headers: CORS });
+    answered.push(at);
+    tags.push(variables.tag);
   });
-  return answered;
+  return Object.assign(answered, { tags, searches });
 }
 
 async function searchFor(page: Page, query: string) {
@@ -214,12 +254,78 @@ test("search_browse_open", async ({ page }) => {
   await expect(page.getByRole("button", { name: /HUP iEEG Epilepsy Dataset/ })).toBeVisible();
 });
 
-test("search_says_when_it_stops", async ({ page }) => {
-  await mockOpenNeuro(page);
+test("search_pages_and_filters", async ({ page }) => {
+  const { searches } = await mockOpenNeuro(page);
   await page.goto("/");
   await searchFor(page, "many");
-  await expect(page.getByRole("list", { name: "Datasets" }).getByRole("listitem")).toHaveCount(25);
-  await expect(page.getByText("First 25 matches. Add words to narrow the search.")).toBeVisible();
+  const hits = page.getByRole("list", { name: "Datasets" }).getByRole("listitem");
+  await expect(hits).toHaveCount(25);
+  await expect(page.getByText("25 of 30 datasets")).toBeVisible();
+  await page.getByRole("button", { name: "More datasets" }).click();
+  await expect(hits).toHaveCount(30);
+  await expect(page.getByText("30 datasets", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "More datasets" })).toHaveCount(0);
+  expect(searches.map((s) => s.after)).toEqual([null, "p2"]);
+  // A filter searches again from the first page with the same words.
+  await page.getByRole("combobox", { name: "Modality" }).click();
+  await page.getByRole("option", { name: "iEEG" }).click();
+  await expect.poll(() => searches.length).toBe(3);
+  expect(searches[2]).toEqual({
+    query: { keywords: ["many"], modality: "ieeg", publicOnly: true, sortBy: "relevance" },
+    after: null,
+  });
+  await page.getByRole("combobox", { name: "Order" }).click();
+  await page.getByRole("option", { name: "Newest" }).click();
+  await expect.poll(() => searches.at(-1)?.query.sortBy).toBe("newest");
+});
+
+test("a_dataset_shows_its_description_and_other_versions", async ({ page, context, browserName }) => {
+  const { tags } = await mockOpenNeuro(page);
+  await page.goto("/");
+  await searchFor(page, "epilepsy ieeg");
+  await page.getByRole("button", { name: /Epilepsy-iEEG-Multicenter-Dataset/ }).click();
+  const about = page.getByRole("region", { name: "Dataset" });
+  await expect(about).toContainText("Adam Li, Sara Inati, Kareem Zaghloul and 1 more");
+  await expect(about).toContainText("CC0");
+  await expect(about.getByRole("link", { name: "10.18112/openneuro.ds003029.v1.0.7" })).toHaveAttribute(
+    "href",
+    "https://doi.org/10.18112/openneuro.ds003029.v1.0.7",
+  );
+  await expect(about.getByText(CITATION)).toBeVisible();
+  if (browserName === "chromium") {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await about.getByRole("button", { name: "Copy the citation" }).click();
+    await expect(about.getByRole("button", { name: "Citation copied" })).toBeVisible();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(CITATION);
+  }
+  // Another snapshot lists from its top folder.
+  await about.getByRole("combobox", { name: "Version" }).click();
+  await page.getByRole("option", { name: "1.0.6" }).click();
+  await expect.poll(() => tags.at(-1)).toBe("1.0.6");
+  await expect(about.getByRole("combobox", { name: "Version" })).toHaveText(/1\.0\.6/);
+});
+
+test("a_batch_runs_on_a_snapshot_folder_and_cites_the_dataset", async ({ page }) => {
+  test.setTimeout(90_000);
+  await mockOpenNeuro(page);
+  await page.goto("/");
+  await searchFor(page, "epilepsy ieeg");
+  await page.getByRole("button", { name: /Epilepsy-iEEG-Multicenter-Dataset/ }).click();
+  await page.getByRole("button", { name: "Find recordings to run on" }).click();
+  // Both runs of the folder three levels down; run 2's data file ignores Range and fails as it does when opened.
+  await page.getByRole("button", { name: "Run on all 2" }).click();
+  await page.getByRole("button", { name: "Start" }).click();
+  await expect(page.getByText(/^Batch finished: 1 of 2, 1 failed/)).toBeVisible({
+    timeout: 60_000,
+  });
+  const history = page.getByRole("region", { name: "History" });
+  await history.getByRole("button", { name: /on ds003029/ }).click();
+  await history.getByRole("button", { name: new RegExp(`${RUN}_ieeg\\.vhdr`) }).click();
+  const provenance = page.getByRole("region", { name: "Provenance" });
+  await expect(provenance.getByText(CITATION)).toBeVisible();
+  await expect(provenance).toContainText(
+    `OpenNeuro ds003029, version 1.0.7: sub-pt01/ses-presurgery/ieeg/${RUN}_ieeg.vhdr`,
+  );
 });
 
 test("a_late_listing_leaves_the_newer_view", async ({ page }) => {
@@ -254,6 +360,30 @@ test("offline_shows_message_local_work_continues", async ({ page }) => {
   );
   await page.getByLabel("Recording files").setInputFiles(fixturePath("fixture.edf"));
   await expect(channels(page)).toHaveText(["Fp1", "Fp2"]);
+});
+
+test("a_kept_copy_opens_without_the_network", async ({ page }) => {
+  await mockOpenNeuro(page);
+  await page.goto(`/${DEMO}`);
+  const heading = page.getByRole("heading", { name: `${RUN}_ieeg.vhdr` });
+  await expect(heading).toBeVisible();
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  const writes = await page.evaluate(() => "createWritable" in FileSystemFileHandle.prototype);
+  test.skip(!writes, "this browser writes no files into its private storage from a page");
+  const inspector = page.getByRole("region", { name: "Inspector" });
+  await expect(inspector.getByText("Streamed from OpenNeuro ds003029, version 1.0.7.")).toBeVisible();
+  await inspector.getByRole("button", { name: /^Keep a copy on this device/ }).click();
+  await expect(inspector.getByText("Kept on this device; it opens without the network.")).toBeVisible();
+  // The tab comes back from the copy: the stand-in for S3 and the object store answers nothing.
+  requests = [];
+  await page.goto("/");
+  await expect(heading).toBeVisible();
+  await expect(channels(page)).toHaveText(["Fp1", "Fp2", "Cz", "Pz"]);
+  await expect.poll(async () => (await active(page)).annotations).toContain("events.tsv: onset");
+  expect(requests).toEqual([]);
+  // Removed, the recording streams again.
+  await inspector.getByRole("button", { name: "Remove the copy" }).click();
+  await expect(inspector.getByRole("button", { name: /^Keep a copy on this device/ })).toBeVisible();
 });
 
 // The demonstration link against the real service. In Chromium, which routes worker requests, the production

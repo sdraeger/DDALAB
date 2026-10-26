@@ -1,11 +1,12 @@
 // A batch in the history: when it ran, its settings and how it stands, opened to show its results (ordinary rows),
 // the recordings that failed with their reasons, the combined export and, for a batch cut short, Resume. Resume reads
 // the folder again through its handle where the browser kept one, else asks for the folder once more on the same
-// button. Once the batch resumes, its row takes the focus the button had.
+// button; a batch on an OpenNeuro snapshot walks its folder there again. Once the batch resumes, its row takes the
+// focus the button had.
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right.mjs";
 import Download from "lucide-react/dist/esm/icons/download.mjs";
 import { type ChangeEvent, type ReactNode, useId, useRef, useState } from "react";
-import { exportBatch, reattach } from "../../app/batch";
+import { exportBatch, reattach, resumeBatch } from "../../app/batch";
 import { type BatchRecord, batchOutcome, settingsLine } from "../../core/batch";
 import type { FolderSource } from "../../core/folder";
 import { useStore } from "../../store/store";
@@ -31,6 +32,7 @@ export function BatchEntry(props: {
   // Why the export or the resume did not go through.
   const [error, setError] = useState<string>();
   const [exporting, setExporting] = useState(false);
+  const [walking, setWalking] = useState(false);
   const busy = useStore((s) => s.batch?.status === "running" || s.run?.status === "running");
   const folderInput = useRef<HTMLInputElement>(null);
   const head = useRef<HTMLButtonElement>(null);
@@ -59,9 +61,25 @@ export function BatchEntry(props: {
   };
   async function resume() {
     setError(undefined);
+    if (batch.remote) return resumeRemote(batch.remote);
     const handle = await reattach(batch);
     if (handle) resumeOn({ kind: "handle", handle });
     else setChoose(true);
+  }
+  /** A batch on an OpenNeuro snapshot walks its folder again and goes on with what it has not run. */
+  async function resumeRemote(remote: Required<BatchRecord>["remote"]) {
+    setWalking(true);
+    try {
+      const { datasetInfo, walkRecordings } = await import("../openneuro/api");
+      const info = await datasetInfo(batch.root, remote.tag).catch(() => undefined);
+      const found = await walkRecordings(batch.root, remote.tag, remote, info);
+      head.current?.focus();
+      void resumeBatch(batch.id, found);
+    } catch (failure) {
+      setError(`${batch.root} could not be listed: ${failure instanceof Error ? failure.message : failure}`);
+    } finally {
+      setWalking(false);
+    }
   }
   function chosen(source: FolderSource, folder: string) {
     if (batch.root && folder !== batch.root) {
@@ -134,9 +152,10 @@ export function BatchEntry(props: {
               type="button"
               className={controls.button}
               disabled={busy}
-              onClick={choose ? chooseFolder : resume}
+              aria-disabled={walking || undefined}
+              onClick={walking ? undefined : choose ? chooseFolder : resume}
             >
-              {choose ? "Choose the folder again" : "Resume"}
+              {choose ? "Choose the folder again" : walking ? "Finding recordings" : "Resume"}
             </button>
           )}
         </div>
