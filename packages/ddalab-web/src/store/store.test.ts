@@ -4,11 +4,17 @@ import {
   type OpenRecording,
   openResult,
   pageOf,
+  rowChannels,
+  SENSITIVITIES,
+  selectChannels,
   setShownResult,
   setView,
+  showChosenOnly,
   showResult,
+  stepSensitivity,
   useStore,
   type View,
+  voltage,
   zoomBy,
 } from "./store";
 
@@ -18,6 +24,7 @@ const view = (t0: number, t1: number, epochS: 10 | 20 | 30 = 10): View => ({
   epochS,
   firstChannel: 0,
   rowCount: 16,
+  chosenOnly: false,
   sensitivityUvPerMm: 70,
   mmPerCssMm: 1,
 });
@@ -29,6 +36,85 @@ test("last_page_when_the_view_reaches_the_end", () => {
   expect(pageOf(view(15, 25), 25)).toEqual([3, 3]);
   expect(pageOf(view(10, 30, 20), 30)).toEqual([2, 2]);
   expect(pageOf(view(20, 30), 30)).toEqual([3, 3]);
+});
+
+test("sensitivity_steps_run_to_10_mV_per_mm_and_print_in_mV_from_1000_µV", () => {
+  useStore.setState({ recordings: {}, activeRecordingId: null, shownResult: null, view: view(0, 10) });
+  setView({ sensitivityUvPerMm: 1 });
+  const steps = [useStore.getState().view.sensitivityUvPerMm];
+  for (let i = 0; i < 30; i++) {
+    stepSensitivity(1);
+    steps.push(useStore.getState().view.sensitivityUvPerMm);
+  }
+  expect(SENSITIVITIES).toEqual([
+    1, 2, 3, 5, 7, 10, 15, 20, 30, 50, 70, 100, 150, 200, 300, 500, 700, 1000, 1500, 2000, 3000, 5000, 7000,
+    10000,
+  ]);
+  // Every step once, then it stays at the coarsest.
+  expect([...new Set(steps)]).toEqual(SENSITIVITIES);
+  expect(steps.at(-1)).toBe(10000);
+  // Down from a value between steps: one step from the nearest.
+  setView({ sensitivityUvPerMm: 1400 });
+  stepSensitivity(-1);
+  expect(useStore.getState().view.sensitivityUvPerMm).toBe(1000);
+  expect(SENSITIVITIES.map((s) => voltage(s).join(" ")).slice(14)).toEqual([
+    "300 µV",
+    "500 µV",
+    "700 µV",
+    "1 mV",
+    "1.5 mV",
+    "2 mV",
+    "3 mV",
+    "5 mV",
+    "7 mV",
+    "10 mV",
+  ]);
+  expect(voltage(999)).toEqual([999, "µV"]);
+  // The amplitude bar is 10 mm: 100 mV at the coarsest step.
+  expect(voltage(10 * 10000)).toEqual([100, "mV"]);
+});
+
+test("chosen_channels_alone_keep_the_top_row_and_follow_the_choice", () => {
+  const ten = {
+    fingerprint: "ften",
+    info: { duration_s: 60, sample_rate_hz: 100 },
+    analysis_channels: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+    selectedChannels: [],
+  } as unknown as OpenRecording;
+  useStore.setState({ recordings: { T: ten }, activeRecordingId: "T", shownResult: null, view: view(0, 10) });
+  const state = () => {
+    const s = useStore.getState();
+    const { chosenOnly, firstChannel, rowCount } = s.view;
+    return { chosenOnly, firstChannel, rowCount, rows: rowChannels(s.view, s.recordings.T) };
+  };
+  setView({ rowCount: 2, firstChannel: 5 });
+  // With none chosen it stays off.
+  showChosenOnly(true);
+  expect(state()).toMatchObject({ chosenOnly: false, firstChannel: 5 });
+  selectChannels([1, 3, 6, 8], true);
+  showChosenOnly(true);
+  // The top row was channel 5: the first chosen one after it is on top.
+  expect(state()).toEqual({ chosenOnly: true, firstChannel: 2, rowCount: 2, rows: [1, 3, 6, 8] });
+  // Unchoosing the top row's channel brings the next one up; the page stays full.
+  selectChannels([6], false);
+  expect(state()).toMatchObject({ firstChannel: 1, rows: [1, 3, 8] });
+  // Choosing more puts them in order; the top row keeps its channel.
+  selectChannels([2, 9], true);
+  expect(state()).toMatchObject({ firstChannel: 2, rows: [1, 2, 3, 8, 9] });
+  // Off, every channel shows from the top row's channel.
+  showChosenOnly(false);
+  expect(state()).toMatchObject({ chosenOnly: false, firstChannel: 3 });
+  // Unchoosing the last channel while on turns it off, at the same row.
+  showChosenOnly(true);
+  selectChannels([1, 2, 3, 8, 9], false);
+  expect(state()).toMatchObject({ chosenOnly: false, firstChannel: 3, rows: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] });
+  // The row count holds while fewer channels show, and serves all of them again after.
+  selectChannels([4, 7], true);
+  setView({ rowCount: 8 });
+  showChosenOnly(true);
+  expect(state()).toMatchObject({ chosenOnly: true, firstChannel: 0, rowCount: 8, rows: [4, 7] });
+  showChosenOnly(false);
+  expect(state()).toMatchObject({ chosenOnly: false, firstChannel: 2, rowCount: 8 });
 });
 
 const record = (id: string, fingerprint: string, status: AnalysisRecord["status"]) =>

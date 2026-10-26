@@ -5,11 +5,13 @@ import type { AnalysisRecord } from "../core/history";
 import { database, listRecent } from "./recent";
 import {
   activateRecording,
+  addRecording,
   type OpenRecording,
   openResult,
   removeRecording,
   setSelection,
   setView,
+  showChosenOnly,
   showResult,
   useStore,
 } from "./store";
@@ -24,6 +26,7 @@ import {
   selectTab,
   shortNames,
   type TabFile,
+  type TabView,
   tabOpened,
 } from "./tabs";
 
@@ -282,15 +285,18 @@ test("each_tab_keeps_its_view", () => {
   useStore.setState((s) => ({
     recordings: { ...s.recordings, A: { ...s.recordings.A, selectedChannels: [0, 2] } },
   }));
+  showChosenOnly(true);
   openResult("r");
   useStore.setState((s) => ({ shownResult: s.shownResult && { ...s.shownResult, row: 1 } }));
   selectTab("fb");
-  // B comes back as it was left: at its first epoch, with no selection or result.
+  // B comes back as it was left: at its first epoch, with no selection or result, every channel shown.
   expect(viewOf()).toMatchObject({ t0: 0, t1: 10 });
+  expect(useStore.getState().view.chosenOnly).toBe(false);
   expect(useStore.getState()).toMatchObject({ selection: null, shownResult: null, activeResultId: null });
   setView({ t0: 70, t1: 90 });
   selectTab("fa");
   expect(viewOf()).toMatchObject({ t0: 40, t1: 60 });
+  expect(useStore.getState().view.chosenOnly).toBe(true);
   expect(useStore.getState()).toMatchObject({
     selection: { t0: 42, t1: 45 },
     shownResult: { id: "r", row: 1 },
@@ -381,6 +387,42 @@ test("closing_the_selected_tab_selects_the_next_and_order_moves", () => {
   // A recording that closes while shown (a detach) can keep its tab selected.
   removeRecording("C", "fc");
   expect(useStore.getState()).toMatchObject({ activeTab: "fc", activeRecordingId: null });
+});
+
+test("chosen_channels_alone_come_back_with_the_tab_after_a_reload", async () => {
+  openThree();
+  selectTab("fa");
+  useStore.setState((s) => ({
+    recordings: { ...s.recordings, A: { ...s.recordings.A, selectedChannels: [0, 2] } },
+  }));
+  showChosenOnly(true);
+  selectTab("fb");
+  await saveTabs();
+  const loaded = await loadTabs();
+  if (!loaded) throw new Error("nothing stored");
+  expect(loaded.tabs[0].saved).toMatchObject({ view: { chosenOnly: true }, selectedChannels: [0, 2] });
+  // A reload: the stored tabs come back detached, and the files of A open again with nothing chosen.
+  const { view } = useStore.getState();
+  useStore.setState({
+    recordings: {},
+    activeRecordingId: null,
+    tabs: loaded.tabs,
+    activeTab: null,
+    view: { ...view, chosenOnly: false },
+  });
+  addRecording("A2", recording("fa"));
+  expect(useStore.getState().view.chosenOnly).toBe(true);
+  expect(useStore.getState().recordings.A2.selectedChannels).toEqual([0, 2]);
+  // A view saved by 2.0.0 has no chosenOnly: its tab shows every channel, whatever the one before showed, even with
+  // channels chosen.
+  const saved = loaded.tabs[1].saved as TabView;
+  const { chosenOnly: _, ...old } = saved.view;
+  const stored = { ...saved, selectedChannels: [1], view: old as TabView["view"] };
+  useStore.setState((s) => ({
+    tabs: s.tabs.map((t) => (t.fingerprint === "fb" ? { ...t, saved: stored } : t)),
+  }));
+  addRecording("B2", recording("fb"));
+  expect(useStore.getState()).toMatchObject({ activeRecordingId: "B2", view: { chosenOnly: false } });
 });
 
 test("the_open_set_round_trips_with_each_view", async () => {
