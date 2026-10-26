@@ -8,7 +8,7 @@ import wasmUrl from "../core/ddalab.wasm?url";
 import type { RecordingInput } from "../core/engine";
 import { documentJson, variantCsv } from "../core/exporters";
 import { fingerprintOf, sha256Hex } from "../core/fingerprint";
-import { importResult } from "../core/imports";
+import { importResult, importResults } from "../core/imports";
 import {
   evictTiles,
   levelCount,
@@ -261,7 +261,9 @@ async function handle(request: IoRequest): Promise<unknown> {
     case "exportCsv":
       return variantCsv(request.resultId, request.variant);
     case "importResult":
-      return importResult(request.input);
+      return importResult(request.input, request.kept);
+    case "importResults":
+      return importResults(request.results, request.batches);
     case "trap": {
       if (!(import.meta.env.DEV || import.meta.env.MODE === "e2e")) throw new Error("unknown request");
       // A module whose export runs `unreachable`, the instruction a Rust panic compiles to.
@@ -316,6 +318,7 @@ const BESIDE = new Set<IoRequest["type"]>([
   "exportDocument",
   "exportCsv",
   "importResult",
+  "importResults",
   "deleteResult",
   "sweepResults",
   "resultManifest",

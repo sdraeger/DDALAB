@@ -264,3 +264,20 @@ test("events_tsv_matches_the_hand_written_file", () => {
   expect(eventsTsv(events)).toBe(expected);
   expect(JSON.parse(eventsJson(events))[1]).toEqual({ onset: 2.5, duration: 1, trial_type: "eyes closed" });
 });
+
+// An opened project adds its annotations beside the user's (app/project.ts): an id this browser keeps under another
+// recording stays there, unchanged, and the incoming annotation gets an id of its own, once.
+test("a_project_annotation_never_moves_one_of_another_recording", async () => {
+  const mine = { id: "shared-id", onset_s: 1, duration_s: 0, label: "mine" };
+  await idb.storeChanges("alice-a", [], [mine]);
+  const theirs = { ...mine, onset_s: 5, label: "theirs" };
+  await m.addAnnotations("bob-b", [theirs]);
+  await m.addAnnotations("bob-b", [theirs]);
+  expect(await idb.loadAnnotations("alice-a")).toEqual([mine]);
+  const added = await idb.loadAnnotations("bob-b");
+  expect(added.map(({ onset_s, label }) => [onset_s, label])).toEqual([[5, "theirs"]]);
+  expect(added[0].id).not.toBe("shared-id");
+  // One the recording has already (by id) is neither added again nor changed.
+  await m.addAnnotations("alice-a", [{ ...mine, label: "changed" }]);
+  expect(await idb.loadAnnotations("alice-a")).toEqual([mine]);
+});

@@ -10,9 +10,12 @@ import {
   idOf,
   loadTabs,
   matchFiles,
+  matchProject,
+  rememberDigests,
   saveTabs,
   selectTab,
   setReason,
+  sought,
   type Tab,
   type TabSource,
   tabOf,
@@ -112,6 +115,10 @@ function handlesFor(chosen: File[], files: File[], handles?: FileHandles): FileH
 
 type Match = Exclude<ReturnType<typeof matchFiles>, null | { reason: string }>;
 
+/** The picked files that are `source`'s again (see `matchFiles`); a project by its name alone (`matchProject`). */
+const matchOf = (source: Local, picked: File[]) =>
+  source.kind === "project" ? matchProject(source, picked) : matchFiles(source.files, picked);
+
 /**
  * Opens `match`, the detached `tab`'s files among `files`, as that tab. `handles` holds the handles of `files` in
  * their order, where the browser gives them; `picked`: the user chose these files. Stopped (`signal`), it reports
@@ -131,7 +138,8 @@ async function attachMatch(
   const verify = match.same ? undefined : tab.sha256;
   // Set either way: a check this attempt stopped may have left it on.
   updateTab(fingerprint, { verifying: verify !== undefined });
-  if (picked) unpicked.delete(fingerprint);
+  // A project's recording must have the digests the tab holds (from the project.json that brought it), picked or not.
+  if (picked && tab.source?.kind !== "project") unpicked.delete(fingerprint);
   else unpicked.add(fingerprint);
   const options = {
     choice: match.primary,
@@ -142,7 +150,11 @@ async function attachMatch(
     handles: handlesFor(match.files, files, handles),
     activate: false,
   };
-  const outcome = await openFiles(match.files, options);
+  // A project's recording is read from inside it; its chunk loads with the first.
+  const outcome =
+    tab.source?.kind === "project"
+      ? await (await import("./project")).openProjectRecording(match.files[0], options)
+      : await openFiles(match.files, options);
   if (signal.aborted) return;
   if (verify) updateTab(fingerprint, { verifying: false });
   if (outcome.kind === "error") {
@@ -168,17 +180,23 @@ export function attachUrl(tab: Tab, supersede = false) {
 }
 
 /** The handles a reattach reads `source` through: its folder's, else every file's. */
-const handlesOf = (source: TabSource & { kind: "files" }): FileSystemHandle[] =>
-  source.root ? [source.root] : source.files.flatMap((f) => (f.handle ? [f.handle] : []));
+const handlesOf = (source: Local): FileSystemHandle[] =>
+  source.kind === "files" && source.root
+    ? [source.root]
+    : sought(source).flatMap((f) => (f.handle ? [f.handle] : []));
+
+/** A source read from this device: a recording's files, or the project that holds them. */
+type Local = Exclude<TabSource, { kind: "url" }>;
+const local = (source: TabSource | null | undefined): source is Local => !!source && source.kind !== "url";
 
 /** The files of `source` read through its handles, when the browser lets them be read; `undefined` otherwise. */
-async function viaHandles(source: TabSource & { kind: "files" }) {
-  const { root } = source;
+async function viaHandles(source: Local) {
+  const root = source.kind === "files" ? source.root : undefined;
   if (!hasHandles(source)) return undefined;
   for (const handle of handlesOf(source)) if (!(await permitted(handle))) return undefined;
-  if (root)
+  if (root && source.kind === "files")
     return { files: await Promise.all(source.files.map((f) => fileAt(root, f.path))), handles: { root } };
-  const handles = source.files.map((f) => f.handle as FileSystemFileHandle);
+  const handles = sought(source).map((f) => f.handle as FileSystemFileHandle);
   return { files: await Promise.all(handles.map((h) => h.getFile())), handles: { files: handles } };
 }
 
@@ -189,11 +207,11 @@ async function viaHandles(source: TabSource & { kind: "files" }) {
 function attachQuietly(tab: Tab, supersede = false) {
   const { source, fingerprint } = tab;
   if (source?.kind === "url") return attachUrl(tab, supersede);
-  if (source?.kind !== "files") return Promise.resolve();
+  if (!local(source)) return Promise.resolve();
   return attempt(fingerprint, supersede, async (signal) => {
     try {
       const read = await viaHandles(source);
-      const match = read && matchFiles(source.files, read.files);
+      const match = read && matchOf(source, read.files);
       if (signal.aborted || !read || !match || !tabOf(fingerprint)) return;
       if ("reason" in match) return setReason(fingerprint, match.reason);
       await attachMatch(tab, match, read.files, read.handles, false, signal);
@@ -217,7 +235,7 @@ async function attachAllQuietly(first?: string | null, supersede?: string) {
 
 /** The prompts `tab` still needs, a click each: 1 for its folder, else one per file not allowed yet. */
 export async function promptsLeft(tab: Tab): Promise<number> {
-  if (tab.source?.kind !== "files" || !hasHandles(tab.source)) return 0;
+  if (!local(tab.source) || !hasHandles(tab.source)) return 0;
   const allowed = await Promise.all(handlesOf(tab.source).map(permitted));
   return allowed.filter((ok) => !ok).length;
 }
@@ -228,7 +246,7 @@ export async function promptsLeft(tab: Tab): Promise<number> {
  * reattaches; with `supersede` (Retry) this tab's attempt under way is stopped and made again.
  */
 export async function requestAccess(tab: Tab, supersede = false) {
-  if (tab.source?.kind !== "files") return;
+  if (!local(tab.source)) return;
   for (const handle of handlesOf(tab.source)) {
     if (await permitted(handle)) continue;
     const answer = await ask(handle);
@@ -247,22 +265,47 @@ export const pickerFor = (tab: Tab): "folder" | "files" =>
 
 /**
  * Reattaches every detached tab whose files are among the picked ones, each stopping an attempt under way for it;
- * `target` says when none of its files is.
+ * `target` says when none of its files is. `among`: only the tabs of these fingerprints.
  */
-export async function reattachFrom(picked: File[], target: string | null, handles?: FileHandles) {
+export async function reattachFrom(
+  picked: File[],
+  target: string | null,
+  handles?: FileHandles,
+  among?: Set<string>,
+) {
   await Promise.all(
-    detachedTabs().map(async (tab) => {
-      const match = tab.source?.kind === "files" ? matchFiles(tab.source.files, picked) : null;
-      if (!match) {
-        if (tab.fingerprint === target) setReason(tab.fingerprint, `None of the chosen files is ${tab.name}`);
-        return;
-      }
-      if ("reason" in match) return setReason(tab.fingerprint, match.reason);
-      await attempt(tab.fingerprint, true, (signal) =>
-        attachMatch(tab, match, picked, handles, true, signal),
-      );
-    }),
+    detachedTabs()
+      .filter((tab) => !among || among.has(tab.fingerprint))
+      .map(async (tab) => {
+        const match = local(tab.source) ? matchOf(tab.source, picked) : null;
+        if (!match) {
+          if (tab.fingerprint === target)
+            setReason(tab.fingerprint, `None of the chosen files is ${tab.name}`);
+          return;
+        }
+        if ("reason" in match) return setReason(tab.fingerprint, match.reason);
+        await attempt(tab.fingerprint, true, (signal) =>
+          attachMatch(tab, match, picked, handles, true, signal),
+        );
+      }),
   );
+}
+
+/**
+ * Reattaches the detached `tab` from `files`, whose SHA-256 the caller has found equal to the tab's (a project's copy
+ * of its recording), as the tab's one attempt. The tab keeps its own source: the next visit reads its own files again.
+ */
+export function attachChecked(fingerprint: string, files: File[]) {
+  return attempt(fingerprint, false, async (signal) => {
+    // The tab as it is now: reattached meanwhile, or given another source by a pick, it stays as the user left it.
+    const tab = tabOf(fingerprint);
+    if (!tab || idOf(fingerprint)) return;
+    // Read at the open as the check read them, or the hash detaches it.
+    unpicked.add(fingerprint);
+    const options = { choice: files[0].name, expect: fingerprint, exact: true, signal, activate: false };
+    const outcome = await openFiles(files, { ...options, origin: tab.source ?? undefined });
+    if (!signal.aborted && outcome.kind === "error") setReason(fingerprint, outcome.message);
+  });
 }
 
 /** Writes are held until the stored set has been read: an earlier write would replace it. */
@@ -321,9 +364,10 @@ const warn = (id: string, warning: string) =>
     return { recordings: { ...s.recordings, [id]: { ...recording, info: { ...recording.info, warnings } } } };
   });
 
-// A tab keeps the SHA-256 of its files from the first time they are hashed. A recording reattached without a pick whose
-// hash differs (an edit the fingerprint does not see) is closed again and its tab says why; files the user picked stay
-// open with a warning, and their hash becomes the tab's.
+// A tab keeps the SHA-256 of its files from the first time they are hashed, or from the project.json that brought it. A
+// recording reattached without a pick whose hash differs (an edit the fingerprint does not see) is closed again and its
+// tab says why, as is a project's recording, picked or not; loose files the user picked stay open with a warning, and
+// their hash becomes the tab's.
 useStore.subscribe((now, before) => {
   if (now.recordings === before.recordings) return;
   for (const [id, { scan, info, fingerprint }] of Object.entries(now.recordings)) {
@@ -334,6 +378,12 @@ useStore.subscribe((now, before) => {
     const quiet = unpicked.delete(fingerprint);
     const changed = info.input_files.find((name) => tab.sha256?.[name] && tab.sha256[name] !== sha256[name]);
     queueMicrotask(() => {
+      if (changed && quiet && tab.source?.kind === "project") {
+        return detach(
+          fingerprint,
+          `${changed} in ${tab.source.project.name} does not have the SHA-256 that the project lists for it: the project is damaged or was altered`,
+        );
+      }
       if (changed && quiet) return detach(fingerprint, `${changed} changed since it was opened`);
       if (changed) {
         warn(
@@ -342,6 +392,8 @@ useStore.subscribe((now, before) => {
         );
       }
       if (changed || !tab.sha256) updateTab(fingerprint, { sha256 });
+      // What a project's copy of this recording is checked against, once this tab is gone (app/project.ts).
+      void rememberDigests(fingerprint, sha256).catch(() => {});
     });
   }
 });

@@ -16,6 +16,14 @@ The app opens EDF, BDF, BrainVision, and delimited text (ASCII, TXT, CSV) record
 
 Open <https://sdraeger.github.io/DDALAB/> in Chrome, Edge, Firefox or Safari on a desktop or laptop. Choose Open files or Open folder, or drag recordings onto the window. Files are read in place and are never uploaded. A window narrower than 768 pixels (a phone, for example) shows a notice that DDALAB needs a wider window.
 
+### Share a project
+
+Export project, under Open files in the library, saves the open tabs as one .ddalab file: every file their recordings read (a BrainVision recording's .vhdr, .vmrk and .eeg, and the BIDS sidecars it used), your annotations, the chosen channels and each tab's view, and the results of those recordings with their batches. The panel shows the size before it writes. Reattach or close a detached tab first. A project can carry at most 32 MiB of results (as the History keeps them; one result at most 16 MiB), so that every DDALAB can open it. When the results come to more, the panel says so and offers Export without results, which keeps the recordings, annotations, chosen channels and views; or delete results you do not need in History and export again.
+
+Open a .ddalab in the web app or the installed one, on this computer or another: choose it with Open files, drop it onto the window, or use Open With in installed Chrome and Edge. Its tabs come back with their annotations, channels and views, and its results join the History. Results, batches and annotations you already have are not added twice or changed. A recording DDALAB already knows (from a tab, its annotations, its results or its cached tiles) is checked before anything of the project joins it: DDALAB hashes the project's copy and compares it with the SHA-256 it knows for yours. Only when they are the same do the project's annotations and results for it join, and a tab of yours keeps its place (a detached one opens from the .ddalab for this visit and keeps its own files for the next). Otherwise your recording stays as it is, the copy is not opened, and the message says why and what to do. If the copy differs from yours, it lists what to remove from this browser first if you want the project's copy instead. If this browser has never checked your copy (one annotated before 2.1, for example), open your recording here once, which checks it, and open the project again. If the project's copy could not be read, open the project again. The recordings are read from inside the .ddalab, not copied, so keep the file where it is: a reload reads them from there again, and so does a newer copy of the project saved under the same name. Chrome and Edge read it again without asking for the rest of the session; after a restart they ask once, unless you chose Allow on every visit. Other browsers ask you to choose it again.
+
+A .ddalab is a zip archive whose files are stored uncompressed, so any zip tool unpacks it. `recordings/<n>/` holds the files of each recording, which `ddalab` reads as it reads any recording, and `results/<id>/` the bundle of each result, as `ddalab run --bundle` writes it. `project.json` lists every file with its SHA-256.
+
 ### Install the web app
 
 Installing is optional. It gives DDALAB its own window and lets it start without a network.
@@ -31,7 +39,7 @@ Start the installed app from the Dock, Launchpad, Spotlight or the Applications 
 
 Installed Chrome and Edge add a few things:
 
-- Open With, then DDALAB, in Finder or Explorer for .edf, .bdf, .vhdr, .csv, .tsv and .txt files (Chrome asks once per file type). A .vhdr opened alone asks you to choose its folder to find its companion files, unless a folder you have open already holds it.
+- Open With, then DDALAB, in Finder or Explorer for .edf, .bdf, .vhdr, .csv, .tsv, .txt and .ddalab files (Chrome asks once per file type). A .vhdr opened alone asks you to choose its folder to find its companion files, unless a folder you have open already holds it.
 - Exports go through the system Save dialog. Chrome and Edge tabs do the same. Other browsers download the file.
 - Open tabs return when you restart. Chrome asks for read access to each file again unless you choose Allow on every visit.
 
@@ -53,7 +61,7 @@ Install it with Python's tools. Python 3.8 or later is needed only to install it
 
 ```sh
 uv tool install ddalab      # or: pipx install ddalab, or: pip install ddalab
-ddalab --version            # prints: ddalab 2.0.1
+ddalab --version            # prints: ddalab 2.1.0
 uv tool upgrade ddalab      # or: pipx upgrade ddalab
 ```
 
