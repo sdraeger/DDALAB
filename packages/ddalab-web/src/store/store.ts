@@ -23,6 +23,8 @@ export interface OpenRecording {
 }
 
 export type Epoch = 10 | 20 | 30;
+/** The views a phone shows one at a time: the library rail, the waveform, the shown result. */
+export type PhoneView = "library" | "waveform" | "results";
 export const EPOCHS: Epoch[] = [10, 20, 30];
 /** The sensitivity steps of the `[` and `]` keys, in µV/mm: scalp EEG to the millivolts of intracranial contacts. */
 export const SENSITIVITIES = [
@@ -115,6 +117,8 @@ export interface State {
   activeResultId: string | null;
   /** The side panels: open or collapsed. */
   panels: { library: boolean; inspector: boolean };
+  /** On a phone (a window below 768 px): the one view shown, and whether the inspector covers it. */
+  phone: { view: PhoneView; inspector: boolean };
   run: RunState | null;
   shownResult: ShownResult | null;
   /** The DDA settings as the user typed them; the request takes the channels and interval from the recording. */
@@ -166,6 +170,7 @@ export const useStore = create<State>()(() => ({
   batch: null,
   activeResultId: null,
   panels: { library: true, inspector: true },
+  phone: { view: "library", inspector: false },
   run: null,
   shownResult: null,
   ddaForm: DEFAULT_FORM,
@@ -538,6 +543,11 @@ export const setShownResult = (change: Partial<ShownResult>) =>
 
 export const togglePanel = (panel: keyof State["panels"]) =>
   useStore.setState((s) => ({ panels: { ...s.panels, [panel]: !s.panels[panel] } }));
+
+/** Shows a view on a phone; the inspector, which covers the view, closes. */
+export const showPhoneView = (view: PhoneView) => useStore.setState({ phone: { view, inspector: false } });
+export const togglePhoneInspector = () =>
+  useStore.setState((s) => ({ phone: { ...s.phone, inspector: !s.phone.inspector } }));
 
 export const setSelection = (selection: State["selection"]) => useStore.setState({ selection });
 export const setCursor = (cursorS: number | null) => useStore.setState({ cursorS });
