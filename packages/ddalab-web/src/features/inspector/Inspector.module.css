@@ -144,7 +144,7 @@
 /* "Show all N groups": its text in line with the group rows'. */
 .more {
   align-self: flex-start;
-  height: 24px;
+  height: calc(var(--hit) - 4px);
   margin: calc(-1 * var(--space-1)) 0 0 calc(-1 * var(--space-2));
   font-size: var(--text-small);
 }
@@ -176,7 +176,7 @@
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
-  min-height: 26px;
+  min-height: calc(var(--hit) - 2px);
   cursor: pointer;
 }
 
@@ -200,7 +200,7 @@
 }
 
 .search {
-  height: 28px;
+  height: var(--hit);
   padding: 0 var(--space-2);
   border: var(--hairline-width) solid var(--hairline);
   border-radius: var(--radius);
@@ -234,7 +234,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  height: 28px;
+  height: var(--hit);
   padding: 0 var(--space-4);
   transition-property: background-color;
   transition-duration: var(--motion-duration);

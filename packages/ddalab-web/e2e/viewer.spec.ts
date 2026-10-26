@@ -466,6 +466,20 @@ test("escape_and_a_press_off_the_plot_let_the_cursor_go", async ({ page }) => {
 test.describe("touch", () => {
   test.use({ hasTouch: true });
 
+  test("controls_and_channel_rows_take_a_fingertip", async ({ page }) => {
+    test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
+    test.skip(
+      !(await page.evaluate(() => matchMedia("(pointer: coarse)").matches)),
+      "the pointer is not coarse here",
+    );
+    await openFixture(page);
+    const height = async (name: string) =>
+      (await page.getByRole("button", { name, exact: true }).first().boundingBox())?.height;
+    expect(await height("Library")).toBe(40);
+    const row = page.getByRole("list", { name: "Channels" }).getByRole("listitem").first();
+    expect((await row.boundingBox())?.height).toBe(40);
+  });
+
   test("pinch_zooms_about_the_fingers_and_a_held_drag_selects", async ({ page, browserName }) => {
     // Two fingers at once go through the DevTools protocol, which only Chromium speaks; they arrive as real pointers.
     test.skip(browserName !== "chromium", "multi-touch is sent through the Chromium DevTools protocol");
