@@ -18,15 +18,23 @@ const writing = new Map<
   { files: FileSystemSyncAccessHandle[]; bytes: number; release: () => void }
 >();
 
-/** A window without OPFS (private browsing can cause it) rejects with an UnknownError that says "transient". */
-export const resultsDirectory = async () => {
-  const root = await navigator.storage.getDirectory().catch(() => {
+/**
+ * The folder of every result, for writing and reading. A window without OPFS rejects with an UnknownError that calls
+ * itself transient (private browsing can cause it), or has no `navigator.storage` at all (an insecure origin).
+ */
+export async function resultsDirectory() {
+  let root: FileSystemDirectoryHandle;
+  try {
+    root = await navigator.storage.getDirectory();
+  } catch (cause) {
     throw new Error(
-      "Browser storage is not available in this window, which private browsing can cause; results cannot be kept.",
+      "Browser storage, where results are kept, is not available in this window; private browsing can cause this. " +
+        "Open DDALAB in a regular window.",
+      { cause },
     );
-  });
+  }
   return root.getDirectoryHandle("results", { create: true });
-};
+}
 
 const arrayBytes = ({ header, shape }: BundleLayout["arrays"][number]) =>
   header.length + 8 * shape.reduce((n, d) => n * d, 1);

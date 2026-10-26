@@ -346,6 +346,19 @@ test("run_with_512_channels", async ({ page }) => {
   expect(shape?.[1]).toBe(512);
 });
 
+// Where the window has no OPFS (Playwright's WebKit here, a private window in Safari) a run fails at once and says why
+// in place of the browser's "unknown transient reason".
+test("a_run_without_storage_says_why", async ({ page }) => {
+  test.skip(await hasStorage(page), "this browser window has OPFS");
+  await openBrainVision(page);
+  await page.getByRole("checkbox", { name: "Select Fp1" }).check();
+  await runBar(page).getByRole("button", { name: "Run DDA" }).click();
+  await expect(runBar(page).getByRole("alert")).toHaveText(
+    "The run failed: Browser storage, where results are kept, is not available in this window; private browsing " +
+      "can cause this. Open DDALAB in a regular window.",
+  );
+});
+
 test("quota_during_result_write", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
   await openBrainVision(page);

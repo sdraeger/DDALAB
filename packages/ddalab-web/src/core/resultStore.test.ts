@@ -38,7 +38,14 @@ test("a_result_that_cannot_be_removed_leaves_the_others_swept", async () => {
 test("a_window_without_opfs_says_so", async () => {
   const unknown = new DOMException("The operation failed for an unknown transient reason", "UnknownError");
   vi.stubGlobal("navigator", { storage: { getDirectory: () => Promise.reject(unknown) } });
-  await expect(resultsDirectory()).rejects.toThrow("Browser storage is not available in this window");
+  const rejected = await resultsDirectory().catch((error: Error) => error);
+  expect(rejected).toMatchObject({
+    message: expect.stringMatching(/^Browser storage, where results/),
+    cause: unknown,
+  });
+  // An insecure origin has no navigator.storage at all.
+  vi.stubGlobal("navigator", {});
+  await expect(resultsDirectory()).rejects.toThrow(/^Browser storage, where results/);
 });
 
 test("delete_waits_for_a_pyramid_build_then_removes_its_files", async () => {
