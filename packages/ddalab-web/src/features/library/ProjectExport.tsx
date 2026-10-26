@@ -14,6 +14,8 @@ export default function ProjectExport() {
   const [contents, setContents] = useState<Contents | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** What the save is doing, or did: "Writing the project", then "The project is saved". */
+  const [status, setStatus] = useState("");
   useEffect(() => {
     let live = true;
     projectContents().then(
@@ -25,12 +27,20 @@ export default function ProjectExport() {
     };
   }, []);
 
-  // The save dialog opens first (download.ts): busy starts when the file is written.
+  // The save dialog opens first (download.ts): busy starts when the file is made, and a closed dialog makes none.
   async function save(ready: Contents) {
     setError(null);
+    setStatus("");
+    let made = false;
     try {
-      await exportProject(ready, () => setBusy(true));
+      await exportProject(ready, () => {
+        made = true;
+        setBusy(true);
+        setStatus("Writing the project");
+      });
+      if (made) setStatus("The project is saved");
     } catch (failure) {
+      setStatus("");
       setError(messageOf(failure));
     } finally {
       setBusy(false);
@@ -68,11 +78,10 @@ export default function ProjectExport() {
       >
         Save project
       </button>
-      {busy && (
-        <p className={styles.note} aria-live="polite">
-          Writing the project
-        </p>
-      )}
+      {/* One region from the start: a region mounted with its text is often not read. */}
+      <p className={styles.note} aria-live="polite">
+        {status}
+      </p>
       {error && (
         <p role="alert" className={styles.error}>
           {error}
