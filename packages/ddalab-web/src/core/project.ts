@@ -359,6 +359,71 @@ export const batchIds = (batches: ProjectBatch[], stored: ProjectBatch[]) =>
     }),
   );
 
+/**
+ * What this browser keeps under a recording's fingerprint, which a project's copy of it would share, and each set of
+ * its files' SHA-256 known here (app/project.ts `keptHere`).
+ */
+export interface Kept {
+  tab: "none" | "open" | "detached";
+  annotations: number;
+  results: number;
+  tiles: boolean;
+  digests: Record<string, string>[];
+}
+
+/**
+ * Whether a project's `recording` may join what `kept` holds under its fingerprint, which reads only a file's name,
+ * size and edges: `new` when nothing is kept; `same` when the project's bytes, which `hash` reads, have every complete
+ * set of digests known here; `differs` when they, or the digests the project lists, do not; `unknown` when no complete
+ * set is known here (the user's copy was never checked); `unread` when the project's bytes could not be hashed.
+ */
+export async function verdict(
+  recording: ProjectRecording,
+  kept: Kept,
+  hash: () => Promise<Record<string, string>>,
+): Promise<"new" | "same" | "differs" | "unknown" | "unread"> {
+  if (kept.tab === "none" && kept.annotations === 0 && kept.results === 0 && !kept.tiles) return "new";
+  const known = kept.digests.filter((set) => recording.files.every((f) => set[f.name]));
+  if (known.length === 0) return "unknown";
+  if (!known.every((set) => sameFiles(recording.files, set))) return "differs";
+  const hashed = await hash().catch(() => undefined);
+  if (!hashed) return "unread";
+  const actual = recording.files.map((f) => ({ ...f, sha256: hashed[f.name] }));
+  return known.every((set) => sameFiles(actual, set)) ? "same" : "differs";
+}
+
+const count = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+const listed = (items: string[]) =>
+  items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+
+/**
+ * What the user reads when the project `project`'s copy of `name` is refused for `why`: what happened, that their own
+ * stays as it is, and the step that leads on. Removing their copy is the way forward only when it differs.
+ */
+export function refusal(name: string, project: string, why: "differs" | "unknown" | "unread", kept: Kept) {
+  const stays = `Your ${name}, its annotations and its results stay as they are, and the project's annotations and results for it were not added.`;
+  if (why === "unread") {
+    return `${name} was not opened from ${project}: the project's copy could not be read to check it against your ${name}. ${stays} Open the project again.`;
+  }
+  if (why === "unknown") {
+    const check =
+      kept.tab === "detached"
+        ? `Reattach your tab of ${name}`
+        : kept.tab === "open"
+          ? `Close your tab of ${name} and open your file of it again`
+          : `Open your ${name} here once`;
+    return `${name} was not opened from ${project}: this browser has never checked the contents of your ${name}, which has the same name, size, start and end, so the project's copy cannot be compared with it. ${stays} ${check}, which checks it, then open the project again.`;
+  }
+  const remove = [
+    kept.annotations > 0 &&
+      `delete its ${count(kept.annotations, "annotation")}${kept.tab === "open" ? "" : " (open the recording to do so)"}`,
+    kept.results > 0 && `delete its ${count(kept.results, "result")} in History`,
+    kept.tab !== "none" && "close its tab",
+    kept.tiles && "clear cached tiles in Local data",
+  ].filter((step) => typeof step === "string");
+  return `${name} was not opened from ${project}: this browser keeps another ${name} with the same name, size, start and end but other contents, and the project's copy cannot be opened while yours is here. ${stays} To use the project's copy, first remove your ${name} from this browser: ${listed(remove)}. Then open the project again.`;
+}
+
 /** Whether `files` have exactly the SHA-256 digests `known` holds, by file name. */
 export const sameFiles = (files: ProjectFile[], known: Record<string, string>) =>
   files.length === Object.keys(known).length && files.every((f) => known[f.name] === f.sha256);
