@@ -2,6 +2,7 @@
 // the side panels, set before the first render, the active result, set once the history is listed and the first
 // frame is painted (its views are the heavy part), and the view of a recording, applied when that recording opens
 // again. It is small and needed before the first render, as the theme is: localStorage, written as the page goes.
+import { preload } from "../features/results/loads";
 import { activeRecording, openResult, setView, useStore, type View } from "./store";
 
 const KEY = "ddalab.session";
@@ -44,6 +45,8 @@ export function restoreSession(listed: Promise<unknown>) {
   }
   const resultId = saved.activeResultId;
   if (resultId) {
+    // Its view loads while the history is listed.
+    preload(resultId);
     const hydrate = () => {
       const { analyses, activeResultId } = useStore.getState();
       if (activeResultId === null && analyses.some((a) => a.id === resultId && a.status === "complete")) {

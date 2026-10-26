@@ -8,6 +8,7 @@ import {
 } from "../core/history";
 import type { AnalysisHandle } from "../core/scheduler";
 import type { DDARequest, VariantInfo } from "../core/types";
+import { preloadPanel } from "../features/results/loads";
 import { openResult, type RunState, showResult, useStore } from "../store/store";
 import { engine } from "./recordings";
 
@@ -75,6 +76,7 @@ export async function startRun(recordingId: string, request: DDARequest) {
   const { recordings, run } = useStore.getState();
   const recording = recordings[recordingId];
   if (run?.status === "running" || !recording) return;
+  preloadPanel(); // the result shows once the run completes
   const progress = { blocksDone: 0, blocks: 0, windowsDone: 0, windows: 0, etaS: null };
   useStore.setState({ run: { id: "", recordingId, status: "running", progress } });
   cancelling = false;
