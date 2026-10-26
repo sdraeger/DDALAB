@@ -3,6 +3,7 @@
 import FilePlus from "lucide-react/dist/esm/icons/file-plus.mjs";
 import FolderOpen from "lucide-react/dist/esm/icons/folder-open.mjs";
 import { type ChangeEvent, lazy, Suspense, use, useEffect, useEffectEvent, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import {
   canPickFiles,
   engine,
@@ -206,9 +207,9 @@ function Notice(props: {
 }
 
 function OpenRecordings() {
-  const recordings = useStore((s) => s.recordings);
+  // The ids only: a scan report replaces its recording, which the rows read.
+  const ids = useStore(useShallow((s) => Object.keys(s.recordings)));
   const active = useStore((s) => s.activeRecordingId);
-  const ids = Object.keys(recordings);
   if (ids.length === 0) return null;
   return (
     <section className={styles.section} aria-labelledby="open-heading">
@@ -217,24 +218,33 @@ function OpenRecordings() {
       </h2>
       <ul className={styles.entries}>
         {ids.map((id) => (
-          <li key={id}>
-            <button
-              type="button"
-              className={styles.entry}
-              aria-current={id === active ? "true" : undefined}
-              onClick={() => activateRecording(id)}
-            >
-              <span className={styles.entryName}>{recordings[id].info.input_files[0]}</span>
-              <span className={styles.entryMeta}>
-                {recordings[id].info.format}
-                <span className={styles.thin} aria-hidden />
-                {recordings[id].analysis_channels.length} channels
-              </span>
-            </button>
-          </li>
+          <OpenRecording key={id} id={id} current={id === active} />
         ))}
       </ul>
     </section>
+  );
+}
+
+function OpenRecording({ id, current }: { id: string; current: boolean }) {
+  const info = useStore((s) => s.recordings[id]?.info);
+  const channels = useStore((s) => s.recordings[id]?.analysis_channels.length);
+  if (!info) return null;
+  return (
+    <li>
+      <button
+        type="button"
+        className={styles.entry}
+        aria-current={current ? "true" : undefined}
+        onClick={() => activateRecording(id)}
+      >
+        <span className={styles.entryName}>{info.input_files[0]}</span>
+        <span className={styles.entryMeta}>
+          {info.format}
+          <span className={styles.thin} aria-hidden />
+          {channels} channels
+        </span>
+      </button>
+    </li>
   );
 }
 

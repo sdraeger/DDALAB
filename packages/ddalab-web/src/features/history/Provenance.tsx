@@ -6,6 +6,7 @@ import { Popover } from "@base-ui/react/popover";
 import Copy from "lucide-react/dist/esm/icons/copy.mjs";
 import Download from "lucide-react/dist/esm/icons/download.mjs";
 import { lazy, Suspense, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { deleteResult } from "../../app/analyses";
 import { cliCommand } from "../../core/cliCommand";
 import { type AnalysisRecord, resultName } from "../../core/history";
@@ -232,13 +233,17 @@ function EngineFields({ record }: { record: AnalysisRecord }) {
 
 /** Each input file and its SHA-256: from the manifest, else from the open recording, hashed so far. */
 function InputFiles({ record }: { record: AnalysisRecord }) {
-  const recording = useStore((s) =>
-    record.fingerprint
-      ? Object.values(s.recordings).find((r) => r.fingerprint === record.fingerprint)
-      : undefined,
+  // The hashes only: engine.ts keeps them across scan reports, which replace the recording.
+  const recording = useStore(
+    useShallow((s) => {
+      const found = record.fingerprint
+        ? Object.values(s.recordings).find((r) => r.fingerprint === record.fingerprint)
+        : undefined;
+      return { files: found?.info.input_files, sha256: found?.scan.sha256, hashed: found?.scan.hashed };
+    }),
   );
   const recorded = record.manifest?.reproduction.input_sha256;
-  const names = recorded ? Object.keys(recorded) : (recording?.info.input_files ?? []);
+  const names = recorded ? Object.keys(recorded) : (recording.files ?? []);
   if (names.length === 0) {
     return (
       <p className={styles.note}>
@@ -249,8 +254,8 @@ function InputFiles({ record }: { record: AnalysisRecord }) {
   return (
     <ul className={styles.files}>
       {names.map((name) => {
-        const sha256 = recorded?.[name] ?? recording?.scan.sha256?.[name];
-        const hashed = recording?.scan.hashed?.[name] ?? 0;
+        const sha256 = recorded?.[name] ?? recording.sha256?.[name];
+        const hashed = recording.hashed?.[name] ?? 0;
         return (
           <li key={name}>
             <span className={styles.fileName}>{name}</span>
