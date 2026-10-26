@@ -1,5 +1,6 @@
 // The one store. Sample, tile and result arrays never enter it; they live in workers.
 import { create } from "zustand";
+import type { BatchProgress, BatchRecord } from "../core/batch";
 import type { AnalysisRecord } from "../core/history";
 import type { ScanState } from "../core/protocol";
 import type { RunProgress } from "../core/scheduler";
@@ -98,6 +99,9 @@ export interface State {
   recent: RecentEntry[];
   /** The analysis history, newest first. */
   analyses: AnalysisRecord[];
+  /** The batch runs, newest first, and the one of this page as it goes (core/batch.ts). */
+  batches: BatchRecord[];
+  batch: BatchProgress | null;
   /** The result the provenance and the result views show; it need not belong to an open recording. */
   activeResultId: string | null;
   /** The side panels: open or collapsed. */
@@ -149,6 +153,8 @@ export const useStore = create<State>()(() => ({
   activeRecordingId: null,
   recent: [],
   analyses: [],
+  batches: [],
+  batch: null,
   activeResultId: null,
   panels: { library: true, inspector: true },
   run: null,

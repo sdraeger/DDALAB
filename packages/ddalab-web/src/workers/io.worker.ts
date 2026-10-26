@@ -60,6 +60,8 @@ interface Recording {
   /** Bytes of all files of the recording. */
   fileBytes: number;
   closed: boolean;
+  /** Its overview scan has started. */
+  scanning?: boolean;
   /** Lets go of the recording's tiles lock (opfs.ts `tilesLock`). */
   release(): void;
 }
@@ -84,6 +86,7 @@ const recording = (id: string) => {
 
 function startScan(id: string, input: RecordingInput, rec: Recording) {
   const { info } = rec;
+  rec.scanning = true;
   const emit = (state: ScanState) => {
     if (!rec.closed) self.postMessage({ event: "scan", id, state } satisfies IoEvent);
   };
@@ -125,7 +128,13 @@ function startScan(id: string, input: RecordingInput, rec: Recording) {
     );
 }
 
-async function open(id: string, input: RecordingInput): Promise<IoResults["open"]> {
+/** A recording opened to be viewed: its tiles count as used now, and its scan starts. A batch's open does neither. */
+function viewed(id: string, input: RecordingInput, rec: Recording) {
+  void touchTiles(rec.fingerprint).catch(() => {}); // without storage (private windows) there is nothing to keep
+  startScan(id, input, rec);
+}
+
+async function open(id: string, input: RecordingInput, scan = true): Promise<IoResults["open"]> {
   if (recordings.has(id)) throw new Error(`recording ${id} is already open`);
   const parts = partsOf(input);
   const fileIds = parts.map(({ source }) => {
@@ -148,6 +157,9 @@ async function open(id: string, input: RecordingInput): Promise<IoResults["open"
     // Tiles and hashes are kept per fingerprint: one engine recording per content.
     const known = [...recordings].find(([, other]) => other.fingerprint === fingerprint)?.[0];
     if (known !== undefined) {
+      // A recording a batch opened without its scan gets one when it opens to be viewed.
+      const other = recordings.get(known);
+      if (scan && other && !other.scanning) viewed(known, input, other);
       (await core).close(handle);
       for (const fileId of fileIds) sources.delete(fileId);
       return { info, fingerprint, analysis_channels: opened.analysis_channels, duplicateOf: known };
@@ -169,8 +181,7 @@ async function open(id: string, input: RecordingInput): Promise<IoResults["open"
         rec.closed ? undefined : new Promise<void>((done) => (rec.release = done)),
       )
       .catch(() => {});
-    void touchTiles(fingerprint).catch(() => {}); // without storage (private windows) there is nothing to keep
-    startScan(id, input, rec);
+    if (scan) viewed(id, input, rec);
     return { info, fingerprint, analysis_channels: opened.analysis_channels };
   } catch (error) {
     if (handle !== undefined) (await core).close(handle);
@@ -212,7 +223,7 @@ async function handle(request: IoRequest): Promise<unknown> {
     case "version":
       return (await core).version();
     case "open":
-      return open(request.id, request.input);
+      return open(request.id, request.input, request.scan);
     case "close":
       return close(request.id);
     case "raw":

@@ -142,7 +142,7 @@ test("the_annotation_exports_save_through_the_dialog", async ({ page }) => {
     ]);
 });
 
-test("a_cancelled_dialog_does_nothing_and_shows_no_error", async ({ page }) => {
+test("a_canceled_dialog_does_nothing_and_shows_no_error", async ({ page }) => {
   await openExport(page);
   const downloads: string[] = [];
   page.on("download", (download) => downloads.push(download.suggestedFilename()));

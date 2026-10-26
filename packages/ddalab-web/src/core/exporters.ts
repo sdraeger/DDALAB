@@ -9,8 +9,13 @@ import type { VariantDocument } from "./types";
 
 /** Above this estimated size a text export is refused: the bundle holds the same arrays at a fraction of it. */
 export const TEXT_LIMIT = 512 * 2 ** 20;
-/** Bytes of text per value, as `-0.17573526565987174,` takes. */
-const TEXT_BYTES_PER_VALUE = 20;
+/**
+ * Bytes of text per value. In the CSV, as `-0.17573526565987174,` takes. In the document's pretty layout, a value of a
+ * matrix also takes its line and its indent: measured, 33.8 over the 6.4 million values of exporters.test.ts
+ * `text_exports_hold_a_slice_on_the_heap` (216.3 MB), and 30 to 34 for the Q values, coefficients and fit errors of a
+ * `ddalab batch` document of fixture.edf.
+ */
+const TEXT_BYTES_PER_VALUE = { csv: 20, document: 34 };
 /** Bytes of an array read at a time. */
 const SLICE_BYTES = 4 * 2 ** 20;
 /** Bytes of whole rows gathered per pass over a window-major array, to write them row by row. */
@@ -23,8 +28,9 @@ type Stored = Npy & { file: Blob };
 const megabytes = (bytes: number) => (bytes / 1e6).toLocaleString("en", { maximumSignificantDigits: 2 });
 
 /** Throws when `values` would make more text than a browser tab should hold. */
-function refuseAbove(values: number, what: string) {
-  const bytes = values * TEXT_BYTES_PER_VALUE;
+function refuseAbove(values: number, text: keyof typeof TEXT_BYTES_PER_VALUE) {
+  const bytes = values * TEXT_BYTES_PER_VALUE[text];
+  const what = text === "csv" ? "CSV table" : "JSON document";
   if (bytes > TEXT_LIMIT) {
     throw new Error(`The ${what} would be about ${megabytes(bytes)} MB. Export the bundle instead.`);
   }
@@ -54,48 +60,69 @@ async function readValues({ file, headerBytes }: Stored, from: number, to: numbe
  * folder holds (the status file, the heatmap's caches).
  */
 export async function bundleZip(resultId: string): Promise<ReadableStream<Uint8Array>> {
+  return makeZip(await bundleFiles(resultId));
+}
+
+/** The files of the bundle of `resultId`, named by their paths in it after `prefix`. */
+export async function bundleFiles(resultId: string, prefix = "") {
   const directory = await resultDirectory(resultId);
   const manifest = await resultManifest(resultId);
   const paths = ["manifest.json", ...manifest.variants.flatMap((v) => v.arrays ?? [])];
-  const files = await Promise.all(
-    paths.map(async (name) => ({ name, input: await fileAt(directory, name) })),
+  return Promise.all(
+    paths.map(async (name) => ({ name: prefix + name, input: await fileAt(directory, name) })),
   );
-  return makeZip(files);
 }
 
-/** `series` as a JSON array, a Blob part per 64 Ki values; a non-finite value is null, as serde_json writes it. */
-function pushSeries(parts: BlobPart[], series: Float64Array) {
+/** A new line and the indent of nesting `level`, as serde_json's pretty printer writes them (two spaces a level). */
+const line = (level: number) => `\n${"  ".repeat(level)}`;
+
+/** `value` as serde_json's `to_string_pretty` lays it out, its first line at the place of nesting `level`. */
+const pretty = (value: unknown, level: number) =>
+  JSON.stringify(value, null, 2).replaceAll("\n", line(level));
+
+/**
+ * `series` as a JSON array at nesting `level`, a value a line, a Blob part per 64 Ki values; a non-finite value is
+ * null, as serde_json writes it.
+ */
+function pushSeries(parts: BlobPart[], series: Float64Array, level: number) {
+  if (series.length === 0) return void parts.push("[]");
+  const indent = line(level + 1);
   let text = "[";
   for (let w = 0; w < series.length; w++) {
-    text += `${w > 0 ? "," : ""}${Number.isFinite(series[w]) ? series[w] : "null"}`;
+    text += `${w > 0 ? "," : ""}${indent}${Number.isFinite(series[w]) ? series[w] : "null"}`;
     if ((w + 1) % PART_VALUES === 0) {
       parts.push(new Blob([text]));
       text = "";
     }
   }
-  parts.push(new Blob([`${text}]`]));
+  parts.push(new Blob([`${text}${line(level)}]`]));
 }
 
 /**
  * Writes a window-major (W, R) array as the JSON matrix `[row][window]`, or a (W, R, K) one as `[term][row][window]`,
- * calling `onRow` with each row of the first form. A pass over the file gathers as many rows as fit in
- * GATHER_BYTES; a row longer than that is a pass of its own.
+ * at nesting `level`, calling `onRow` with each row of the first form. A pass over the file gathers as many rows as fit
+ * in GATHER_BYTES; a row longer than that is a pass of its own.
  */
 async function pushArray(
   parts: BlobPart[],
   array: Stored,
+  level: number,
   onRow?: (row: number, series: Float64Array) => void,
 ) {
   const [windows, rows, terms] = array.shape;
   const k1 = terms ?? 1;
   const columns = rows * k1;
-  if (rows === 0)
-    return void parts.push(terms === undefined ? "[]" : `[${Array(terms).fill("[]").join(",")}]`);
+  if (rows === 0) {
+    const empty = Array.from({ length: terms ?? 0 }, (_, k) => `${k > 0 ? "," : ""}${line(level + 1)}[]`);
+    return void parts.push(empty.length > 0 ? `[${empty.join("")}${line(level)}]` : "[]");
+  }
+  // The rows' level: inside the matrix, or inside a term's matrix.
+  const inner = level + (terms === undefined ? 1 : 2);
   // The columns of the file (row r, term k at r * K + k) in the order of the JSON text: term first, then row.
   const order = Array.from({ length: columns }, (_, i) => (i % rows) * k1 + Math.floor(i / rows));
   const perPass = Math.max(1, Math.floor(GATHER_BYTES / (8 * Math.max(1, windows))));
   const sliceWindows = Math.max(1, Math.floor(SLICE_BYTES / (8 * columns)));
-  if (terms !== undefined) parts.push("[");
+  parts.push("[");
   for (let first = 0; first < columns; first += perPass) {
     const block = order.slice(first, first + perPass);
     const series = block.map(() => new Float64Array(windows));
@@ -108,25 +135,33 @@ async function pushArray(
     }
     for (const [j] of block.entries()) {
       const [k, r] = [Math.floor((first + j) / rows), (first + j) % rows];
-      parts.push(r > 0 ? "," : k > 0 ? ",[" : "[");
-      pushSeries(parts, series[j]);
-      if (r === rows - 1) parts.push("]");
+      if (terms !== undefined && r === 0) parts.push(`${k > 0 ? "," : ""}${line(level + 1)}[`);
+      parts.push(`${r > 0 ? "," : ""}${line(inner)}`);
+      pushSeries(parts, series[j], inner);
+      if (terms !== undefined && r === rows - 1) parts.push(`${line(level + 1)}]`);
       onRow?.(r, series[j]);
     }
   }
-  if (terms !== undefined) parts.push("]");
+  parts.push(`${line(level)}]`);
 }
 
-/** One variant of the document: its arrays as matrices and the summaries of its Q values. */
-async function pushVariant(parts: BlobPart[], variant: VariantDocument, stored: (path?: string) => Stored) {
+/** One variant of the document at nesting `level`: its arrays as matrices and the summaries of its Q values. */
+async function pushVariant(
+  parts: BlobPart[],
+  variant: VariantDocument,
+  stored: (path?: string) => Stored,
+  level: number,
+) {
   const { id, label, row_labels } = variant;
-  parts.push(JSON.stringify({ id, label, row_labels }).slice(0, -1), ',"matrix":');
+  const field = (name: string) => `${line(level + 1)}"${name}": `;
+  parts.push(`{${field("id")}${pretty(id, level + 1)},${field("label")}${pretty(label, level + 1)},`);
+  parts.push(`${field("row_labels")}${pretty(row_labels, level + 1)},${field("matrix")}`);
   // Over the finite values, as dda-rs `summarize`: the mean sums |x| in window order, 0 for a row without any.
   let min = Number.POSITIVE_INFINITY;
   let max = Number.NEGATIVE_INFINITY;
   const meanAbsolute: number[] = [];
   const peakAbsolute: number[] = [];
-  await pushArray(parts, stored(arrayOf(variant, "q.npy")), (r, series) => {
+  await pushArray(parts, stored(arrayOf(variant, "q.npy")), level + 1, (r, series) => {
     let [sum, n, peak] = [0, 0, 0];
     for (const x of series) {
       if (!Number.isFinite(x)) continue;
@@ -146,20 +181,23 @@ async function pushVariant(parts: BlobPart[], variant: VariantDocument, stored: 
     row_mean_absolute: meanAbsolute,
     row_peak_absolute: peakAbsolute,
   };
-  parts.push(`,${JSON.stringify(summaries).slice(1, -1)},"coefficient_matrices":`);
+  for (const [name, value] of Object.entries(summaries))
+    parts.push(`,${field(name)}${pretty(value, level + 1)}`);
+  parts.push(`,${field("coefficient_matrices")}`);
   const coefficients = arrayOf(variant, "coefficients.npy");
-  if (coefficients) await pushArray(parts, stored(coefficients));
+  if (coefficients) await pushArray(parts, stored(coefficients), level + 1);
   else parts.push("null");
-  parts.push(',"fit_error_matrix":');
+  parts.push(`,${field("fit_error_matrix")}`);
   const fitError = arrayOf(variant, "fit_error.npy");
-  if (fitError) await pushArray(parts, stored(fitError));
+  if (fitError) await pushArray(parts, stored(fitError), level + 1);
   else parts.push("null");
-  parts.push("}");
+  parts.push(`${line(level)}}`);
 }
 
 /**
- * The result document with its matrices inline, as `ddalab run --output` writes it. Refused above 512 MiB of
- * estimated text.
+ * The result document with its matrices inline, as `ddalab run --output` writes it: serde_json's pretty layout, two
+ * spaces a level and no newline after the last brace. A number may be spelled otherwise (JavaScript writes 2 where Rust
+ * writes 2.0); the JSON is the same. Refused above 512 MiB of estimated text.
  */
 export async function documentJson(resultId: string): Promise<Blob> {
   const directory = await resultDirectory(resultId);
@@ -171,7 +209,7 @@ export async function documentJson(resultId: string): Promise<Blob> {
   }
   refuseAbove(
     [...arrays.values()].reduce((sum, { shape }) => sum + count(shape), 0),
-    "JSON document",
+    "document",
   );
   const stored = (path?: string) => {
     const found = path && arrays.get(path);
@@ -179,12 +217,17 @@ export async function documentJson(resultId: string): Promise<Blob> {
     return found;
   };
   const { variants, reproduction, ...head } = manifest;
-  const parts: BlobPart[] = [JSON.stringify(head).slice(0, -1), ',"variants":['];
-  for (const [i, variant] of variants.entries()) {
-    if (i > 0) parts.push(",");
-    await pushVariant(parts, variant, stored);
+  const parts: BlobPart[] = [pretty(head, 0).slice(0, -2), `,${line(1)}"variants": `];
+  if (variants.length === 0) parts.push("[]");
+  else {
+    parts.push("[");
+    for (const [i, variant] of variants.entries()) {
+      parts.push(`${i > 0 ? "," : ""}${line(2)}`);
+      await pushVariant(parts, variant, stored, 2);
+    }
+    parts.push(`${line(1)}]`);
   }
-  parts.push('],"reproduction":', JSON.stringify(reproduction), "}");
+  parts.push(`,${line(1)}"reproduction": ${pretty(reproduction, 1)}\n}`);
   return new Blob(parts, { type: "application/json" });
 }
 
@@ -202,7 +245,7 @@ export async function variantCsv(resultId: string, variant: string): Promise<Blo
   const file = await fileAt(await resultDirectory(resultId), path);
   const array = { file, ...(await readNpyHeader(file, path)) };
   const [windows, rows] = array.shape;
-  refuseAbove(windows * (rows + 1), "CSV table");
+  refuseAbove(windows * (rows + 1), "csv");
   const centers = manifest.window_centers_seconds;
   const parts: BlobPart[] = [`${["window_center_s", ...found.row_labels].map(csvField).join(",")}\n`];
   // A part of text per 64 Ki values: a string built of many more pieces costs several times its length on the heap.

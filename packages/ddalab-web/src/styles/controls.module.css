@@ -66,14 +66,14 @@
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .button:hover:not(:disabled) {
+  .button:hover:not(:disabled, [aria-disabled="true"]) {
     background: var(--chrome-hover);
   }
 }
 
 /* A press sinks a button a little; under reduced motion --motion-scale is 1. */
 .iconButton:active:not(:disabled),
-.button:active:not(:disabled),
+.button:active:not(:disabled, [aria-disabled="true"]),
 .trigger:active:not([data-disabled]) {
   transform: scale(var(--motion-scale));
 }
@@ -86,9 +86,15 @@
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .primary:hover:not(:disabled) {
+  .primary:hover:not(:disabled, [aria-disabled="true"]) {
     background: color-mix(in srgb, var(--primary) 88%, var(--ink));
   }
+}
+
+/* A button that cannot act now and keeps the keyboard, its reason in aria-describedby: dimmed, with no hover or press. */
+.button[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .quiet {

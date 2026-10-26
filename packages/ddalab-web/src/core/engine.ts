@@ -47,9 +47,13 @@ export interface Engine {
   /**
    * `analysis_channels` are the indices into `info.channels` of the display channels: `raw` returns these and DDA
    * requests index this list. A recording already open (same fingerprint) is not opened again: its id comes back,
-   * with `duplicate`: closing it is for the open that made it.
+   * with `duplicate`: closing it is for the open that made it. `scan` false leaves out the overview scan (a batch's
+   * open); an open of the same recording to view it starts the scan.
    */
-  open(input: RecordingInput): Promise<{
+  open(
+    input: RecordingInput,
+    options?: { scan?: boolean },
+  ): Promise<{
     id: string;
     info: RecordingInfo;
     fingerprint: string;
@@ -88,7 +92,7 @@ export interface Engine {
   ): Promise<{ windows: number; blocks: number; workers: number; budgetMb: number }>;
   /**
    * Runs `request` on a pool of DDA workers; each block's arrays are written to OPFS as it finishes (resultStore.ts).
-   * `done` resolves once the manifest is written and the result is complete; a failed or cancelled run leaves no
+   * `done` resolves once the manifest is written and the result is complete; a failed or canceled run leaves no
    * files. The result id is the handle's id.
    */
   run(id: string, request: DDARequest): Promise<AnalysisHandle>;
@@ -132,7 +136,7 @@ const MAX_REPLACEMENTS = 3;
 /** The engine failed, and the request with it: it may be sent again once the engine has a worker. */
 export class EngineStopped extends Error {}
 
-const cancelled = () => new DOMException("The run was cancelled", "AbortError");
+const cancelled = () => new DOMException("The run was canceled", "AbortError");
 
 /** Bytes of a text recording per DDA worker: each parses the whole file. */
 const TEXT_BYTES_PER_WORKER = 512 * 2 ** 20;
@@ -246,8 +250,9 @@ const stateOf = ({ scan, sha256, hashed, hashError }: Tracked): ScanState => ({
 });
 
 export function createEngine(): Engine {
-  /** What a replacement worker opens again, under the ids the UI already holds. */
+  /** What a replacement worker opens again, under the ids the UI already holds, and the ones opened without a scan. */
   const held = new Map<string, RecordingInput>();
+  const unscanned = new Set<string>();
   const pending = new Map<
     number,
     {
@@ -312,7 +317,7 @@ export function createEngine(): Engine {
     // These come before any later request. One that fails for its own reason (its file is gone) is forgotten and
     // reported; one cut short by another restart is opened again by that restart.
     for (const [id, input] of held) {
-      call({ type: "open", id, input }, true).catch((error: Error) => {
+      call({ type: "open", id, input, scan: !unscanned.has(id) }, true).catch((error: Error) => {
         if (error instanceof EngineStopped) return;
         held.delete(id);
         const entry = scans.get(id);
@@ -487,15 +492,18 @@ export function createEngine(): Engine {
 
   const engine: Engine = {
     version: () => call({ type: "version" }),
-    async open(input) {
+    async open(input, options) {
       const id = crypto.randomUUID();
-      const { duplicateOf, ...opened } = await call({ type: "open", id, input });
+      const scan = options?.scan ?? true;
+      const { duplicateOf, ...opened } = await call({ type: "open", id, input, scan });
       if (duplicateOf) {
         // Closed during a run and opened again before it ended: the recording is shown again and stays open.
         closing.delete(duplicateOf);
+        if (scan) unscanned.delete(duplicateOf);
         return { id: duplicateOf, ...opened, duplicate: true };
       }
       held.set(id, input);
+      if (!scan) unscanned.add(id);
       const { info, fingerprint } = opened;
       scans.set(id, {
         fingerprint,
@@ -515,6 +523,7 @@ export function createEngine(): Engine {
       // A run of the recording goes on with its files and its hash; the engine closes it when the run ends.
       if (runs.get(id)) return void closing.add(id);
       held.delete(id);
+      unscanned.delete(id);
       scans.delete(id);
       for (const wait of [...hashWaits]) wait();
       hasher?.postMessage({ type: "cancel", id } satisfies HashRequest);

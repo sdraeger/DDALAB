@@ -246,3 +246,70 @@
 .option .flag {
   white-space: nowrap;
 }
+
+/* A batch: its row opens to show its results, indented under it, its failures, the export and Resume. */
+.batchName {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.chevron {
+  flex: none;
+  block-size: 1cap;
+  inline-size: auto;
+  color: var(--muted);
+  stroke-width: 2.5;
+  transition: transform var(--motion-duration) var(--motion-ease);
+}
+
+[aria-expanded="true"] > .batchName .chevron {
+  transform: rotate(90deg);
+}
+
+/* The lines under a batch's name start under the name, past its chevron. */
+.indent,
+.settingsLine {
+  padding-left: calc(1cap + var(--space-1));
+}
+
+.settingsLine {
+  color: var(--muted);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+.batchBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-1) 0 var(--space-2) var(--space-4);
+}
+
+.batchBody > .actions,
+.batchBody > .note,
+.batchBody > .error {
+  padding-left: var(--space-2);
+}
+
+.failures {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+.failures li {
+  display: flex;
+  flex-direction: column;
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chevron {
+    transition: none;
+  }
+}

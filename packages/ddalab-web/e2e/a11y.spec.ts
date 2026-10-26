@@ -197,7 +197,7 @@ test("running_state", async ({ page }) => {
   await expect(runBar(page).getByRole("button", { name: "Cancel run" })).toBeVisible();
   expect(await problems(page)).toEqual([]);
   await runBar(page).getByRole("button", { name: "Cancel run" }).click();
-  await expect(runBar(page).getByText("Cancelled", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(runBar(page).getByText("Canceled", { exact: true })).toBeVisible({ timeout: 30_000 });
 });
 
 test("result_state", async ({ page }) => {
