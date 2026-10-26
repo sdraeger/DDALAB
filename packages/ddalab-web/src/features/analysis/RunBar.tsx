@@ -346,7 +346,7 @@ function Outcome(run: { status?: RunState["status"]; error?: string }) {
   }
   return run.status === "cancelled" ? (
     <p className={styles.note} data-appear>
-      Cancelled
+      Canceled
     </p>
   ) : null;
 }

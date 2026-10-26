@@ -40,6 +40,7 @@ const SLOW = { channels: 8, rateHz: 256, durationS: 120 };
 let root = "";
 let fixtures = "";
 let slow = "";
+let filtered = "";
 test.beforeAll(() => {
   root = mkdtempSync(join(tmpdir(), "ddalab-batch-"));
   fixtures = join(root, "fixtures");
@@ -65,6 +66,11 @@ test.beforeAll(() => {
     readSynthetic(spec, 0, bytes);
     writeFileSync(join(slow, `hour-${seed}.edf`), bytes);
   }
+  // Six recordings, which bring the folder's filter: a slow one first, then five copies of the EDF fixture.
+  filtered = join(root, "filtered");
+  mkdirSync(filtered);
+  copyFileSync(join(slow, "hour-1.edf"), join(filtered, "a-hour.edf"));
+  for (const n of [1, 2, 3, 4, 5]) copyFileSync(fixturePath("fixture.edf"), join(filtered, `b-${n}.edf`));
 });
 test.afterAll(() => rmSync(root, { recursive: true, force: true }));
 
@@ -281,12 +287,10 @@ test("batch_progress_and_cancel_keep_the_finished_results", async ({ page }) => 
   await expect(progress(page).getByText(/^\d+%$/)).toBeVisible();
   await progress(page).getByRole("button", { name: "Cancel" }).focus();
   await page.keyboard.press("Enter");
-  const ended = folder(page).getByText("Batch stopped: cancelled after 1 of 3.");
+  const ended = folder(page).getByText("Batch stopped: canceled after 1 of 3.");
   await expect(ended).toBeVisible();
   // The keyboard lands on the line that replaced Cancel.
-  await expect(
-    folder(page).locator("p", { hasText: "Batch stopped: cancelled after 1 of 3." }),
-  ).toBeFocused();
+  await expect(folder(page).locator("p", { hasText: "Batch stopped: canceled after 1 of 3." })).toBeFocused();
   await expect(folder(page).getByRole("treeitem", { name: /^hour-1,/ })).toContainText("Done");
   await expect(folder(page).getByRole("treeitem", { name: /^hour-2,/ })).not.toContainText("Running");
   const { analyses, batches, run } = await state(page);
@@ -295,7 +299,7 @@ test("batch_progress_and_cancel_keep_the_finished_results", async ({ page }) => 
     status: "cancelled",
     results: [{ path: "slow/hour-1.edf", status: "ok" }],
   });
-  // The finished result stays; the one cancelled leaves no record.
+  // The finished result stays; the one canceled leaves no record.
   expect(analyses.map((a) => [a.batch, a.status])).toEqual([[batches[0].id, "complete"]]);
   // A batch's opens make no overview scan: no tiles are stored for its recordings.
   const tiled = await page.evaluate(async () => {
@@ -307,9 +311,28 @@ test("batch_progress_and_cancel_keep_the_finished_results", async ({ page }) => 
   });
   expect(tiled.filter((name) => analyses.some((a) => a.fingerprint === name))).toEqual([]);
   const entry = history(page).getByRole("button", { name: /^ST on slow/ });
-  await expect(entry).toContainText("Cancelled after 1 of 3");
+  await expect(entry).toContainText("Canceled after 1 of 3");
   await entry.click();
   await expect(history(page).getByRole("button", { name: "Resume" })).toBeEnabled();
+});
+
+// Focus the user took elsewhere while the batch ran stays there when it ends.
+test("the_end_of_a_batch_leaves_focus_where_the_user_put_it", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  test.setTimeout(180_000);
+  await slowly(page);
+  await startBatch(page, filtered, 6);
+  await expect(progress(page).getByText("Recording 1 of 6")).toBeVisible();
+  // Off Cancel to nothing focusable, then into the filter, typing.
+  await folder(page)
+    .getByRole("heading", { name: /^Folder/ })
+    .click();
+  const filter = folder(page).getByRole("searchbox", { name: "Filter recordings" });
+  await filter.click();
+  await page.keyboard.type("b-");
+  await expect(folder(page).getByText(/^Batch finished/)).toBeVisible({ timeout: 120_000 });
+  await expect(filter).toBeFocused();
+  await expect(filter).toHaveValue("b-");
 });
 
 test("resume_after_a_reload_runs_only_the_remaining_recordings", async ({ page }) => {

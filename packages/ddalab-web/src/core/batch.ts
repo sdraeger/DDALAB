@@ -43,7 +43,7 @@ export interface BatchRecord {
   paths: string[];
   /** The recordings done, in the order they ran. */
   results: BatchResult[];
-  /** "interrupted": the page closed while it ran; "cancelled": Cancel stopped it. */
+  /** "interrupted": the page closed while it ran; "cancelled" (the stored spelling): Cancel stopped it. */
   status: "running" | "complete" | "cancelled" | "interrupted";
 }
 
@@ -219,6 +219,19 @@ export function batchManifest(batch: BatchRecord, analyses: AnalysisRecord[], na
   };
 }
 
+/**
+ * Turns `row` of `manifest` into a bundle's row: its output the document's name without `.json`, a warning that says
+ * why (`reason`), and the count of rows with warnings again.
+ */
+export function asBundle(manifest: ReturnType<typeof batchManifest>, row: ManifestResult, reason: string) {
+  row.outputPath = row.outputPath?.replace(/\.json$/, "") ?? null;
+  row.warnings = [
+    ...row.warnings,
+    `The result document is too large for the browser; this is its bundle. ${reason}`,
+  ];
+  manifest.withWarnings = manifest.results.filter((r) => r.warnings.length > 0).length;
+}
+
 /** The settings of a batch in a line: variants, windowing, model, channels and interval. */
 export function settingsLine({
   form,
@@ -240,7 +253,7 @@ export function batchOutcome({ status, paths, results }: BatchRecord): string {
   const of = `${results.length} of ${paths.length}`;
   if (status === "running") return `Running, ${of} done`;
   if (status === "interrupted") return `Interrupted after ${of}`;
-  if (status === "cancelled") return `Cancelled after ${of}`;
+  if (status === "cancelled") return `Canceled after ${of}`;
   return failed > 0 ? `${results.length - failed} of ${paths.length}, ${failed} failed` : of;
 }
 

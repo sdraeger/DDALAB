@@ -248,8 +248,8 @@ function BatchPanel(props: {
 }
 
 /**
- * The batch of this page in the Folder section: how far it is while it runs, then how it ended. Focus last inside the
- * progress (on Cancel) moves to the line that replaces it, once, as the batch ends.
+ * The batch of this page in the Folder section: how far it is while it runs, then how it ended. As the batch ends, the
+ * line that replaces the progress takes focus that the removed Cancel left on the page, and none from elsewhere.
  */
 export function BatchProgressView() {
   const batch = useStore((s) => s.batch);
@@ -257,14 +257,13 @@ export function BatchProgressView() {
   const bar = useRef<HTMLProgressElement>(null);
   const percent = useRef<HTMLSpanElement>(null);
   const ended = useRef<HTMLParagraphElement>(null);
-  const focused = useRef(false);
   const running = useRef(false);
   useRunPercent(percent, bar);
   const recording = recordingOf(batch);
   useLayoutEffect(() => {
-    if (running.current && !recording && focused.current) ended.current?.focus();
+    const dropped = document.activeElement === document.body || document.activeElement === null;
+    if (running.current && !recording && dropped) ended.current?.focus();
     running.current = recording !== undefined;
-    if (!recording) focused.current = false;
   }, [recording]);
   if (!batch) return null;
   const marks = Object.values(batch.marks);
@@ -284,19 +283,7 @@ export function BatchProgressView() {
     );
   }
   return (
-    <section
-      key="running"
-      aria-label="Batch progress"
-      className={styles.progress}
-      data-appear
-      onFocus={() => {
-        focused.current = true;
-      }}
-      onBlur={(event) => {
-        // Focus that goes nowhere (the button removed, the window left) still counts as here.
-        if (event.relatedTarget) focused.current = event.currentTarget.contains(event.relatedTarget);
-      }}
-    >
+    <section key="running" aria-label="Batch progress" className={styles.progress} data-appear>
       <div className={styles.line}>
         <b>{recording}</b>
         <button type="button" className={controls.button} data-batch-cancel onClick={cancelBatch}>
