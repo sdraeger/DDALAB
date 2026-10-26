@@ -1,0 +1,663 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-26T04:39:33.763Z",
+  "title": "Design System: DDALAB",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "Clinical Cobalt",
+        "canonical": "light-dark(#2f6a9e, #79aedf)",
+        "tonalRamp": [
+          "#000533",
+          "#002452",
+          "#004273",
+          "#296498",
+          "#4a85bb",
+          "#6faae2",
+          "#91cdff",
+          "#b7f5ff"
+        ]
+      },
+      "primary-ink": {
+        "role": "primary",
+        "displayName": "Primary Ink",
+        "canonical": "light-dark(#ffffff, #0f1b26)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#242424",
+          "#404040",
+          "#606060",
+          "#808080",
+          "#a4a4a4",
+          "#c7c7c7",
+          "#eeeeee"
+        ]
+      },
+      "primary-wash": {
+        "role": "primary",
+        "displayName": "Cobalt Wash",
+        "canonical": "light-dark(rgb(47 106 158 / 0.1), rgb(121 174 223 / 0.16))"
+      },
+      "focus": {
+        "role": "primary",
+        "displayName": "Focus Cobalt",
+        "canonical": "light-dark(#2f6a9e, #8fbdea)",
+        "tonalRamp": [
+          "#000533",
+          "#002452",
+          "#004273",
+          "#296498",
+          "#4a85bb",
+          "#6faae2",
+          "#91cdff",
+          "#b7f5ff"
+        ]
+      },
+      "event": {
+        "role": "secondary",
+        "displayName": "Event Red",
+        "canonical": "light-dark(#b4372b, #e5806f)",
+        "tonalRamp": [
+          "#360000",
+          "#5b0000",
+          "#800000",
+          "#a82e24",
+          "#ce5244",
+          "#f87868",
+          "#ff9c89",
+          "#ffc3af"
+        ]
+      },
+      "event-ink": {
+        "role": "secondary",
+        "displayName": "Event Ink",
+        "canonical": "light-dark(#ffffff, #24100c)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#242424",
+          "#404040",
+          "#606060",
+          "#808080",
+          "#a4a4a4",
+          "#c7c7c7",
+          "#eeeeee"
+        ]
+      },
+      "ground": {
+        "role": "neutral",
+        "displayName": "Trace Ground",
+        "canonical": "light-dark(#ffffff, #15191c)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#242424",
+          "#404040",
+          "#606060",
+          "#808080",
+          "#a4a4a4",
+          "#c7c7c7",
+          "#eeeeee"
+        ]
+      },
+      "chrome": {
+        "role": "neutral",
+        "displayName": "Chrome Gray",
+        "canonical": "light-dark(#f1f3f5, #1d2226)",
+        "tonalRamp": [
+          "#0a0b0d",
+          "#232426",
+          "#3e4041",
+          "#5f6162",
+          "#7f8082",
+          "#a3a5a7",
+          "#c5c7c9",
+          "#edeff1"
+        ]
+      },
+      "chrome-hover": {
+        "role": "neutral",
+        "displayName": "Chrome Hover",
+        "canonical": "light-dark(#e6e9ec, #262c31)",
+        "tonalRamp": [
+          "#090b0d",
+          "#222426",
+          "#3e4042",
+          "#5e6163",
+          "#7e8083",
+          "#a2a5a8",
+          "#c5c8ca",
+          "#eceff2"
+        ]
+      },
+      "hairline": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "light-dark(#dee2e6, #313940)",
+        "tonalRamp": [
+          "#090b0e",
+          "#212427",
+          "#3d4043",
+          "#5d6164",
+          "#7d8184",
+          "#a1a5a9",
+          "#c4c8cc",
+          "#ebeff3"
+        ]
+      },
+      "grid": {
+        "role": "neutral",
+        "displayName": "Plot Grid",
+        "canonical": "light-dark(#eceff2, #22282d)",
+        "tonalRamp": [
+          "#090b0d",
+          "#222426",
+          "#3e4042",
+          "#5e6163",
+          "#7e8083",
+          "#a2a5a8",
+          "#c5c8ca",
+          "#eceff2"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "light-dark(#1e2a33, #dde3e8)",
+        "tonalRamp": [
+          "#030c14",
+          "#1a262e",
+          "#35424b",
+          "#55626d",
+          "#74828d",
+          "#98a7b2",
+          "#bacad5",
+          "#e1f1fd"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted Slate",
+        "canonical": "light-dark(#56636e, #98a4ae)",
+        "tonalRamp": [
+          "#040c14",
+          "#1a252f",
+          "#35414c",
+          "#55626d",
+          "#75828e",
+          "#98a7b3",
+          "#bbc9d6",
+          "#e2f1fe"
+        ]
+      },
+      "trace": {
+        "role": "neutral",
+        "displayName": "Trace Black",
+        "canonical": "light-dark(#000000, #d3dae0)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#242424",
+          "#404040",
+          "#606060",
+          "#808080",
+          "#a4a4a4",
+          "#c7c7c7",
+          "#eeeeee"
+        ]
+      },
+      "group-1": {
+        "role": "tertiary",
+        "displayName": "Group Sage",
+        "canonical": "light-dark(#9fc7b4, #5e8f78)",
+        "tonalRamp": [
+          "#001106",
+          "#052b1e",
+          "#244839",
+          "#456a59",
+          "#648a79",
+          "#88af9d",
+          "#aad2bf",
+          "#d0fae6"
+        ]
+      },
+      "group-2": {
+        "role": "tertiary",
+        "displayName": "Group Sky",
+        "canonical": "light-dark(#a9c4e2, #6a89ae)",
+        "tonalRamp": [
+          "#000b20",
+          "#0f253c",
+          "#2b425a",
+          "#4b637d",
+          "#6a839f",
+          "#8da7c5",
+          "#afcae9",
+          "#d6f2ff"
+        ]
+      },
+      "group-3": {
+        "role": "tertiary",
+        "displayName": "Group Sand",
+        "canonical": "light-dark(#e6c79a, #a88a58)",
+        "tonalRamp": [
+          "#1a0500",
+          "#361e00",
+          "#543a0d",
+          "#765b31",
+          "#987b50",
+          "#bd9f74",
+          "#e1c295",
+          "#ffe9bb"
+        ]
+      },
+      "group-4": {
+        "role": "tertiary",
+        "displayName": "Group Mauve",
+        "canonical": "light-dark(#d7b5cb, #9a7690)",
+        "tonalRamp": [
+          "#170312",
+          "#331a2c",
+          "#513648",
+          "#735669",
+          "#95758a",
+          "#ba99af",
+          "#debcd2",
+          "#ffe2f9"
+        ]
+      },
+      "group-5": {
+        "role": "tertiary",
+        "displayName": "Group Lavender",
+        "canonical": "light-dark(#c6c0e4, #8580ae)",
+        "tonalRamp": [
+          "#0d061e",
+          "#251f3a",
+          "#413b58",
+          "#615b7b",
+          "#817b9c",
+          "#a59fc2",
+          "#c8c2e6",
+          "#efe9ff"
+        ]
+      },
+      "group-6": {
+        "role": "tertiary",
+        "displayName": "Group Aqua",
+        "canonical": "light-dark(#a7d1d3, #5f9396)",
+        "tonalRamp": [
+          "#001012",
+          "#002a2c",
+          "#204749",
+          "#41686a",
+          "#61898b",
+          "#84adaf",
+          "#a7d1d3",
+          "#cdf8fa"
+        ]
+      },
+      "group-7": {
+        "role": "tertiary",
+        "displayName": "Group Straw",
+        "canonical": "light-dark(#d8cf9c, #9a9061)",
+        "tonalRamp": [
+          "#130a00",
+          "#2c2400",
+          "#49400e",
+          "#6a6132",
+          "#8a8151",
+          "#afa674",
+          "#d2c996",
+          "#f9f0bc"
+        ]
+      },
+      "group-8": {
+        "role": "tertiary",
+        "displayName": "Group Clay",
+        "canonical": "light-dark(#e4b7a5, #a57a68)",
+        "tonalRamp": [
+          "#1d0200",
+          "#3b190b",
+          "#593526",
+          "#7d5646",
+          "#9f7565",
+          "#c59988",
+          "#e9bcaa",
+          "#ffe3d0"
+        ]
+      },
+      "batlow-low": {
+        "role": "data",
+        "displayName": "Batlow Low",
+        "canonical": "#011959",
+        "tonalRamp": [
+          "#00003c",
+          "#021c5c",
+          "#1c3b7d",
+          "#3b5ea3",
+          "#5a7ec7",
+          "#7da4ef",
+          "#9ec7ff",
+          "#c4efff"
+        ]
+      },
+      "batlow-high": {
+        "role": "data",
+        "displayName": "Batlow High",
+        "canonical": "#faccfa",
+        "tonalRamp": [
+          "#1a001c",
+          "#371338",
+          "#553056",
+          "#785078",
+          "#99709a",
+          "#bf94bf",
+          "#e3b6e3",
+          "#ffddff"
+        ]
+      },
+      "vik-low": {
+        "role": "data",
+        "displayName": "Vik Low",
+        "canonical": "#001261",
+        "tonalRamp": [
+          "#020044",
+          "#011765",
+          "#173887",
+          "#365bae",
+          "#557dd2",
+          "#78a2fb",
+          "#99c6ff",
+          "#bfedff"
+        ]
+      },
+      "vik-mid": {
+        "role": "data",
+        "displayName": "Vik Middle",
+        "canonical": "#ece5e0",
+        "tonalRamp": [
+          "#0f0a07",
+          "#28231f",
+          "#443f3b",
+          "#655f5b",
+          "#857f7a",
+          "#aaa39e",
+          "#cdc6c1",
+          "#f4ede8"
+        ]
+      },
+      "vik-high": {
+        "role": "data",
+        "displayName": "Vik High",
+        "canonical": "#590008",
+        "tonalRamp": [
+          "#2d0000",
+          "#4f0001",
+          "#721d1d",
+          "#98413d",
+          "#bd615b",
+          "#e5867f",
+          "#ffa8a0",
+          "#ffcfc6"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "section": {
+        "displayName": "Section",
+        "purpose": "Result title, popover titles, history headings; once per pane."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Controls, values and rail entries in dense panes."
+      },
+      "body-strong": {
+        "displayName": "Body Strong",
+        "purpose": "Ranks within a pane by weight: wordmark, leading values, subheadings."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Field labels, counts, metadata, hints, tooltips and errors."
+      },
+      "label-caps": {
+        "displayName": "Label Caps",
+        "purpose": "All-small-caps section names, result tabs and electrode acronyms; each is the heading or name itself."
+      }
+    },
+    "shadows": [
+      {
+        "name": "popover",
+        "value": "0 6px 20px rgb(15 25 35 / 0.14)",
+        "purpose": "Menus, selects, popovers and the annotation editor."
+      },
+      {
+        "name": "dialog",
+        "value": "0 12px 32px rgb(15 25 35 / 0.2)",
+        "purpose": "The quick tab switcher."
+      },
+      {
+        "name": "lifted-tab",
+        "value": "0 2px 8px rgb(15 25 35 / 0.14)",
+        "purpose": "A recording tab while dragged."
+      }
+    ],
+    "motion": [
+      {
+        "name": "motion-duration",
+        "value": "160ms",
+        "purpose": "The one duration of every transition and view transition."
+      },
+      {
+        "name": "motion-ease",
+        "value": "cubic-bezier(0.23, 1, 0.32, 1)",
+        "purpose": "The one strong ease-out of every transition."
+      },
+      {
+        "name": "motion-scale",
+        "value": "1",
+        "purpose": "Popups grow from it and presses sink to it; 1 under reduced motion."
+      },
+      {
+        "name": "motion-rise",
+        "value": "0px",
+        "purpose": "Appearing alerts, status lines and data-appear panels rise from it; 0px under reduced motion."
+      },
+      {
+        "name": "view-transition",
+        "value": "document.startViewTransition, root crossfade on the motion tokens",
+        "purpose": "Panels opening and closing, results shown and closed, and the theme switch."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "narrow-notice",
+        "value": "768px",
+        "purpose": "Below it the shell gives way to a notice."
+      },
+      {
+        "name": "bar-icons",
+        "value": "1024px",
+        "purpose": "Below it the wordmark and the Local and Annotate labels give way to their icons."
+      },
+      {
+        "name": "scale-menu",
+        "value": "1400px",
+        "purpose": "Below it the scale settings go behind one button."
+      },
+      {
+        "name": "scale-menu-inspector-closed",
+        "value": "1600px",
+        "purpose": "The same collapse while the inspector is closed."
+      }
+    ],
+    "colormaps": [
+      {
+        "name": "batlow",
+        "use": "Sequential arrays, both themes.",
+        "source": "packages/ddalab-web/src/render/colormaps.ts"
+      },
+      {
+        "name": "vik",
+        "use": "Signed arrays centered at zero, light theme.",
+        "source": "packages/ddalab-web/src/render/colormaps.ts"
+      },
+      {
+        "name": "berlin",
+        "use": "Signed arrays centered at zero, dark theme.",
+        "source": "packages/ddalab-web/src/render/colormaps.ts"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Button",
+      "kind": "button",
+      "refersTo": "button",
+      "description": "The default hairline button.",
+      "html": "<button class=\"ds-btn\">Open folder</button>",
+      "css": ".ds-btn { font: 13px/18px system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-variant-numeric: tabular-nums; height: 28px; padding: 0 12px; border: 1px solid var(--hairline, #dee2e6); border-radius: var(--radius, 5px); background: var(--ground, #fff); color: var(--ink, #1e2a33); font-weight: 500; cursor: pointer; transition-property: background-color, color, border-color, transform; transition-duration: var(--motion-duration, 160ms); transition-timing-function: var(--motion-ease, cubic-bezier(0.23, 1, 0.32, 1)); } .ds-btn:hover { background: var(--chrome-hover, #e6e9ec); } .ds-btn:focus-visible { outline: 2px solid var(--focus, #2f6a9e); outline-offset: 1px; } .ds-btn:active { transform: scale(0.97); }"
+    },
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Open files, Run DDA: the filled cobalt action.",
+      "html": "<button class=\"ds-btn-primary\">Run DDA</button>",
+      "css": ".ds-btn-primary { font: 13px/18px system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-variant-numeric: tabular-nums; height: 28px; padding: 0 12px; border: 1px solid var(--primary, #2f6a9e); border-radius: var(--radius, 5px); background: var(--primary, #2f6a9e); color: var(--primary-ink, #fff); font-weight: 500; cursor: pointer; transition-property: background-color, color, border-color, transform; transition-duration: var(--motion-duration, 160ms); transition-timing-function: var(--motion-ease, cubic-bezier(0.23, 1, 0.32, 1)); } .ds-btn-primary:hover { background: color-mix(in srgb, var(--primary, #2f6a9e) 88%, var(--ink, #1e2a33)); } .ds-btn-primary:focus-visible { outline: 2px solid var(--focus, #2f6a9e); outline-offset: 1px; } .ds-btn-primary:active { transform: scale(0.97); }"
+    },
+    {
+      "name": "Quiet Button",
+      "kind": "button",
+      "refersTo": "button-quiet",
+      "description": "Borderless cobalt text actions: Locate, Forget, Close.",
+      "html": "<button class=\"ds-btn-quiet\">Locate</button>",
+      "css": ".ds-btn-quiet { font: 13px/18px system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-variant-numeric: tabular-nums; height: 28px; padding: 0 8px; border: 1px solid transparent; border-radius: var(--radius, 5px); background: transparent; color: var(--primary, #2f6a9e); font-weight: 500; cursor: pointer; transition-property: background-color, color, border-color, transform; transition-duration: var(--motion-duration, 160ms); transition-timing-function: var(--motion-ease, cubic-bezier(0.23, 1, 0.32, 1)); } .ds-btn-quiet:hover { background: var(--chrome-hover, #e6e9ec); } .ds-btn-quiet:focus-visible { outline: 2px solid var(--focus, #2f6a9e); outline-offset: 1px; }"
+    },
+    {
+      "name": "Icon Button",
+      "kind": "button",
+      "refersTo": "icon-button",
+      "description": "28 px square with a muted 16 px line icon.",
+      "html": "<button class=\"ds-icon-btn\" aria-label=\"Toggle library\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\"/><path d=\"M9 3v18\"/></svg></button>",
+      "css": ".ds-icon-btn { display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--radius, 5px); background: transparent; color: var(--muted, #56636e); cursor: pointer; transition-property: background-color, color, border-color, transform; transition-duration: var(--motion-duration, 160ms); transition-timing-function: var(--motion-ease, cubic-bezier(0.23, 1, 0.32, 1)); } .ds-icon-btn svg { width: 16px; height: 16px; } .ds-icon-btn:hover { background: var(--chrome-hover, #e6e9ec); color: var(--ink, #1e2a33); } .ds-icon-btn:focus-visible { outline: 2px solid var(--focus, #2f6a9e); outline-offset: 1px; } .ds-icon-btn:active { transform: scale(0.97); }"
+    },
+    {
+      "name": "Labeled Select",
+      "kind": "input",
+      "refersTo": "select-trigger",
+      "description": "A muted label before its 26 px select trigger.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-label\">Sensitivity</span><button class=\"ds-trigger\">70 µV/mm<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"m6 9 6 6 6-6\"/></svg></button></label>",
+      "css": ".ds-field { font: 13px/18px system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; gap: 8px; color: var(--ink, #1e2a33); } .ds-label { color: var(--muted, #56636e); font-size: 12px; } .ds-trigger { font: inherit; display: inline-flex; align-items: center; justify-content: space-between; gap: 4px; height: 26px; min-width: 84px; padding: 0 4px 0 8px; border: 1px solid var(--hairline, #dee2e6); border-radius: var(--radius, 5px); background: var(--ground, #fff); color: var(--ink, #1e2a33); cursor: pointer; transition-property: background-color, color, border-color, transform; transition-duration: var(--motion-duration, 160ms); transition-timing-function: var(--motion-ease, cubic-bezier(0.23, 1, 0.32, 1)); } .ds-trigger svg { width: 14px; height: 14px; color: var(--muted, #56636e); } .ds-trigger:hover { border-color: color-mix(in srgb, var(--hairline, #dee2e6) 60%, var(--muted, #56636e)); } .ds-trigger:focus-visible { outline: 2px solid var(--focus, #2f6a9e); outline-offset: 1px; }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "text-field",
+      "description": "Search and filter fields in the rail.",
+      "html": "<input class=\"ds-input\" placeholder=\"Search public datasets\">",
+      "css": ".ds-input { font: 13px/18px system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-variant-numeric: tabular-nums; height: 28px; padding: 0 8px; border: 1px solid var(--hairline, #dee2e6); border-radius: var(--radius, 5px); background: var(--ground, #fff); color: var(--ink, #1e2a33); caret-color: var(--primary, #2f6a9e); } .ds-input::placeholder { color: var(--muted, #56636e); } .ds-input:focus-visible { outline: 2px solid var(--focus, #2f6a9e); outline-offset: 1px; }"
+    },
+    {
+      "name": "Rail Section",
+      "kind": "nav",
+      "refersTo": "rail-entry-current",
+      "description": "A library rail section: small-caps heading with its count, entries, the current one washed in cobalt, metadata split by a hairline.",
+      "html": "<section class=\"ds-rail\"><h2 class=\"ds-rail-h\">History <span>2</span></h2><button class=\"ds-entry ds-current\"><span>ST on sub-pt01_ses-presurgery</span><span class=\"ds-meta\">Complete<i></i>21:31<i></i>8 channels</span></button><button class=\"ds-entry\"><span>ST on sub-pt02_ses-presurgery</span><span class=\"ds-meta\">Complete<i></i>20:12<i></i>4 channels</span></button></section>",
+      "css": ".ds-rail { font: 13px/18px system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-variant-numeric: tabular-nums; width: 224px; padding: 16px 12px; background: var(--chrome, #f1f3f5); color: var(--ink, #1e2a33); display: flex; flex-direction: column; gap: 8px; } .ds-rail-h { display: flex; justify-content: space-between; margin: 0; color: var(--muted, #56636e); font-size: 12px; font-weight: 600; font-variant-caps: all-small-caps; letter-spacing: 0.06em; } .ds-rail-h span { font-weight: 400; font-variant-caps: normal; letter-spacing: 0; } .ds-entry { font: inherit; color: inherit; display: flex; flex-direction: column; align-items: flex-start; margin: 0 -8px; padding: 4px 8px; border: 0; border-radius: var(--radius, 5px); background: transparent; text-align: left; cursor: pointer; transition: background-color var(--motion-duration, 160ms) var(--motion-ease, cubic-bezier(0.23, 1, 0.32, 1)); } .ds-entry:hover { background: var(--chrome-hover, #e6e9ec); } .ds-entry:focus-visible { outline: 2px solid var(--focus, #2f6a9e); outline-offset: 1px; } .ds-current { background: var(--primary-wash, rgb(47 106 158 / 0.1)); } .ds-meta { display: flex; align-items: center; gap: 8px; color: var(--muted, #56636e); font-size: 12px; line-height: 16px; } .ds-meta i { width: 1px; height: 10px; background: var(--hairline, #dee2e6); }"
+    },
+    {
+      "name": "Channel Group",
+      "kind": "custom",
+      "refersTo": "group-1",
+      "description": "Inspector channel group: tint swatch, small-caps acronym, count. Tints appear only as marks.",
+      "html": "<ul class=\"ds-groups\"><li><i style=\"background:var(--group-1,#9fc7b4)\"></i><b>ATT</b><span>8</span></li><li><i style=\"background:var(--group-2,#a9c4e2)\"></i><b>PST</b><span>4</span></li><li><i style=\"background:var(--group-3,#e6c79a)\"></i><b>G</b><span>64</span></li></ul>",
+      "css": ".ds-groups { font: 13px/18px system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-variant-numeric: tabular-nums; list-style: none; margin: 0; padding: 0; width: 220px; color: var(--ink, #1e2a33); } .ds-groups li { display: flex; align-items: center; gap: 8px; min-height: 24px; } .ds-groups i { width: 10px; height: 10px; border-radius: 2px; } .ds-groups b { flex: 1; font-weight: 600; font-variant-caps: all-small-caps; letter-spacing: 0.05em; } .ds-groups span { color: var(--muted, #56636e); font-size: 12px; }"
+    },
+    {
+      "name": "Popover",
+      "kind": "card",
+      "refersTo": "popover",
+      "description": "The Local popover: floating, shadowed, a 15 px title over muted prose and a hairline-separated block.",
+      "html": "<div class=\"ds-pop\"><h3>Everything stays on this device</h3><p>Recordings are read directly in your browser. Nothing is uploaded.</p><div class=\"ds-pop-foot\"><b>Storage</b><p>This site uses 4 MB.</p></div></div>",
+      "css": ".ds-pop { font: 13px/18px system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-variant-numeric: tabular-nums; width: 340px; padding: 16px; display: flex; flex-direction: column; gap: 12px; border: 1px solid var(--hairline, #dee2e6); border-radius: var(--radius, 5px); background: var(--ground, #fff); color: var(--ink, #1e2a33); box-shadow: 0 6px 20px rgb(15 25 35 / 0.14); } .ds-pop h3 { margin: 0; font-size: 15px; font-weight: 600; } .ds-pop p { margin: 0; color: var(--muted, #56636e); line-height: 1.45; } .ds-pop-foot { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--hairline, #dee2e6); }"
+    },
+    {
+      "name": "Tooltip",
+      "kind": "custom",
+      "refersTo": "tooltip",
+      "description": "Ink tooltip in 12 px.",
+      "html": "<span class=\"ds-tip\">Next page</span>",
+      "css": ".ds-tip { display: inline-block; padding: 3px 8px; border-radius: var(--radius-small, 3px); background: var(--ink, #1e2a33); color: var(--ground, #fff); font: 12px/16px system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Quiet Review Station",
+    "overview": "DDALAB is the clinical review workstation of its category, executed quietly. A white trace area sits inside light gray chrome, framed by hairlines, with the library rail on the left, the inspector on the right and a 44 px command bar across the top. The system knows where the reader is in a long recording (the overview locator strip with its outlined view and range tab) and which electrode each row belongs to (group tint bars in the label gutters of the waveform and the heatmap). The scale is printed on the plot itself, in a band at the waveform's lower left.\n\nDensity is high and calm. Dense panes use two type sizes and rank by weight; section names and electrode acronyms are set in small capitals. Separation comes from spacing and alignment first, then 1 px hairlines in the chrome tone. There is one accent, a cobalt for action, selection and focus, and one alarm color for events and destructive actions. The heatmaps use Crameri's perceptually uniform maps with a labeled color bar. A dark theme for dim reading rooms mirrors every role through `light-dark()` pairs; it follows the system until the user flips the toggle at the bar's far right.\n\nThe world rejects the dark neon scientific dashboard and the card grid.",
+    "keyCharacteristics": [
+      "Gray chrome around a white trace area, divided by 1 px hairlines.",
+      "One cobalt accent; event red for events, errors and Delete.",
+      "Electrode-group tints, light, used only in marks.",
+      "The system UI font stack with tabular numerals everywhere.",
+      "The locator strip and the printed scale bar as the signature moves.",
+      "One motion token pair for every transition, with view-transition crossfades for layout changes."
+    ],
+    "rules": [
+      {
+        "name": "The One Accent Rule",
+        "body": "Cobalt is the only hue that means \"act\" or \"selected\". A second accent never enters the chrome.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tints Are Marks Rule",
+        "body": "Group tints fill bars and swatches only. They never fill text, rows, panels or buttons.",
+        "section": "colors"
+      },
+      {
+        "name": "The Red Means Event Rule",
+        "body": "Event red marks recorded events, errors and destruction. Status that is not alarming stays in ink or muted.",
+        "section": "colors"
+      },
+      {
+        "name": "The Two Sizes Rule",
+        "body": "A dense pane uses 13 px and 12 px and ranks by weight. The 15 px section size heads a pane or popover and appears once in it.",
+        "section": "typography"
+      },
+      {
+        "name": "The Labeled Field Rule",
+        "body": "Inline metadata is set as labeled fields or separated by space and a thin vertical hairline. Runs of middle dots are never used as separators.",
+        "section": "typography"
+      },
+      {
+        "name": "The Shared Axis Rule",
+        "body": "Every pane that plots time reserves the same label gutter and scrollbar gutter as the waveform. A new time pane aligns to it or does not ship.",
+        "section": "layout"
+      },
+      {
+        "name": "The Flat Panes Rule",
+        "body": "Panels, rails, rows and the bar carry no shadow. Shadow means \"floating and dismissible\".",
+        "section": "elevation"
+      },
+      {
+        "name": "The Echo Mark",
+        "body": "The logo is a D with a delay-embedding loop cut from it, an event-red state point on the loop and a cobalt echo of the bowl one delay to the right. It is drawn from the theme tokens (ink, event, primary), sized at 1.5 cap height beside the wordmark and aligned on its baseline. Icons are a single line set (lucide) at 1.75 to 2 px stroke; beside text they size to `1cap` on the baseline, icon-only controls hold 16 px in a 28 px box.",
+        "section": "shapes"
+      }
+    ],
+    "dos": [
+      "Do take every color from a `tokens.css` role and give a new role a `light-dark()` pair.",
+      "Do time every transition on `--motion-duration` (160 ms) and `--motion-ease` (cubic-bezier(0.23, 1, 0.32, 1)); `scripts/check-motion.mjs` enforces it.",
+      "Do make appearing elements rise from `--motion-rise` (4 px) and popups or presses scale from `--motion-scale` (0.97), animating only opacity, transform and colors.",
+      "Do crossfade layout changes (panels opening and closing, results shown and closed, the theme switch) through a view transition.",
+      "Do let reduced motion drop movement and keep fades: `--motion-scale` becomes 1 and `--motion-rise` 0 px.",
+      "Do keep anything that follows the pointer, the keys or the data instant (locator, highlight, traces).",
+      "Do use batlow for sequential arrays, vik for signed arrays in light and berlin in dark, always with a labeled color bar.",
+      "Do separate inline metadata with space or a thin vertical hairline.",
+      "Do gate hover styles behind `(hover: hover) and (pointer: fine)`."
+    ],
+    "donts": [
+      "Don't separate inline metadata with runs of middle dots.",
+      "Don't build the dark neon scientific dashboard or a card grid.",
+      "Don't add a second accent hue, or use event red outside events, errors and destructive actions.",
+      "Don't use group tints as fills for text, rows or panels.",
+      "Don't put shadows on panels, rails or rows."
+    ]
+  }
+}
