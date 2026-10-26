@@ -204,6 +204,17 @@ export const touchTiles = (fingerprint: string) => writeJson(fingerprint, "used.
 /** The lock each IO worker holds, shared, on the tiles of every recording it has open: eviction passes them by. */
 export const tilesLock = (fingerprint: string) => `ddalab-tiles:${fingerprint}`;
 
+/** Whether tiles of the recording `fingerprint` are cached; `false` without storage. */
+export const hasTiles = (fingerprint: string) =>
+  navigator.storage
+    .getDirectory()
+    .then((root) => root.getDirectoryHandle("tiles"))
+    .then((tiles) => tiles.getDirectoryHandle(fingerprint))
+    .then(
+      () => true,
+      () => false,
+    );
+
 /** The tiles' share of the browser's storage: the smaller of 2 GiB and a third of this origin's quota. */
 export async function tileBudget() {
   const quota =

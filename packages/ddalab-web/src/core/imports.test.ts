@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { beforeEach, expect, test } from "vitest";
 import { documentJson } from "./exporters";
 import { deleteAnalysis, listAnalyses } from "./history";
-import { type FolderFile, importResult } from "./imports";
+import { type FolderFile, importResult, importResults } from "./imports";
 import { memoryOpfs, type Tree } from "./memoryOpfs";
 
 const CLI = fileURLToPath(new URL("../../../dda-rs/target/release/ddalab", import.meta.url));
@@ -188,6 +188,107 @@ test.each([
   expect([...((root.get("results") as Tree | undefined) ?? new Map()).keys()]).toEqual([]);
   expect(await listAnalyses()).toEqual([]);
 });
+
+// The fields of a result document only, each of its type and bounded, are stored, recorded and exported again: an
+// unknown key, however large, stays out (a project's results import the same way).
+test("only_the_fields_of_a_result_document_are_kept", async () => {
+  const id = await importResult(
+    bundle((m) => {
+      m.x = "y".repeat(90 * 2 ** 20);
+      reproduction(m).extra = { nested: true };
+      (reproduction(m).request as Record<string, unknown>).x = "z";
+      (m.variants as Record<string, unknown>[])[0].extra = [1, 2, 3];
+    }),
+  );
+  const [record] = await listAnalyses();
+  expect(record.id).toBe(id);
+  const written = JSON.parse(new TextDecoder().decode(stored(id)["manifest.json"]));
+  for (const manifest of [record.manifest, written]) {
+    expect(manifest).not.toHaveProperty("x");
+    expect(manifest.reproduction).not.toHaveProperty("extra");
+    expect(manifest.reproduction.request).not.toHaveProperty("x");
+    expect(manifest.variants[0]).not.toHaveProperty("extra");
+  }
+  expect(record.request).not.toHaveProperty("x");
+  expect(JSON.stringify(record).length).toBeLessThan(4096);
+  // A field of the document past the bound refuses it.
+  await expect(
+    importResult(
+      bundle((m) => {
+        m.file_name = "a".repeat(65 * 1024);
+      }),
+    ),
+  ).rejects.toThrow(
+    "a.dda is not a DDALAB result (schema ddalab.result/2): file_name is missing or malformed",
+  );
+}, 60_000);
+
+// The history loads every record at each start: one result's record, and all of a project's together, are bounded,
+// and a project over its total adds none of its results.
+test("a_project_s_results_past_their_total_add_nothing", async () => {
+  // A record of `mib` MiB: its diagnostics, each a string at its 64 KiB bound.
+  const result = (n: number, mib: number) => ({
+    input: bundle((m) => {
+      m.diagnostics = Array.from({ length: mib * 16 }, () => "d".repeat(64 * 1024));
+    }),
+    kept: {
+      id: `00000000-0000-4000-8000-00000000000${n}`,
+      fingerprint: "a".repeat(64),
+      fileName: "a.edf",
+      createdAt: 1,
+    },
+  });
+  const stored = () => [...((root.get("results") as Tree | undefined) ?? new Map()).keys()];
+  await expect(importResults([result(1, 11), result(2, 11), result(3, 11)], [])).rejects.toThrow(
+    "its 3 results and 0 batches would add more than the 32 MiB a project may add to the history",
+  );
+  expect(stored()).toEqual([]);
+  expect(await listAnalyses()).toEqual([]);
+  // One past its own bound is refused alone, and the others are added.
+  const outcomes = await importResults([result(1, 17), result(2, 1)], []);
+  expect(outcomes).toEqual([
+    { error: "The manifest of a.dda is above 16 MiB without its window centers" },
+    { id: "00000000-0000-4000-8000-000000000002" },
+  ]);
+  expect(stored()).toEqual(["00000000-0000-4000-8000-000000000002"]);
+  // Pairs of channels past what its channels make.
+  const pairs = bundle((m) => {
+    (reproduction(m).request as Record<string, unknown>).ct_channel_pairs = [
+      [0, 0],
+      [0, 0],
+    ];
+  });
+  await expect(importResult(pairs)).rejects.toThrow(
+    "a.dda lists more channel pairs than its 1 channels make",
+  );
+}, 120_000);
+
+// Each result and each batch is an entry the history lists at each start: however small, each counts 4 KiB toward a
+// project's total, so tens of thousands of minimal ones are refused before anything is stored.
+test("a_project_of_many_small_results_adds_nothing", async () => {
+  const minimal = (n: number) => ({
+    input: bundle(() => {}),
+    kept: {
+      id: `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`,
+      fingerprint: "a".repeat(64),
+      fileName: "a.edf",
+      createdAt: 1,
+    },
+  });
+  const many = Array.from({ length: 8193 }, (_, n) => minimal(n));
+  await expect(importResults(many, [])).rejects.toThrow(
+    "its 8193 results and 0 batches would add more than the 32 MiB a project may add to the history",
+  );
+  // Batches count the same, one result with them.
+  await expect(
+    importResults(
+      many.slice(0, 1),
+      Array.from({ length: 8192 }, () => ({})),
+    ),
+  ).rejects.toThrow("its 1 result and 8192 batches would add more than the 32 MiB a project may add");
+  expect([...((root.get("results") as Tree | undefined) ?? new Map()).keys()]).toEqual([]);
+  expect(await listAnalyses()).toEqual([]);
+}, 120_000);
 
 test("refuses_a_document_that_is_not_one", async () => {
   await expect(importResult(new File(["null"], "null.json"))).rejects.toThrow(

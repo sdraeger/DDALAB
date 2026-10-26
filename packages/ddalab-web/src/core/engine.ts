@@ -4,7 +4,7 @@
 // that never get a reply (the worker script does not load) stop after a few, with the engine unavailable.
 // A DDA run gets a pool of workers of its own, which end with it: a trap or a failed worker fails the run.
 import type { ResultTile } from "../render/resultPyramid";
-import type { FolderFile } from "./imports";
+import type { FolderFile, KeptRecord } from "./imports";
 import type {
   Annotations,
   AnnotationsReply,
@@ -82,6 +82,8 @@ export interface Engine {
    * are hashed from their open on; a URL recording from the first call of this or of `run`.
    */
   hashes(id: string): Promise<Record<string, string>>;
+  /** The SHA-256 of each of `files`, by name, read by the hash worker without opening them; rejects when it fails. */
+  digests(files: File[]): Promise<Record<string, string>>;
   /**
    * What a run of `request` takes: its windows, its blocks, the workers it runs on and the block budget in MiB.
    * Rejects with the core's message when the core refuses the request.
@@ -116,8 +118,18 @@ export interface Engine {
   exportDocument(resultId: string): Promise<Blob>;
   /** One variant's Q values as CSV (exporters.ts), built in the IO worker. */
   exportCsv(resultId: string, variant: string): Promise<Blob>;
-  /** Stores and records a result the CLI wrote (imports.ts); its id. */
-  importResult(input: File | FolderFile[]): Promise<string>;
+  /** Stores and records a result the CLI wrote (imports.ts), or one of an opened project with its `kept` record; its id. */
+  importResult(input: File | FolderFile[], kept?: KeptRecord): Promise<string>;
+  /**
+   * Stores and records an opened project's results, counted with the `batches` it would add (imports.ts
+   * `importResults`); each one's id or why it was not added.
+   */
+  importResults(
+    results: { input: FolderFile[]; kept: KeptRecord }[],
+    batches: unknown[],
+  ): Promise<({ id: string } | { error: string })[]>;
+  /** What the open recording `id` was opened from; `undefined` once it closed. */
+  input(id: string): RecordingInput | undefined;
 }
 
 /** What dev and e2e builds add for tests. */
@@ -405,12 +417,43 @@ export function createEngine(): Engine {
     return { input, info: entry.info };
   }
 
+  /** Digests asked of files that no open recording holds (`digests`), by request id. */
+  const checks = new Map<
+    string,
+    { names: number; found: Record<string, string>; done(result: Record<string, string> | Error): void }
+  >();
+
+  /** The SHA-256 of each of `files` (by name) from the hash worker, without opening them as a recording. */
+  function digests(files: File[]) {
+    return new Promise<Record<string, string>>((resolve, reject) => {
+      const id = crypto.randomUUID();
+      const names = files.map((f) => f.name);
+      checks.set(id, {
+        names: names.length,
+        found: {},
+        done(result) {
+          checks.delete(id);
+          if (result instanceof Error) reject(result);
+          else resolve(result);
+        },
+      });
+      hash({ type: "hash", id, input: { kind: "files", files, primary: names[0] }, names });
+    });
+  }
+
   /** Started with the first recording: it loads a second copy of the wasm. */
   function hash(request: HashRequest) {
     if (!hasher) {
       const started = new Worker(new URL("../workers/hash.worker.ts", import.meta.url), { type: "module" });
       hasher = started;
       started.onmessage = ({ data }: MessageEvent<HashReply>) => {
+        const check = checks.get(data.id);
+        if (check) {
+          if ("error" in data) check.done(new Error(data.error));
+          else if ("sha256" in data) check.found[data.name] = data.sha256;
+          if (Object.keys(check.found).length === check.names) check.done(check.found);
+          return;
+        }
         const entry = scans.get(data.id);
         if (!entry) return;
         if ("error" in data) entry.hashError = `The hash could not be computed: ${data.error}`;
@@ -425,6 +468,9 @@ export function createEngine(): Engine {
         if (hasher !== started) return;
         hasher = undefined;
         started.terminate();
+        for (const check of [...checks.values()]) {
+          check.done(new Error(event.message || "the hash worker stopped"));
+        }
         for (const [id, entry] of scans) {
           if (!entry.hashing || entry.info.input_files.every((name) => entry.sha256[name])) continue;
           entry.hashError = `The hash could not be computed: ${event.message || "the hash worker stopped"}`;
@@ -563,6 +609,7 @@ export function createEngine(): Engine {
       return annotate(input);
     },
     hashes: (id) => inputHashes(id, new AbortController().signal),
+    digests,
     onScan(id, listener) {
       const set = listeners.get(id) ?? new Set();
       listeners.set(id, set.add(listener));
@@ -647,7 +694,9 @@ export function createEngine(): Engine {
     deleteResult: (resultId) => call({ type: "deleteResult", resultId }),
     exportDocument: (resultId) => call({ type: "exportDocument", resultId }),
     exportCsv: (resultId, variant) => call({ type: "exportCsv", resultId, variant }),
-    importResult: (input) => call({ type: "importResult", input }),
+    importResult: (input, kept) => call({ type: "importResult", input, kept }),
+    importResults: (results, batches) => call({ type: "importResults", results, batches }),
+    input: (id) => held.get(id),
   };
   return import.meta.env.DEV || import.meta.env.MODE === "e2e"
     ? Object.assign(engine, {

@@ -18,10 +18,19 @@ export interface TabFile {
   handle?: FileSystemFileHandle;
 }
 
-/** Where a recording's files are read again. `files` lists the files the recording uses, its primary first. */
+/**
+ * Where a recording's files are read again. `files` lists the files the recording uses, its primary first; `project`
+ * is the .ddalab that holds them (core/project.ts), found again by its name, and the recording in it by the tab's
+ * fingerprint and SHA-256: a copy saved since with other content beside it still serves.
+ */
 export type TabSource =
   | { kind: "files"; files: TabFile[]; root?: FileSystemDirectoryHandle }
+  | { kind: "project"; project: TabFile }
   | { kind: "url"; input: Extract<RecordingInput, { kind: "url" }> };
+
+/** The files a reattach looks for: the recording's own, or the project that holds them. */
+export const sought = (source: Exclude<TabSource, { kind: "url" }>) =>
+  source.kind === "project" ? [source.project] : source.files;
 
 /** What a tab shows again when it becomes active. */
 export interface TabView {
@@ -57,7 +66,9 @@ export function idOf(fingerprint: string, recordings = useStore.getState().recor
 
 /** Whether every file of `source` can be read again through a handle: its folder's, or each file's. */
 export const hasHandles = (source: TabSource | null) =>
-  source?.kind === "files" && (source.root !== undefined || source.files.every((f) => f.handle));
+  source !== null &&
+  source.kind !== "url" &&
+  ((source.kind === "files" && source.root !== undefined) || sought(source).every((f) => f.handle));
 
 /**
  * The source of a recording opened from `files`, of which the core used `used` (the primary first). `handles` maps
@@ -195,18 +206,30 @@ export function matchFiles(
   return { files: found, primary: pathOf(primary), same: found.every((p, i) => dated(files[i])(p)) };
 }
 
-/** The tabs as remembered: synthetic ones left out, the selected one's view and every open one's channels current. */
+/**
+ * The picked file that is the project of `source` again, told by its name alone (a project saved again has another
+ * size), with whether its size and date match as well (`same`); `null` when none is.
+ */
+export function matchProject(source: Extract<TabSource, { kind: "project" }>, picked: File[]) {
+  const { name, size, lastModified } = source.project;
+  const unchanged = (p: File) => p.size === size && p.lastModified === lastModified;
+  const named = picked.filter((p) => p.name === name);
+  const file = named.find(unchanged) ?? named[0];
+  return file ? { files: [file], primary: pathOf(file), same: unchanged(file) } : null;
+}
+
+/**
+ * The tabs as remembered: synthetic ones left out, the selected one's view current. The others keep what they saved
+ * when they were left: channels are chosen on the selected tab only, and a recording reattached in the background has
+ * none chosen until its tab is entered.
+ */
 export function remembered(): { tabs: Tab[]; active: string | null } {
   const s = useStore.getState();
   const tabs = s.tabs
     .filter((t) => t.source !== null)
-    .map(({ verifying: _, ...t }) => {
-      if (t.fingerprint === s.activeTab) return { ...t, saved: tabViewOf(s, t.saved) };
-      const id = idOf(t.fingerprint, s.recordings);
-      return t.saved && id
-        ? { ...t, saved: { ...t.saved, selectedChannels: s.recordings[id].selectedChannels } }
-        : t;
-    });
+    .map(({ verifying: _, ...t }) =>
+      t.fingerprint === s.activeTab ? { ...t, saved: tabViewOf(s, t.saved) } : t,
+    );
   return { tabs, active: s.activeTab };
 }
 
@@ -218,4 +241,27 @@ export async function saveTabs(value = remembered()): Promise<void> {
 
 export async function loadTabs(): Promise<{ tabs: Tab[]; active: string | null } | undefined> {
   return (await database()).get("tabs", KEY);
+}
+
+/** Where the digests of every recording hashed in this browser are kept, beside the open set. */
+const DIGESTS = "sha256";
+
+/**
+ * Keeps the SHA-256 of the files of the recording `fingerprint`, hashed while it was open: what a project's copy of it
+ * is checked against once its tab is gone (app/project.ts).
+ */
+export async function rememberDigests(fingerprint: string, sha256: Record<string, string>): Promise<void> {
+  const writes = (await database()).transaction("tabs", "readwrite");
+  const all: Record<string, Record<string, string>> = (await writes.store.get(DIGESTS)) ?? {};
+  await writes.store.put({ ...all, [fingerprint]: sha256 }, DIGESTS);
+  await writes.done;
+}
+
+/** The SHA-256 of the files of the recording `fingerprint` as last hashed here, if it was. */
+export async function rememberedDigests(fingerprint: string): Promise<Record<string, string> | undefined> {
+  const all: Record<string, Record<string, string>> | undefined = await (await database()).get(
+    "tabs",
+    DIGESTS,
+  );
+  return all?.[fingerprint];
 }

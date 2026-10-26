@@ -32,6 +32,13 @@ export async function loadAnnotations(fingerprint: string): Promise<UserAnnotati
   return found.map(({ fingerprint: _, ...a }) => a);
 }
 
+/** The recording each of `ids` is stored under, for the ids stored. */
+export async function ownersOf(ids: string[]): Promise<Map<string, string>> {
+  const store = (await database()).transaction("annotations").objectStore("annotations");
+  const found: ({ fingerprint: string } | undefined)[] = await Promise.all(ids.map((id) => store.get(id)));
+  return new Map(found.flatMap((a, i) => (a ? [[ids[i], a.fingerprint] as const] : [])));
+}
+
 /**
  * Stores the change from `before` to `after`, a recording's list as this instance had it and has it now: added
  * annotations are put, removed ones deleted, and each changed one gets the fields that changed merged onto the stored

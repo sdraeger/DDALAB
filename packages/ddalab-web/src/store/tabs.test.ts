@@ -9,6 +9,7 @@ import {
   type OpenRecording,
   openResult,
   removeRecording,
+  selectChannels,
   setSelection,
   setView,
   showChosenOnly,
@@ -441,4 +442,18 @@ test("the_open_set_round_trips_with_each_view", async () => {
   expect(loaded?.tabs.map((t) => t.saved?.view.t0)).toEqual([20, 50, 0]);
   expect(loaded?.tabs[0].source).toEqual(source("fa.edf"));
   expect(remembered().tabs).toHaveLength(3);
+});
+
+test("a_recording_reattached_in_the_background_keeps_its_tabs_channels", () => {
+  openThree();
+  selectTab("fa");
+  selectChannels([1, 2], true);
+  selectTab("fb");
+  // A reload reattaches A beside the selected tab: its recording has none chosen until its tab is entered.
+  useStore.setState((s) => ({
+    recordings: { ...s.recordings, A: { ...s.recordings.A, selectedChannels: [] } },
+  }));
+  expect(remembered().tabs.find((t) => t.fingerprint === "fa")?.saved?.selectedChannels).toEqual([1, 2]);
+  selectTab("fa");
+  expect(useStore.getState().recordings.A.selectedChannels).toEqual([1, 2]);
 });

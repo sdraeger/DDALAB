@@ -346,9 +346,11 @@ export function DetachedNote({ fingerprint, brief }: { fingerprint: string; brie
       ? `Reattach to read ${tab.name} from its address again.`
       : asks
         ? `Reattach to let the browser read ${tab.name} again.`
-        : picker === "folder"
-          ? `Choose the folder that holds ${tab.name} to reattach it, with every detached recording found there.`
-          : `Choose ${tab.name} and the files beside it to reattach it.`;
+        : tab.source?.kind === "project"
+          ? `Choose ${tab.source.project.name}, the project that holds ${tab.name}, to reattach it.`
+          : picker === "folder"
+            ? `Choose the folder that holds ${tab.name} to reattach it, with every detached recording found there.`
+            : `Choose ${tab.name} and the files beside it to reattach it.`;
   // What is left to do: the clicks this recording still needs (one per prompt), and the other detached recordings.
   const left = [
     asks &&
