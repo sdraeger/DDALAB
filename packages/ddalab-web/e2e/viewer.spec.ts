@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { readSynthetic, type SyntheticSpec, syntheticEdfSize } from "../src/core/synthetic";
 import type { View } from "../src/store/store";
-import { expect, type Page, test } from "./test";
+import { expect, hasStorage, hasWebGL2, NO_WEBGL2, type Page, test } from "./test";
 
 const EDF = fileURLToPath(new URL("../../dda-rs/tests/fixtures/fixture.edf", import.meta.url));
 const channels = (page: Page) => page.getByRole("list", { name: "Channels" }).getByRole("listitem");
@@ -28,15 +28,6 @@ const scanDone = (page: Page) =>
     const { scan } = s.recordings[s.activeRecordingId as string];
     return scan.scannedRows === scan.totalRows || Boolean(scan.notice);
   });
-// Playwright's WebKit has no OPFS (getDirectory throws UnknownError); Safari itself has.
-const hasStorage = (page: Page) =>
-  page.evaluate(() =>
-    navigator.storage.getDirectory().then(
-      () => true,
-      () => false,
-    ),
-  );
-
 /** Shows `rows` channels from `channel` at `samplesPerPixel` from `t0`, at 100 µV/mm. */
 async function zoom(page: Page, samplesPerPixel: number, t0: number, channel: number, rows = 1) {
   // A frame of the active recording first: its canvas has its size.
@@ -154,6 +145,7 @@ test.beforeEach(async ({ page }) => {
 
 test("waveform_is_pixel_exact", async ({ page }) => {
   test.setTimeout(120_000);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   await openFixture(page);
   const zooms = [
     ["line", [0.2, 0.5, 0.9]],
@@ -183,6 +175,7 @@ test("waveform_is_pixel_exact", async ({ page }) => {
 // pixel the spans come from raw samples of the rows on screen, however many channels the recording has.
 test("waveform_is_pixel_exact_with_many_rows", async ({ page }) => {
   test.setTimeout(120_000);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   await page.setViewportSize({ width: 1600, height: 900 });
   await page.getByRole("button", { name: "Library" }).click();
   await page.getByRole("button", { name: "Inspector" }).click();
@@ -199,6 +192,7 @@ test("waveform_is_pixel_exact_with_many_rows", async ({ page }) => {
 // height, and no other column comes near it.
 test("spike_survives_every_zoom", async ({ page }) => {
   test.setTimeout(120_000);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   await openSynthetic(page, { channels: 2, rateHz: 256, durationS: 7200, seed: 4 });
   const spikeS = 97;
   for (const span of [7200, 2400, 600, 150, 40, 10]) {
@@ -239,6 +233,7 @@ test("spike_survives_every_zoom", async ({ page }) => {
 
 // Six hours of a day-long recording, far ahead of the scan, at a level too coarse to build from the file on demand.
 test("unscanned_region_is_hatched", async ({ page }) => {
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   await openSynthetic(page, { channels: 64, rateHz: 1000, durationS: 86_400, seed: 2 });
   await setView(page, { t0: 60_000, t1: 60_000 + 6 * 3600 });
   await expect
@@ -254,6 +249,7 @@ test("unscanned_region_is_hatched", async ({ page }) => {
 test("paging_never_blanks", async ({ page }) => {
   test.setTimeout(120_000);
   test.skip(!(await hasStorage(page)), "the stored pyramid needs OPFS");
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   await openSynthetic(page, { channels: 64, rateHz: 1000, durationS: 1800, seed: 8 });
   await expect.poll(() => scanDone(page), { timeout: 60_000 }).toBe(true);
   // The first jump after the scan asks for the stored top tile, after the jump's own rows. The engine answers in
@@ -284,6 +280,7 @@ test("paging_never_blanks", async ({ page }) => {
 // A read that fails is reported in the plot and tried again; the plot recovers once reads work.
 test("read_failure_is_reported", async ({ page }) => {
   test.setTimeout(120_000);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   // About 200 MB, more than the engine's file cache: rows in the middle are read again after the scan.
   const spec = { channels: 64, rateHz: 256, durationS: 6000, seed: 12 };
   const size = syntheticEdfSize(spec);
@@ -324,7 +321,7 @@ test("read_failure_is_reported", async ({ page }) => {
 });
 
 test("paging_keys", async ({ page }) => {
-  // The scale settings sit in the bar from 1400 px with the inspector open (Shell.module.css).
+  // The scale settings sit in the bar from 1440 px with the inspector open (Shell.module.css).
   await page.setViewportSize({ width: 1440, height: 720 });
   await openFixture(page);
   expect(await view(page)).toMatchObject({ t0: 0, t1: 10, epochS: 10 });
@@ -368,7 +365,7 @@ test("escape_and_a_press_off_the_plot_let_the_cursor_go", async ({ page }) => {
 });
 
 test("sensitivity_steps", async ({ page }) => {
-  // The scale settings sit in the bar from 1400 px with the inspector open (Shell.module.css).
+  // The scale settings sit in the bar from 1440 px with the inspector open (Shell.module.css).
   await page.setViewportSize({ width: 1440, height: 720 });
   await openFixture(page);
   const sensitivity = async () => (await view(page)).sensitivityUvPerMm;
@@ -512,6 +509,7 @@ test("theme_toggle_remembers_the_pick", async ({ page }) => {
 });
 
 test("webgl_context_loss_and_restore", async ({ page }) => {
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   await openFixture(page);
   await zoom(page, 5, 3.1, 0);
   expect((await checkPixels(page)).failures).toEqual([]);
@@ -530,6 +528,7 @@ test("webgl_context_loss_and_restore", async ({ page }) => {
 
 // A program that does not link shows its reason in the pane; the rest of the workspace stays.
 test("webgl_program_failure_message", async ({ page }) => {
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   await page.addInitScript(() => {
     const parameter = WebGL2RenderingContext.prototype.getProgramParameter;
     WebGL2RenderingContext.prototype.getProgramParameter = function (this: WebGL2RenderingContext, p, name) {

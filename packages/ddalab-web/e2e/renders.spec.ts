@@ -3,7 +3,7 @@
 // the canvases repaint for.
 import { countRenders, renders } from "./renders";
 import { showFixture } from "./resultFixture";
-import { expect, type Page, test } from "./test";
+import { expect, hasStorage, hasWebGL2, NO_STORAGE, NO_WEBGL2, type Page, scanned, test } from "./test";
 
 /** 64 channels at 256 Hz for 4 h: a scan and a hash that report dozens of times. */
 const SCAN = { channels: 64, rateHz: 256, durationS: 4 * 3600, seed: 11 };
@@ -24,6 +24,7 @@ test.beforeEach(async ({ page }) => {
 
 test("a_scan_re_renders_its_progress_only", async ({ page }) => {
   test.setTimeout(120_000);
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
   const id = await page.evaluate((spec) => window.__ddalab.openSynthetic(spec), SCAN);
   // A run of this recording, still running: the provenance shows how far its files are hashed.
   await page.evaluate((id) => {
@@ -81,15 +82,7 @@ test("a_scan_re_renders_its_progress_only", async ({ page }) => {
 
 test("a_run_re_renders_its_progress_only", async ({ page }) => {
   test.setTimeout(180_000);
-  test.skip(
-    !(await page.evaluate(() =>
-      navigator.storage.getDirectory().then(
-        () => true,
-        () => false,
-      ),
-    )),
-    "this browser window has no OPFS",
-  );
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
   // Four DDA workers whatever the machine, for a fixed count of blocks.
   await page.addInitScript(() => Object.defineProperty(navigator, "hardwareConcurrency", { get: () => 5 }));
   await page.reload();
@@ -119,15 +112,8 @@ test("a_run_re_renders_its_progress_only", async ({ page }) => {
 });
 
 test("canvases_repaint_for_what_they_draw", async ({ page }) => {
-  test.skip(
-    !(await page.evaluate(() =>
-      navigator.storage.getDirectory().then(
-        () => true,
-        () => false,
-      ),
-    )),
-    "this browser window has no OPFS",
-  );
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   await page.evaluate(() =>
     window.__ddalab.openSynthetic({ channels: 8, rateHz: 256, durationS: 60, seed: 4 }),
   );
@@ -173,16 +159,21 @@ test("canvases_repaint_for_what_they_draw", async ({ page }) => {
 
 test("a_closed_inspector_neither_renders_nor_plans", async ({ page }) => {
   test.setTimeout(120_000);
+  const stored = await hasStorage(page);
   await page.getByRole("button", { name: "Inspector" }).click();
   const id = await page.evaluate((spec) => window.__ddalab.openSynthetic(spec), SCAN);
   const counts = await rendersDuring(page, ["Inspector", "Scan", "RunBar", "RunButton"], async () => {
     await expect
       .poll(
         () =>
-          page.evaluate((id) => {
-            const { scan } = window.__ddalab.store.getState().recordings[id];
-            return scan.scannedRows === scan.totalRows;
-          }, id),
+          page.evaluate(
+            ({ id, stored }) => {
+              // Over, or not stored at all in a window without OPFS.
+              const { scan } = window.__ddalab.store.getState().recordings[id];
+              return scan.scannedRows === scan.totalRows || (!stored && Boolean(scan.notice));
+            },
+            { id, stored },
+          ),
         { timeout: 100_000 },
       )
       .toBe(true);
@@ -218,15 +209,8 @@ test("a_closed_inspector_neither_renders_nor_plans", async ({ page }) => {
 });
 
 test("moving_between_result_rows_renders_the_rows_only", async ({ page }) => {
-  test.skip(
-    !(await page.evaluate(() =>
-      navigator.storage.getDirectory().then(
-        () => true,
-        () => false,
-      ),
-    )),
-    "this browser window has no OPFS",
-  );
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   await page.evaluate(() =>
     window.__ddalab.openSynthetic({ channels: 64, rateHz: 256, durationS: 60, seed: 4 }),
   );
@@ -250,7 +234,7 @@ test("scrolling_the_channels_renders_once_a_row", async ({ page }) => {
   const list = page.getByRole("list", { name: "Channels" });
   await expect(list.getByText("CH1", { exact: true })).toBeVisible();
   // The scan and the annotations are in, which change what sits above the list and so its height.
-  await expect(page.getByText("Overview 100%")).toBeVisible();
+  await expect(scanned(page)).toBeVisible();
   await page.evaluate((id) => window.__ddalab.engine.annotations(id), id);
   // Settled: the list no longer renders across two frames.
   const listRenders = async () => (await renders(page)).ChannelList;

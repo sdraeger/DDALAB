@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readSynthetic, syntheticEdfSize } from "../src/core/synthetic";
-import { expect, type Page, test } from "./test";
+import { expect, hasStorage, hasWebGL2, NO_STORAGE, NO_WEBGL2, type Page, scanned, test } from "./test";
 
 const fixturePath = (name: string) =>
   fileURLToPath(new URL(`../../dda-rs/tests/fixtures/${name}`, import.meta.url));
@@ -63,6 +63,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("tabs_switch_and_keep_their_view", async ({ page }) => {
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   // Requests to the engine's workers for tiles and samples, counted.
   await page.addInitScript(() => {
     const post = Worker.prototype.postMessage as (this: Worker, ...args: unknown[]) => void;
@@ -86,7 +87,7 @@ test("tabs_switch_and_keep_their_view", async ({ page }) => {
   await expect.poll(() => view(page)).toMatchObject({ t0: 10, t1: 20 });
   await page.getByRole("checkbox", { name: "Select Fp1" }).check();
   await page.getByLabel("Search channels").fill("Fp");
-  await expect(page.getByText("Overview 100%")).toBeVisible();
+  await expect(scanned(page)).toBeVisible();
   await page.evaluate(() => window.__ddalab.viewer.settled());
 
   // Alt+3: the third tab, at its own view.
@@ -215,6 +216,8 @@ async function openFromTree(page: Page, folder: string, names: string[]) {
     // A row's accessible name is its label, then its file name.
     await tree.getByRole("treeitem", { name: new RegExp(`, ${name.replaceAll(".", "\\.")}$`) }).click();
     await expect(heading(page, name)).toBeVisible();
+    // Its entry in the recent list, above the tree, moves the tree down: the next click waits for it.
+    await expect(page.getByRole("button", { name: `Forget ${name}`, exact: true })).toBeVisible();
   }
 }
 
@@ -538,7 +541,7 @@ test("a_copy_with_no_digest_attaches_with_a_warning", async ({ page }) => {
   await expect(heading(page, "fixture.edf")).toBeVisible();
   // A tab whose files were never hashed (closed too soon, say) keeps no digest: here it is dropped once the scan
   // and the hash are over.
-  await expect(page.getByText("Overview 100%")).toBeVisible();
+  await expect(scanned(page)).toBeVisible();
   const hashed = () =>
     page.evaluate(
       () =>
@@ -563,6 +566,7 @@ test("a_copy_with_no_digest_attaches_with_a_warning", async ({ page }) => {
 
 test("a_run_that_ends_in_another_tab_shows_there", async ({ page }) => {
   await page.goto("/");
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
   await page.getByLabel("Recording files").setInputFiles(fixturePath("fixture.edf"));
   await expect(heading(page, "fixture.edf")).toBeVisible();
   await page.evaluate(() =>
@@ -594,6 +598,7 @@ test("a_run_that_ends_in_another_tab_shows_there", async ({ page }) => {
 
 test("a_result_opened_on_a_detached_tab_shows_alone", async ({ page }) => {
   await page.goto("/");
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
   await page.getByLabel("Recording files").setInputFiles(BRAINVISION.map(fixturePath));
   await page.getByRole("checkbox", { name: "Select Fp1" }).check();
   const runBar = page.getByRole("region", { name: "Run" });
