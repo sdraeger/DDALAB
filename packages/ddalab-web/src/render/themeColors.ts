@@ -56,6 +56,12 @@ export function readColors(element: Element): Colors {
   };
 }
 
+/** Whether the page shows the dark theme: the user's pick, else the system's. */
+export const isDark = () => {
+  const picked = document.documentElement.dataset.theme;
+  return picked ? picked === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+};
+
 /** Calls `onChange` when the theme changes; returns the function that stops watching. */
 export function watchTheme(onChange: () => void): () => void {
   const picked = new MutationObserver(onChange);

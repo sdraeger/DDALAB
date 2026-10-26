@@ -19,6 +19,7 @@ import {
   useReducer,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { engine } from "../../app/recordings";
 import { inTransition } from "../../app/viewTransition";
@@ -30,7 +31,7 @@ import { observeDevicePixels } from "../../render/devicePixels";
 import { webgl2 } from "../../render/gl";
 import { createHeatmapLayer, type HeatmapLayer } from "../../render/heatmapLayer";
 import { FANOUT, type ResultTile } from "../../render/resultPyramid";
-import { readColors, watchTheme } from "../../render/themeColors";
+import { isDark, readColors, watchTheme } from "../../render/themeColors";
 import { openResult, setCursor, setShownResult, setView, useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
 import { userOf } from "../annotations/model";
@@ -104,7 +105,9 @@ function Heatmap({
   const labels = variant.row_labels;
   const rows = labels.length;
   const picked = shown?.row != null && shown.row < rows ? shown.row : null;
-  const map = mapOf(variant.id, array);
+  // The diverging map follows the theme: the heatmap is drawn again when it changes.
+  const dark = useSyncExternalStore(watchTheme, isDark);
+  const map = mapOf(variant.id, array, dark);
   const loading = arrayOf(resultId, variant.id, array);
   const [, rerender] = useReducer((n: number) => n + 1, 0);
   const retry = () => {
@@ -441,8 +444,10 @@ function Heatmap({
           onArray={(next) => setShownResult({ array: next })}
         />
         <span className={styles.facts}>
-          <b title={variant.label}>{variant.label}</b>
-          <span className={styles.thin} aria-hidden />
+          <b className={styles.name} title={variant.label}>
+            {variant.label}
+          </b>
+          <span className={`${styles.thin} ${styles.name}`} aria-hidden />
           <span>{centers.length.toLocaleString("en")} windows</span>
           <span className={styles.thin} aria-hidden />
           <span>

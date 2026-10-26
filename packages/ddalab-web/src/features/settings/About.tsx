@@ -46,8 +46,8 @@ export default function About() {
         {LINUX_NOTE && <p className={styles.text}>{LINUX_NOTE}</p>}
       </section>
       <p className={styles.text}>
-        The heatmap colors are Crameri's batlow and vik. Crameri, F. (2018). Scientific colour maps. Zenodo.
-        doi:10.5281/zenodo.1243862
+        The heatmap colors are Crameri's batlow, vik and berlin. Crameri, F. (2018). Scientific colour maps.
+        Zenodo. doi:10.5281/zenodo.1243862
       </p>
       <p className={styles.text}>MIT License, Copyright (c) 2020 Fabio Crameri</p>
     </div>
