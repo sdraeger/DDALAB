@@ -211,6 +211,11 @@
   font-weight: var(--weight-medium);
 }
 
+/* On the wash the blue falls under 4.5:1: "Viewing" is set in ink. */
+.recording[aria-selected="true"] .open {
+  color: var(--ink);
+}
+
 /* Reduced motion keeps the fades and drops the chevron's turn. */
 @media (prefers-reduced-motion: reduce) {
   .chevron {
