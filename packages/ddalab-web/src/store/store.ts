@@ -179,7 +179,8 @@ export const activeRecording = (s: State) =>
 
 /**
  * `view` moved inside the recording: whole span in range, at least 8 samples, rows within the channels. Without a
- * recording it stays inside `interval`, the analysis interval of a result shown alone, when there is one.
+ * recording it stays inside `interval`, the analysis interval of a result shown alone, when there is one, and spans at
+ * least a millionth of it (the most windows a result has): a zoom never reaches a span of zero.
  */
 function clamp(
   view: View,
@@ -188,7 +189,8 @@ function clamp(
 ): View {
   if (!recording) {
     if (!interval) return view;
-    const span = Math.min(interval.t1 - interval.t0, view.t1 - view.t0);
+    const length = interval.t1 - interval.t0;
+    const span = Math.min(length, Math.max(length / 1e6, view.t1 - view.t0));
     const t0 = Math.min(interval.t1 - span, Math.max(interval.t0, view.t0));
     return { ...view, t0, t1: t0 + span };
   }
