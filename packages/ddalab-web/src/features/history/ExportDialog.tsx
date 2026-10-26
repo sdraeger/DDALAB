@@ -9,7 +9,7 @@ import controls from "../../styles/controls.module.css";
 import styles from "./History.module.css";
 
 /** Saves `blob` as `name` through the browser's downloads. */
-function download(blob: Blob, name: string) {
+export function download(blob: Blob, name: string) {
   const link = Object.assign(document.createElement("a"), {
     href: URL.createObjectURL(blob),
     download: name,

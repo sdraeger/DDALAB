@@ -15,6 +15,7 @@ import Ruler from "lucide-react/dist/esm/icons/ruler.mjs";
 import { type ButtonHTMLAttributes, lazy, type ReactElement, Suspense, useSyncExternalStore } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { RunButton } from "../features/analysis/RunBar";
+import { AnnotateButton, useAnnotationKeys } from "../features/annotations/Annotate";
 import { ResultBoundary } from "../features/history/ResultBoundary";
 import { Inspector } from "../features/inspector/Inspector";
 import { LibraryRail } from "../features/library/LibraryRail";
@@ -52,6 +53,7 @@ export function Shell() {
   const id = useStore((s) => s.activeRecordingId);
   const resultShown = useStore((s) => s.shownResult !== null);
   useViewerKeys();
+  useAnnotationKeys();
   return (
     <Tooltip.Provider delay={400}>
       <div
@@ -212,6 +214,8 @@ function ViewControls() {
         onChange={setTimebase}
         format={(t) => `${t} mm/s`}
       />
+      <span className={controls.rule} />
+      <AnnotateButton />
     </div>
   );
 }

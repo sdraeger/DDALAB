@@ -4,6 +4,7 @@ import type { AnalysisRecord } from "../core/history";
 import type { ScanState } from "../core/protocol";
 import type { RunProgress } from "../core/scheduler";
 import type { Annotation, RecordingInfo } from "../core/types";
+import type { UserAnnotation } from "../core/userAnnotations";
 import { type DdaForm, DEFAULT_FORM } from "../features/analysis/validate";
 import { saveTheme, storedTheme, type Theme } from "../styles/theme";
 import type { RecentEntry } from "./recent";
@@ -85,6 +86,14 @@ interface State {
   plotCssWidth: number;
   /** The theme the user picked; `null` follows the system. */
   theme: Theme | null;
+  /** The user's annotations by recording fingerprint (features/annotations/model.ts). */
+  annotations: Record<string, UserAnnotation[]>;
+  /** The annotation picked on the ruler or in the list: a user annotation's id, or `file:<index>`. */
+  pickedAnnotation: string | null;
+  /** The annotation whose editor is open; `created` until its label is first saved. */
+  annotationEditor: { id: string; created: boolean } | null;
+  /** A user annotation where a drag on the plot has it now, until the drag ends. */
+  annotationDraft: UserAnnotation | null;
 }
 
 const CALIBRATION_KEY = "ddalab.mmPerCssMm";
@@ -123,6 +132,10 @@ export const useStore = create<State>()(() => ({
   cursorS: null,
   plotCssWidth: 0,
   theme: storedTheme(),
+  annotations: {},
+  pickedAnnotation: null,
+  annotationEditor: null,
+  annotationDraft: null,
 }));
 
 export const activeRecording = (s: State) =>

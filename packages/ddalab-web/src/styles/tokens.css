@@ -75,6 +75,8 @@
   --motion-fast: 150ms;
   --motion: 200ms;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-duration: 160ms;
+  --motion-ease: cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 :root[data-theme="light"] {

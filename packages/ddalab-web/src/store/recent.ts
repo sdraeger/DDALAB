@@ -16,13 +16,14 @@ export interface RecentEntry {
 const KEEP = 20;
 // One connection for the page. When another tab asks for a newer version this one closes (`blocking`) and that
 // tab's upgrade is not held up; the next call opens again, and fails if this code is older than the database.
-// Version 2 adds the analyses of history.ts.
+// Version 2 adds the analyses of history.ts, version 3 the user annotations of userAnnotations.ts.
 let connection: Promise<IDBPDatabase> | undefined;
 export const database = () =>
-  (connection ??= openDB("ddalab", 2, {
+  (connection ??= openDB("ddalab", 3, {
     upgrade(db, old, _new, upgrading) {
       if (old < 1) db.createObjectStore("recent", { keyPath: "fingerprint" });
       if (old < 2) db.createObjectStore("analyses", { keyPath: "id" });
+      if (old < 3) db.createObjectStore("annotations", { keyPath: "fingerprint" });
       // idb wraps the upgrade transaction and rejects `done` if it aborts, as it does when the page closes mid-upgrade.
       upgrading.done.catch(() => {});
     },
