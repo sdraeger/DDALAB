@@ -17,11 +17,12 @@ const KEEP = 20;
 // One connection for the page. When another tab asks for a newer version this one closes (`blocking`) and that
 // tab's upgrade is not held up; the next call opens again, and fails if this code is older than the database.
 // Version 2 adds the analyses of history.ts; version 4 the user annotations of userAnnotations.ts and the open tabs of
-// tabs.ts. Two branches each took version 3 for one of these stores, and a browser can sit at version 3 with either:
-// each store is made when it is missing. The stores of earlier versions are kept as they are.
+// tabs.ts; version 5 the batches of core/batch.ts. Two branches each took version 3 for one of these stores, and a browser
+// can sit at version 3 with either: each store is made when it is missing. The stores of earlier versions are kept as
+// they are.
 let connection: Promise<IDBPDatabase> | undefined;
 export const database = () =>
-  (connection ??= openDB("ddalab", 4, {
+  (connection ??= openDB("ddalab", 5, {
     upgrade(db, old, _new, upgrading) {
       if (old < 1) db.createObjectStore("recent", { keyPath: "fingerprint" });
       if (old < 2) db.createObjectStore("analyses", { keyPath: "id" });
@@ -29,6 +30,7 @@ export const database = () =>
         db.createObjectStore("annotations", { keyPath: "fingerprint" });
       }
       if (old < 4 && !db.objectStoreNames.contains("tabs")) db.createObjectStore("tabs");
+      if (!db.objectStoreNames.contains("batches")) db.createObjectStore("batches", { keyPath: "id" });
       // idb wraps the upgrade transaction and rejects `done` if it aborts, as it does when the page closes mid-upgrade.
       upgrading.done.catch(() => {});
     },

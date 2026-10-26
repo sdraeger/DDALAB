@@ -54,13 +54,17 @@ async function readValues({ file, headerBytes }: Stored, from: number, to: numbe
  * folder holds (the status file, the heatmap's caches).
  */
 export async function bundleZip(resultId: string): Promise<ReadableStream<Uint8Array>> {
+  return makeZip(await bundleFiles(resultId));
+}
+
+/** The files of the bundle of `resultId`, named by their paths in it after `prefix`. */
+export async function bundleFiles(resultId: string, prefix = "") {
   const directory = await resultDirectory(resultId);
   const manifest = await resultManifest(resultId);
   const paths = ["manifest.json", ...manifest.variants.flatMap((v) => v.arrays ?? [])];
-  const files = await Promise.all(
-    paths.map(async (name) => ({ name, input: await fileAt(directory, name) })),
+  return Promise.all(
+    paths.map(async (name) => ({ name: prefix + name, input: await fileAt(directory, name) })),
   );
-  return makeZip(files);
 }
 
 /** `series` as a JSON array, a Blob part per 64 Ki values; a non-finite value is null, as serde_json writes it. */
