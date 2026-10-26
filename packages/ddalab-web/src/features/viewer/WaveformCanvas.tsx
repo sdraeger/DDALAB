@@ -198,7 +198,16 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
       paint();
     });
 
-    const unsubscribe = useStore.subscribe(schedule);
+    // A paint follows what it draws: the view, the selection, the cursor and the recording (its scan, its events).
+    const unsubscribe = useStore.subscribe((s, p) => {
+      if (
+        s.view !== p.view ||
+        s.selection !== p.selection ||
+        s.cursorS !== p.cursorS ||
+        s.recordings[recordingId] !== p.recordings[recordingId]
+      )
+        schedule();
+    });
     const unwatch = watchTheme(() => {
       colors = readColors(plotEl);
       schedule();
