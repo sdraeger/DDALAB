@@ -2,6 +2,7 @@
 import { createEngine, type RecordingInput } from "../core/engine";
 import { buildFileSet } from "../core/sources";
 import type { SyntheticSpec } from "../core/synthetic";
+import type { RecordingInfo } from "../core/types";
 import { forgetRecent, listRecent, type RecentEntry, rememberRecent } from "../store/recent";
 import {
   activateRecording,
@@ -100,26 +101,44 @@ export interface Handles {
   root?: FileSystemDirectoryHandle;
 }
 
-/** The SHA-256 of each of `names` once the hash worker has them all; `undefined` when it cannot. */
-function hashesOf(id: string, names: string[]) {
-  return new Promise<Record<string, string> | undefined>((resolve) => {
-    let done = false;
-    const stop = engine.onScan(id, ({ sha256 = {}, error }) => {
-      const all = names.every((name) => sha256[name]);
-      if (done || !(all || error?.startsWith("The hash could not be computed"))) return;
-      done = true;
-      queueMicrotask(() => stop());
-      resolve(all ? sha256 : undefined);
-    });
-  });
+/** Why the hash of the open recording `id` could not be computed, apart from any error of its scan. */
+function hashErrorOf(id: string) {
+  let found: string | undefined;
+  engine.onScan(id, (state) => {
+    found = state.hashError;
+  })();
+  return found;
+}
+
+/**
+ * Hashes the recording `opened` before it shows: why its files are not the ones of `verify` (their SHA-256), or
+ * `undefined` when they are. `signal` stops the check, and closes the recording, at any time.
+ */
+async function verified(
+  opened: { id: string; info: RecordingInfo },
+  verify: Record<string, string>,
+  signal?: AbortSignal,
+) {
+  const stop = () => engine.close(opened.id);
+  signal?.addEventListener("abort", stop, { once: true });
+  // Resolves with every file's SHA-256, or with fewer once the hash failed or the recording closed.
+  const sha256 = await engine.hashes(opened.id);
+  signal?.removeEventListener("abort", stop);
+  if (signal?.aborted) return "The check was stopped";
+  const names = opened.info.input_files;
+  const differs = names.find((name) => verify[name] && sha256[name] && sha256[name] !== verify[name]);
+  if (differs) return `${differs} changed since it was opened`;
+  if (names.some((name) => !sha256[name]))
+    return `${names[0]} could not be checked. ${hashErrorOf(opened.id) ?? ""}`;
+  return undefined;
 }
 
 /**
  * Opens the recording in `files`. `choice` picks among several (see `buildFileSet`). `expect` is the fingerprint of
  * the recording the user is locating again; another file opens, with a warning, or with `exact` is refused. `verify`
- * holds the SHA-256 its files must have: they are hashed before the recording shows, and other content is refused.
- * `handle` lets the recent list reopen a single-file recording without a picker; `handles` let its tab reattach
- * (tabs.ts). `activate` false opens it beside the active recording.
+ * holds the SHA-256 its files must have: they are hashed before the recording shows, other content is refused, and
+ * `signal` stops the check. `handle` lets the recent list reopen a single-file recording without a picker; `handles`
+ * let its tab reattach (tabs.ts). `activate` false opens it beside the active recording.
  */
 export async function openFiles(
   files: File[],
@@ -128,6 +147,7 @@ export async function openFiles(
     expect?: string;
     exact?: boolean;
     verify?: Record<string, string>;
+    signal?: AbortSignal;
     handle?: FileSystemHandle;
     handles?: Handles;
     activate?: boolean;
@@ -140,16 +160,15 @@ export async function openFiles(
     const opened = await engine.open({ kind: "files", files: set.files, primary: set.primary });
     const refused = options.exact && unexpected(opened, set.primary, options.expect);
     if (refused) return { kind: "error", message: refused, folder: false };
-    const { verify } = options;
-    if (verify && !useStore.getState().recordings[opened.id]) {
-      const sha256 = await hashesOf(opened.id, opened.info.input_files);
-      const differs = opened.info.input_files.find((name) => verify[name] && sha256?.[name] !== verify[name]);
-      if (!sha256 || differs) {
+    if (options.signal?.aborted) {
+      if (!useStore.getState().recordings[opened.id]) engine.close(opened.id);
+      return { kind: "error", message: "The check was stopped", folder: false };
+    }
+    if (options.verify && !useStore.getState().recordings[opened.id]) {
+      const refusal = await verified(opened, options.verify, options.signal);
+      if (refusal) {
         engine.close(opened.id);
-        const message = sha256
-          ? `${differs} changed since it was opened`
-          : `${set.primary} could not be hashed`;
-        return { kind: "error", message, folder: false };
+        return { kind: "error", message: refusal.trim(), folder: false };
       }
     }
     const { info, fingerprint } = opened;

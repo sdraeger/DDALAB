@@ -27,7 +27,20 @@ export function detachedTabs(s: State = useStore.getState()): Tab[] {
   return s.tabs.filter((t) => !idOf(t.fingerprint, s.recordings));
 }
 
+/** The checks of picked or read files under way, by tab: a later attempt or a close stops the one before. */
+const checks = new Map<string, AbortController>();
+
+/** Stops the check of the tab's files under way, if any: it neither attaches nor reports. */
+export function stopCheck(fingerprint: string) {
+  if (!checks.has(fingerprint)) return;
+  checks.get(fingerprint)?.abort();
+  checks.delete(fingerprint);
+  updateTab(fingerprint, { verifying: false });
+}
+
+/** Closes a tab; a check of its files under way stops, and the tab stays closed. */
 export function closeTab(fingerprint: string) {
+  stopCheck(fingerprint);
   const id = idOf(fingerprint);
   if (id) closeRecording(id);
   else forgetTab(fingerprint);
@@ -65,8 +78,12 @@ async function attachFiles(tab: Tab, files: File[], handles: Handles | undefined
     setReason(fingerprint, match.reason);
     return true;
   }
-  // Same name and size with another date (a copy, a download again): hashed against the tab's digest first.
+  // Same name and size with another date (a copy, a download again): hashed against the tab's digest first. With no
+  // digest kept, the fingerprint decides and the recording says its contents went unchecked.
   const verify = match.same ? undefined : tab.sha256;
+  const check = new AbortController();
+  stopCheck(fingerprint);
+  checks.set(fingerprint, check);
   if (verify) updateTab(fingerprint, { verifying: true });
   if (picked) unpicked.delete(fingerprint);
   else unpicked.add(fingerprint);
@@ -75,21 +92,32 @@ async function attachFiles(tab: Tab, files: File[], handles: Handles | undefined
     expect: fingerprint,
     exact: true,
     verify,
+    signal: check.signal,
     handles,
     activate: false,
   };
   const outcome = await openFiles(match.files, options);
+  // A later attempt or a close of the tab took over: this one is done.
+  if (checks.get(fingerprint) !== check) return true;
+  checks.delete(fingerprint);
   if (verify) updateTab(fingerprint, { verifying: false });
-  if (outcome.kind === "error") setReason(fingerprint, outcome.message);
+  if (outcome.kind === "error") {
+    unpicked.delete(fingerprint);
+    setReason(fingerprint, outcome.message);
+  } else if (!match.same && !tab.sha256) {
+    const id = idOf(fingerprint);
+    if (id) warn(id, "Contents could not be verified; earlier results may not match.");
+  }
   return true;
 }
 
 export async function attachUrl(tab: Tab) {
   if (tab.source?.kind !== "url") return;
   unpicked.add(tab.fingerprint);
-  await openInput(tab.source.input, { expect: tab.fingerprint, activate: false }).catch((error) =>
-    setReason(tab.fingerprint, `${tab.name} could not be read: ${messageOf(error)}`),
-  );
+  await openInput(tab.source.input, { expect: tab.fingerprint, activate: false }).catch((error) => {
+    unpicked.delete(tab.fingerprint);
+    setReason(tab.fingerprint, `${tab.name} could not be read: ${messageOf(error)}`);
+  });
 }
 
 /** The handles a reattach reads `source` through: its folder's, else every file's. */
@@ -108,21 +136,35 @@ async function viaHandles(source: TabSource & { kind: "files" }) {
   return { files, handles: { files: new Map(files.map((file, i) => [file, handles[i]])) } };
 }
 
-/** Reattaches what needs no prompt: URL recordings, and files whose handles may still be read; `first` goes first. */
-async function attachQuietly(first?: string | null) {
+/** Reattaches `tab` when it needs no prompt: by URL, or through handles that may still be read. */
+async function attachQuietly(tab: Tab) {
+  if (tab.source?.kind === "url") return attachUrl(tab);
+  // A check under way goes on; a second one of the same files would race it.
+  if (tab.source?.kind !== "files" || checks.has(tab.fingerprint)) return;
+  try {
+    const read = await viaHandles(tab.source);
+    if (read) await attachFiles(tab, read.files, read.handles, false);
+  } catch (error) {
+    setReason(tab.fingerprint, `${tab.name} could not be read: ${messageOf(error)}`);
+  }
+}
+
+/**
+ * Reattaches every detached tab that needs no prompt, `first` started first. Each goes on its own: one whose files
+ * are being hashed holds up no other.
+ */
+async function attachAllQuietly(first?: string | null) {
   const tabs = detachedTabs().sort(
     (a, b) => Number(b.fingerprint === first) - Number(a.fingerprint === first),
   );
-  for (const tab of tabs) {
-    if (tab.source?.kind === "url") await attachUrl(tab);
-    if (tab.source?.kind !== "files") continue;
-    try {
-      const read = await viaHandles(tab.source);
-      if (read) await attachFiles(tab, read.files, read.handles, false);
-    } catch (error) {
-      setReason(tab.fingerprint, `${tab.name} could not be read: ${messageOf(error)}`);
-    }
-  }
+  await Promise.all(tabs.map(attachQuietly));
+}
+
+/** The prompts `tab` still needs, a click each: 1 for its folder, else one per file not allowed yet. */
+export async function promptsLeft(tab: Tab): Promise<number> {
+  if (tab.source?.kind !== "files" || !hasHandles(tab.source)) return 0;
+  const allowed = await Promise.all(handlesOf(tab.source).map(permitted));
+  return allowed.filter((ok) => !ok).length;
 }
 
 /**
@@ -139,7 +181,7 @@ export async function requestAccess(tab: Tab) {
     if (answer !== "granted") return setReason(tab.fingerprint, "Permission not granted");
     break;
   }
-  await attachQuietly(tab.fingerprint);
+  await attachAllQuietly(tab.fingerprint);
 }
 
 /** The picker that finds `tab`'s files: the folder one when they came from a folder. */
@@ -258,5 +300,5 @@ export async function restoreTabs(listed: Promise<unknown>) {
   }
   void flushTabs(); // tabs opened while the stored set loaded
   await listed.catch(() => {});
-  await attachQuietly(useStore.getState().activeTab);
+  await attachAllQuietly(useStore.getState().activeTab);
 }

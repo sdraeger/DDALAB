@@ -31,8 +31,10 @@ import {
   closeTab,
   detachedTabs,
   pickerFor,
+  promptsLeft,
   reattachFrom,
   requestAccess,
+  stopCheck,
 } from "../../app/tabs";
 import { useStore } from "../../store/store";
 import { hasHandles, moveTab, selectTab, shortNames, type Tab } from "../../store/tabs";
@@ -68,21 +70,33 @@ function moveBy(fingerprint: string | null, by: -1 | 1) {
   const from = tabs.findIndex((t) => t.fingerprint === fingerprint);
   const to = from + by;
   if (from < 0 || to < 0 || to >= tabs.length) return;
+  // Moving a node takes the focus out of it: it goes back once the order is drawn, to the other Move button of the
+  // row when the one pressed is now at an end.
+  const focused = document.activeElement as HTMLButtonElement | null;
   moveTab(from, to);
   for (const region of announcers)
     region.textContent = `${tabs[from].name}, position ${to + 1} of ${tabs.length}`;
+  requestAnimationFrame(() => {
+    if (!focused?.isConnected) return;
+    const row = focused.closest("li");
+    const other = row?.querySelector<HTMLElement>("[data-move]:not(:disabled)");
+    (focused.disabled ? other : focused)?.focus();
+  });
 }
 
-/** Reattach for `tab`: retries its URL, asks for access to one of its handles, or opens a picker. A click calls it. */
-function reattach(tab: Tab, kind?: "folder" | "files") {
-  if (!kind && tab.source?.kind === "url") return void attachUrl(tab);
-  if (!kind && hasHandles(tab.source)) return void requestAccess(tab);
+/**
+ * Reattach for `tab`: retries its URL, asks for access to one of its handles, or opens a picker. A click calls it.
+ * The attempt, when it starts one.
+ */
+function reattach(tab: Tab, kind?: "folder" | "files"): Promise<unknown> | undefined {
+  if (!kind && tab.source?.kind === "url") return attachUrl(tab);
+  if (!kind && hasHandles(tab.source)) return requestAccess(tab);
   const picker = kind ?? pickerFor(tab);
   target = tab.fingerprint;
   // The browser's own pickers (Chromium) give handles, which the next visit reattaches through on its own.
   const native = picker === "folder" ? canPickFolder() && pickFolder : canPickFiles() && pickFiles;
-  if (!native) return inputs[picker]?.click();
-  void native().then(
+  if (!native) return void inputs[picker]?.click();
+  return native().then(
     (chosen) => chosen && reattachFrom(chosen.files, tab.fingerprint, chosen.handles),
     () => {}, // the user closed the picker
   );
@@ -222,7 +236,7 @@ export function TabStrip() {
             aria-label={`Reattach, ${detached.length} detached`}
             onClick={() => {
               selectTab(next.fingerprint);
-              reattach(next);
+              void reattach(next);
             }}
           >
             <Link2 aria-hidden />
@@ -303,6 +317,7 @@ export function DetachedNote({ fingerprint, brief }: { fingerprint: string; brie
   const tab = useStore((s) => s.tabs.find((t) => t.fingerprint === fingerprint));
   const reason = useStore((s) => s.tabReasons[fingerprint]);
   const others = useStore((s) => detachedTabs(s).length) - 1;
+  const prompts = usePromptsLeft(tab);
   if (!tab) return null;
   const asks = hasHandles(tab.source);
   const picker = pickerFor(tab);
@@ -317,30 +332,67 @@ export function DetachedNote({ fingerprint, brief }: { fingerprint: string; brie
         : picker === "folder"
           ? `Choose the folder that holds ${tab.name} to reattach it, with every detached recording found there.`
           : `Choose ${tab.name} and the files beside it to reattach it.`;
+  // What is left to do: the clicks this recording still needs (one per prompt), and the other detached recordings.
+  const left = [
+    asks &&
+      prompts.left > 0 &&
+      `${prompts.left} ${prompts.left === 1 ? "click" : "clicks"} left to reattach it`,
+    others > 0 && `${others} other ${others === 1 ? "recording is" : "recordings are"} detached`,
+  ].filter(Boolean);
   return (
     <div className={brief ? styles.line : styles.note}>
       <p>{what}</p>
-      {others > 0 && !brief && <p className={styles.more}>{`${others} more to reattach`}</p>}
+      {left.length > 0 && !brief && <p className={styles.more}>{left.join(". ")}</p>}
       {reason && (
         <p role="alert" className={styles.reason}>
           {reason}
         </p>
       )}
-      {!tab.verifying && (
-        <div className={styles.noteActions}>
-          <button type="button" className={controls.primary} onClick={() => reattach(tab)}>
-            <Link2 aria-hidden />
-            Reattach
+      <div className={styles.noteActions}>
+        {tab.verifying ? (
+          // A check that does not end is never the only way out: Retry stops it and starts over.
+          <button
+            type="button"
+            className={controls.button}
+            onClick={() => {
+              stopCheck(tab.fingerprint);
+              prompts.after(reattach(tab));
+            }}
+          >
+            Retry
           </button>
-          {tab.source?.kind === "files" && (
-            <button type="button" className={controls.quiet} onClick={() => reattach(tab, other)}>
-              {other === "folder" ? "Choose a folder instead" : "Choose files instead"}
+        ) : (
+          <>
+            <button type="button" className={controls.primary} onClick={() => prompts.after(reattach(tab))}>
+              <Link2 aria-hidden />
+              Reattach
             </button>
-          )}
-        </div>
-      )}
+            {tab.source?.kind === "files" && (
+              <button type="button" className={controls.quiet} onClick={() => reattach(tab, other)}>
+                {other === "folder" ? "Choose a folder instead" : "Choose files instead"}
+              </button>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
+}
+
+/** The prompts `tab` still needs (promptsLeft), counted again after each `after(attempt)`. */
+function usePromptsLeft(tab: Tab | undefined) {
+  const [left, setLeft] = useState(0);
+  const [round, setRound] = useState(0);
+  useEffect(() => {
+    let live = true;
+    if (tab && round >= 0) void promptsLeft(tab).then((n) => live && setLeft(n));
+    return () => {
+      live = false;
+    };
+  }, [tab, round]);
+  const after = (attempt: Promise<unknown> | undefined) =>
+    void attempt?.finally(() => setRound((n) => n + 1));
+  return { left, after };
 }
 
 /**
@@ -457,7 +509,7 @@ function Switcher({ onClose }: { onClose(): void }) {
   /** Moves the focus `by` rows from the row holding the focus; from the field, Down goes to the first row. */
   const focusRow = (by: number) => {
     const buttons = Array.from(rows.current?.querySelectorAll<HTMLElement>("[data-choose]") ?? []);
-    const at = buttons.indexOf(document.activeElement as HTMLElement);
+    const at = buttons.findIndex((button) => button.closest("li")?.contains(document.activeElement));
     if (at < 0 && by > 0) return buttons[0]?.focus();
     if (at + by < 0) return dialog.current?.querySelector<HTMLElement>("input")?.focus();
     buttons[Math.min(buttons.length - 1, at + by)]?.focus();
@@ -511,6 +563,7 @@ function Switcher({ onClose }: { onClose(): void }) {
                 type="button"
                 className={controls.iconButton}
                 aria-label={`Move ${tab.name} left`}
+                data-move
                 disabled={i === 0}
                 onClick={() => moveBy(tab.fingerprint, -1)}
               >
@@ -520,6 +573,7 @@ function Switcher({ onClose }: { onClose(): void }) {
                 type="button"
                 className={controls.iconButton}
                 aria-label={`Move ${tab.name} right`}
+                data-move
                 disabled={i === tabs.length - 1}
                 onClick={() => moveBy(tab.fingerprint, 1)}
               >

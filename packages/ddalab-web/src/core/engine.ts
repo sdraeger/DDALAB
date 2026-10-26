@@ -69,6 +69,8 @@ export interface Engine {
   annotations(id: string): Promise<Annotations>;
   /** Calls `listener` with the current scan state at once and with every change after. */
   onScan(id: string, listener: (state: ScanState) => void): () => void;
+  /** The SHA-256 of each input file once all are known; fewer when the hash failed or the recording closed. */
+  hashes(id: string): Promise<Record<string, string>>;
   /**
    * What a run of `request` takes: its windows, its blocks and the workers it runs on. Rejects with the core's
    * message when the core refuses the request.
@@ -190,6 +192,7 @@ const stateOf = ({ scan, sha256, hashed, hashError }: Tracked): ScanState => ({
   sha256,
   hashed,
   error: scan.error ?? hashError,
+  hashError,
 });
 
 export function createEngine(): Engine {
@@ -474,6 +477,7 @@ export function createEngine(): Engine {
       }
       return annotate(input);
     },
+    hashes: (id) => inputHashes(id, new AbortController().signal),
     onScan(id, listener) {
       const set = listeners.get(id) ?? new Set();
       listeners.set(id, set.add(listener));
