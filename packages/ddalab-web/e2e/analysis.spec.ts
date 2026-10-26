@@ -184,17 +184,18 @@ test("escape_within_200_ms_of_enter_leaves_no_stale_interval", async ({ page }) 
   const start = runBar(page).getByLabel("Start", { exact: true });
   const end = runBar(page).getByLabel("End", { exact: true });
   await expect(start).toHaveValue("0");
-  await page.evaluate(() => {
-    const keys: [string, number][] = [];
-    Object.assign(window, { keys });
-    addEventListener("keydown", (event) => keys.push([event.key, performance.now()]), true);
-  });
   await start.fill("2");
-  await start.press("Enter");
-  await start.press("Escape");
-  const pressed = await page.evaluate(() => (window as unknown as { keys: [string, number][] }).keys);
-  const at = (key: string) => pressed.find(([k]) => k === key)?.[1] ?? Number.NaN;
-  expect(at("Escape") - at("Enter")).toBeLessThan(200);
+  // Enter and Escape from the page itself, a frame apart (the commit renders in between): a loaded machine cannot
+  // stretch the gap between two presses sent from here.
+  const gap = await start.evaluate(async (input) => {
+    const press = (key: string) => input.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+    press("Enter");
+    const at = performance.now();
+    await new Promise(requestAnimationFrame);
+    press("Escape");
+    return performance.now() - at;
+  });
+  expect(gap).toBeLessThan(200);
   /** The interval a run takes now (the selection, else the view), as the fields print it. */
   const committed = () =>
     page.evaluate(() => {
