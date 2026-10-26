@@ -46,6 +46,9 @@ export default function About() {
         {LINUX_NOTE && <p className={styles.text}>{LINUX_NOTE}</p>}
       </section>
       <p className={styles.text}>
+        Install DDALAB from your browser's menu to use it offline in its own window.
+      </p>
+      <p className={styles.text}>
         The heatmap colors are Crameri's batlow and vik. Crameri, F. (2018). Scientific colour maps. Zenodo.
         doi:10.5281/zenodo.1243862
       </p>
