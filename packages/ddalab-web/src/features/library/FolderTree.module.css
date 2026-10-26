@@ -1,0 +1,217 @@
+/* The Folder section of the library rail: the walk, the opened folder, the filter and the tree of its recordings. */
+
+/* The walk: what it does over the files it has listed, and the way out. */
+.walking {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.walking p {
+  display: flex;
+  flex-direction: column;
+}
+
+.number {
+  color: var(--muted);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+/* The opened folder, above its rows. */
+.root {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-weight: var(--weight-medium);
+}
+
+.root svg {
+  flex: none;
+  block-size: 1cap;
+  inline-size: auto;
+  color: var(--muted);
+  stroke-width: 2;
+}
+
+.root span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filter {
+  height: 28px;
+  padding: 0 var(--space-2);
+  border: var(--hairline-width) solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--ground);
+}
+
+.filter::placeholder {
+  color: var(--muted);
+}
+
+/* Large trees scroll here, which keeps the panels below the tree within reach. */
+.scroller {
+  max-height: min(60vh, 560px);
+  overflow-y: auto;
+  margin: 0 calc(-1 * var(--space-2));
+  transition: opacity var(--motion-duration) var(--motion-ease);
+}
+
+.scroller[data-stale] {
+  opacity: 0.6;
+}
+
+.tree {
+  position: relative;
+}
+
+/* Rows sit at the offsets FolderTree.tsx computes from their heights; --level indents them. */
+.folder,
+.recording {
+  position: absolute;
+  inset: 0 0 auto;
+  padding-right: var(--space-2);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition:
+    background-color var(--motion-duration) var(--motion-ease),
+    color var(--motion-duration) var(--motion-ease);
+}
+
+.folder:focus-visible,
+.recording:focus-visible {
+  outline-offset: -2px;
+}
+
+/* Hover leaves the shown recording's wash in place. */
+.folder:hover,
+.recording:hover:not([aria-disabled], [aria-selected="true"]) {
+  background: var(--chrome-hover);
+}
+
+.folder {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  align-items: baseline;
+  gap: var(--space-1);
+  height: 28px;
+  padding-left: calc(var(--space-2) + var(--level) * var(--space-3));
+}
+
+.chevron {
+  flex: none;
+  block-size: 1cap;
+  inline-size: auto;
+  color: var(--muted);
+  stroke-width: 2.5;
+  transition: transform var(--motion-duration) var(--motion-ease);
+}
+
+.folder[aria-expanded="true"] .chevron {
+  transform: rotate(90deg);
+}
+
+/* A chain of folders too long for one line takes two; FolderTree.tsx measures which. */
+.folder[data-wrap] {
+  height: 40px;
+}
+
+.chain {
+  display: -webkit-box;
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+
+.folder[data-wrap] .chain {
+  -webkit-line-clamp: 2;
+}
+
+/* Lines break only between folders, after a slash; a name longer than the line ends in an ellipsis. */
+.segment {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: top;
+}
+
+.segment:not(:last-child)::after {
+  content: "/";
+  margin: 0 var(--space-1);
+  color: var(--muted);
+}
+
+.count {
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+/* A recording's name lines up with the names of the folders beside it, past their chevron. */
+.recording {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  height: 40px;
+  padding-left: calc(var(--space-2) + var(--level) * var(--space-3) + 1cap + var(--space-1));
+}
+
+.name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The shown recording: its name in a heavier weight and "Viewing" in its meta line, over the wash. */
+.recording[aria-selected="true"] {
+  background: var(--primary-wash);
+}
+
+.recording[aria-selected="true"] .name {
+  font-weight: var(--weight-medium);
+}
+
+.recording[aria-disabled] {
+  cursor: default;
+}
+
+.recording[aria-disabled] .name {
+  color: var(--muted);
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--muted);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+  white-space: nowrap;
+}
+
+.missing {
+  overflow: hidden;
+  color: var(--event);
+  text-overflow: ellipsis;
+}
+
+.open {
+  color: var(--primary);
+  font-weight: var(--weight-medium);
+}
+
+/* Reduced motion keeps the fades and drops the chevron's turn. */
+@media (prefers-reduced-motion: reduce) {
+  .chevron {
+    transition: none;
+  }
+}
