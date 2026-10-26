@@ -5,7 +5,7 @@ import { useMemo, useState, useTransition } from "react";
 import { type AnalysisRecord, resultName } from "../../core/history";
 import { openResult, useStore } from "../../store/store";
 import rail from "../library/LibraryRail.module.css";
-import { preload } from "../results/loads";
+import { prefetch } from "../results/loads";
 import styles from "./History.module.css";
 import ImportDrop from "./ImportDrop";
 import { ResultBoundary } from "./ResultBoundary";
@@ -75,9 +75,9 @@ function Results() {
                 className={rail.entry}
                 data-result={analysis.id}
                 aria-current={analysis.id === active ? "true" : undefined}
-                // Pointing at a complete result, or tabbing to it, starts loading its view.
-                onPointerEnter={analysis.status === "complete" ? () => preload(analysis.id) : undefined}
-                onFocus={analysis.status === "complete" ? () => preload(analysis.id) : undefined}
+                // Pointing at a complete result, or tabbing to it, starts loading its manifest.
+                onPointerEnter={analysis.status === "complete" ? () => prefetch(analysis.id) : undefined}
+                onFocus={analysis.status === "complete" ? () => prefetch(analysis.id) : undefined}
                 onClick={() => openResult(analysis.id)}
               >
                 <span className={rail.entryName}>{resultName(analysis)}</span>
