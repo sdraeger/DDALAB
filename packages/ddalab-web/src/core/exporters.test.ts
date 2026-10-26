@@ -92,10 +92,14 @@ test("document_takes_serde_jsons_pretty_layout", async () => {
 });
 
 test("json_size_guard", async () => {
-  // A million windows of 40 rows is about 800 MB of text; only the header is stored, which is all the guards read.
+  // A million windows of 40 rows is about 1.4 GB of document text and 820 MB of CSV; only the header is stored, which
+  // is all the guards read.
   const variant = { id: "ST", label: "ST", row_labels: [], matrix: [], arrays: ["ST/q.npy"] };
   store("big", variant, { "ST/q.npy": npy([1_000_000, 40]) }, []);
-  await expect(documentJson("big")).rejects.toThrow(/about 800 MB\. Export the bundle instead/);
+  await expect(documentJson("big")).rejects.toThrow(/about 1,400 MB\. Export the bundle instead/);
+  // 16 million values: about 330 MB as CSV, under the limit, and 540 MB in the document's layout, over it.
+  store("mid", { ...variant, arrays: ["ST/q.npy"] }, { "ST/q.npy": npy([500_000, 32]) }, []);
+  await expect(documentJson("mid")).rejects.toThrow(/about 540 MB\. Export the bundle instead/);
   await expect(variantCsv("big", "ST")).rejects.toThrow(/about 820 MB\. Export the bundle instead/);
 });
 
