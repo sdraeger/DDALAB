@@ -20,11 +20,12 @@ export interface TabFile {
 
 /**
  * Where a recording's files are read again. `files` lists the files the recording uses, its primary first; `project`
- * is the .ddalab that holds them, as the recording at `index` of its project.json (core/project.ts).
+ * is the .ddalab that holds them (core/project.ts), found again by its name, and the recording in it by the tab's
+ * fingerprint and SHA-256: a copy saved since with other content beside it still serves.
  */
 export type TabSource =
   | { kind: "files"; files: TabFile[]; root?: FileSystemDirectoryHandle }
-  | { kind: "project"; project: TabFile; index: number }
+  | { kind: "project"; project: TabFile }
   | { kind: "url"; input: Extract<RecordingInput, { kind: "url" }> };
 
 /** The files a reattach looks for: the recording's own, or the project that holds them. */
@@ -203,6 +204,18 @@ export function matchFiles(
         sized[i][0]),
   );
   return { files: found, primary: pathOf(primary), same: found.every((p, i) => dated(files[i])(p)) };
+}
+
+/**
+ * The picked file that is the project of `source` again, told by its name alone (a project saved again has another
+ * size), with whether its size and date match as well (`same`); `null` when none is.
+ */
+export function matchProject(source: Extract<TabSource, { kind: "project" }>, picked: File[]) {
+  const { name, size, lastModified } = source.project;
+  const unchanged = (p: File) => p.size === size && p.lastModified === lastModified;
+  const named = picked.filter((p) => p.name === name);
+  const file = named.find(unchanged) ?? named[0];
+  return file ? { files: [file], primary: pathOf(file), same: unchanged(file) } : null;
 }
 
 /**

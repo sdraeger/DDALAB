@@ -7,12 +7,12 @@ import { version } from "../../package.json";
 import { type BatchRecord, listBatches, saveBatch } from "../core/batch";
 import { bundleFiles } from "../core/exporters";
 import { type AnalysisRecord, listAnalyses, persistStorage, resultName } from "../core/history";
-import { kept, type Project, readProject, SCHEMA } from "../core/project";
+import { batchIds, batchOf, kept, type Project, readProject, SCHEMA, sameFiles } from "../core/project";
 import { isScanned, pathOf } from "../core/sources";
 import { loadAnnotations } from "../core/userAnnotations";
 import { addAnnotations } from "../features/annotations/model";
 import { useStore } from "../store/store";
-import { idOf, remembered, selectTab, type Tab, type TabFile, type TabSource } from "../store/tabs";
+import { idOf, remembered, selectTab, type Tab, type TabFile, type TabSource, tabOf } from "../store/tabs";
 import { engineVersion, refreshAnalyses } from "./analyses";
 import { download } from "./download";
 import { engine, type OpenOptions, type Outcome, openFiles } from "./recordings";
@@ -141,6 +141,8 @@ async function projectJson(contents: Contents, created: Date): Promise<Project> 
       channel_query: tab.channelQuery,
     });
   }
+  // A result names its batch only when the batch goes along.
+  const carried = new Set(contents.batches.map((b) => b.id));
   return {
     schema: SCHEMA,
     app_version: version,
@@ -149,20 +151,32 @@ async function projectJson(contents: Contents, created: Date): Promise<Project> 
     created_at_iso: created.toISOString(),
     recordings,
     active_tab: contents.active,
-    results: contents.results.map(({ record }) => ({ path: `results/${record.id}/`, record: kept(record) })),
-    batches: contents.batches.map(({ handle: _, ...batch }) => batch),
+    results: contents.results.map(({ record }) => ({
+      path: `results/${record.id}/`,
+      record: kept({
+        ...record,
+        batch: record.batch && carried.has(record.batch) ? record.batch : undefined,
+      }),
+    })),
+    batches: contents.batches.map(batchOf),
   };
 }
 
+/** The day `date` is in, where the user is, as YYYY-MM-DD. */
+const dayOf = (date: Date) =>
+  [date.getFullYear(), date.getMonth() + 1, date.getDate()].map((n) => String(n).padStart(2, "0")).join("-");
+
 /**
- * Saves `contents` as a project named for the day, streamed: every recording's files, every result's bundle, then
- * project.json. Call it first thing in a click: the Save dialog needs the click (download.ts). `onMake` hears when
- * the archive starts, after the dialog.
+ * Saves `contents` as a project named for the day: project.json first in the making, as it waits for every recording's
+ * SHA-256 and a recording that cannot be hashed fails the export before anything is written; then the archive streams,
+ * every recording's files, every result's bundle, and project.json last. Call it first thing in a click: the Save
+ * dialog needs the click (download.ts). `onMake` hears when the making starts, after the dialog.
  */
 export function exportProject(contents: Contents, onMake: () => void) {
   const created = new Date();
-  return download(`project-${created.toISOString().slice(0, 10)}.ddalab`, () => {
+  return download(`project-${dayOf(created)}.ddalab`, async () => {
     onMake();
+    const json = `${JSON.stringify(await projectJson(contents, created), null, 2)}\n`;
     async function* files() {
       for (const [k, { files }] of contents.members.entries()) {
         for (const { name, size, lastModified, bytes } of files) {
@@ -171,10 +185,7 @@ export function exportProject(contents: Contents, onMake: () => void) {
         }
       }
       for (const { files } of contents.results) yield* files;
-      yield {
-        name: "project.json",
-        input: `${JSON.stringify(await projectJson(contents, created), null, 2)}\n`,
-      };
+      yield { name: "project.json", input: json };
     }
     return makeZip(files());
   });
@@ -201,19 +212,25 @@ const tabFileOf = (file: File, handle?: FileSystemFileHandle): TabFile => ({
 });
 
 /**
- * Opens the recording at `index` of the project `file` as `openFiles` opens files, each file a slice of the project,
- * and its tab reads it from the project again. `options.handles` holds the project's handle where the browser gives one.
+ * Opens the recording of `options.expect` (the tab's fingerprint) in the project `file` as `openFiles` opens files, each
+ * file a slice of the project, and its tab reads it from this project from now on. The recording is found by its
+ * content, wherever the project lists it, and must have the SHA-256 its tab holds. `options.handles` holds the
+ * project's handle where the browser gives one.
  */
 export async function openProjectRecording(
   file: File,
-  index: number,
-  options: OpenOptions,
+  options: OpenOptions & { expect: string },
 ): Promise<Outcome> {
+  const fingerprint = options.expect;
+  const tab = tabOf(fingerprint);
   let files: File[];
   try {
     const { project, entries } = await read(file);
-    const recording = project.recordings[index];
-    if (!recording) throw new Error(`${file.name} holds no recording ${index + 1}`);
+    const recording = project.recordings.find((r) => r.fingerprint === fingerprint);
+    if (!recording) throw new Error(`${file.name} does not hold ${tab?.name ?? "this recording"}`);
+    if (tab?.sha256 && !sameFiles(recording.files, tab.sha256)) {
+      throw new Error(`${tab.name} in ${file.name} is not the file its tab holds (SHA-256)`);
+    }
     files = recording.files.map(
       ({ path, name, last_modified }) =>
         new File([entries.get(path) as Blob], name, { lastModified: last_modified }),
@@ -221,18 +238,83 @@ export async function openProjectRecording(
   } catch (error) {
     return { kind: "error", message: messageOf(error), folder: false };
   }
-  const origin: TabSource = { kind: "project", project: tabFileOf(file, options.handles?.files?.[0]), index };
+  const origin: TabSource = { kind: "project", project: tabFileOf(file, options.handles?.files?.[0]) };
   return openFiles(files, { ...options, choice: files[0].name, handles: undefined, origin });
 }
 
 /**
- * Opens the project `file` (`handle`: its handle, where the browser gives one). Its results join the history, its
- * batches the batches and its annotations its recordings' ones; whatever is here already (by id) stays as it is. Its
- * tabs join the open ones, in order, and its selected tab is selected. A recording in a tab already keeps that tab, and
- * a detached one reads it from the project from now on. Why a tab did not open is its reason (tabs.ts); a result or
- * batch that could not be added is the outcome's warning.
+ * The SHA-256 of each file of the recording of `fingerprint` as this browser knows it: an open recording's (hashed now
+ * if it is not yet), else its tab's, `{}` for a tab never hashed; `undefined` when no tab holds that recording.
  */
-export async function openProject(file: File, handle?: FileSystemFileHandle): Promise<Outcome> {
+async function digestsOf(fingerprint: string): Promise<Record<string, string> | undefined> {
+  const id = idOf(fingerprint);
+  if (id) return engine.hashes(id);
+  const tab = tabOf(fingerprint);
+  return tab && (tab.sha256 ?? {});
+}
+
+/**
+ * Adds the results of the recordings in `joins` and their batches, beside what is here. A result here already (by id)
+ * stays as it is. A batch id this browser has for another batch gets a new id, which the project's results of that
+ * batch take. Rejects, adding nothing, when the history or the batches cannot be listed: a result or a batch here could
+ * be written over.
+ */
+async function addResults(
+  { results, batches }: Project,
+  entries: Map<string, Blob>,
+  source: string,
+  joins: Set<string>,
+  problems: string[],
+) {
+  const [analyses, stored] = await Promise.all([listAnalyses(), listBatches()]);
+  const ids = batchIds(batches, stored);
+  const joined = results.filter((r) => joins.has(r.record.fingerprint));
+  for (const { path, record } of joined) {
+    if (analyses.some((a) => a.id === record.id)) continue;
+    const bundle = [...entries]
+      .filter(([name]) => name.startsWith(path))
+      .map(([name, blob]) => ({ path: `${source}/${name}`, file: blob }));
+    const batch = record.batch ? ids.get(record.batch) : undefined;
+    await engine
+      .importResult(bundle, { ...record, batch })
+      .catch((error) => problems.push(`A result of ${record.fileName} was not added: ${messageOf(error)}`));
+  }
+  if (joined.length > 0) {
+    void persistStorage();
+    await refreshAnalyses();
+  }
+  const used = new Set(joined.map((r) => r.record.batch));
+  const added = batches.filter((b) => used.has(b.id) && !stored.some((o) => o.id === ids.get(b.id)));
+  for (const batch of added) {
+    await saveBatch({ ...batch, id: ids.get(batch.id) as string }).catch((error) =>
+      problems.push(`A batch was not added: ${messageOf(error)}`),
+    );
+  }
+  if (added.length > 0) {
+    useStore.setState({ batches: await listBatches().catch(() => useStore.getState().batches) });
+  }
+}
+
+/** The open under way: projects open one at a time, so two opens of one project never write one result at once. */
+let opening: Promise<unknown> = Promise.resolve();
+
+/**
+ * Opens the project `file` (`handle`: its handle, where the browser gives one), after any open under way. A recording
+ * this browser holds in a tab already joins the project only when its files have the project's SHA-256: the
+ * fingerprint reads only the edges of a file. One that does not stays as it is, and the project's copy of it is not
+ * opened. For the recordings that join, the project's results join the history, their batches the batches and its
+ * annotations theirs, beside whatever is here (see `addResults`, `addAnnotations`). Their tabs join the open ones, in
+ * order, a tab here already keeping its place and its view (a detached one reads from the project from now on), and
+ * the project's selected tab is selected. Why a tab did not open is its reason (tabs.ts); what was not added is the
+ * outcome's warning.
+ */
+export function openProject(file: File, handle?: FileSystemFileHandle): Promise<Outcome> {
+  const next = opening.then(() => openOne(file, handle));
+  opening = next.catch(() => {});
+  return next;
+}
+
+async function openOne(file: File, handle?: FileSystemFileHandle): Promise<Outcome> {
   let found: Awaited<ReturnType<typeof readProject>>;
   try {
     found = await read(file);
@@ -241,46 +323,40 @@ export async function openProject(file: File, handle?: FileSystemFileHandle): Pr
   }
   const { project, entries } = found;
   const problems: string[] = [];
-  // Results first: a tab shows its result once the history holds it complete.
-  const known = new Set((await listAnalyses().catch(() => [])).map((a) => a.id));
-  for (const { path, record } of project.results) {
-    if (known.has(record.id)) continue;
-    const bundle = [...entries]
-      .filter(([name]) => name.startsWith(path))
-      .map(([name, blob]) => ({ path: `${file.name}/${name}`, file: blob }));
-    await engine
-      .importResult(bundle, record)
-      .catch((error) => problems.push(`A result of ${record.fileName} was not added: ${messageOf(error)}`));
+  const joins = new Set<string>();
+  for (const { fingerprint, files } of project.recordings) {
+    const known = await digestsOf(fingerprint);
+    if (!known || sameFiles(files, known)) joins.add(fingerprint);
+    else {
+      problems.push(
+        `${files[0].name} was not opened: a tab here holds a recording of that name whose files are not the project's.`,
+      );
+    }
   }
-  if (project.results.length > 0) {
-    void persistStorage();
-    await refreshAnalyses();
+  try {
+    await addResults(project, entries, file.name, joins, problems);
+  } catch (error) {
+    return { kind: "error", message: `${file.name} was not opened: ${messageOf(error)}`, folder: false };
   }
-  const batches = new Set((await listBatches().catch(() => [])).map((b) => b.id));
-  for (const batch of project.batches.filter((b) => !batches.has(b.id))) {
-    await saveBatch(batch).catch((error) => problems.push(`A batch was not added: ${messageOf(error)}`));
+  for (const { fingerprint, annotations, files } of project.recordings) {
+    if (!joins.has(fingerprint)) continue;
+    await addAnnotations(fingerprint, annotations).catch((error) =>
+      problems.push(`The annotations of ${files[0].name} were not added: ${messageOf(error)}`),
+    );
   }
-  if (project.batches.length > 0) {
-    useStore.setState({ batches: await listBatches().catch(() => useStore.getState().batches) });
-  }
-  for (const { fingerprint, annotations } of project.recordings)
-    await addAnnotations(fingerprint, annotations);
-  const source = (index: number): TabSource => ({ kind: "project", project: tabFileOf(file, handle), index });
-  const indexOf = (fingerprint: string) => project.recordings.findIndex((r) => r.fingerprint === fingerprint);
+  const source: TabSource = { kind: "project", project: tabFileOf(file, handle) };
   useStore.setState((s) => {
     const tabs = s.tabs.map((t) =>
-      indexOf(t.fingerprint) >= 0 && !idOf(t.fingerprint, s.recordings)
-        ? { ...t, source: source(indexOf(t.fingerprint)) }
-        : t,
+      joins.has(t.fingerprint) && !idOf(t.fingerprint, s.recordings) ? { ...t, source } : t,
     );
-    const added = project.recordings.flatMap((r, index): Tab[] =>
-      tabs.some((t) => t.fingerprint === r.fingerprint)
+    const added = project.recordings.flatMap((r): Tab[] =>
+      !joins.has(r.fingerprint) || tabs.some((t) => t.fingerprint === r.fingerprint)
         ? []
         : [
             {
               fingerprint: r.fingerprint,
               name: r.files[0].name,
-              source: source(index),
+              source,
               saved: r.saved ?? undefined,
               channelQuery: r.channel_query,
               sha256: Object.fromEntries(r.files.map((f) => [f.name, f.sha256])),
@@ -289,7 +365,7 @@ export async function openProject(file: File, handle?: FileSystemFileHandle): Pr
     );
     return { tabs: [...tabs, ...added] };
   });
-  if (project.active_tab) selectTab(project.active_tab);
+  if (project.active_tab && joins.has(project.active_tab)) selectTab(project.active_tab);
   await reattachFrom([file], null, handle && { files: [handle] });
   return {
     kind: "opened",
