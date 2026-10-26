@@ -3,16 +3,16 @@
 import { Popover } from "@base-ui/react/popover";
 import { use } from "react";
 import { version } from "../../../package.json";
-import { engine } from "../../app/recordings";
+import { engineVersion } from "../../app/analyses";
 import styles from "./About.module.css";
 
-const engineVersion = engine.version().then(
+const engineFacts = engineVersion.then(
   (v) => ({ version: v.engine_version, commit: v.git_commit }),
   (error: Error) => ({ version: `failed: ${error.message}`, commit: null }),
 );
 
 export default function About() {
-  const found = use(engineVersion);
+  const found = use(engineFacts);
   return (
     <div className={styles.about}>
       <Popover.Title className={styles.title}>About DDALAB</Popover.Title>

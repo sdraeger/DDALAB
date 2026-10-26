@@ -4,6 +4,9 @@ import { defineConfig, devices } from "@playwright/test";
 // only with PERF=1 (`npm run test:perf`, `npm run bench`), in Chromium, against a cross-origin isolated server (memory
 // measurement needs it).
 const perf = Boolean(process.env.PERF);
+// With DDALAB_DIST (`npm run bench`) the server is `vite preview` of the minified build in e2e mode, which keeps the
+// test hook, in place of the dev server.
+const dist = Boolean(process.env.DDALAB_DIST);
 // Each run starts its own server on its port (DDALAB_E2E_PORT, 5173 by default) and fails when the port is taken: a
 // server already there may serve another worktree.
 const port = Number(process.env.DDALAB_E2E_PORT ?? (perf ? 5174 : 5173));
@@ -18,7 +21,12 @@ export default defineConfig({
   grepInvert: process.env.LIVE ? undefined : /@live/,
   use: { baseURL: origin },
   webServer: {
-    command: `npx vite --port ${port} --strictPort`,
+    command: dist
+      ? [
+          "npx vite build --mode e2e --outDir dist-e2e --emptyOutDir",
+          `npx vite preview --mode e2e --outDir dist-e2e --port ${port} --strictPort`,
+        ].join(" && ")
+      : `npx vite --port ${port} --strictPort`,
     url: origin,
     env: perf ? { DDALAB_ISOLATE: "1" } : {},
     reuseExistingServer: false,

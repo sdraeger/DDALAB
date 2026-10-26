@@ -16,6 +16,7 @@ import Ruler from "lucide-react/dist/esm/icons/ruler.mjs";
 import { type ButtonHTMLAttributes, lazy, type ReactElement, Suspense, useSyncExternalStore } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { RunButton } from "../features/analysis/RunBar";
+import { ResultBoundary } from "../features/history/ResultBoundary";
 import { Inspector } from "../features/inspector/Inspector";
 import { LibraryRail } from "../features/library/LibraryRail";
 import { Overview } from "../features/viewer/Overview";
@@ -25,6 +26,7 @@ import {
   activeRecording,
   EPOCHS,
   type Epoch,
+  openResult,
   pageBy,
   pageOf,
   pageToEnd,
@@ -41,8 +43,10 @@ import {
 import controls from "../styles/controls.module.css";
 import styles from "./Shell.module.css";
 
-const Calibration = lazy(() => import("../features/settings/Calibration"));
-const About = lazy(() => import("../features/settings/About"));
+const loadCalibration = () => import("../features/settings/Calibration");
+const Calibration = lazy(loadCalibration);
+const loadAbout = () => import("../features/settings/About");
+const About = lazy(loadAbout);
 const ResultPanel = lazy(() => import("../features/results/ResultPanel"));
 
 const TIMEBASES = [10, 15, 20, 30, 60, 120];
@@ -73,14 +77,14 @@ export function Shell() {
               <RunButton recordingId={id} status={!inspector} />
             </Suspense>
           )}
-          <PanelButton label="Display calibration" icon={<Ruler aria-hidden />}>
+          <PanelButton label="Display calibration" icon={<Ruler aria-hidden />} preload={loadCalibration}>
             <Calibration />
           </PanelButton>
           <IconButton label="Inspector" aria-pressed={inspector} onClick={() => togglePanel("inspector")}>
             <PanelRight aria-hidden />
           </IconButton>
           <ThemeToggle />
-          <PanelButton label="About DDALAB" icon={<Info aria-hidden />}>
+          <PanelButton label="About DDALAB" icon={<Info aria-hidden />} preload={loadAbout}>
             <About />
           </PanelButton>
         </header>
@@ -113,8 +117,9 @@ export function Shell() {
 
 /**
  * The shown result under the waveform, when it came from the active recording: it shares its time axis. With no
- * recording open (`recordingId` null) it shows alone. One panel shows each result in turn, so its canvas and WebGL
- * context are reused.
+ * recording active (`recordingId` null) it shows alone. One panel shows each result in turn and reuses its canvas and
+ * WebGL context. The boundary sits outside the lazy chunk: a chunk that no longer loads (a tab opened before a
+ * deploy) or a view that throws leaves a message with a way out.
  */
 function ShownResult({ recordingId }: { recordingId: string | null }) {
   const id = useStore((s) => s.shownResult?.id);
@@ -122,10 +127,22 @@ function ShownResult({ recordingId }: { recordingId: string | null }) {
     (s) => recordingId === null || s.shownResult?.fingerprint === s.recordings[recordingId]?.fingerprint,
   );
   if (!id || !ours) return null;
+  const actions = (
+    <>
+      <button type="button" className={controls.quiet} onClick={() => location.reload()}>
+        Reload
+      </button>
+      <button type="button" className={controls.quiet} onClick={() => openResult(null)}>
+        Close the result
+      </button>
+    </>
+  );
   return (
-    <Suspense fallback={null}>
-      <ResultPanel recordingId={recordingId} resultId={id} />
-    </Suspense>
+    <ResultBoundary key={id} what="This result" action={actions}>
+      <Suspense fallback={null}>
+        <ResultPanel recordingId={recordingId} resultId={id} />
+      </Suspense>
+    </ResultBoundary>
   );
 }
 
@@ -252,11 +269,17 @@ function Choice(props: {
   );
 }
 
-/** An icon button of the command bar that opens a panel of its own. */
-function PanelButton(props: { label: string; icon: ReactElement; children: ReactElement }) {
+/** An icon button of the command bar that opens a panel; the panel's chunk loads on pointer or focus. */
+function PanelButton(props: {
+  label: string;
+  icon: ReactElement;
+  preload: () => Promise<unknown>;
+  children: ReactElement;
+}) {
+  const preload = () => void props.preload();
   return (
     <Popover.Root>
-      <IconButton label={props.label} render={<Popover.Trigger />}>
+      <IconButton label={props.label} render={<Popover.Trigger />} onPointerEnter={preload} onFocus={preload}>
         {props.icon}
       </IconButton>
       <Popover.Portal>

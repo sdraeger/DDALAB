@@ -1,5 +1,7 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
   "formatter": { "indentStyle": "space", "lineWidth": 110 },
-  "files": { "includes": ["**", "!!dist", "!!test-results", "!!playwright-report", "!!results"] }
+  "files": {
+    "includes": ["**", "!!dist", "!!dist-e2e", "!!test-results", "!!playwright-report", "!!results"]
+  }
 }
