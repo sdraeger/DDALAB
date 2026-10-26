@@ -50,13 +50,18 @@ function Results({ onResume }: { onResume: Resume }) {
   const shown = useMemo(() => {
     const needle = filter.trim().toLowerCase();
     const matching = needle ? analyses.filter((a) => resultName(a).toLowerCase().includes(needle)) : analyses;
-    const known = new Set(batches.map((b) => b.id));
+    // Each batch's results, in one pass over them.
+    const byBatch = new Map<string, AnalysisRecord[]>(batches.map((b) => [b.id, []]));
+    const loose: AnalysisRecord[] = [];
+    for (const a of matching) {
+      const own = a.batch ? byBatch.get(a.batch) : undefined;
+      if (own) own.push(a);
+      else loose.push(a);
+    }
     const entries: Entry[] = [
-      ...matching
-        .filter((a) => !a.batch || !known.has(a.batch))
-        .map((record) => ({ at: record.createdAt, record })),
+      ...loose.map((record) => ({ at: record.createdAt, record })),
       ...batches.flatMap((batch) => {
-        const records = matching.filter((a) => a.batch === batch.id);
+        const records = byBatch.get(batch.id) ?? [];
         return needle && records.length === 0 ? [] : [{ at: batch.createdAt, batch, records }];
       }),
     ];
