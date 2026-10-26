@@ -43,15 +43,18 @@ test("version_2_database_upgrades_with_its_recent_list", async () => {
     { fingerprint: "f", primary: "a.edf", names: ["a.edf"], lastOpened: 1 },
   ]);
   const stores = [...(await database()).objectStoreNames].sort();
-  expect(stores).toEqual(["analyses", "annotations", "recent", "tabs"]);
+  expect(stores).toEqual(["analyses", "annotations", "fileAnnotations", "recent", "tabs"]);
 });
 
-// Two branches each took version 3 for one store: a browser can sit at version 3 with either, and version 4 adds the
-// missing one and keeps the other's records.
+const STORES = ["analyses", "annotations", "fileAnnotations", "recent", "tabs"];
+const mark = { id: "m", onset_s: 1, duration_s: 0, label: "spike" };
+
+// Two branches each took version 3 for one store: a browser can sit at version 3 with either, and the upgrade adds the
+// missing one and keeps the other's records. Version 5 turns a recording's list into a record per annotation.
 test.each([
-  ["annotations", { fingerprint: "f", annotations: [] }, "f"],
-  ["tabs", { tabs: [], active: null }, "open"],
-] as const)("version_3_with_only_%s_upgrades_to_4", async (store, record, key) => {
+  ["annotations", { fingerprint: "f", annotations: [mark] }, "m", { ...mark, fingerprint: "f" }],
+  ["tabs", { tabs: [], active: null }, "open", { tabs: [], active: null }],
+] as const)("version_3_with_only_%s_upgrades", async (store, record, key, upgraded) => {
   // The page's connection closes for the delete (recent.ts `blocking`) and opens again after.
   await deleteDB("ddalab");
   const old = await openDB("ddalab", 3, {
@@ -65,8 +68,32 @@ test.each([
   await (store === "annotations" ? old.put(store, record) : old.put(store, record, key));
   old.close();
   const db = await database();
-  expect([...db.objectStoreNames].sort()).toEqual(["analyses", "annotations", "recent", "tabs"]);
-  expect(await db.get(store, key)).toEqual(record);
+  expect([...db.objectStoreNames].sort()).toEqual(STORES);
+  expect(await db.get(store, key)).toEqual(upgraded);
+});
+
+test("version_4_annotation_lists_become_a_record_each", async () => {
+  await deleteDB("ddalab");
+  const old = await openDB("ddalab", 4, {
+    upgrade(db) {
+      for (const name of ["recent", "annotations"]) db.createObjectStore(name, { keyPath: "fingerprint" });
+      db.createObjectStore("analyses", { keyPath: "id" });
+      db.createObjectStore("tabs");
+    },
+  });
+  const other = { ...mark, id: "n", label: "seizure" };
+  await old.put("annotations", { fingerprint: "f", annotations: [mark, other] });
+  await old.put("annotations", { fingerprint: "g", annotations: [{ ...mark, id: "o" }] });
+  old.close();
+  const db = await database();
+  expect([...db.objectStoreNames].sort()).toEqual(STORES);
+  expect(await db.getAllFromIndex("annotations", "fingerprint", "f")).toEqual([
+    { ...mark, fingerprint: "f" },
+    { ...other, fingerprint: "f" },
+  ]);
+  expect(await db.getAllFromIndex("annotations", "fingerprint", "g")).toEqual([
+    { ...mark, id: "o", fingerprint: "g" },
+  ]);
 });
 
 const file = (path: string, size: number, lastModified = 1000) => {

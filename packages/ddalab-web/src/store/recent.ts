@@ -18,17 +18,36 @@ const KEEP = 20;
 // tab's upgrade is not held up; the next call opens again, and fails if this code is older than the database.
 // Version 2 adds the analyses of history.ts; version 4 the user annotations of userAnnotations.ts and the open tabs of
 // tabs.ts. Two branches each took version 3 for one of these stores, and a browser can sit at version 3 with either:
-// each store is made when it is missing. The stores of earlier versions are kept as they are.
+// each store is made when it is missing. Version 5 stores each user annotation as a record of its own, by id with an
+// index on the fingerprint (a version 4 record held a recording's whole list), and adds the annotation lists read from
+// the files (`fileAnnotations`, by fingerprint). The stores of earlier versions are kept as they are.
 let connection: Promise<IDBPDatabase> | undefined;
 export const database = () =>
-  (connection ??= openDB("ddalab", 4, {
+  (connection ??= openDB("ddalab", 5, {
     upgrade(db, old, _new, upgrading) {
       if (old < 1) db.createObjectStore("recent", { keyPath: "fingerprint" });
       if (old < 2) db.createObjectStore("analyses", { keyPath: "id" });
-      if (old < 4 && !db.objectStoreNames.contains("annotations")) {
-        db.createObjectStore("annotations", { keyPath: "fingerprint" });
-      }
       if (old < 4 && !db.objectStoreNames.contains("tabs")) db.createObjectStore("tabs");
+      if (!db.objectStoreNames.contains("fileAnnotations")) db.createObjectStore("fileAnnotations");
+      const perRecord = () => {
+        const store = db.createObjectStore("annotations", { keyPath: "id" });
+        store.createIndex("fingerprint", "fingerprint");
+        return store;
+      };
+      if (!db.objectStoreNames.contains("annotations")) perRecord();
+      else if (upgrading.objectStore("annotations").keyPath === "fingerprint") {
+        // A list per recording: each of its annotations becomes a record, within this upgrade's transaction.
+        void upgrading
+          .objectStore("annotations")
+          .getAll()
+          .then((lists: { fingerprint: string; annotations: { id: string }[] }[]) => {
+            db.deleteObjectStore("annotations");
+            const store = perRecord();
+            for (const { fingerprint, annotations } of lists) {
+              for (const a of annotations) void store.put({ ...a, fingerprint });
+            }
+          });
+      }
       // idb wraps the upgrade transaction and rejects `done` if it aborts, as it does when the page closes mid-upgrade.
       upgrading.done.catch(() => {});
     },
