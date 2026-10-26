@@ -12,6 +12,8 @@ use std::sync::Arc;
 
 /// Most bytes one `read_at` fetches, which keeps a long request from holding its whole span in memory.
 const MAX_READ_BYTES: usize = 8 << 20;
+/// The most channels a dataset may claim: a file's own count sizes the reader's frames.
+const MAX_CHANNELS: f64 = 65536.0;
 
 fn unsupported(message: String) -> DDAError {
     DDAError::UnsupportedFileType(message)
@@ -59,7 +61,13 @@ pub fn open_eeglab(files: &FileSet, set_name: &str) -> Result<Box<dyn Reader>> {
             .ok_or_else(|| unsupported(format!("{set_name} has no EEGLAB {name}")))
     };
 
-    let nbchan = need("nbchan")? as usize;
+    let nbchan = need("nbchan")?;
+    if nbchan > MAX_CHANNELS || nbchan.fract() != 0.0 {
+        return Err(unsupported(format!(
+            "{set_name} claims {nbchan} channels; DDALAB reads at most {MAX_CHANNELS}"
+        )));
+    }
+    let nbchan = nbchan as usize;
     let rate = need("srate")?;
     let trials = number("trials").unwrap_or(1.0);
     if trials > 1.0 {
