@@ -127,7 +127,7 @@ test("history_survives_reload", async ({ page }) => {
   const row = history(page).getByRole("listitem").filter({ hasText: "ST on fixture.vhdr" });
   await expect(row).toContainText("Complete");
   await row.getByRole("button", { name: /^ST on fixture\.vhdr/ }).click();
-  expect((await state(page)).activeResultId).toBe(id);
+  await expect.poll(async () => (await state(page)).activeResultId).toBe(id);
   const sha = createHash("sha256")
     .update(readFileSync(fixturePath("fixture.eeg")))
     .digest("hex");
@@ -202,6 +202,7 @@ test("import_cli_bundle_shows_heatmap_without_recording", async ({ page }) => {
   await page.getByLabel("Result file").setInputFiles(stZip());
   const row = history(page).getByRole("listitem").filter({ hasText: "ST on fixture.vhdr" });
   await expect(row).toContainText("Complete");
+  await expect(provenance(page)).toBeVisible();
   const { analyses, activeResultId, activeRecordingId } = await state(page);
   expect(activeRecordingId).toBeNull();
   expect(activeResultId).toBe(analyses[0].id);
@@ -269,6 +270,7 @@ test("session_restores_view", async ({ page }) => {
   await page.getByRole("option", { name: "20 s" }).click();
   await page.getByRole("button", { name: "Next page" }).click();
   await page.getByRole("button", { name: "Inspector" }).click();
+  await expect(page.getByRole("button", { name: "Inspector" })).toHaveAttribute("aria-pressed", "false");
   expect((await state(page)).view).toMatchObject({ t0: 10, t1: 30, epochS: 20 });
   await page.reload();
   // The panels at once, the result once the history has loaded.

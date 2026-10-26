@@ -7,6 +7,7 @@ import Copy from "lucide-react/dist/esm/icons/copy.mjs";
 import Download from "lucide-react/dist/esm/icons/download.mjs";
 import { lazy, Suspense, useState } from "react";
 import { deleteResult } from "../../app/analyses";
+import { inTransition } from "../../app/viewTransition";
 import { cliCommand } from "../../core/cliCommand";
 import { type AnalysisRecord, resultName } from "../../core/history";
 import { openResult, useStore } from "../../store/store";
@@ -48,7 +49,7 @@ const STATUS: Record<Exclude<AnalysisRecord["status"], "complete">, string> = {
 export default function Provenance() {
   const id = useStore((s) => s.activeResultId);
   const close = (
-    <button type="button" className={controls.quiet} onClick={() => openResult(null)}>
+    <button type="button" className={controls.quiet} onClick={() => inTransition(() => openResult(null))}>
       Close the result
     </button>
   );
@@ -70,7 +71,7 @@ function Details() {
   const started = imported && manifest ? Date.parse(manifest.created_at_iso) : record.createdAt;
   const listed = (parts: (string | false | undefined)[]) => parts.filter(Boolean).join(", ");
   return (
-    <section aria-label="Provenance" className={styles.provenance} data-appear>
+    <section aria-label="Provenance" className={styles.provenance}>
       <header className={styles.header}>
         <h2 className={styles.title}>{resultName(record)}</h2>
         <Actions record={record} />
@@ -207,7 +208,7 @@ function Actions({ record }: { record: AnalysisRecord }) {
         type="button"
         className={`${controls.quiet} ${styles.close}`}
         onClick={() => {
-          openResult(null);
+          inTransition(() => openResult(null));
           focusHistory(record.id);
         }}
       >

@@ -19,6 +19,7 @@ import {
   useState,
 } from "react";
 import { engine } from "../../app/recordings";
+import { inTransition } from "../../app/viewTransition";
 import type { ResultArray } from "../../core/protocol";
 import type { ResultDocument } from "../../core/types";
 import { drawMarks, drawTimeAxis } from "../../render/axis";
@@ -453,7 +454,7 @@ function Heatmap({
     <Tabs.Root
       value={variant.id}
       onValueChange={(value) => setShownResult({ variant: value as string, row: null })}
-      render={<section className={styles.result} aria-label="Result" data-appear />}
+      render={<section className={styles.result} aria-label="Result" />}
     >
       <div className={styles.bar}>
         <VariantTabs
@@ -485,7 +486,7 @@ function Heatmap({
           className={controls.iconButton}
           aria-label="Close result"
           title="Close result"
-          onClick={() => openResult(null)}
+          onClick={() => inTransition(() => openResult(null))}
         >
           <X aria-hidden />
         </button>

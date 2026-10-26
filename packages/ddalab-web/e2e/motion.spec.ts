@@ -1,7 +1,8 @@
 // The motion system (src/styles/tokens.css): every transition in the app runs on one duration and one curve, none
-// transitions `all`, popups grow out of their trigger and, under reduced motion, appear without scaling. The theme
-// switch crossfades on the same tokens.
+// transitions `all`, popups grow out of their trigger and, under reduced motion, appear without scaling. Panels and
+// results open and close, and the theme switches, in a view transition on the same tokens.
 import type { Locator } from "@playwright/test";
+import { showFixture } from "./resultFixture";
 import { expect, type Page, test } from "./test";
 
 const DURATION = "0.16s";
@@ -75,9 +76,8 @@ test("transitions_use_the_tokens", async ({ page }) => {
   expect(root).toEqual(["160ms", EASE]);
   await openRecording(page);
   const tokens = { duration: DURATION, ease: EASE };
-  // A button and the panels.
+  // A button and the panels that appear in place.
   expect(await timing(page.getByRole("button", { name: "Open files" }))).toEqual(tokens);
-  expect(await timing(page.getByRole("complementary", { name: "Library" }))).toEqual(tokens);
   expect(await timing(page.getByRole("region", { name: "Inspector" }))).toEqual(tokens);
   expect(await timing(page.getByRole("region", { name: "Waveforms" }))).toEqual(tokens);
   await expectOnlyTokens(page);
@@ -91,7 +91,7 @@ test("transitions_use_the_tokens", async ({ page }) => {
   await page.keyboard.press("Escape");
   await expect(listbox).toBeHidden();
   // A dialog: the popover of the local-data note.
-  await page.getByRole("button", { name: "Data stays on this device" }).click();
+  await page.getByRole("button", { name: "Local: data stays on this device" }).click();
   const dialog = page.getByRole("dialog", { name: "Everything stays on this device" });
   await expect(dialog).toBeVisible();
   await expect.poll(() => timing(dialog)).toEqual(tokens);
@@ -108,7 +108,7 @@ test("transitions_use_the_tokens", async ({ page }) => {
 test("popups_grow_from_their_trigger", async ({ page }) => {
   await openRecording(page);
   const scales = await scalesDuring(page, '[role="dialog"]', () =>
-    page.getByRole("button", { name: "Data stays on this device" }).click(),
+    page.getByRole("button", { name: "Local: data stays on this device" }).click(),
   );
   expect(Math.min(...scales)).toBeLessThan(0.999);
   expect(Math.min(...scales)).toBeGreaterThanOrEqual(0.97);
@@ -123,7 +123,7 @@ test("reduced_motion_popups_do_not_scale", async ({ page }) => {
   );
   await page.keyboard.press("Escape");
   const dialog = await scalesDuring(page, '[role="dialog"]', () =>
-    page.getByRole("button", { name: "Data stays on this device" }).click(),
+    page.getByRole("button", { name: "Local: data stays on this device" }).click(),
   );
   for (const scales of [select, dialog]) {
     expect(scales.length).toBeGreaterThan(3);
@@ -131,6 +131,61 @@ test("reduced_motion_popups_do_not_scale", async ({ page }) => {
   }
   // The fade stays.
   await expect.poll(() => timing(page.getByRole("dialog"))).toEqual({ duration: DURATION, ease: EASE });
+});
+
+// Each toggle is one view transition (where the browser has them; elsewhere the change is immediate) and one layout
+// change: the waveform's canvas resizes once.
+test("panels_and_results_toggle_in_a_view_transition", async ({ page }) => {
+  test.skip(
+    !(await page.evaluate(() => navigator.storage.getDirectory().then(Boolean, () => false))),
+    "no OPFS",
+  );
+  await openRecording(page);
+  await showFixture(page, { id: "motion", windows: 40, rows: 2, first: 1, step: 0.5, values: [] });
+  const result = page.getByRole("region", { name: "Result" });
+  await expect(result).toBeVisible();
+  const supported = await page.evaluate(() => {
+    const counts = { transitions: 0, resizes: 0 };
+    Object.assign(window, { counts });
+    const start = document.startViewTransition?.bind(document);
+    if (start) {
+      document.startViewTransition = (update) => {
+        counts.transitions++;
+        return start(update);
+      };
+    }
+    const traces = document.querySelector("canvas[data-traces]") as HTMLCanvasElement;
+    new MutationObserver((records) => {
+      counts.resizes += records.length;
+    }).observe(traces, { attributeFilter: ["width"] });
+    return Boolean(start);
+  });
+  /** The transitions and canvas resizes since the last call, once the toggle has settled. */
+  const counted = async () => {
+    await page.waitForTimeout(400);
+    return page.evaluate(() => {
+      const w = window as unknown as { counts: { transitions: number; resizes: number } };
+      const now = { ...w.counts };
+      Object.assign(w.counts, { transitions: 0, resizes: 0 });
+      return now;
+    });
+  };
+  const once = { transitions: supported ? 1 : 0, resizes: 1 };
+  const panels = [
+    ["Library", page.getByRole("complementary", { name: "Library" })],
+    ["Inspector", page.getByRole("region", { name: "Inspector" })],
+  ] as const;
+  for (const [name, panel] of panels) {
+    await page.getByRole("button", { name, exact: true }).click();
+    await expect(panel).toBeHidden();
+    expect(await counted(), `closing the ${name}`).toEqual(once);
+    await page.getByRole("button", { name, exact: true }).click();
+    await expect(panel).toBeVisible();
+    expect(await counted(), `opening the ${name}`).toEqual(once);
+  }
+  await result.getByRole("button", { name: "Close result" }).click();
+  await expect(result).toBeHidden();
+  expect(await counted(), "closing the result").toEqual(once);
 });
 
 test("theme_switch_crossfades_on_the_tokens", async ({ page }) => {

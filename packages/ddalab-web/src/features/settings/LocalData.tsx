@@ -24,10 +24,10 @@ export function LocalData() {
     <Popover.Root>
       <Popover.Trigger
         className={`${controls.quiet} ${styles.trigger}`}
-        aria-label="Data stays on this device"
+        aria-label="Local: data stays on this device"
       >
         <HardDrive aria-hidden />
-        Local
+        <span className={styles.label}>Local</span>
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Positioner sideOffset={6} align="end">
@@ -38,8 +38,8 @@ export function LocalData() {
               your data or results.
             </p>
             <p className={styles.text}>
-              Every analysis runs on this computer. How long a recording or an analysis can be depends on its
-              memory and processor.
+              Every analysis runs on this device. How long a recording or an analysis can be depends on the
+              device's memory and processor.
             </p>
             <p>{device()}</p>
             <p className={styles.text}>OpenNeuro recordings stream from OpenNeuro to this device.</p>

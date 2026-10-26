@@ -2,6 +2,7 @@
 // its result with its provenance, where it is exported or deleted. Results the CLI wrote come in through the import
 // below the list.
 import { lazy, Suspense, useMemo, useState, useTransition } from "react";
+import { inTransition } from "../../app/viewTransition";
 import { type AnalysisRecord, resultName } from "../../core/history";
 import { openResult, useStore } from "../../store/store";
 import rail from "../library/LibraryRail.module.css";
@@ -78,7 +79,7 @@ function Results() {
                 className={rail.entry}
                 data-result={analysis.id}
                 aria-current={analysis.id === active ? "true" : undefined}
-                onClick={() => openResult(analysis.id)}
+                onClick={() => inTransition(() => openResult(analysis.id))}
               >
                 <span className={rail.entryName}>{resultName(analysis)}</span>
                 <span className={rail.entryMeta}>

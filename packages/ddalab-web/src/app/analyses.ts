@@ -10,6 +10,7 @@ import type { AnalysisHandle } from "../core/scheduler";
 import type { DDARequest, VariantInfo } from "../core/types";
 import { openResult, type RunState, showResult, useStore } from "../store/store";
 import { engine } from "./recordings";
+import { inTransition } from "./viewTransition";
 
 /** The variants the core offers, from its metadata; none when the engine did not start (the library says why). */
 export const variants = engine.version().then(
@@ -114,14 +115,14 @@ export async function startRun(recordingId: string, request: DDARequest) {
     setRun({ status: "failed", error: messageOf(error) });
   }
   await refreshAnalyses();
-  if (error === undefined) showResult(record.id, record.fingerprint);
+  if (error === undefined) inTransition(() => showResult(record.id, record.fingerprint));
 }
 
 /** Deletes a result that is not running: its files, then its record. */
 export async function deleteResult(id: string) {
   await engine.deleteResult(id);
   await deleteAnalysis(id);
-  if (useStore.getState().activeResultId === id) openResult(null);
+  if (useStore.getState().activeResultId === id) inTransition(() => openResult(null));
   await refreshAnalyses();
 }
 
