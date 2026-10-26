@@ -13,6 +13,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { AnnotateButton } from "../features/annotations/Annotate";
 import { Overview } from "../features/viewer/Overview";
+import { Units } from "../features/viewer/Readouts";
 import { WaveformCanvas } from "../features/viewer/WaveformCanvas";
 import {
   activeRecording,
@@ -29,6 +30,7 @@ import {
   setView,
   timebaseOf,
   useStore,
+  voltage,
 } from "../store/store";
 import controls from "../styles/controls.module.css";
 import { IconButton } from "./Shell";
@@ -105,7 +107,10 @@ export function ViewControls() {
           label="Sensitivity"
           value={sensitivity}
           values={SENSITIVITIES}
-          unit="µV/mm"
+          unit={(s) => {
+            const [value, unit] = voltage(s);
+            return [value, `${unit}/mm`];
+          }}
           onChange={(s) => setView({ sensitivityUvPerMm: s })}
         />
         <Choice
@@ -169,23 +174,26 @@ function Digits({ value, chars }: { value: number; chars: number }) {
 }
 
 /**
- * A labeled select of numbers in `unit`. The value may lie between the items (the timebase); its number keeps the
- * width of the longest it can show, `chars` or else the longest item.
+ * A labeled select of numbers in `unit`, or in the unit it gives each value. The value may lie between the items (the
+ * timebase); its number keeps the width of the longest it can show, `chars` or else the longest item, and its unit
+ * the width of the widest.
  */
 function Choice(props: {
   label: string;
   value: number;
   values: number[];
-  unit: string;
+  unit: string | ((value: number) => [number, string]);
   chars?: number;
   onChange(value: number): void;
 }) {
   const { values, unit } = props;
-  const chars = Math.max(props.chars ?? 0, ...values.map((v) => String(v).length));
+  const show = (value: number) => (typeof unit === "string" ? ([value, unit] as const) : unit(value));
+  const chars = Math.max(props.chars ?? 0, ...values.map((v) => String(show(v)[0]).length));
+  const units = [...new Set(values.map((v) => show(v)[1]))];
   return (
     <Select.Root
       value={props.value}
-      items={values.map((value) => ({ value, label: `${value} ${unit}` }))}
+      items={values.map((value) => ({ value, label: show(value).join(" ") }))}
       onValueChange={(value) => value !== null && props.onChange(value as number)}
     >
       <div className={controls.field}>
@@ -194,7 +202,7 @@ function Choice(props: {
           <Select.Value>
             {(value: number) => (
               <>
-                <Digits value={value} chars={chars} /> {unit}
+                <Digits value={show(value)[0]} chars={chars} /> <Units units={units}>{show(value)[1]}</Units>
               </>
             )}
           </Select.Value>
@@ -212,7 +220,7 @@ function Choice(props: {
                   <Select.ItemIndicator>
                     <Check aria-hidden />
                   </Select.ItemIndicator>
-                  <Select.ItemText className={controls.itemText}>{`${value} ${unit}`}</Select.ItemText>
+                  <Select.ItemText className={controls.itemText}>{show(value).join(" ")}</Select.ItemText>
                 </Select.Item>
               ))}
             </Select.List>

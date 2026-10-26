@@ -370,25 +370,46 @@ test("sensitivity_steps", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 720 });
   await openFixture(page);
   const sensitivity = async () => (await view(page)).sensitivityUvPerMm;
+  // The printed scale's field, as it reads (hidden copies of the other unit hold its width).
+  const readout = page.getByRole("region", { name: "Waveforms" }).getByRole("definition").first();
+  const control = page.getByRole("combobox", { name: "Sensitivity" });
+  const widths = async () => [(await readout.boundingBox())?.width, (await control.boundingBox())?.width];
   await setView(page, { sensitivityUvPerMm: 7 });
   await page.keyboard.press("]");
   expect(await sensitivity()).toBe(10);
-  await expect(
-    page.getByRole("region", { name: "Waveforms" }).getByText("10 µV/mm", { exact: true }),
-  ).toBeVisible();
+  await expect(readout).toHaveText("10 µV/mm", { useInnerText: true });
+  const width = await widths();
   await page.keyboard.press("[");
   await page.keyboard.press("[");
   expect(await sensitivity()).toBe(5);
+  // Past 100 µV/mm to 10 mV/mm, in mV/mm from 1 mV/mm on, and no wider.
   await setView(page, { sensitivityUvPerMm: 100 });
   await page.keyboard.press("]");
-  expect(await sensitivity()).toBe(100);
+  expect(await sensitivity()).toBe(150);
+  for (const [value, text] of [
+    [700, "700 µV/mm"],
+    [1000, "1 mV/mm"],
+    [1500, "1.5 mV/mm"],
+    [10000, "10 mV/mm"],
+  ] as const) {
+    await setView(page, { sensitivityUvPerMm: value });
+    await expect(readout).toHaveText(text, { useInnerText: true });
+    await expect(control).toHaveText(text, { useInnerText: true });
+    expect(await widths(), text).toEqual(width);
+  }
+  await page.keyboard.press("]");
+  expect(await sensitivity()).toBe(10000);
+  await expect(page.getByText("100 mV", { exact: true })).toBeAttached();
   await setView(page, { sensitivityUvPerMm: 1 });
   await page.keyboard.press("[");
   expect(await sensitivity()).toBe(1);
   // The command bar sets it too.
-  await page.getByRole("combobox", { name: "Sensitivity" }).click();
+  await control.click();
   await page.getByRole("option", { name: "30 µV/mm" }).click();
   expect(await sensitivity()).toBe(30);
+  await control.click();
+  await page.getByRole("option", { name: "1.5 mV/mm" }).click();
+  expect(await sensitivity()).toBe(1500);
 });
 
 // Twenty electrode groups: eight show, the rest behind "Show all", and the annotations stay in the first viewport at
