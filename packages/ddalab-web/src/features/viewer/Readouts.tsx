@@ -1,4 +1,4 @@
-// The printed scale at the lower left of the traces: a 10 mm amplitude bar and a time bar drawn at their physical
+// The printed scale in a band under the traces: a 10 mm amplitude bar and a time bar drawn at their physical
 // size, the sensitivity, the timebase and the view interval. Updated from the frame loop, outside React.
 import { type Ref, useImperativeHandle, useRef } from "react";
 import { CSS_PX_PER_MM, timebaseOf, type View } from "../../store/store";

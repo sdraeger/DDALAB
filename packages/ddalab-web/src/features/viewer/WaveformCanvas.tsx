@@ -315,8 +315,8 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
               </p>
             )}
             <p ref={problem} className={styles.problem} role="alert" hidden />
-            <Readouts ref={readouts} />
           </div>
+          <Readouts ref={readouts} />
           <div ref={tip} className={styles.tip} hidden>
             <b />
             <span />

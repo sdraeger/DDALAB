@@ -1,4 +1,4 @@
-// The overview strip: the whole recording as the envelope of every display channel, drawn on a 2D canvas from the
+// The overview strip: the whole recording as the envelope of its signal channels, drawn on a 2D canvas from the
 // pyramid level whose tiles are few enough to fetch at once.
 import { bucketSize, levelCount, tileCount } from "../core/opfs";
 import { column, hatch, tickLabel, ticks } from "./axis";
@@ -18,8 +18,21 @@ export function overviewLevel(rows: number): number {
   return level;
 }
 
-/** Per bucket of a tile, the smallest and largest display value over all channels: min, max interleaved. */
-export function envelope(bytes: ArrayBuffer, params: Float32Array): Float32Array {
+/** BIDS types of auxiliary channels: DC, triggers, the heart and eyes and the like, whose levels would fill the strip. */
+const AUXILIARY =
+  /^(MISC|TRIG|DC|ADC|DAC|EKG|ECG|EMG|EOG|HEOG|VEOG|RESP|GSR|TEMP|PPG|AUDIO|SYSCLOCK|REF|PD|PUPIL)$/i;
+
+/**
+ * Which display channels the envelope covers: those of signal types, without auxiliary ones by BIDS type or a DC
+ * label. All of them when none is left.
+ */
+export function signalChannels(channels: { label: string; bids_type: string | null }[]): boolean[] {
+  const signal = channels.map((c) => !AUXILIARY.test(c.bids_type ?? "") && !/^DC\d*$/i.test(c.label.trim()));
+  return signal.some(Boolean) ? signal : signal.map(() => true);
+}
+
+/** Per bucket of a tile, the smallest and largest display value over the `counted` channels: min, max interleaved. */
+export function envelope(bytes: ArrayBuffer, params: Float32Array, counted: boolean[]): Float32Array {
   const { channels, buckets, values } = decodeTile(bytes);
   const out = new Float32Array(2 * buckets);
   const maxima = channels * buckets;
@@ -27,6 +40,7 @@ export function envelope(bytes: ArrayBuffer, params: Float32Array): Float32Array
     let lo = Number.POSITIVE_INFINITY;
     let hi = Number.NEGATIVE_INFINITY;
     for (let c = 0; c < channels; c++) {
+      if (!counted[c]) continue;
       const [gain, offset] = [params[2 * c], params[2 * c + 1]];
       const a = values[b * channels + c] * gain + offset;
       const z = values[maxima + b * channels + c] * gain + offset;
@@ -91,33 +105,39 @@ export function drawOverview(ctx: CanvasRenderingContext2D, scene: OverviewScene
     );
   }
 
-  // The envelope, one column per device pixel, scaled to the largest magnitude loaded.
+  // The envelope, one column per device pixel, scaled to the 99th percentile of the columns' magnitudes: a few
+  // artifacts reach the edges and the rest of the recording keeps its shape.
   const size = bucketSize(level);
-  let peak = 0;
-  for (const env of tiles.values())
-    for (const v of env) if (Number.isFinite(v)) peak = Math.max(peak, Math.abs(v));
-  const middle = band + plotH / 2;
-  const scale = peak > 0 ? (plotH / 2 - 2 * dpr) / peak : 0;
-  let hatchFrom = -1;
-  const hatches: [number, number][] = [];
-  ctx.fillStyle = colors.muted;
+  const lows = new Float32Array(W).fill(Number.POSITIVE_INFINITY);
+  const highs = new Float32Array(W).fill(Number.NEGATIVE_INFINITY);
   for (let c = 0; c < W; c++) {
     const b0 = Math.floor(((c / W) * rows) / size);
     const b1 = Math.max(b0, Math.ceil((((c + 1) / W) * rows) / size) - 1);
-    let lo = Number.POSITIVE_INFINITY;
-    let hi = Number.NEGATIVE_INFINITY;
     for (let b = b0; b <= b1; b++) {
       const env = tiles.get(Math.floor(b / TILE_BUCKETS));
       const i = b % TILE_BUCKETS;
       if (!env || 2 * i + 1 >= env.length) continue;
-      lo = Math.min(lo, env[2 * i]);
-      hi = Math.max(hi, env[2 * i + 1]);
+      lows[c] = Math.min(lows[c], env[2 * i]);
+      highs[c] = Math.max(highs[c], env[2 * i + 1]);
     }
-    if (lo <= hi) {
+  }
+  const magnitudes = Array.from(lows, (lo, c) => Math.max(Math.abs(lo), Math.abs(highs[c])))
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
+  const peak = magnitudes[Math.floor(0.99 * (magnitudes.length - 1))] ?? 0;
+  const middle = band + plotH / 2;
+  const half = plotH / 2 - 2 * dpr;
+  const scale = peak > 0 ? half / peak : 0;
+  const y = (v: number) => middle - Math.max(-half, Math.min(half, v * scale));
+  let hatchFrom = -1;
+  const hatches: [number, number][] = [];
+  ctx.fillStyle = colors.muted;
+  for (let c = 0; c < W; c++) {
+    if (lows[c] <= highs[c]) {
       if (hatchFrom >= 0) hatches.push([hatchFrom, c]);
       hatchFrom = -1;
-      const top = Math.floor(middle - hi * scale);
-      ctx.fillRect(c, top, 1, Math.floor(middle - lo * scale) + 1 - top);
+      const top = Math.floor(y(highs[c]));
+      ctx.fillRect(c, top, 1, Math.floor(y(lows[c])) + 1 - top);
     } else if (hatchFrom < 0) hatchFrom = c;
   }
   if (hatchFrom >= 0) hatches.push([hatchFrom, W]);
