@@ -100,11 +100,26 @@ export interface Handles {
   root?: FileSystemDirectoryHandle;
 }
 
+/** The SHA-256 of each of `names` once the hash worker has them all; `undefined` when it cannot. */
+function hashesOf(id: string, names: string[]) {
+  return new Promise<Record<string, string> | undefined>((resolve) => {
+    let done = false;
+    const stop = engine.onScan(id, ({ sha256 = {}, error }) => {
+      const all = names.every((name) => sha256[name]);
+      if (done || !(all || error?.startsWith("The hash could not be computed"))) return;
+      done = true;
+      queueMicrotask(() => stop());
+      resolve(all ? sha256 : undefined);
+    });
+  });
+}
+
 /**
  * Opens the recording in `files`. `choice` picks among several (see `buildFileSet`). `expect` is the fingerprint of
- * the recording the user is locating again; another file opens, with a warning, or with `exact` is refused. `handle`
- * lets the recent list reopen a single-file recording without a picker; `handles` let its tab reattach (tabs.ts).
- * `activate` false opens it beside the active recording.
+ * the recording the user is locating again; another file opens, with a warning, or with `exact` is refused. `verify`
+ * holds the SHA-256 its files must have: they are hashed before the recording shows, and other content is refused.
+ * `handle` lets the recent list reopen a single-file recording without a picker; `handles` let its tab reattach
+ * (tabs.ts). `activate` false opens it beside the active recording.
  */
 export async function openFiles(
   files: File[],
@@ -112,6 +127,7 @@ export async function openFiles(
     choice?: string;
     expect?: string;
     exact?: boolean;
+    verify?: Record<string, string>;
     handle?: FileSystemHandle;
     handles?: Handles;
     activate?: boolean;
@@ -124,6 +140,18 @@ export async function openFiles(
     const opened = await engine.open({ kind: "files", files: set.files, primary: set.primary });
     const refused = options.exact && unexpected(opened, set.primary, options.expect);
     if (refused) return { kind: "error", message: refused, folder: false };
+    const { verify } = options;
+    if (verify && !useStore.getState().recordings[opened.id]) {
+      const sha256 = await hashesOf(opened.id, opened.info.input_files);
+      const differs = opened.info.input_files.find((name) => verify[name] && sha256?.[name] !== verify[name]);
+      if (!sha256 || differs) {
+        engine.close(opened.id);
+        const message = sha256
+          ? `${differs} changed since it was opened`
+          : `${set.primary} could not be hashed`;
+        return { kind: "error", message, folder: false };
+      }
+    }
     const { info, fingerprint } = opened;
     const single = options.handle?.kind === "file" && files.length === 1;
     const handles = single

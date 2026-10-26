@@ -3,19 +3,28 @@ import { openDB } from "idb";
 import { beforeEach, expect, test } from "vitest";
 import type { AnalysisRecord } from "../core/history";
 import { listRecent } from "./recent";
-import { activateRecording, type OpenRecording, openResult, setSelection, setView, useStore } from "./store";
+import {
+  activateRecording,
+  type OpenRecording,
+  openResult,
+  removeRecording,
+  setSelection,
+  setView,
+  showResult,
+  useStore,
+} from "./store";
 import {
   filesSource,
   forgetTab,
   loadTabs,
   matchFiles,
+  moveTab,
   remembered,
   saveTabs,
   selectTab,
   shortNames,
   type TabFile,
   tabOpened,
-  useTabs,
 } from "./tabs";
 
 // Runs first: the database of the last release, version 2, upgrades in place.
@@ -65,7 +74,7 @@ test("bids_names_drop_shared_entities", () => {
   expect(shortNames([run("01"), run("01")])).toEqual([run("01"), run("01")]);
 });
 
-test("picked_files_match_by_name_size_and_date", () => {
+test("picked_files_match_by_name_and_size", () => {
   const vhdr = file("data/a/fixture.vhdr", 10);
   const eeg = file("data/a/fixture.eeg", 20);
   const edf = file("data/b/fixture.edf", 30);
@@ -74,13 +83,23 @@ test("picked_files_match_by_name_size_and_date", () => {
   expect(matchFiles(stored(vhdr, eeg), picked)).toEqual({
     files: [vhdr, eeg],
     primary: "data/a/fixture.vhdr",
+    same: true,
   });
-  expect(matchFiles(stored(edf), picked)).toEqual({ files: [edf], primary: "data/b/fixture.edf" });
-  // A file that changed size or date stays detached, with the reason.
+  expect(matchFiles(stored(edf), picked)).toEqual({
+    files: [edf],
+    primary: "data/b/fixture.edf",
+    same: true,
+  });
+  // Another date alone is no reason: the copy matches, for the hash to confirm; one of the same date comes first.
+  const copy = file("copy/fixture.edf", 30, 2000);
+  expect(matchFiles(stored(edf), [copy])).toEqual({
+    files: [copy],
+    primary: "copy/fixture.edf",
+    same: false,
+  });
+  expect(matchFiles(stored(edf), [copy, edf])).toMatchObject({ files: [edf], same: true });
+  // Another size has changed.
   expect(matchFiles(stored(edf), [file("fixture.edf", 31)])).toEqual({
-    reason: "fixture.edf changed since it was opened",
-  });
-  expect(matchFiles(stored(edf), [file("fixture.edf", 30, 2000)])).toEqual({
     reason: "fixture.edf changed since it was opened",
   });
   // A folder that holds part of a recording, or none of it.
@@ -120,15 +139,19 @@ const viewOf = () => {
   const { t0, t1, epochS } = useStore.getState().view;
   return { t0, t1, epochS };
 };
+const complete = (id: string, fingerprint: string) =>
+  ({ id, fingerprint, status: "complete" }) as AnalysisRecord;
 
 beforeEach(() => {
-  useTabs.setState({ tabs: [], active: null, reasons: {} });
   useStore.setState({
     recordings: {},
     activeRecordingId: null,
     analyses: [],
     shownResult: null,
     activeResultId: null,
+    tabs: [],
+    activeTab: null,
+    tabReasons: {},
   });
 });
 
@@ -146,10 +169,10 @@ function openThree() {
 }
 
 test("each_tab_keeps_its_view", () => {
-  useStore.setState({ analyses: [{ id: "r", fingerprint: "fa", status: "complete" } as AnalysisRecord] });
+  useStore.setState({ analyses: [complete("r", "fa")] });
   openThree();
-  expect(useTabs.getState().tabs.map((t) => t.fingerprint)).toEqual(["fa", "fb", "fc"]);
-  expect(useTabs.getState().active).toBe("fc");
+  expect(useStore.getState().tabs.map((t) => t.fingerprint)).toEqual(["fa", "fb", "fc"]);
+  expect(useStore.getState().activeTab).toBe("fc");
   selectTab("fa");
   setView({ t0: 40, t1: 60 });
   setSelection({ t0: 42, t1: 45 });
@@ -175,38 +198,86 @@ test("each_tab_keeps_its_view", () => {
   expect(viewOf()).toMatchObject({ t0: 70, t1: 90 });
 });
 
-test("opening_a_result_switches_with_that_result", () => {
-  useStore.setState({ analyses: [{ id: "r", fingerprint: "fa", status: "complete" } as AnalysisRecord] });
+test("a_switch_is_one_update", () => {
   openThree();
-  openResult("r");
-  expect(useStore.getState()).toMatchObject({ activeRecordingId: "A", shownResult: { id: "r" } });
-  expect(useTabs.getState().active).toBe("fa");
+  selectTab("fa");
+  setView({ t0: 40, t1: 60 });
+  selectTab("fb");
+  const seen: { tab: string | null; t0: number }[] = [];
+  const stop = useStore.subscribe((s) => seen.push({ tab: s.activeTab, t0: s.view.t0 }));
+  selectTab("fa");
+  stop();
+  expect(seen).toEqual([{ tab: "fa", t0: 40 }]);
 });
 
-test("a_detached_tab_leaves_no_recording_active", () => {
+test("a_run_that_ends_in_another_tab_waits_there", () => {
   openThree();
-  useTabs.setState((s) => ({
+  selectTab("fa");
+  selectTab("fb");
+  useStore.setState({ analyses: [complete("r", "fa")] });
+  showResult("r", "fa");
+  // B shows nothing of A's result.
+  expect(useStore.getState()).toMatchObject({ activeTab: "fb", shownResult: null, activeResultId: null });
+  selectTab("fa");
+  expect(useStore.getState()).toMatchObject({ shownResult: { id: "r" }, activeResultId: "r" });
+  // A run of the tab shown shows at once.
+  useStore.setState((s) => ({ analyses: [...s.analyses, complete("q", "fa")] }));
+  showResult("q", "fa");
+  expect(useStore.getState()).toMatchObject({ shownResult: { id: "q" }, activeResultId: "q" });
+});
+
+test("a_result_opened_while_a_detached_tab_is_selected_shows", () => {
+  openThree();
+  useStore.setState((s) => ({
+    tabs: [...s.tabs, { fingerprint: "fd", name: "fd.edf", source: source("fd.edf") }],
+    analyses: [complete("own", "fd"), complete("imported", ""), complete("ra", "fa")],
+  }));
+  selectTab("fd");
+  expect(useStore.getState()).toMatchObject({ activeTab: "fd", activeRecordingId: null });
+  // A result of the detached tab shows alone under it.
+  openResult("own");
+  expect(useStore.getState()).toMatchObject({ activeTab: "fd", shownResult: { id: "own" } });
+  // One with no tab shows alone with no tab selected.
+  openResult("imported");
+  expect(useStore.getState()).toMatchObject({
+    activeTab: null,
+    activeRecordingId: null,
+    shownResult: { id: "imported" },
+  });
+  // One of an open recording selects its tab.
+  openResult("ra");
+  expect(useStore.getState()).toMatchObject({
+    activeTab: "fa",
+    activeRecordingId: "A",
+    shownResult: { id: "ra" },
+  });
+});
+
+test("a_detached_tab_attaches_in_place", () => {
+  openThree();
+  useStore.setState((s) => ({
     tabs: [...s.tabs, { fingerprint: "fd", name: "fd.edf", source: source("fd.edf") }],
   }));
   selectTab("fd");
   expect(useStore.getState().activeRecordingId).toBeNull();
-  expect(useTabs.getState().active).toBe("fd");
-  // Its recording opens: the tab attaches in place and shows it.
+  // Its recording opens beside the active one: the tab attaches in place and, being selected, shows it.
   useStore.setState((s) => ({ recordings: { ...s.recordings, D: recording("fd") } }));
   tabOpened("D", "fd", "fd.edf", source("fd.edf"));
-  expect(useStore.getState().activeRecordingId).toBe("D");
-  expect(useTabs.getState().tabs.map((t) => t.fingerprint)).toEqual(["fa", "fb", "fc", "fd"]);
+  expect(useStore.getState()).toMatchObject({ activeRecordingId: "D", activeTab: "fd" });
+  expect(useStore.getState().tabs.map((t) => t.fingerprint)).toEqual(["fa", "fb", "fc", "fd"]);
 });
 
-test("closing_the_active_tab_activates_the_next", () => {
+test("closing_the_selected_tab_selects_the_next_and_order_moves", () => {
   openThree();
   selectTab("fb");
   forgetTab("fb");
-  expect(useTabs.getState().active).toBe("fc");
-  expect(useStore.getState().activeRecordingId).toBe("C");
-  forgetTab("fc");
-  expect(useTabs.getState().active).toBe("fa");
-  expect(useTabs.getState().tabs.map((t) => t.fingerprint)).toEqual(["fa"]);
+  removeRecording("B");
+  expect(useStore.getState()).toMatchObject({ activeTab: "fc", activeRecordingId: "C" });
+  moveTab(1, 0);
+  expect(useStore.getState().tabs.map((t) => t.fingerprint)).toEqual(["fc", "fa"]);
+  // A recording that closes while shown (a detach) can keep its tab selected.
+  removeRecording("C", "fc");
+  expect(useStore.getState()).toMatchObject({ activeTab: "fc", activeRecordingId: null });
 });
 
 test("the_open_set_round_trips_with_each_view", async () => {
@@ -219,7 +290,7 @@ test("the_open_set_round_trips_with_each_view", async () => {
   setView({ t0: 50, t1: 60 });
   await saveTabs();
   const loaded = await loadTabs();
-  // The synthetic recording is not remembered; the active tab's view is taken as it is now.
+  // The synthetic recording is not remembered; the selected tab's view is taken as it is now.
   expect(loaded?.active).toBe("fb");
   expect(loaded?.tabs.map((t) => t.fingerprint)).toEqual(["fa", "fb", "fc"]);
   expect(loaded?.tabs.map((t) => t.saved?.view.t0)).toEqual([20, 50, 0]);

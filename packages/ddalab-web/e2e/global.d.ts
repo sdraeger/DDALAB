@@ -3,7 +3,6 @@ import type { SyntheticSpec } from "../src/core/synthetic";
 import type { heatmapProbe } from "../src/features/results/probe";
 import type { viewerProbe } from "../src/features/viewer/probe";
 import type { useStore } from "../src/store/store";
-import type { useTabs } from "../src/store/tabs";
 
 declare global {
   interface Window {
@@ -19,8 +18,8 @@ declare global {
       viewer: typeof viewerProbe;
       /** The result heatmap's last frame and pixels, and the row plot's points. */
       results: typeof heatmapProbe;
-      /** The tabs, and a write of the open set that resolves once it is in IndexedDB. */
-      tabs: { store: typeof useTabs; flush(): Promise<void> };
+      /** A write of the open tabs that resolves once it is in IndexedDB. */
+      tabs: { flush(): Promise<void> };
     };
   }
 }

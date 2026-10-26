@@ -40,7 +40,6 @@ import {
   togglePanel,
   useStore,
 } from "../store/store";
-import { useTabs } from "../store/tabs";
 import controls from "../styles/controls.module.css";
 import styles from "./Shell.module.css";
 
@@ -53,8 +52,8 @@ export function Shell() {
   const { library, inspector } = useStore((s) => s.panels);
   const id = useStore((s) => s.activeRecordingId);
   const resultShown = useStore((s) => s.shownResult !== null);
-  // With no recording active, the active tab is a detached one.
-  const detached = useTabs((s) => s.active);
+  // With no recording active, a selected tab is a detached one.
+  const activeTab = useStore((s) => s.activeTab);
   useViewerKeys();
   return (
     <Tooltip.Provider delay={400}>
@@ -95,8 +94,11 @@ export function Shell() {
                 <WaveformCanvas key={id} recordingId={id} />
                 <ShownResult recordingId={id} />
               </>
-            ) : detached ? (
-              <DetachedNote fingerprint={detached} />
+            ) : activeTab ? (
+              <>
+                <DetachedNote fingerprint={activeTab} brief={resultShown} />
+                {resultShown && <ShownResult recordingId={null} />}
+              </>
             ) : resultShown ? (
               <ShownResult recordingId={null} />
             ) : (

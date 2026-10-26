@@ -211,8 +211,6 @@ export function createEngine(): Engine {
   // Tiles by recording content: another recording of the same file shares them, and they outlive a close.
   const cache = new TileCache();
   const requested = new Map<string, Promise<Tile | null>>();
-  // Result tiles by result: a heatmap shown again (a tab switched back to) draws from here, not from OPFS.
-  const resultTiles = new TileCache<ResultTile>(64 * 2 ** 20, (found) => found.values.byteLength);
   let worker: Worker;
   let hasher: Worker | undefined;
   let annotator: Worker | undefined;
@@ -543,15 +541,8 @@ export function createEngine(): Engine {
     sweepInterrupted: () => call({ type: "sweepResults" }),
     resultManifest: (resultId) => call({ type: "resultManifest", resultId }),
     resultArray: (resultId, variant, array) => call({ type: "resultArray", resultId, variant, array }),
-    resultTile(resultId, variant, array, level, index) {
-      const key = `${resultId}/${variant}/${array}/${level}/${index}`;
-      const hit = resultTiles.get(key);
-      if (hit) return Promise.resolve(hit);
-      return call({ type: "resultTile", resultId, variant, array, level, index }).then((found) => {
-        resultTiles.set(key, found);
-        return found;
-      });
-    },
+    resultTile: (resultId, variant, array, level, index) =>
+      call({ type: "resultTile", resultId, variant, array, level, index }),
     deleteResult: (resultId) => call({ type: "deleteResult", resultId }),
     exportDocument: (resultId) => call({ type: "exportDocument", resultId }),
     exportCsv: (resultId, variant) => call({ type: "exportCsv", resultId, variant }),

@@ -47,25 +47,21 @@ export async function fileAt(root: FileSystemDirectoryHandle, path: string): Pro
   return file;
 }
 
-/** Whether `handle` may be read; with `ask`, the browser asks the user (this needs a click). */
-export async function permitted(handle: FileSystemHandle, ask: boolean): Promise<boolean> {
+/** Whether `handle` may be read now, without asking. */
+export async function permitted(handle: FileSystemHandle): Promise<boolean> {
   const own = handle as FileSystemHandle & Partial<Permissions>;
-  try {
-    if ((await own.queryPermission?.({ mode: "read" })) === "granted") return true;
-    return ask && (await own.requestPermission?.({ mode: "read" })) === "granted";
-  } catch {
-    return false;
-  }
+  return (await own.queryPermission?.({ mode: "read" }).catch(() => undefined)) === "granted";
 }
 
-/** `permitted` that asks once per distinct handle (`isSameEntry`): one grant of a folder covers every file in it. */
-export function permissionsOnce(ask: boolean) {
-  const asked: [FileSystemHandle, Promise<boolean>][] = [];
-  return async (handle: FileSystemHandle) => {
-    for (const [seen, granted] of asked)
-      if (await seen.isSameEntry(handle).catch(() => false)) return granted;
-    const granted = permitted(handle, ask);
-    asked.push([handle, granted]);
-    return granted;
-  };
+/**
+ * Asks the user for read access to `handle`, which only a click allows: the answer, or `lapsed` when the browser
+ * refused to ask because the click was too long ago.
+ */
+export async function ask(handle: FileSystemHandle): Promise<PermissionState | "lapsed"> {
+  const own = handle as FileSystemHandle & Partial<Permissions>;
+  try {
+    return (await own.requestPermission?.({ mode: "read" })) ?? "denied";
+  } catch (error) {
+    return (error as Error).name === "SecurityError" ? "lapsed" : "denied";
+  }
 }

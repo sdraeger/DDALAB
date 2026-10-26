@@ -7,6 +7,7 @@ import type { Annotation, RecordingInfo } from "../core/types";
 import { type DdaForm, DEFAULT_FORM } from "../features/analysis/validate";
 import { saveTheme, storedTheme, type Theme } from "../styles/theme";
 import type { RecentEntry } from "./recent";
+import type { Tab, TabView } from "./tabs";
 
 export interface OpenRecording {
   info: RecordingInfo;
@@ -64,7 +65,7 @@ export interface ShownResult {
   interval?: { t0: number; t1: number };
 }
 
-interface State {
+export interface State {
   recordings: Record<string, OpenRecording>;
   activeRecordingId: string | null;
   recent: RecentEntry[];
@@ -85,6 +86,12 @@ interface State {
   plotCssWidth: number;
   /** The theme the user picked; `null` follows the system. */
   theme: Theme | null;
+  /** The open recordings as tabs, in order (tabs.ts). */
+  tabs: Tab[];
+  /** The selected tab: the active recording's, or a detached one; `null` with none, as for a result shown alone. */
+  activeTab: string | null;
+  /** Why a detached tab did not reattach, by fingerprint. */
+  tabReasons: Record<string, string>;
 }
 
 const CALIBRATION_KEY = "ddalab.mmPerCssMm";
@@ -123,6 +130,9 @@ export const useStore = create<State>()(() => ({
   cursorS: null,
   plotCssWidth: 0,
   theme: storedTheme(),
+  tabs: [],
+  activeTab: null,
+  tabReasons: {},
 }));
 
 export const activeRecording = (s: State) =>
@@ -161,6 +171,62 @@ function freshView(
   return { view: clamp(next, recording), selection: null, cursorS: null };
 }
 
+/** What the selected tab keeps while another is shown; a detached tab keeps its view and takes its result along. */
+export function tabViewOf(s: State, kept?: TabView): TabView {
+  const recording = activeRecording(s);
+  const { mmPerCssMm: _, ...view } = s.view;
+  const result = { shownResult: s.shownResult, activeResultId: s.activeResultId };
+  if (recording)
+    return { view, selection: s.selection, selectedChannels: recording.selectedChannels, ...result };
+  const first = { ...view, t0: 0, t1: view.epochS, firstChannel: 0, rowCount: DEFAULT_ROWS };
+  return { ...(kept ?? { view: first, selection: null, selectedChannels: [] }), ...result };
+}
+
+/**
+ * The tab of `fingerprint` selected, as one update: the selected tab keeps its view and the tab entered gets its own
+ * back, or its recording's first epoch the first time. `change` is what the update also changes (a recording added or
+ * removed, the tab list); `result` is a result the switch opens.
+ */
+export function enter(
+  s: State,
+  fingerprint: string | null,
+  change: Partial<Pick<State, "recordings" | "tabs">> = {},
+  result?: Pick<State, "shownResult" | "activeResultId">,
+): Partial<State> {
+  const tabs = (change.tabs ?? s.tabs).map((t) =>
+    t.fingerprint === s.activeTab ? { ...t, saved: tabViewOf(s, t.saved) } : t,
+  );
+  const all = change.recordings ?? s.recordings;
+  const id = Object.keys(all).find((k) => all[k].fingerprint === fingerprint) ?? null;
+  const recording = id === null ? undefined : all[id];
+  const saved = tabs.find((t) => t.fingerprint === fingerprint)?.saved;
+  const complete = (resultId?: string | null) =>
+    s.analyses.some((a) => a.id === resultId && a.status === "complete");
+  const channels = recording?.analysis_channels.length ?? 0;
+  const recordings =
+    id !== null && recording && saved
+      ? {
+          ...all,
+          [id]: { ...recording, selectedChannels: saved.selectedChannels.filter((c) => c < channels) },
+        }
+      : all;
+  return {
+    tabs,
+    recordings,
+    activeTab: fingerprint,
+    activeRecordingId: id,
+    view: saved ? clamp({ ...s.view, ...saved.view }, recording) : freshView(s.view, recording).view,
+    selection: saved?.selection ?? null,
+    cursorS: null,
+    ...(result ?? {
+      shownResult: complete(saved?.shownResult?.id) ? (saved?.shownResult ?? null) : null,
+      activeResultId: s.analyses.some((a) => a.id === saved?.activeResultId)
+        ? (saved?.activeResultId ?? null)
+        : null,
+    }),
+  };
+}
+
 /** Adds a freshly opened recording, which nothing has scanned yet: the active one unless `activate` is false. */
 export function addRecording(
   id: string,
@@ -169,32 +235,30 @@ export function addRecording(
 ) {
   const scan: ScanState = { scannedRows: 0, totalRows: recording.info.sample_count };
   const added: OpenRecording = { ...recording, scan, selectedChannels: [] };
-  useStore.setState((s) => ({
-    recordings: { ...s.recordings, [id]: added },
-    ...(activate ? { activeRecordingId: id, ...freshView(s.view, added) } : {}),
-  }));
+  useStore.setState((s) => {
+    const recordings = { ...s.recordings, [id]: added };
+    return activate ? enter(s, added.fingerprint, { recordings }) : { recordings };
+  });
 }
 
-/** Makes an open recording the active one. */
+/** Makes an open recording the active one, with its tab's view. */
 export function activateRecording(id: string) {
   useStore.setState((s) =>
-    s.recordings[id] && s.activeRecordingId !== id
-      ? { activeRecordingId: id, ...freshView(s.view, s.recordings[id]) }
-      : s,
+    s.recordings[id] && s.activeRecordingId !== id ? enter(s, s.recordings[id].fingerprint) : s,
   );
 }
 
-/** Drops a recording; the most recently added of the rest becomes the active one. */
-export function removeRecording(id: string) {
+/**
+ * Drops a recording. When it was the active one, `select` is the tab shown instead: by default the next tab, else the
+ * previous one.
+ */
+export function removeRecording(id: string, select?: string | null) {
   useStore.setState((s) => {
-    const { [id]: _, ...recordings } = s.recordings;
+    const { [id]: removed, ...recordings } = s.recordings;
     if (s.activeRecordingId !== id) return { recordings };
-    const active = Object.keys(recordings).at(-1) ?? null;
-    return {
-      recordings,
-      activeRecordingId: active,
-      ...freshView(s.view, active ? recordings[active] : undefined),
-    };
+    const i = s.tabs.findIndex((t) => t.fingerprint === removed?.fingerprint);
+    const next = (i < 0 ? undefined : (s.tabs[i + 1] ?? s.tabs[i - 1]))?.fingerprint ?? null;
+    return enter(s, select === undefined ? next : select, { recordings });
   });
 }
 
@@ -312,22 +376,30 @@ export const openResult = (id: string | null) =>
       s.shownResult?.id === id
         ? s.shownResult
         : { id, fingerprint: record.fingerprint, variant: null, array: "q", row: null };
-    const own =
-      Object.keys(s.recordings).find((r) => s.recordings[r].fingerprint === record.fingerprint) ?? null;
-    if (own === s.activeRecordingId) return { activeResultId: id, shownResult };
-    return {
-      activeResultId: id,
-      shownResult,
-      activeRecordingId: own,
-      ...freshView(s.view, own === null ? undefined : s.recordings[own]),
-    };
+    // Its own tab, attached or detached, or none: a detached tab shows it alone under its reattach line.
+    const known = (fp: string) =>
+      s.tabs.some((t) => t.fingerprint === fp) ||
+      Object.values(s.recordings).some((r) => r.fingerprint === fp);
+    const own = known(record.fingerprint) ? record.fingerprint : null;
+    if (own === s.activeTab) return { activeResultId: id, shownResult };
+    return enter(s, own, {}, { activeResultId: id, shownResult });
   });
 
-/** Opens the result `id` of the recording `fingerprint` that has just completed, with or without a history. */
+/**
+ * Opens the result `id` of the recording `fingerprint` that has just completed, with or without a history. The result
+ * of a tab that is not shown waits in that tab's view; with its tab closed it is in the history only.
+ */
 export const showResult = (id: string, fingerprint: string) =>
-  useStore.setState({
-    activeResultId: id,
-    shownResult: { id, fingerprint, variant: null, array: "q", row: null },
+  useStore.setState((s) => {
+    const shownResult: ShownResult = { id, fingerprint, variant: null, array: "q", row: null };
+    if (s.activeTab === fingerprint) return { activeResultId: id, shownResult };
+    return {
+      tabs: s.tabs.map((t) =>
+        t.fingerprint === fingerprint && t.saved
+          ? { ...t, saved: { ...t.saved, shownResult, activeResultId: id } }
+          : t,
+      ),
+    };
   });
 
 export const setShownResult = (change: Partial<ShownResult>) =>
