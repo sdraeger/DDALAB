@@ -4,7 +4,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundleDir, WIDE } from "./global-setup";
-import { expect, hasStorage, NO_STORAGE, type Page, test } from "./test";
+import { expect, hasStorage, NO_STORAGE, type Page, scanned, test } from "./test";
 
 const fixturePath = (name: string) =>
   fileURLToPath(new URL(`../../dda-rs/tests/fixtures/${name}`, import.meta.url));
@@ -341,6 +341,9 @@ test("run_with_512_channels", async ({ page }) => {
 test("a_run_without_storage_says_why", async ({ page }) => {
   test.skip(await hasStorage(page), "this browser window has OPFS");
   await openBrainVision(page);
+  // The scan's notice takes the place of its progress line, above the channels, and moves them: a click before
+  // then can miss.
+  await expect(scanned(page)).toBeVisible();
   await page.getByRole("checkbox", { name: "Select Fp1" }).check();
   await runBar(page).getByRole("button", { name: "Run DDA" }).click();
   await expect(runBar(page).getByRole("alert")).toHaveText(
