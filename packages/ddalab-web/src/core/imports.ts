@@ -230,7 +230,7 @@ type Shape =
 /** The longest string a stored result keeps: a label, a name, a path, a message. */
 const STRING_LIMIT = 64 * 1024;
 /** A stored record's manifest (without its window centers) above this is refused: the history loads every record. */
-const RECORD_LIMIT = 16 * 2 ** 20;
+export const RECORD_LIMIT = 16 * 2 ** 20;
 
 const S = "string";
 const N = "number";
@@ -370,18 +370,8 @@ function documentOf(manifest: ResultDocument, source: string): ResultDocument {
     coefficient_matrices: null,
     fit_error_matrix: null,
   }));
-  // Pairs of channels: no more than the result's channels make, which bounds the lists that grow with them.
-  const { reproduction } = document;
-  const { request } = reproduction;
-  const channels = reproduction.selected_channel_names.length;
-  const pairs = [
-    request.ct_channel_pairs,
-    request.cd_channel_pairs,
-    ...Object.values(request.variant_configs ?? {}).flatMap((c) => [c.ct_channel_pairs, c.cd_channel_pairs]),
-    ...Object.values(reproduction.variant_pair_indices ?? {}),
-    ...Object.values(reproduction.variant_pair_names ?? {}),
-  ];
-  if (pairs.some((list) => (list?.length ?? 0) > channels * channels)) {
+  if (!pairsWithin(document)) {
+    const channels = document.reproduction.selected_channel_names.length;
     throw new Error(`${source} lists more channel pairs than its ${channels} channels make`);
   }
   const bounded = { ...document, variants };
@@ -392,6 +382,23 @@ function documentOf(manifest: ResultDocument, source: string): ResultDocument {
 }
 
 /** Bytes (UTF-8) of the history record of `manifest`: what the history loads at each start. */
+/**
+ * Whether every list of channel pairs of a result (the request's, its variant configs', its variants' pair indices and
+ * names) holds no more pairs than its channels make, which bounds the lists that grow with them.
+ */
+export function pairsWithin({ reproduction }: Pick<ResultDocument, "reproduction">) {
+  const { request } = reproduction;
+  const channels = reproduction.selected_channel_names.length;
+  const pairs = [
+    request.ct_channel_pairs,
+    request.cd_channel_pairs,
+    ...Object.values(request.variant_configs ?? {}).flatMap((c) => [c.ct_channel_pairs, c.cd_channel_pairs]),
+    ...Object.values(reproduction.variant_pair_indices ?? {}),
+    ...Object.values(reproduction.variant_pair_names ?? {}),
+  ];
+  return pairs.every((list) => (list?.length ?? 0) <= channels * channels);
+}
+
 const recordBytes = (manifest: ResultDocument) =>
   new TextEncoder().encode(JSON.stringify(recordedManifest(manifest))).length;
 
@@ -553,9 +560,16 @@ export const PROJECT_RECORDS_LIMIT = 32 * 2 ** 20;
  */
 export const ENTRY_BYTES = 4096;
 
-const mebibytes = (bytes: number) => (bytes / 2 ** 20).toLocaleString("en", { maximumFractionDigits: 1 });
-const utf8 = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
+export const mebibytes = (bytes: number) =>
+  (bytes / 2 ** 20).toLocaleString("en", { maximumFractionDigits: 1 });
+/** Bytes (UTF-8) of `value` as JSON. */
+export const utf8 = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** What one result counts toward PROJECT_RECORDS_LIMIT: its record's bytes and its kept fields', at least ENTRY_BYTES. */
+export const resultCost = (record: number, kept: unknown) => Math.max(ENTRY_BYTES, record + utf8(kept));
+/** What one batch counts toward PROJECT_RECORDS_LIMIT: its bytes, at least ENTRY_BYTES. */
+export const batchCost = (batch: unknown) => Math.max(ENTRY_BYTES, utf8(batch));
 
 /**
  * Imports the results of a project (app/project.ts), each as `importResult` imports a bundle folder with its `kept`
@@ -568,7 +582,7 @@ export async function importResults(
   results: { input: FolderFile[]; kept: KeptRecord }[],
   batches: unknown[],
 ): Promise<({ id: string } | { error: string })[]> {
-  let bytes = batches.reduce<number>((sum, batch) => sum + Math.max(ENTRY_BYTES, utf8(batch)), 0);
+  let bytes = batches.reduce<number>((sum, batch) => sum + batchCost(batch), 0);
   // One at a time: a manifest is up to 96 MiB of text.
   for (const { input, kept } of results) {
     if (bytes > PROJECT_RECORDS_LIMIT) break;
@@ -576,7 +590,7 @@ export async function importResults(
       ({ manifest }) => recordBytes(manifest),
       () => 0,
     );
-    bytes += Math.max(ENTRY_BYTES, record + utf8(kept));
+    bytes += resultCost(record, kept);
   }
   if (bytes > PROJECT_RECORDS_LIMIT) {
     throw new Error(
