@@ -213,6 +213,166 @@ function malformed(document: unknown, variantFields: (v: VariantDocument) => str
 const refuse = (source: string, field: string) =>
   new Error(`${source} is not a DDALAB result (schema ddalab.result/2): ${field} is missing or malformed`);
 
+/** A value's shape in a result document, as the CLI writes it (dda-rs document.rs and types.rs). */
+type Shape =
+  | "string"
+  | "number"
+  | "boolean"
+  | { nullable: Shape }
+  | { list: Shape; length?: number }
+  | { map: Shape }
+  | { fields: Record<string, Shape> };
+
+/** The longest string a stored result keeps: a label, a name, a path, a message. */
+const STRING_LIMIT = 64 * 1024;
+/** A stored record's manifest (without its window centers) above this is refused: the history loads every record. */
+const RECORD_LIMIT = 16 * 2 ** 20;
+
+const S = "string";
+const N = "number";
+const B = "boolean";
+const list = (item: Shape, length?: number): Shape => ({ list: item, length });
+const map = (item: Shape): Shape => ({ map: item });
+const fields = (named: Record<string, Shape>): Shape => ({ fields: named });
+const PAIRS = list(list(N, 2));
+const REQUEST = fields({
+  algorithm_selection: fields({ enabled_variants: list(S), select_mask: S }),
+  cd_channel_pairs: PAIRS,
+  channels: list(N),
+  ct_channel_pairs: PAIRS,
+  delay_parameters: fields({ delays: list(N) }),
+  file_path: S,
+  model_parameters: fields({ dm: N, nr_tau: N, order: N }),
+  model_terms: list(N),
+  preprocessing_options: fields({ highpass: N, lowpass: N }),
+  sampling_rate: N,
+  time_range: fields({ end: N, start: N }),
+  variant_configs: map(
+    fields({
+      cd_channel_pairs: PAIRS,
+      conditioning_channels: list(N),
+      conditioning_strategy: S,
+      ct_channel_pairs: PAIRS,
+      max_active_sources: N,
+      selected_channels: list(N),
+      surrogate_shifts: list(N),
+      temporal_lambda: N,
+    }),
+  ),
+  window_parameters: fields({ ct_window_length: N, ct_window_step: N, window_length: N, window_step: N }),
+});
+const MATRIX = list(list({ nullable: N }));
+const DOCUMENT = fields({
+  schema: S,
+  id: S,
+  file_name: S,
+  created_at_iso: S,
+  diagnostics: list(S),
+  window_centers_seconds: list(N),
+  variants: list(
+    fields({
+      id: S,
+      label: S,
+      row_labels: list(S),
+      matrix: MATRIX,
+      min_value: N,
+      max_value: N,
+      row_mean_absolute: list(N),
+      row_peak_absolute: list(N),
+      coefficient_matrices: list(MATRIX),
+      fit_error_matrix: MATRIX,
+      arrays: list(S),
+    }),
+  ),
+  reproduction: fields({
+    expert_mode: B,
+    compute_device: S,
+    variant_ids: list(S),
+    selected_channel_indices: list(N),
+    selected_channel_names: list(S),
+    variant_channel_indices: map(list(N)),
+    variant_channel_names: map(list(S)),
+    variant_pair_indices: map(PAIRS),
+    variant_pair_names: map(list(S)),
+    window_length_samples: N,
+    window_step_samples: N,
+    delays: list(N),
+    model_terms: list(N),
+    model_dimension: N,
+    polynomial_order: N,
+    nr_tau: N,
+    start_time_seconds: N,
+    end_time_seconds: N,
+    ddalab_version: S,
+    input_sha256: map(S),
+    engine_version: S,
+    git_commit: S,
+    request: REQUEST,
+  }),
+});
+
+/**
+ * `value` rebuilt to `shape`: an object keeps the keys `shape` names, in its own order, each checked (a named field may
+ * be null), a map its keys; strings are bounded. Throws the path of the first value that does not fit.
+ */
+function rebuilt(value: unknown, shape: Shape, path: string): unknown {
+  const wrong = (): never => {
+    throw new Error(path);
+  };
+  if (shape === S) return isString(value) && (value as string).length <= STRING_LIMIT ? value : wrong();
+  if (shape === N) return isNumber(value) ? value : wrong();
+  if (shape === B) return typeof value === "boolean" ? value : wrong();
+  if ("nullable" in shape) return value === null ? null : rebuilt(value, shape.nullable, path);
+  if ("list" in shape) {
+    if (!Array.isArray(value) || (shape.length !== undefined && value.length !== shape.length)) wrong();
+    return (value as unknown[]).map((item, i) => rebuilt(item, shape.list, `${path}[${i}]`));
+  }
+  if (!isObject(value)) wrong();
+  const entries = Object.entries(value as Record<string, unknown>);
+  if ("map" in shape) {
+    return Object.fromEntries(
+      entries.map(([key, v]) => [
+        key.length <= STRING_LIMIT ? key : wrong(),
+        rebuilt(v, shape.map, `${path}.${key}`),
+      ]),
+    );
+  }
+  return Object.fromEntries(
+    entries
+      .filter(([key]) => Object.hasOwn(shape.fields, key))
+      .map(([key, v]) => [key, v === null ? null : rebuilt(v, shape.fields[key], `${path}.${key}`)]),
+  );
+}
+
+/**
+ * `manifest` with the fields of a result document only, each of its type, and its variants as a bundle's manifest has
+ * them (the arrays hold the values): what is stored, recorded and exported again. Throws, naming the field, when one
+ * does not fit, and when the record would be too large.
+ */
+function documentOf(manifest: ResultDocument, source: string): ResultDocument {
+  let document: ResultDocument;
+  try {
+    document = rebuilt(manifest, DOCUMENT, "") as ResultDocument;
+  } catch (error) {
+    throw refuse(source, (error as Error).message.replace(/^\./, ""));
+  }
+  const variants = document.variants.map((variant) => ({
+    ...variant,
+    matrix: [],
+    min_value: null,
+    max_value: null,
+    row_mean_absolute: null,
+    row_peak_absolute: null,
+    coefficient_matrices: null,
+    fit_error_matrix: null,
+  }));
+  const bounded = { ...document, variants };
+  if (JSON.stringify(recordedManifest(bounded)).length > RECORD_LIMIT) {
+    throw new Error(`The manifest of ${source} is above 16 MiB without its window centers`);
+  }
+  return bounded;
+}
+
 /** A bundle's files by path (from a zip or a folder): `manifest.json`, at the top or in one folder, and its arrays. */
 async function fromBundle(files: Map<string, Blob>, source: string): Promise<Incoming> {
   const manifestPath = [...files.keys()]
@@ -366,9 +526,10 @@ export async function importResult(input: File | FolderFile[], kept?: KeptRecord
     }
     incoming = fromDocument(document, source);
   }
-  const { layout, values } = await layoutOf(incoming, source);
+  // Only what a result document holds is stored, recorded in the history and exported again.
+  const manifest = documentOf(incoming.manifest, source);
+  const { layout, values } = await layoutOf({ manifest, arrays: incoming.arrays }, source);
   const id = kept?.id ?? crypto.randomUUID();
-  const { manifest } = incoming;
   await storeResult(id, layout, values, manifest);
   const record: AnalysisRecord = {
     fingerprint: "",

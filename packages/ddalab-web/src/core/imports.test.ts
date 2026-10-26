@@ -189,6 +189,40 @@ test.each([
   expect(await listAnalyses()).toEqual([]);
 });
 
+// The fields of a result document only, each of its type and bounded, are stored, recorded and exported again: an
+// unknown key, however large, stays out (a project's results import the same way).
+test("only_the_fields_of_a_result_document_are_kept", async () => {
+  const id = await importResult(
+    bundle((m) => {
+      m.x = "y".repeat(90 * 2 ** 20);
+      reproduction(m).extra = { nested: true };
+      (reproduction(m).request as Record<string, unknown>).x = "z";
+      (m.variants as Record<string, unknown>[])[0].extra = [1, 2, 3];
+    }),
+  );
+  const [record] = await listAnalyses();
+  expect(record.id).toBe(id);
+  const written = JSON.parse(new TextDecoder().decode(stored(id)["manifest.json"]));
+  for (const manifest of [record.manifest, written]) {
+    expect(manifest).not.toHaveProperty("x");
+    expect(manifest.reproduction).not.toHaveProperty("extra");
+    expect(manifest.reproduction.request).not.toHaveProperty("x");
+    expect(manifest.variants[0]).not.toHaveProperty("extra");
+  }
+  expect(record.request).not.toHaveProperty("x");
+  expect(JSON.stringify(record).length).toBeLessThan(4096);
+  // A field of the document past the bound refuses it.
+  await expect(
+    importResult(
+      bundle((m) => {
+        m.file_name = "a".repeat(65 * 1024);
+      }),
+    ),
+  ).rejects.toThrow(
+    "a.dda is not a DDALAB result (schema ddalab.result/2): file_name is missing or malformed",
+  );
+}, 60_000);
+
 test("refuses_a_document_that_is_not_one", async () => {
   await expect(importResult(new File(["null"], "null.json"))).rejects.toThrow(
     /null\.json is not a DDALAB result \(schema ddalab\.result\/2\): schema/,
