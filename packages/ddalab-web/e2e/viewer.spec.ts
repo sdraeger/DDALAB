@@ -492,21 +492,30 @@ test("webgl_program_failure_message", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "fixture.edf" })).toBeVisible();
 });
 
-// The viewer is a chunk of its own, asked for once the shell has painted; the plots come in the same commit as the
-// rest of the recording's workspace, with no fallback in between.
-test("viewer_chunk_comes_after_the_first_paint_and_with_the_first_recording", async ({ page }) => {
+// The viewer is a chunk of its own, asked for after the entry has run (a module the entry imports is fetched before
+// it runs); the plots come in the same commit as the rest of the recording's workspace, with no fallback in between.
+test("viewer_chunk_comes_after_the_entry_and_with_the_first_recording", async ({ page }) => {
+  // When the entry runs: main.tsx sets the test hook as it does.
+  await page.addInitScript(() => {
+    let hook: unknown;
+    Object.defineProperty(window, "__ddalab", {
+      configurable: true,
+      get: () => hook,
+      set(value) {
+        hook = value;
+        Object.assign(window, { entryRan: performance.now() });
+      },
+    });
+  });
   await page.reload();
   await expect(page.getByRole("heading", { name: "OpenNeuro" })).toBeVisible();
-  const { painted, asked } = await page.evaluate(async () => {
+  const { ran, asked } = await page.evaluate(async () => {
     const find = () =>
       performance.getEntriesByType("resource").find((entry) => /\/src\/app\/Viewer\.tsx/.test(entry.name));
     while (!find()) await new Promise(requestAnimationFrame);
-    return {
-      painted: performance.getEntriesByName("first-contentful-paint")[0]?.startTime,
-      asked: find()?.startTime,
-    };
+    return { ran: (window as unknown as { entryRan: number }).entryRan, asked: find()?.startTime };
   });
-  expect(asked).toBeGreaterThan(painted);
+  expect(asked).toBeGreaterThan(ran);
   await page.evaluate(() => {
     const batches: string[][] = [];
     Object.assign(window, { batches });
