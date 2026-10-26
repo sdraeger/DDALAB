@@ -6,6 +6,7 @@ import { type ChangeEvent, lazy, Suspense, use, useEffect, useEffectEvent, useRe
 import {
   canPickFiles,
   engine,
+  type FileHandles,
   forget,
   type Outcome,
   openFiles,
@@ -51,6 +52,7 @@ const version = engine.version().then(
 interface Attempt {
   files: File[];
   handle?: FileSystemHandle;
+  handles?: FileHandles;
   expect?: string;
 }
 
@@ -114,10 +116,21 @@ export function LibraryRail() {
   const dropped = useEffectEvent(async (data: DataTransfer) => {
     locating.current = undefined;
     // A dropped folder is walked into the tree. The item list empties when the event ends: read it before any await.
-    const entries = Array.from(data.items)
-      .map((item) => (item.kind === "file" ? item.webkitGetAsEntry() : null))
-      .filter((entry) => entry !== null);
-    if (entries.some((entry) => entry.isDirectory)) return showFolder({ kind: "entries", entries });
+    const items = Array.from(data.items).filter((item) => item.kind === "file");
+    const entries = items.map((item) => item.webkitGetAsEntry()).filter((entry) => entry !== null);
+    if (entries.some((entry) => entry.isDirectory)) {
+      // Chromium also gives a single dropped folder as a handle, which keeps its files' handles through the walk.
+      const item = items[0] as DataTransferItem & {
+        getAsFileSystemHandle?(): Promise<FileSystemHandle | null>;
+      };
+      const pending = entries.length === 1 ? item.getAsFileSystemHandle?.() : undefined;
+      const handle = await pending?.catch(() => null);
+      return showFolder(
+        handle?.kind === "directory"
+          ? { kind: "handle", handle: handle as FileSystemDirectoryHandle }
+          : { kind: "entries", entries },
+      );
+    }
     await run(await droppedFiles(data));
   });
   useEffect(() => {
@@ -173,7 +186,7 @@ export function LibraryRail() {
           <FolderTree
             key={folder.key}
             source={folder.source}
-            onOpen={(recording) => run({ files: recording.files }, recording.path)}
+            onOpen={(recording, handles) => run({ files: recording.files, handles }, recording.path)}
             onClose={() => setFolder(null)}
           />
         </Suspense>

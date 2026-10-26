@@ -15,7 +15,7 @@ import {
   useState,
   useTransition,
 } from "react";
-import type { Outcome } from "../../app/recordings";
+import type { FileHandles, Outcome } from "../../app/recordings";
 import {
   classifyFolder,
   type FolderNode,
@@ -23,6 +23,7 @@ import {
   type FolderSource,
   folderTree,
   ROOT,
+  type Walked,
   walk,
 } from "../../core/folder";
 import { useStore } from "../../store/store";
@@ -48,34 +49,44 @@ const sizeOf = (bytes: number) => {
 
 export default function FolderTree(props: {
   source: FolderSource;
-  onOpen(recording: FolderRecording): Promise<Outcome>;
+  onOpen(recording: FolderRecording, handles: FileHandles): Promise<Outcome>;
   onClose(): void;
 }) {
-  const { source } = props;
+  const { source, onOpen } = props;
   const [count, setCount] = useState(0);
-  const [recordings, setRecordings] = useState<FolderRecording[]>();
+  const [result, setResult] = useState<{ walked: Walked; recordings: FolderRecording[] }>();
   const [error, setError] = useState<string>();
   useEffect(() => {
     const walking = new AbortController();
     walk(source, walking.signal, setCount)
-      .then(classifyFolder)
-      .then(setRecordings, (failure: Error) => {
+      .then(async (walked) => ({ walked, recordings: await classifyFolder(walked.files) }))
+      .then(setResult, (failure: Error) => {
         if (!walking.signal.aborted) setError(`The folder could not be read: ${failure.message}`);
       });
     return () => walking.abort();
   }, [source]);
+  // A recording opens with the handles of all its files, when the walk has them, and of the opened folder.
+  const open = useCallback(
+    (recording: FolderRecording) => {
+      const { handles, root } = result?.walked ?? {};
+      const own = recording.files.map((file) => handles?.get(file));
+      const all = own.every((handle): handle is FileSystemFileHandle => handle !== undefined);
+      return onOpen(recording, { files: all ? own : undefined, root });
+    },
+    [result, onOpen],
+  );
 
   return (
     <section className={rail.section} aria-labelledby="folder-heading">
       <h2 id="folder-heading" className={rail.heading}>
-        Folder {recordings && <span className={rail.count}>{recordings.length}</span>}
+        Folder {result && <span className={rail.count}>{result.recordings.length}</span>}
       </h2>
       {error ? (
         <p role="alert" className={rail.error}>
           {error}
         </p>
-      ) : recordings ? (
-        <Recordings recordings={recordings} onOpen={props.onOpen} />
+      ) : result ? (
+        <Recordings recordings={result.recordings} unreadable={result.walked.unreadable} onOpen={open} />
       ) : (
         <div className={styles.walking}>
           <p>
@@ -95,9 +106,10 @@ export default function FolderTree(props: {
 
 function Recordings(props: {
   recordings: FolderRecording[];
+  unreadable: number;
   onOpen(recording: FolderRecording): Promise<Outcome>;
 }) {
-  const { recordings, onOpen } = props;
+  const { recordings, unreadable, onOpen } = props;
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("");
   const [filtering, startTransition] = useTransition();
@@ -105,10 +117,17 @@ function Recordings(props: {
   const shown = useMemo(() => {
     const needle = filter.trim().toLowerCase();
     if (!needle) return whole;
+    // Paths match below the opened folder, whose name every path shares.
+    const below = whole.root ? whole.root.length + 1 : 0;
     const matches = (r: FolderRecording) =>
-      r.name.toLowerCase().includes(needle) || r.path.toLowerCase().includes(needle);
+      r.name.toLowerCase().includes(needle) || r.path.slice(below).toLowerCase().includes(needle);
     return folderTree(recordings.filter(matches), true);
   }, [recordings, whole, filter]);
+  const skipped = unreadable > 0 && (
+    <p className={rail.hint}>
+      {unreadable.toLocaleString("en-US")} {unreadable === 1 ? "file" : "files"} could not be read.
+    </p>
+  );
   // Which tree row opened which recording; a recording closed since then is no longer marked.
   const [opened, setOpened] = useState<Record<string, string>>({});
   const open = useCallback(
@@ -121,7 +140,10 @@ function Recordings(props: {
 
   if (recordings.length === 0) {
     return (
-      <p className={rail.hint}>No recording here. DDALAB reads EDF, BDF, BrainVision and delimited text.</p>
+      <>
+        <p className={rail.hint}>No recording here. DDALAB reads EDF, BDF, BrainVision and delimited text.</p>
+        {skipped}
+      </>
     );
   }
   return (
@@ -159,6 +181,7 @@ function Recordings(props: {
       ) : (
         <p className={rail.hint}>No recording matches.</p>
       )}
+      {skipped}
     </>
   );
 }
@@ -182,9 +205,10 @@ function Tree(props: {
   const tree = useTree<FolderNode>({
     rootItemId: ROOT,
     initialState: { expandedItems: props.expanded },
+    // The accessible name starts with the shown label (WCAG 2.5.3); a recording's file name follows.
     getItemName: (item) => {
       const { recording, label } = item.getItemData();
-      return recording ? recording.path.slice(recording.path.lastIndexOf("/") + 1) : label;
+      return recording ? `${label}, ${recording.path.slice(recording.path.lastIndexOf("/") + 1)}` : label;
     },
     isItemFolder: (item) => !item.getItemData().recording,
     dataLoader: { getItem: (id) => nodes[id], getChildren: (id) => nodes[id].children },
@@ -229,14 +253,16 @@ function Tree(props: {
   const [view, setView] = useState({ top: 0, height: 0, width: 0, font: "" });
   const measure = useCallback((element: HTMLDivElement | null) => {
     if (!element) return;
-    const observer = new ResizeObserver(() =>
+    // The `font` shorthand reads "" while font-variant-numeric is set (base.css sets tabular-nums): build it.
+    const observer = new ResizeObserver(() => {
+      const { fontStyle, fontWeight, fontSize, fontFamily } = getComputedStyle(element);
       setView({
         top: element.scrollTop,
         height: element.clientHeight,
         width: element.clientWidth,
-        font: getComputedStyle(element).font,
-      }),
-    );
+        font: `${fontStyle} ${fontWeight} ${fontSize} ${fontFamily}`,
+      });
+    });
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
@@ -250,11 +276,13 @@ function Tree(props: {
       (!context || context.measureText(node.label).width > view.width - FOLDER_CHROME - level * INDENT);
   }, [view.width, view.font]);
   const tops: number[] = [];
+  const wrapped: boolean[] = [];
   let total = 0;
   for (const item of items) {
-    tops.push(total);
     const node = item.getItemData();
-    total += node.recording || wraps(node, item.getItemMeta().level) ? ROW.twoLines : ROW.folder;
+    tops.push(total);
+    wrapped.push(wraps(node, item.getItemMeta().level));
+    total += node.recording || wrapped.at(-1) ? ROW.twoLines : ROW.folder;
   }
   let first = 0;
   let last = items.length;
@@ -281,7 +309,7 @@ function Tree(props: {
         role="tree"
         className={styles.tree}
         style={{ height: total }}
-        // Arrows, Home and End move in the tree instead of paging the recording.
+        // Arrows, Home and End belong to the tree: the viewer leaves keys inside it alone.
         data-own-keys
         onKeyDown={typeahead}
       >
@@ -290,7 +318,7 @@ function Tree(props: {
             key={item.getId()}
             item={item}
             top={tops[item.getItemMeta().index]}
-            wrap={wraps(item.getItemData(), item.getItemMeta().level)}
+            wrap={wrapped[item.getItemMeta().index]}
             tabbable={item.isFocused() || (focusedIndex < 0 && item.getItemMeta().index === 0)}
             describe={`${describe}-${item.getItemMeta().index}`}
             open={item.getId() in opened && opened[item.getId()] in recordings}
@@ -365,7 +393,8 @@ function Row(props: {
         {props.open && (
           <>
             <span className={rail.thin} aria-hidden />
-            <span className={styles.open}>Open</span>
+            {/* The words tell the shown recording from the other open ones; color only repeats them. */}
+            <span className={styles.open}>{props.active ? "Viewing" : "Open"}</span>
           </>
         )}
       </span>

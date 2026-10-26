@@ -89,11 +89,11 @@ test("open_folder_lists_every_format", async ({ page }) => {
   const rows = page.getByRole("tree", { name: "Recordings in fixtures" }).getByRole("treeitem");
   await expect(rows).toHaveCount(5);
   expect(await rows.evaluateAll((items) => items.map((item) => item.getAttribute("aria-label")))).toEqual([
-    "fixture.bdf",
-    "fixture.csv",
-    "fixture.edf",
-    "fixture.vhdr",
-    "fixture_truncated.edf",
+    "fixture, fixture.bdf",
+    "fixture, fixture.csv",
+    "fixture, fixture.edf",
+    "fixture, fixture.vhdr",
+    "fixture_truncated, fixture_truncated.edf",
   ]);
   await expect(rows).toContainText(["BDF", "Text", "EDF", "BrainVision", "EDF"]);
   await rows.filter({ hasText: "BrainVision" }).click();

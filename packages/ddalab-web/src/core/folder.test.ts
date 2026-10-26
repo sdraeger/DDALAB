@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { classifyFolder, type FolderRecording, folderTree, ROOT } from "./folder";
+import { classifyFolder, type FolderRecording, folderTree, ROOT, walk } from "./folder";
 
 /** A file at `path` (as a folder pick reports it) holding `text`. */
 function file(path: string, text = "x"): File {
@@ -53,7 +53,7 @@ test("bids_dataset_with_sidecars", async () => {
     file(`${stem}_channels.tsv`),
     file(`${stem}_events.tsv`),
     file(`${ieeg}/sub-01_ses-1_space-ACPC_electrodes.tsv`),
-    // Delimited text inside a dataset is a table, never a recording.
+    // Delimited text inside a dataset is a table.
     file(`${ieeg}/sub-01_ses-1_task-rest_physio.tsv`),
     file(`${ieeg}/notes.txt`),
   ]);
@@ -171,4 +171,80 @@ test("tree_of_more_than_40_rows_expands_its_first_level", () => {
   expect(folderTree(deep, false).expanded).toEqual(["d/ds/", "d/x/"]);
   // A filter expands every folder: ds, x and the 50 subject chains.
   expect(folderTree(deep, true).expanded).toHaveLength(52);
+});
+
+test("unreadable_header", async () => {
+  const vhdr = file("x/a.vhdr");
+  Object.defineProperty(vhdr, "slice", { value: () => ({ text: () => Promise.reject(new Error("gone")) }) });
+  expect(summary(await classifyFolder([vhdr]))[0].missing).toBe("The header could not be read");
+});
+
+/** A folder as the walk sees it: a File reads, an Error fails to read, null is a folder that cannot be listed. */
+type Tree = { [name: string]: File | Error | null | Tree };
+const study = (): Tree => ({
+  "a.edf": new File(["x"], "a.edf"),
+  "gone.edf": new Error("A requested file or directory could not be found"),
+  ".git": { "x.edf": new File(["x"], "x.edf") },
+  node_modules: { "y.edf": new File(["x"], "y.edf") },
+  sub: { "b.bdf": new File(["x"], "b.bdf"), locked: null },
+});
+
+function directoryHandle(name: string, tree: Tree | null): FileSystemDirectoryHandle {
+  async function* values() {
+    if (tree === null) throw new Error("Permission denied");
+    for (const [child, value] of Object.entries(tree)) {
+      if (value === null || !(value instanceof File || value instanceof Error))
+        yield directoryHandle(child, value);
+      else
+        yield {
+          kind: "file",
+          name: child,
+          getFile: async () => (value instanceof File ? value : Promise.reject(value)),
+        };
+    }
+  }
+  return { kind: "directory", name, values } as unknown as FileSystemDirectoryHandle;
+}
+
+function entry(name: string, value: File | Error | null | Tree): FileSystemEntry {
+  if (value instanceof File || value instanceof Error) {
+    const file = (ok: (f: File) => void, fail: (e: Error) => void) =>
+      value instanceof File ? ok(value) : fail(value);
+    return { name, isFile: true, isDirectory: false, file } as unknown as FileSystemEntry;
+  }
+  const createReader = () => {
+    let listed = false;
+    const readEntries = (ok: (entries: FileSystemEntry[]) => void, fail: (e: Error) => void) => {
+      if (value === null) return fail(new Error("Permission denied"));
+      ok(listed ? [] : Object.entries(value).map(([child, inner]) => entry(child, inner)));
+      listed = true;
+    };
+    return { readEntries };
+  };
+  return { name, isFile: false, isDirectory: true, createReader } as unknown as FileSystemEntry;
+}
+
+test("walk_skips_and_counts_entries_it_cannot_read", async () => {
+  const signal = new AbortController().signal;
+  const counts: number[] = [];
+  const root = directoryHandle("study", study());
+  const picked = await walk({ kind: "handle", handle: root }, signal, (n) => counts.push(n));
+  expect(picked.files.map((f) => f.webkitRelativePath)).toEqual(["study/a.edf", "study/sub/b.bdf"]);
+  // gone.edf and the locked folder; the hidden folder and node_modules are not read at all.
+  expect(picked.unreadable).toBe(2);
+  expect(counts.at(-1)).toBe(3);
+  // The picker's handles stay with the files and the opened folder.
+  expect(picked.root).toBe(root);
+  expect(picked.files.map((f) => picked.handles.get(f)?.name)).toEqual(["a.edf", "b.bdf"]);
+
+  const dropped = await walk({ kind: "entries", entries: [entry("study", study())] }, signal, () => {});
+  expect(dropped.files.map((f) => f.webkitRelativePath)).toEqual(["study/a.edf", "study/sub/b.bdf"]);
+  expect(dropped.unreadable).toBe(2);
+  expect(dropped.root).toBeUndefined();
+  expect(dropped.handles.size).toBe(0);
+
+  // The opened folder itself must be readable.
+  await expect(
+    walk({ kind: "handle", handle: directoryHandle("x", null) }, signal, () => {}),
+  ).rejects.toThrow("Permission denied");
 });
