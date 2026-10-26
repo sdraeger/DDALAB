@@ -261,6 +261,26 @@
   white-space: nowrap;
 }
 
+/* The sensitivity's number, three tabular digits wide and aligned to its end, before its unit. */
+.digits {
+  display: inline-block;
+  inline-size: 3ch;
+  text-align: end;
+}
+
+/* A unit and hidden copies of every unit it can be, in one cell: the box is as wide as the widest (Units). */
+.units {
+  display: inline-grid;
+}
+
+.units > * {
+  grid-area: 1 / 1;
+}
+
+.units > [aria-hidden] {
+  visibility: hidden;
+}
+
 /* Why data could not be read, over the top left of the plot or the strip, until a read succeeds. */
 .problem {
   position: absolute;

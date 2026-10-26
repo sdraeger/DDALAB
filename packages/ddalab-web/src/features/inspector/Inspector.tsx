@@ -1,9 +1,10 @@
 // The inspector: the active result's provenance, the active recording's facts and scan, and its channels by electrode
 // group, chosen for analysis.
+import Check from "lucide-react/dist/esm/icons/check.mjs";
 import { lazy, memo, Suspense, useCallback, useId, useMemo, useState, useTransition } from "react";
 import { closeRecording } from "../../app/recordings";
 import type { RecordingInfo } from "../../core/types";
-import { activeRecording, selectChannels, useStore } from "../../store/store";
+import { activeRecording, selectChannels, showChosenOnly, useStore } from "../../store/store";
 import { tabOf, updateTab } from "../../store/tabs";
 import controls from "../../styles/controls.module.css";
 import { DdaSettings } from "../analysis/DdaSettings";
@@ -149,6 +150,7 @@ const Channels = memo(function Channels(props: {
       <h3 className={styles.heading}>
         Channels <span className={styles.count}>{`${selected.length} of ${labels.length} chosen`}</span>
       </h3>
+      <ChosenOnly chosen={selected.length} />
       <ul id={groupsId} aria-label="Electrode groups" className={styles.groups}>
         {(allGroups ? groups : groups.slice(0, GROUPS_SHOWN)).map((group) => (
           <GroupRow key={group.name} group={group} chosen={chosen} />
@@ -202,6 +204,37 @@ const Channels = memo(function Channels(props: {
     </div>
   );
 });
+
+/**
+ * Shows the chosen channels alone in the waveform; a check beside the label marks it on where forced colors drop the
+ * color. The check keeps its place while off and fades in, which leaves the label still.
+ * With none chosen it cannot, and its note says why; the note is announced when the last channel is unchosen, which
+ * turns it off.
+ */
+function ChosenOnly({ chosen }: { chosen: number }) {
+  const on = useStore((s) => s.view.chosenOnly);
+  const id = useId();
+  const reason = chosen === 0 ? "No channel is chosen." : "";
+  return (
+    <div className={styles.chosenOnly}>
+      {/* Focusable while it cannot act, which lets its reason be heard. */}
+      <button
+        type="button"
+        className={controls.button}
+        aria-pressed={on}
+        aria-disabled={reason ? true : undefined}
+        aria-describedby={reason ? `${id}-reason` : undefined}
+        onClick={() => !reason && showChosenOnly(!on)}
+      >
+        <Check aria-hidden className={styles.check} data-on={on || undefined} />
+        Show chosen channels only
+      </button>
+      <span id={`${id}-reason`} className={styles.reason} aria-live="polite">
+        {reason}
+      </span>
+    </div>
+  );
+}
 
 function GroupRow({ group, chosen }: { group: Group; chosen: Set<number> }) {
   const count = group.members.filter((c) => chosen.has(c)).length;
