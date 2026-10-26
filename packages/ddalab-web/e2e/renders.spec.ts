@@ -223,3 +223,29 @@ test("a_closed_inspector_neither_renders_nor_plans", async ({ page }) => {
     "40",
   );
 });
+
+test("moving_between_result_rows_renders_the_rows_only", async ({ page }) => {
+  test.skip(
+    !(await page.evaluate(() =>
+      navigator.storage.getDirectory().then(
+        () => true,
+        () => false,
+      ),
+    )),
+    "this browser window has no OPFS",
+  );
+  await page.evaluate(() =>
+    window.__ddalab.openSynthetic({ channels: 64, rateHz: 256, durationS: 60, seed: 4 }),
+  );
+  await page.evaluate(() => window.__ddalab.viewer.settled());
+  await showFixture(page, { id: "fixture", windows: 200, rows: 64, first: 0.5, step: 0.25, values: [] });
+  await page.evaluate(() => window.__ddalab.results.settled());
+  const rows = page.getByRole("list", { name: "Result rows" }).getByRole("button");
+  await rows.first().focus();
+  const counts = await rendersDuring(page, ["Heatmap", "Gutter", "VariantTabs", "ColorBar"], async () => {
+    for (let i = 0; i < 20; i++) await page.keyboard.press("ArrowDown");
+    await expect(rows.nth(20)).toBeFocused();
+    await expect(rows.nth(20)).toHaveAttribute("tabindex", "0");
+  });
+  expect(counts).toEqual({ Heatmap: 0, Gutter: 20, VariantTabs: 0, ColorBar: 0 });
+});
