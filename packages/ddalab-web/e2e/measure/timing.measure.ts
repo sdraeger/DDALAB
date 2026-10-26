@@ -100,7 +100,7 @@ test("history_fill", async ({ page }) => {
       create: true,
     });
     const db: IDBDatabase = await new Promise((opened, failed) => {
-      const request = indexedDB.open("ddalab", 2);
+      const request = indexedDB.open("ddalab");
       request.onsuccess = () => opened(request.result);
       request.onerror = () => failed(request.error);
     });

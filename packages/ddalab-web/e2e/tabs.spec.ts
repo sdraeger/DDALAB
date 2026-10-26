@@ -327,7 +327,12 @@ test("same_name_and_size_reattach_through_the_hash", async ({ page }) => {
   for (const path of [one, two]) await page.getByLabel("Recording files").setInputFiles(path);
   await expect(tabs(page)).toHaveText(["one.edf", "two.edf"]);
   // Each tab keeps its files' SHA-256 once hashed.
-  const hashed = () => page.evaluate(() => window.__ddalab.store.getState().tabs.every((t) => t.sha256));
+  const hashed = () =>
+    page.evaluate(
+      () =>
+        window.__ddalab.store.getState().tabs.every((t) => t.sha256) &&
+        window.__ddalab.store.getState().tabs.length > 0,
+    );
   await expect.poll(hashed, { timeout: 30_000 }).toBe(true);
   await flush(page);
   await page.reload();
@@ -366,7 +371,12 @@ test("a_tab_closed_while_its_files_are_checked_stays_closed", async ({ page }) =
   const one = largeEdf(mkdtempSync(join(tmpdir(), "ddalab-tabs-")), "one.edf", 1);
   await page.goto("/");
   await page.getByLabel("Recording files").setInputFiles(one);
-  const hashed = () => page.evaluate(() => window.__ddalab.store.getState().tabs.every((t) => t.sha256));
+  const hashed = () =>
+    page.evaluate(
+      () =>
+        window.__ddalab.store.getState().tabs.every((t) => t.sha256) &&
+        window.__ddalab.store.getState().tabs.length > 0,
+    );
   await expect.poll(hashed, { timeout: 30_000 }).toBe(true);
   await flush(page);
   await page.reload();
@@ -429,7 +439,12 @@ test("close_all_while_a_tab_is_verifying_leaves_no_tab", async ({ page }) => {
   const one = largeEdf(join(root, "first"), "one.edf", 1);
   await page.goto("/");
   await page.getByLabel("Recording files").setInputFiles(one);
-  const hashed = () => page.evaluate(() => window.__ddalab.store.getState().tabs.every((t) => t.sha256));
+  const hashed = () =>
+    page.evaluate(
+      () =>
+        window.__ddalab.store.getState().tabs.every((t) => t.sha256) &&
+        window.__ddalab.store.getState().tabs.length > 0,
+    );
   await expect.poll(hashed, { timeout: 30_000 }).toBe(true);
   await flush(page);
   await slowOpens(page);
@@ -463,7 +478,12 @@ test("a_copy_with_no_digest_attaches_with_a_warning", async ({ page }) => {
   // A tab whose files were never hashed (closed too soon, say) keeps no digest: here it is dropped once the scan
   // and the hash are over.
   await expect(page.getByText("Overview 100%")).toBeVisible();
-  const hashed = () => page.evaluate(() => window.__ddalab.store.getState().tabs.every((t) => t.sha256));
+  const hashed = () =>
+    page.evaluate(
+      () =>
+        window.__ddalab.store.getState().tabs.every((t) => t.sha256) &&
+        window.__ddalab.store.getState().tabs.length > 0,
+    );
   await expect.poll(hashed).toBe(true);
   await page.evaluate(() =>
     window.__ddalab.store.setState((s) => ({ tabs: s.tabs.map((t) => ({ ...t, sha256: undefined })) })),
@@ -598,7 +618,11 @@ async function stubPickers(page: Page, files: Record<string, string>, answer?: "
 const base64Of = (path: string) => readFileSync(path).toString("base64");
 const requested = (page: Page) => page.evaluate(() => (window as unknown as { requested: number }).requested);
 const hashedTabs = (page: Page) =>
-  page.evaluate(() => window.__ddalab.store.getState().tabs.every((t) => t.sha256));
+  page.evaluate(
+    () =>
+      window.__ddalab.store.getState().tabs.every((t) => t.sha256) &&
+      window.__ddalab.store.getState().tabs.length > 0,
+  );
 
 test("granted_handles_reattach_on_their_own_and_one_grant_covers_a_folder", async ({ page, browserName }) => {
   test.skip(browserName !== "chromium", "FileSystemHandles persist only in Chromium");
