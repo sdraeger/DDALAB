@@ -249,3 +249,33 @@ test("moving_between_result_rows_renders_the_rows_only", async ({ page }) => {
   });
   expect(counts).toEqual({ Heatmap: 0, Gutter: 20, VariantTabs: 0, ColorBar: 0 });
 });
+
+test("scrolling_the_channels_renders_once_a_row", async ({ page }) => {
+  const id = await page.evaluate(() =>
+    window.__ddalab.openSynthetic({ channels: 512, rateHz: 256, durationS: 60, seed: 3 }),
+  );
+  const list = page.getByRole("list", { name: "Channels" });
+  await expect(list.getByText("CH1", { exact: true })).toBeVisible();
+  // The scan and the annotations are in, which change what sits above the list and so its height.
+  await expect(page.getByText("Overview 100%")).toBeVisible();
+  await page.evaluate((id) => window.__ddalab.engine.annotations(id), id);
+  await page.waitForTimeout(300);
+  let events = 0;
+  const counts = await rendersDuring(page, ["ChannelList", "Channels"], async () => {
+    // 140 px in steps of 2 px, a frame apart: five rows of 28 px.
+    events = await list.evaluate(async (element) => {
+      const scroller = element.parentElement as HTMLElement;
+      let n = 0;
+      scroller.addEventListener("scroll", () => n++);
+      for (let i = 1; i <= 70; i++) {
+        scroller.scrollTop = i * 2;
+        await new Promise(requestAnimationFrame);
+      }
+      return n;
+    });
+  });
+  expect(events).toBeGreaterThan(30);
+  // Renders of the channels above (the recording's annotations arriving) render the list too; the scroll adds one a row.
+  expect(counts.ChannelList - counts.Channels).toBeLessThanOrEqual(5);
+  await expect(list.getByText("CH10", { exact: true })).toBeVisible();
+});

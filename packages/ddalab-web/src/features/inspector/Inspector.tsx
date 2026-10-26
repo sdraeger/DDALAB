@@ -208,7 +208,8 @@ function ChannelList(props: {
   stale: boolean;
 }) {
   const { shown, labels, info, analysis, tints, groupOf, chosen } = props;
-  const [scrollTop, setScrollTop] = useState(0);
+  // The first row in view: a scroll renders the list when it crosses a row, which keeps this the same in between.
+  const [top, setTop] = useState(0);
   const [height, setHeight] = useState(0);
   const measure = useCallback((element: HTMLDivElement | null) => {
     if (!element) return;
@@ -216,8 +217,9 @@ function ChannelList(props: {
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
-  const first = Math.max(0, Math.floor(scrollTop / ROW) - OVERSCAN);
-  const last = Math.min(shown.length, Math.ceil((scrollTop + (height || 800)) / ROW) + OVERSCAN);
+  const first = Math.max(0, top - OVERSCAN);
+  // One row more than the pixel offset would need: the rows in view start anywhere within `top`.
+  const last = Math.min(shown.length, top + Math.ceil((height || 800) / ROW) + 1 + OVERSCAN);
   return (
     <div
       className={styles.scroller}
@@ -225,7 +227,7 @@ function ChannelList(props: {
       // Page keys scroll this list instead of paging the recording.
       data-own-keys
       ref={measure}
-      onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+      onScroll={(event) => setTop(Math.floor(event.currentTarget.scrollTop / ROW))}
     >
       <ul aria-label="Channels" className={styles.list} style={{ height: shown.length * ROW }}>
         {shown.slice(first, last).map((channel, k) => {
