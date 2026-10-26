@@ -80,6 +80,14 @@ jobs:
         env:
           DIST_WASM_TYPE: application/octet-stream
 
+      # What the pages job deploys: this dist, after its tests. The artifact leaves out hidden files, which are the
+      # .htaccess (the build copied its policy into index.html as a meta element) and the .ddalab-web marker.
+      - name: Keep the site for GitHub Pages
+        if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: packages/ddalab-web/dist
+
       - name: Zip the bundle
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
@@ -186,18 +194,16 @@ jobs:
           fi
           gh release upload "$GITHUB_REF_NAME" ddalab-web-*.zip --clobber
 
-  # Publishes the app at https://sdraeger.github.io/DDALAB/ (the app's own origin; the base path is relative). It builds
-  # again rather than reusing the web job's dist, which that job leaves only as a zip. The artifact omits dotfiles, so
-  # the .htaccess (no use on Pages; the build put the policy into index.html as a meta element) and the .ddalab-web
-  # marker stay out. The github-pages environment must allow deployments from v* tags.
+  # Publishes the dist the web job built and tested at https://sdraeger.github.io/DDALAB/ (the base path is relative).
+  # The github-pages environment must allow deployments from v* tags. A tag with a "-" is a pre-release and stays off
+  # the site: every installed copy would offer it as an update.
   pages:
     name: Deploy to GitHub Pages
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
     needs: [web, e2e]
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 10
     permissions:
-      contents: read
       pages: write
       id-token: write
     concurrency:
@@ -206,44 +212,7 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    defaults:
-      run:
-        working-directory: packages/ddalab-web
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
-        with:
-          toolchain: stable
-          targets: wasm32-unknown-unknown
-
-      - name: Cache Rust artifacts
-        uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          workspaces: |
-            packages/dda-rs -> target
-            packages/ddalab-wasm -> target
-
-      - name: Setup Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: "26"
-          cache: npm
-          cache-dependency-path: packages/ddalab-web/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Production build
-        run: npm run build
-
-      - name: Upload the site
-        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
-        with:
-          path: packages/ddalab-web/dist
-
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
