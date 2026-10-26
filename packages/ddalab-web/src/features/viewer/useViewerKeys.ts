@@ -5,6 +5,7 @@ import {
   pageBy,
   pageToEnd,
   pageToStart,
+  setCursor,
   setSelection,
   setView,
   stepSensitivity,
@@ -61,8 +62,9 @@ export function useViewerKeys() {
           setView((v) => ({ firstChannel: v.firstChannel - 1 }));
           break;
         case "Escape":
-          if (!selection) return;
+          if (!selection && cursorS === null) return;
           setSelection(null);
+          setCursor(null);
           break;
         default:
           return;
