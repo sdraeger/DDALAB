@@ -10,6 +10,8 @@ import X from "lucide-react/dist/esm/icons/x.mjs";
 import {
   type CSSProperties,
   type KeyboardEvent,
+  memo,
+  type Ref,
   Suspense,
   use,
   useEffect,
@@ -109,7 +111,6 @@ function Heatmap({
       return a === b ? a : `linear-gradient(${a} 50%, ${b} 50%)`;
     });
   }, [analysis, info, labels]);
-  const [focusRow, setFocusRow] = useState(0);
   /** Why the heatmap cannot be drawn, when it cannot. */
   const [glProblem, setGlProblem] = useState<string | null>(null);
   const plot = useRef<HTMLDivElement>(null);
@@ -407,32 +408,6 @@ function Heatmap({
   }, [recordingId, resultId, manifest, variant, array, map, labels, rows, loading]);
 
   const centers = manifest.window_centers_seconds;
-  const focusable = Math.min(focusRow, rows - 1);
-  /**
-   * Up, Down, Home and End move between the row buttons (Tab leaves the list); Left and Right step the cursor one
-   * window, from the window nearest the middle of the view when the cursor is elsewhere.
-   */
-  const rove = (event: KeyboardEvent<HTMLUListElement>) => {
-    const by = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
-    if (by !== undefined) {
-      event.preventDefault();
-      const { cursorS, view } = useStore.getState();
-      const last = centers.length - 1;
-      const step = last > 0 ? (centers[last] - centers[0]) / last : 1;
-      const on = cursorS !== null && cursorS >= view.t0 && cursorS <= view.t1;
-      const k = ((on ? cursorS : (view.t0 + view.t1) / 2) - centers[0]) / step;
-      const next = on ? (by > 0 ? Math.floor(k + 1e-6) + 1 : Math.ceil(k - 1e-6) - 1) : Math.round(k);
-      const t = centers[Math.max(0, Math.min(last, next))];
-      setCursor(t);
-      if (t < view.t0 || t > view.t1)
-        setView((v) => ({ t0: t - (v.t1 - v.t0) / 2, t1: t + (v.t1 - v.t0) / 2 }));
-      return;
-    }
-    const next = { ArrowDown: focusable + 1, ArrowUp: focusable - 1, Home: 0, End: rows - 1 }[event.key];
-    if (next === undefined) return;
-    event.preventDefault();
-    event.currentTarget.querySelectorAll("button")[Math.max(0, Math.min(rows - 1, next))]?.focus();
-  };
   return (
     <Tabs.Root
       value={variant.id}
@@ -475,28 +450,7 @@ function Heatmap({
         </button>
       </div>
       <Tabs.Panel value={variant.id} className={styles.panel} style={{ "--rows": rows } as CSSProperties}>
-        <ul ref={gutter} className={styles.gutter} aria-label="Result rows" onKeyDown={rove} data-own-keys>
-          {labels.map((label, r) => (
-            <li
-              key={label}
-              className={styles.gutterRow}
-              style={{ top: `${(100 * r) / rows}%`, height: `${100 / rows}%` }}
-            >
-              <button
-                type="button"
-                className={styles.rowButton}
-                data-row={r}
-                aria-pressed={picked === r}
-                tabIndex={r === focusable ? 0 : -1}
-                onFocus={() => setFocusRow(r)}
-                onClick={() => setShownResult({ row: picked === r ? null : r })}
-              >
-                {label}
-              </button>
-              <span className={styles.tint} style={{ background: tints[r] }} />
-            </li>
-          ))}
-        </ul>
+        <Gutter ref={gutter} labels={labels} tints={tints} picked={picked} centers={centers} />
         <div className={styles.plot} ref={plot}>
           <canvas ref={heat} className={styles.layer} aria-hidden data-heatmap />
           <canvas ref={marks} className={styles.layer} aria-hidden />
@@ -527,6 +481,72 @@ function Heatmap({
     </Tabs.Root>
   );
 }
+
+/**
+ * The row buttons beside the heatmap, which own the keyboard's place among them: moving it renders this list, the
+ * heatmap stays as it is.
+ */
+const Gutter = memo(function Gutter(props: {
+  ref: Ref<HTMLUListElement>;
+  labels: string[];
+  tints: string[];
+  picked: number | null;
+  centers: number[];
+}) {
+  const { labels, tints, picked, centers } = props;
+  const rows = labels.length;
+  const [focusRow, setFocusRow] = useState(0);
+  const focusable = Math.min(focusRow, rows - 1);
+  /**
+   * Up, Down, Home and End move between the row buttons (Tab leaves the list); Left and Right step the cursor one
+   * window, from the window nearest the middle of the view when the cursor is elsewhere.
+   */
+  const rove = (event: KeyboardEvent<HTMLUListElement>) => {
+    const by = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
+    if (by !== undefined) {
+      event.preventDefault();
+      const { cursorS, view } = useStore.getState();
+      const last = centers.length - 1;
+      const step = last > 0 ? (centers[last] - centers[0]) / last : 1;
+      const on = cursorS !== null && cursorS >= view.t0 && cursorS <= view.t1;
+      const k = ((on ? cursorS : (view.t0 + view.t1) / 2) - centers[0]) / step;
+      const next = on ? (by > 0 ? Math.floor(k + 1e-6) + 1 : Math.ceil(k - 1e-6) - 1) : Math.round(k);
+      const t = centers[Math.max(0, Math.min(last, next))];
+      setCursor(t);
+      if (t < view.t0 || t > view.t1)
+        setView((v) => ({ t0: t - (v.t1 - v.t0) / 2, t1: t + (v.t1 - v.t0) / 2 }));
+      return;
+    }
+    const next = { ArrowDown: focusable + 1, ArrowUp: focusable - 1, Home: 0, End: rows - 1 }[event.key];
+    if (next === undefined) return;
+    event.preventDefault();
+    event.currentTarget.querySelectorAll("button")[Math.max(0, Math.min(rows - 1, next))]?.focus();
+  };
+  return (
+    <ul ref={props.ref} className={styles.gutter} aria-label="Result rows" onKeyDown={rove} data-own-keys>
+      {labels.map((label, r) => (
+        <li
+          key={label}
+          className={styles.gutterRow}
+          style={{ top: `${(100 * r) / rows}%`, height: `${100 / rows}%` }}
+        >
+          <button
+            type="button"
+            className={styles.rowButton}
+            data-row={r}
+            aria-pressed={picked === r}
+            tabIndex={r === focusable ? 0 : -1}
+            onFocus={() => setFocusRow(r)}
+            onClick={() => setShownResult({ row: picked === r ? null : r })}
+          >
+            {label}
+          </button>
+          <span className={styles.tint} style={{ background: tints[r] }} />
+        </li>
+      ))}
+    </ul>
+  );
+});
 
 /** Why an array could not be read, with Try again; nothing once it is read. */
 function ArrayStatus(props: { loading: Promise<Loaded<ResultArray>>; onRetry(): void }) {
