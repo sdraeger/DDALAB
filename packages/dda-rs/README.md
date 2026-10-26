@@ -30,7 +30,7 @@ It reads EDF, BDF, BrainVision and delimited text. `ddalab --help` lists the oth
 
 ```toml
 [dependencies]
-dda-rs = "2.2.0"
+dda-rs = "2.3.0"
 ```
 
 ## Quick Start
