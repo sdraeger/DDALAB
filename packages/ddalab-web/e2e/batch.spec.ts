@@ -201,7 +201,8 @@ test("batch_runs_the_datasets_recordings_into_the_history_and_the_clis_layout", 
   // A click on a range field chooses the range.
   await run.click();
   await expect(panel.getByRole("radio", { name: "Whole recording" })).toBeChecked();
-  await panel.getByRole("textbox", { name: "Start in seconds" }).click();
+  // Playwright waits for an aria-disabled field to turn enabled before it clicks; a pointer reaches it at once.
+  await panel.getByRole("textbox", { name: "Start in seconds" }).click({ force: true });
   await expect(panel.getByRole("radio", { name: /^From start to end/ })).toBeChecked();
   await expect(panel.getByRole("textbox", { name: "Start in seconds" })).toBeFocused();
   await page.keyboard.press("Escape");
