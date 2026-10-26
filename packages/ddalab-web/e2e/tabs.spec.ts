@@ -307,6 +307,67 @@ test("url_tabs_reattach_without_a_prompt", async ({ page }) => {
   }
 });
 
+// A URL tab that reattaches on a later visit reads what viewing needs: its overview and its annotation list are
+// stored, and it is hashed only when a run needs its digests. The file is five 4 MiB blocks long.
+test("a_url_tab_reattaching_reads_only_ranges", async ({ page }) => {
+  const spec = { channels: 16, rateHz: 512, durationS: 1200, seed: 7 };
+  const bytes = new Uint8Array(syntheticEdfSize(spec));
+  readSynthetic(spec, 0, bytes);
+  const served = { requests: 0, whole: 0, bytes: 0 };
+  const server = createServer((req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Headers", "Range");
+    if (req.method === "OPTIONS") return void res.writeHead(204).end();
+    served.requests++;
+    const range = /^bytes=(\d+)-(\d+)$/.exec(req.headers.range ?? "");
+    if (!range) {
+      served.whole++;
+      served.bytes += bytes.length;
+      return void res.writeHead(200).end(bytes);
+    }
+    const [a, b] = [Number(range[1]), Math.min(Number(range[2]), bytes.length - 1)];
+    served.bytes += b + 1 - a;
+    res.writeHead(206, { "Content-Range": `bytes ${a}-${b}/${bytes.length}` }).end(bytes.subarray(a, b + 1));
+  });
+  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  try {
+    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/long.edf`;
+    await page.goto("/");
+    const remote = { name: "long.edf", url, size: bytes.length };
+    await page.evaluate((r) => window.__ddalab.open({ kind: "url", files: [r], primary: r.name }), remote);
+    // The first visit scans the file and reads its annotation list.
+    const stored = () =>
+      page.evaluate(async () => {
+        const s = window.__ddalab.store.getState();
+        const recording = s.recordings[s.activeRecordingId as string];
+        const scanned = recording?.scan.scannedRows === recording?.scan.totalRows;
+        const kept = await new Promise<unknown>((resolve) => {
+          const opening = indexedDB.open("ddalab");
+          opening.onsuccess = () => {
+            const get = opening.result.transaction("fileAnnotations").objectStore("fileAnnotations").count();
+            get.onsuccess = () => resolve(get.result);
+            get.onerror = () => resolve(0);
+          };
+          opening.onerror = () => resolve(0);
+        });
+        return Boolean(recording && scanned && kept);
+      });
+    await expect.poll(stored, { timeout: 30_000 }).toBe(true);
+    await flush(page);
+    Object.assign(served, { requests: 0, whole: 0, bytes: 0 });
+    await page.reload();
+    await expect(heading(page, "long.edf")).toBeVisible();
+    await page.evaluate(() => window.__ddalab.viewer.settled());
+    // Long enough for a hash or an annotation pass, which read the file whole, to have read most of it.
+    await page.waitForTimeout(2000);
+    expect(served.requests).toBeGreaterThan(0);
+    expect(served.whole).toBe(0);
+    expect(served.bytes).toBeLessThan(bytes.length / 2);
+  } finally {
+    server.close();
+  }
+});
+
 /** An EDF of `name` above 128 KiB in `folder`: an edit in its middle is outside the fingerprint's first and last 64 KiB. */
 function largeEdf(folder: string, name: string, seed: number) {
   const spec = { channels: 2, rateHz: 256, durationS: 300, seed };

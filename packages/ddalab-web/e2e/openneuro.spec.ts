@@ -168,7 +168,12 @@ test("range_requests_only", async ({ page }) => {
   await mockOpenNeuro(page);
   await page.goto(`/${DEMO}`);
   await expect(page.getByRole("heading", { name: `${RUN}_ieeg.vhdr` })).toBeVisible();
-  // Every file the recording uses is read whole by the hash worker once the scan is done.
+  // Nothing hashes a URL recording until a run asks for its digests; then the hash worker reads every file whole.
+  expect((await active(page)).sha256).toEqual([]);
+  await page.evaluate(() => {
+    const { engine, store } = window.__ddalab;
+    return engine.hashes(store.getState().activeRecordingId as string);
+  });
   await expect
     .poll(async () => {
       const { files, sha256 } = await active(page);

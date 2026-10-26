@@ -197,6 +197,31 @@ const heatmapDrawn = (page: Page) =>
     return { frame, drawn: opaque / (data.length / 4) };
   });
 
+test("provenance_names_every_input_file_and_a_digest_its_manifest_lacks", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  const id = await runBrainVision(page);
+  const { analyses } = await state(page);
+  expect(analyses[0].inputFiles).toEqual(BRAINVISION);
+  // A manifest written without one digest (an older build's gap): the provenance names the file.
+  await page.evaluate((id) => {
+    const { store } = window.__ddalab;
+    store.setState((s) => ({
+      analyses: s.analyses.map((a) => {
+        if (a.id !== id || !a.manifest) return a;
+        const { "fixture.vmrk": _, ...kept } = a.manifest.reproduction.input_sha256;
+        return {
+          ...a,
+          manifest: { ...a.manifest, reproduction: { ...a.manifest.reproduction, input_sha256: kept } },
+        };
+      }),
+      activeResultId: id,
+    }));
+  }, id);
+  await expect(provenance(page).getByText("SHA-256 not recorded for fixture.vmrk")).toBeVisible();
+  const eeg = analyses[0].manifest?.reproduction.input_sha256["fixture.eeg"] as string;
+  await expect(provenance(page).getByText(eeg)).toBeVisible();
+});
+
 test("import_cli_bundle_shows_heatmap_without_recording", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
   const manifest = JSON.parse(readFileSync(join(bundleDir("st"), "manifest.json"), "utf8"));

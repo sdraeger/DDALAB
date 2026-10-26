@@ -234,7 +234,10 @@ function EngineFields({ record }: { record: AnalysisRecord }) {
   );
 }
 
-/** Each input file and its SHA-256: from the manifest, else from the open recording, hashed so far. */
+/**
+ * Each input file and its SHA-256: from the manifest, else from the open recording, hashed so far. A file the run read
+ * whose digest the manifest lacks is named as such.
+ */
 function InputFiles({ record }: { record: AnalysisRecord }) {
   // The hashes only: engine.ts keeps them across scan reports, which replace the recording.
   const recording = useStore(
@@ -246,7 +249,7 @@ function InputFiles({ record }: { record: AnalysisRecord }) {
     }),
   );
   const recorded = record.manifest?.reproduction.input_sha256;
-  const names = recorded ? Object.keys(recorded) : (recording.files ?? []);
+  const names = record.inputFiles ?? (recorded ? Object.keys(recorded) : (recording.files ?? []));
   if (names.length === 0) {
     return (
       <p className={styles.note}>
@@ -257,7 +260,7 @@ function InputFiles({ record }: { record: AnalysisRecord }) {
   return (
     <ul className={styles.files}>
       {names.map((name) => {
-        const sha256 = recorded?.[name] ?? recording.sha256?.[name];
+        const sha256 = recorded ? recorded[name] : recording.sha256?.[name];
         const hashed = recording.hashed?.[name] ?? 0;
         return (
           <li key={name}>
@@ -266,6 +269,8 @@ function InputFiles({ record }: { record: AnalysisRecord }) {
               <code className={styles.digest} data-appear>
                 {sha256}
               </code>
+            ) : record.manifest ? (
+              <span className={styles.note}>SHA-256 not recorded for {name}</span>
             ) : (
               <span className={styles.note}>hashing {Math.floor(100 * hashed)}%</span>
             )}
