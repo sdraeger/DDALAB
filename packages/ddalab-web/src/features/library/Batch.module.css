@@ -119,7 +119,9 @@
   height: 32px;
 }
 
-.start:disabled {
+.start[aria-disabled="true"],
+.start[aria-disabled="true"]:hover {
+  background: var(--primary);
   opacity: 0.45;
   cursor: default;
 }
@@ -179,28 +181,6 @@
   inline-size: auto;
   color: var(--primary);
   stroke-width: 2.5;
-}
-
-/* A row's batch mark: its icon and its word; the color repeats the word. */
-.mark {
-  display: flex;
-  align-items: baseline;
-  gap: 2px;
-  font-weight: var(--weight-medium);
-}
-
-.mark svg {
-  block-size: 1cap;
-  inline-size: auto;
-  stroke-width: 2.5;
-}
-
-.mark[data-mark="failed"] {
-  color: var(--event);
-}
-
-.mark[data-mark="running"] {
-  color: var(--primary);
 }
 
 /* The command bar's batch status, beside Run: short enough to stay whole. */

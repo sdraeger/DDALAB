@@ -1,15 +1,14 @@
 // The batch in the Folder section: "Run on all N" and its panel (the settings it takes, the channel rule, the
-// interval, Start), then the batch's progress in place of the panel, and the marks of the tree rows.
+// interval, Start), then the batch's progress in place of the panel. The tree rows' marks are FolderTree's.
 import { Popover } from "@base-ui/react/popover";
 import Check from "lucide-react/dist/esm/icons/check.mjs";
 import ListChecks from "lucide-react/dist/esm/icons/list-checks.mjs";
 import Play from "lucide-react/dist/esm/icons/play.mjs";
-import X from "lucide-react/dist/esm/icons/x.mjs";
 import { use, useId, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { variants } from "../../app/analyses";
 import { cancelBatch, startBatch } from "../../app/batch";
-import { batchOutcome, type Mark } from "../../core/batch";
+import { batchOutcome } from "../../core/batch";
 import type { FolderRecording } from "../../core/folder";
 import type { RecordingInfo } from "../../core/types";
 import { activeRecording, type State, togglePanel, useStore } from "../../store/store";
@@ -110,6 +109,7 @@ function BatchPanel(props: {
     : `Standard, delays ${STANDARD.delays.join(" ")}`;
 
   function start() {
+    if (reason) return;
     void startBatch(
       {
         root: props.root,
@@ -211,8 +211,12 @@ function BatchPanel(props: {
                     inputMode="decimal"
                     value={range[field]}
                     aria-invalid={rangeError ? true : undefined}
-                    onFocus={() => setWhole(false)}
-                    onChange={(event) => setRange({ ...range, [field]: event.target.value })}
+                    // Out of the tab order until the range is chosen: Tab to Start keeps the whole recording.
+                    disabled={whole}
+                    onChange={(event) => {
+                      setWhole(false);
+                      setRange({ ...range, [field]: event.target.value });
+                    }}
                   />
                   <span aria-hidden>s</span>
                 </span>
@@ -223,14 +227,16 @@ function BatchPanel(props: {
         <p className={styles.note}>An interval past a recording's end stops at it, with a warning.</p>
       </fieldset>
       {reason && (
-        <p className={styles.reason} data-appear>
+        <p id={`${id}-reason`} className={styles.reason} data-appear>
           {reason}
         </p>
       )}
+      {/* Focusable while it cannot start, which lets its reason be heard. */}
       <button
         type="button"
         className={`${controls.primary} ${styles.start}`}
-        disabled={!!reason}
+        aria-disabled={reason ? true : undefined}
+        aria-describedby={reason ? `${id}-reason` : undefined}
         onClick={start}
       >
         <Play aria-hidden />
@@ -240,30 +246,17 @@ function BatchPanel(props: {
   );
 }
 
-const MARK: Record<Mark, { word: string; Icon: typeof Check }> = {
-  done: { word: "Done", Icon: Check },
-  failed: { word: "Failed", Icon: X },
-  running: { word: "Running", Icon: Play },
-};
-
-/** A tree row's batch mark: an icon and its word, the color only repeating the word. */
-export function RowMark({ mark }: { mark: Mark }) {
-  const { word, Icon } = MARK[mark];
-  return (
-    <span className={styles.mark} data-mark={mark}>
-      <Icon aria-hidden />
-      {word}
-    </span>
-  );
-}
-
-/** The batch of this page in the Folder section: how far it is while it runs, then how it ended. */
+/**
+ * The batch of this page in the Folder section: how far it is while it runs, then how it ended. Focus inside the
+ * progress (on Cancel), or focus its removal dropped to the page, moves to the line that replaces it.
+ */
 export function BatchProgressView() {
   const batch = useStore((s) => s.batch);
   const record = useStore((s) => s.batches.find((b) => b.id === s.batch?.id));
   const bar = useRef<HTMLProgressElement>(null);
   const percent = useRef<HTMLSpanElement>(null);
-  useRunPercent(bar, percent);
+  const focused = useRef(false);
+  useRunPercent(percent, bar);
   if (!batch) return null;
   const marks = Object.values(batch.marks);
   const done = marks.filter((m) => m === "done").length;
@@ -276,14 +269,34 @@ export function BatchProgressView() {
         ? `Batch finished: ${batchOutcome(record)}.`
         : `Batch stopped: ${batchOutcome(record).toLowerCase()}.`;
     return (
-      <p key="ended" className={styles.ended} data-appear>
+      <p
+        key="ended"
+        className={styles.ended}
+        tabIndex={-1}
+        data-appear
+        ref={(line) => {
+          if (line && (focused.current || document.activeElement === document.body)) line.focus();
+          focused.current = false;
+        }}
+      >
         <Check aria-hidden />
         <span>{outcome} The results are in the history.</span>
       </p>
     );
   }
   return (
-    <section key="running" aria-label="Batch progress" className={styles.progress} data-appear>
+    <section
+      key="running"
+      aria-label="Batch progress"
+      className={styles.progress}
+      data-appear
+      onFocus={() => {
+        focused.current = true;
+      }}
+      onBlur={(event) => {
+        focused.current = event.currentTarget.contains(event.relatedTarget);
+      }}
+    >
       <div className={styles.line}>
         <b>{recording}</b>
         <button type="button" className={controls.button} data-batch-cancel onClick={cancelBatch}>

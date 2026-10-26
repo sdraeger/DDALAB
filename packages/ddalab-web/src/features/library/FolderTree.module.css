@@ -219,6 +219,35 @@
   font-weight: var(--weight-medium);
 }
 
+/* A row's batch mark: its icon and its word; the color repeats the word. */
+.mark {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  font-weight: var(--weight-medium);
+}
+
+.mark svg {
+  block-size: 1cap;
+  inline-size: auto;
+  stroke-width: 2.5;
+}
+
+.mark[data-mark="failed"] {
+  color: var(--event);
+}
+
+.mark[data-mark="running"] {
+  color: var(--primary);
+}
+
+/* On the shown recording's wash the accent and event colors fall under 4.5:1: its marks take the ink, and their words
+   and icons still tell them apart. */
+.recording[aria-selected="true"] .open,
+.recording[aria-selected="true"] .mark {
+  color: var(--ink);
+}
+
 /* Reduced motion keeps the fades and drops the chevron's turn. */
 @media (prefers-reduced-motion: reduce) {
   .chevron {

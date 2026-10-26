@@ -11,15 +11,15 @@ const percentOf = (s: State) => {
   return p && p.windows > 0 ? Math.floor((100 * p.windowsDone) / p.windows) : 0;
 };
 
-/** Keeps `bar` and `text` on the percent of the current run, which reports every block, without a render. */
+/** Keeps `text` and `bar` on the percent of the current run, which reports every block, without a render. */
 export function useRunPercent(
-  bar: RefObject<HTMLProgressElement | null>,
   text: RefObject<HTMLElement | null>,
+  bar?: RefObject<HTMLProgressElement | null>,
 ) {
   useEffect(() => {
     const show = (s: State) => {
       const percent = percentOf(s);
-      if (bar.current) bar.current.value = percent;
+      if (bar?.current) bar.current.value = percent;
       if (text.current) text.current.textContent = `${percent}%`;
     };
     show(useStore.getState());
@@ -37,8 +37,7 @@ export const recordingOf = (batch: State["batch"]) => {
 export function BatchStatus() {
   const batch = useStore((s) => s.batch);
   const percent = useRef<HTMLSpanElement>(null);
-  const none = useRef<HTMLProgressElement>(null);
-  useRunPercent(none, percent);
+  useRunPercent(percent);
   const recording = recordingOf(batch);
   return recording ? (
     <span className={styles.barStatus} data-appear title={`${recording}, ${batch?.name}`}>
