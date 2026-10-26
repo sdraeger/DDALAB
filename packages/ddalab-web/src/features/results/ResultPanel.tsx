@@ -31,6 +31,7 @@ import { FANOUT, type ResultTile } from "../../render/resultPyramid";
 import { readColors, watchTheme } from "../../render/themeColors";
 import { openResult, setCursor, setShownResult, setView, useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
+import { userOf } from "../annotations/model";
 import { electrodeGroups } from "../inspector/groups";
 import { probing } from "../viewer/probe";
 import { usePlotPointer } from "../viewer/usePlotPointer";
@@ -279,7 +280,12 @@ function Heatmap({
         hoverRow: under?.row ?? null,
       });
       marksCtx.clearRect(0, 0, W, H);
-      drawMarks(marksCtx, { W, H, dpr, view, selection, cursorS, recording, colors, over: true });
+      const events = {
+        recording,
+        user: recording && userOf(state, recording.fingerprint),
+        picked: state.pickedAnnotation,
+      };
+      drawMarks(marksCtx, { W, H, dpr, view, selection, cursorS, ...events, colors, over: true });
       if (at && under) {
         // The hovered row at full contrast, outlined; the others recede (heatmapLayer.ts).
         const line = Math.max(1, Math.round(dpr));
@@ -312,7 +318,7 @@ function Heatmap({
           t: (centers[w] + centers[Math.min(windows - 1, w + f - 1)]) / 2,
           v,
         }));
-        rowPlot.current?.draw({ points, view, width: W, dpr, colors });
+        rowPlot.current?.draw({ points, view, width: W, dpr, colors, events });
       }
       const message = drawn?.error ? `The result could not be read: ${drawn.error}. Trying again.` : null;
       if (message !== shownProblem) {

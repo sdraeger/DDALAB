@@ -1,15 +1,17 @@
 // The waveform pane: the label gutter with electrode-group tints, the time ruler, the traces (WebGL2) over a 2D
 // underlay, the printed scale and the channel scroller. View changes reach the canvases through store.subscribe;
 // React renders the structure and the visible gutter rows only.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { engine } from "../../app/recordings";
-import { drawRuler, drawUnderlay } from "../../render/axis";
+import { drawRuler, drawUnderlay, type Flag } from "../../render/axis";
 import { observeDevicePixels } from "../../render/devicePixels";
 import { paramsOf } from "../../render/display";
 import { webgl2 } from "../../render/gl";
 import { readColors, watchTheme } from "../../render/themeColors";
 import { createWaveformLayer, type Drawn, type Frame, type WaveformLayer } from "../../render/waveformLayer";
 import { CSS_PX_PER_MM, setPlotWidth, setView, useStore } from "../../store/store";
+import { userOf } from "../annotations/model";
+import { useAnnotationGestures } from "../annotations/useAnnotationGestures";
 import { electrodeGroups } from "../inspector/groups";
 import { type ProbeFrame, probing, viewerProbe } from "./probe";
 import { Readouts, type ReadoutsHandle } from "./Readouts";
@@ -17,6 +19,7 @@ import { usePlotPointer } from "./usePlotPointer";
 import styles from "./Viewer.module.css";
 
 const RULER_CSS = 22;
+const AnnotationEditor = lazy(() => import("../annotations/AnnotationEditor"));
 
 const GL_MISSING =
   "DDALAB draws recordings with WebGL2, which this browser does not provide. Use a current Chrome, Edge, " +
@@ -42,7 +45,11 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
   const ruler = useRef<HTMLCanvasElement>(null);
   const problem = useRef<HTMLParagraphElement>(null);
   const readouts = useRef<ReadoutsHandle>(null);
+  const flags = useRef<Flag[]>([]);
+  const tip = useRef<HTMLDivElement>(null);
+  const editing = useStore((s) => s.annotationEditor !== null);
   usePlotPointer(plot, recordingId);
+  useAnnotationGestures(plot, ruler, tip, flags, recordingId);
 
   useEffect(() => {
     const [plotEl, underEl, tracesEl, rulerEl, scrollerEl, spacerEl, problemEl] = [
@@ -133,6 +140,11 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
         scan.scannedRows < scan.totalRows && !scan.notice
           ? Math.floor((100 * scan.scannedRows) / scan.totalRows)
           : null;
+      const events = {
+        recording,
+        user: userOf(state, recording.fingerprint),
+        picked: state.pickedAnnotation,
+      };
       drawUnderlay(underCtx, {
         W,
         H,
@@ -140,12 +152,12 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
         view,
         selection: state.selection,
         cursorS: state.cursorS,
-        recording,
+        ...events,
         gaps: drawn.gaps,
         colors,
         scanPercent,
       });
-      drawRuler(rulerCtx, { W, H: rulerEl.height, dpr, view, recording, colors });
+      flags.current = drawRuler(rulerCtx, { W, H: rulerEl.height, dpr, view, ...events, colors });
       readouts.current?.update(view, cssW);
       const message = drawn.error && `The recording could not be read: ${drawn.error}. Trying again.`;
       if (message !== shownProblem) {
@@ -262,7 +274,7 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
           <span className={styles.unit} aria-hidden>
             s
           </span>
-          <canvas ref={ruler} className={styles.ruler} aria-hidden />
+          <canvas ref={ruler} className={styles.ruler} aria-hidden data-ruler />
           <ul className={styles.gutter} aria-label="Channel rows">
             {rows.map((channel) => (
               <li
@@ -292,6 +304,15 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
             <p ref={problem} className={styles.problem} role="alert" hidden />
             <Readouts ref={readouts} />
           </div>
+          <div ref={tip} className={styles.tip} hidden>
+            <b />
+            <span />
+          </div>
+          {editing && (
+            <Suspense fallback={null}>
+              <AnnotationEditor recordingId={recordingId} ruler={ruler} />
+            </Suspense>
+          )}
         </div>
         <div ref={spacer} />
       </div>

@@ -90,8 +90,8 @@ test("bar_holds_still_while_zooming", async ({ page }) => {
   }
 });
 
-// Where the bar is short the scale settings move behind one button, then the wordmark and the Local label give way
-// to their marks; nothing falls past the window's edge.
+// Where the bar is short the scale settings move behind one button, then the wordmark and the Local and Annotate
+// labels give way to their marks; nothing falls past the window's edge.
 test("bar_fits_the_window", async ({ page }) => {
   await openDay(page);
   for await (const layout of layouts(page, [768, 1024, 1280, 1600])) {
@@ -112,7 +112,7 @@ test("bar_fits_the_window", async ({ page }) => {
       ];
     });
     expect(outside, layout).toEqual([]);
-    for (const name of ["Local: data stays on this device", "Dark theme", "Run"]) {
+    for (const name of ["Local: data stays on this device", "Annotate", "Dark theme", "Run"]) {
       await expect(page.getByRole("button", { name, exact: true }), layout).toBeInViewport({ ratio: 1 });
     }
     const scales = page.getByRole("button", { name: "Epoch, sensitivity and timebase" });

@@ -10,6 +10,7 @@ import { paramsOf } from "../../render/display";
 import { drawOverview, envelope, overviewLevel } from "../../render/overviewLayer";
 import { readColors, watchTheme } from "../../render/themeColors";
 import { setView, useStore } from "../../store/store";
+import { userOf } from "../annotations/model";
 import styles from "./Viewer.module.css";
 
 /** A tile that failed to read is asked for again after this pause. */
@@ -104,7 +105,8 @@ export function Overview({ recordingId }: { recordingId: string }) {
       const scanPercent = scanning ? Math.floor((100 * scan.scannedRows) / scan.totalRows) : null;
       const { selection } = state;
       const { annotations } = recording.info;
-      const scene = [tiles.size, scanPercent, selection?.t0, selection?.t1, annotations, size, colors];
+      const user = userOf(state, recording.fingerprint);
+      const scene = [tiles.size, scanPercent, selection?.t0, selection?.t1, annotations, user, size, colors];
       if (scene.some((part, i) => part !== drawnScene[i])) {
         drawnScene = scene;
         drawOverview(ctx, {
@@ -118,6 +120,7 @@ export function Overview({ recordingId }: { recordingId: string }) {
           scanPercent,
           selection,
           annotations: annotations.map((a) => a.onset_s),
+          user: user.map((a) => a.onset_s),
           colors,
         });
       }

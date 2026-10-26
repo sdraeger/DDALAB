@@ -69,6 +69,8 @@ async function scalesDuring(page: Page, selector: string, act: () => Promise<voi
 }
 
 test("transitions_use_the_tokens", async ({ page }) => {
+  // The scale settings sit in the bar from 1400 px with the inspector open (Shell.module.css).
+  await page.setViewportSize({ width: 1440, height: 720 });
   const root = await page.evaluate(() => {
     const style = getComputedStyle(document.documentElement);
     return [style.getPropertyValue("--motion-duration"), style.getPropertyValue("--motion-ease")];
@@ -116,6 +118,8 @@ test("popups_grow_from_their_trigger", async ({ page }) => {
 });
 
 test("reduced_motion_popups_do_not_scale", async ({ page }) => {
+  // The scale settings sit in the bar from 1400 px with the inspector open (Shell.module.css).
+  await page.setViewportSize({ width: 1440, height: 720 });
   await page.emulateMedia({ reducedMotion: "reduce" });
   await openRecording(page);
   const select = await scalesDuring(page, '[role="listbox"]', () =>

@@ -2,6 +2,7 @@
 import { createEngine, type RecordingInput } from "../core/engine";
 import { buildFileSet } from "../core/sources";
 import type { SyntheticSpec } from "../core/synthetic";
+import { restoreAnnotations } from "../features/annotations/model";
 import { forgetRecent, listRecent, type RecentEntry, rememberRecent } from "../store/recent";
 import {
   activateRecording,
@@ -32,6 +33,7 @@ function adopt(opened: Awaited<ReturnType<typeof engine.open>>, source: "files" 
   if (useStore.getState().recordings[id]) return activateRecording(id);
   addRecording(id, { info, fingerprint, analysis_channels, source });
   follow(id);
+  void restoreAnnotations(fingerprint);
 }
 
 /** Opens an input as the UI opens files: an OpenNeuro recording, or a synthetic one in dev and e2e builds. */
