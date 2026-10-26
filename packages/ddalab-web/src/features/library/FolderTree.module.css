@@ -87,8 +87,9 @@
   outline-offset: -2px;
 }
 
+/* Hover leaves the shown recording's wash in place. */
 .folder:hover,
-.recording:hover:not([aria-disabled]) {
+.recording:hover:not([aria-disabled], [aria-selected="true"]) {
   background: var(--chrome-hover);
 }
 
@@ -133,7 +134,7 @@
   -webkit-line-clamp: 2;
 }
 
-/* Lines break between folders, never inside a name; a name longer than the line ends in an ellipsis. */
+/* Lines break only between folders, after a slash; a name longer than the line ends in an ellipsis. */
 .segment {
   display: inline-block;
   max-width: 100%;
@@ -143,7 +144,7 @@
   vertical-align: top;
 }
 
-.segment + .segment::before {
+.segment:not(:last-child)::after {
   content: "/";
   margin: 0 var(--space-1);
   color: var(--muted);
@@ -169,8 +170,13 @@
   white-space: nowrap;
 }
 
+/* The shown recording: its name in a heavier weight and "Viewing" in its meta line, over the wash. */
 .recording[aria-selected="true"] {
   background: var(--primary-wash);
+}
+
+.recording[aria-selected="true"] .name {
+  font-weight: var(--weight-medium);
 }
 
 .recording[aria-disabled] {
@@ -203,10 +209,8 @@
   font-weight: var(--weight-medium);
 }
 
+/* Reduced motion keeps the fades and drops the chevron's turn. */
 @media (prefers-reduced-motion: reduce) {
-  .scroller,
-  .folder,
-  .recording,
   .chevron {
     transition: none;
   }

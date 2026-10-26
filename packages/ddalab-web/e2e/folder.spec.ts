@@ -60,7 +60,13 @@ test.afterAll(() => rmSync(root, { recursive: true, force: true }));
 const channels = (page: Page) =>
   page.getByRole("list", { name: "Channels" }).getByRole("listitem").locator("label");
 const tree = (page: Page) => page.getByRole("tree", { name: "Recordings in data" });
-const row = (page: Page, name: string) => tree(page).getByRole("treeitem", { name, exact: true });
+// A recording's accessible name is its shown label, then its file name.
+const row = (page: Page, name: string) => tree(page).getByRole("treeitem", { name });
+/** The background of `locator` once a hover fade has settled. */
+const background = async (page: Page, locator: ReturnType<typeof row>) => {
+  await page.waitForTimeout(300);
+  return locator.evaluate((element) => getComputedStyle(element).backgroundColor);
+};
 const openCount = (page: Page) =>
   page.evaluate(() => Object.keys(window.__ddalab.store.getState().recordings).length);
 
@@ -75,6 +81,9 @@ test("open_folder_lists_every_recording", async ({ page }) => {
   await expect(row(page, CHAIN)).toHaveAttribute("aria-level", "1");
   await expect(row(page, VHDR)).toHaveAttribute("aria-level", "2");
   await expect(row(page, EDF)).toHaveAttribute("aria-level", "1");
+  // Label in name: the accessible name starts with the shown words.
+  await expect(row(page, VHDR)).toHaveAccessibleName(`task-ictal acq-ecog run-01, ${VHDR}`);
+  await expect(row(page, EDF)).toHaveAccessibleName(`S04__05_02_screenprint, ${EDF}`);
   await expect(row(page, VHDR)).toContainText("task-ictal acq-ecog run-01");
   await expect(row(page, VHDR)).toContainText("BrainVision");
   await expect(row(page, EDF)).toContainText("EDF");
@@ -101,12 +110,36 @@ test("open_folder_lists_every_recording", async ({ page }) => {
   await row(page, EDF).click();
   await expect(page.getByRole("heading", { name: EDF })).toBeVisible();
   await expect(channels(page)).toHaveText(["Fp1", "Fp2"]);
-  // Both stay open; the active one is selected, the other carries the open marker.
+  // Both stay open. The shown one is selected and says so in words; the other carries the open marker.
   expect(await openCount(page)).toBe(2);
   await expect(row(page, EDF)).toHaveAttribute("aria-selected", "true");
+  await expect(row(page, EDF)).toContainText("Viewing");
+  await expect(row(page, EDF)).not.toContainText("Open");
   await expect(row(page, VHDR)).toHaveAttribute("aria-selected", "false");
   await expect(row(page, VHDR)).toContainText("Open");
+  await expect(row(page, VHDR)).not.toContainText("Viewing");
+  // Hover leaves the shown row's state in place.
+  await page.mouse.move(800, 600);
+  const shown = await background(page, row(page, EDF));
+  await row(page, EDF).hover();
+  expect(await background(page, row(page, EDF))).toBe(shown);
   await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+// "sub-pt01 / ses-presurgery / ieeg" is wider than its row: it takes two lines and every name shows.
+test("long_folder_chain_takes_two_lines", async ({ page }) => {
+  await page.getByLabel("Recording folder").setInputFiles(join(data, "ds003029"));
+  const chain = page
+    .getByRole("tree", { name: "Recordings in ds003029" })
+    .getByRole("treeitem", { name: "sub-pt01 / ses-presurgery / ieeg", exact: true });
+  await expect(chain).toHaveCSS("height", "40px");
+  const clipped = await chain.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    return Array.from(element.querySelectorAll("span span"), (name) => name.getBoundingClientRect()).filter(
+      (r) => r.width === 0 || r.top < box.top || r.bottom > box.bottom,
+    ).length;
+  });
+  expect(clipped).toBe(0);
 });
 
 test("keyboard_moves_and_opens", async ({ page }) => {
@@ -153,12 +186,15 @@ test("filter_keeps_the_folders_of_matches", async ({ page }) => {
   await filter.fill("sub-03");
   await expect(rows).toHaveCount(2);
   const names = () => rows.evaluateAll((items) => items.map((item) => item.getAttribute("aria-label")));
-  expect(await names()).toEqual(["sub-03 / eeg", "sub-03_task-rest_eeg.edf"]);
+  expect(await names()).toEqual(["sub-03 / eeg", "sub-03_task-rest_eeg, sub-03_task-rest_eeg.edf"]);
   await filter.fill("pilot");
   await expect(rows).toHaveCount(2);
-  expect(await names()).toEqual(["pilot", "pilot.edf"]);
+  expect(await names()).toEqual(["pilot", "pilot, pilot.edf"]);
   await rows.nth(1).click();
   await expect(page.getByRole("heading", { name: "pilot.edf" })).toBeVisible();
+  // The opened folder's own name is in every path and matches none.
+  await filter.fill("study");
+  await expect(rows).toHaveCount(0);
   await filter.fill("nothing like it");
   await expect(rows).toHaveCount(0);
   await expect(page.getByText("No recording matches.")).toBeVisible();

@@ -27,7 +27,7 @@ export interface FolderRecording {
 
 /** Entries a walk leaves out at any depth. */
 const skipped = (name: string) => name.startsWith(".") || name === "node_modules";
-/** BIDS tables and sidecars: never recordings, wherever they are. */
+/** Names of BIDS tables and sidecars, inside a dataset or outside one. */
 const BIDS_TABLE = /(^participants|_(channels|events|electrodes|scans|sessions))\.tsv$/i;
 const FORMATS: Record<string, Format> = { vhdr: "BrainVision", edf: "EDF", bdf: "BDF" };
 // [Common Infos] opens a header; a large file named .vhdr is not read whole.
@@ -38,22 +38,35 @@ const withPath = (file: File, path: string) => {
   return file;
 };
 
+/** What a walk found. `handles` and `root` hold the FileSystemHandles of the files and of the opened folder where
+ * the browser gives them (the directory picker, a folder dropped in Chromium). */
+export interface Walked {
+  files: File[];
+  handles: Map<File, FileSystemFileHandle>;
+  root?: FileSystemDirectoryHandle;
+  /** Files and folders below the opened one that could not be read. */
+  unreadable: number;
+}
+
 /**
  * The files under `source`, each with its path from the opened folder's parent as `webkitRelativePath`. Hidden
- * entries and node_modules are not descended into. `progress` hears the count a few times a second.
+ * entries and node_modules are not descended into. An entry below the opened folder that cannot be read (removed
+ * during the walk, a dangling link) is skipped and counted. `progress` hears the count a few times a second.
  */
 export async function walk(
   source: FolderSource,
   signal: AbortSignal,
   progress: (count: number) => void,
-): Promise<File[]> {
+): Promise<Walked> {
+  const handles = new Map<File, FileSystemFileHandle>();
   if (source.kind === "files") {
     progress(source.files.length);
-    return source.files;
+    return { files: source.files, handles, unreadable: 0 };
   }
   const found: File[] = [];
   let listed = 0;
   let reported = 0;
+  let unreadable = 0;
   // Files count as they are listed: a large flat folder shows progress before its files are read.
   const count = (n: number) => {
     signal.throwIfAborted();
@@ -64,27 +77,45 @@ export async function walk(
     }
   };
   const keep = async (files: Promise<File>[]) => {
-    for (const file of await Promise.all(files)) found.push(file);
+    for (const read of await Promise.allSettled(files)) {
+      if (read.status === "fulfilled") found.push(read.value);
+      else unreadable++;
+    }
     signal.throwIfAborted();
   };
-  async function handles(dir: FileSystemDirectoryHandle, path: string) {
+  const below = async (folder: () => Promise<void>) => {
+    try {
+      await folder();
+    } catch (error) {
+      if (signal.aborted) throw error;
+      unreadable++;
+    }
+  };
+  async function fromHandles(dir: FileSystemDirectoryHandle, path: string) {
     const files: Promise<File>[] = [];
     const folders: FileSystemDirectoryHandle[] = [];
     for await (const handle of dir.values()) {
       if (skipped(handle.name)) continue;
       if (handle.kind === "directory") folders.push(handle as FileSystemDirectoryHandle);
-      else
-        files.push((handle as FileSystemFileHandle).getFile().then((f) => withPath(f, path + handle.name)));
+      else {
+        const own = handle as FileSystemFileHandle;
+        files.push(
+          own.getFile().then((f) => {
+            handles.set(f, own);
+            return withPath(f, path + own.name);
+          }),
+        );
+      }
       count(handle.kind === "file" ? 1 : 0);
     }
     await keep(files);
-    for (const folder of folders) await handles(folder, `${path}${folder.name}/`);
+    for (const folder of folders) await below(() => fromHandles(folder, `${path}${folder.name}/`));
   }
   const file = (entry: FileSystemEntry, path: string) =>
     new Promise<File>((ok, fail) => (entry as FileSystemFileEntry).file(ok, fail)).then((f) =>
       withPath(f, path),
     );
-  async function entries(entry: FileSystemEntry, parent: string) {
+  async function fromEntries(entry: FileSystemEntry, parent: string) {
     if (skipped(entry.name)) return;
     if (entry.isFile) {
       count(1);
@@ -102,13 +133,14 @@ export async function walk(
     }
     const path = `${parent}${entry.name}/`;
     await keep(children.filter((c) => c.isFile).map((c) => file(c, path + c.name)));
-    for (const child of children.filter((c) => c.isDirectory)) await entries(child, path);
+    for (const child of children.filter((c) => c.isDirectory)) await below(() => fromEntries(child, path));
   }
 
-  if (source.kind === "handle") await handles(source.handle, `${source.handle.name}/`);
-  else for (const entry of source.entries) await entries(entry, "");
+  if (source.kind === "handle") await fromHandles(source.handle, `${source.handle.name}/`);
+  else for (const entry of source.entries) await fromEntries(entry, "");
   progress(listed);
-  return found;
+  const root = source.kind === "handle" ? source.handle : undefined;
+  return { files: found, handles, root, unreadable };
 }
 
 /** `FileSet::sidecar_names` of the core: `<prefix>_channels.tsv`, `<prefix>_events.tsv`, `<prefix>_<modality>.json`. */
