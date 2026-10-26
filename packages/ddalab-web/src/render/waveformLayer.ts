@@ -11,7 +11,7 @@
 // view and for the top tile, which stay loaded, so the plot never blanks once a region is scanned.
 import { bucketSize, levelCount, tileRows } from "../core/opfs";
 import type { Tile } from "../core/protocol";
-import { TileCache } from "../core/tileCache";
+import { CACHE_MB, TileCache } from "../core/tileCache";
 import { program } from "./gl";
 import { type DrawPlan, drawPlan, tileIndices } from "./levels";
 import { type Failure, nextFailure } from "./retry";
@@ -26,7 +26,7 @@ const MIN_LAYERS = 32;
 /** Channels a raw layer holds at least: rows can be added on screen without uploading again. */
 const MIN_RAW_CHANNELS = 16;
 /** Raw chunks kept on the CPU (every display channel), for scrolling rows and for the epochs either side. */
-const RAW_CACHE = 128 * 2 ** 20;
+const RAW_CACHE = CACHE_MB.raw * 2 ** 20;
 /** Bytes per raw request. */
 const RUN_BYTES = 32 * 2 ** 20;
 /** Requests to the engine in flight at once: a fast pan should not queue stale work. */

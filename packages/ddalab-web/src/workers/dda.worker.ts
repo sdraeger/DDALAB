@@ -6,6 +6,7 @@ import { compileWasm } from "../core/compileWasm";
 import wasmUrl from "../core/ddalab.wasm?url";
 import type { DdaReply, DdaRequest } from "../core/protocol";
 import { openRequestOf, type Part, partsOf, readSource } from "../core/sources";
+import { CACHE_MB } from "../core/tileCache";
 
 /** The files of the recording: file id `n` is `parts[n - 1]`. */
 let parts: Part[] = [];
@@ -25,7 +26,7 @@ self.addEventListener("message", async ({ data }: MessageEvent<DdaRequest>) => {
     if (handle === undefined) {
       parts = partsOf(input);
       const fileIds = parts.map((_, i) => i + 1);
-      handle = engine.open(openRequestOf(input, parts, fileIds), { cacheMb: 8 }).handle;
+      handle = engine.open(openRequestOf(input, parts, fileIds), { cacheMb: CACHE_MB.workerFiles }).handle;
     }
     if ("extras" in data) {
       self.postMessage({ ok: engine.manifest(handle, request, data.extras) } satisfies DdaReply);

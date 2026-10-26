@@ -1,6 +1,6 @@
 // The engine's handling of its workers, against a scripted stand-in for `Worker`.
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { createEngine, type Engine } from "./engine";
+import { createEngine, ddaPoolSize, type Engine } from "./engine";
 import type { IoRequest, ScanState } from "./protocol";
 import type { DDARequest } from "./types";
 
@@ -411,7 +411,7 @@ test("a_text_recording_gets_one_worker_per_512_mib", async () => {
       primary: "big.csv",
       files: [{ name: "big.csv", url: "https://x/big.csv", size }],
     });
-  const cores = Math.max(1, navigator.hardwareConcurrency - 1);
+  const cores = ddaPoolSize(navigator.hardwareConcurrency, 1);
   expect((await engine.plan((await open(600 * 2 ** 20)).id, REQUEST)).workers).toBe(1);
   expect((await engine.plan((await open(200 * 2 ** 20)).id, REQUEST)).workers).toBe(Math.min(cores, 2));
   expect((await engine.plan((await open(1000)).id, REQUEST)).workers).toBe(cores);
@@ -430,4 +430,23 @@ test("a_trapped_dda_worker_fails_the_run_with_its_message", async () => {
   expect(FakeWorker.dda.every((w) => w.terminated)).toBe(true);
   expect(sentToIo()).toContain("discardResult");
   expect(sentToIo()).not.toContain("finishResult");
+});
+
+// The memory contract sizes the pool (spec sizing rule): 290 MB + the app's caches at budget (512 MiB) + workers x
+// (32.64 + 0.23 channels) MiB stays under 1.5 GB; never more than every core but one, never fewer than one.
+test.each([
+  [8, [7, 7, 7, 4]],
+  [18, [17, 16, 10, 4]],
+  [32, [19, 16, 10, 4]],
+  [64, [19, 16, 10, 4]],
+])("the_pool_on_%i_cores_fits_the_memory_contract", (cores, expected) => {
+  const channels = [1, 32, 128, 512];
+  expect(channels.map((c) => ddaPoolSize(cores, c))).toEqual(expected);
+  for (const c of channels) {
+    const workers = ddaPoolSize(cores, c);
+    const bytes = 290e6 + (512 + workers * (8 + 1.04 * 16 + 0.23 * c + 8)) * 2 ** 20;
+    expect(bytes).toBeLessThan(1.5e9);
+  }
+  expect(ddaPoolSize(1, 1)).toBe(1);
+  expect(ddaPoolSize(64, 10_000)).toBe(1);
 });

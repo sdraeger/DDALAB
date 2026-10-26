@@ -9,12 +9,12 @@ import styles from "./LocalData.module.css";
 
 const count = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
-/** Cores, DDA workers and, where the browser tells it (Chromium, as a rounded-down bound), memory. */
+/** Cores, the most DDA workers a run takes and, where the browser tells it (Chromium, as a rounded-down bound), memory. */
 function device() {
   const memory = (navigator as { deviceMemory?: number }).deviceMemory;
   const parts = [
     count(navigator.hardwareConcurrency, "logical core"),
-    count(ddaWorkers(), "analysis worker"),
+    `up to ${count(ddaWorkers(), "analysis worker")}`,
     memory && `at least ${memory} GB memory`,
   ];
   return `This device: ${parts.filter(Boolean).join(", ")}.`;
