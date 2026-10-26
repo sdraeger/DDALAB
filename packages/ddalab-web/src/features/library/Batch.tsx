@@ -262,7 +262,7 @@ export function BatchProgressView() {
   const recording = recordingOf(batch);
   useLayoutEffect(() => {
     const dropped = document.activeElement === document.body || document.activeElement === null;
-    if (running.current && !recording && dropped) ended.current?.focus();
+    if (running.current && !recording && dropped) ended.current?.focus({ preventScroll: true });
     running.current = recording !== undefined;
   }, [recording]);
   if (!batch) return null;

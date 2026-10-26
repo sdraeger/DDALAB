@@ -125,13 +125,6 @@
   height: 32px;
 }
 
-.start[aria-disabled="true"],
-.start[aria-disabled="true"]:hover {
-  background: var(--primary);
-  opacity: 0.45;
-  cursor: default;
-}
-
 /* The batch while it runs: which recording of how many, its file, its run's progress and the counts so far. Its bar
    is the run bar's. */
 .progress {
