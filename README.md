@@ -45,6 +45,11 @@ Installed Chrome and Edge add a few things:
 - Open With, then DDALAB, in Finder or Explorer for .edf, .bdf, .vhdr, .csv, .tsv, .txt and .ddalab files (Chrome asks once per file type). A .vhdr opened alone asks you to choose its folder to find its companion files, unless a folder you have open already holds it.
 - Exports go through the system Save dialog. Chrome and Edge tabs do the same. Other browsers download the file.
 - Open tabs return when you restart. Chrome asks for read access to each file again unless you choose Allow on every visit.
+- DDALAB's command bar takes the window's title bar, beside the system's window controls. Drag the bar's empty space to move the window. To get the browser's own title bar back, use the chevron beside the window controls (Hide title bar or Show title bar).
+
+In every browser, the DDALAB mark and name at the left of the command bar open the application menu: File, View, Window and Help, with the keyboard shortcuts beside each command (⌘ on a Mac, Ctrl elsewhere). Help, then Keyboard shortcuts lists them all.
+
+Window, then New window opens another DDALAB window. Each window has its own tabs, side panels and views; history, results and annotations are shared, and every window shows what another one adds. A window you close is kept with its tabs: the next launch reopens the one you used last, and Window, then Reopen window lists the others. A window with no tabs is not kept.
 
 ### Updates
 
