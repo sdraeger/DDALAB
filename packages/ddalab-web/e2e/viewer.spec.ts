@@ -49,11 +49,13 @@ async function zoom(page: Page, samplesPerPixel: number, t0: number, channel: nu
 /**
  * Compares every column of every row of the drawn traces with the full polyline through the raw samples. The
  * mapping from samples to pixels comes from the store, the recording's channel list and the canvas size, as the
- * spec states it, not from the renderer; the rows draw every display channel, or the chosen ones alone. In column c (sample positions p0 = s0 + c * spp to p1 = p0 + spp) the
- * polyline spans the samples strictly inside and its values at p0 and p1. The drawn span must contain that span and
- * lie within the union of the spans of columns c - 1 to c + 1, both clipped to the row's band of pixel rows: a row
- * inks its own band only, which tells the rows' pixels apart. A value within TOLERANCE px of a pixel edge may fall on
- * either side (float32 in the shader, float64 here). `clipped` counts the columns whose span leaves its band.
+ * spec states it, not from the renderer; the rows draw every display channel, or the chosen ones alone. In column c
+ * (sample positions p0 = s0 + c * spp to p1 = p0 + spp) the polyline spans the samples strictly inside and its values
+ * at p0 and p1. The drawn span must contain that span and lie within the union of the spans of columns c - 1 to
+ * c + 1, both clamped to the row's band of pixel rows (the last band ends at the canvas edge): a span past the band
+ * inks its edge row, and a row inks its own band only, which tells the rows' pixels apart. A value within TOLERANCE
+ * px of a pixel edge may fall on either side (float32 in the shader, float64 here). `clamped` counts the columns
+ * whose span leaves its band, `edge` those wholly past it, which must ink the edge row alone.
  */
 const checkPixels = (page: Page) =>
   page.evaluate(async () => {
@@ -78,7 +80,8 @@ const checkPixels = (page: Page) =>
     const raw = await engine.raw(id, first, last - first + 1);
     const failures: string[] = [];
     let inked = 0;
-    let clipped = 0;
+    let clamped = 0;
+    let edge = 0;
     for (let r = 0; r < Math.min(rows, order.length - view.firstChannel); r++) {
       const ch = order[view.firstChannel + r];
       const { unit, gain, offset } = info.channels[analysis_channels[ch]];
@@ -90,7 +93,8 @@ const checkPixels = (page: Page) =>
       };
       const center = (r + 0.5) * rowHeight;
       const y = (value: number) => center - value * pxPerUnit;
-      const band = [Math.floor(r * rowHeight), Math.floor((r + 1) * rowHeight) - 1];
+      const band = [Math.floor(r * rowHeight), (r + 1 === rows ? H : Math.floor((r + 1) * rowHeight)) - 1];
+      const toBand = (row: number) => Math.min(band[1], Math.max(band[0], row));
       // The polyline's [top, bottom] in fractional pixel rows, per column; null where the recording has no rows.
       // Columns -1 and W lie just past the edges: a bucket or sample at an edge belongs to them.
       const reference = Array.from({ length: W + 2 }, (_, k) => {
@@ -102,9 +106,11 @@ const checkPixels = (page: Page) =>
         for (let i = Math.floor(p0) + 1; i < p1; i++) values.push(v(i));
         return [y(Math.max(...values)), y(Math.min(...values))];
       });
-      clipped += reference.filter(
+      const columns = reference.slice(1, W + 1);
+      clamped += columns.filter(
         (s) => s && (Math.floor(s[0]) < band[0] || Math.floor(s[1]) > band[1]),
       ).length;
+      edge += columns.filter((s) => s && (Math.floor(s[1]) < band[0] || Math.floor(s[0]) > band[1])).length;
       for (let c = 0; c < W; c++) {
         let top = -1;
         let bottom = -1;
@@ -122,28 +128,22 @@ const checkPixels = (page: Page) =>
           if (top >= 0) failures.push(`row ${r} column ${c}: ink where the recording has no rows`);
           continue;
         }
-        const need = [
-          Math.max(band[0], Math.floor(ref[0] + TOLERANCE)),
-          Math.min(band[1], Math.floor(ref[1] - TOLERANCE)),
-        ];
+        const need = [toBand(Math.floor(ref[0] + TOLERANCE)), toBand(Math.floor(ref[1] - TOLERANCE))];
         const near = [c, c + 1, c + 2].flatMap((k) => (reference[k] ? [reference[k]] : []));
         const allow = [
-          Math.max(band[0], Math.floor(Math.min(...near.map((s) => s[0])) - TOLERANCE)),
-          Math.min(band[1], Math.floor(Math.max(...near.map((s) => s[1])) + TOLERANCE)),
+          toBand(Math.floor(Math.min(...near.map((s) => s[0])) - TOLERANCE)),
+          toBand(Math.floor(Math.max(...near.map((s) => s[1])) + TOLERANCE)),
         ];
-        // A span that passes the band entirely needs no ink there.
-        const own = need[0] <= need[1];
-        if (own) inked++;
-        if (top < 0) {
-          if (own) failures.push(`row ${r} column ${c}: no ink, expected rows ${need}`);
-        } else if (gaps > 0) failures.push(`row ${r} column ${c}: the span has gaps`);
-        else if (own && (top > need[0] || bottom < need[1]))
+        inked++;
+        if (top < 0) failures.push(`row ${r} column ${c}: no ink, expected rows ${need}`);
+        else if (gaps > 0) failures.push(`row ${r} column ${c}: the span has gaps`);
+        else if (top > need[0] || bottom < need[1])
           failures.push(`row ${r} column ${c}: ${top}..${bottom} misses ${need}`);
         else if (top < allow[0] || bottom > allow[1])
           failures.push(`row ${r} column ${c}: ${top}..${bottom} past ${allow}`);
       }
     }
-    return { mode: frame.mode, inked, clipped, failures: failures.slice(0, 10) };
+    return { mode: frame.mode, inked, clamped, edge, failures: failures.slice(0, 10) };
   });
 
 test.beforeEach(async ({ page }) => {
@@ -196,8 +196,8 @@ test("waveform_is_pixel_exact_with_many_rows", async ({ page }) => {
 });
 
 // Four rows at 30 µV/mm: the synthetic traces (up to about 1050 µV) and their spikes at 97 s (3000 µV, up on even
-// channels and down on odd ones) reach far past their rows. Each row inks its own band, with its trace clipped to it,
-// and none of its neighbors' ink, in raw spans and in the polyline.
+// channels and down on odd ones) leave their rows. Each row inks its own band and none of its neighbors' ink, in raw
+// spans and in the polyline: a trace past the band rides its edge, and a column wholly past it inks the edge row.
 test("traces_stay_in_their_rows", async ({ page }) => {
   test.setTimeout(120_000);
   test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
@@ -211,7 +211,8 @@ test("traces_stay_in_their_rows", async ({ page }) => {
     const result = await checkPixels(page);
     expect(result, `${spp} samples per pixel`).toMatchObject({ mode, failures: [] });
     expect(result.inked).toBeGreaterThan(1000);
-    expect(result.clipped).toBeGreaterThan(100);
+    expect(result.clamped).toBeGreaterThan(100);
+    expect(result.edge).toBeGreaterThan(20);
   }
 });
 

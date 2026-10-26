@@ -212,7 +212,7 @@ A cool neutral chrome carries the interface; color is spent on the cobalt accent
 
 ## Layout
 
-The shell is a grid: a 44 px command bar across the top, then the library rail (248 px), the center and the inspector (304 px). Either side panel closes to zero width and stays mounted. The center stacks the 32 px recording tab strip, the 64 px overview locator strip, the waveform pane with its printed scale band and the heatmap on the same time axis. Overview, waveform and heatmap share one 76 px label gutter and a reserved scrollbar gutter, which keeps every time axis aligned. Each waveform row draws its trace inside its own band, clipped at the band's edges, so a trace taller than its row never covers a neighbor.
+The shell is a grid: a 44 px command bar across the top, then the library rail (248 px), the center and the inspector (304 px). Either side panel closes to zero width and stays mounted. The center stacks the 32 px recording tab strip, the 64 px overview locator strip, the waveform pane with its printed scale band and the heatmap on the same time axis. Overview, waveform and heatmap share one 76 px label gutter and a reserved scrollbar gutter, which keeps every time axis aligned. Each waveform row draws its trace inside its own band, so a trace taller than its row never covers a neighbor: an excursion beyond the band draws along the band's edge, and a channel off scale throughout reads as a line at the edge, never as a gap or an empty row.
 
 Spacing runs on a 4 px unit (`spacing.1` to `spacing.6`). Rail sections sit 24 px apart with 16 px and 12 px insets; controls group at 8 px; control groups in the bar are split by a 20 px hairline rule.
 

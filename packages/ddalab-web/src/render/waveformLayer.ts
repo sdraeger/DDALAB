@@ -1,6 +1,7 @@
 // The waveform traces in WebGL2. Every device-pixel column of a channel row is one instance: the vertex shader
 // folds the minimum and maximum of every raw sample or pyramid bucket the column overlaps (spec, "Display is
-// pixel-exact") and emits a quad over exactly those pixel rows, clipped to the row's band. Below one sample per pixel
+// pixel-exact") and emits a quad over exactly those pixel rows, clamped to the row's band: a span past the band draws
+// along its edge, so an excursion off scale reads as a line there, never as missing data. Below one sample per pixel
 // it folds the polyline through the raw samples instead, interpolated at the column edges, which is the polyline's
 // own raster.
 //
@@ -110,6 +111,8 @@ uniform float u_lastRow;
 uniform float u_width;
 uniform float u_height;
 uniform float u_center;
+// The row's band: its first pixel row and the one after its last.
+uniform vec2 u_band;
 uniform float u_pxPerUnit;
 const int STEPS = 160;
 const int BUCKETS = ${TILE_BUCKETS};
@@ -219,8 +222,8 @@ void main() {
   vec2 gain = texelFetch(u_params, ivec2(u_channel, 0), 0).rg;
   float v0 = mn * gain.x + gain.y;
   float v1 = mx * gain.x + gain.y;
-  float top = floor(u_center - max(v0, v1) * u_pxPerUnit);
-  float bottom = floor(u_center - min(v0, v1) * u_pxPerUnit) + 1.0;
+  float top = clamp(floor(u_center - max(v0, v1) * u_pxPerUnit), u_band.x, u_band.y - 1.0);
+  float bottom = clamp(floor(u_center - min(v0, v1) * u_pxPerUnit) + 1.0, top + 1.0, u_band.y);
   int corner = gl_VertexID;
   gl_Position = vec4(toPixels(c + float(corner & 1), corner < 2 ? top : bottom), 0.0, 1.0);
 }
@@ -235,9 +238,8 @@ void main() {
   float raw = sampleAt(r, ok);
   vec2 gain = texelFetch(u_params, ivec2(u_channel, 0), 0).rg;
   gl_PointSize = u_pointSize;
-  gl_Position = ok
-    ? vec4(toPixels((r - u_s0) / u_spp, u_center - (raw * gain.x + gain.y) * u_pxPerUnit), 0.0, 1.0)
-    : vec4(2.0, 2.0, 0.0, 1.0);
+  float y = clamp(u_center - (raw * gain.x + gain.y) * u_pxPerUnit, u_band.x, u_band.y);
+  gl_Position = ok ? vec4(toPixels((r - u_s0) / u_spp, y), 0.0, 1.0) : vec4(2.0, 2.0, 0.0, 1.0);
 }
 `;
 
@@ -674,17 +676,20 @@ export function createWaveformLayer(
       gl.uniform1f(p.uniform("u_pxPerUnit"), frame.pxPerUnit);
       gl.uniform4fv(p.uniform("u_ink"), frame.ink);
     };
-    // Each row draws inside its own band of pixel rows only: a trace taller than its row never covers a neighbor.
-    const band = (r: number) => {
-      const [top, bottom] = [Math.floor(r * frame.rowHeight), Math.floor((r + 1) * frame.rowHeight)];
+    // Each row draws inside its own band of pixel rows: the shaders clamp to it, the scissor trims the dots at its
+    // edges. The last band ends at the canvas edge, which (r + 1) * rowHeight can miss by a rounding.
+    const band = (p: ReturnType<typeof program>, r: number) => {
+      const top = Math.floor(r * frame.rowHeight);
+      const bottom = r + 1 === frame.rowCount ? height : Math.floor((r + 1) * frame.rowHeight);
       gl.scissor(0, height - bottom, width, bottom - top);
+      gl.uniform2f(p.uniform("u_band"), top, bottom);
     };
     gl.enable(gl.SCISSOR_TEST);
     common(spans);
     gl.uniform1i(spans.uniform("u_line"), plan.mode === "line" ? 1 : 0);
     gl.uniform1i(spans.uniform("u_round"), 0);
     for (let r = 0; r < rowsShown; r++) {
-      band(r);
+      band(spans, r);
       gl.uniform1i(spans.uniform("u_channel"), order[frame.firstChannel + r]);
       gl.uniform1i(spans.uniform("u_column"), frame.firstChannel + r - rawFirst);
       gl.uniform1f(spans.uniform("u_center"), (r + 0.5) * frame.rowHeight);
@@ -699,7 +704,7 @@ export function createWaveformLayer(
       gl.uniform1f(dots.uniform("u_pointSize"), frame.pointSize);
       gl.uniform1i(dots.uniform("u_round"), 1);
       for (let r = 0; r < rowsShown && samples > 0; r++) {
-        band(r);
+        band(dots, r);
         gl.uniform1i(dots.uniform("u_channel"), order[frame.firstChannel + r]);
         gl.uniform1i(dots.uniform("u_column"), frame.firstChannel + r - rawFirst);
         gl.uniform1f(dots.uniform("u_center"), (r + 0.5) * frame.rowHeight);
