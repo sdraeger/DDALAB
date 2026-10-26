@@ -334,6 +334,42 @@ const altered = (path: string, entry: string) =>
       "data = data[:k] + (b'1' if data[k:k + 1] != b'1' else b'2') + data[k + 1:]",
   );
 
+/**
+ * What the user reads when the project `project`'s copy of long.csv has its fingerprint over other bytes, with the
+ * `steps` that would remove theirs.
+ */
+const refused = (project: string, steps: string[]) =>
+  `long.csv was not opened from ${project}: this browser keeps another long.csv with the same name, size, start and ` +
+  "end but other contents, and the project's copy cannot be opened while yours is here. Your long.csv, its " +
+  "annotations and its results stay as they are, and the project's annotations and results for it were not added. " +
+  "To use the project's copy, first remove your long.csv from this browser: " +
+  `${steps.length > 1 ? `${steps.slice(0, -1).join(", ")} and ${steps[steps.length - 1]}` : steps[0]}. ` +
+  "Then open the project again.";
+
+/** The labels of the annotations IndexedDB holds for `fingerprint`, and the results of the history. */
+const keptHere = (page: Page, fingerprint: string) =>
+  page.evaluate(
+    (fp) =>
+      new Promise<{ labels: string[]; results: string[] }>((resolve, reject) => {
+        const opening = indexedDB.open("ddalab");
+        opening.onerror = () => reject(opening.error);
+        opening.onsuccess = () => {
+          const db = opening.result;
+          const all = db
+            .transaction("annotations")
+            .objectStore("annotations")
+            .index("fingerprint")
+            .getAll(fp);
+          all.onsuccess = () => {
+            db.close();
+            const labels = (all.result as { label: string }[]).map((a) => a.label).sort();
+            resolve({ labels, results: window.__ddalab.store.getState().analyses.map((a) => a.id) });
+          };
+        };
+      }),
+    fingerprint,
+  );
+
 /** A text recording longer than the fingerprint's two 64 KiB edges, in a folder of its own; its path. */
 function longCsv() {
   const rows = Array.from({ length: 20_000 }, (_, i) => `${(i / 250).toFixed(3)},${i % 100}.5,${i % 37}.5`);
@@ -402,10 +438,11 @@ test("a_project_never_takes_a_recording_whose_files_differ", async ({ page, brow
   await start(here);
   await here.getByLabel("Recording files").setInputFiles(csv);
   await expect.poll(() => hashes(here)).toEqual({ [fingerprint]: { "long.csv": sha256(readFileSync(csv)) } });
-  const refusal =
-    `long.csv was not opened from ${basename(crafted)}: it has the name, size, start and end of the long.csv ` +
-    "already in a tab here, but other contents. The project's annotations and results for it were not added. To " +
-    "use the project's copy instead, close the tab of long.csv and open the project again.";
+  const tiles = await hasStorage(here);
+  const refusal = refused(basename(crafted), [
+    "close its tab",
+    ...(tiles ? ["clear cached tiles in Local data"] : []),
+  ]);
   const state = () =>
     here.evaluate((fp) => {
       const s = window.__ddalab.store.getState();
@@ -439,4 +476,50 @@ test("a_project_never_takes_a_recording_whose_files_differ", async ({ page, brow
   ).toBeVisible({ timeout: 30_000 });
   expect(await opened(there)).toBe(0);
   await fresh.close();
+});
+
+// The user's recording has annotations, a result and cached tiles here but no tab. A project whose copy of it has its
+// name, size and edges over other bytes is refused all the same: its digests are known from the result and from when
+// it was last hashed. The user's annotations and result stay as they are. The project as exported joins.
+test("a_project_never_takes_a_recording_kept_here_without_a_tab", async ({ page, browser }) => {
+  await start(page);
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  const csv = longCsv();
+  await page.getByLabel("Recording files").setInputFiles(csv);
+  await expect(page.getByRole("heading", { name: "long.csv" })).toBeVisible();
+  await annotate(page, 3, 4, "theirs");
+  const path = await exportProject(page, /^1 recording, 0 results: /);
+  const crafted = altered(path, "recordings/0/long.csv");
+
+  const mine = await browser.newContext();
+  const here = await mine.newPage();
+  await start(here);
+  await here.getByLabel("Recording files").setInputFiles(csv);
+  await expect(here.getByRole("heading", { name: "long.csv" })).toBeVisible();
+  await here.getByRole("checkbox", { name: "Select A" }).check();
+  await annotate(here, 5, 6, "mine");
+  await run(here);
+  const fingerprint = await here.evaluate(() => window.__ddalab.store.getState().tabs[0].fingerprint);
+  const before = await keptHere(here, fingerprint);
+  expect(before.labels).toEqual(["mine"]);
+  expect(before.results).toHaveLength(1);
+  await tabsOf(here).first().focus();
+  await here.keyboard.press("Delete");
+  await expect(tabsOf(here)).toHaveCount(0);
+
+  await here.getByLabel("Recording files").setInputFiles(crafted);
+  await expect(here.getByRole("alert").filter({ hasText: "was not opened" })).toHaveText(
+    refused(basename(crafted), [
+      "delete its 1 annotation (open the recording to do so)",
+      "delete its 1 result in History",
+      "clear cached tiles in Local data",
+    ]),
+  );
+  expect(await keptHere(here, fingerprint)).toEqual(before);
+  await expect(tabsOf(here)).toHaveCount(0);
+
+  await here.getByLabel("Recording files").setInputFiles(path);
+  await expect(tabsOf(here)).toHaveCount(1);
+  await expect.poll(() => keptHere(here, fingerprint)).toEqual({ ...before, labels: ["mine", "theirs"] });
+  await mine.close();
 });

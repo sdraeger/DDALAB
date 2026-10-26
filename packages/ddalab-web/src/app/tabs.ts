@@ -11,6 +11,7 @@ import {
   loadTabs,
   matchFiles,
   matchProject,
+  rememberDigests,
   saveTabs,
   selectTab,
   setReason,
@@ -294,11 +295,16 @@ export async function reattachFrom(
  * Reattaches the detached `tab` from `files`, whose SHA-256 the caller has found equal to the tab's (a project's copy
  * of its recording), as the tab's one attempt. The tab keeps its own source: the next visit reads its own files again.
  */
-export function attachChecked(tab: Tab, files: File[]) {
-  return attempt(tab.fingerprint, true, async (signal) => {
-    const options = { choice: files[0].name, expect: tab.fingerprint, exact: true, signal, activate: false };
+export function attachChecked(fingerprint: string, files: File[]) {
+  return attempt(fingerprint, false, async (signal) => {
+    // The tab as it is now: reattached meanwhile, or given another source by a pick, it stays as the user left it.
+    const tab = tabOf(fingerprint);
+    if (!tab || idOf(fingerprint)) return;
+    // Read at the open as the check read them, or the hash detaches it.
+    unpicked.add(fingerprint);
+    const options = { choice: files[0].name, expect: fingerprint, exact: true, signal, activate: false };
     const outcome = await openFiles(files, { ...options, origin: tab.source ?? undefined });
-    if (!signal.aborted && outcome.kind === "error") setReason(tab.fingerprint, outcome.message);
+    if (!signal.aborted && outcome.kind === "error") setReason(fingerprint, outcome.message);
   });
 }
 
@@ -386,6 +392,8 @@ useStore.subscribe((now, before) => {
         );
       }
       if (changed || !tab.sha256) updateTab(fingerprint, { sha256 });
+      // What a project's copy of this recording is checked against, once this tab is gone (app/project.ts).
+      void rememberDigests(fingerprint, sha256).catch(() => {});
     });
   }
 });
