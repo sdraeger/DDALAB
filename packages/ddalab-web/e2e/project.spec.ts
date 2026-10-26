@@ -204,7 +204,8 @@ test("a_project_opens_elsewhere_as_it_was_exported", async ({ page, browser }) =
     ]),
   );
   await expect.poll(() => hashes(other), { timeout: 30_000 }).toEqual(expected);
-  expect(await workspace(other)).toEqual(before);
+  // A recording reads its annotations from IndexedDB once it has opened: what it shows settles after its hashes.
+  await expect.poll(() => workspace(other)).toEqual(before);
   expect(await bundle(other, id)).toEqual(stored);
 
   // Opened again, it adds nothing twice: the same tabs, annotations and result. The library says Opening until it is.
@@ -234,7 +235,7 @@ test("a_project_opens_elsewhere_as_it_was_exported", async ({ page, browser }) =
   ).toBeVisible();
   await other.getByLabel("Reattach files").setInputFiles(path);
   await expect.poll(() => hashes(other), { timeout: 30_000 }).toEqual(expected);
-  expect(await workspace(other)).toEqual(before);
+  await expect.poll(() => workspace(other)).toEqual(before);
 
   // A run on the project's recording records the digests of the loose files.
   expect(await run(other)).toEqual(inputs);
@@ -250,7 +251,7 @@ test("a_project_opens_elsewhere_as_it_was_exported", async ({ page, browser }) =
   await expect(tabsOf(other)).toHaveCount(2);
   await other.getByLabel("Reattach files").setInputFiles(path);
   await expect.poll(() => hashes(other), { timeout: 30_000 }).toEqual(expected);
-  expect(await workspace(other)).toEqual(after);
+  await expect.poll(() => workspace(other)).toEqual(after);
   await elsewhere.close();
 });
 
