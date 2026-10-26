@@ -10,6 +10,7 @@ import {
   idOf,
   loadTabs,
   matchFiles,
+  matchProject,
   saveTabs,
   selectTab,
   setReason,
@@ -113,6 +114,10 @@ function handlesFor(chosen: File[], files: File[], handles?: FileHandles): FileH
 
 type Match = Exclude<ReturnType<typeof matchFiles>, null | { reason: string }>;
 
+/** The picked files that are `source`'s again (see `matchFiles`); a project by its name alone (`matchProject`). */
+const matchOf = (source: Local, picked: File[]) =>
+  source.kind === "project" ? matchProject(source, picked) : matchFiles(source.files, picked);
+
 /**
  * Opens `match`, the detached `tab`'s files among `files`, as that tab. `handles` holds the handles of `files` in
  * their order, where the browser gives them; `picked`: the user chose these files. Stopped (`signal`), it reports
@@ -132,7 +137,8 @@ async function attachMatch(
   const verify = match.same ? undefined : tab.sha256;
   // Set either way: a check this attempt stopped may have left it on.
   updateTab(fingerprint, { verifying: verify !== undefined });
-  if (picked) unpicked.delete(fingerprint);
+  // A project's recording must have the digests the tab holds (from the project.json that brought it), picked or not.
+  if (picked && tab.source?.kind !== "project") unpicked.delete(fingerprint);
   else unpicked.add(fingerprint);
   const options = {
     choice: match.primary,
@@ -146,7 +152,7 @@ async function attachMatch(
   // A project's recording is read from inside it; its chunk loads with the first.
   const outcome =
     tab.source?.kind === "project"
-      ? await (await import("./project")).openProjectRecording(match.files[0], tab.source.index, options)
+      ? await (await import("./project")).openProjectRecording(match.files[0], options)
       : await openFiles(match.files, options);
   if (signal.aborted) return;
   if (verify) updateTab(fingerprint, { verifying: false });
@@ -204,7 +210,7 @@ function attachQuietly(tab: Tab, supersede = false) {
   return attempt(fingerprint, supersede, async (signal) => {
     try {
       const read = await viaHandles(source);
-      const match = read && matchFiles(sought(source), read.files);
+      const match = read && matchOf(source, read.files);
       if (signal.aborted || !read || !match || !tabOf(fingerprint)) return;
       if ("reason" in match) return setReason(fingerprint, match.reason);
       await attachMatch(tab, match, read.files, read.handles, false, signal);
@@ -263,7 +269,7 @@ export const pickerFor = (tab: Tab): "folder" | "files" =>
 export async function reattachFrom(picked: File[], target: string | null, handles?: FileHandles) {
   await Promise.all(
     detachedTabs().map(async (tab) => {
-      const match = local(tab.source) ? matchFiles(sought(tab.source), picked) : null;
+      const match = local(tab.source) ? matchOf(tab.source, picked) : null;
       if (!match) {
         if (tab.fingerprint === target) setReason(tab.fingerprint, `None of the chosen files is ${tab.name}`);
         return;
@@ -332,9 +338,10 @@ const warn = (id: string, warning: string) =>
     return { recordings: { ...s.recordings, [id]: { ...recording, info: { ...recording.info, warnings } } } };
   });
 
-// A tab keeps the SHA-256 of its files from the first time they are hashed. A recording reattached without a pick whose
-// hash differs (an edit the fingerprint does not see) is closed again and its tab says why; files the user picked stay
-// open with a warning, and their hash becomes the tab's.
+// A tab keeps the SHA-256 of its files from the first time they are hashed, or from the project.json that brought it. A
+// recording reattached without a pick whose hash differs (an edit the fingerprint does not see) is closed again and its
+// tab says why, as is a project's recording, picked or not; loose files the user picked stay open with a warning, and
+// their hash becomes the tab's.
 useStore.subscribe((now, before) => {
   if (now.recordings === before.recordings) return;
   for (const [id, { scan, info, fingerprint }] of Object.entries(now.recordings)) {
@@ -345,6 +352,12 @@ useStore.subscribe((now, before) => {
     const quiet = unpicked.delete(fingerprint);
     const changed = info.input_files.find((name) => tab.sha256?.[name] && tab.sha256[name] !== sha256[name]);
     queueMicrotask(() => {
+      if (changed && quiet && tab.source?.kind === "project") {
+        return detach(
+          fingerprint,
+          `${changed} in ${tab.source.project.name} is not the file its tab holds (SHA-256)`,
+        );
+      }
       if (changed && quiet) return detach(fingerprint, `${changed} changed since it was opened`);
       if (changed) {
         warn(

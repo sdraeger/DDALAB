@@ -5,7 +5,7 @@
 // With hands the installed app a project's handle, which its tab keeps.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -238,6 +238,19 @@ test("a_project_opens_elsewhere_as_it_was_exported", async ({ page, browser }) =
 
   // A run on the project's recording records the digests of the loose files.
   expect(await run(other)).toEqual(inputs);
+
+  // A copy saved over the project with more in it and its recordings in another order: after a reload, choosing it
+  // reattaches both tabs, each finding its recording by its content.
+  await annotate(other, 6, 7, "updated");
+  await other.evaluate(() => window.__ddalab.store.setState((s) => ({ tabs: [...s.tabs].reverse() })));
+  const after = await workspace(other);
+  expect(after.results).toHaveLength(2);
+  copyFileSync(await exportProject(other, /^2 recordings, 2 results: /), path);
+  await other.reload();
+  await expect(tabsOf(other)).toHaveCount(2);
+  await other.getByLabel("Reattach files").setInputFiles(path);
+  await expect.poll(() => hashes(other), { timeout: 30_000 }).toEqual(expected);
+  expect(await workspace(other)).toEqual(after);
   await elsewhere.close();
 });
 
@@ -278,4 +291,64 @@ test("a_launched_project_reattaches_through_its_handle", async ({ page, browser,
   await expect(tabsOf(other)).toHaveCount(1);
   await expect.poll(() => opened(other)).toBe(1);
   await elsewhere.close();
+});
+
+/** `path`'s project with the SHA-256 its project.json lists for `fixture.edf` replaced, written stored; its path. */
+function misdigested(path: string) {
+  const crafted = join(mkdtempSync(join(tmpdir(), "ddalab-crafted-")), basename(path));
+  execFileSync("python3", [
+    "-c",
+    "import json, sys, zipfile\n" +
+      "with zipfile.ZipFile(sys.argv[1]) as a, zipfile.ZipFile(sys.argv[2], 'w', zipfile.ZIP_STORED) as b:\n" +
+      "  for i in a.infolist():\n" +
+      "    data = a.read(i)\n" +
+      "    if i.filename == 'project.json':\n" +
+      "      p = json.loads(data)\n" +
+      "      p['recordings'][0]['files'][0]['sha256'] = '0' * 64\n" +
+      "      data = json.dumps(p).encode()\n" +
+      "    b.writestr(i.filename, data)",
+    path,
+    crafted,
+  ]);
+  return crafted;
+}
+
+// A recording here and the project's agree on the fingerprint (the name, the size and the edges of each file) but not
+// on the SHA-256 the project lists: the user's tab, its source and annotations stay as they are, and the project's copy
+// is not opened. Without a tab here, the project's recording opens, and the hash then detaches it.
+test("a_project_never_takes_a_recording_whose_files_differ", async ({ page, browser }) => {
+  await start(page);
+  await page.getByLabel("Recording files").setInputFiles(fixture("fixture.edf"));
+  await expect(page.getByRole("heading", { name: "fixture.edf" })).toBeVisible();
+  await annotate(page, 3, 4, "theirs");
+  const crafted = misdigested(await exportProject(page, /^1 recording, 0 results: /));
+  const fingerprint = await page.evaluate(() => window.__ddalab.store.getState().tabs[0].fingerprint);
+  const digest = sha256(readFileSync(fixture("fixture.edf")));
+
+  const mine = await browser.newContext();
+  const here = await mine.newPage();
+  await start(here);
+  await here.getByLabel("Recording files").setInputFiles(fixture("fixture.edf"));
+  await expect.poll(() => hashes(here)).toEqual({ [fingerprint]: { "fixture.edf": digest } });
+  await here.getByLabel("Recording files").setInputFiles(crafted);
+  await expect(here.getByRole("alert").filter({ hasText: "was not opened" })).toHaveText(
+    "fixture.edf was not opened: a tab here holds a recording of that name whose files are not the project's.",
+  );
+  const state = () =>
+    here.evaluate((fp) => {
+      const s = window.__ddalab.store.getState();
+      return { sources: s.tabs.map((t) => t.source?.kind), annotations: s.annotations[fp] ?? [] };
+    }, fingerprint);
+  expect(await state()).toEqual({ sources: ["files"], annotations: [] });
+  await mine.close();
+
+  const fresh = await browser.newContext();
+  const there = await fresh.newPage();
+  await start(there);
+  await there.getByLabel("Recording files").setInputFiles(crafted);
+  await expect(
+    there.getByText(`fixture.edf in ${basename(crafted)} is not the file its tab holds (SHA-256)`),
+  ).toBeVisible({ timeout: 30_000 });
+  expect(await opened(there)).toBe(0);
+  await fresh.close();
 });
