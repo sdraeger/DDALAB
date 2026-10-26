@@ -1,15 +1,14 @@
 // The history in the library rail: the results of this browser, newest first, and how each run ended. A row opens
 // its result with its provenance, where it is exported or deleted. Results the CLI wrote come in through the import
 // below the list.
-import { lazy, Suspense, useMemo, useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { type AnalysisRecord, resultName } from "../../core/history";
 import { openResult, useStore } from "../../store/store";
 import rail from "../library/LibraryRail.module.css";
 import { preload } from "../results/loads";
 import styles from "./History.module.css";
+import ImportDrop from "./ImportDrop";
 import { ResultBoundary } from "./ResultBoundary";
-
-const ImportDrop = lazy(() => import("./ImportDrop"));
 
 const STATUS: Record<AnalysisRecord["status"], string> = {
   running: "Running",
@@ -98,9 +97,7 @@ function Results() {
           ))}
         </ul>
       )}
-      <Suspense fallback={null}>
-        <ImportDrop />
-      </Suspense>
+      <ImportDrop />
     </section>
   );
 }
