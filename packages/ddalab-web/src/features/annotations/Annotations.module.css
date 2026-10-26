@@ -129,9 +129,14 @@
   color: var(--ink);
 }
 
-/* No label matches: no box. */
-.suggestionList[data-empty] {
-  display: none;
+/* Read by screen readers only: how many suggestions there are. */
+.spoken {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .suggestion {

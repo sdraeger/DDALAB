@@ -119,10 +119,11 @@ function Form(props: {
   const [duration, setDuration] = useState(seconds(a.duration_s));
   const [error, setError] = useState<string | null>(null);
   const id = useId();
-  /** The suggestion the arrow keys are on. */
-  const highlighted = useRef<string | undefined>(undefined);
-  // Suggestions once the label is edited and is not one of the recording's labels already.
-  const suggesting = label !== a.label && label.trim() !== "" && !props.labels.includes(label);
+  // The recording's labels that hold what was typed, once the label is edited and is not one of them already. With
+  // none, the arrow keys have nothing to land on and Enter saves.
+  const { contains } = Autocomplete.useFilter({ sensitivity: "base" });
+  const edited = label !== a.label && label.trim() !== "" && !props.labels.includes(label);
+  const matches = edited ? props.labels.filter((item) => contains(item, label)) : [];
 
   /** Saves the label and the times and closes; times that are not numbers keep the editor open, saying why. */
   const save = (refocus: boolean) => {
@@ -159,12 +160,12 @@ function Form(props: {
         <span className={styles.when}>{when(a)}</span>
       </Popover.Title>
       {/* Inline: the suggestions open under the field inside the editor, which grows to keep Save in view. Without
-          a popup the list does not fill the field: a press or Enter on a suggestion does. */}
+          a popup the list does not fill the field: a suggestion's click does, and Enter on one clicks it. */}
       <Autocomplete.Root
         items={props.labels}
+        filteredItems={matches}
         value={label}
         onValueChange={setLabel}
-        onItemHighlighted={(item) => (highlighted.current = item)}
         inline
         open
       >
@@ -174,16 +175,15 @@ function Form(props: {
             id={id}
             className={styles.input}
             placeholder="For example, spike"
+            aria-expanded={matches.length > 0}
             onFocus={(event) => event.currentTarget.select()}
-            onKeyDown={(event) => {
-              if (event.key !== "Enter" || !suggesting || highlighted.current === undefined) return;
-              event.preventDefault();
-              setLabel(highlighted.current);
-            }}
           />
         </div>
-        {suggesting && (
-          <Autocomplete.List className={styles.suggestionList}>
+        <Autocomplete.Status className={styles.spoken}>
+          {matches.length > 0 && `${matches.length} suggestion${matches.length === 1 ? "" : "s"}`}
+        </Autocomplete.Status>
+        {matches.length > 0 && (
+          <Autocomplete.List className={styles.suggestionList} aria-label="Label suggestions">
             {(item: string) => (
               <Autocomplete.Item
                 key={item}

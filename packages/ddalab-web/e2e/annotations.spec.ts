@@ -177,6 +177,38 @@ test("the_label_field_suggests_the_recordings_labels_and_keeps_the_last", async 
   expect((await mine(page)).map(([, , label]) => label)).toEqual(["eyes closed", "eyes closed"]);
 });
 
+// With no suggestions on screen the arrow keys land on nothing, the field says it is collapsed, and Enter saves.
+test("arrow_down_then_enter_on_a_fresh_editor_saves", async ({ page }) => {
+  await page.keyboard.press("a");
+  const field = editor(page).getByLabel("Label", { exact: true });
+  await expect(field).toBeFocused();
+  await expect(field).toHaveAttribute("aria-expanded", "false");
+  await page.keyboard.press("ArrowDown");
+  await expect(field).not.toHaveAttribute("aria-activedescendant", /.+/);
+  await page.keyboard.press("Enter");
+  await expect(editor(page)).toBeHidden();
+  expect(await mine(page)).toHaveLength(1);
+});
+
+// Typing offers the labels that hold the text, read out as a count; ArrowDown and Enter pick one, Enter again saves.
+test("a_suggestion_picked_by_keyboard_sets_the_label", async ({ page }) => {
+  await page.keyboard.press("a");
+  const field = editor(page).getByLabel("Label", { exact: true });
+  await field.fill("ey");
+  const suggestions = editor(page).getByRole("listbox", { name: "Label suggestions" });
+  await expect(suggestions.getByRole("option")).toHaveText(["eyes closed"]);
+  await expect(field).toHaveAttribute("aria-expanded", "true");
+  await expect(editor(page).getByRole("status")).toHaveText("1 suggestion");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await expect(field).toHaveValue("eyes closed");
+  await expect(suggestions).toBeHidden();
+  await expect(editor(page)).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(editor(page)).toBeHidden();
+  expect((await mine(page)).map(([, , label]) => label)).toEqual(["eyes closed"]);
+});
+
 test("escape_takes_a_new_annotation_back", async ({ page }) => {
   await page.keyboard.press("a");
   await expect(editor(page)).toBeVisible();
