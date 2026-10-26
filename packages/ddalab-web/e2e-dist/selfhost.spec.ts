@@ -36,8 +36,11 @@ test("opens_a_recording_and_runs_dda", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "fixture.vhdr" })).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
 
-  // Base UI adds an inline <style> to an opened Select unless the app turns that off; style-src 'self' blocks it.
-  await page.getByRole("combobox").first().click();
+  // Base UI adds an inline <style> to an opened Select unless the app turns that off; style-src 'self' blocks it. Below
+  // 1400 px the scale settings sit behind their button.
+  const scales = page.getByRole("button", { name: "Epoch, sensitivity and timebase" });
+  if (await scales.isVisible()) await scales.click();
+  await page.getByRole("combobox", { name: "Epoch" }).click();
   await expect(page.getByRole("listbox")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("listbox")).toHaveCount(0);
