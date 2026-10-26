@@ -29,11 +29,12 @@
   # Each response carries one Cache-Control and no Expires. A server-wide expiry (mod_expires) would add its own
   # Expires date and a short max-age for HTML and CSS.
   Header unset Expires
-  # Every script, style sheet and wasm module carries a content hash in its name; only index.html does not.
+  # The scripts (sw.js aside), style sheets and wasm module carry a content hash in their names.
   <FilesMatch "\.(js|css|wasm)$">
     Header set Cache-Control "public, max-age=31536000, immutable"
   </FilesMatch>
-  # index.html and the service worker carry no hash in their names: the browser must ask for them each time.
+  # index.html and sw.js carry no hash in their names: the browser must ask for them each time. The manifest and the
+  # icons carry none either and keep the host's own caching.
   <FilesMatch "^(index\.html|sw\.js)$">
     Header set Cache-Control "no-cache"
   </FilesMatch>
