@@ -9,7 +9,18 @@ import type { RecordingInput } from "../core/engine";
 import { documentJson, variantCsv } from "../core/exporters";
 import { fingerprintOf, sha256Hex } from "../core/fingerprint";
 import { importResult } from "../core/imports";
-import { levelCount, loadTile, saveTiles, tileCount, tileRows, tileSlot } from "../core/opfs";
+import {
+  evictTiles,
+  levelCount,
+  loadTile,
+  saveTiles,
+  tileBudget,
+  tileCount,
+  tileRows,
+  tileSlot,
+  tilesLock,
+  touchTiles,
+} from "../core/opfs";
 import type { IoEvent, IoReply, IoRequest, IoResults, ScanState } from "../core/protocol";
 import {
   createResultFiles,
@@ -49,6 +60,8 @@ interface Recording {
   /** Bytes of all files of the recording. */
   fileBytes: number;
   closed: boolean;
+  /** Lets go of the recording's tiles lock (opfs.ts `tilesLock`). */
+  release(): void;
 }
 
 /** Sources by the file id the core reads them with; ids are never reused. */
@@ -100,9 +113,16 @@ function startScan(id: string, input: RecordingInput, rec: Recording) {
         closed: () => rec.closed,
       }),
     )
-    .catch(() => {
-      stopped = true; // a trap: the next request tells the engine to replace this worker
-    });
+    .then(
+      // The tiles stay within their share of the storage: the least recently used recordings' go first.
+      () =>
+        tileBudget()
+          .then(evictTiles)
+          .catch(() => {}),
+      () => {
+        stopped = true; // a trap: the next request tells the engine to replace this worker
+      },
+    );
 }
 
 async function open(id: string, input: RecordingInput): Promise<IoResults["open"]> {
@@ -140,8 +160,16 @@ async function open(id: string, input: RecordingInput): Promise<IoResults["open"
       channels: opened.analysis_channels.length,
       fileBytes: parts.reduce((sum, { size }) => sum + size, 0),
       closed: false,
+      release: () => {},
     };
     recordings.set(id, rec);
+    // Held while the recording is open, in this tab or another: eviction leaves its tiles.
+    void navigator.locks
+      .request(tilesLock(fingerprint), { mode: "shared" }, () =>
+        rec.closed ? undefined : new Promise<void>((done) => (rec.release = done)),
+      )
+      .catch(() => {});
+    void touchTiles(fingerprint).catch(() => {}); // without storage (private windows) there is nothing to keep
     startScan(id, input, rec);
     return { info, fingerprint, analysis_channels: opened.analysis_channels };
   } catch (error) {
@@ -154,6 +182,7 @@ async function open(id: string, input: RecordingInput): Promise<IoResults["open"
 async function close(id: string) {
   const rec = recording(id);
   rec.closed = true;
+  rec.release();
   (await core).close(rec.handle);
   for (const fileId of rec.fileIds) sources.delete(fileId);
   recordings.delete(id);

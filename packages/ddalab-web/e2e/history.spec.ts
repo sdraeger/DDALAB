@@ -222,6 +222,21 @@ test("provenance_names_every_input_file_and_a_digest_its_manifest_lacks", async 
   await expect(provenance(page).getByText(eeg)).toBeVisible();
 });
 
+test("the_first_stored_result_asks_the_browser_to_keep_the_sites_storage", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  await page.addInitScript(() => {
+    const calls: string[] = [];
+    Object.assign(window, { persistCalls: calls });
+    navigator.storage.persisted = async () => Boolean(calls.push("persisted")) && false;
+    navigator.storage.persist = async () => Boolean(calls.push("persist"));
+  });
+  await page.reload();
+  await runBrainVision(page);
+  await runBrainVision(page, ["CT"]);
+  const calls = () => page.evaluate(() => (window as unknown as { persistCalls: string[] }).persistCalls);
+  await expect.poll(calls).toEqual(["persisted", "persist"]);
+});
+
 test("import_cli_bundle_shows_heatmap_without_recording", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
   const manifest = JSON.parse(readFileSync(join(bundleDir("st"), "manifest.json"), "utf8"));

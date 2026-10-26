@@ -1,6 +1,7 @@
 // The command bar holds still while the view zooms: wheel zooming across the whole range moves no element of the bar,
 // at 1024, 1280 and 1600 px, with the inspector open and with it closed (the run status then shows in the bar). At
 // every width from 768 px every control stays inside the window, and the scale settings behind their button work.
+import { fileURLToPath } from "node:url";
 import { ddaPoolSize } from "../src/core/engine";
 import { expect, type Page, test } from "./test";
 
@@ -200,7 +201,7 @@ test("local_note_opens_and_closes", async ({ page }) => {
   for (const open of [byPointer, byKeyboard]) {
     await open();
     await expect(note).toBeVisible();
-    await expect(note.getByRole("paragraph")).toHaveText([
+    await expect(note.locator(":scope > p")).toHaveText([
       "Recordings are read directly in your browser. Nothing is uploaded, and the site keeps no copy of your data or results.",
       "Every analysis runs on this device. Its memory and processor set how large a recording and how long an analysis can be.",
       `This device: ${device}.`,
@@ -215,4 +216,41 @@ test("local_note_opens_and_closes", async ({ page }) => {
   await expect(trigger.getByText("Local", { exact: true })).toBeHidden();
   await trigger.hover();
   await expect(page.getByText("Data stays on this device", { exact: true })).toBeVisible();
+});
+
+// The note's Storage section says what the site keeps and clears the cached tiles, except those of open recordings.
+test("storage_clears_cached_tiles_but_an_open_recordings", async ({ page }) => {
+  const tileFolders = () =>
+    page.evaluate(async () => {
+      try {
+        const tiles = await (await navigator.storage.getDirectory()).getDirectoryHandle("tiles", {
+          create: true,
+        });
+        const names: string[] = [];
+        for await (const [name] of tiles.entries()) names.push(name);
+        return names.length;
+      } catch {
+        return -1;
+      }
+    });
+  test.skip((await tileFolders()) < 0, "this browser window has no OPFS");
+  const edf = fileURLToPath(new URL("../../dda-rs/tests/fixtures/fixture.edf", import.meta.url));
+  await page.getByLabel("Recording files").setInputFiles(edf);
+  await expect.poll(tileFolders).toBe(1);
+  const storage = page.getByRole("region", { name: "Storage" });
+  const clear = storage.getByRole("button", { name: "Clear cached tiles" });
+  await page.getByRole("button", { name: "Local: data stays on this device" }).click();
+  await expect(storage).toContainText(
+    /This site uses .+ of the .+ the browser allows it\. Cached tiles take \d+ kB\./,
+  );
+  await clear.click();
+  await expect(storage).toContainText("Results stay, and so do the tiles of open recordings.");
+  expect(await tileFolders()).toBe(1);
+  await page.keyboard.press("Escape");
+  await page.getByTitle("Close fixture.edf").click();
+  await page.getByRole("button", { name: "Local: data stays on this device" }).click();
+  await clear.click();
+  await expect(storage).toContainText("Cached tiles take 0 kB.");
+  expect(await tileFolders()).toBe(0);
+  await expect(clear).toBeDisabled();
 });

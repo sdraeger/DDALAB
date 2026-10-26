@@ -3,6 +3,7 @@ import {
   type AnalysisRecord,
   deleteAnalysis,
   listAnalyses,
+  persistStorage,
   recordedManifest,
   saveAnalysis,
 } from "../core/history";
@@ -130,6 +131,7 @@ export async function startRun(recordingId: string, request: DDARequest) {
     const asked = { t0: request.time_range.start / rate, t1: request.time_range.end / rate };
     showResult(complete, manifest ? undefined : asked);
     await saveAnalysis(complete).catch(() => {});
+    void persistStorage();
   } else if (error instanceof DOMException && error.name === "AbortError") {
     await deleteAnalysis(record.id).catch(() => {});
     setRun({ status: "cancelled" });
