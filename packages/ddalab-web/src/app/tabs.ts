@@ -13,6 +13,7 @@ import {
   saveTabs,
   selectTab,
   setReason,
+  sought,
   type Tab,
   type TabSource,
   tabOf,
@@ -142,7 +143,11 @@ async function attachMatch(
     handles: handlesFor(match.files, files, handles),
     activate: false,
   };
-  const outcome = await openFiles(match.files, options);
+  // A project's recording is read from inside it; its chunk loads with the first.
+  const outcome =
+    tab.source?.kind === "project"
+      ? await (await import("./project")).openProjectRecording(match.files[0], tab.source.index, options)
+      : await openFiles(match.files, options);
   if (signal.aborted) return;
   if (verify) updateTab(fingerprint, { verifying: false });
   if (outcome.kind === "error") {
@@ -168,17 +173,23 @@ export function attachUrl(tab: Tab, supersede = false) {
 }
 
 /** The handles a reattach reads `source` through: its folder's, else every file's. */
-const handlesOf = (source: TabSource & { kind: "files" }): FileSystemHandle[] =>
-  source.root ? [source.root] : source.files.flatMap((f) => (f.handle ? [f.handle] : []));
+const handlesOf = (source: Local): FileSystemHandle[] =>
+  source.kind === "files" && source.root
+    ? [source.root]
+    : sought(source).flatMap((f) => (f.handle ? [f.handle] : []));
+
+/** A source read from this device: a recording's files, or the project that holds them. */
+type Local = Exclude<TabSource, { kind: "url" }>;
+const local = (source: TabSource | null | undefined): source is Local => !!source && source.kind !== "url";
 
 /** The files of `source` read through its handles, when the browser lets them be read; `undefined` otherwise. */
-async function viaHandles(source: TabSource & { kind: "files" }) {
-  const { root } = source;
+async function viaHandles(source: Local) {
+  const root = source.kind === "files" ? source.root : undefined;
   if (!hasHandles(source)) return undefined;
   for (const handle of handlesOf(source)) if (!(await permitted(handle))) return undefined;
-  if (root)
+  if (root && source.kind === "files")
     return { files: await Promise.all(source.files.map((f) => fileAt(root, f.path))), handles: { root } };
-  const handles = source.files.map((f) => f.handle as FileSystemFileHandle);
+  const handles = sought(source).map((f) => f.handle as FileSystemFileHandle);
   return { files: await Promise.all(handles.map((h) => h.getFile())), handles: { files: handles } };
 }
 
@@ -189,11 +200,11 @@ async function viaHandles(source: TabSource & { kind: "files" }) {
 function attachQuietly(tab: Tab, supersede = false) {
   const { source, fingerprint } = tab;
   if (source?.kind === "url") return attachUrl(tab, supersede);
-  if (source?.kind !== "files") return Promise.resolve();
+  if (!local(source)) return Promise.resolve();
   return attempt(fingerprint, supersede, async (signal) => {
     try {
       const read = await viaHandles(source);
-      const match = read && matchFiles(source.files, read.files);
+      const match = read && matchFiles(sought(source), read.files);
       if (signal.aborted || !read || !match || !tabOf(fingerprint)) return;
       if ("reason" in match) return setReason(fingerprint, match.reason);
       await attachMatch(tab, match, read.files, read.handles, false, signal);
@@ -217,7 +228,7 @@ async function attachAllQuietly(first?: string | null, supersede?: string) {
 
 /** The prompts `tab` still needs, a click each: 1 for its folder, else one per file not allowed yet. */
 export async function promptsLeft(tab: Tab): Promise<number> {
-  if (tab.source?.kind !== "files" || !hasHandles(tab.source)) return 0;
+  if (!local(tab.source) || !hasHandles(tab.source)) return 0;
   const allowed = await Promise.all(handlesOf(tab.source).map(permitted));
   return allowed.filter((ok) => !ok).length;
 }
@@ -228,7 +239,7 @@ export async function promptsLeft(tab: Tab): Promise<number> {
  * reattaches; with `supersede` (Retry) this tab's attempt under way is stopped and made again.
  */
 export async function requestAccess(tab: Tab, supersede = false) {
-  if (tab.source?.kind !== "files") return;
+  if (!local(tab.source)) return;
   for (const handle of handlesOf(tab.source)) {
     if (await permitted(handle)) continue;
     const answer = await ask(handle);
@@ -252,7 +263,7 @@ export const pickerFor = (tab: Tab): "folder" | "files" =>
 export async function reattachFrom(picked: File[], target: string | null, handles?: FileHandles) {
   await Promise.all(
     detachedTabs().map(async (tab) => {
-      const match = tab.source?.kind === "files" ? matchFiles(tab.source.files, picked) : null;
+      const match = local(tab.source) ? matchFiles(sought(tab.source), picked) : null;
       if (!match) {
         if (tab.fingerprint === target) setReason(tab.fingerprint, `None of the chosen files is ${tab.name}`);
         return;

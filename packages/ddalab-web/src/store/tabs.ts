@@ -18,10 +18,18 @@ export interface TabFile {
   handle?: FileSystemFileHandle;
 }
 
-/** Where a recording's files are read again. `files` lists the files the recording uses, its primary first. */
+/**
+ * Where a recording's files are read again. `files` lists the files the recording uses, its primary first; `project`
+ * is the .ddalab that holds them, as the recording at `index` of its project.json (core/project.ts).
+ */
 export type TabSource =
   | { kind: "files"; files: TabFile[]; root?: FileSystemDirectoryHandle }
+  | { kind: "project"; project: TabFile; index: number }
   | { kind: "url"; input: Extract<RecordingInput, { kind: "url" }> };
+
+/** The files a reattach looks for: the recording's own, or the project that holds them. */
+export const sought = (source: Exclude<TabSource, { kind: "url" }>) =>
+  source.kind === "project" ? [source.project] : source.files;
 
 /** What a tab shows again when it becomes active. */
 export interface TabView {
@@ -57,7 +65,9 @@ export function idOf(fingerprint: string, recordings = useStore.getState().recor
 
 /** Whether every file of `source` can be read again through a handle: its folder's, or each file's. */
 export const hasHandles = (source: TabSource | null) =>
-  source?.kind === "files" && (source.root !== undefined || source.files.every((f) => f.handle));
+  source !== null &&
+  source.kind !== "url" &&
+  ((source.kind === "files" && source.root !== undefined) || sought(source).every((f) => f.handle));
 
 /**
  * The source of a recording opened from `files`, of which the core used `used` (the primary first). `handles` maps

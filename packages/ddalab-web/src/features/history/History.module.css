@@ -152,6 +152,12 @@
   color: var(--event);
 }
 
+/* The project export's Save, under what it holds. */
+.save {
+  align-self: flex-start;
+  margin-top: var(--space-2);
+}
+
 .files {
   display: flex;
   flex-direction: column;
