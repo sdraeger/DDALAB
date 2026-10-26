@@ -522,10 +522,10 @@ async function layoutOf({ manifest, arrays }: Incoming, source: string) {
 const isZip = async (file: Blob) =>
   new Uint8Array(await file.slice(0, 4).arrayBuffer()).every((b, i) => b === [0x50, 0x4b, 0x03, 0x04][i]);
 
-/** What an opened project keeps of a result's record (app/project.ts): its id, its recording, its times and batch. */
+/** What an opened project keeps of a result's record (app/project.ts): its id, recording, times, batch and dataset. */
 export type KeptRecord = Pick<
   AnalysisRecord,
-  "id" | "fingerprint" | "fileName" | "inputFiles" | "plan" | "createdAt" | "finishedAt" | "batch"
+  "id" | "fingerprint" | "fileName" | "inputFiles" | "plan" | "createdAt" | "finishedAt" | "batch" | "dataset"
 >;
 
 /**

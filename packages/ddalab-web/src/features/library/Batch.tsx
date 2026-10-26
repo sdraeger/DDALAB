@@ -8,8 +8,8 @@ import { use, useId, useLayoutEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { variants } from "../../app/analyses";
 import { cancelBatch, startBatch } from "../../app/batch";
+import type { BatchInput, BatchRecord } from "../../core/batch";
 import { batchOutcome } from "../../core/batch";
-import type { FolderRecording } from "../../core/folder";
 import type { RecordingInfo } from "../../core/types";
 import { activeRecording, type State, togglePanel, useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
@@ -30,9 +30,10 @@ const selectedLabels = (s: State) => {
 };
 
 export function BatchAction(props: {
-  recordings: FolderRecording[];
+  recordings: BatchInput[];
   root: string;
   handle?: FileSystemDirectoryHandle;
+  remote?: BatchRecord["remote"];
 }) {
   const running = useStore((s) => s.batch?.status === "running");
   const [open, setOpen] = useState(false);
@@ -72,9 +73,10 @@ export function BatchAction(props: {
 }
 
 function BatchPanel(props: {
-  recordings: FolderRecording[];
+  recordings: BatchInput[];
   root: string;
   handle?: FileSystemDirectoryHandle;
+  remote?: BatchRecord["remote"];
   onClose(focus: string): void;
 }) {
   const { recordings } = props;
@@ -114,6 +116,7 @@ function BatchPanel(props: {
       {
         root: props.root,
         handle: props.handle,
+        remote: props.remote,
         channels: rule === "signal" ? { kind: "signal" } : { kind: "labels", labels },
         interval: whole ? { kind: "whole" } : { kind: "range", startS, endS },
       },
@@ -248,10 +251,11 @@ function BatchPanel(props: {
 }
 
 /**
- * The batch of this page in the Folder section: how far it is while it runs, then how it ended. As the batch ends, the
- * line that replaces the progress takes focus that the removed Cancel left on the page, and none from elsewhere.
+ * The batch of this page on folder `root` (a local folder's name or a dataset's id): how far it is while it runs, then
+ * how it ended. As the batch ends, the line that replaces the progress takes focus that the removed Cancel left on the
+ * page, and none from elsewhere.
  */
-export function BatchProgressView() {
+export function BatchProgressView({ root }: { root: string }) {
   const batch = useStore((s) => s.batch);
   const record = useStore((s) => s.batches.find((b) => b.id === s.batch?.id));
   const bar = useRef<HTMLProgressElement>(null);
@@ -265,7 +269,7 @@ export function BatchProgressView() {
     if (running.current && !recording && dropped) ended.current?.focus({ preventScroll: true });
     running.current = recording !== undefined;
   }, [recording]);
-  if (!batch) return null;
+  if (!batch || batch.root !== root) return null;
   const marks = Object.values(batch.marks);
   const done = marks.filter((m) => m === "done").length;
   const failed = marks.filter((m) => m === "failed").length;

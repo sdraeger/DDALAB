@@ -82,20 +82,22 @@ test("drop_brainvision_folder", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "fixture.vhdr" })).toBeVisible();
 });
 
-// The folder holds EDF, BDF, CSV and BrainVision files: each is a recording, and the BrainVision data and marker
-// files come with their header.
+// The folder holds EDF, BDF, CSV, BrainVision and EEGLAB files: each is a recording, the BrainVision data and marker
+// files come with their header, and an .fdt with its .set.
 test("open_folder_lists_every_format", async ({ page }) => {
   await page.getByLabel("Recording folder").setInputFiles(fixturePath(""));
   const rows = page.getByRole("tree", { name: "Recordings in fixtures" }).getByRole("treeitem");
-  await expect(rows).toHaveCount(5);
+  await expect(rows).toHaveCount(7);
   expect(await rows.evaluateAll((items) => items.map((item) => item.getAttribute("aria-label")))).toEqual([
     "fixture, fixture.bdf",
     "fixture, fixture.csv",
     "fixture, fixture.edf",
     "fixture, fixture.vhdr",
+    "fixture_eeglab, fixture_eeglab.set",
+    "fixture_eeglab_inline, fixture_eeglab_inline.set",
     "fixture_truncated, fixture_truncated.edf",
   ]);
-  await expect(rows).toContainText(["BDF", "Text", "EDF", "BrainVision", "EDF"]);
+  await expect(rows).toContainText(["BDF", "Text", "EDF", "BrainVision", "EEGLAB", "EEGLAB", "EDF"]);
   await rows.filter({ hasText: "BrainVision" }).click();
   await expect(channels(page)).toHaveText(["Fp1", "Fp2", "Cz", "Pz"]);
   await expect(page.getByRole("heading", { name: "fixture.vhdr" })).toBeVisible();
@@ -103,6 +105,24 @@ test("open_folder_lists_every_format", async ({ page }) => {
     Object.values(window.__ddalab.store.getState().recordings).map((r) => r.info.input_files),
   );
   expect(opened).toEqual([["fixture.vhdr", "fixture.eeg", "fixture.vmrk"]]);
+});
+
+test("open_eeglab_with_its_fdt", async ({ page }) => {
+  await files(page).setInputFiles(["fixture_eeglab.set", "fixture_eeglab.fdt"].map(fixturePath));
+  await expect(channels(page)).toHaveText(["Fp1", "Fp2", "Cz", "Pz"]);
+  const inspector = page.getByRole("region", { name: "Inspector" });
+  await expect(inspector.getByText("EEGLAB", { exact: true })).toBeVisible();
+  await expect(inspector.getByText("2 s", { exact: true })).toBeVisible();
+  const opened = await page.evaluate(() => {
+    const state = window.__ddalab.store.getState();
+    const { info } = state.recordings[state.activeRecordingId as string];
+    return { files: info.input_files, events: info.annotations.map((a) => `${a.onset_s} ${a.label}`) };
+  });
+  expect(opened).toEqual({
+    files: ["fixture_eeglab.set", "fixture_eeglab.fdt"],
+    events: ["0.5 stim", "1.001953125 7"],
+  });
+  await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
 test("vhdr_without_eeg_errors", async ({ page }) => {
@@ -119,7 +139,7 @@ test("vhdr_without_eeg_errors", async ({ page }) => {
 test("unsupported_format_reason", async ({ page }) => {
   await files(page).setInputFiles(upload("scan.fif", Buffer.from("not a recording")));
   await expect(page.getByRole("alert")).toHaveText(
-    "FIFF files are not supported yet; DDALAB reads EDF, BDF, BrainVision and delimited text",
+    "FIFF files are not supported yet; DDALAB reads EDF, BDF, BrainVision, EEGLAB and delimited text",
   );
 });
 

@@ -1,6 +1,7 @@
 // The analyses run in this browser, in IndexedDB: what was asked of which recording and how the run ended. A result's
 // files are in OPFS under the same id (resultStore.ts).
 import { changed, database } from "../store/recent";
+import type { DatasetSource } from "./engine";
 import type { DDARequest, ResultDocument } from "./types";
 
 export interface AnalysisRecord {
@@ -25,6 +26,8 @@ export interface AnalysisRecord {
   error?: string;
   /** The batch that ran it (core/batch.ts); the history lists it under the batch. */
   batch?: string;
+  /** The OpenNeuro dataset its recording streamed from, which its provenance cites. */
+  dataset?: DatasetSource;
 }
 
 /**
