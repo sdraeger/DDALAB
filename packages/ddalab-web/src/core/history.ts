@@ -25,6 +25,17 @@ export interface AnalysisRecord {
   error?: string;
 }
 
+/**
+ * Asks the browser, once per page, to keep this site's storage when the disk runs low: without it Chromium may clear
+ * the history and every result with the cached tiles. Called when a result is stored.
+ */
+let persisting: Promise<boolean> | undefined;
+export const persistStorage = () =>
+  (persisting ??= navigator.storage
+    .persisted()
+    .then((kept) => kept || navigator.storage.persist())
+    .catch(() => false));
+
 /** A manifest as its record keeps it. */
 export const recordedManifest = ({ window_centers_seconds: _, ...manifest }: ResultDocument) => manifest;
 

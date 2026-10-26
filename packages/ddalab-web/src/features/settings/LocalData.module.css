@@ -41,3 +41,24 @@
   color: var(--muted);
   line-height: 1.45;
 }
+
+/* Storage: below a hairline, a small heading, the usage line and the clear action. */
+.storage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-block-start: var(--space-3);
+  border-block-start: var(--hairline-width) solid var(--hairline);
+}
+
+.heading {
+  font-size: var(--text-body);
+  font-weight: var(--weight-strong);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}

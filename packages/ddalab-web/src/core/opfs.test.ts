@@ -1,9 +1,47 @@
-// The tile file layout against the real core: slots hold exactly the tiles the pyramid emits.
+// The tile file layout against the real core: slots hold exactly the tiles the pyramid emits. Eviction of the tiles of
+// the least recently used recordings.
 import { readFileSync } from "node:fs";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { instantiateCore } from "./abi";
-import { levelCount, pyramidBytes, readTile, type TileId, tileCount, tileSlot, writeTile } from "./opfs";
+import { memoryOpfs, putFile, type Tree } from "./memoryOpfs";
+import {
+  evictTiles,
+  levelCount,
+  pyramidBytes,
+  readTile,
+  type TileId,
+  tileCount,
+  tileSlot,
+  tilesLock,
+  writeTile,
+} from "./opfs";
 import { readSynthetic, syntheticEdfSize } from "./synthetic";
+
+test("eviction_drops_the_least_recently_used_tiles_but_not_an_open_recordings_or_results", async () => {
+  const root = memoryOpfs();
+  try {
+    // Four recordings' tiles of 101 bytes each (a level file and the time they were last used), oldest first.
+    for (const [used, fingerprint] of ["old", "open", "mid", "new"].entries()) {
+      putFile(root, `tiles/${fingerprint}/L0.ddt`, new Uint8Array(100));
+      putFile(root, `tiles/${fingerprint}/used.json`, String(used));
+    }
+    putFile(root, "results/r/manifest.json", "{}");
+    let release = () => {};
+    void navigator.locks.request(
+      tilesLock("open"),
+      { mode: "shared" },
+      () => new Promise<void>((done) => (release = done)),
+    );
+    expect(await evictTiles(250)).toBe(202);
+    expect([...(root.get("tiles") as Tree).keys()].sort()).toEqual(["new", "open"]);
+    expect(root.has("results")).toBe(true);
+    release();
+    expect(await evictTiles(0)).toBe(0);
+    expect([...(root.get("tiles") as Tree).keys()]).toEqual([]);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
 
 const wasm = new WebAssembly.Module(readFileSync(new URL("./ddalab.wasm", import.meta.url)));
 const spec = { channels: 3, rateHz: 100, durationS: 4000, seed: 7 };

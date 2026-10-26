@@ -6,6 +6,7 @@ import { type ChangeEvent, type DragEvent, useRef, useState } from "react";
 import { refreshAnalyses } from "../../app/analyses";
 import { engine } from "../../app/recordings";
 import { inTransition } from "../../app/viewTransition";
+import { persistStorage } from "../../core/history";
 import { droppedFiles } from "../../core/sources";
 import { openResult } from "../../store/store";
 import controls from "../../styles/controls.module.css";
@@ -29,6 +30,7 @@ export default function ImportDrop() {
           ? input.map((file) => ({ path: file.webkitRelativePath || file.name, file }))
           : input,
       );
+      void persistStorage();
       await refreshAnalyses();
       inTransition(() => openResult(id));
     } catch (failure) {
