@@ -149,7 +149,7 @@ async function heapGrowthMb(task: () => Promise<unknown>) {
 }
 
 test("text_exports_hold_a_slice_on_the_heap", async () => {
-  // 100,000 windows of 64 rows: 51 MB of values, about 130 MB of text each way.
+  // 100,000 windows of 64 rows: 51 MB of values, 216 MB of text as the document (its pretty layout) and 145 MB as CSV.
   const [windows, rows] = [100_000, 64];
   const values = Float64Array.from({ length: windows * rows }, (_, i) => Math.sin(i) * 1e-3);
   const variant = {
@@ -172,4 +172,4 @@ test("text_exports_hold_a_slice_on_the_heap", async () => {
   expect(csv?.size).toBeGreaterThan(100e6);
   expect(jsonGrowth).toBeLessThan(24);
   expect(csvGrowth).toBeLessThan(24);
-}, 60_000); // 145 MB of text each way takes about 6 s on a 4-core CI runner
+}, 60_000); // the 361 MB of text take about 1.6 s on the development laptop; the bound leaves room for a slow CI runner
