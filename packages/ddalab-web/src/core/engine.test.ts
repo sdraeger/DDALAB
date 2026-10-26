@@ -237,11 +237,16 @@ test("a_trapped_annotation_reader_is_replaced", async () => {
   expect(FakeWorker.annotators[0].terminated).toBe(true);
 });
 
-test("remote_recordings_above_1_gib_are_not_read_for_annotations", async () => {
+test.each([
+  ["EDF+", ["above 1 GiB"]],
+  ["BrainVision", []],
+])("remote_%s_recordings_above_1_gib_keep_the_annotations_the_open_read", async (format, warned) => {
   const engine = createEngine();
+  const marker = { onset_s: 1, duration_s: 0, label: "R1", source: "big.vmrk" };
   FakeWorker.onMessage = (worker, message) => {
     if (message.type === "open") {
-      worker.ok(message, { info: info("big.edf"), fingerprint: "print-big", analysis_channels: [0] });
+      const opened = { ...info("big.edf"), format, annotations: [marker] };
+      worker.ok(message, { info: opened, fingerprint: "print-big", analysis_channels: [0] });
     } else healthy(worker, message);
   };
   const { id } = await engine.open({
@@ -250,8 +255,8 @@ test("remote_recordings_above_1_gib_are_not_read_for_annotations", async () => {
     files: [{ name: "big.edf", url: "https://example.org/big.edf", size: 2 ** 30 + 1 }],
   });
   const found = await engine.annotations(id);
-  expect(found.annotations).toEqual([]);
-  expect(found.warnings[0]).toContain("above 1 GiB");
+  expect(found.annotations).toEqual([marker]);
+  expect(found.warnings.map((w) => (w.includes("above 1 GiB") ? "above 1 GiB" : w))).toEqual(warned);
   expect(FakeWorker.annotators).toHaveLength(0);
 });
 
@@ -382,6 +387,47 @@ test("a_run_writes_every_block_and_the_manifest_of_a_dda_worker", async () => {
     expect.objectContaining({ extras: expect.objectContaining({ input_sha256: { "a.edf": "00" } }) }),
   );
   expect(FakeWorker.dda.every((w) => w.terminated)).toBe(true);
+});
+
+test("a_run_keeps_the_hash_of_a_recording_closed_under_it", async () => {
+  let hashing: { id: string } | undefined;
+  runner(computes, (_, message) => {
+    if ((message as { type: string }).type === "hash") hashing = message as { id: string };
+  });
+  const engine = createEngine();
+  const { id } = await engine.open(input("a.edf"));
+  const run = await engine.run(id, REQUEST);
+  await until(() => sentToIo().filter((type) => type === "writeChunks").length === 3);
+  // The tab closes while the run waits for the hash: the engine keeps the recording and its hash going.
+  engine.close(id);
+  expect(FakeWorker.hashers[0].received.map((m) => m.type)).not.toContain("cancel");
+  expect(sentToIo()).not.toContain("close");
+  FakeWorker.hashers[0].send({ id: hashing?.id, name: "a.edf", sha256: "00" });
+  await expect(run.done).resolves.toEqual({ resultId: run.id });
+  expect(FakeWorker.dda.flatMap((w) => w.received)).toContainEqual(
+    expect.objectContaining({ extras: expect.objectContaining({ input_sha256: { "a.edf": "00" } }) }),
+  );
+  // The run over, the engine closes the recording.
+  await until(() => sentToIo().includes("close"));
+  expect(FakeWorker.hashers[0].received.map((m) => m.type)).toContain("cancel");
+});
+
+test("a_url_recording_is_hashed_only_when_its_digests_are_needed", async () => {
+  runner(computes);
+  FakeWorker.onMessage = ((next) => (worker: FakeWorker, message: Message) => {
+    if (message.type !== "open" || message.input.kind !== "url") return next(worker, message);
+    worker.ok(message, { info: info("a.edf"), fingerprint: "print-url", analysis_channels: [0] });
+  })(FakeWorker.onMessage);
+  const engine = createEngine();
+  const { id } = await engine.open({
+    kind: "url",
+    primary: "a.edf",
+    files: [{ name: "a.edf", url: "https://x/a.edf", size: 1000 }],
+  });
+  await engine.version();
+  expect(FakeWorker.hashers).toHaveLength(0);
+  await expect(engine.hashes(id)).resolves.toEqual({ "a.edf": "00" });
+  expect(FakeWorker.hashers[0].received.filter((m) => (m.type as string) === "hash")).toHaveLength(1);
 });
 
 test("cancel_terminates_the_dda_workers_and_deletes_the_files", async () => {

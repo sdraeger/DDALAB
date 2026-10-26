@@ -1,10 +1,11 @@
 // Opening recordings: the app's engine, and what happens between a chosen file and an open recording.
 import { createEngine, type RecordingInput } from "../core/engine";
+import type { Annotations } from "../core/protocol";
 import { buildFileSet } from "../core/sources";
 import type { SyntheticSpec } from "../core/synthetic";
 import type { RecordingInfo } from "../core/types";
 import { restoreAnnotations } from "../features/annotations/model";
-import { forgetRecent, listRecent, type RecentEntry, rememberRecent } from "../store/recent";
+import { database, forgetRecent, listRecent, type RecentEntry, rememberRecent } from "../store/recent";
 import {
   activateRecording,
   addRecording,
@@ -25,11 +26,23 @@ export const engine = createEngine();
  */
 const viewerReady = () => (viewerLoaded() ? undefined : loadViewer().catch(() => {}));
 
+/**
+ * The annotation list of the files of recording `id`: read once per fingerprint (an EDF+ takes a pass over the whole
+ * file) and kept in IndexedDB for the next open.
+ */
+async function fileAnnotations(id: string, fingerprint: string): Promise<Annotations> {
+  const db = await database().catch(() => undefined);
+  const kept: Annotations | undefined = await db?.get("fileAnnotations", fingerprint).catch(() => undefined);
+  if (kept) return kept;
+  const found = await engine.annotations(id);
+  await db?.put("fileAnnotations", found, fingerprint).catch(() => {});
+  return found;
+}
+
 /** Brings what the engine learns about a recording after it opened into the store: its scan and its annotations. */
-function follow(id: string) {
+function follow(id: string, fingerprint: string) {
   engine.onScan(id, (scan) => setScan(id, scan));
-  engine
-    .annotations(id)
+  fileAnnotations(id, fingerprint)
     .catch((error: Error) => ({
       annotations: [],
       warnings: [`The annotations could not be read: ${error.message}`],
@@ -55,7 +68,7 @@ function adopt(
   addRecording(id, { info, fingerprint, analysis_channels, source }, activate);
   // The tab before the scan reports: a hash that finished while the open waited (for the viewer's chunk) reaches it.
   tabOpened(id, fingerprint, info.input_files[0], origin);
-  follow(id);
+  follow(id, fingerprint);
   void restoreAnnotations(fingerprint);
 }
 

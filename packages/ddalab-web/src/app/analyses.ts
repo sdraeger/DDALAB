@@ -102,6 +102,7 @@ export async function startRun(recordingId: string, request: DDARequest) {
     id: handle.id,
     fingerprint: recording.fingerprint,
     fileName: recording.info.input_files[0],
+    inputFiles: recording.info.input_files,
     request,
     plan: handle.plan,
     createdAt: Date.now(),

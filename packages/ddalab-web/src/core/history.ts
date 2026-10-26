@@ -8,6 +8,8 @@ export interface AnalysisRecord {
   /** The recording's fingerprint; empty for an imported result, whose manifest names its files by SHA-256. */
   fingerprint: string;
   fileName: string;
+  /** Every file the run read, whose digests its manifest should record; absent from older and imported records. */
+  inputFiles?: string[];
   request: DDARequest;
   /**
    * The result's manifest.json once it is complete, without its window centres: a long run has a million of them, and

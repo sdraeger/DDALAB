@@ -1,6 +1,7 @@
 // The hash worker: SHA-256 of a recording's files with the core's streaming hash, in 4 MiB slices, one file at a
-// time. Every open reads the files again: a stored digest would stand on the fingerprint, which does not pin the
-// middle of a file, and these digests go into result manifests as provenance.
+// time. Every open of local files reads them again (a stored digest would stand on the fingerprint, which does not
+// pin the middle of a file, and these digests go into result manifests as provenance); a URL recording is read here
+// only when a run needs its digests (engine.ts).
 import { instantiateCore } from "../core/abi";
 import { compileWasm } from "../core/compileWasm";
 import wasmUrl from "../core/ddalab.wasm?url";

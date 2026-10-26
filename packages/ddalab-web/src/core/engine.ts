@@ -56,6 +56,7 @@ export interface Engine {
     analysis_channels: number[];
     duplicate?: boolean;
   }>;
+  /** A recording a run reads stays open in the engine, its hash going on, until the run ends. */
   close(id: string): void;
   /**
    * Tile `index` of pyramid `level`, or `null` while the scan has not reached it and building it from the file
@@ -66,12 +67,16 @@ export interface Engine {
   raw(id: string, row0: number, rows: number): Promise<Float32Array>;
   /**
    * The full annotation list. An EDF+ takes a pass over the whole file, which a worker of its own makes: the
-   * answer comes late and nothing else waits for it. Remote recordings above 1 GiB are not read (a warning says so).
+   * answer comes late and nothing else waits for it. Remote recordings above 1 GiB keep the list the open read; for
+   * an EDF+ a warning says its own list is not read.
    */
   annotations(id: string): Promise<Annotations>;
   /** Calls `listener` with the current scan state at once and with every change after. */
   onScan(id: string, listener: (state: ScanState) => void): () => void;
-  /** The SHA-256 of each input file once all are known; fewer when the hash failed or the recording closed. */
+  /**
+   * The SHA-256 of each input file once all are known; fewer when the hash failed or the recording closed. Local files
+   * are hashed from their open on; a URL recording from the first call of this or of `run`.
+   */
   hashes(id: string): Promise<Record<string, string>>;
   /**
    * What a run of `request` takes: its windows, its blocks, the workers it runs on and the block budget in MiB.
@@ -223,6 +228,8 @@ interface Tracked {
   sha256: Record<string, string>;
   hashed: Record<string, number>;
   hashError?: string;
+  /** The hash worker has been asked for its files' digests. */
+  hashing: boolean;
 }
 
 const stateOf = ({ scan, sha256, hashed, hashError }: Tracked): ScanState => ({
@@ -266,6 +273,10 @@ export function createEngine(): Engine {
 
   /** Called when a recording's hashes change or it closes. */
   const hashWaits = new Set<() => void>();
+  /** Runs under way by recording: a run keeps its recording's files and hash in the engine until it ends. */
+  const runs = new Map<string, number>();
+  /** Recordings closed during a run of theirs, closed in the engine when their last run ends. */
+  const closing = new Set<string>();
 
   /**
    * A reply finds its request by the serial `n`: the worker answers queued requests in order, and the ones it runs
@@ -335,9 +346,19 @@ export function createEngine(): Engine {
     for (const wait of [...hashWaits]) wait();
   }
 
+  /** Asks the hash worker for the digests of the recording `id`'s files, once. */
+  function startHash(id: string) {
+    const entry = scans.get(id);
+    const input = held.get(id);
+    if (!entry || !input || entry.hashing) return;
+    entry.hashing = true;
+    hash({ type: "hash", id, input, names: entry.info.input_files });
+  }
+
   /**
    * The SHA-256 of each input file once all are known, the hash worker failed, or the recording closed. Rejects with
-   * the abort reason once `signal` aborts, and stops waiting.
+   * the abort reason once `signal` aborts, and stops waiting. A recording not hashed yet (one read from a URL) is
+   * hashed now.
    */
   function inputHashes(id: string, signal: AbortSignal) {
     return new Promise<Record<string, string>>((resolve, reject) => {
@@ -345,6 +366,7 @@ export function createEngine(): Engine {
       const input = held.get(id);
       if (signal.aborted) return reject(signal.reason);
       if (!entry || !input || !isScanned(input)) return resolve(entry?.sha256 ?? {});
+      startHash(id);
       const stop = () => {
         hashWaits.delete(check);
         signal.removeEventListener("abort", abort);
@@ -465,7 +487,11 @@ export function createEngine(): Engine {
     async open(input) {
       const id = crypto.randomUUID();
       const { duplicateOf, ...opened } = await call({ type: "open", id, input });
-      if (duplicateOf) return { id: duplicateOf, ...opened, duplicate: true };
+      if (duplicateOf) {
+        // Closed during a run and opened again before it ended: the recording is shown again and stays open.
+        closing.delete(duplicateOf);
+        return { id: duplicateOf, ...opened, duplicate: true };
+      }
       held.set(id, input);
       const { info, fingerprint } = opened;
       scans.set(id, {
@@ -474,13 +500,18 @@ export function createEngine(): Engine {
         scan: { scannedRows: 0, totalRows: info.sample_count },
         sha256: {},
         hashed: {},
+        hashing: false,
       });
-      if (isScanned(input)) hash({ type: "hash", id, input, names: info.input_files });
+      // Local files are hashed at once, which costs only CPU; a URL recording when a run needs its digests, as
+      // hashing downloads it whole.
+      if (isScanned(input) && input.kind !== "url") startHash(id);
       return { id, ...opened };
     },
     close(id) {
-      held.delete(id);
       listeners.delete(id);
+      // A run of the recording goes on with its files and its hash; the engine closes it when the run ends.
+      if (runs.get(id)) return void closing.add(id);
+      held.delete(id);
       scans.delete(id);
       for (const wait of [...hashWaits]) wait();
       hasher?.postMessage({ type: "cancel", id } satisfies HashRequest);
@@ -506,11 +537,14 @@ export function createEngine(): Engine {
     raw: (id, row0, rows) => call({ type: "raw", id, row0, rows }),
     annotations(id) {
       const input = held.get(id);
-      if (!input) return Promise.reject(new Error(`no open recording ${id}`));
+      const info = scans.get(id)?.info;
+      if (!input || !info) return Promise.reject(new Error(`no open recording ${id}`));
       if (!isScanned(input)) {
+        // The open read every list but an EDF+ one, which needs the pass over the whole file.
+        const skipped = "EDF+ annotations are not read from recordings above 1 GiB opened from a URL.";
         return Promise.resolve({
-          annotations: [],
-          warnings: ["Annotations are not read from recordings above 1 GiB opened from a URL."],
+          annotations: info.annotations,
+          warnings: info.format === "EDF+" ? [skipped] : [],
         });
       }
       return annotate(input);
@@ -540,6 +574,9 @@ export function createEngine(): Engine {
         throw error;
       });
       const pool = ddaPool(input, request);
+      // The run holds its recording: closed meanwhile, it stays open in the engine and its hash goes on.
+      runs.set(id, (runs.get(id) ?? 0) + 1);
+      if (isScanned(input)) startHash(id);
       // Cancel also ends the wait for the input hashes, which may outlast the last block by minutes.
       const cancelling = new AbortController();
       const scheduled = runAnalysis({
@@ -569,7 +606,13 @@ export function createEngine(): Engine {
           await discard();
           throw error;
         })
-        .finally(() => pool.stop());
+        .finally(() => {
+          pool.stop();
+          const left = (runs.get(id) ?? 1) - 1;
+          if (left > 0) return void runs.set(id, left);
+          runs.delete(id);
+          if (closing.delete(id)) engine.close(id);
+        });
       const handle = {
         ...scheduled,
         done,
