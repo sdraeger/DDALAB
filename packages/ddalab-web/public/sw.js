@@ -2,11 +2,13 @@
 // - Install: fetches every file of the build (BUILD.files) past the HTTP cache into a cache named for this scope and the
 //   build's version.
 // - Fetch: answers the page itself (the folder or index.html, whatever the query) and the build's own files from that
-//   cache. Everything else goes to the network untouched, with no respondWith: other origins (OpenNeuro, S3), Range
-//   and non-GET requests, and any URL that is not in the list. Nothing is added to the cache while the app runs, and
-//   the user's files (the origin's private file system, blob: and data: URLs) never reach a worker.
+//   cache. Other origins (OpenNeuro, S3), Range and non-GET requests, other pages and the user's files (the origin's
+//   private file system, blob: and data: URLs) never get an answer from it. A same-scope file that is not in this build
+//   is looked for in the cache of the previous version, then fetched: a window that started on that version still asks
+//   for its lazy chunks and workers. Nothing is added to a cache while the app runs.
 // - A new version waits until the page asks for it with the message "skipWaiting" (src/app/update.ts), and takes over
-//   the open pages once it activates. Activating deletes the caches of older builds of this scope.
+//   the open pages once it activates. Activating deletes the caches of older versions of this scope, except the
+//   previous one while a window is open: that window may not have reloaded yet.
 // scripts/precache.mjs replaces the next line at build time with the version and the files of the build.
 const BUILD = { version: "dev", files: [] };
 
@@ -17,13 +19,33 @@ const urlOf = (file) => new URL(file, scope).href;
 const listed = new Set(BUILD.files.map(urlOf));
 const page = urlOf("index.html");
 
-/** The cache key of what `request` asks for when the cache answers it; undefined when it goes to the network. */
+/** The cache key of what `request` asks for when this build's cache answers it; undefined otherwise. */
 function keyOf(request) {
   if (request.method !== "GET" || request.headers.has("range")) return undefined;
   if (request.mode !== "navigate") return listed.has(request.url) ? request.url : undefined;
   const url = new URL(request.url);
   url.search = "";
   return url.href === scope || url.href === page ? page : undefined;
+}
+
+/** Whether `request` is a plain GET for a file under the scope that this build does not list. */
+const unlisted = (request) =>
+  request.method === "GET" &&
+  request.mode !== "navigate" &&
+  !request.headers.has("range") &&
+  request.url.startsWith(scope);
+
+/** The names of the caches of older versions of this scope, oldest first. */
+const olderCaches = async () =>
+  (await caches.keys()).filter((name) => name.startsWith(prefix) && name !== cacheName);
+
+/** What the caches of older versions hold for `request`, the newest first. */
+async function previous(request) {
+  for (const name of (await olderCaches()).reverse()) {
+    const hit = await (await caches.open(name)).match(request.url);
+    if (hit) return hit;
+  }
+  return undefined;
 }
 
 self.addEventListener("install", (event) => {
@@ -33,28 +55,29 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches
-      .keys()
-      .then((names) =>
-        Promise.all(
-          names
-            .filter((name) => name.startsWith(prefix) && name !== cacheName)
-            .map((name) => caches.delete(name)),
-        ),
-      )
-      .then(() => self.clients.claim()),
+    (async () => {
+      const older = await olderCaches();
+      const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      const kept = windows.length > 0 ? older.slice(-1) : [];
+      await Promise.all(older.filter((name) => !kept.includes(name)).map((name) => caches.delete(name)));
+      await self.clients.claim();
+    })(),
   );
 });
 
 self.addEventListener("fetch", (event) => {
-  const key = keyOf(event.request);
-  if (key === undefined) return;
-  event.respondWith(
-    caches
-      .open(cacheName)
-      .then((cache) => cache.match(key))
-      .then((hit) => hit ?? fetch(event.request)),
-  );
+  const { request } = event;
+  const key = keyOf(request);
+  if (key !== undefined) {
+    event.respondWith(
+      caches
+        .open(cacheName)
+        .then((cache) => cache.match(key))
+        .then((hit) => hit ?? fetch(request)),
+    );
+  } else if (unlisted(request)) {
+    event.respondWith(previous(request).then((hit) => hit ?? fetch(request)));
+  }
 });
 
 self.addEventListener("message", (event) => {

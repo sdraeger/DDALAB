@@ -2,7 +2,7 @@
 // and offers an update. Chromium only (Playwright's Firefox and WebKit differ in worker and offline support). The
 // worker is registered at the app's folder, under /~user/ddalab/ and under /DDALAB/ alike.
 import { type ChildProcess, spawn } from "node:child_process";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -45,7 +45,9 @@ test("the_manifest_is_linked_and_valid", async ({ page }) => {
     theme_color: "#F1F3F5",
     background_color: "#F1F3F5",
   });
-  expect(manifest.id).toBeTruthy();
+  // No id: the app's identity is its start URL, the folder it is served from.
+  expect(manifest).not.toHaveProperty("id");
+  expect(manifest.launch_handler).toEqual({ client_mode: "focus-existing" });
   // The page's own folder is the start and the scope, whatever path it is served from.
   expect(new URL(manifest.start_url, url).href).toBe(new URL("./", page.url()).href);
   expect(new URL(manifest.scope, url).href).toBe(new URL("./", page.url()).href);
@@ -162,10 +164,17 @@ test.describe("updates", () => {
   const sheetOf = (site: string) =>
     /href="\.\/(assets\/[^"]+\.css)"/.exec(readFileSync(join(site, "index.html"), "utf8"))?.[1] as string;
 
-  /** Changes the entry style sheet of the build in `site` and bakes the worker again: a build B of the same app. */
-  function buildB(site: string) {
+  /**
+   * Changes the entry style sheet of the build in `site` and bakes the worker again: a new build of the same app, whose
+   * version is returned. With `drop`, the lazy chunks of the About panel are gone from it, as the files of an older
+   * build are from a host after a deploy.
+   */
+  function rebuild(site: string, mark: string, drop = false) {
     const path = join(site, sheetOf(site));
-    writeFileSync(path, `${readFileSync(path, "utf8")}\n/* build B */`);
+    writeFileSync(path, `${readFileSync(path, "utf8")}\n/* ${mark} */`);
+    if (drop)
+      for (const name of readdirSync(join(site, "assets")).filter((n) => /^About-.*\.(js|css)$/.test(n)))
+        rmSync(join(site, "assets", name));
     bakeServiceWorker(site);
     return precacheOf(site).version as string;
   }
@@ -173,33 +182,86 @@ test.describe("updates", () => {
     page.evaluate(() => navigator.serviceWorker.getRegistration().then((r) => r?.update()));
   const cacheNames = (page: Page) => page.evaluate(() => caches.keys()).catch(() => null);
 
+  const notice = (page: Page, text = "A new version of DDALAB is ready.") =>
+    page.getByRole("status").filter({ hasText: text });
+
   test("a_new_build_shows_the_prompt_and_reload_switches_to_it", async ({ page }) => {
     const { origin, site } = await serveCopy();
     const sheet = `${origin}/${sheetOf(site)}`;
+    const name = (version: string) => `ddalab:${origin}/:${version}`;
     const loads: string[] = [];
     page.on("load", () => loads.push(page.url()));
     await page.goto(`${origin}/`);
     await controlled(page);
     const a = precacheOf(site).version;
-    expect(await cacheNames(page)).toEqual([`ddalab:${origin}/:${a}`]);
+    expect(await cacheNames(page)).toEqual([name(a)]);
     expect(await text(page, sheet)).not.toContain("build B");
     await expect(page.getByText("A new version of DDALAB")).toHaveCount(0);
 
-    const b = buildB(site);
+    const b = rebuild(site, "build B");
     await updateCheck(page);
-    const notice = page.getByRole("status").filter({ hasText: "A new version of DDALAB is ready." });
-    await expect(notice).toBeVisible();
+    await expect(notice(page)).toBeVisible();
     // Until Reload the page keeps the files of the version it started with.
     expect(await text(page, sheet)).not.toContain("build B");
 
     const before = loads.length;
-    await notice.getByRole("button", { name: "Reload" }).click();
-    await expect.poll(() => cacheNames(page)).toEqual([`ddalab:${origin}/:${b}`]);
+    await notice(page).getByRole("button", { name: "Reload" }).click();
+    await expect.poll(() => loads.length - before).toBe(1);
+    // The previous version's cache stays when a window was open as the new one took over.
+    expect(await cacheNames(page)).toEqual([name(a), name(b)]);
     expect(await text(page, sheet)).toContain("build B");
     await expect(page.getByRole("heading", { name: "DDALAB" })).toBeVisible();
-    await expect(notice).toHaveCount(0);
+    await expect(notice(page)).toHaveCount(0);
     await page.waitForTimeout(500);
     expect(loads.length - before).toBe(1);
+
+    // The next version takes over: the cache of the version before the previous one goes.
+    const c = rebuild(site, "build C");
+    await updateCheck(page);
+    await notice(page).getByRole("button", { name: "Reload" }).click();
+    await expect.poll(() => loads.length - before).toBe(2);
+    expect(await cacheNames(page)).toEqual([name(b), name(c)]);
+  });
+
+  test("a_window_that_has_not_reloaded_keeps_working_and_is_offered_the_reload", async ({ context }) => {
+    const { origin, site } = await serveCopy();
+    const [first, second] = [await context.newPage(), await context.newPage()];
+    for (const page of [first, second]) {
+      await page.goto(`${origin}/`);
+      await controlled(page);
+    }
+    // Set after the load: a reload would lose it.
+    await second.evaluate(() => Object.assign(window, { sameDocument: true }));
+
+    const b = rebuild(site, "build B", true);
+    await updateCheck(first);
+    await expect(notice(first)).toBeVisible();
+    await expect(notice(second)).toBeVisible();
+    await notice(first).getByRole("button", { name: "Reload" }).click();
+    await expect.poll(() => cacheNames(first)).toContain(`ddalab:${origin}/:${b}`);
+    await expect(first.getByRole("heading", { name: "DDALAB" })).toBeVisible();
+
+    // The second window is still on the old page under the new worker. Its notice stays, it loads the About chunk that
+    // left the build from the cache of the old version, and its Reload reloads it at once.
+    await expect(notice(second)).toBeVisible();
+    await second.getByRole("button", { name: "About DDALAB" }).click();
+    await expect(second.getByRole("dialog", { name: "About DDALAB" })).toBeVisible();
+    await expect(second.getByRole("alert")).toHaveCount(0);
+    await second.keyboard.press("Escape");
+    await notice(second).getByRole("button", { name: "Reload" }).click();
+    await expect.poll(() => second.evaluate(() => "sameDocument" in window).catch(() => true)).toBe(false);
+    await expect(second.getByRole("heading", { name: "DDALAB" })).toBeVisible();
+    await expect(notice(second)).toHaveCount(0);
+  });
+
+  test("an_open_window_looks_for_a_new_version_every_hour", async ({ page }) => {
+    const { origin, site } = await serveCopy();
+    await page.clock.install();
+    await page.goto(`${origin}/`);
+    await controlled(page);
+    rebuild(site, "build B");
+    await page.clock.fastForward("01:00:05");
+    await expect(notice(page)).toBeVisible();
   });
 
   test("reload_waits_for_a_run_to_end", async ({ page }) => {
@@ -243,19 +305,23 @@ test.describe("updates", () => {
     await page.evaluate(() => (window as unknown as RunHold).holdRun());
     await run.getByRole("button", { name: "Run DDA" }).click();
 
-    const b = buildB(site);
+    const b = rebuild(site, "build B");
     await updateCheck(page);
-    const notice = page.getByRole("status").filter({ hasText: "will be ready after the run" });
-    await expect(notice).toBeVisible();
-    await notice.getByRole("button", { name: "Reload" }).click();
-    await expect(page.getByRole("status").filter({ hasText: "reloads when the run ends" })).toBeVisible();
+    await expect(notice(page, "will be ready after the run")).toBeVisible();
+    const reload = page.getByRole("status").getByRole("button", { name: "Reload" });
+    await reload.click();
+    await expect(notice(page, "reloads when the run ends")).toBeVisible();
+    // The button stays, with the focus, and a second press does nothing.
+    await expect(reload).toBeFocused();
+    await page.keyboard.press("Enter");
     // The page and the old version stay while the run is under way.
     await page.waitForTimeout(500);
     expect(await page.evaluate(() => "sameDocument" in window)).toBe(true);
     expect(await cacheNames(page)).toHaveLength(2);
 
     await page.evaluate(() => (window as unknown as RunHold).releaseRun());
-    await expect.poll(() => cacheNames(page)).toEqual([`ddalab:${origin}/:${b}`]);
+    await expect.poll(() => page.evaluate(() => "sameDocument" in window).catch(() => true)).toBe(false);
     await expect(page.getByRole("heading", { name: "DDALAB" })).toBeVisible();
+    expect(await cacheNames(page)).toContain(`ddalab:${origin}/:${b}`);
   });
 });
