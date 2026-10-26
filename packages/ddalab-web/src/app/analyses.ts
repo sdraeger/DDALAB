@@ -8,7 +8,7 @@ import {
 } from "../core/history";
 import type { AnalysisHandle } from "../core/scheduler";
 import type { DDARequest, VariantInfo } from "../core/types";
-import { preloadPanel } from "../features/results/loads";
+import { loads, manifestOf, preloadPanel } from "../features/results/loads";
 import { openResult, type RunState, showResult, useStore } from "../store/store";
 import { engine } from "./recordings";
 
@@ -110,9 +110,16 @@ export async function startRun(recordingId: string, request: DDARequest) {
   if (leaving) return;
   if (error === undefined) {
     const finishedAt = Date.now();
-    const manifest = await engine.resultManifest(record.id).then(recordedManifest, () => undefined);
-    await saveAnalysis({ ...record, status: "complete", manifest, finishedAt }).catch(() => {});
+    // The result view takes this read from the cache. A failed read is left for the view to make again.
+    const document = await manifestOf(record.id);
+    if ("error" in document) loads.delete(`${record.id}/manifest`);
+    const manifest = "ok" in document ? recordedManifest(document.ok) : undefined;
+    const complete: AnalysisRecord = { ...record, status: "complete", manifest, finishedAt };
+    // The result shows before its record is saved and the history listed again.
+    useStore.setState((s) => ({ analyses: s.analyses.map((a) => (a.id === record.id ? complete : a)) }));
     setRun({ status: "complete" });
+    showResult(record.id, record.fingerprint);
+    await saveAnalysis(complete).catch(() => {});
   } else if (error instanceof DOMException && error.name === "AbortError") {
     await deleteAnalysis(record.id).catch(() => {});
     setRun({ status: "cancelled" });
@@ -121,7 +128,6 @@ export async function startRun(recordingId: string, request: DDARequest) {
     setRun({ status: "failed", error: messageOf(error) });
   }
   await refreshAnalyses();
-  if (error === undefined) showResult(record.id, record.fingerprint);
 }
 
 /** Deletes a result that is not running: its files, then its record. */

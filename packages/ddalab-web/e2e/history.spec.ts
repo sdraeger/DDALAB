@@ -409,3 +409,15 @@ test("a_restored_result_is_read_while_the_history_lists", async ({ page }) => {
   // The manifest is asked for before the sweep, which the history waits for, has answered.
   expect(log.findIndex(([, what]) => what === "resultManifest")).toBeLessThan(swept);
 });
+
+test("a_finished_run_reads_its_manifest_once", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  await logWorkers(page);
+  await page.reload();
+  const id = await runBrainVision(page);
+  await expect(result(page)).toBeVisible();
+  expect((await heatmapDrawn(page)).frame).toMatchObject({ resultId: id, complete: true });
+  // The run's read of the manifest for its record is the one the result view uses.
+  expect((await workerLog(page)).filter(([, what]) => what === "resultManifest")).toHaveLength(1);
+  expect((await state(page)).analyses[0]).toMatchObject({ id, status: "complete" });
+});
