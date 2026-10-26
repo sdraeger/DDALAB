@@ -11,12 +11,10 @@ import X from "lucide-react/dist/esm/icons/x.mjs";
 import {
   type ChangeEvent,
   type KeyboardEvent,
-  lazy,
   type PointerEvent,
   type ReactElement,
   type ReactNode,
   type RefObject,
-  Suspense,
   useEffect,
   useEffectEvent,
   useRef,
@@ -38,9 +36,9 @@ import { useStore } from "../../store/store";
 import { hasHandles, moveTab, selectTab, shortNames, type Tab } from "../../store/tabs";
 import controls from "../../styles/controls.module.css";
 import { ALT, KEYS, LINUX_NOTE } from "./keys";
+// Bundled with the strip: as a chunk of its own it split shared code out of the entry, which grew the initial JS.
+import Switcher from "./Switcher";
 import styles from "./TabStrip.module.css";
-
-const Switcher = lazy(() => import("./Switcher"));
 
 const PANEL = "recording-panel";
 const tabId = (fingerprint: string) => `tab-${fingerprint}`;
@@ -275,11 +273,7 @@ export function TabStrip() {
         onChange={picked}
         {...{ webkitdirectory: "" }}
       />
-      {switching && (
-        <Suspense fallback={null}>
-          <Switcher onClose={() => setSwitching(false)} />
-        </Suspense>
-      )}
+      {switching && <Switcher onClose={() => setSwitching(false)} />}
     </div>
   );
 }
