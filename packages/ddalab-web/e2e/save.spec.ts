@@ -12,7 +12,12 @@ const fixture = (name: string) =>
   fileURLToPath(new URL(`../../dda-rs/tests/fixtures/${name}`, import.meta.url));
 
 type Options = { suggestedName: string; types: { description: string; accept: Record<string, string[]> }[] };
-type Saves = { saveStub(options: Options): Promise<FileSystemFileHandle>; saved: Options[]; cancel: boolean };
+type Saves = {
+  saveStub(options: Options): Promise<FileSystemFileHandle>;
+  saved: Options[];
+  cancel: boolean;
+  failWrite: boolean;
+};
 const saves = (page: Page) => page.evaluate(() => (window as unknown as Saves).saved);
 
 /** Whether Save dialogs are on (the stub) or off (no dialog, so downloads). */
@@ -36,12 +41,18 @@ const savedBytes = (page: Page, name: string) =>
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
-    const state = { saved: [] as Options[], cancel: false };
+    const state = { saved: [] as Options[], cancel: false, failWrite: false };
     Object.assign(window, state, {
       saveStub: async (options: Options) => {
         if ((window as unknown as Saves).cancel)
           throw new DOMException("The user aborted a request.", "AbortError");
         (window as unknown as Saves).saved.push(options);
+        if ((window as unknown as Saves).failWrite)
+          return {
+            createWritable: async () => {
+              throw new Error("The disk is full");
+            },
+          } as unknown as FileSystemFileHandle;
         const root = await navigator.storage.getDirectory();
         return root.getFileHandle(`saved-${options.suggestedName}`, { create: true });
       },
@@ -151,4 +162,20 @@ test("a_cancelled_dialog_does_nothing_and_shows_no_error", async ({ page }) => {
     .poll(async () => (await savedBytes(page, "saved-fixture.dda.zip"))?.length ?? 0)
     .toBeGreaterThan(0);
   expect(downloads).toEqual([]);
+});
+
+test("a_failed_write_of_an_annotation_export_shows_its_error", async ({ page }) => {
+  await page.getByLabel("Recording files").setInputFiles(fixture("fixture.edf"));
+  await expect(
+    page.getByRole("list", { name: "Annotations" }).getByRole("button", { name: /^spike/ }),
+  ).toBeVisible();
+  await page.evaluate(() => Object.assign(window, { failWrite: true }));
+  await page.getByRole("button", { name: "Export annotations" }).click();
+  await page.getByRole("button", { name: /BIDS events\.tsv/ }).click();
+  await expect(page.getByRole("alert")).toHaveText("The disk is full");
+  // The next export starts from a clean panel.
+  await page.evaluate(() => Object.assign(window, { failWrite: false }));
+  await page.getByRole("button", { name: /^JSON/ }).click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect.poll(() => savedBytes(page, "saved-fixture_annotations.json")).not.toBeNull();
 });
