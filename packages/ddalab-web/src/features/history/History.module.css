@@ -236,7 +236,7 @@
   line-height: var(--leading-small);
 }
 
-/* A CLI command breaks before or after itself, never at its own hyphens. */
+/* A CLI command stays whole: a line breaks around it. */
 .option .flag {
   white-space: nowrap;
 }

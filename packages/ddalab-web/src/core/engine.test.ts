@@ -479,7 +479,7 @@ test("a_trapped_dda_worker_fails_the_run_with_its_message", async () => {
 });
 
 // The memory contract sizes the pool (spec sizing rule): 290 MB + the app's caches at budget (512 MiB) + workers x
-// (32.64 + 0.23 channels) MiB stays under 1.5 GB; never more than every core but one, never fewer than one.
+// (32.64 + 0.23 channels) MiB stays under 1.5 GB, with between one worker and every core but one.
 test.each([
   [8, [7, 7, 7, 4]],
   [18, [17, 16, 10, 4]],

@@ -81,7 +81,7 @@ type BlockKey = (u64, u64);
 type Lru = (HashMap<BlockKey, Arc<Vec<u8>>>, VecDeque<BlockKey>);
 
 /// The blocks of any number of `BlockCache`s under one capacity: the least recently used block of any of them goes
-/// first, so a source not read for a while gives way to the ones being read.
+/// first. A source not read for a while gives way to the ones being read.
 pub struct BlockPool {
     capacity_blocks: AtomicUsize,
     /// Blocks by key, and the keys from least to most recently used.
@@ -147,7 +147,7 @@ impl BlockPool {
     }
 }
 
-/// Ids of `BlockCache`s, never reused.
+/// The next id of a `BlockCache`: each cache has one of its own.
 static NEXT_CACHE: AtomicU64 = AtomicU64::new(0);
 
 /// Caches the most recently used blocks of `block_size` bytes (the last block of the source may be short) in a
