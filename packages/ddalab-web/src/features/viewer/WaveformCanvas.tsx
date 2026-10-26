@@ -3,12 +3,19 @@
 // React renders the structure and the visible gutter rows only.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { engine } from "../../app/recordings";
+import { TileCache } from "../../core/tileCache";
 import { drawRuler, drawUnderlay } from "../../render/axis";
 import { observeDevicePixels } from "../../render/devicePixels";
 import { paramsOf } from "../../render/display";
 import { webgl2 } from "../../render/gl";
 import { readColors, watchTheme } from "../../render/themeColors";
-import { createWaveformLayer, type Drawn, type Frame, type WaveformLayer } from "../../render/waveformLayer";
+import {
+  createWaveformLayer,
+  type Drawn,
+  type Frame,
+  LAYER_ROWS,
+  type WaveformLayer,
+} from "../../render/waveformLayer";
 import { CSS_PX_PER_MM, setPlotWidth, setView, useStore } from "../../store/store";
 import { electrodeGroups } from "../inspector/groups";
 import { type ProbeFrame, probing, viewerProbe } from "./probe";
@@ -22,6 +29,26 @@ const GL_MISSING =
   "DDALAB draws recordings with WebGL2, which this browser does not provide. Use a current Chrome, Edge, " +
   "Firefox or Safari with hardware acceleration turned on.";
 const GL_LOST = "The browser reset WebGL2 drawing. The traces return once it restores it.";
+
+// Raw chunks (LAYER_ROWS rows of every display channel) by recording: a tab switched back to draws from here at
+// once, as tiles come from the engine's cache. The layer's own cache goes with its canvas.
+const rawChunks = new TileCache<Float32Array>(64 * 2 ** 20, (values) => values.byteLength);
+
+/** `engine.raw` of the chunk-aligned span from `row0`, from `rawChunks` when every chunk of it is there. */
+async function rawOf(id: string, fingerprint: string, channels: number, row0: number, rows: number) {
+  const first = row0 / LAYER_ROWS;
+  const keys = Array.from({ length: Math.ceil(rows / LAYER_ROWS) }, (_, i) => `${fingerprint}/${first + i}`);
+  const kept = keys.map((key) => rawChunks.get(key));
+  const size = LAYER_ROWS * channels;
+  if (kept.every((part) => part !== undefined)) {
+    const values = new Float32Array(rows * channels);
+    for (const [i, part] of kept.entries()) values.set(part, i * size);
+    return values;
+  }
+  const values = await engine.raw(id, row0, rows);
+  for (const [i, key] of keys.entries()) rawChunks.set(key, values.slice(i * size, (i + 1) * size));
+  return values;
+}
 
 export function WaveformCanvas({ recordingId }: { recordingId: string }) {
   const info = useStore((s) => s.recordings[recordingId]?.info);
@@ -83,7 +110,7 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
           gl,
           {
             tile: (level, index) => engine.tile(recordingId, level, index),
-            raw: (row0, rows) => engine.raw(recordingId, row0, rows),
+            raw: (row0, rows) => rawOf(recordingId, opened.fingerprint, channels, row0, rows),
           },
           { channels, rows: opened.info.sample_count, params },
           schedule,

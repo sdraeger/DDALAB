@@ -16,7 +16,7 @@ import { type DrawPlan, drawPlan, tileIndices } from "./levels";
 import { type Failure, nextFailure } from "./retry";
 
 /** Raw rows per raw layer; a tile layer holds 1,024 minima then 1,024 maxima. */
-const LAYER_ROWS = 2048;
+export const LAYER_ROWS = 2048;
 const TILE_BUCKETS = 1024;
 /** GPU bytes each texture array may take, and the fewest layers each gets whatever the channel count. */
 const TILE_BUDGET = 128 * 2 ** 20;

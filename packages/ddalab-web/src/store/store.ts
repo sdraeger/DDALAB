@@ -161,14 +161,17 @@ function freshView(
   return { view: clamp(next, recording), selection: null, cursorS: null };
 }
 
-/** Adds a freshly opened recording, which nothing has scanned yet, and makes it the active one. */
-export function addRecording(id: string, recording: Omit<OpenRecording, "scan" | "selectedChannels">) {
+/** Adds a freshly opened recording, which nothing has scanned yet: the active one unless `activate` is false. */
+export function addRecording(
+  id: string,
+  recording: Omit<OpenRecording, "scan" | "selectedChannels">,
+  activate = true,
+) {
   const scan: ScanState = { scannedRows: 0, totalRows: recording.info.sample_count };
   const added: OpenRecording = { ...recording, scan, selectedChannels: [] };
   useStore.setState((s) => ({
     recordings: { ...s.recordings, [id]: added },
-    activeRecordingId: id,
-    ...freshView(s.view, added),
+    ...(activate ? { activeRecordingId: id, ...freshView(s.view, added) } : {}),
   }));
 }
 
