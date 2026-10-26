@@ -61,23 +61,31 @@ export async function download(name: string, make: () => Saveable | Promise<Save
 const SPOOL = "exports";
 const SPOOL_LOCK = "ddalab-exports";
 
-/** The spool's lock, taken by this window once it first spools and held until it closes. */
+/** The spool's lock, taken by this window once it first spools and held until it closes; a page without Web Locks
+ * (an insecure origin) goes on without it. */
 let held: Promise<void> | undefined;
 const hold = () =>
   (held ??= new Promise<void>((granted) => {
-    navigator.locks
-      .request(SPOOL_LOCK, { mode: "shared" }, () => {
-        granted();
-        return new Promise<never>(() => {});
-      })
-      .catch(() => granted());
+    try {
+      navigator.locks
+        .request(SPOOL_LOCK, { mode: "shared" }, () => {
+          granted();
+          return new Promise<never>(() => {});
+        })
+        .catch(() => granted());
+    } catch {
+      granted();
+    }
   }));
 
 /** On startup: deletes the spooled files, unless a window that spooled one is open (its download may still read it). */
-export const sweepSpool = () =>
-  navigator.locks
-    .request(SPOOL_LOCK, { ifAvailable: true }, (lock) => (lock ? clearSpool() : undefined))
-    .catch(() => {});
+export async function sweepSpool() {
+  try {
+    await navigator.locks.request(SPOOL_LOCK, { ifAvailable: true }, (lock) =>
+      lock ? clearSpool() : undefined,
+    );
+  } catch {} // no Web Locks (an insecure origin): the spool stays, as it cannot be shared safely
+}
 
 /** Deletes the spooled files, whoever holds the lock: the user asked (LocalData). */
 export const clearSpool = () =>
@@ -104,6 +112,8 @@ export async function spoolBytes(): Promise<number> {
  * the download to read. Without a writable OPFS file it becomes a Blob, which browsers keep on disk when it is large.
  */
 async function spooled(name: string, data: ReadableStream<Uint8Array>): Promise<Blob> {
+  // Before the folder: a sweep in a window starting now waits for this one's lock instead of removing it under us.
+  await hold();
   const spool = await navigator.storage
     .getDirectory()
     .then((root) => root.getDirectoryHandle(SPOOL, { create: true }))
@@ -113,7 +123,6 @@ async function spooled(name: string, data: ReadableStream<Uint8Array>): Promise<
   // shortcut: the last export's file goes when the next one starts, long after its download; one still being written
   // stays. Upgrade to a file per export if two exports at once need it.
   for await (const old of spool.keys()) await spool.removeEntry(old).catch(() => {});
-  await hold();
   const file = await spool.getFileHandle(name, { create: true });
   await data.pipeTo(await file.createWritable());
   return file.getFile();
