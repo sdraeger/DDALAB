@@ -309,6 +309,7 @@ test("a_batch_runs_on_a_snapshot_folder_and_cites_the_dataset", async ({ page })
   test.setTimeout(90_000);
   await mockOpenNeuro(page);
   await page.goto("/");
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
   await searchFor(page, "epilepsy ieeg");
   await page.getByRole("button", { name: /Epilepsy-iEEG-Multicenter-Dataset/ }).click();
   await page.getByRole("button", { name: "Find recordings to run on" }).click();
