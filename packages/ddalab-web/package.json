@@ -1,7 +1,7 @@
 {
   "name": "ddalab-web",
   "private": true,
-  "version": "0.2.0",
+  "version": "2.0.0",
   "type": "module",
   "scripts": {
     "build:wasm": "node scripts/build-wasm.mjs",
@@ -15,12 +15,12 @@
     "bench": "npm run build:wasm && PERF=1 DDALAB_DIST=1 playwright test --project=bench",
     "test:dist": "playwright test -c playwright.dist.config.ts",
     "deploy:snl": "node scripts/deploy-snl.mjs",
-    "check:live": "node scripts/check-live.mjs"
+    "check:live": "node scripts/check-live.mjs",
+    "check:pages": "node scripts/check-live.mjs --pages"
   },
   "dependencies": {
     "@base-ui/react": "1.9.0",
     "@headless-tree/core": "1.7.0",
-    "@headless-tree/react": "1.7.0",
     "client-zip": "2.5.1",
     "idb": "8.0.4",
     "lucide-react": "1.53.0",

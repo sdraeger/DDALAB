@@ -41,7 +41,7 @@ test("file_event_lines_are_dashed_and_user_lines_solid", () => {
   ]);
 });
 
-test("ruler_tick_labels_stay_and_flags_elide_before_them", () => {
+test("ruler_flags_keep_their_labels_and_tick_labels_give_way", () => {
   // A 2D context whose text is 6 px a letter; it records the text it draws and where.
   const texts: [string, number][] = [];
   const ctx = {
@@ -68,12 +68,14 @@ test("ruler_tick_labels_stay_and_flags_elide_before_them", () => {
     colors: {} as Colors,
   });
   const at = Object.fromEntries(texts);
-  // Every tick from 1 to 9 keeps its label. One a flag starts on moves to the left of its tick.
-  for (let s = 1; s <= 9; s++) expect(at[String(s)], `${s} s`).toBeDefined();
-  expect(at["1"]).toBe(100 - 3 - 6);
-  expect(at["3"]).toBe(300 - 3 - 6);
-  expect(at["2"]).toBe(203);
-  // The long flag ends before the label of 2 s, its text cut with an ellipsis.
-  expect(flags[0].x1).toBeLessThanOrEqual(203 - 2);
+  // The long flag runs to the next flag, its text cut with an ellipsis only there.
+  expect(flags[0].x1).toBeLessThanOrEqual(300 - 2);
+  expect(flags[0].x1).toBeGreaterThan(290);
   expect(texts.find(([text]) => text.startsWith("a label"))?.[0]).toMatch(/…$/);
+  // A tick label a flag covers moves to the left of its tick, else it is left out; the others stay.
+  expect(at["1"]).toBe(100 - 3 - 6);
+  expect(at["2"]).toBeUndefined();
+  // 3 s: its right is the short flag, its left the long one.
+  expect(at["3"]).toBeUndefined();
+  for (let s = 4; s <= 9; s++) expect(at[String(s)], `${s} s`).toBe(100 * s + 3);
 });

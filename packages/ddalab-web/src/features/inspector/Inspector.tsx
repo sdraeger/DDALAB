@@ -1,6 +1,6 @@
 // The inspector: the active result's provenance, the active recording's facts and scan, and its channels by electrode
 // group, chosen for analysis.
-import { lazy, memo, Suspense, useCallback, useMemo, useState, useTransition } from "react";
+import { lazy, memo, Suspense, useCallback, useId, useMemo, useState, useTransition } from "react";
 import { closeRecording } from "../../app/recordings";
 import type { RecordingInfo } from "../../core/types";
 import { activeRecording, selectChannels, useStore } from "../../store/store";
@@ -16,6 +16,8 @@ const Annotations = lazy(() => import("../annotations/AnnotationList"));
 
 /** The height of a channel row in CSS px; the list renders only the rows in view. */
 const ROW = 28;
+/** The electrode groups listed before "Show all". */
+const GROUPS_SHOWN = 8;
 /** Rows rendered above and below the visible ones. */
 const OVERSCAN = 6;
 
@@ -129,6 +131,9 @@ const Channels = memo(function Channels(props: {
   const [filter, setFilter] = useState(query);
   const [filtering, startTransition] = useTransition();
   const chosen = useMemo(() => new Set(selected), [selected]);
+  // Past GROUPS_SHOWN the group rows collapse: the channel list, the annotations and the settings stay in reach.
+  const [allGroups, setAllGroups] = useState(false);
+  const groupsId = useId();
   const shown = useMemo(() => {
     const needle = filter.trim().toLowerCase();
     const all = labels.map((_, i) => i);
@@ -144,11 +149,22 @@ const Channels = memo(function Channels(props: {
       <h3 className={styles.heading}>
         Channels <span className={styles.count}>{`${selected.length} of ${labels.length} chosen`}</span>
       </h3>
-      <ul aria-label="Electrode groups" className={styles.groups}>
-        {groups.map((group) => (
+      <ul id={groupsId} aria-label="Electrode groups" className={styles.groups}>
+        {(allGroups ? groups : groups.slice(0, GROUPS_SHOWN)).map((group) => (
           <GroupRow key={group.name} group={group} chosen={chosen} />
         ))}
       </ul>
+      {groups.length > GROUPS_SHOWN && (
+        <button
+          type="button"
+          className={`${controls.quiet} ${styles.more}`}
+          aria-expanded={allGroups}
+          aria-controls={groupsId}
+          onClick={() => setAllGroups(!allGroups)}
+        >
+          {allGroups ? `Show the first ${GROUPS_SHOWN} groups` : `Show all ${groups.length} groups`}
+        </button>
+      )}
       <input
         type="search"
         className={styles.search}
@@ -240,6 +256,15 @@ function ChannelList(props: {
       data-own-keys
       ref={measure}
       onScroll={(event) => setTop(Math.floor(event.currentTarget.scrollTop / ROW))}
+      // At rest the list shows whole rows: none half hidden at its edge under the search field. CSS snapping would
+      // snap to the rendered rows only, which a jump down the virtual list leaves behind.
+      onScrollEnd={(event) => {
+        const element = event.currentTarget;
+        const whole = Math.round(element.scrollTop / ROW) * ROW;
+        if (Math.abs(whole - element.scrollTop) < 0.5) return;
+        const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+        element.scrollTo({ top: whole, behavior: reduced ? "instant" : "smooth" });
+      }}
     >
       <ul aria-label="Channels" className={styles.list} style={{ height: shown.length * ROW }}>
         {shown.slice(first, last).map((channel, k) => {

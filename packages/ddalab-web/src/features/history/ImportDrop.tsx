@@ -6,8 +6,9 @@ import { type ChangeEvent, type DragEvent, useRef, useState } from "react";
 import { refreshAnalyses } from "../../app/analyses";
 import { engine } from "../../app/recordings";
 import { inTransition } from "../../app/viewTransition";
+import { persistStorage } from "../../core/history";
 import { droppedFiles } from "../../core/sources";
-import { openResult } from "../../store/store";
+import { openResult, useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
 import rail from "../library/LibraryRail.module.css";
 import styles from "./History.module.css";
@@ -16,6 +17,8 @@ export default function ImportDrop() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [over, setOver] = useState(false);
+  // The hint is for a first import: it goes once the history holds a result.
+  const untouched = useStore((s) => s.analyses.length === 0);
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
 
@@ -29,6 +32,7 @@ export default function ImportDrop() {
           ? input.map((file) => ({ path: file.webkitRelativePath || file.name, file }))
           : input,
       );
+      void persistStorage();
       await refreshAnalyses();
       inTransition(() => openResult(id));
     } catch (failure) {
@@ -81,16 +85,18 @@ export default function ImportDrop() {
         </button>
         <button
           type="button"
-          className={controls.quiet}
+          className={`${controls.quiet} ${rail.ghost}`}
           disabled={busy}
           onClick={() => folderInput.current?.click()}
         >
           Import folder
         </button>
       </div>
-      <p className={rail.hint}>
-        A bundle zip, a bundle folder or a JSON document from the CLI; or drop one here.
-      </p>
+      {untouched && (
+        <p className={rail.hint}>
+          A bundle zip, a bundle folder or a JSON document from the CLI; or drop one here.
+        </p>
+      )}
       <input
         ref={fileInput}
         type="file"

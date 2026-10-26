@@ -9,7 +9,18 @@ import type { RecordingInput } from "../core/engine";
 import { documentJson, variantCsv } from "../core/exporters";
 import { fingerprintOf, sha256Hex } from "../core/fingerprint";
 import { importResult } from "../core/imports";
-import { levelCount, loadTile, saveTiles, tileCount, tileRows, tileSlot } from "../core/opfs";
+import {
+  evictTiles,
+  levelCount,
+  loadTile,
+  saveTiles,
+  tileBudget,
+  tileCount,
+  tileRows,
+  tileSlot,
+  tilesLock,
+  touchTiles,
+} from "../core/opfs";
 import type { IoEvent, IoReply, IoRequest, IoResults, ScanState } from "../core/protocol";
 import {
   createResultFiles,
@@ -24,6 +35,7 @@ import {
 } from "../core/resultStore";
 import { blockBudgetMb, MAX_BLOCK_MB } from "../core/scheduler";
 import { isScanned, openRequestOf, partsOf, readSource, type Source } from "../core/sources";
+import { CACHE_MB } from "../core/tileCache";
 import type { RecordingInfo } from "../core/types";
 import { scan, yieldToLoop } from "./scan";
 
@@ -50,6 +62,8 @@ interface Recording {
   closed: boolean;
   /** Its overview scan has started. */
   scanning?: boolean;
+  /** Lets go of the recording's tiles lock (opfs.ts `tilesLock`). */
+  release(): void;
 }
 
 /** Sources by the file id the core reads them with; ids are never reused. */
@@ -102,9 +116,22 @@ function startScan(id: string, input: RecordingInput, rec: Recording) {
         closed: () => rec.closed,
       }),
     )
-    .catch(() => {
-      stopped = true; // a trap: the next request tells the engine to replace this worker
-    });
+    .then(
+      // The tiles stay within their share of the storage: the least recently used recordings' go first.
+      () =>
+        tileBudget()
+          .then(evictTiles)
+          .catch(() => {}),
+      () => {
+        stopped = true; // a trap: the next request tells the engine to replace this worker
+      },
+    );
+}
+
+/** A recording opened to be viewed: its tiles count as used now, and its scan starts. A batch's open does neither. */
+function viewed(id: string, input: RecordingInput, rec: Recording) {
+  void touchTiles(rec.fingerprint).catch(() => {}); // without storage (private windows) there is nothing to keep
+  startScan(id, input, rec);
 }
 
 async function open(id: string, input: RecordingInput, scan = true): Promise<IoResults["open"]> {
@@ -116,7 +143,7 @@ async function open(id: string, input: RecordingInput, scan = true): Promise<IoR
   });
   let handle: number | undefined;
   try {
-    const opened = (await core).open(openRequestOf(input, parts, fileIds), { cacheMb: 64 });
+    const opened = (await core).open(openRequestOf(input, parts, fileIds), { cacheMb: CACHE_MB.ioFiles });
     handle = opened.handle;
     const { info } = opened;
     // The identity of what the core read: its files, by name.
@@ -132,7 +159,7 @@ async function open(id: string, input: RecordingInput, scan = true): Promise<IoR
     if (known !== undefined) {
       // A recording a batch opened without its scan gets one when it opens to be viewed.
       const other = recordings.get(known);
-      if (scan && other && !other.scanning) startScan(known, input, other);
+      if (scan && other && !other.scanning) viewed(known, input, other);
       (await core).close(handle);
       for (const fileId of fileIds) sources.delete(fileId);
       return { info, fingerprint, analysis_channels: opened.analysis_channels, duplicateOf: known };
@@ -145,9 +172,16 @@ async function open(id: string, input: RecordingInput, scan = true): Promise<IoR
       channels: opened.analysis_channels.length,
       fileBytes: parts.reduce((sum, { size }) => sum + size, 0),
       closed: false,
+      release: () => {},
     };
     recordings.set(id, rec);
-    if (scan) startScan(id, input, rec);
+    // Held while the recording is open, in this tab or another: eviction leaves its tiles.
+    void navigator.locks
+      .request(tilesLock(fingerprint), { mode: "shared" }, () =>
+        rec.closed ? undefined : new Promise<void>((done) => (rec.release = done)),
+      )
+      .catch(() => {});
+    if (scan) viewed(id, input, rec);
     return { info, fingerprint, analysis_channels: opened.analysis_channels };
   } catch (error) {
     if (handle !== undefined) (await core).close(handle);
@@ -159,6 +193,7 @@ async function open(id: string, input: RecordingInput, scan = true): Promise<IoR
 async function close(id: string) {
   const rec = recording(id);
   rec.closed = true;
+  rec.release();
   (await core).close(rec.handle);
   for (const fileId of rec.fileIds) sources.delete(fileId);
   recordings.delete(id);

@@ -8,21 +8,11 @@ import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundleDir } from "./global-setup";
 import { showFixture } from "./resultFixture";
-import { expect, type Page, test } from "./test";
+import { expect, hasStorage, hasWebGL2, NO_STORAGE, NO_WEBGL2, type Page, test } from "./test";
 
 const DDA_RS = fileURLToPath(new URL("../../dda-rs/", import.meta.url));
 const fixturePath = (name: string) => join(DDA_RS, "tests/fixtures", name);
 const BRAINVISION = ["fixture.vhdr", "fixture.eeg", "fixture.vmrk"];
-
-// Playwright's WebKit has no OPFS (getDirectory throws UnknownError); Safari itself has.
-const hasStorage = (page: Page) =>
-  page.evaluate(() =>
-    navigator.storage.getDirectory().then(
-      () => true,
-      () => false,
-    ),
-  );
-const NO_STORAGE = "this browser window has no OPFS";
 
 const runBar = (page: Page) => page.getByRole("region", { name: "Run" });
 const history = (page: Page) => page.getByRole("region", { name: "History" });
@@ -115,7 +105,11 @@ const unzip = (zip: string) => {
 const commandOf = async (page: Page) => (await provenance(page).locator("pre").textContent()) ?? "";
 
 test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => Reflect.deleteProperty(window, "showOpenFilePicker"));
+  // No native dialogs: the exports save as downloads (save.spec.ts covers the Save dialog).
+  await page.addInitScript(() => {
+    Reflect.deleteProperty(window, "showOpenFilePicker");
+    Reflect.deleteProperty(window, "showSaveFilePicker");
+  });
   await page.goto("/");
 });
 
@@ -197,8 +191,49 @@ const heatmapDrawn = (page: Page) =>
     return { frame, drawn: opaque / (data.length / 4) };
   });
 
+test("provenance_names_every_input_file_and_a_digest_its_manifest_lacks", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  const id = await runBrainVision(page);
+  const { analyses } = await state(page);
+  expect(analyses[0].inputFiles).toEqual(BRAINVISION);
+  // A manifest written without one digest (an older build's gap): the provenance names the file.
+  await page.evaluate((id) => {
+    const { store } = window.__ddalab;
+    store.setState((s) => ({
+      analyses: s.analyses.map((a) => {
+        if (a.id !== id || !a.manifest) return a;
+        const { "fixture.vmrk": _, ...kept } = a.manifest.reproduction.input_sha256;
+        return {
+          ...a,
+          manifest: { ...a.manifest, reproduction: { ...a.manifest.reproduction, input_sha256: kept } },
+        };
+      }),
+      activeResultId: id,
+    }));
+  }, id);
+  await expect(provenance(page).getByText("SHA-256 not recorded for fixture.vmrk")).toBeVisible();
+  const eeg = analyses[0].manifest?.reproduction.input_sha256["fixture.eeg"] as string;
+  await expect(provenance(page).getByText(eeg)).toBeVisible();
+});
+
+test("the_first_stored_result_asks_the_browser_to_keep_the_sites_storage", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  await page.addInitScript(() => {
+    const calls: string[] = [];
+    Object.assign(window, { persistCalls: calls });
+    navigator.storage.persisted = async () => Boolean(calls.push("persisted")) && false;
+    navigator.storage.persist = async () => Boolean(calls.push("persist"));
+  });
+  await page.reload();
+  await runBrainVision(page);
+  await runBrainVision(page, ["CT"]);
+  const calls = () => page.evaluate(() => (window as unknown as { persistCalls: string[] }).persistCalls);
+  await expect.poll(calls).toEqual(["persisted", "persist"]);
+});
+
 test("import_cli_bundle_shows_heatmap_without_recording", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   const manifest = JSON.parse(readFileSync(join(bundleDir("st"), "manifest.json"), "utf8"));
   await page.getByLabel("Result file").setInputFiles(stZip());
   const row = history(page).getByRole("listitem").filter({ hasText: "ST on fixture.vhdr" });
@@ -226,6 +261,7 @@ test("import_cli_bundle_shows_heatmap_without_recording", async ({ page }) => {
 
 test("import_with_another_recording_open_shows_alone", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   await page.getByLabel("Recording files").setInputFiles(fixturePath("fixture.edf"));
   await expect(page.getByRole("heading", { name: "fixture.edf" })).toBeVisible();
   await page.getByLabel("Result file").setInputFiles(stZip());
@@ -243,6 +279,7 @@ test("import_with_another_recording_open_shows_alone", async ({ page }) => {
 
 test("history_row_activates_its_recording", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   const id = await runBrainVision(page);
   // Another recording becomes the active one; the result of the first one waits in the history.
   await page.getByLabel("Recording files").setInputFiles(fixturePath("fixture.edf"));
@@ -262,7 +299,7 @@ test("history_row_activates_its_recording", async ({ page }) => {
 });
 
 test("session_restores_view", async ({ page }) => {
-  // The scale settings sit in the bar from 1400 px with the inspector open (Shell.module.css).
+  // The scale settings sit in the bar from 1440 px with the inspector open (Shell.module.css).
   await page.setViewportSize({ width: 1440, height: 720 });
   test.skip(!(await hasStorage(page)), NO_STORAGE);
   const id = await runBrainVision(page);
@@ -378,9 +415,13 @@ test("history_lists_before_the_engine_compiles", async ({ page, browserName }) =
   await expect(history(page).getByRole("listitem").filter({ hasText: "ST on held.edf" })).toContainText(
     "Failed",
   );
-  await expect(page.getByRole("status")).toHaveText("loading");
+  await expect(page.getByRole("complementary", { name: "Library" }).getByRole("status")).toHaveText(
+    "loading",
+  );
   release();
-  await expect(page.getByRole("status")).toHaveText(/^\d+\.\d+\.\d+/);
+  await expect(page.getByRole("complementary", { name: "Library" }).getByRole("status")).toHaveText(
+    /^\d+\.\d+\.\d+/,
+  );
 });
 
 /** Logs, from the next load on, what the page asks of its workers (`ask`) and the serials they answer (`reply`). */
@@ -411,6 +452,7 @@ const asked = async (page: Page, what: string) =>
 
 test("pointing_at_a_result_reads_its_manifest_before_the_click", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   await runBrainVision(page);
   await page.evaluate(() => window.__ddalab.store.setState({ activeResultId: null, shownResult: null }));
   await logWorkers(page);
@@ -431,6 +473,7 @@ test("pointing_at_a_result_reads_its_manifest_before_the_click", async ({ page }
 
 test("pointing_keeps_the_last_three_manifests_and_the_shown_result", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   // The BrainVision result stays shown across the reload; four more results come with their manifests.
   await runBrainVision(page);
   await seedResults(page, ["r1", "r2", "r3", "r4"], "complete");
@@ -475,6 +518,7 @@ test("a_restored_result_is_read_while_the_history_lists", async ({ page }) => {
 
 test("a_finished_run_reads_its_manifest_once", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   await logWorkers(page);
   await page.reload();
   const id = await runBrainVision(page);
@@ -487,6 +531,7 @@ test("a_finished_run_reads_its_manifest_once", async ({ page }) => {
 
 test("a_run_whose_manifest_read_fails_shows_on_its_request", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   // The run's own read of its manifest fails; the view's read after it succeeds.
   await page.evaluate(() => {
     const { engine } = window.__ddalab;
@@ -512,6 +557,7 @@ test("a_run_whose_manifest_read_fails_shows_on_its_request", async ({ page }) =>
 // Each tab shows its own result again after a switch, from the reads it made: the loader cache keeps what the tabs show.
 test("a_tab_switch_shows_its_own_result_read_once", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   await logWorkers(page);
   await page.reload();
   /** A recording with a result of its own, which it shows; the result's record is complete. */

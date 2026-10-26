@@ -1,5 +1,5 @@
 // Display calibration: a bar meant to be 50 mm long, which the user matches with a ruler. The setting maps CSS
-// millimetres to physical ones; sensitivity (µV/mm) and timebase (mm/s) then hold on this screen.
+// millimeters to physical ones; sensitivity (µV/mm) and timebase (mm/s) then hold on this screen.
 import { setCalibration, useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
 import styles from "./Calibration.module.css";
@@ -15,7 +15,7 @@ export default function Calibration() {
       <h2 className={styles.title}>Display calibration</h2>
       <p className={styles.text}>
         Hold a ruler to the bar and adjust until it measures {BAR_MM} mm. Sensitivity and timebase are then
-        true to the millimetre on this screen.
+        true to the millimeter on this screen.
       </p>
       <div className={styles.bar} style={{ width: `${barMm}mm` }} aria-hidden />
       <label className={styles.field}>

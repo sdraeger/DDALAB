@@ -1,6 +1,6 @@
 // The engine's handling of its workers, against a scripted stand-in for `Worker`.
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { createEngine, type Engine } from "./engine";
+import { createEngine, ddaPoolSize, type Engine } from "./engine";
 import type { IoRequest, ScanState } from "./protocol";
 import type { DDARequest } from "./types";
 
@@ -237,11 +237,16 @@ test("a_trapped_annotation_reader_is_replaced", async () => {
   expect(FakeWorker.annotators[0].terminated).toBe(true);
 });
 
-test("remote_recordings_above_1_gib_are_not_read_for_annotations", async () => {
+test.each([
+  ["EDF+", ["above 1 GiB"]],
+  ["BrainVision", []],
+])("remote_%s_recordings_above_1_gib_keep_the_annotations_the_open_read", async (format, warned) => {
   const engine = createEngine();
+  const marker = { onset_s: 1, duration_s: 0, label: "R1", source: "big.vmrk" };
   FakeWorker.onMessage = (worker, message) => {
     if (message.type === "open") {
-      worker.ok(message, { info: info("big.edf"), fingerprint: "print-big", analysis_channels: [0] });
+      const opened = { ...info("big.edf"), format, annotations: [marker] };
+      worker.ok(message, { info: opened, fingerprint: "print-big", analysis_channels: [0] });
     } else healthy(worker, message);
   };
   const { id } = await engine.open({
@@ -250,8 +255,9 @@ test("remote_recordings_above_1_gib_are_not_read_for_annotations", async () => {
     files: [{ name: "big.edf", url: "https://example.org/big.edf", size: 2 ** 30 + 1 }],
   });
   const found = await engine.annotations(id);
-  expect(found.annotations).toEqual([]);
-  expect(found.warnings[0]).toContain("above 1 GiB");
+  expect(found.annotations).toEqual([marker]);
+  expect(found.warnings.map((w) => (w.includes("above 1 GiB") ? "above 1 GiB" : w))).toEqual(warned);
+  expect(found.skipped).toBe(true);
   expect(FakeWorker.annotators).toHaveLength(0);
 });
 
@@ -368,6 +374,26 @@ test("a_failed_hash_worker_lets_the_run_finish_and_says_so", async () => {
   expect(FakeWorker.hashers).toHaveLength(2);
 });
 
+test("a_failed_hash_worker_leaves_recordings_it_was_not_asked_to_hash", async () => {
+  runner(computes, (worker) => worker.fail("the hash worker crashed"));
+  FakeWorker.onMessage = ((next) => (worker: FakeWorker, message: Message) => {
+    if (message.type !== "open" || message.input.kind !== "url") return next(worker, message);
+    worker.ok(message, { info: info("u.edf"), fingerprint: "print-url", analysis_channels: [0] });
+  })(FakeWorker.onMessage);
+  const engine = createEngine();
+  const remote = await engine.open({
+    kind: "url",
+    primary: "u.edf",
+    files: [{ name: "u.edf", url: "https://x/u.edf", size: 1000 }],
+  });
+  const local = await engine.open(input("a.edf"));
+  await expect(engine.hashes(local.id)).resolves.toEqual({});
+  expect(states(engine, remote.id).at(-1)?.hashError).toBeUndefined();
+  // Asked later, the URL recording gets a hash worker of its own.
+  void engine.hashes(remote.id);
+  expect(FakeWorker.hashers).toHaveLength(2);
+});
+
 test("a_run_writes_every_block_and_the_manifest_of_a_dda_worker", async () => {
   runner(computes);
   const engine = createEngine();
@@ -382,6 +408,47 @@ test("a_run_writes_every_block_and_the_manifest_of_a_dda_worker", async () => {
     expect.objectContaining({ extras: expect.objectContaining({ input_sha256: { "a.edf": "00" } }) }),
   );
   expect(FakeWorker.dda.every((w) => w.terminated)).toBe(true);
+});
+
+test("a_run_keeps_the_hash_of_a_recording_closed_under_it", async () => {
+  let hashing: { id: string } | undefined;
+  runner(computes, (_, message) => {
+    if ((message as { type: string }).type === "hash") hashing = message as { id: string };
+  });
+  const engine = createEngine();
+  const { id } = await engine.open(input("a.edf"));
+  const run = await engine.run(id, REQUEST);
+  await until(() => sentToIo().filter((type) => type === "writeChunks").length === 3);
+  // The tab closes while the run waits for the hash: the engine keeps the recording and its hash going.
+  engine.close(id);
+  expect(FakeWorker.hashers[0].received.map((m) => m.type)).not.toContain("cancel");
+  expect(sentToIo()).not.toContain("close");
+  FakeWorker.hashers[0].send({ id: hashing?.id, name: "a.edf", sha256: "00" });
+  await expect(run.done).resolves.toEqual({ resultId: run.id });
+  expect(FakeWorker.dda.flatMap((w) => w.received)).toContainEqual(
+    expect.objectContaining({ extras: expect.objectContaining({ input_sha256: { "a.edf": "00" } }) }),
+  );
+  // The run over, the engine closes the recording.
+  await until(() => sentToIo().includes("close"));
+  expect(FakeWorker.hashers[0].received.map((m) => m.type)).toContain("cancel");
+});
+
+test("a_url_recording_is_hashed_only_when_its_digests_are_needed", async () => {
+  runner(computes);
+  FakeWorker.onMessage = ((next) => (worker: FakeWorker, message: Message) => {
+    if (message.type !== "open" || message.input.kind !== "url") return next(worker, message);
+    worker.ok(message, { info: info("a.edf"), fingerprint: "print-url", analysis_channels: [0] });
+  })(FakeWorker.onMessage);
+  const engine = createEngine();
+  const { id } = await engine.open({
+    kind: "url",
+    primary: "a.edf",
+    files: [{ name: "a.edf", url: "https://x/a.edf", size: 1000 }],
+  });
+  await engine.version();
+  expect(FakeWorker.hashers).toHaveLength(0);
+  await expect(engine.hashes(id)).resolves.toEqual({ "a.edf": "00" });
+  expect(FakeWorker.hashers[0].received.filter((m) => (m.type as string) === "hash")).toHaveLength(1);
 });
 
 test("cancel_terminates_the_dda_workers_and_deletes_the_files", async () => {
@@ -411,7 +478,7 @@ test("a_text_recording_gets_one_worker_per_512_mib", async () => {
       primary: "big.csv",
       files: [{ name: "big.csv", url: "https://x/big.csv", size }],
     });
-  const cores = Math.max(1, navigator.hardwareConcurrency - 1);
+  const cores = ddaPoolSize(navigator.hardwareConcurrency, 1);
   expect((await engine.plan((await open(600 * 2 ** 20)).id, REQUEST)).workers).toBe(1);
   expect((await engine.plan((await open(200 * 2 ** 20)).id, REQUEST)).workers).toBe(Math.min(cores, 2));
   expect((await engine.plan((await open(1000)).id, REQUEST)).workers).toBe(cores);
@@ -430,4 +497,24 @@ test("a_trapped_dda_worker_fails_the_run_with_its_message", async () => {
   expect(FakeWorker.dda.every((w) => w.terminated)).toBe(true);
   expect(sentToIo()).toContain("discardResult");
   expect(sentToIo()).not.toContain("finishResult");
+});
+
+// The memory contract sizes the pool (spec sizing rule): 290 MB + the app's caches at budget (520 MiB, the annotation
+// worker's file cache included) + workers x (32.64 + 0.23 channels) MiB stays 50 MB under 1.5 GB, with between one
+// worker and every core but one.
+test.each([
+  [8, [7, 7, 7, 3]],
+  [18, [17, 14, 9, 3]],
+  [32, [17, 14, 9, 3]],
+  [64, [17, 14, 9, 3]],
+])("the_pool_on_%i_cores_fits_the_memory_contract", (cores, expected) => {
+  const channels = [1, 32, 128, 512];
+  expect(channels.map((c) => ddaPoolSize(cores, c))).toEqual(expected);
+  for (const c of channels) {
+    const workers = ddaPoolSize(cores, c);
+    const bytes = 290e6 + (520 + workers * (8 + 1.04 * 16 + 0.23 * c + 8)) * 2 ** 20;
+    expect(bytes).toBeLessThan(1.5e9 - 50e6);
+  }
+  expect(ddaPoolSize(1, 1)).toBe(1);
+  expect(ddaPoolSize(64, 10_000)).toBe(1);
 });

@@ -1,6 +1,7 @@
 use crate::error::{DDAError, Result};
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::ops::Range;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use std::path::Path;
@@ -75,55 +76,121 @@ impl ByteSource for MmapSource {
     }
 }
 
-type Lru = (HashMap<u64, Arc<Vec<u8>>>, VecDeque<u64>);
+/// A block by its cache and its index in that cache's source.
+type BlockKey = (u64, u64);
+type Lru = (HashMap<BlockKey, Arc<Vec<u8>>>, VecDeque<BlockKey>);
 
-/// Caches the most recently used `capacity_blocks` blocks of `block_size` bytes (the last block of the source may be short).
+/// The blocks of any number of `BlockCache`s under one capacity: the least recently used block of any of them goes
+/// first. A source not read for a while gives way to the ones being read.
+pub struct BlockPool {
+    capacity_blocks: AtomicUsize,
+    /// Blocks by key, and the keys from least to most recently used.
+    lru: Mutex<Lru>,
+}
+
+impl BlockPool {
+    pub fn new(capacity_blocks: usize) -> Self {
+        let pool = Self {
+            capacity_blocks: AtomicUsize::new(1),
+            lru: Mutex::default(),
+        };
+        pool.set_capacity(capacity_blocks);
+        pool
+    }
+
+    /// Blocks past the new capacity go, least recently used first.
+    pub fn set_capacity(&self, capacity_blocks: usize) {
+        assert!(capacity_blocks > 0, "capacity must be positive");
+        self.capacity_blocks
+            .store(capacity_blocks, Ordering::Relaxed);
+        self.evict(&mut self.lru.lock().unwrap());
+    }
+
+    /// Blocks held now.
+    pub fn len(&self) -> usize {
+        self.lru.lock().unwrap().1.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    fn evict(&self, (blocks, order): &mut Lru) {
+        while order.len() > self.capacity_blocks.load(Ordering::Relaxed) {
+            if let Some(oldest) = order.pop_front() {
+                blocks.remove(&oldest);
+            }
+        }
+    }
+
+    fn get(&self, key: BlockKey) -> Option<Arc<Vec<u8>>> {
+        let (blocks, order) = &mut *self.lru.lock().unwrap();
+        let block = blocks.get(&key)?.clone();
+        order.retain(|&k| k != key);
+        order.push_back(key);
+        Some(block)
+    }
+
+    fn insert(&self, key: BlockKey, block: Arc<Vec<u8>>) {
+        let lru = &mut *self.lru.lock().unwrap();
+        if lru.0.insert(key, block).is_none() {
+            lru.1.push_back(key);
+            self.evict(lru);
+        }
+    }
+
+    /// Drops every block of cache `id`.
+    fn forget(&self, id: u64) {
+        let (blocks, order) = &mut *self.lru.lock().unwrap();
+        blocks.retain(|&(cache, _), _| cache != id);
+        order.retain(|&(cache, _)| cache != id);
+    }
+}
+
+/// The next id of a `BlockCache`: each cache has one of its own.
+static NEXT_CACHE: AtomicU64 = AtomicU64::new(0);
+
+/// Caches the most recently used blocks of `block_size` bytes (the last block of the source may be short) in a
+/// `BlockPool`: one of its own (`new`) or one shared with other caches (`in_pool`).
 pub struct BlockCache<S: ByteSource> {
     inner: S,
     block_size: usize,
-    capacity_blocks: usize,
-    /// Blocks by index, and the indices from least to most recently used.
-    lru: Mutex<Lru>,
+    id: u64,
+    pool: Arc<BlockPool>,
 }
 
 impl<S: ByteSource> BlockCache<S> {
     pub fn new(inner: S, block_size: usize, capacity_blocks: usize) -> Self {
-        assert!(
-            block_size > 0 && capacity_blocks > 0,
-            "block size and capacity must be positive"
-        );
+        Self::in_pool(inner, block_size, Arc::new(BlockPool::new(capacity_blocks)))
+    }
+
+    pub fn in_pool(inner: S, block_size: usize, pool: Arc<BlockPool>) -> Self {
+        assert!(block_size > 0, "block size must be positive");
         Self {
             inner,
             block_size,
-            capacity_blocks,
-            lru: Mutex::default(),
+            id: NEXT_CACHE.fetch_add(1, Ordering::Relaxed),
+            pool,
         }
     }
 
     fn block(&self, index: u64) -> Result<Arc<Vec<u8>>> {
-        {
-            let (blocks, order) = &mut *self.lru.lock().unwrap();
-            if let Some(block) = blocks.get(&index) {
-                order.retain(|&i| i != index);
-                order.push_back(index);
-                return Ok(block.clone());
-            }
+        if let Some(block) = self.pool.get((self.id, index)) {
+            return Ok(block);
         }
         // Read outside the lock; a racing reader of the same block inserts identical bytes.
         let start = index * self.block_size as u64;
         let mut block = vec![0u8; (self.inner.len() - start).min(self.block_size as u64) as usize];
         self.inner.read_at(start, &mut block)?;
         let block = Arc::new(block);
-        let (blocks, order) = &mut *self.lru.lock().unwrap();
-        if blocks.insert(index, block.clone()).is_none() {
-            order.push_back(index);
-            if order.len() > self.capacity_blocks {
-                if let Some(oldest) = order.pop_front() {
-                    blocks.remove(&oldest);
-                }
-            }
-        }
+        self.pool.insert((self.id, index), block.clone());
         Ok(block)
+    }
+}
+
+impl<S: ByteSource> Drop for BlockCache<S> {
+    fn drop(&mut self) {
+        self.pool.forget(self.id);
     }
 }
 

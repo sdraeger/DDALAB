@@ -8,10 +8,8 @@ use serde::Serialize;
 struct InfoOutput {
     cli_version: String,
     built_in_backend: &'static str,
-    built_in_backend_inputs: Vec<&'static str>,
     native_binary_enabled: bool,
     rayon_default_mode_cli: &'static str,
-    rayon_default_mode_sidecar: &'static str,
     rayon_override_env_vars: Vec<&'static str>,
     platform: String,
     arch: String,
@@ -28,10 +26,8 @@ pub fn execute(args: InfoArgs) -> i32 {
     let info = InfoOutput {
         cli_version: env!("CARGO_PKG_VERSION").to_string(),
         built_in_backend: "pure-rust",
-        built_in_backend_inputs: vec!["ascii", "txt", "csv"],
         native_binary_enabled: false,
         rayon_default_mode_cli: "throughput",
-        rayon_default_mode_sidecar: "desktop",
         rayon_override_env_vars: vec!["DDALAB_RAYON_MODE", "DDALAB_RAYON_THREADS"],
         platform: std::env::consts::OS.to_string(),
         arch: std::env::consts::ARCH.to_string(),
@@ -41,7 +37,6 @@ pub fn execute(args: InfoArgs) -> i32 {
         supports_preprocessing_flags: true,
         notes: vec![
             "execution is handled entirely by the Rust dda-rs engine",
-            "non-ASCII requests must be normalized before DDA execution",
             "CCD-family variants are pure-Rust-only conditional directed extensions",
         ],
     };
@@ -57,10 +52,6 @@ pub fn execute(args: InfoArgs) -> i32 {
         println!();
         println!("Built-in backend: {}", info.built_in_backend);
         println!(
-            "Built-in inputs: {}",
-            info.built_in_backend_inputs.join(", ")
-        );
-        println!(
             "Native binary enabled: {}",
             if info.native_binary_enabled {
                 "yes"
@@ -71,10 +62,6 @@ pub fn execute(args: InfoArgs) -> i32 {
         println!(
             "Rayon default mode (CLI runs): {}",
             info.rayon_default_mode_cli
-        );
-        println!(
-            "Rayon default mode (sidecar / GUI): {}",
-            info.rayon_default_mode_sidecar
         );
         println!(
             "Rayon overrides: {}",

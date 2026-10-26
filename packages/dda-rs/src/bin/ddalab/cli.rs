@@ -33,8 +33,6 @@ pub enum Command {
     Inspect(InspectArgs),
     /// Write physical samples of a recording to a .npy file
     Samples(SamplesArgs),
-    #[command(hide = true)]
-    Serve(ServeArgs),
 }
 
 /// Default `--block-mb`.
@@ -366,21 +364,6 @@ pub struct BatchArgs {
     /// Compute device: cpu, cuda, or cuda:N (a non-cpu device runs the recording whole)
     #[arg(long, default_value = "cpu")]
     pub device: dda_rs::ComputeDevice,
-}
-
-#[derive(Args)]
-pub struct ServeArgs {
-    /// Legacy native DDA binary path (ignored; native backend disabled)
-    #[arg(long, env = "DDA_BINARY_PATH")]
-    pub binary: Option<String>,
-
-    /// Legacy no-op flag retained for compatibility
-    #[arg(long, default_value_t = false)]
-    pub disable_native_fallback: bool,
-
-    /// Maximum number of columns to include in preview responses
-    #[arg(long, default_value_t = 2048)]
-    pub preview_columns: usize,
 }
 
 /// Parse a channel pair string "i,j" into [usize; 2].

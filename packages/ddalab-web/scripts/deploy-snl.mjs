@@ -8,7 +8,7 @@
 // Usage: npm run deploy:snl [-- --publish [--replace]]
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { checkLive, SITE } from "./check-live.mjs";
+import { checkLive, SNL_SITE } from "./check-live.mjs";
 
 const TARGET = "public_html/ddalab";
 const [publish, replace] = ["--publish", "--replace"].map((flag) => process.argv.includes(flag));
@@ -42,13 +42,13 @@ run("rsync", [...rsync, "--exclude=/index.html", "dist/", `node32:${TARGET}/`]);
 run("rsync", [...rsync, "--delete-delay", "dist/", `node32:${TARGET}/`]);
 
 if (!publish) {
-  console.log(`dry run, nothing copied; --publish copies it to ${SITE}`);
+  console.log(`dry run, nothing copied; --publish copies it to ${SNL_SITE}`);
 } else {
-  const problems = await checkLive(SITE, `${root}dist`);
+  const problems = await checkLive(SNL_SITE, `${root}dist`);
   for (const problem of problems) console.error(problem);
   if (problems.length > 0) {
-    console.error(`published ${SITE}, but it fails the check of the headers of public/.htaccess`);
+    console.error(`published ${SNL_SITE}, but it fails the check of the headers of public/.htaccess`);
     process.exit(1);
   }
-  console.log(`published ${SITE}; the host sends the headers of public/.htaccess`);
+  console.log(`published ${SNL_SITE}; the host sends the headers of public/.htaccess`);
 }

@@ -41,6 +41,7 @@ export function AnnotateButton() {
         className={`${controls.button} ${styles.button}`}
         aria-label="Annotate"
         aria-keyshortcuts="A"
+        data-keeps-cursor
         onClick={() => annotate()}
       >
         <FlagIcon aria-hidden />

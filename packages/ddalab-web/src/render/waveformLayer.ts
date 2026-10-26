@@ -8,10 +8,10 @@
 // so raw layers cost what the rows shown need, whatever the channel count. A slot texture maps the slots of a frame
 // (consecutive raw chunks, or consecutive tiles of the planned level) to layers. A slot whose own data has not
 // arrived draws from the finest loaded coarser tile over it: every frame asks for a few tiles covering the whole
-// view and for the top tile, which stay loaded, so the plot never blanks once a region is scanned.
+// view and for the top tile, which stay loaded. The plot never blanks once a region is scanned.
 import { bucketSize, levelCount, tileRows } from "../core/opfs";
 import type { Tile } from "../core/protocol";
-import { TileCache } from "../core/tileCache";
+import { CACHE_MB, TileCache } from "../core/tileCache";
 import { program } from "./gl";
 import { type DrawPlan, drawPlan, tileIndices } from "./levels";
 import { type Failure, nextFailure } from "./retry";
@@ -26,7 +26,7 @@ const MIN_LAYERS = 32;
 /** Channels a raw layer holds at least: rows can be added on screen without uploading again. */
 const MIN_RAW_CHANNELS = 16;
 /** Raw chunks kept on the CPU (every display channel), for scrolling rows and for the epochs either side. */
-const RAW_CACHE = 128 * 2 ** 20;
+const RAW_CACHE = CACHE_MB.raw * 2 ** 20;
 /** Bytes per raw request. */
 const RUN_BYTES = 32 * 2 ** 20;
 /** Requests to the engine in flight at once: a fast pan should not queue stale work. */
@@ -332,7 +332,7 @@ export function createWaveformLayer(
   const pinned = new Set<string>();
   /** The raw chunks of the last frame and their channel window, put into layers as they arrive. */
   let wanted = { chunks: new Set<number>(), first: 0 };
-  /** Rows the scan has stored tiles for: covers are read from storage, never built from the file. */
+  /** Rows the scan has stored tiles for: covers there are read from storage alone. */
   let scannedRows = 0;
   let frameNumber = 0;
   let disposed = false;
@@ -445,7 +445,8 @@ export function createWaveformLayer(
           const start = i * LAYER_ROWS;
           const n = Math.min(LAYER_ROWS, values.length / channels - start);
           if (n <= 0) return;
-          const chunk = values.subarray(start * channels, (start + n) * channels);
+          // A copy: a view would keep the whole request's buffer alive while the cache counts the chunk alone.
+          const chunk = values.slice(start * channels, (start + n) * channels);
           remember(first + i, chunk);
           if (wanted.chunks.has(first + i)) uploadRaw(first + i, chunk, wanted.first);
         });
@@ -514,7 +515,7 @@ export function createWaveformLayer(
     }
     const rawFirst = Math.min(frame.firstChannel, channels - raws.width);
     // shortcut: raw rows of a view wider than half the raw layers draw from level 0 tiles, whose 64-row buckets can
-    // widen a span past its neighbours; split such a view into passes if screens that wide appear.
+    // widen a span past its neighbors; split such a view into passes if screens that wide appear.
     const rawChunks = Math.floor(lastRow / LAYER_ROWS) - Math.floor(firstRow / LAYER_ROWS) + 1;
     if (plan.mode !== "tile" && rawChunks * 2 > raws.layers) plan = { mode: "tile", level: 0 };
     const raw = plan.mode !== "tile";

@@ -1,4 +1,4 @@
-// The colour theme: the system's until the user picks one, which localStorage keeps. tokens.css reads `data-theme`
+// The color theme: the system's until the user picks one, which localStorage keeps. tokens.css reads `data-theme`
 // on <html>; without it, `color-scheme: light dark` follows the system setting.
 export type Theme = "light" | "dark";
 

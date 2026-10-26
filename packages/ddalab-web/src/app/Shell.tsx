@@ -25,9 +25,11 @@ import { LocalData } from "../features/settings/LocalData";
 import { DetachedNote, TabPanel, TabStrip } from "../features/tabs/TabStrip";
 import { useViewerKeys } from "../features/viewer/useViewerKeys";
 import { activeRecording, openResult, setTheme, togglePanel, useStore } from "../store/store";
+import { shortNames } from "../store/tabs";
 import controls from "../styles/controls.module.css";
 import { Logo } from "./Logo";
 import styles from "./Shell.module.css";
+import { UpdateNotice } from "./UpdateNotice";
 import { lazyPart } from "./viewerChunk";
 import { inTransition } from "./viewTransition";
 
@@ -135,6 +137,7 @@ export function Shell() {
             <Inspector />
           </Activity>
         </aside>
+        <UpdateNotice />
       </div>
       <p className={styles.narrow}>DDALAB needs a window at least 768 pixels wide.</p>
     </Tooltip.Provider>
@@ -196,13 +199,22 @@ export function IconButton({
   );
 }
 
+/** The active recording by the label its tab shows, short of its modality suffix; its full name in the tooltip. */
 function RecordingName() {
   const name = useStore((s) => activeRecording(s)?.info.input_files[0]);
-  return name ? (
+  const label = useStore((s) => {
+    const i = s.tabs.findIndex((t) => t.fingerprint === s.activeTab);
+    return i < 0 ? undefined : shortNames(s.tabs.map((t) => t.name))[i];
+  });
+  if (!name) return null;
+  // A BIDS name gives up its modality suffix and elides in the middle: its last entity (run-01) stays in view.
+  const bids = /^(.*_)([a-z0-9]+-[a-z0-9]+)_[a-z0-9]+\.[a-z0-9.]+$/i.exec(label ?? name);
+  return (
     <span className={styles.name} title={name} data-appear>
-      {name}
+      <span className={styles.nameHead}>{bids ? bids[1] : (label ?? name)}</span>
+      {bids && <span className={styles.nameTail}>{bids[2]}</span>}
     </span>
-  ) : null;
+  );
 }
 
 /** An icon button of the command bar that opens a panel; the panel's chunk loads on pointer or focus. */

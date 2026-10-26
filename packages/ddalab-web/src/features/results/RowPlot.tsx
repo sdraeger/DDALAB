@@ -1,6 +1,6 @@
 // The line plot of one result row on the heatmap's time axis: its values at the windows' centers (zoomed out, at the
 // centers of the pyramid's cells, which keep the value of largest magnitude), between the row's smallest and largest
-// value, which it prints. Drawn from the frame loop, not by React.
+// value, which it prints. Drawn from the frame loop, outside React.
 import { type Ref, use, useImperativeHandle, useRef } from "react";
 import type { ResultArray } from "../../core/protocol";
 import { drawEvents, type EventsScene } from "../../render/axis";

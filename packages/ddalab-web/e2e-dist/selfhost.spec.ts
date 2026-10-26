@@ -1,13 +1,18 @@
 // The production build on a static host: relative URLs under a path, no COOP/COEP headers, and the CSP of
-// public/.htaccess. The build has no `__ddalab` hook; the test drives the UI as a user does.
+// public/.htaccess, as a header (the userdir projects) and as the <meta> of index.html (all projects; the pages-*
+// projects send no header, as Pages does). The build has no `__ddalab` hook; the test drives the UI as a user does.
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
+import { hasStorage } from "../e2e/test";
+// @ts-expect-error The policy reader is plain JavaScript without declarations.
+import { cspOf, metaCspOf } from "../scripts/policy.mjs";
 
 const BRAINVISION = ["fixture.vhdr", "fixture.eeg", "fixture.vmrk"].map((name) =>
   fileURLToPath(new URL(`../../dda-rs/tests/fixtures/${name}`, import.meta.url)),
 );
 
-test("opens_a_recording_and_runs_dda", async ({ page }) => {
+test("opens_a_recording_and_runs_dda", async ({ page }, testInfo) => {
   // A blocked script, worker, wasm, style or fetch shows up as a policy violation, a console error, a page error or a
   // failed response.
   const problems: string[] = [];
@@ -29,7 +34,9 @@ test("opens_a_recording_and_runs_dda", async ({ page }) => {
   });
   page.on("requestfailed", (request) => problems.push(`failed ${request.url()}`));
 
-  await page.goto("./");
+  const response = await page.goto("./");
+  if (testInfo.project.name.startsWith("pages-"))
+    expect(response?.headers()["content-security-policy"]).toBeUndefined();
   expect(await page.evaluate(() => crossOriginIsolated)).toBe(false);
 
   await page.getByLabel("Recording files").setInputFiles(BRAINVISION);
@@ -37,7 +44,7 @@ test("opens_a_recording_and_runs_dda", async ({ page }) => {
   await expect(page.getByRole("alert")).toHaveCount(0);
 
   // Base UI adds an inline <style> to an opened Select unless the app turns that off; style-src 'self' blocks it. Below
-  // 1400 px the scale settings sit behind their button.
+  // 1440 px the scale settings sit behind their button.
   const scales = page.getByRole("button", { name: "Epoch, sensitivity and timebase" });
   if (await scales.isVisible()) await scales.click();
   await page.getByRole("combobox", { name: "Epoch" }).click();
@@ -46,13 +53,7 @@ test("opens_a_recording_and_runs_dda", async ({ page }) => {
   await expect(page.getByRole("listbox")).toHaveCount(0);
 
   // Playwright's WebKit has no OPFS, where results are written; Safari itself has.
-  const hasStorage = await page.evaluate(() =>
-    navigator.storage.getDirectory().then(
-      () => true,
-      () => false,
-    ),
-  );
-  if (hasStorage) {
+  if (await hasStorage(page)) {
     const run = page.getByRole("region", { name: "Run" });
     await page.getByRole("checkbox", { name: "Select Fp1" }).check();
     await page.getByRole("checkbox", { name: "Select Fp2" }).check();
@@ -66,6 +67,23 @@ test("opens_a_recording_and_runs_dda", async ({ page }) => {
   // The server must have sent the wasm type the run asked for, or a fallback run would test nothing.
   if (!process.env.DIST_URL)
     expect([...wasmTypes]).toEqual([process.env.DIST_WASM_TYPE ?? "application/wasm"]);
+});
+
+// The <meta> policy is the only one on Pages. It must equal the .htaccess policy, sit before the first script (a meta
+// policy covers only what follows it) and block what the policy blocks.
+test("the_page_carries_the_htaccess_policy_as_a_meta", async ({ page }) => {
+  const html = await (await page.request.get("./")).text();
+  expect(metaCspOf(html)).toBe(cspOf(readFileSync(new URL("../dist/.htaccess", import.meta.url), "utf8")));
+  expect(html.indexOf("Content-Security-Policy")).toBeLessThan(html.indexOf("<script"));
+
+  await page.goto("./");
+  const ran = await page.evaluate(() => {
+    const script = document.createElement("script");
+    script.textContent = "window.inlineScriptRan = true";
+    document.head.append(script);
+    return "inlineScriptRan" in window;
+  });
+  expect(ran).toBe(false);
 });
 
 // A deep link preconnects to OpenNeuro and S3 from the entry, which the policy's connect-src allows. The API answers

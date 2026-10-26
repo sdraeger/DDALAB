@@ -19,13 +19,13 @@ import {
 } from "../core/batch";
 import { bundleFiles } from "../core/exporters";
 import type { FolderRecording } from "../core/folder";
-import { type AnalysisRecord, recordedManifest, saveAnalysis } from "../core/history";
+import { type AnalysisRecord, persistStorage, recordedManifest, saveAnalysis } from "../core/history";
 import type { AnalysisHandle } from "../core/scheduler";
 import { buildFileSet } from "../core/sources";
 import { validateRequest } from "../features/analysis/validate";
 import { useStore } from "../store/store";
 import { leaving, refreshAnalyses, variants } from "./analyses";
-import { saveStream } from "./download";
+import { download } from "./download";
 import { engine } from "./recordings";
 
 /** The run of the batch in progress, and whether Cancel was pressed. */
@@ -216,6 +216,7 @@ async function runOne(batch: BatchRecord, recording: FolderRecording): Promise<B
       id: handle.id,
       fingerprint: opened.fingerprint,
       fileName: info.input_files[0],
+      inputFiles: info.input_files,
       request,
       plan: handle.plan,
       createdAt,
@@ -225,6 +226,7 @@ async function runOne(batch: BatchRecord, recording: FolderRecording): Promise<B
       batch: batch.id,
     };
     await saveAnalysis(record).catch(() => {});
+    void persistStorage();
     await refreshAnalyses();
     return {
       path,
@@ -247,10 +249,10 @@ const TOO_LARGE = /^The JSON document would be about/;
  * Saves the combined export of `batch` as one zip, streamed: what `ddalab batch --bids-dir <folder> --output-dir dda`
  * writes, its manifest as `batch_manifest.json` and each result document at its `outputPath`. A result whose document
  * the export refuses as too large goes in as its bundle, at that path without `.json`, with a warning. Call it first
- * thing in a click (download.ts `saveStream`).
+ * thing in a click: the Save dialog needs the click (download.ts).
  */
 export function exportBatch(batch: BatchRecord) {
-  return saveStream(`${batch.root || "batch"}.batch.zip`, async () => {
+  return download(`${batch.root || "batch"}.batch.zip`, async () => {
     const manifest = batchManifest(batch, useStore.getState().analyses, await outputNames(batch.paths));
     async function* files() {
       for (const result of manifest.results) {

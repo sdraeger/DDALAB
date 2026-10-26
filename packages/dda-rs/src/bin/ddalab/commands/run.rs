@@ -312,7 +312,7 @@ pub async fn execute(args: RunArgs) -> i32 {
     } = selection;
 
     // Validate shared params; an empty channel selection means the recording's good channels.
-    if let Err(msg) = dda_params::validate_params_except_channels(
+    if let Err(msg) = dda_params::validate_params(
         &normalized_variants,
         &args.delays,
         args.wl,
@@ -524,8 +524,7 @@ mod tests {
         let tmp = tempfile::Builder::new().suffix(".edf").tempfile().unwrap();
         let args = make_test_args();
 
-        let result = dda_params::validate_common_params(
-            args.channels.as_deref().unwrap(),
+        let result = dda_params::validate_params(
             &["INVALID".to_string()],
             &args.delays,
             args.wl,
@@ -542,99 +541,42 @@ mod tests {
 
     #[test]
     fn test_validate_ct_without_pairs() {
-        let result = dda_params::validate_common_params(
-            &[0, 1, 2],
-            &["CT".to_string()],
-            &[7, 10],
-            200,
-            100,
-            &None,
-            &None,
-        );
+        let result =
+            dda_params::validate_params(&["CT".to_string()], &[7, 10], 200, 100, &None, &None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("--ct-pairs"));
     }
 
     #[test]
     fn test_validate_cd_without_pairs() {
-        let result = dda_params::validate_common_params(
-            &[0, 1, 2],
-            &["CD".to_string()],
-            &[7, 10],
-            200,
-            100,
-            &None,
-            &None,
-        );
+        let result =
+            dda_params::validate_params(&["CD".to_string()], &[7, 10], 200, 100, &None, &None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("--cd-pairs"));
     }
 
     #[test]
     fn test_validate_delay_out_of_range() {
-        let result = dda_params::validate_common_params(
-            &[0, 1, 2],
-            &["ST".to_string()],
-            &[1, 200],
-            200,
-            100,
-            &None,
-            &None,
-        );
+        let result =
+            dda_params::validate_params(&["ST".to_string()], &[1, 200], 200, 100, &None, &None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("out of range"));
     }
 
     #[test]
     fn test_validate_negative_delay() {
-        let result = dda_params::validate_common_params(
-            &[0, 1, 2],
-            &["ST".to_string()],
-            &[-1, 10],
-            200,
-            100,
-            &None,
-            &None,
-        );
+        let result =
+            dda_params::validate_params(&["ST".to_string()], &[-1, 10], 200, 100, &None, &None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("non-negative"));
     }
 
     #[test]
     fn test_validate_ws_greater_than_wl() {
-        let result = dda_params::validate_common_params(
-            &[0, 1, 2],
-            &["ST".to_string()],
-            &[7, 10],
-            100,
-            200,
-            &None,
-            &None,
-        );
+        let result =
+            dda_params::validate_params(&["ST".to_string()], &[7, 10], 100, 200, &None, &None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("must not exceed"));
-    }
-
-    #[test]
-    fn test_compute_bounds_sample_based() {
-        let (start, end) = dda_params::compute_bounds(None, None, Some(0), Some(6000), None);
-        assert_eq!(start, Some(0));
-        assert_eq!(end, Some(6000));
-    }
-
-    #[test]
-    fn test_compute_bounds_time_based() {
-        let (start, end) =
-            dda_params::compute_bounds(Some(0.0), Some(10.0), None, None, Some(256.0));
-        assert_eq!(start, Some(0));
-        assert_eq!(end, Some(2560));
-    }
-
-    #[test]
-    fn test_compute_bounds_none() {
-        let (start, end) = dda_params::compute_bounds(None, None, None, None, None);
-        assert_eq!(start, None);
-        assert_eq!(end, None);
     }
 
     #[test]

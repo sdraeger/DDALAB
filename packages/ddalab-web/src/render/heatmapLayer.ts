@@ -3,12 +3,12 @@
 // times nearer its center than any other window's center and within its analysis interval: the column under a time
 // shows the window whose center is nearest it, and a column across a border counts toward both windows. Zoomed out,
 // the cells come from the max-magnitude pyramid (resultPyramid.ts) at the coarsest level whose cells are no wider than
-// a pixel, so no outlier window disappears.
+// a pixel: no outlier window disappears.
 //
 // An R32F texture array holds one tile per layer (`rows` texels wide, 1,024 cells high). A slot texture maps the tiles
 // of a frame to layers; a tile still on its way draws from the finest loaded coarser tile over it, and the top tile,
 // which covers every window, stays loaded.
-import { TileCache } from "../core/tileCache";
+import { CACHE_MB, TileCache } from "../core/tileCache";
 import { program } from "./gl";
 import { FANOUT, type ResultTile, TILE_CELLS } from "./resultPyramid";
 import { type Failure, nextFailure } from "./retry";
@@ -17,7 +17,7 @@ import { type Failure, nextFailure } from "./retry";
 const BUDGET = 64 * 2 ** 20;
 const MIN_LAYERS = 8;
 /** Bytes of tiles kept on the CPU, for the row plot and the readout. */
-const CPU_BUDGET = 64 * 2 ** 20;
+const CPU_BUDGET = CACHE_MB.resultTiles * 2 ** 20;
 const MAX_IN_FLIGHT = 4;
 /** The opacity of the rows other than the hovered one. */
 const RECEDE = 0.84;

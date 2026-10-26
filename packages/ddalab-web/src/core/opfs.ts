@@ -1,7 +1,9 @@
 // The tile pyramid on disk: its geometry (mirrors dda-rs `tiles.rs`) and the origin private file system files that
 // hold it. /tiles/<fingerprint>/L<level>.ddt keeps the tiles of one level in slots of `tileSlot` bytes, tile `i` at
 // `i * slot`; the unwritten rest of a slot is zeros. A slot is written body first and header last: a slot without a
-// header is not a tile, whatever a crash left in it. Sync access handles exist in workers only.
+// header is not a tile, whatever a crash left in it. Sync access handles exist in workers only. Tiles are a cache:
+// /tiles/<fingerprint>/used.json holds when the recording was last opened, and once all tiles pass their budget the
+// least recently used recordings' go (`evictTiles`).
 import type { RawType } from "./types";
 
 const BASE_BUCKET = 64;
@@ -55,6 +57,11 @@ export class QuotaError extends Error {
     this.neededBytes = neededBytes;
   }
 }
+
+/** What a window without OPFS is told, by the scan and by every read or write of a result. */
+export const STORAGE_UNAVAILABLE =
+  "Browser storage, where overviews and results are kept, is not available in this window; private browsing can " +
+  "cause this. Open DDALAB in a regular window.";
 
 /** Whether this window gives workers a file system; some windows (private browsing) do not. */
 export const hasStorage = () =>
@@ -189,6 +196,54 @@ export async function readJson(fingerprint: string, name: string): Promise<unkno
   } catch {
     return undefined;
   }
+}
+
+/** Notes that the tiles of `fingerprint` are in use now: eviction takes the least recently used recordings first. */
+export const touchTiles = (fingerprint: string) => writeJson(fingerprint, "used.json", Date.now());
+
+/** The lock each IO worker holds, shared, on the tiles of every recording it has open: eviction passes them by. */
+export const tilesLock = (fingerprint: string) => `ddalab-tiles:${fingerprint}`;
+
+/** The tiles' share of the browser's storage: the smaller of 2 GiB and a third of this origin's quota. */
+export async function tileBudget() {
+  const quota =
+    (await navigator.storage.estimate().catch(() => undefined))?.quota ?? Number.POSITIVE_INFINITY;
+  return Math.min(2 * 2 ** 30, quota / 3);
+}
+
+/**
+ * Deletes the tiles of the least recently used recordings until all tiles take at most `budget` bytes; the tiles of a
+ * recording open in any tab (its lock held) stay. Results are elsewhere and never go. The bytes the tiles take after.
+ */
+export async function evictTiles(budget: number): Promise<number> {
+  const tiles = await (await navigator.storage.getDirectory()).getDirectoryHandle("tiles", { create: true });
+  const found: { fingerprint: string; bytes: number; used: number }[] = [];
+  for await (const [fingerprint, folder] of tiles.entries()) {
+    if (folder.kind !== "directory") continue;
+    let bytes = 0;
+    let used = 0;
+    for await (const [name, entry] of (folder as FileSystemDirectoryHandle).entries()) {
+      if (entry.kind !== "file") continue;
+      const file = await (entry as FileSystemFileHandle).getFile();
+      bytes += file.size;
+      if (name === "used.json") used = Number(await file.text()) || 0;
+    }
+    found.push({ fingerprint, bytes, used });
+  }
+  let total = found.reduce((sum, { bytes }) => sum + bytes, 0);
+  for (const { fingerprint, bytes } of found.sort((a, b) => a.used - b.used)) {
+    if (total <= budget) break;
+    const removed = await navigator.locks.request(tilesLock(fingerprint), { ifAvailable: true }, (lock) =>
+      lock
+        ? tiles.removeEntry(fingerprint, { recursive: true }).then(
+            () => true,
+            () => false,
+          )
+        : false,
+    );
+    if (removed) total -= bytes;
+  }
+  return total;
 }
 
 export async function writeJson(fingerprint: string, name: string, value: unknown) {

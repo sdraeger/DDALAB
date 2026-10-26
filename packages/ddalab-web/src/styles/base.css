@@ -87,3 +87,13 @@ a {
   animation-duration: var(--motion-duration);
   animation-timing-function: var(--motion-ease);
 }
+
+/* A contrast theme replaces the fills and borders some controls mark focus and the highlighted option with. */
+@media (forced-colors: active) {
+  :focus-visible,
+  [data-highlighted] {
+    /* biome-ignore lint/complexity/noImportantStyles: it must win over each component's outline: 0 */
+    outline: 2px solid Highlight !important;
+    outline-offset: -2px;
+  }
+}

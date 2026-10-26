@@ -241,7 +241,7 @@
   color: var(--primary);
 }
 
-/* On the shown recording's wash the accent and event colors fall under 4.5:1: its marks take the ink, and their words
+/* On the wash the blue and the red fall under 4.5:1: "Viewing" and the batch marks are set in ink; the marks' words
    and icons still tell them apart. */
 .recording[aria-selected="true"] .open,
 .recording[aria-selected="true"] .mark {

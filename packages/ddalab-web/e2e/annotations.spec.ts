@@ -3,7 +3,7 @@
 // a reload, and the events.tsv export.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { expect, type Page, test } from "./test";
+import { expect, hasStorage, NO_STORAGE, type Page, test } from "./test";
 
 const EDF = fileURLToPath(new URL("../../dda-rs/tests/fixtures/fixture.edf", import.meta.url));
 
@@ -40,10 +40,12 @@ const stored = (page: Page) =>
           const all = db.transaction("annotations").objectStore("annotations").getAll();
           all.onsuccess = () => {
             db.close();
-            const records = all.result as {
-              annotations: { onset_s: number; duration_s: number; label: string }[];
-            }[];
-            resolve(records.flatMap((r) => r.annotations.map((a) => [a.onset_s, a.duration_s, a.label])));
+            const records = all.result as { onset_s: number; duration_s: number; label: string }[];
+            resolve(
+              records
+                .map((a): [number, number, string] => [a.onset_s, a.duration_s, a.label])
+                .sort((a, b) => a[0] - b[0]),
+            );
           };
         };
       }),
@@ -97,6 +99,8 @@ async function mark(page: Page, t: number, label: string, exact?: { onset: strin
 }
 
 test.beforeEach(async ({ page }) => {
+  // No Save dialog: the exports save as downloads (save.spec.ts covers the dialog).
+  await page.addInitScript(() => Reflect.deleteProperty(window, "showSaveFilePicker"));
   await page.goto("/");
   await openFixture(page);
 });
@@ -132,6 +136,18 @@ test("a_selection_then_a_marks_a_span", async ({ page }) => {
   await expect(list(page).getByRole("button", { name: "Use as selection: seizure" })).toBeVisible();
 });
 
+test("a_click_on_the_plot_then_annotate_marks_the_cursor", async ({ page }) => {
+  const { x, y } = await plotAt(page, 7);
+  await page.mouse.click(x, y);
+  await page.getByRole("button", { name: "Annotate" }).click();
+  await expect(editor(page)).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(editor(page)).toBeHidden();
+  const [[onset, duration]] = await mine(page);
+  expect(Math.abs(onset - 7)).toBeLessThanOrEqual(await pixelS(page));
+  expect(duration).toBe(0);
+});
+
 test("a_double_click_marks_a_point_and_a_press_elsewhere_keeps_its_label", async ({ page }) => {
   const { x, y } = await plotAt(page, 7);
   await page.mouse.dblclick(x, y);
@@ -161,6 +177,38 @@ test("the_label_field_suggests_the_recordings_labels_and_keeps_the_last", async 
   await expect(editor(page).getByLabel("Label")).toHaveValue("eyes closed");
   await page.keyboard.press("Enter");
   expect((await mine(page)).map(([, , label]) => label)).toEqual(["eyes closed", "eyes closed"]);
+});
+
+// With no suggestions on screen the arrow keys land on nothing, the field says it is collapsed, and Enter saves.
+test("arrow_down_then_enter_on_a_fresh_editor_saves", async ({ page }) => {
+  await page.keyboard.press("a");
+  const field = editor(page).getByLabel("Label", { exact: true });
+  await expect(field).toBeFocused();
+  await expect(field).toHaveAttribute("aria-expanded", "false");
+  await page.keyboard.press("ArrowDown");
+  await expect(field).not.toHaveAttribute("aria-activedescendant", /.+/);
+  await page.keyboard.press("Enter");
+  await expect(editor(page)).toBeHidden();
+  expect(await mine(page)).toHaveLength(1);
+});
+
+// Typing offers the labels that hold the text, read out as a count; ArrowDown and Enter pick one, Enter again saves.
+test("a_suggestion_picked_by_keyboard_sets_the_label", async ({ page }) => {
+  await page.keyboard.press("a");
+  const field = editor(page).getByLabel("Label", { exact: true });
+  await field.fill("ey");
+  const suggestions = editor(page).getByRole("listbox", { name: "Label suggestions" });
+  await expect(suggestions.getByRole("option")).toHaveText(["eyes closed"]);
+  await expect(field).toHaveAttribute("aria-expanded", "true");
+  await expect(editor(page).getByRole("status")).toHaveText("1 suggestion");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await expect(field).toHaveValue("eyes closed");
+  await expect(suggestions).toBeHidden();
+  await expect(editor(page)).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(editor(page)).toBeHidden();
+  expect((await mine(page)).map(([, , label]) => label)).toEqual(["eyes closed"]);
 });
 
 test("escape_takes_a_new_annotation_back", async ({ page }) => {
@@ -256,10 +304,21 @@ test("the_list_moves_jumps_renames_and_deletes_from_the_keyboard", async ({ page
   await expect(editor(page).getByLabel("Onset (s)")).toHaveValue("4");
 });
 
-test("use_as_selection_sets_the_run_interval_a_run_takes", async ({ page }) => {
+/** Marks "segment" from 2 s for 4 s and uses it as the selection. */
+async function useSegment(page: Page) {
   await mark(page, 2, "segment", { onset: "2", duration: "4" });
   await list(page).getByRole("button", { name: "Use as selection: segment" }).click();
+}
+
+test("use_as_selection_sets_the_run_interval", async ({ page }) => {
+  await useSegment(page);
   await expect(runBar(page).getByLabel("Start", { exact: true })).toHaveValue("2");
+  await expect(runBar(page).getByLabel("End", { exact: true })).toHaveValue("6");
+});
+
+test("a_run_takes_the_interval_of_an_annotation", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  await useSegment(page);
   await expect(runBar(page).getByLabel("End", { exact: true })).toHaveValue("6");
   await page.getByRole("checkbox", { name: "Select Fp1" }).check();
   const settings = page.getByRole("region", { name: "DDA settings" });
@@ -270,6 +329,33 @@ test("use_as_selection_sets_the_run_interval_a_run_takes", async ({ page }) => {
   await expect(runBar(page).getByText("Complete", { exact: true })).toBeVisible({ timeout: 60_000 });
   const range = await page.evaluate(() => window.__ddalab.store.getState().analyses[0].request.time_range);
   expect(range).toEqual({ start: 2 * 256, end: 6 * 256 });
+});
+
+test("two_windows_on_one_recording_keep_each_others_annotations", async ({ page }) => {
+  const other = await page.context().newPage();
+  await other.goto("/");
+  await openFixture(other);
+  await mark(page, 4, "alpha", { onset: "4", duration: "0" });
+  await mark(other, 8, "beta", { onset: "8", duration: "0" });
+  const both = [
+    [4, 0, "alpha"],
+    [8, 0, "beta"],
+  ];
+  await expect.poll(() => stored(page)).toEqual(both);
+  // Each window reads the other's change: both show both.
+  for (const p of [page, other]) await expect.poll(() => mine(p)).toEqual(both);
+  // Each edits a different annotation at the same time: one renames alpha, the other deletes beta.
+  const alpha = list(page).getByRole("button", { name: /^alpha,/ });
+  await alpha.focus();
+  await page.keyboard.press("F2");
+  await editor(page).getByLabel("Label").fill("renamed");
+  await list(other)
+    .getByRole("button", { name: /^beta,/ })
+    .focus();
+  await Promise.all([page.keyboard.press("Enter"), other.keyboard.press("Delete")]);
+  await expect.poll(() => stored(page)).toEqual([[4, 0, "renamed"]]);
+  for (const p of [page, other]) await expect.poll(() => mine(p)).toEqual([[4, 0, "renamed"]]);
+  await other.close();
 });
 
 test("annotations_survive_a_reload", async ({ page }) => {

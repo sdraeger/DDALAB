@@ -4,7 +4,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundleDir, WIDE } from "./global-setup";
-import { expect, type Page, test } from "./test";
+import { expect, hasStorage, NO_STORAGE, type Page, scanned, test } from "./test";
 
 const fixturePath = (name: string) =>
   fileURLToPath(new URL(`../../dda-rs/tests/fixtures/${name}`, import.meta.url));
@@ -14,16 +14,6 @@ const BRAINVISION = ["fixture.vhdr", "fixture.eeg", "fixture.vmrk"].map(fixtureP
  * thousands of windows take seconds each.
  */
 const LONG = { channels: 8, rateHz: 256, durationS: 2 * 3600, seed: 5 };
-
-// Playwright's WebKit has no OPFS (getDirectory throws UnknownError); Safari itself has.
-const hasStorage = (page: Page) =>
-  page.evaluate(() =>
-    navigator.storage.getDirectory().then(
-      () => true,
-      () => false,
-    ),
-  );
-const NO_STORAGE = "this browser window has no OPFS";
 
 const settings = (page: Page) => page.getByRole("region", { name: "DDA settings" });
 const runBar = (page: Page) => page.getByRole("region", { name: "Run" });
@@ -167,6 +157,49 @@ test("escape_puts_back_the_interval", async ({ page }) => {
   await end.press("Escape");
   await expect(end).toHaveValue("6");
   expect(await page.evaluate(() => window.__ddalab.store.getState().selection)).toBeNull();
+  // Escape right after Enter, before the interval has rested, takes the commit back: no field keeps its values.
+  await end.fill("4");
+  await end.press("Enter");
+  await end.press("Escape");
+  await expect(end).toHaveValue("6");
+  expect(await page.evaluate(() => window.__ddalab.store.getState().selection)).toBeNull();
+  await page.waitForTimeout(400);
+  await expect(end).toHaveValue("6");
+});
+
+// Start typed, Enter, then Escape before the committed interval has rested (200 ms): Escape takes the commit back,
+// and Start and End show the interval the run would take, then and after it rests.
+test("escape_within_200_ms_of_enter_leaves_no_stale_interval", async ({ page }) => {
+  await openBrainVision(page);
+  const start = runBar(page).getByLabel("Start", { exact: true });
+  const end = runBar(page).getByLabel("End", { exact: true });
+  await expect(start).toHaveValue("0");
+  await start.fill("2");
+  // Enter and Escape from the page itself, a frame apart (the commit renders in between): a loaded machine cannot
+  // stretch the gap between two presses sent from here.
+  const gap = await start.evaluate(async (input) => {
+    const press = (key: string) => input.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+    press("Enter");
+    const at = performance.now();
+    await new Promise(requestAnimationFrame);
+    press("Escape");
+    return performance.now() - at;
+  });
+  expect(gap).toBeLessThan(200);
+  /** The interval a run takes now (the selection, else the view), as the fields print it. */
+  const committed = () =>
+    page.evaluate(() => {
+      const { selection, view } = window.__ddalab.store.getState();
+      const { t0, t1 } = selection ?? view;
+      return [t0, t1].map((t) => String(Number(t.toFixed(3))));
+    });
+  const fields = async () => [await start.inputValue(), await end.inputValue()];
+  expect(await fields()).toEqual(await committed());
+  expect(await fields()).toEqual(["0", "6"]);
+  // Past the rest the fields still show it: nothing stale comes back.
+  await page.waitForTimeout(400);
+  expect(await fields()).toEqual(await committed());
+  expect(await fields()).toEqual(["0", "6"]);
 });
 
 test("st_result_equals_cli_bundle", async ({ page }) => {
@@ -344,6 +377,22 @@ test("run_with_512_channels", async ({ page }) => {
     return /'shape': \((\d+), (\d+)\)/.exec(head)?.slice(1).map(Number);
   }, id);
   expect(shape?.[1]).toBe(512);
+});
+
+// Where the window has no OPFS (Playwright's WebKit here, a private window in Safari) a run fails at once and says why
+// in place of the browser's "unknown transient reason".
+test("a_run_without_storage_says_why", async ({ page }) => {
+  test.skip(await hasStorage(page), "this browser window has OPFS");
+  await openBrainVision(page);
+  // The scan's notice takes the place of its progress line, above the channels, and moves them: a click before
+  // then can miss.
+  await expect(scanned(page)).toBeVisible();
+  await page.getByRole("checkbox", { name: "Select Fp1" }).check();
+  await runBar(page).getByRole("button", { name: "Run DDA" }).click();
+  await expect(runBar(page).getByRole("alert")).toHaveText(
+    "The run failed: Browser storage, where overviews and results are kept, is not available in this window; " +
+      "private browsing can cause this. Open DDALAB in a regular window.",
+  );
 });
 
 test("quota_during_result_write", async ({ page }) => {
