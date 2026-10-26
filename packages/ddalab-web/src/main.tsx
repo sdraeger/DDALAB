@@ -2,6 +2,7 @@ import "./styles/tokens.css";
 import "./styles/base.css";
 import { CSPProvider } from "@base-ui/react/csp-provider";
 import { StrictMode } from "react";
+import { preconnect } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { App } from "./app/App";
 import { sweepAnalyses } from "./app/analyses";
@@ -27,6 +28,13 @@ if (import.meta.env.DEV || import.meta.env.MODE === "e2e") {
       results: heatmapProbe,
     },
   });
+}
+// A deep link opens through the OpenNeuro panel: its chunk starts loading with the entry, before the rail first renders,
+// and the connections to OpenNeuro's API and to S3 open while it does. LibraryRail reports a chunk that fails to load.
+if (location.search.includes("openneuro=")) {
+  import("./features/openneuro/OpenNeuroPanel").catch(() => {});
+  preconnect("https://openneuro.org", { crossOrigin: "anonymous" });
+  preconnect("https://s3.amazonaws.com", { crossOrigin: "anonymous" });
 }
 void refreshRecent();
 restoreSession(sweepAnalyses());
