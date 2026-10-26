@@ -56,7 +56,7 @@ pub async fn execute(args: BatchArgs) -> i32 {
     }
 
     // Validate shared params; an empty channel selection means each recording's good channels.
-    if let Err(msg) = dda_params::validate_params_except_channels(
+    if let Err(msg) = dda_params::validate_params(
         &normalized_variants,
         &args.delays,
         args.wl,

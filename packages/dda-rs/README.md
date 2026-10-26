@@ -1,8 +1,20 @@
 # dda-rs
 
-Pure Rust Delay Differential Analysis (DDA) engine.
+Pure Rust Delay Differential Analysis (DDA) engine and the `ddalab` command-line tool. The same crate runs in the browser as WebAssembly in the [DDALAB web application](https://sdraeger.github.io/DDALAB/).
 
-`dda-rs` no longer shells out to the legacy `run_DDA_AsciiEdf` binary. All analysis runs through the Rust engine directly.
+All analysis runs through the Rust engine directly; nothing shells out to a native DDA binary.
+
+## Command-line tool
+
+Install it as a Python tool (the wheel carries the `ddalab` executable only) or download an archive and its `.sha256` file from [GitHub Releases](https://github.com/sdraeger/DDALAB/releases):
+
+```bash
+uv tool install ddalab
+ddalab inspect --file recording.edf
+ddalab run --file recording.edf --variants ST --wl 1000 --ws 200 --delays 7 10 --bundle out
+```
+
+It reads EDF, BDF, BrainVision and delimited text. `ddalab --help` lists the other commands (`batch`, `variants`, `validate`, `samples`, `info`).
 
 ## Features
 
@@ -14,11 +26,11 @@ Pure Rust Delay Differential Analysis (DDA) engine.
   - `NativeCompatSvd` for the native-compatible SVD path
 - Optional batched CUDA acceleration for ST, CT, CD, DE, and SY
 
-## Installation
+## Rust library
 
 ```toml
 [dependencies]
-dda-rs = "0.2.0"
+dda-rs = "2.0.0"
 ```
 
 ## Quick Start
@@ -93,7 +105,7 @@ CPU execution remains the default. Build the optional CUDA backend and select a 
 cargo run --release --features cuda -- run --file data.csv --channels 0 1 --device cuda
 ```
 
-`--device cuda:N` selects device `N`. The CUDA build dynamically loads the NVIDIA driver and cuBLAS, so compilation does not require a local CUDA toolkit; execution requires a working NVIDIA CUDA installation. The implementation batches same-shaped `f64` regressions and computes predictions and residual norms on the GPU. Rank-deficient regressions fall back to the CPU SVD solver. Rust-only CCD extensions continue to use their existing CPU implementations.
+`--device cuda:N` selects device `N`. The CUDA build dynamically loads the NVIDIA driver and cuBLAS. Compilation does not require a local CUDA toolkit; execution requires a working NVIDIA CUDA installation. The implementation batches same-shaped `f64` regressions and computes predictions and residual norms on the GPU. Rank-deficient regressions fall back to the CPU SVD solver. Rust-only CCD extensions continue to use their existing CPU implementations.
 
 Library users configure the same backend through `PureRustOptions`:
 
