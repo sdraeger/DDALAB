@@ -195,18 +195,18 @@ export function matchFiles(
   return { files: found, primary: pathOf(primary), same: found.every((p, i) => dated(files[i])(p)) };
 }
 
-/** The tabs as remembered: synthetic ones left out, the selected one's view and every open one's channels current. */
+/**
+ * The tabs as remembered: synthetic ones left out, the selected one's view current. The others keep what they saved
+ * when they were left: channels are chosen on the selected tab only, and a recording reattached in the background has
+ * none chosen until its tab is entered.
+ */
 export function remembered(): { tabs: Tab[]; active: string | null } {
   const s = useStore.getState();
   const tabs = s.tabs
     .filter((t) => t.source !== null)
-    .map(({ verifying: _, ...t }) => {
-      if (t.fingerprint === s.activeTab) return { ...t, saved: tabViewOf(s, t.saved) };
-      const id = idOf(t.fingerprint, s.recordings);
-      return t.saved && id
-        ? { ...t, saved: { ...t.saved, selectedChannels: s.recordings[id].selectedChannels } }
-        : t;
-    });
+    .map(({ verifying: _, ...t }) =>
+      t.fingerprint === s.activeTab ? { ...t, saved: tabViewOf(s, t.saved) } : t,
+    );
   return { tabs, active: s.activeTab };
 }
 
