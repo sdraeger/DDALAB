@@ -17,6 +17,8 @@
 <IfModule mod_headers.c>
   # The Content-Security-Policy. The connect-src line lists the hosts the app may fetch from. Change it here when the
   # app reaches a new host (OpenNeuro: its GraphQL API on openneuro.org, dataset files on s3.amazonaws.com).
+  # The build copies this policy into index.html as a <meta> element, which is all GitHub Pages can apply. A <meta>
+  # policy ignores frame-ancestors, report-uri and sandbox: keep them out of this line.
   Header always set Content-Security-Policy "default-src 'self'; \
     script-src 'self' 'wasm-unsafe-eval'; \
     connect-src 'self' https://openneuro.org https://s3.amazonaws.com; \

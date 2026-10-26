@@ -1,4 +1,4 @@
-// The header policy of public/.htaccess, as the smoke test server and the live check read it.
+// The policy of public/.htaccess, as the build (the CSP <meta>), the smoke test server and the live check read it.
 
 /** Cache-Control of the hashed scripts, style sheets and wasm module. */
 export const IMMUTABLE = "public, max-age=31536000, immutable";
@@ -13,4 +13,14 @@ export function cspOf(htaccess) {
     .replace(/\\\r?\n/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+const ENTITIES = { "&#39;": "'", "&quot;": '"', "&lt;": "<", "&gt;": ">", "&amp;": "&" };
+
+/** The policy the first `<meta http-equiv="Content-Security-Policy">` of an HTML text carries; undefined when none. */
+export function metaCspOf(html) {
+  const meta = /<meta\b(?=[^>]*\shttp-equiv="Content-Security-Policy")[^>]*>/i.exec(html)?.[0];
+  return /\scontent="([^"]*)"/i
+    .exec(meta ?? "")?.[1]
+    .replace(/&(?:#39|quot|lt|gt|amp);/g, (entity) => ENTITIES[entity]);
 }

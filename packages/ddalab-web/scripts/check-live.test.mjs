@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { headerProblems } from "./check-live.mjs";
-import { cspOf, IMMUTABLE, NO_CACHE } from "./policy.mjs";
+import { cspOf, IMMUTABLE, metaCspOf, NO_CACHE } from "./policy.mjs";
 
 const run = promisify(execFile);
 const SCRIPT = fileURLToPath(new URL("check-live.mjs", import.meta.url));
@@ -95,6 +95,18 @@ test("the_htaccess_sets_the_policy_the_check_expects", () => {
   for (const part of ["default-src 'self'", "'wasm-unsafe-eval'", "connect-src 'self'", "worker-src 'self'"])
     expect(csp).toContain(part);
   expect(csp).not.toMatch(/\\|\s{2}/);
+});
+
+test.each([
+  [
+    `<head><meta http-equiv="Content-Security-Policy" content="default-src &#39;self&#39;; a=&amp;b"></head>`,
+    "default-src 'self'; a=&b",
+  ],
+  [`<meta charset="UTF-8" /><meta content="x" http-equiv="content-security-policy" />`, "x"],
+  [`<meta charset="UTF-8" /><meta name="viewport" content="width=device-width">`, undefined],
+  [`<meta http-equiv="refresh" content="0">`, undefined],
+])("the_meta_policy_of_a_page_is_read (%#)", (html, policy) => {
+  expect(metaCspOf(html)).toBe(policy);
 });
 
 test("the_build_writes_the_files_deploy_and_apache_need", () => {
