@@ -104,42 +104,8 @@
 
 /* An input with its unit inside the same box, as in the run bar. */
 .unitInput {
-  display: flex;
-  align-items: center;
+  composes: unitInput from "../analysis/Analysis.module.css";
   width: 84px;
-  height: 28px;
-  border: var(--hairline-width) solid var(--hairline);
-  border-radius: var(--radius);
-  background: var(--ground);
-  transition-property: border-color;
-  transition-duration: var(--motion-duration);
-  transition-timing-function: var(--motion-ease);
-}
-
-.unitInput:focus-within {
-  outline: 2px solid var(--focus);
-  outline-offset: 1px;
-}
-
-.unitInput input {
-  flex: 1;
-  min-width: 0;
-  height: 100%;
-  padding: 0 var(--space-2);
-  border: 0;
-  background: transparent;
-  outline: 0;
-  text-align: right;
-}
-
-.unitInput span {
-  padding-right: var(--space-2);
-  color: var(--muted);
-  font-size: var(--text-small);
-}
-
-.unitInput:has(input[aria-invalid]) {
-  border-color: var(--event);
 }
 
 .reason {
@@ -158,10 +124,10 @@
   cursor: default;
 }
 
-/* The batch while it runs: which recording of how many, its file, its run's progress and the counts so far. */
+/* The batch while it runs: which recording of how many, its file, its run's progress and the counts so far. Its bar
+   is the run bar's. */
 .progress {
-  display: flex;
-  flex-direction: column;
+  composes: progress from "../analysis/Analysis.module.css";
   gap: var(--space-1);
   padding: var(--space-2) 0;
   border-block: var(--hairline-width) solid var(--hairline);
@@ -190,28 +156,6 @@
   line-height: var(--leading-small);
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.progress progress {
-  flex: 1;
-  height: 4px;
-  appearance: none;
-  border: 0;
-  border-radius: 2px;
-  background: var(--hairline);
-  overflow: hidden;
-}
-
-.progress progress::-webkit-progress-bar {
-  background: var(--hairline);
-}
-
-.progress progress::-webkit-progress-value {
-  background: var(--primary);
-}
-
-.progress progress::-moz-progress-bar {
-  background: var(--primary);
 }
 
 .percent {
