@@ -4,7 +4,7 @@
 import { type Ref, use, useImperativeHandle, useRef } from "react";
 import type { ResultArray } from "../../core/protocol";
 import type { Colors } from "../../render/themeColors";
-import type { Loaded } from "./ResultPanel";
+import type { Loaded } from "./loads";
 import styles from "./Results.module.css";
 
 /** CSS pixels of the plot's height. */

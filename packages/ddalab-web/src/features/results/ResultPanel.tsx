@@ -34,6 +34,7 @@ import { electrodeGroups } from "../inspector/groups";
 import { probing } from "../viewer/probe";
 import { usePlotPointer } from "../viewer/usePlotPointer";
 import { HoverReadout, type HoverReadoutHandle } from "./HoverReadout";
+import { arrayKey, arrayOf, type Loaded, loads, manifestOf, pick } from "./loads";
 import { type HeatmapProbeFrame, heatmapProbe } from "./probe";
 import styles from "./Results.module.css";
 import { RowPlot, type RowPlotHandle } from "./RowPlot";
@@ -42,31 +43,6 @@ import { VariantTabs } from "./VariantTabs";
 const AXIS_CSS = 22;
 const GL_MISSING = "The heatmap is drawn with WebGL2, which this browser does not provide.";
 const GL_LOST = "The browser reset WebGL2 drawing. The heatmap returns once it restores it.";
-
-export type Loaded<T> = { ok: T } | { error: string };
-
-const loads = new Map<string, Promise<Loaded<unknown>>>();
-
-/**
- * One promise per key, for `use`: it settles once, a failure as its message. A failure stays until Try again drops
- * it: asked again on every render, a missing file would be read again on every frame of a pan.
- */
-function load<T>(key: string, make: () => Promise<T>): Promise<Loaded<T>> {
-  let found = loads.get(key);
-  if (!found) {
-    found = make().then(
-      (ok) => ({ ok }),
-      (error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }),
-    );
-    loads.set(key, found);
-  }
-  return found as Promise<Loaded<T>>;
-}
-
-const manifestOf = (id: string) => load(`${id}/manifest`, () => engine.resultManifest(id));
-const arrayKey = (id: string, variant: string, array: ResultTile["array"]) => `${id}/${variant}/${array}`;
-const arrayOf = (id: string, variant: string, array: ResultTile["array"]) =>
-  load(arrayKey(id, variant, array), () => engine.resultArray(id, variant, array));
 
 const NAMES: Record<ResultTile["array"], string> = { q: "Q", fit_error: "Fit error" };
 const print = (value: number) => value.toPrecision(3);
@@ -112,9 +88,7 @@ function Heatmap({
   const analysis = useStore((s) =>
     recordingId === null ? undefined : s.recordings[recordingId]?.analysis_channels,
   );
-  const variant = manifest.variants.find((v) => v.id === shown?.variant) ?? manifest.variants[0];
-  const hasFitError = variant.arrays?.includes(`${variant.id}/fit_error.npy`) ?? false;
-  const array: ResultTile["array"] = shown?.array === "fit_error" && hasFitError ? "fit_error" : "q";
+  const { variant, hasFitError, array } = pick(manifest, shown);
   const labels = variant.row_labels;
   const rows = labels.length;
   const picked = shown?.row != null && shown.row < rows ? shown.row : null;

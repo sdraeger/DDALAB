@@ -357,3 +357,55 @@ test("history_lists_before_the_engine_compiles", async ({ page, browserName }) =
   release();
   await expect(page.getByRole("status")).toHaveText(/^\d+\.\d+\.\d+/);
 });
+
+/** Logs, from the next load on, what the page asks of its workers (`ask`) and the serials they answer (`reply`). */
+const logWorkers = (page: Page) =>
+  page.addInitScript(() => {
+    const log: [string, unknown][] = [];
+    Object.assign(window, { workerLog: log });
+    const Native = window.Worker;
+    window.Worker = class extends Native {
+      constructor(url: string | URL, options?: WorkerOptions) {
+        super(url, options);
+        this.addEventListener("message", ({ data }) => log.push(["reply", data?.n]));
+      }
+      postMessage(
+        message: { type?: string; n?: number },
+        transfer?: Transferable[] | StructuredSerializeOptions,
+      ) {
+        log.push(["ask", message?.type === "sweepResults" ? `sweepResults ${message.n}` : message?.type]);
+        super.postMessage(message, transfer as Transferable[]);
+      }
+    };
+  });
+const workerLog = (page: Page) =>
+  page.evaluate(() => (window as unknown as { workerLog: [string, unknown][] }).workerLog);
+
+test("pointing_at_a_result_reads_its_view_before_the_click", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  await runBrainVision(page);
+  await page.evaluate(() => window.__ddalab.store.setState({ activeResultId: null, shownResult: null }));
+  await logWorkers(page);
+  await page.reload();
+  const row = history(page).getByRole("button", { name: /^ST on fixture\.vhdr/ });
+  await row.hover();
+  await expect.poll(async () => (await workerLog(page)).map(([, what]) => what)).toContain("resultArray");
+  await row.click();
+  await expect(result(page)).toBeVisible();
+  expect((await heatmapDrawn(page)).frame).toMatchObject({ complete: true });
+  // The click found both reads made: the manifest was read once.
+  expect((await workerLog(page)).filter(([, what]) => what === "resultManifest")).toHaveLength(1);
+});
+
+test("a_restored_result_is_read_while_the_history_lists", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  await runBrainVision(page);
+  await logWorkers(page);
+  await page.reload();
+  await expect(result(page)).toBeVisible();
+  const log = await workerLog(page);
+  const sweep = log.find(([kind, what]) => kind === "ask" && String(what).startsWith("sweepResults"));
+  const swept = log.findIndex(([kind, n]) => kind === "reply" && `sweepResults ${n}` === sweep?.[1]);
+  // The manifest is asked for before the sweep, which the history waits for, has answered.
+  expect(log.findIndex(([, what]) => what === "resultManifest")).toBeLessThan(swept);
+});

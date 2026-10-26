@@ -18,6 +18,7 @@ import { RunButton } from "../features/analysis/RunBar";
 import { ResultBoundary } from "../features/history/ResultBoundary";
 import { Inspector } from "../features/inspector/Inspector";
 import { LibraryRail } from "../features/library/LibraryRail";
+import { preload } from "../features/results/loads";
 import { Overview } from "../features/viewer/Overview";
 import { useViewerKeys } from "../features/viewer/useViewerKeys";
 import { WaveformCanvas } from "../features/viewer/WaveformCanvas";
@@ -118,6 +119,8 @@ function ShownResult({ recordingId }: { recordingId: string | null }) {
     (s) => recordingId === null || s.shownResult?.fingerprint === s.recordings[recordingId]?.fingerprint,
   );
   if (!id || !ours) return null;
+  // The chunk, the manifest and the array load side by side; from inside the chunk they would load one after another.
+  preload(id);
   const actions = (
     <>
       <button type="button" className={controls.quiet} onClick={() => location.reload()}>
