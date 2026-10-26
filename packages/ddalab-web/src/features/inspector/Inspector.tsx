@@ -2,7 +2,6 @@
 // group, chosen for analysis.
 import { lazy, memo, Suspense, useCallback, useMemo, useState, useTransition } from "react";
 import { closeRecording } from "../../app/recordings";
-import type { ScanState } from "../../core/protocol";
 import type { RecordingInfo } from "../../core/types";
 import { activeRecording, selectChannels, useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
@@ -20,7 +19,10 @@ const OVERSCAN = 6;
 
 export function Inspector() {
   const id = useStore((s) => s.activeRecordingId);
-  const recording = useStore(activeRecording);
+  // Each part on its own: a scan report replaces the recording but keeps these, and only Scan follows it.
+  const info = useStore((s) => activeRecording(s)?.info);
+  const analysis = useStore((s) => activeRecording(s)?.analysis_channels);
+  const selected = useStore((s) => activeRecording(s)?.selectedChannels);
   const result = useStore((s) => s.activeResultId);
   // The active result's provenance comes first; the result need not be of the open recording.
   const provenance = result && (
@@ -28,7 +30,7 @@ export function Inspector() {
       <Provenance />
     </Suspense>
   );
-  if (!id || !recording) {
+  if (!id || !info || !analysis || !selected) {
     return (
       <section aria-label="Inspector" className={styles.inspector}>
         {provenance}
@@ -36,7 +38,6 @@ export function Inspector() {
       </section>
     );
   }
-  const { info, scan, analysis_channels } = recording;
   return (
     <section aria-label="Inspector" className={styles.inspector}>
       {provenance}
@@ -56,7 +57,7 @@ export function Inspector() {
             <dd>{info.sample_rate_hz} Hz</dd>
           </div>
         </dl>
-        <Scan scan={scan} />
+        <Scan id={id} />
         {info.warnings.length > 0 && (
           <ul aria-label="Warnings" className={styles.warnings}>
             {info.warnings.map((warning) => (
@@ -65,7 +66,7 @@ export function Inspector() {
           </ul>
         )}
       </header>
-      <Channels key={id} info={info} analysis={analysis_channels} selected={recording.selectedChannels} />
+      <Channels key={id} info={info} analysis={analysis} selected={selected} />
       <Suspense fallback={null}>
         <DdaSettings recordingId={id} />
       </Suspense>
@@ -81,7 +82,9 @@ export function Inspector() {
   );
 }
 
-function Scan({ scan }: { scan: ScanState }) {
+function Scan({ id }: { id: string }) {
+  const scan = useStore((s) => s.recordings[id]?.scan);
+  if (!scan) return null;
   const percent = scan.totalRows === 0 ? 100 : Math.floor((100 * scan.scannedRows) / scan.totalRows);
   return (
     <>
@@ -102,7 +105,7 @@ function Scan({ scan }: { scan: ScanState }) {
   );
 }
 
-/** Kept apart from the scan, which re-renders the inspector ten times a second while it runs. */
+/** Memoized: a new active result re-renders the inspector, which leaves the channels as they are. */
 const Channels = memo(function Channels(props: {
   info: RecordingInfo;
   analysis: number[];
