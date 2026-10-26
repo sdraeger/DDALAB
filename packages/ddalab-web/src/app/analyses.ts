@@ -118,7 +118,7 @@ export async function startRun(recordingId: string, request: DDARequest) {
     // The result shows before its record is saved and the history listed again.
     useStore.setState((s) => ({ analyses: s.analyses.map((a) => (a.id === record.id ? complete : a)) }));
     setRun({ status: "complete" });
-    showResult(record.id, record.fingerprint);
+    showResult(complete);
     await saveAnalysis(complete).catch(() => {});
   } else if (error instanceof DOMException && error.name === "AbortError") {
     await deleteAnalysis(record.id).catch(() => {});

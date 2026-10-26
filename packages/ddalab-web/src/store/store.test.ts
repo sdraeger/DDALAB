@@ -4,8 +4,10 @@ import {
   type OpenRecording,
   openResult,
   pageOf,
+  removeRecording,
   setShownResult,
   setView,
+  showResult,
   useStore,
   type View,
 } from "./store";
@@ -84,4 +86,53 @@ test("a_result_shown_alone_bounds_the_view", () => {
   expect(useStore.getState().view).toMatchObject({ t0: 100, t1: 170 });
   setView({ t0: 0, t1: 1000 });
   expect(useStore.getState().view).toMatchObject({ t0: 100, t1: 200 });
+});
+
+/** A complete record whose manifest says it analyzed 100 s to 160 s. */
+const analyzed = (id: string, fingerprint: string) =>
+  ({
+    ...record(id, fingerprint, "complete"),
+    manifest: { reproduction: { start_time_seconds: 100, end_time_seconds: 160 } },
+  }) as AnalysisRecord;
+/** The view of the first store update that shows result `id`. */
+function viewWhenShown(id: string, act: () => void) {
+  let first: View | undefined;
+  const stop = useStore.subscribe((s) => {
+    if (s.shownResult?.id === id && first === undefined) first = s.view;
+  });
+  act();
+  stop();
+  return first;
+}
+
+test("a_result_that_comes_to_show_alone_starts_on_its_interval", () => {
+  useStore.setState({
+    recordings: { A: recording("fa") },
+    activeRecordingId: "A",
+    shownResult: null,
+    analyses: [analyzed("imported", ""), analyzed("a", "fa")],
+  });
+  // Opened with no recording of its own: in the same update as it shows, on its interval.
+  expect(viewWhenShown("imported", () => openResult("imported"))).toMatchObject({ t0: 100, t1: 160 });
+  expect(useStore.getState()).toMatchObject({
+    activeRecordingId: null,
+    shownResult: { interval: { t0: 100, t1: 160 } },
+  });
+  // Opened again it keeps the view it has.
+  setView({ t0: 110, t1: 120 });
+  openResult("imported");
+  expect(useStore.getState().view).toMatchObject({ t0: 110, t1: 120 });
+  // Its recording closed, a result stays on alone and moves to its interval.
+  openResult("a");
+  expect(useStore.getState().activeRecordingId).toBe("A");
+  setView({ t0: 0, t1: 10 });
+  removeRecording("A");
+  expect(useStore.getState()).toMatchObject({
+    activeRecordingId: null,
+    shownResult: { id: "a" },
+    view: { t0: 100, t1: 160 },
+  });
+  // A run that ends with its recording closed shows alone too.
+  setView({ t0: 0, t1: 10 });
+  expect(viewWhenShown("run", () => showResult(analyzed("run", "fa")))).toMatchObject({ t0: 100, t1: 160 });
 });

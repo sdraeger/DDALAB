@@ -60,9 +60,21 @@ export interface ShownResult {
   array: "q" | "fit_error";
   /** The row whose line plot is drawn. */
   row: number | null;
-  /** Shown alone: its analysis interval in seconds, which bounds the view. */
+  /** Its analysis interval in seconds, from its record's manifest: it bounds the view while the result shows alone. */
   interval?: { t0: number; t1: number };
 }
+
+/** A result's analysis interval, from the manifest its record keeps. */
+function intervalOf(record: AnalysisRecord | undefined) {
+  const reproduction = record?.manifest?.reproduction;
+  return reproduction && { t0: reproduction.start_time_seconds, t1: reproduction.end_time_seconds };
+}
+
+/** A result that comes to show alone fills the time axis with its analysis interval. */
+const alone = (view: View, shownResult: ShownResult) => ({
+  shownResult,
+  view: shownResult.interval ? { ...view, ...shownResult.interval } : view,
+});
 
 interface State {
   recordings: Record<string, OpenRecording>;
@@ -187,11 +199,10 @@ export function removeRecording(id: string) {
     const { [id]: _, ...recordings } = s.recordings;
     if (s.activeRecordingId !== id) return { recordings };
     const active = Object.keys(recordings).at(-1) ?? null;
-    return {
-      recordings,
-      activeRecordingId: active,
-      ...freshView(s.view, active ? recordings[active] : undefined),
-    };
+    const fresh = freshView(s.view, active ? recordings[active] : undefined);
+    // With no recording left active, the shown result stays on alone.
+    const shown = active === null && s.shownResult ? alone(fresh.view, s.shownResult) : {};
+    return { recordings, activeRecordingId: active, ...fresh, ...shown };
   });
 }
 
@@ -305,26 +316,48 @@ export const openResult = (id: string | null) =>
   useStore.setState((s): Partial<State> => {
     const record = s.analyses.find((a) => a.id === id);
     if (id === null || record?.status !== "complete") return { activeResultId: id, shownResult: null };
-    const shownResult: ShownResult =
-      s.shownResult?.id === id
-        ? s.shownResult
-        : { id, fingerprint: record.fingerprint, variant: null, array: "q", row: null };
+    const shown = s.shownResult?.id === id ? s.shownResult : null;
+    const shownResult: ShownResult = shown ?? {
+      id,
+      fingerprint: record.fingerprint,
+      variant: null,
+      array: "q",
+      row: null,
+      interval: intervalOf(record),
+    };
     const own =
       Object.keys(s.recordings).find((r) => s.recordings[r].fingerprint === record.fingerprint) ?? null;
-    if (own === s.activeRecordingId) return { activeResultId: id, shownResult };
+    if (own === s.activeRecordingId) {
+      // Shown alone already, it keeps its view.
+      const comes = own === null && !shown;
+      return { activeResultId: id, ...(comes ? alone(s.view, shownResult) : { shownResult }) };
+    }
+    const fresh = freshView(s.view, own === null ? undefined : s.recordings[own]);
     return {
       activeResultId: id,
-      shownResult,
       activeRecordingId: own,
-      ...freshView(s.view, own === null ? undefined : s.recordings[own]),
+      ...fresh,
+      ...(own === null ? alone(fresh.view, shownResult) : { shownResult }),
     };
   });
 
-/** Opens the result `id` of the recording `fingerprint` that has just completed, with or without a history. */
-export const showResult = (id: string, fingerprint: string) =>
-  useStore.setState({
-    activeResultId: id,
-    shownResult: { id, fingerprint, variant: null, array: "q", row: null },
+/** Opens the complete result of `record`, which has just finished, with or without a history. */
+export const showResult = (record: AnalysisRecord) =>
+  useStore.setState((s) => {
+    const { id, fingerprint } = record;
+    const shownResult: ShownResult = {
+      id,
+      fingerprint,
+      variant: null,
+      array: "q",
+      row: null,
+      interval: intervalOf(record),
+    };
+    // Its recording was closed during the run: it shows alone.
+    return {
+      activeResultId: id,
+      ...(s.activeRecordingId === null ? alone(s.view, shownResult) : { shownResult }),
+    };
   });
 
 export const setShownResult = (change: Partial<ShownResult>) =>
