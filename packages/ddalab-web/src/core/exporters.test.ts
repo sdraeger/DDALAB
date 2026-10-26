@@ -132,4 +132,4 @@ test("text_exports_hold_a_slice_on_the_heap", async () => {
   expect(csv?.size).toBeGreaterThan(100e6);
   expect(jsonGrowth).toBeLessThan(24);
   expect(csvGrowth).toBeLessThan(24);
-});
+}, 60_000); // 145 MB of text each way takes about 6 s on a 4-core CI runner
