@@ -44,8 +44,8 @@ export interface Walked {
   files: File[];
   handles: Map<File, FileSystemFileHandle>;
   root?: FileSystemDirectoryHandle;
-  /** Files and folders below the opened one that could not be read. */
-  unreadable: number;
+  /** Files, and folders below the opened one, that could not be read. */
+  unreadable: { files: number; folders: number };
 }
 
 /**
@@ -61,12 +61,12 @@ export async function walk(
   const handles = new Map<File, FileSystemFileHandle>();
   if (source.kind === "files") {
     progress(source.files.length);
-    return { files: source.files, handles, unreadable: 0 };
+    return { files: source.files, handles, unreadable: { files: 0, folders: 0 } };
   }
   const found: File[] = [];
   let listed = 0;
   let reported = 0;
-  let unreadable = 0;
+  const unreadable = { files: 0, folders: 0 };
   // Files count as they are listed: a large flat folder shows progress before its files are read.
   const count = (n: number) => {
     signal.throwIfAborted();
@@ -79,7 +79,7 @@ export async function walk(
   const keep = async (files: Promise<File>[]) => {
     for (const read of await Promise.allSettled(files)) {
       if (read.status === "fulfilled") found.push(read.value);
-      else unreadable++;
+      else unreadable.files++;
     }
     signal.throwIfAborted();
   };
@@ -88,27 +88,31 @@ export async function walk(
       await folder();
     } catch (error) {
       if (signal.aborted) throw error;
-      unreadable++;
+      unreadable.folders++;
     }
   };
+  // A listing that fails midway still keeps the files it listed: their reads settle before the failure moves on.
   async function fromHandles(dir: FileSystemDirectoryHandle, path: string) {
     const files: Promise<File>[] = [];
     const folders: FileSystemDirectoryHandle[] = [];
-    for await (const handle of dir.values()) {
-      if (skipped(handle.name)) continue;
-      if (handle.kind === "directory") folders.push(handle as FileSystemDirectoryHandle);
-      else {
-        const own = handle as FileSystemFileHandle;
-        files.push(
-          own.getFile().then((f) => {
-            handles.set(f, own);
-            return withPath(f, path + own.name);
-          }),
-        );
+    try {
+      for await (const handle of dir.values()) {
+        if (skipped(handle.name)) continue;
+        if (handle.kind === "directory") folders.push(handle as FileSystemDirectoryHandle);
+        else {
+          const own = handle as FileSystemFileHandle;
+          files.push(
+            own.getFile().then((f) => {
+              handles.set(f, own);
+              return withPath(f, path + own.name);
+            }),
+          );
+        }
+        count(handle.kind === "file" ? 1 : 0);
       }
-      count(handle.kind === "file" ? 1 : 0);
+    } finally {
+      await keep(files);
     }
-    await keep(files);
     for (const folder of folders) await below(() => fromHandles(folder, `${path}${folder.name}/`));
   }
   const file = (entry: FileSystemEntry, path: string) =>
@@ -123,16 +127,19 @@ export async function walk(
     }
     const reader = (entry as FileSystemDirectoryEntry).createReader();
     const children: FileSystemEntry[] = [];
-    // `readEntries` returns a batch at a time (about 100 in Chromium) until it returns none.
-    for (;;) {
-      const batch = await new Promise<FileSystemEntry[]>((ok, fail) => reader.readEntries(ok, fail));
-      if (batch.length === 0) break;
-      const kept = batch.filter((child) => !skipped(child.name));
-      children.push(...kept);
-      count(kept.filter((child) => child.isFile).length);
-    }
     const path = `${parent}${entry.name}/`;
-    await keep(children.filter((c) => c.isFile).map((c) => file(c, path + c.name)));
+    try {
+      // `readEntries` returns a batch at a time (about 100 in Chromium) until it returns none.
+      for (;;) {
+        const batch = await new Promise<FileSystemEntry[]>((ok, fail) => reader.readEntries(ok, fail));
+        if (batch.length === 0) break;
+        const kept = batch.filter((child) => !skipped(child.name));
+        children.push(...kept);
+        count(kept.filter((child) => child.isFile).length);
+      }
+    } finally {
+      await keep(children.filter((c) => c.isFile).map((c) => file(c, path + c.name)));
+    }
     for (const child of children.filter((c) => c.isDirectory)) await below(() => fromEntries(child, path));
   }
 
@@ -152,7 +159,7 @@ function sidecarNames(primary: string): string[] {
   return [`${prefix}_channels.tsv`, `${prefix}_events.tsv`, `${stem}.json`];
 }
 
-/** The base names of `DataFile` and `MarkerFile` in the [Common Infos] of a .vhdr, as the core reads them. */
+/** The base names of the first `DataFile` and `MarkerFile` in the [Common Infos] of a .vhdr: the ones the reader opens. */
 function headerFiles(text: string): { data?: string; marker?: string } {
   const found: { data?: string; marker?: string } = {};
   let common = false;
@@ -168,8 +175,8 @@ function headerFiles(text: string): { data?: string; marker?: string } {
       .trim()
       .split(/[/\\]/)
       .at(-1);
-    if (key === "datafile") found.data = base;
-    if (key === "markerfile") found.marker = base;
+    if (key === "datafile") found.data ??= base;
+    if (key === "markerfile") found.marker ??= base;
   }
   return found;
 }

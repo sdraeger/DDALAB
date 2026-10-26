@@ -78,6 +78,9 @@ test("header_with_missing_data_file", async () => {
     file("x/sub-01_ieeg.vhdr", header("sub-01_ieeg.eeg", "sub-01_ieeg.vmrk")),
     file("x/sub-01_ieeg.vmrk"),
     file("x/empty.vhdr", "[Common Infos]\nMarkerFile=empty.vmrk"),
+    // The reader takes the first DataFile; the second, present one does not count.
+    file("x/twice.vhdr", "[Common Infos]\nDataFile=gone.eeg\nDataFile=twice.eeg"),
+    file("x/twice.eeg"),
   ]);
   expect(summary(found)).toEqual([
     {
@@ -93,6 +96,13 @@ test("header_with_missing_data_file", async () => {
       format: "BrainVision",
       files: ["sub-01_ieeg.vhdr", "sub-01_ieeg.vmrk"],
       missing: "Missing data file sub-01_ieeg.eeg",
+    },
+    {
+      path: "x/twice.vhdr",
+      name: "twice",
+      format: "BrainVision",
+      files: ["twice.vhdr"],
+      missing: "Missing data file gone.eeg",
     },
   ]);
 });
@@ -179,7 +189,10 @@ test("unreadable_header", async () => {
   expect(summary(await classifyFolder([vhdr]))[0].missing).toBe("The header could not be read");
 });
 
-/** A folder as the walk sees it: a File reads, an Error fails to read, null is a folder that cannot be listed. */
+/**
+ * A folder as the walk sees it: a File reads, an Error fails to read a moment later, null is a folder that cannot
+ * be listed, and the key "!" makes the listing fail at that point, after the entries before it.
+ */
 type Tree = { [name: string]: File | Error | null | Tree };
 const study = (): Tree => ({
   "a.edf": new File(["x"], "a.edf"),
@@ -187,37 +200,43 @@ const study = (): Tree => ({
   ".git": { "x.edf": new File(["x"], "x.edf") },
   node_modules: { "y.edf": new File(["x"], "y.edf") },
   sub: { "b.bdf": new File(["x"], "b.bdf"), locked: null },
+  half: { "c.edf": new File(["x"], "c.edf"), "late.edf": new Error("Removed"), "!": null },
 });
+const isFile = (value: Tree[string]): value is File | Error =>
+  value instanceof File || value instanceof Error;
+const later = (error: Error) => new Promise<never>((_, fail) => setTimeout(() => fail(error), 5));
+const CHANGED = "The folder changed while it was read";
 
 function directoryHandle(name: string, tree: Tree | null): FileSystemDirectoryHandle {
   async function* values() {
     if (tree === null) throw new Error("Permission denied");
     for (const [child, value] of Object.entries(tree)) {
-      if (value === null || !(value instanceof File || value instanceof Error))
-        yield directoryHandle(child, value);
+      if (child === "!") throw new Error(CHANGED);
+      if (!isFile(value)) yield directoryHandle(child, value);
       else
         yield {
           kind: "file",
           name: child,
-          getFile: async () => (value instanceof File ? value : Promise.reject(value)),
+          getFile: () => (value instanceof File ? Promise.resolve(value) : later(value)),
         };
     }
   }
   return { kind: "directory", name, values } as unknown as FileSystemDirectoryHandle;
 }
 
-function entry(name: string, value: File | Error | null | Tree): FileSystemEntry {
-  if (value instanceof File || value instanceof Error) {
+function entry(name: string, value: Tree[string]): FileSystemEntry {
+  if (isFile(value)) {
     const file = (ok: (f: File) => void, fail: (e: Error) => void) =>
-      value instanceof File ? ok(value) : fail(value);
+      value instanceof File ? ok(value) : setTimeout(() => fail(value), 5);
     return { name, isFile: true, isDirectory: false, file } as unknown as FileSystemEntry;
   }
   const createReader = () => {
     let listed = false;
     const readEntries = (ok: (entries: FileSystemEntry[]) => void, fail: (e: Error) => void) => {
       if (value === null) return fail(new Error("Permission denied"));
-      ok(listed ? [] : Object.entries(value).map(([child, inner]) => entry(child, inner)));
+      if (listed) return "!" in value ? fail(new Error(CHANGED)) : ok([]);
       listed = true;
+      ok(Object.entries(value).flatMap(([child, inner]) => (child === "!" ? [] : [entry(child, inner)])));
     };
     return { readEntries };
   };
@@ -229,17 +248,19 @@ test("walk_skips_and_counts_entries_it_cannot_read", async () => {
   const counts: number[] = [];
   const root = directoryHandle("study", study());
   const picked = await walk({ kind: "handle", handle: root }, signal, (n) => counts.push(n));
-  expect(picked.files.map((f) => f.webkitRelativePath)).toEqual(["study/a.edf", "study/sub/b.bdf"]);
-  // gone.edf and the locked folder; the hidden folder and node_modules are not read at all.
-  expect(picked.unreadable).toBe(2);
-  expect(counts.at(-1)).toBe(3);
+  // The half-listed folder keeps the file it listed; reads it started settle (a late failure is no stray rejection).
+  const paths = ["study/a.edf", "study/sub/b.bdf", "study/half/c.edf"];
+  expect(picked.files.map((f) => f.webkitRelativePath)).toEqual(paths);
+  // gone.edf and late.edf; the locked folder and the half-listed one. Hidden folders and node_modules are not read.
+  expect(picked.unreadable).toEqual({ files: 2, folders: 2 });
+  expect(counts.at(-1)).toBe(5);
   // The picker's handles stay with the files and the opened folder.
   expect(picked.root).toBe(root);
-  expect(picked.files.map((f) => picked.handles.get(f)?.name)).toEqual(["a.edf", "b.bdf"]);
+  expect(picked.files.map((f) => picked.handles.get(f)?.name)).toEqual(["a.edf", "b.bdf", "c.edf"]);
 
   const dropped = await walk({ kind: "entries", entries: [entry("study", study())] }, signal, () => {});
-  expect(dropped.files.map((f) => f.webkitRelativePath)).toEqual(["study/a.edf", "study/sub/b.bdf"]);
-  expect(dropped.unreadable).toBe(2);
+  expect(dropped.files.map((f) => f.webkitRelativePath)).toEqual(paths);
+  expect(dropped.unreadable).toEqual({ files: 2, folders: 2 });
   expect(dropped.root).toBeUndefined();
   expect(dropped.handles.size).toBe(0);
 
