@@ -341,18 +341,14 @@ export const openResult = (id: string | null) =>
     };
   });
 
-/** Opens the complete result of `record`, which has just finished, with or without a history. */
-export const showResult = (record: AnalysisRecord) =>
+/**
+ * Opens the complete result of `record`, which has just finished, with or without a history. `interval` stands in for
+ * the one its manifest gives, when the record has none.
+ */
+export const showResult = (record: AnalysisRecord, interval = intervalOf(record)) =>
   useStore.setState((s) => {
     const { id, fingerprint } = record;
-    const shownResult: ShownResult = {
-      id,
-      fingerprint,
-      variant: null,
-      array: "q",
-      row: null,
-      interval: intervalOf(record),
-    };
+    const shownResult: ShownResult = { id, fingerprint, variant: null, array: "q", row: null, interval };
     // Its recording was closed during the run: it shows alone.
     return {
       activeResultId: id,
