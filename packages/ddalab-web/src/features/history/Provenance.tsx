@@ -148,7 +148,7 @@ function Details() {
   );
 }
 
-/** Export, delete (once confirmed) and close; a running result can only be closed. */
+/** Export and close, then delete (once confirmed) at the far end; a running result can only be closed. */
 function Actions({ record }: { record: AnalysisRecord }) {
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -199,21 +199,22 @@ function Actions({ record }: { record: AnalysisRecord }) {
       </Popover.Root>
       <button
         type="button"
-        className={`${controls.quiet} ${styles.delete} ${styles.apart}`}
-        disabled={record.status === "running"}
-        onClick={() => setConfirming(true)}
-      >
-        Delete
-      </button>
-      <button
-        type="button"
-        className={`${controls.quiet} ${styles.close}`}
+        className={controls.quiet}
         onClick={() => {
           inTransition(() => openResult(null));
           focusHistory(record.id);
         }}
       >
         Close
+      </button>
+      <span className={styles.divider} aria-hidden />
+      <button
+        type="button"
+        className={`${controls.quiet} ${styles.delete}`}
+        disabled={record.status === "running"}
+        onClick={() => setConfirming(true)}
+      >
+        Delete
       </button>
     </div>
   );
