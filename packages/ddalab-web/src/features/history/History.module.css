@@ -170,7 +170,7 @@
 /* Digests and the command are data to compare and copy: monospace, wrapped anywhere. */
 .digest,
 .command {
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: var(--text-small);
   line-height: var(--leading-small);
   overflow-wrap: anywhere;

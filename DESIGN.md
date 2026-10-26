@@ -56,6 +56,11 @@ typography:
     fontWeight: 600
     letterSpacing: "0.06em"
     fontFeature: "c2sc, smcp"
+  digest:
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace"
+    fontSize: "12px"
+    fontWeight: 400
+    lineHeight: "16px"
 rounded:
   small: "3px"
   default: "5px"
@@ -189,6 +194,8 @@ A cool neutral chrome carries the interface; color is spent on the cobalt accent
 
 **Body Font:** the system UI stack (system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif)
 
+**Mono Font:** the system monospace stack (ui-monospace, SFMono-Regular, Menlo, monospace), for the digest role only.
+
 **Character:** The platform's own face, set small and dense, so the workbench reads as a native instrument. Numerals are tabular throughout (`font-variant-numeric: tabular-nums` on the body), so paging and counters never shift.
 
 ### Hierarchy
@@ -196,6 +203,7 @@ A cool neutral chrome carries the interface; color is spent on the cobalt accent
 - **Body** (400, 13 px, 18 px leading): controls, values and rail entries. **Body strong** (600) ranks within a pane: the wordmark, field values that lead, popover subheadings.
 - **Label** (400, 12 px, 16 px leading): field labels, counts, metadata lines, hints, tooltips and errors.
 - **Label caps** (600, 12 px, all small caps, 0.05 to 0.06 em tracking): section names of the rail and inspector (Recent, Folder, OpenNeuro, History, Input files), result tabs and electrode acronyms beside their swatches. Each one is the heading or name itself.
+- **Digest** (400, 12 px mono, 16 px leading, wrapped anywhere): the SHA-256 digests (muted) and the command line in a result's provenance, which the reader compares and copies.
 
 ### Named Rules
 **The Two Sizes Rule.** A dense pane uses 13 px and 12 px and ranks by weight. The 15 px section size heads a pane or popover and appears once in it.
@@ -209,6 +217,8 @@ The shell is a grid: a 44 px command bar across the top, then the library rail (
 Spacing runs on a 4 px unit (`spacing.1` to `spacing.6`). Rail sections sit 24 px apart with 16 px and 12 px insets; controls group at 8 px; control groups in the bar are split by a 20 px hairline rule.
 
 The command bar collapses by window width alone, so zooming moves nothing. Sensitivity, timebase and epoch sit in the bar while it has room and go behind one Scale button below 1400 px, or below 1600 px when the inspector is closed. Below 1024 px the wordmark and the Local and Annotate labels give way to their icons. Below 768 px the shell is replaced by a short notice that the workbench needs a wider window. Only the recording name and the run status shrink; the name elides in the middle and keeps its tail.
+
+A last grid row under the panels holds the update notice. It has no height until a new version is ready.
 
 **The Shared Axis Rule.** Every pane that plots time reserves the same label gutter and scrollbar gutter as the waveform. A new time pane aligns to it or does not ship.
 
@@ -264,6 +274,9 @@ The overview draws the whole recording with events in red; an ink outline (1.5 p
 
 ### Printed Scale Bar (signature)
 A band at the waveform's lower left prints an L-shaped bar with its amplitude and time lengths, then sensitivity, timebase and view as labeled fields split by hairlines.
+
+### Installed App
+DDALAB installs from the browser's menu into a standalone window whose title bar takes the `chrome` gray of the system theme; its icon is the Echo mark on chrome, with a maskable version that keeps the mark inside the safe circle. The app opens offline from a service worker's cache of the whole build. A new build announces itself in the notice strip at the foot of the window (chrome fill, hairline above, centered ink text and a quiet Reload); during a run it says the update waits, and Reload then reloads when the run ends. Recordings open from Finder and Explorer through Open With (.edf, .bdf, .vhdr, .csv, .tsv and .txt). Exports open the browser's Save dialog where it has one and go to the downloads elsewhere. About carries a one-line install hint.
 
 ### Heatmap Color Bar
 The result header names the variant and its window count, then a labeled color bar with its numeric limits; signed arrays use symmetric limits about zero.
