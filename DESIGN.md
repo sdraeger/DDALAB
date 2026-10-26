@@ -250,8 +250,8 @@ Controls are compact and plain: a hairline box, the system face, one accent.
 - **Primary:** cobalt fill and border with `primary-ink` text; hover mixes 12% ink into the cobalt.
 - **Quiet:** borderless, cobalt text, 8 px padding (Locate, Forget, Close, Import folder). A quiet button that starts a line pulls its text onto the rail's text column.
 - **Icon button:** 28 px square, muted 16 px line icon, hover fills `chrome-hover` and inks the icon; pressed state inks it.
-- **Toggle:** a default button that is on takes a cobalt border and text on `primary-wash` and a check before its label, which forced colors keep (Show chosen channels only).
-- **Unavailable:** a button that cannot act now stays focusable at 45% opacity, full opacity while focused, with its reason beside it in aria-describedby (batch Start, Show chosen channels only); a reason that comes and goes keeps its line, so nothing below it moves.
+- **Toggle:** a default button that is on takes a cobalt border and text on `primary-wash` and a check before its label, which forced colors keep (Show chosen channels only). The check holds its place while off and fades in, which leaves the label still.
+- **Unavailable:** a button that cannot act now stays focusable at 45% opacity, full opacity while focused, with its reason on a line under it in aria-describedby (batch Start, Show chosen channels only). A reason that comes and goes keeps its line, which leaves everything below it in place.
 - **Press:** every button and select trigger scales to `--motion-scale` (0.97) while pressed.
 
 ### Inputs / Fields

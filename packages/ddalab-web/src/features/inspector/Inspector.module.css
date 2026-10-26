@@ -131,6 +131,16 @@
   min-block-size: var(--leading-small);
 }
 
+/* The toggle's check holds its place while off and fades in with the one transition. */
+.check {
+  opacity: 0;
+  transition: opacity var(--motion-duration) var(--motion-ease);
+}
+
+.check[data-on] {
+  opacity: 1;
+}
+
 /* "Show all N groups": its text in line with the group rows'. */
 .more {
   align-self: flex-start;

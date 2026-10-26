@@ -207,7 +207,7 @@ const Channels = memo(function Channels(props: {
 
 /**
  * Shows the chosen channels alone in the waveform; a check beside the label marks it on where forced colors drop the
- * color.
+ * color. The check keeps its place while off and fades in, which leaves the label still.
  * With none chosen it cannot, and its note says why; the note is announced when the last channel is unchosen, which
  * turns it off.
  */
@@ -226,7 +226,7 @@ function ChosenOnly({ chosen }: { chosen: number }) {
         aria-describedby={reason ? `${id}-reason` : undefined}
         onClick={() => !reason && showChosenOnly(!on)}
       >
-        {on && <Check aria-hidden />}
+        <Check aria-hidden className={styles.check} data-on={on || undefined} />
         Show chosen channels only
       </button>
       <span id={`${id}-reason`} className={styles.reason} aria-live="polite">

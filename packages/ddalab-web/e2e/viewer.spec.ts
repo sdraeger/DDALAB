@@ -403,11 +403,14 @@ test("chosen_channels_alone", async ({ page }) => {
   for (const label of ["CH10", "CH3", "CH7"]) await choose(label);
   await expect(toggle).not.toHaveAttribute("aria-disabled");
   expect(await groups.boundingBox()).toEqual(groupsAt);
-  // On, a check marks it besides the color.
-  await expect(toggle.locator("svg")).toHaveCount(0);
+  // On, a check marks it besides the color. The check holds its place while off, which keeps the button's size.
+  const check = toggle.locator("svg");
+  const toggleAt = await toggle.boundingBox();
+  await expect(check).toHaveCSS("opacity", "0");
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-pressed", "true");
-  await expect(toggle.locator("svg")).toHaveCount(1);
+  await expect(check).toHaveCSS("opacity", "1");
+  expect(await toggle.boundingBox()).toEqual(toggleAt);
   await expect(rows).toHaveText([/^CH3\b/, /^CH7\b/, /^CH10\b/]);
   if (gl) {
     expect(await drawn()).toEqual([2, 6, 9]);
