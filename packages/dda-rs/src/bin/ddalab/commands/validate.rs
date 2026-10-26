@@ -63,7 +63,7 @@ pub fn execute(args: ValidateArgs) -> i32 {
         Some(format!("File is not readable: {}", args.file))
     } else if !supported {
         Some(format!(
-            "Unsupported file extension '{}'. Supported: edf, bdf, vhdr, txt, csv, tsv, ascii, dat",
+            "Unsupported file extension '{}'. Supported: edf, bdf, vhdr, set, txt, csv, tsv, ascii, dat",
             extension
         ))
     } else {

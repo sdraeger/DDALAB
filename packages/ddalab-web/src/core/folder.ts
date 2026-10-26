@@ -8,7 +8,7 @@ export type FolderSource =
   | { kind: "entries"; entries: FileSystemEntry[] }
   | { kind: "files"; files: File[] };
 
-export type Format = "EDF" | "BDF" | "BrainVision" | "Text";
+export type Format = "EDF" | "BDF" | "BrainVision" | "EEGLAB" | "Text";
 
 export interface FolderRecording {
   /** The primary file's path from the opened folder's parent, as `webkitRelativePath` gives it. */
@@ -29,7 +29,7 @@ export interface FolderRecording {
 const skipped = (name: string) => name.startsWith(".") || name === "node_modules";
 /** Names of BIDS tables and sidecars, inside a dataset or outside one. */
 const BIDS_TABLE = /(^participants|_(channels|events|electrodes|scans|sessions))\.tsv$/i;
-const FORMATS: Record<string, Format> = { vhdr: "BrainVision", edf: "EDF", bdf: "BDF" };
+const FORMATS: Record<string, Format> = { vhdr: "BrainVision", set: "EEGLAB", edf: "EDF", bdf: "BDF" };
 // [Common Infos] opens a header; a large file named .vhdr is not read whole.
 const HEADER_BYTES = 64 * 1024;
 
@@ -194,8 +194,9 @@ function shortName(path: string, inBids: boolean): string {
 
 /**
  * The recordings of a folder listing with their companion files. A recording is a file of a format the core reads
- * (.vhdr, .edf, .bdf, and delimited text outside a BIDS dataset) that is no BIDS table and no other recording's
- * companion. Its companions are its BIDS sidecars and, for a .vhdr, the data and marker files its header names. A
+ * (.vhdr, .set, .edf, .bdf, and delimited text outside a BIDS dataset) that is no BIDS table and no other recording's
+ * companion. Its companions are its BIDS sidecars and, for a .vhdr, the data and marker files its header names, for a
+ * .set the .fdt of its stem. A
  * folder holding dataset_description.json is the root of a BIDS dataset.
  */
 export async function classifyFolder(files: File[]): Promise<FolderRecording[]> {
@@ -225,6 +226,8 @@ export async function classifyFolder(files: File[]): Promise<FolderRecording[]> 
         else if (!byPath.has(dir + data)) missing = `Missing data file ${data}`;
         names.push(...[data, marker].filter((n) => n !== undefined));
       }
+      // An EEGLAB dataset's samples are in the .fdt of its stem, or in the .set itself.
+      if (extension(file.name) === "set") names.push(`${file.name.slice(0, -4)}.fdt`);
       return { companions: names.map((n) => dir + n).filter((p) => byPath.has(p)), missing };
     }),
   );

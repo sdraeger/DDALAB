@@ -244,7 +244,8 @@ impl FileSet {
     }
 
     /// The primary file plus the siblings in its directory that belong to it:
-    /// its `sidecar_names`; for a `.vhdr`, the `DataFile` and `MarkerFile` it names.
+    /// its `sidecar_names`; for a `.vhdr`, the `DataFile` and `MarkerFile` it names; for a `.set`, the `.fdt` of its
+    /// stem.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn from_path(path: &Path) -> Result<FileSet> {
         let primary = path
@@ -261,6 +262,17 @@ impl FileSet {
             .is_some_and(|ext| ext.eq_ignore_ascii_case("vhdr"))
         {
             names.extend(vhdr_files(&String::from_utf8_lossy(&std::fs::read(path)?)));
+        }
+        // An EEGLAB dataset's samples are in the .fdt of its stem, as pop_saveset names it.
+        if path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("set"))
+        {
+            names.extend(
+                path.with_extension("fdt")
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned()),
+            );
         }
 
         let dir = path.parent().unwrap_or(Path::new(""));

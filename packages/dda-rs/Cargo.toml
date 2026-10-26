@@ -42,6 +42,7 @@ rand = { version = "0.8", default-features = false }
 rand_chacha = { version = "0.3", default-features = false }
 libm = "0.2"
 sha2 = "0.10"
+miniz_oxide = "0.8"
 
 # Native only: wasm32-unknown-unknown has no clock, OS randomness, threads or cudarc build; the host stamps id and created_at.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

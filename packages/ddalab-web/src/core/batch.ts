@@ -139,7 +139,8 @@ export const byComponents = (a: string, b: string) => {
 
 /**
  * The recordings `ddalab batch --bids-dir` finds in the dataset `root`, in its order: `*_eeg` and `*_ieeg` stems of
- * `.edf`, `.bdf` and `.vhdr` files at most 6 folders down, none under a hidden entry, code, derivatives or sourcedata.
+ * `.edf`, `.bdf`, `.vhdr` and `.set` files at most 6 folders down, none under a hidden entry, code, derivatives or
+ * sourcedata.
  */
 export function discovered<T extends { path: string }>(recordings: T[], root: string): T[] {
   const kept = recordings.filter(({ path }) => {
@@ -149,7 +150,7 @@ export function discovered<T extends { path: string }>(recordings: T[], root: st
       parts.length - 1 <= MAX_DEPTH &&
       !parts.some((part) => part.startsWith(".") || SKIPPED.includes(part)) &&
       /_i?eeg$/.test(stem) &&
-      ["edf", "bdf", "vhdr"].includes(extension.toLowerCase())
+      ["edf", "bdf", "vhdr", "set"].includes(extension.toLowerCase())
     );
   });
   return kept.sort((a, b) => byComponents(a.path, b.path));
