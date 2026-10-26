@@ -106,14 +106,23 @@
   gap: var(--space-1);
 }
 
+/* The heading, at most eight group rows (the rest behind "Show all") and the search field at their own height; under
+   them the channel list, six rows high, comes to rest on whole rows. The annotations and the settings follow. */
 .channels {
   display: flex;
-  flex: 1 1 0;
+  flex: none;
   flex-direction: column;
   gap: var(--space-2);
-  min-height: 280px;
   padding: var(--space-3) var(--space-4) 0;
   border-top: var(--hairline-width) solid var(--hairline);
+}
+
+/* "Show all N groups": its text in line with the group rows'. */
+.more {
+  align-self: flex-start;
+  height: 24px;
+  margin: calc(-1 * var(--space-1)) 0 0 calc(-1 * var(--space-2));
+  font-size: var(--text-small);
 }
 
 .heading {
@@ -134,8 +143,6 @@
 .groups {
   display: flex;
   flex-direction: column;
-  max-height: 40%;
-  overflow-y: auto;
 }
 
 .group,
@@ -181,8 +188,7 @@
 }
 
 .scroller {
-  flex: 1;
-  min-height: 120px;
+  max-height: calc(6 * 28px);
   overflow-y: auto;
   margin: 0 calc(-1 * var(--space-4));
   transition-property: opacity;

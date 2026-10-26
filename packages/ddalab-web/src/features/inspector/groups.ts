@@ -8,7 +8,7 @@ export interface Group {
   name: string;
   /** Display channel indices, ascending. */
   members: number[];
-  /** CSS colour of the group's marks. */
+  /** CSS color of the group's marks. */
   tint: string;
 }
 

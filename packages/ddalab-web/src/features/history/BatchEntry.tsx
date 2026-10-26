@@ -28,7 +28,8 @@ export function BatchEntry(props: {
   const id = useId();
   const [open, setOpen] = useState(false);
   const [choose, setChoose] = useState(false);
-  const [note, setNote] = useState<{ text: string; error: boolean }>();
+  // Why the export or the resume did not go through.
+  const [error, setError] = useState<string>();
   const busy = useStore((s) => s.batch?.status === "running" || s.run?.status === "running");
   const folderInput = useRef<HTMLInputElement>(null);
   const head = useRef<HTMLButtonElement>(null);
@@ -38,14 +39,11 @@ export function BatchEntry(props: {
   const name = `${batch.form.variants.join(" ")} on ${batch.root || "a folder"}`;
 
   async function save() {
-    setNote(undefined);
+    setError(undefined);
     try {
-      if (await exportBatch(batch)) setNote({ text: "Saved", error: false });
+      await exportBatch(batch);
     } catch (failure) {
-      setNote({
-        text: `The export failed: ${failure instanceof Error ? failure.message : failure}`,
-        error: true,
-      });
+      setError(`The export failed: ${failure instanceof Error ? failure.message : failure}`);
     }
   }
   // The button goes once the batch runs again.
@@ -55,14 +53,14 @@ export function BatchEntry(props: {
     props.onResume(source, batch.id);
   };
   async function resume() {
-    setNote(undefined);
+    setError(undefined);
     const handle = await reattach(batch);
     if (handle) resumeOn({ kind: "handle", handle });
     else setChoose(true);
   }
   function chosen(source: FolderSource, folder: string) {
     if (batch.root && folder !== batch.root) {
-      return setNote({ text: `That folder is ${folder}. The batch ran on ${batch.root}.`, error: true });
+      return setError(`That folder is ${folder}. The batch ran on ${batch.root}.`);
     }
     resumeOn(source);
   }
@@ -136,9 +134,9 @@ export function BatchEntry(props: {
             remaining recordings.
           </p>
         )}
-        {note && (
-          <p role={note.error ? "alert" : "status"} className={note.error ? styles.error : styles.note}>
-            {note.text}
+        {error && (
+          <p role="alert" className={styles.error}>
+            {error}
           </p>
         )}
         <input

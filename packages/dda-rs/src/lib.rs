@@ -26,8 +26,7 @@ pub use engine::{
 };
 pub use error::{DDAError, Result};
 pub use input_io::{
-    load_ascii_matrix_from_path, load_f64_matrix_from_path, run_request_on_ascii_file,
-    run_request_on_ascii_file_with_progress, run_request_on_f64_matrix_file_with_progress,
+    load_ascii_matrix_from_path, run_request_on_ascii_file, run_request_on_ascii_file_with_progress,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use io::MmapSource;

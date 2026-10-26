@@ -1,5 +1,5 @@
 // Pointer gestures on the plot: the wheel zooms about the pointer (sideways scrolling pans), a drag pans, Shift-drag
-// selects the interval of a run, a click sets the cursor.
+// selects the interval of a run, a click sets the cursor and a press off the plot lets it go.
 import { type RefObject, useEffect } from "react";
 import { setCursor, setSelection, setView, useStore, zoomBy } from "../../store/store";
 
@@ -68,12 +68,21 @@ export function usePlotPointer(plot: RefObject<HTMLElement | null>, recordingId:
       drag = null;
       delete plotEl.dataset.dragging;
     };
+    // A press anywhere off the plot lets the cursor go; one on another plot sets it there as the press ends. A control
+    // that acts at the cursor (Annotate, `data-keeps-cursor`) keeps it.
+    const off = (event: PointerEvent) => {
+      const target = event.target as Element;
+      if (plotEl.contains(target) || target.closest?.("[data-keeps-cursor]")) return;
+      if (useStore.getState().cursorS !== null) setCursor(null);
+    };
+    document.addEventListener("pointerdown", off);
     plotEl.addEventListener("wheel", wheel, { passive: false });
     plotEl.addEventListener("pointerdown", down);
     plotEl.addEventListener("pointermove", move);
     plotEl.addEventListener("pointerup", up);
     plotEl.addEventListener("pointercancel", up);
     return () => {
+      document.removeEventListener("pointerdown", off);
       plotEl.removeEventListener("wheel", wheel);
       plotEl.removeEventListener("pointerdown", down);
       plotEl.removeEventListener("pointermove", move);

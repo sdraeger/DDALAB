@@ -1,6 +1,7 @@
 // Fails the build when dist holds what only dev and e2e builds may have: the `__ddalab` test hook, the IO worker's
 // trap and quota hooks, the workers' wasm memory hook, the synthetic recording generator, or a wasm module other than
-// the engine's own .wasm asset. It fails too when no script keeps the color maps' MIT notice as a legal comment.
+// the engine's own .wasm asset. It fails too when no script keeps the color maps' MIT notice as a legal comment, or
+// when sw.js has no baked file list (the service worker would then keep nothing for offline use).
 // Usage: node scripts/check-dist.mjs [dist directory]
 import { readdirSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
@@ -23,6 +24,9 @@ const FORBIDDEN = [
   ["wasm bytes in code", /0,\s*97,\s*115,\s*109,\s*1,\s*0,\s*0,\s*0/],
   ["wasm bytes in code", /\\0asm|\\x00asm|AGFzbQEAAAA/],
 ];
+
+/** The line scripts/precache.mjs bakes into sw.js: the version and a file list that holds index.html. */
+const BAKED = /^const BUILD = \{"version":"[0-9a-f]{12}","files":\[(?:[^\]]*,)?"index\.html"[,\]]/m;
 
 /** The notice of src/render/colormaps.ts, which the build keeps as a legal comment. */
 const NOTICE = /\/\*!(?:(?!\*\/)[\s\S])*Copyright \(c\) 2020 Fabio Crameri/;
@@ -53,6 +57,9 @@ export function findLeaks(dir) {
     }
   }
   if (!notice) found.push(`${dir}: no script keeps the color maps' MIT notice (src/render/colormaps.ts)`);
+  const worker = files(dir).find((path) => path === join(dir, "sw.js"));
+  if (!worker || !BAKED.test(readFileSync(worker, "latin1")))
+    found.push(`${dir}: sw.js is missing or holds no baked file list (scripts/precache.mjs)`);
   return found;
 }
 

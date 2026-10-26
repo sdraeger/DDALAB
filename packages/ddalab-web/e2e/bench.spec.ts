@@ -18,7 +18,8 @@
  *   repeats        = `repeats` of the config for a measured case, 0 for a skipped one
  *   skipped        = empty for a measured case; else "load L above max_load_1m", L the 1-minute load average after
  *                    waiting `load_wait_s`
- *   workers        = navigator.hardwareConcurrency - 1, the DDA workers of the browser's run (engine.ts poolSize)
+ *   workers        = the DDA workers of the browser's run, ddaPoolSize(navigator.hardwareConcurrency, channels) of
+ *                    engine.ts: every core but one, fewer when the memory contract's sizing rule needs it
  *   threads        = DDALAB_RAYON_THREADS of the CLI = workers
  *   budget_mb      = the browser's block budget, min(16, needed / (2 workers)) MiB (scheduler.ts blockBudgetMb)
  *   browser_blocks = blocks of the browser's plan; native_blocks = blocks of the core's plan (the wasm host in Node)
@@ -34,16 +35,20 @@
  *                    native_total_s is the CLI's mean busy threads
  *   load_1m_max    = max of the 1-minute load average at the start of each of the case's runs
  * Memory comes from one more browser run of the case after the repeats, kept out of the timing: sampling slows a run.
- * Its samples start every `memory_sample_ms` from engine.run to `done`, or as soon as the one before returns when that
- * took longer (e2e/sampleMax.ts):
+ * Its caches are warm first: the plot shows every channel and steps across the whole recording at 20 s spans (raw
+ * rows) and at 300 s spans (tiles), each frame drawn before the next (warmCaches). Its samples start every
+ * `memory_sample_ms` from engine.run to `done`, or as soon as the one before returns when that took longer
+ * (e2e/sampleMax.ts):
  *   run_memory_gb          = max over samples of performance.measureUserAgentSpecificMemory().bytes / 1e9: the JS of
  *                            the page and its dedicated workers, in a cross-origin isolated page, measured eagerly
- *                            (`browser_args`); it does not cover the DDA workers' wasm memory
+ *                            (`browser_args`); it does not cover any worker's wasm memory
  *   run_memory_interval_ms = mean milliseconds between the starts of those samples
- *   run_wasm_gb            = max over samples of sum over the run's DDA workers of the wasm memory each reported with
- *                            its last block (memory.buffer.byteLength) / 1e9: the wasm run_memory_gb leaves out
+ *   run_wasm_gb            = max over samples of (sum over the run's DDA workers of the wasm memory each reported with
+ *                            its last block + the wasm memory of the IO, hash and annotation workers), each
+ *                            memory.buffer.byteLength, / 1e9: the wasm run_memory_gb leaves out
  *   run_js_wasm_gb         = run_memory_gb + run_wasm_gb: the figure for the spec's 1.5 GB contract on JS plus wasm,
- *                            an upper bound on their simultaneous total, as the two maxima may fall at different times
+ *                            every worker's wasm included, an upper bound on their simultaneous total, as the two
+ *                            maxima may fall at different times
  *   run_rss_tree_gb        = max over samples every `memory_sample_ms` of sum(RSS of each process of the Chromium
  *                            process tree of the case's profile) / 1e9, from `ps`: an upper bound, which counts pages
  *                            that processes share once per process
@@ -407,7 +412,28 @@ async function browserRun(page: Page, id: string, request: DDARequest) {
 }
 
 /**
- * The untimed run that measures memory: the samples of measureUserAgentSpecificMemory and of the DDA workers' wasm,
+ * Fills the caches the way viewing does: the plot shows every channel of the recording and steps across all of it at
+ * 20 s spans (raw rows) and at 300 s spans (tiles), each frame drawn before the next.
+ */
+async function warmCaches(page: Page, info: RecordingInfo) {
+  await page.evaluate(
+    async ([duration, rows]) => {
+      const { store, viewer } = window.__ddalab;
+      for (const span of [20, 300]) {
+        for (let t0 = 0; t0 < duration; t0 += span) {
+          store.setState((s) => ({
+            view: { ...s.view, t0, t1: t0 + span, firstChannel: 0, rowCount: rows },
+          }));
+          await viewer.settled();
+        }
+      }
+    },
+    [info.duration_s, info.channels.length] as const,
+  );
+}
+
+/**
+ * The untimed run that measures memory: the samples of measureUserAgentSpecificMemory and of every worker's wasm,
  * taken in the page by `sampleMax` (passed in as its source), and the process tree's RSS, sampled from here.
  */
 async function memoryRun(page: Page, id: string, request: DDARequest, profile: string) {
@@ -429,9 +455,13 @@ async function memoryRun(page: Page, id: string, request: DDARequest, profile: s
         const finished = new Promise<void>((resolve) => {
           finish = resolve;
         });
+        const others = async () => {
+          const { io, hash, annotations } = await engine.wasmBytes();
+          return io + hash + annotations;
+        };
         const samples = Promise.all([
           sample(async () => (await measured.measureUserAgentSpecificMemory()).bytes, finished, intervalMs),
-          sample(async () => handle?.wasmBytes() ?? 0, finished, intervalMs),
+          sample(async () => (handle?.wasmBytes() ?? 0) + (await others()), finished, intervalMs),
         ]);
         const started = performance.now();
         try {
@@ -443,7 +473,7 @@ async function memoryRun(page: Page, id: string, request: DDARequest, profile: s
         const seconds = (performance.now() - started) / 1000;
         const [memory, wasm] = await samples;
         await engine.deleteResult(handle.id);
-        return { seconds, memory, wasmBytes: Math.max(wasm.max, handle.wasmBytes()) };
+        return { seconds, memory, wasmBytes: Math.max(wasm.max, handle.wasmBytes() + (await others())) };
       },
       [id, request, config.memory_sample_ms, String(sampleMax)] as const,
     );
@@ -586,6 +616,7 @@ for (const c of cases) {
     }
     if (cliRequest) row.native_blocks = await coreBlocks(path, cliRequest, plan.budgetMb);
     expect(row.native_blocks, `${c.name}: the CLI's blocks`).toBe(row.browser_blocks);
+    await warmCaches(page, info);
     const load_1m = loadavg()[0];
     const measured = await memoryRun(page, id, request, profile);
     runs.push({

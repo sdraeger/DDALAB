@@ -8,9 +8,11 @@ export interface AnalysisRecord {
   /** The recording's fingerprint; empty for an imported result, whose manifest names its files by SHA-256. */
   fingerprint: string;
   fileName: string;
+  /** Every file the run read, whose digests its manifest should record; absent from older and imported records. */
+  inputFiles?: string[];
   request: DDARequest;
   /**
-   * The result's manifest.json once it is complete, without its window centres: a long run has a million of them, and
+   * The result's manifest.json once it is complete, without its window centers: a long run has a million of them, and
    * they stay in OPFS.
    */
   manifest?: Omit<ResultDocument, "window_centers_seconds">;
@@ -24,6 +26,17 @@ export interface AnalysisRecord {
   /** The batch that ran it (core/batch.ts); the history lists it under the batch. */
   batch?: string;
 }
+
+/**
+ * Asks the browser, once per page, to keep this site's storage when the disk runs low: without it Chromium may clear
+ * the history and every result with the cached tiles. Called when a result is stored.
+ */
+let persisting: Promise<boolean> | undefined;
+export const persistStorage = () =>
+  (persisting ??= navigator.storage
+    .persisted()
+    .then((kept) => kept || navigator.storage.persist())
+    .catch(() => false));
 
 /** A manifest as its record keeps it. */
 export const recordedManifest = ({ window_centers_seconds: _, ...manifest }: ResultDocument) => manifest;

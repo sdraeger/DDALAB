@@ -148,7 +148,7 @@ function Details() {
   );
 }
 
-/** Export, delete (once confirmed) and close; a running result can only be closed. */
+/** Export and close, then delete (once confirmed) at the far end; a running result can only be closed. */
 function Actions({ record }: { record: AnalysisRecord }) {
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -164,7 +164,7 @@ function Actions({ record }: { record: AnalysisRecord }) {
         {/* Keyed: the row mounts anew and Keep takes focus, where React would reuse the Close button. */}
         <div className={styles.actions} key="confirm" data-appear>
           <span className={styles.confirm}>Delete this result and its files?</span>
-          <button type="button" className={controls.quiet} onClick={remove}>
+          <button type="button" className={`${controls.quiet} ${styles.delete}`} onClick={remove}>
             Delete
           </button>
           {/* biome-ignore lint/a11y/noAutofocus: the safe answer takes focus when the question appears */}
@@ -200,14 +200,6 @@ function Actions({ record }: { record: AnalysisRecord }) {
       <button
         type="button"
         className={controls.quiet}
-        disabled={record.status === "running"}
-        onClick={() => setConfirming(true)}
-      >
-        Delete
-      </button>
-      <button
-        type="button"
-        className={`${controls.quiet} ${styles.close}`}
         onClick={() => {
           inTransition(() => openResult(null));
           focusHistory(record.id);
@@ -215,6 +207,17 @@ function Actions({ record }: { record: AnalysisRecord }) {
       >
         Close
       </button>
+      <span className={styles.end}>
+        <span className={styles.divider} aria-hidden />
+        <button
+          type="button"
+          className={`${controls.quiet} ${styles.delete}`}
+          disabled={record.status === "running"}
+          onClick={() => setConfirming(true)}
+        >
+          Delete
+        </button>
+      </span>
     </div>
   );
 }
@@ -234,7 +237,10 @@ function EngineFields({ record }: { record: AnalysisRecord }) {
   );
 }
 
-/** Each input file and its SHA-256: from the manifest, else from the open recording, hashed so far. */
+/**
+ * Each input file and its SHA-256: from the manifest, else from the open recording, hashed so far. A file the run read
+ * whose digest the manifest lacks is named as such.
+ */
 function InputFiles({ record }: { record: AnalysisRecord }) {
   // The hashes only: engine.ts keeps them across scan reports, which replace the recording.
   const recording = useStore(
@@ -246,7 +252,7 @@ function InputFiles({ record }: { record: AnalysisRecord }) {
     }),
   );
   const recorded = record.manifest?.reproduction.input_sha256;
-  const names = recorded ? Object.keys(recorded) : (recording.files ?? []);
+  const names = record.inputFiles ?? (recorded ? Object.keys(recorded) : (recording.files ?? []));
   if (names.length === 0) {
     return (
       <p className={styles.note}>
@@ -257,7 +263,7 @@ function InputFiles({ record }: { record: AnalysisRecord }) {
   return (
     <ul className={styles.files}>
       {names.map((name) => {
-        const sha256 = recorded?.[name] ?? recording.sha256?.[name];
+        const sha256 = recorded ? recorded[name] : recording.sha256?.[name];
         const hashed = recording.hashed?.[name] ?? 0;
         return (
           <li key={name}>
@@ -266,6 +272,8 @@ function InputFiles({ record }: { record: AnalysisRecord }) {
               <code className={styles.digest} data-appear>
                 {sha256}
               </code>
+            ) : record.manifest ? (
+              <span className={styles.note}>SHA-256 not recorded for {name}</span>
             ) : (
               <span className={styles.note}>hashing {Math.floor(100 * hashed)}%</span>
             )}

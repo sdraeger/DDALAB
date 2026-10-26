@@ -1,30 +1,41 @@
 // The user's annotations: every change goes through these functions, which keep an undo history per recording for
-// the session and write the recording's list to IndexedDB (core/userAnnotations.ts). File annotations are read-only
-// and listed beside them with the id `file:<index>`.
+// the session and store the annotations each change touched in IndexedDB (core/userAnnotations.ts). Another instance
+// of the app that stores a change makes this one read the recording's annotations again; undo and redo act on the
+// annotations their step touched, which leaves the other instance's alone. File annotations are read-only and listed
+// beside them with the id `file:<index>`.
 import type { Annotation } from "../../core/types";
-import { loadAnnotations, saveAnnotations, type UserAnnotation } from "../../core/userAnnotations";
+import {
+  loadAnnotations,
+  onStoredElsewhere,
+  storeChanges,
+  type UserAnnotation,
+} from "../../core/userAnnotations";
 import { activeRecording, setAnnotations, setView, useStore } from "../../store/store";
 
 type State = ReturnType<typeof useStore.getState>;
 type Change = Partial<Omit<UserAnnotation, "id">>;
+/** One change: the recording's list before and after it. */
+type Step = { before: UserAnnotation[]; after: UserAnnotation[] };
 
 const EMPTY: UserAnnotation[] = [];
-/** Per fingerprint: the lists before each change (undo) and before each undo (redo), newest last. */
-const undos = new Map<string, UserAnnotation[][]>();
-const redos = new Map<string, UserAnnotation[][]>();
+/** Per fingerprint: the changes made (undo) and those undone (redo), newest last. */
+const undos = new Map<string, Step[]>();
+const redos = new Map<string, Step[]>();
 /** The label a new annotation starts with: the one saved last. */
 let lastLabel = "";
 /** The time under the pointer while it is over the waveform plot, else null. */
 export const pointer: { s: number | null } = { s: null };
-/** The writes to IndexedDB, one after another in the order of the changes. */
+/** The reads and writes of IndexedDB, one after another in the order of the changes. */
 let saving: Promise<void> = Promise.resolve();
 
 /** Resolves once every change made so far is stored (or has warned that it could not be). */
 export const saved = () => saving;
 
-/** Stores the recording's list after the writes before it. */
-function store(fingerprint: string, list: UserAnnotation[]) {
-  saving = saving.then(() => saveAnnotations(fingerprint, list).catch((error) => warn(fingerprint, error)));
+/** Stores the change from `before` to `after` after the writes before it. */
+function store(fingerprint: string, before: UserAnnotation[], after: UserAnnotation[]) {
+  saving = saving.then(() =>
+    storeChanges(fingerprint, before, after).catch((error) => warn(fingerprint, error)),
+  );
 }
 
 /** The user's annotations of a recording, with the one being dragged where the drag has it. */
@@ -50,9 +61,15 @@ function warn(fingerprint: string, error: unknown) {
 /** Per fingerprint: how many changes its list has had, which tells a restore whether one came during its read. */
 const changes = new Map<string, number>();
 
-/** Shows `next` as the recording's list and stores it; a picked or edited annotation that is gone is let go. */
+/** Shows `next` as the recording's list and stores the change; a picked or edited annotation that is gone is let go. */
 function show(fingerprint: string, next: UserAnnotation[]) {
   changes.set(fingerprint, (changes.get(fingerprint) ?? 0) + 1);
+  store(fingerprint, listOf(fingerprint), next);
+  replace(fingerprint, next);
+}
+
+/** Shows `next` as the recording's list; a picked or edited annotation that is gone is let go. */
+function replace(fingerprint: string, next: UserAnnotation[]) {
   useStore.setState((s) => {
     const gone = (id: string | undefined | null) =>
       Boolean(id) && !id?.startsWith("file:") && !next.some((a) => a.id === id);
@@ -62,38 +79,47 @@ function show(fingerprint: string, next: UserAnnotation[]) {
       annotationEditor: gone(s.annotationEditor?.id) ? null : s.annotationEditor,
     };
   });
-  store(fingerprint, next);
 }
 
-const push = (stacks: Map<string, UserAnnotation[][]>, fingerprint: string, list: UserAnnotation[]) =>
-  stacks.set(fingerprint, [...(stacks.get(fingerprint) ?? []), list]);
+const push = (stacks: Map<string, Step[]>, fingerprint: string, step: Step) =>
+  stacks.set(fingerprint, [...(stacks.get(fingerprint) ?? []), step]);
 
-/** One undoable change: the list before it can be had back with `undo`. */
+/** One undoable change: what it did can be taken back with `undo`. */
 function commit(fingerprint: string, next: UserAnnotation[]) {
-  push(undos, fingerprint, listOf(fingerprint));
+  push(undos, fingerprint, { before: listOf(fingerprint), after: next });
   redos.delete(fingerprint);
   show(fingerprint, next);
 }
 
 /**
- * Reads the stored list of a recording that has none in the store yet. A change made while it loads (even one that
- * left nothing, a creation and its deletion) has stored a list without the stored ones: the list made meanwhile
- * joins the stored one, the merge is stored, and the undo steps, which knew nothing of the stored ones, are dropped.
+ * Reads the stored annotations of a recording after the writes queued before the read. A change made meanwhile is
+ * stored after the read, which then reads again; otherwise the stored list replaces the one shown.
  */
-export async function restoreAnnotations(fingerprint: string) {
-  if (useStore.getState().annotations[fingerprint]) return;
+function reload(fingerprint: string): Promise<void> {
   const before = changes.get(fingerprint) ?? 0;
-  const stored = await loadAnnotations(fingerprint).catch((error) => {
-    warn(fingerprint, error);
-    return EMPTY;
+  const read = saving.then(() =>
+    loadAnnotations(fingerprint).catch((error) => {
+      warn(fingerprint, error);
+      return undefined;
+    }),
+  );
+  saving = read.then(() => {});
+  return read.then((stored) => {
+    if ((changes.get(fingerprint) ?? 0) !== before) return reload(fingerprint);
+    if (stored) replace(fingerprint, stored);
+    else if (!useStore.getState().annotations[fingerprint]) replace(fingerprint, EMPTY);
   });
-  const merged = [...stored, ...listOf(fingerprint)];
-  useStore.setState((s) => ({ annotations: { ...s.annotations, [fingerprint]: merged } }));
-  if ((changes.get(fingerprint) ?? 0) === before) return;
-  undos.delete(fingerprint);
-  redos.delete(fingerprint);
-  store(fingerprint, merged);
 }
+
+/** Reads the stored annotations of a recording that has none in the store yet. */
+export function restoreAnnotations(fingerprint: string) {
+  return useStore.getState().annotations[fingerprint] ? Promise.resolve() : reload(fingerprint);
+}
+
+// Another window stored a change: a recording shown here reads its annotations again.
+onStoredElsewhere((fingerprint) => {
+  if (useStore.getState().annotations[fingerprint]) void reload(fingerprint);
+});
 
 /** An onset and a duration held inside a recording of `length` seconds. */
 export function within(onset_s: number, duration_s: number, length: number) {
@@ -139,29 +165,51 @@ export function labelCreated(fingerprint: string, id: string, label: string) {
 /** Takes back the creation of `id`, whose label was never saved: neither undo nor redo remembers it. */
 export function discard(fingerprint: string, id: string) {
   const undo = undos.get(fingerprint);
-  if (undo && !undo[undo.length - 1]?.some((a) => a.id === id)) undo.pop();
+  if (undo && !undo[undo.length - 1]?.before.some((a) => a.id === id)) undo.pop();
   show(
     fingerprint,
     listOf(fingerprint).filter((a) => a.id !== id),
   );
 }
 
-/** Steps back (`undo`) or forward (`redo`) one change, closing an open editor; false when there is none. */
-function step(
-  from: Map<string, UserAnnotation[][]>,
-  to: Map<string, UserAnnotation[][]>,
-  fingerprint: string,
-) {
-  const list = from.get(fingerprint)?.pop();
-  if (!list) return false;
-  push(to, fingerprint, listOf(fingerprint));
+/** The ids of the annotations a step added, removed or changed. */
+function touched({ before, after }: Step) {
+  const key = (a: UserAnnotation) => JSON.stringify([a.onset_s, a.duration_s, a.label]);
+  const was = new Map(before.map((a) => [a.id, key(a)]));
+  const now = new Map(after.map((a) => [a.id, key(a)]));
+  return new Set([...was.keys(), ...now.keys()].filter((id) => was.get(id) !== now.get(id)));
+}
+
+/**
+ * `current` with the annotations of `ids` as `target` has them, and the others as they are now (another window may
+ * have changed them): in `target`'s order, then those `target` lacks.
+ */
+function patched(current: UserAnnotation[], ids: Set<string>, target: UserAnnotation[]) {
+  const now = new Map(current.map((a) => [a.id, a]));
+  const known = new Set(target.map((a) => a.id));
+  return [
+    ...target.flatMap((a) => (ids.has(a.id) ? [a] : (now.get(a.id) ?? []))),
+    ...current.filter((a) => !known.has(a.id) && !ids.has(a.id)),
+  ];
+}
+
+/**
+ * Steps back (`undo`) or forward (`redo`) one change, closing an open editor; false when there is none. Only the
+ * annotations the change touched move.
+ */
+function step(from: Map<string, Step[]>, to: Map<string, Step[]>, fingerprint: string, back: boolean) {
+  const taken = from.get(fingerprint)?.pop();
+  if (!taken) return false;
+  const current = listOf(fingerprint);
+  const next = patched(current, touched(taken), back ? taken.before : taken.after);
+  push(to, fingerprint, back ? { before: next, after: current } : { before: current, after: next });
   // An editor still holding the values from before would put them back on Save.
   closeEditor();
-  show(fingerprint, list);
+  show(fingerprint, next);
   return true;
 }
-export const undo = (fingerprint: string) => step(undos, redos, fingerprint);
-export const redo = (fingerprint: string) => step(redos, undos, fingerprint);
+export const undo = (fingerprint: string) => step(undos, redos, fingerprint, true);
+export const redo = (fingerprint: string) => step(redos, undos, fingerprint, false);
 
 export const pick = (id: string | null) => useStore.setState({ pickedAnnotation: id });
 export const openEditor = (id: string, created = false) =>

@@ -139,7 +139,8 @@ export const updateTab = (fingerprint: string, change: Partial<Tab>) =>
 
 /**
  * Names for the tabs of `names`: a BIDS name drops the entities every BIDS name among them shares, as in
- * `run-01_ieeg.vhdr`. A name that would keep no entity stays whole.
+ * `run-01_ieeg.vhdr`; a BIDS name alone drops its subject and session, which the dataset's folders name. A name that
+ * would keep no entity stays whole.
  */
 export function shortNames(names: string[]): string[] {
   const parsed = names.map((name) => {
@@ -147,8 +148,12 @@ export function shortNames(names: string[]): string[] {
     return bids && { entities: bids[1].slice(0, -1).split("_"), rest: bids[2] };
   });
   const bids = parsed.filter((p) => p !== null);
-  if (bids.length < 2) return names;
-  const shared = new Set(bids[0].entities.filter((e) => bids.every((p) => p.entities.includes(e))));
+  if (bids.length === 0) return names;
+  const shared = new Set(
+    bids.length === 1
+      ? bids[0].entities.filter((e) => /^(sub|ses)-/i.test(e))
+      : bids[0].entities.filter((e) => bids.every((p) => p.entities.includes(e))),
+  );
   return names.map((name, i) => {
     const kept = parsed[i]?.entities.filter((e) => !shared.has(e)) ?? [];
     return kept.length > 0 ? [...kept, parsed[i]?.rest].join("_") : name;

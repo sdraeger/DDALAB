@@ -41,6 +41,30 @@ export async function fileAt(root: FileSystemDirectoryHandle, path: string): Pro
   return file;
 }
 
+/**
+ * The files beside `file` in the folder it lies in under `root`, each reporting its path from `root`'s parent as the
+ * folder walk does (the core finds a recording's companions among them), with their handles, `root`, and the path of
+ * `file` itself as `choice`. `undefined` when `file` is not under `root`.
+ */
+export async function beside(root: FileSystemDirectoryHandle, file: FileSystemFileHandle) {
+  const path = await root.resolve(file).catch(() => null);
+  if (!path) return undefined;
+  const folders = path.slice(0, -1);
+  let folder = root;
+  for (const sub of folders) folder = await folder.getDirectoryHandle(sub);
+  const prefix = `${[root.name, ...folders].join("/")}/`;
+  const handles: FileSystemFileHandle[] = [];
+  for await (const entry of folder.values()) {
+    if (entry.kind === "file" && !entry.name.startsWith(".")) handles.push(entry as FileSystemFileHandle);
+  }
+  const files = await Promise.all(
+    handles.map(async (handle) =>
+      Object.defineProperty(await handle.getFile(), "webkitRelativePath", { value: prefix + handle.name }),
+    ),
+  );
+  return { files, handles: { files: handles, root }, choice: prefix + (path.at(-1) as string) };
+}
+
 /** Whether `handle` may be read now, without asking. */
 export async function permitted(handle: FileSystemHandle): Promise<boolean> {
   const own = handle as FileSystemHandle & Partial<Permissions>;

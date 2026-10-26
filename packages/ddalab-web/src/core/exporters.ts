@@ -1,7 +1,7 @@
 // Exports of a stored result: the bundle as a zip, the JSON result document, one variant's Q values as CSV. The
 // document carries the summaries dda-rs `build_document` computes and equals what `ddalab run --output` writes for
 // the same request. The document and the CSV are built in the IO worker a slice at a time, each slice's text going
-// into a Blob part at once: the JS heap holds a slice of values and its text, never a whole variant.
+// into a Blob part at once: the JS heap holds one slice of values and its text at a time.
 import { makeZip } from "client-zip";
 import { count, type Npy, readNpyHeader } from "./npy";
 import { resultManifest, resultsDirectory } from "./resultStore";
@@ -195,7 +195,7 @@ export async function documentJson(resultId: string): Promise<Blob> {
 const csvField = (text: string) => (/[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text);
 
 /**
- * The Q values of `variant`, a window per line: its centre in seconds, then one column per row label. Refused above
+ * The Q values of `variant`, a window per line: its center in seconds, then one column per row label. Refused above
  * 512 MiB of estimated text.
  */
 export async function variantCsv(resultId: string, variant: string): Promise<Blob> {

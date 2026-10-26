@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readSynthetic, syntheticEdfSize } from "../src/core/synthetic";
-import { expect, type Page, test } from "./test";
+import { expect, hasStorage, hasWebGL2, NO_STORAGE, NO_WEBGL2, type Page, scanned, test } from "./test";
 
 const fixturePath = (name: string) =>
   fileURLToPath(new URL(`../../dda-rs/tests/fixtures/${name}`, import.meta.url));
@@ -63,6 +63,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("tabs_switch_and_keep_their_view", async ({ page }) => {
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   // Requests to the engine's workers for tiles and samples, counted.
   await page.addInitScript(() => {
     const post = Worker.prototype.postMessage as (this: Worker, ...args: unknown[]) => void;
@@ -86,7 +87,7 @@ test("tabs_switch_and_keep_their_view", async ({ page }) => {
   await expect.poll(() => view(page)).toMatchObject({ t0: 10, t1: 20 });
   await page.getByRole("checkbox", { name: "Select Fp1" }).check();
   await page.getByLabel("Search channels").fill("Fp");
-  await expect(page.getByText("Overview 100%")).toBeVisible();
+  await expect(scanned(page)).toBeVisible();
   await page.evaluate(() => window.__ddalab.viewer.settled());
 
   // Alt+3: the third tab, at its own view.
@@ -215,6 +216,8 @@ async function openFromTree(page: Page, folder: string, names: string[]) {
     // A row's accessible name is its label, then its file name.
     await tree.getByRole("treeitem", { name: new RegExp(`, ${name.replaceAll(".", "\\.")}$`) }).click();
     await expect(heading(page, name)).toBeVisible();
+    // Its entry in the recent list, above the tree, moves the tree down: the next click waits for it.
+    await expect(page.getByRole("button", { name: `Forget ${name}`, exact: true })).toBeVisible();
   }
 }
 
@@ -302,6 +305,69 @@ test("url_tabs_reattach_without_a_prompt", async ({ page }) => {
     await expect.poll(async () => (await posted(page)).closed.length, { timeout: 10_000 }).toBe(1);
     await expect(tabs(page)).toHaveText(["fixture.bdf, detached"]);
     expect(await page.evaluate(() => Object.keys(window.__ddalab.store.getState().recordings))).toEqual([]);
+  } finally {
+    server.close();
+  }
+});
+
+// A URL tab that reattaches on a later visit reads what viewing needs: its overview and its annotation list are
+// stored, and it is hashed only when a run needs its digests. The file is five 4 MiB blocks long.
+test("a_url_tab_reattaching_reads_only_ranges", async ({ page }) => {
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
+  const spec = { channels: 16, rateHz: 512, durationS: 1200, seed: 7 };
+  const bytes = new Uint8Array(syntheticEdfSize(spec));
+  readSynthetic(spec, 0, bytes);
+  const served = { requests: 0, whole: 0, bytes: 0 };
+  const server = createServer((req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Headers", "Range");
+    if (req.method === "OPTIONS") return void res.writeHead(204).end();
+    served.requests++;
+    const range = /^bytes=(\d+)-(\d+)$/.exec(req.headers.range ?? "");
+    if (!range) {
+      served.whole++;
+      served.bytes += bytes.length;
+      return void res.writeHead(200).end(bytes);
+    }
+    const [a, b] = [Number(range[1]), Math.min(Number(range[2]), bytes.length - 1)];
+    served.bytes += b + 1 - a;
+    res.writeHead(206, { "Content-Range": `bytes ${a}-${b}/${bytes.length}` }).end(bytes.subarray(a, b + 1));
+  });
+  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  try {
+    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/long.edf`;
+    await page.goto("/");
+    test.skip(!(await hasStorage(page)), NO_STORAGE);
+    const remote = { name: "long.edf", url, size: bytes.length };
+    await page.evaluate((r) => window.__ddalab.open({ kind: "url", files: [r], primary: r.name }), remote);
+    // The first visit scans the file and reads its annotation list.
+    const stored = () =>
+      page.evaluate(async () => {
+        const s = window.__ddalab.store.getState();
+        const recording = s.recordings[s.activeRecordingId as string];
+        const scanned = recording?.scan.scannedRows === recording?.scan.totalRows;
+        const kept = await new Promise<unknown>((resolve) => {
+          const opening = indexedDB.open("ddalab");
+          opening.onsuccess = () => {
+            const get = opening.result.transaction("fileAnnotations").objectStore("fileAnnotations").count();
+            get.onsuccess = () => resolve(get.result);
+            get.onerror = () => resolve(0);
+          };
+          opening.onerror = () => resolve(0);
+        });
+        return Boolean(recording && scanned && kept);
+      });
+    await expect.poll(stored, { timeout: 30_000 }).toBe(true);
+    await flush(page);
+    Object.assign(served, { requests: 0, whole: 0, bytes: 0 });
+    await page.reload();
+    await expect(heading(page, "long.edf")).toBeVisible();
+    await page.evaluate(() => window.__ddalab.viewer.settled());
+    // Long enough for a hash or an annotation pass, which read the file whole, to have read most of it.
+    await page.waitForTimeout(2000);
+    expect(served.requests).toBeGreaterThan(0);
+    expect(served.whole).toBe(0);
+    expect(served.bytes).toBeLessThan(bytes.length / 2);
   } finally {
     server.close();
   }
@@ -477,7 +543,7 @@ test("a_copy_with_no_digest_attaches_with_a_warning", async ({ page }) => {
   await expect(heading(page, "fixture.edf")).toBeVisible();
   // A tab whose files were never hashed (closed too soon, say) keeps no digest: here it is dropped once the scan
   // and the hash are over.
-  await expect(page.getByText("Overview 100%")).toBeVisible();
+  await expect(scanned(page)).toBeVisible();
   const hashed = () =>
     page.evaluate(
       () =>
@@ -502,6 +568,7 @@ test("a_copy_with_no_digest_attaches_with_a_warning", async ({ page }) => {
 
 test("a_run_that_ends_in_another_tab_shows_there", async ({ page }) => {
   await page.goto("/");
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
   await page.getByLabel("Recording files").setInputFiles(fixturePath("fixture.edf"));
   await expect(heading(page, "fixture.edf")).toBeVisible();
   await page.evaluate(() =>
@@ -533,6 +600,7 @@ test("a_run_that_ends_in_another_tab_shows_there", async ({ page }) => {
 
 test("a_result_opened_on_a_detached_tab_shows_alone", async ({ page }) => {
   await page.goto("/");
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
   await page.getByLabel("Recording files").setInputFiles(BRAINVISION.map(fixturePath));
   await page.getByRole("checkbox", { name: "Select Fp1" }).check();
   const runBar = page.getByRole("region", { name: "Run" });

@@ -1,7 +1,10 @@
 // The command bar holds still while the view zooms: wheel zooming across the whole range moves no element of the bar,
 // at 1024, 1280 and 1600 px, with the inspector open and with it closed (the run status then shows in the bar). At
 // every width from 768 px every control stays inside the window, and the scale settings behind their button work.
-import { expect, type Page, test } from "./test";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { ddaPoolSize } from "../src/core/engine";
+import { expect, hasStorage, NO_STORAGE, type Page, test } from "./test";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
@@ -91,13 +94,13 @@ test("bar_holds_still_while_zooming", async ({ page }) => {
 });
 
 // Where the bar is short the scale settings move behind one button, then the wordmark and the Local and Annotate
-// labels give way to their marks; nothing falls past the window's edge. The widths include both sides of 1400 px,
+// labels give way to their marks; nothing falls past the window's edge. The widths include both sides of 1440 px,
 // where the settings move with the inspector open. The run status keeps clamp(120px, 18vw, 280px) while the bar has
 // room to spare, and gives way, alone, where it has none.
 test("bar_fits_the_window", async ({ page }) => {
   test.setTimeout(60_000);
   await openDay(page);
-  for await (const layout of layouts(page, [768, 1024, 1280, 1390, 1399, 1400, 1600])) {
+  for await (const layout of layouts(page, [768, 1024, 1280, 1430, 1439, 1440, 1600])) {
     const slot = await page.evaluate(() => {
       const bar = document.querySelector("header") as HTMLElement;
       const status = bar.querySelector("[aria-live]");
@@ -145,7 +148,7 @@ test("bar_fits_the_window", async ({ page }) => {
   }
 });
 
-// Below 1400 px the scale settings sit in a popover: picking an option there keeps it open (the Select belongs to
+// Below 1440 px the scale settings sit in a popover: picking an option there keeps it open (the Select belongs to
 // the popover), Escape closes it, and a resize that moves the settings back into the bar closes it too.
 test("scale_settings_behind_their_button", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
@@ -168,7 +171,11 @@ test("scale_settings_behind_their_button", async ({ page }) => {
   await expect(scales).toBeFocused();
   await scales.click();
   await expect(popover).toBeVisible();
-  await page.setViewportSize({ width: 1600, height: 800 });
+  // A pixel short of 1440 px the settings stay behind their button, open; at 1440 px they move into the bar.
+  await page.setViewportSize({ width: 1439, height: 800 });
+  await expect(scales).toBeVisible();
+  await expect(popover).toBeVisible();
+  await page.setViewportSize({ width: 1440, height: 800 });
   await expect(popover).toBeHidden();
   await expect(page.getByRole("combobox", { name: "Epoch" })).toBeVisible();
   await page.setViewportSize({ width: 1280, height: 800 });
@@ -187,7 +194,7 @@ test("local_note_opens_and_closes", async ({ page }) => {
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
   const device = [
     plural(cores, "logical core"),
-    plural(Math.max(1, cores - 1), "analysis worker"),
+    `up to ${plural(ddaPoolSize(cores, 1), "analysis worker")}`,
     ...(memory ? [`at least ${memory} GB memory`] : []),
   ].join(", ");
   await expect(trigger).toHaveText("Local");
@@ -199,7 +206,7 @@ test("local_note_opens_and_closes", async ({ page }) => {
   for (const open of [byPointer, byKeyboard]) {
     await open();
     await expect(note).toBeVisible();
-    await expect(note.getByRole("paragraph")).toHaveText([
+    await expect(note.locator(":scope > p")).toHaveText([
       "Recordings are read directly in your browser. Nothing is uploaded, and the site keeps no copy of your data or results.",
       "Every analysis runs on this device. Its memory and processor set how large a recording and how long an analysis can be.",
       `This device: ${device}.`,
@@ -214,4 +221,50 @@ test("local_note_opens_and_closes", async ({ page }) => {
   await expect(trigger.getByText("Local", { exact: true })).toBeHidden();
   await trigger.hover();
   await expect(page.getByText("Data stays on this device", { exact: true })).toBeVisible();
+});
+
+// The note's Storage section says what the site keeps and clears the cached tiles, except those of open recordings.
+test("storage_clears_cached_tiles_but_an_open_recordings", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  const tileFolders = () =>
+    page.evaluate(async () => {
+      const tiles = await (await navigator.storage.getDirectory()).getDirectoryHandle("tiles", {
+        create: true,
+      });
+      const names: string[] = [];
+      for await (const [name] of tiles.entries()) names.push(name);
+      return names.length;
+    });
+  const edf = fileURLToPath(new URL("../../dda-rs/tests/fixtures/fixture.edf", import.meta.url));
+  await page.getByLabel("Recording files").setInputFiles(edf);
+  await expect.poll(tileFolders).toBe(1);
+  const storage = page.getByRole("region", { name: "Storage" });
+  const clear = storage.getByRole("button", { name: "Clear cached tiles" });
+  await page.getByRole("button", { name: "Local: data stays on this device" }).click();
+  await expect(storage).toContainText(
+    /This site uses .+ of the .+ the browser allows it\. Cached tiles take \d+ kB\./,
+  );
+  await clear.click();
+  await expect(storage).toContainText("Results stay, and so do the tiles of open recordings.");
+  expect(await tileFolders()).toBe(1);
+  await page.keyboard.press("Escape");
+  await page.getByTitle("Close fixture.edf").click();
+  await page.getByRole("button", { name: "Local: data stays on this device" }).click();
+  await clear.click();
+  await expect(storage).toContainText("Cached tiles take 0 kB.");
+  expect(await tileFolders()).toBe(0);
+  await expect(clear).toBeDisabled();
+});
+
+// At 1440 px the bar's recording name elides in its middle: a BIDS name keeps its last entity in view.
+test("the_bar_name_keeps_its_last_entity_in_view", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const name = "sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-01_ieeg.edf";
+  const edf = fileURLToPath(new URL("../../dda-rs/tests/fixtures/fixture.edf", import.meta.url));
+  await page.getByLabel("Recording files").setInputFiles({ name, mimeType: "", buffer: readFileSync(edf) });
+  const bar = page.locator("header").getByTitle(name);
+  const tail = bar.getByText("run-01", { exact: true });
+  await expect(tail).toBeVisible();
+  const [box, end] = [await bar.boundingBox(), await tail.boundingBox()];
+  expect((end?.x ?? 0) + (end?.width ?? 0)).toBeLessThanOrEqual((box?.x ?? 0) + (box?.width ?? 0) + 0.5);
 });

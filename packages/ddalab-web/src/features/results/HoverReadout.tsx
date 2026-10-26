@@ -1,5 +1,5 @@
 // What the pointer is over in the heatmap: the row, the center of the window and its value. Updated from the frame
-// loop, not by React.
+// loop, outside React.
 import { type Ref, useImperativeHandle, useRef } from "react";
 import styles from "./Results.module.css";
 

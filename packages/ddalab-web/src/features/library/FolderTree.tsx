@@ -1,8 +1,14 @@
 // The Folder section of the library rail: the walk of an opened folder with its running count, then the folder's
 // recordings as a tree. A click or Enter on a recording opens it with its companion files. "Run on all" runs the DDA
 // settings on every recording shown (Batch.tsx); a folder opened to resume a batch resumes it once it is read.
-import { hotkeysCoreFeature, type ItemInstance, syncDataLoaderFeature } from "@headless-tree/core";
-import { useTree } from "@headless-tree/react";
+import {
+  createTree,
+  hotkeysCoreFeature,
+  type ItemInstance,
+  syncDataLoaderFeature,
+  type TreeConfig,
+  type TreeState,
+} from "@headless-tree/core";
 import Check from "lucide-react/dist/esm/icons/check.mjs";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right.mjs";
 import FolderOpen from "lucide-react/dist/esm/icons/folder-open.mjs";
@@ -251,6 +257,29 @@ function Recordings(props: {
   );
 }
 
+/**
+ * useTree of @headless-tree/react with one build of the rows, before the paint. That hook builds them in an effect,
+ * which can run after a paint: a new filter result (a new Tree) would show no rows for that frame. And a build of
+ * its own there, after this one, would hold the page once more for a pass over every row.
+ */
+function useTreeBuiltOnce<T>(config: TreeConfig<T>) {
+  const [tree] = useState(() => createTree(config));
+  const [state, setState] = useState(() => tree.getState());
+  useLayoutEffect(() => {
+    tree.setMounted(true);
+    tree.rebuildTree();
+    return () => tree.setMounted(false);
+  }, [tree]);
+  // The core hands setState whole states.
+  tree.setConfig((prev) => ({
+    ...prev,
+    ...config,
+    state: { ...state, ...config.state },
+    setState: (next) => setState(next as TreeState<T>),
+  }));
+  return tree;
+}
+
 /** What a folder row's name leaves of its width: padding, chevron, count and gaps, in px; and its indent per level. */
 const FOLDER_CHROME = 64;
 const INDENT = 12;
@@ -270,7 +299,7 @@ function Tree(props: {
   // The marks of this folder's batch.
   const marks = useStore((s) => (s.batch?.root === props.root ? s.batch.marks : undefined));
   const describe = useId();
-  const tree = useTree<FolderNode>({
+  const tree = useTreeBuiltOnce<FolderNode>({
     rootItemId: ROOT,
     initialState: { expandedItems: props.expanded },
     // The accessible name starts with the shown label (WCAG 2.5.3); a recording's file name follows.
@@ -298,12 +327,6 @@ function Tree(props: {
     },
     features: [syncDataLoaderFeature, hotkeysCoreFeature],
   });
-  // useTree builds the rows in an effect, which can run after a paint: a new filter result (a new Tree) would show
-  // no rows for that frame. Built before the paint, the old rows give way to the new ones in one frame.
-  useLayoutEffect(() => {
-    tree.setMounted(true);
-    tree.rebuildTree();
-  }, [tree]);
   const items = tree.getItems();
 
   // Typeahead: printable keys typed within 600 ms of each other move focus to the next row whose label starts with
@@ -349,15 +372,24 @@ function Tree(props: {
       node.label.includes(" / ") &&
       (!context || context.measureText(node.label).width > view.width - FOLDER_CHROME - level * INDENT);
   }, [view.width, view.font]);
-  const tops: number[] = [];
-  const wrapped: boolean[] = [];
-  let total = 0;
-  for (const item of items) {
-    const node = item.getItemData();
-    tops.push(total);
-    wrapped.push(wraps(node, item.getItemMeta().level));
-    total += node.recording || wrapped.at(-1) ? ROW.twoLines : ROW.folder;
-  }
+  // The rows' places, once per build and width: an item method allocates on every call, so a render calls them only
+  // for the rows it draws.
+  const places = useMemo(() => {
+    const tops: number[] = [];
+    const wrapped: boolean[] = [];
+    const index = new Map<string, number>();
+    let total = 0;
+    for (const item of items) {
+      const meta = item.getItemMeta();
+      const node = nodes[meta.itemId];
+      index.set(meta.itemId, meta.index);
+      tops.push(total);
+      wrapped.push(wraps(node, meta.level));
+      total += node.recording || wrapped.at(-1) ? ROW.twoLines : ROW.folder;
+    }
+    return { tops, wrapped, total, index };
+  }, [items, nodes, wraps]);
+  const { tops, wrapped, total } = places;
   let first = 0;
   let last = items.length;
   if (items.length > VIRTUAL_FROM) {
@@ -367,7 +399,10 @@ function Tree(props: {
     last = end < 0 ? items.length : Math.min(items.length, end + OVERSCAN);
   }
   // The focused row stays rendered, which keeps the tree reachable by Tab and lets focus land on it.
-  const focusedIndex = items.findIndex((item) => item.isFocused());
+  // As item.isFocused: the focused id, else the first row.
+  const { focusedItem } = tree.getState();
+  let focusedIndex = items.length > 0 ? 0 : -1;
+  if (focusedItem !== null) focusedIndex = places.index.get(focusedItem) ?? -1;
   const rendered = items.slice(first, last);
   if (focusedIndex >= 0 && (focusedIndex < first || focusedIndex >= last)) rendered.push(items[focusedIndex]);
 

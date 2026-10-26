@@ -5,11 +5,12 @@
   display: grid;
   height: 100%;
   overflow: clip;
-  grid-template-rows: 44px minmax(0, 1fr);
+  grid-template-rows: 44px minmax(0, 1fr) auto;
   grid-template-columns: var(--library-width) minmax(0, 1fr) var(--inspector-width);
   grid-template-areas:
     "bar bar bar"
-    "library center inspector";
+    "library center inspector"
+    "notice notice notice";
 }
 
 .shell[data-library="closed"] {
@@ -46,15 +47,26 @@
   letter-spacing: 0.02em;
 }
 
+/* The recording's name: its head elides, its tail stays whole. */
 .name {
+  display: flex;
   min-width: 0;
   max-width: 32ch;
   overflow: hidden;
   padding-left: var(--space-3);
   border-left: var(--hairline-width) solid var(--hairline);
   color: var(--ink);
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.nameHead {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nameTail {
+  flex: none;
 }
 
 .grow {
@@ -81,9 +93,12 @@
 }
 
 /* The scale settings sit in the bar while it has room for them, else behind one button (ScaleChoices in Shell.tsx):
-   below 1400 px, or 1600 px with the inspector closed and the run status beside Run. Below 1024 px the wordmark and
+   below 1440 px, or 1600 px with the inspector closed and the run status beside Run. Below 1024 px the wordmark and
    the Local and Annotate labels give way to their marks. Only the recording name and the run status shrink; every
-   width depends on the window alone, and zooming moves nothing. */
+   width depends on the window alone, and zooming moves nothing. With the inspector open and up to 9,999 pages the bar
+   needs 1385 px in Noto Sans and up to 1430 px (Firefox) in DejaVu Sans, the system-ui of the headless Ubuntu CI
+   runner. Each further page digit widens it by 16 px or more: at 1440 px in DejaVu Sans, 10,000 pages (about 27.8 h
+   at 10 s a page) overflow it by 6 px in Firefox, and 100,000 pages by 23 to 31 px in every browser. */
 .bar > button {
   flex-shrink: 0;
 }
@@ -104,7 +119,7 @@
   width: auto;
 }
 
-@media (width < 1400px) {
+@media (width < 1440px) {
   .scales {
     display: none;
   }

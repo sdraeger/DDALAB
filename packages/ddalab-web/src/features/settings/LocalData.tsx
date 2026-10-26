@@ -1,20 +1,91 @@
 // The command bar's note that data stays on this device: recordings are read and analyzed in the browser, and what
-// this device brings to an analysis bounds how much it can take.
+// this device brings to an analysis bounds how much it can take. Its Storage section says what the site keeps in the
+// browser and clears the cached tiles.
 import { Popover } from "@base-ui/react/popover";
 import { Tooltip } from "@base-ui/react/tooltip";
 import HardDrive from "lucide-react/dist/esm/icons/hard-drive.mjs";
+import { useEffect, useId, useState } from "react";
 import { ddaWorkers } from "../../core/engine";
+import { evictTiles } from "../../core/opfs";
 import controls from "../../styles/controls.module.css";
 import styles from "./LocalData.module.css";
 
 const count = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
-/** Cores, DDA workers and, where the browser tells it (Chromium, as a rounded-down bound), memory. */
+const size = (bytes: number) =>
+  bytes >= 1e9
+    ? `${(bytes / 1e9).toLocaleString("en", { maximumFractionDigits: 1 })} GB`
+    : bytes >= 1e6
+      ? `${Math.round(bytes / 1e6).toLocaleString("en")} MB`
+      : `${Math.ceil(bytes / 1e3).toLocaleString("en")} kB`;
+
+type Usage = { used: number; quota: number; tiles: number };
+
+/** What the browser holds for this site, and how much of it is cached tiles (an eviction with no limit deletes none). */
+async function measure(): Promise<Usage> {
+  const [estimate, tiles] = await Promise.all([
+    navigator.storage.estimate(),
+    evictTiles(Number.POSITIVE_INFINITY),
+  ]);
+  return { used: estimate.usage ?? 0, quota: estimate.quota ?? 0, tiles };
+}
+
+/** The site's storage, with "Clear cached tiles": results, the history and the tiles of open recordings stay. */
+function Storage() {
+  const heading = useId();
+  const [usage, setUsage] = useState<Usage | "none" | null>(null);
+  const [cleared, setCleared] = useState(false);
+  useEffect(() => {
+    let live = true;
+    measure().then(
+      (found) => live && setUsage(found),
+      () => live && setUsage("none"),
+    );
+    return () => {
+      live = false;
+    };
+  }, []);
+  const clear = async () => {
+    setUsage(null);
+    await evictTiles(0).catch(() => {});
+    setCleared(true);
+    setUsage(await measure().catch(() => "none" as const));
+  };
+  return (
+    <section className={styles.storage} aria-labelledby={heading}>
+      <h3 id={heading} className={styles.heading}>
+        Storage
+      </h3>
+      <p className={styles.text}>
+        {usage === null
+          ? "Measuring…"
+          : usage === "none"
+            ? "Browser storage is not available in this window."
+            : `This site uses ${size(usage.used)} of the ${size(usage.quota)} the browser allows it. Cached tiles take ${size(usage.tiles)}.`}
+      </p>
+      <div className={styles.actions}>
+        <button
+          type="button"
+          className={controls.button}
+          disabled={usage === null || usage === "none" || usage.tiles === 0}
+          onClick={() => void clear()}
+        >
+          Clear cached tiles
+        </button>
+        <span className={styles.text} aria-live="polite">
+          {cleared && "Results stay, and so do the tiles of open recordings."}
+        </span>
+      </div>
+    </section>
+  );
+}
+
+/** Cores, the most DDA workers a run takes and, where the browser tells it (Chromium, as a rounded-down bound), memory. */
 function device() {
   const memory = (navigator as { deviceMemory?: number }).deviceMemory;
   const parts = [
     count(navigator.hardwareConcurrency, "logical core"),
-    count(ddaWorkers(), "analysis worker"),
+    `up to ${count(ddaWorkers(), "analysis worker")}`,
     memory && `at least ${memory} GB memory`,
   ];
   return `This device: ${parts.filter(Boolean).join(", ")}.`;
@@ -53,6 +124,7 @@ export function LocalData() {
             </p>
             <p>{device()}</p>
             <p className={styles.text}>OpenNeuro recordings stream from OpenNeuro to this device.</p>
+            <Storage />
           </Popover.Popup>
         </Popover.Positioner>
       </Popover.Portal>

@@ -119,6 +119,11 @@ function Form(props: {
   const [duration, setDuration] = useState(seconds(a.duration_s));
   const [error, setError] = useState<string | null>(null);
   const id = useId();
+  // The recording's labels that hold what was typed, once the label is edited and is not one of them already. With
+  // none, the arrow keys have nothing to land on and Enter saves.
+  const { contains } = Autocomplete.useFilter({ sensitivity: "base" });
+  const edited = label !== a.label && label.trim() !== "" && !props.labels.includes(label);
+  const matches = edited ? props.labels.filter((item) => contains(item, label)) : [];
 
   /** Saves the label and the times and closes; times that are not numbers keep the editor open, saying why. */
   const save = (refocus: boolean) => {
@@ -154,29 +159,43 @@ function Form(props: {
         {created ? "New annotation" : "Annotation"}
         <span className={styles.when}>{when(a)}</span>
       </Popover.Title>
-      <Autocomplete.Root items={props.labels} value={label} onValueChange={setLabel}>
+      {/* Inline: the suggestions open under the field inside the editor, which grows to keep Save in view. Without
+          a popup the list does not fill the field: a suggestion's click does, and Enter on one clicks it. */}
+      <Autocomplete.Root
+        items={props.labels}
+        filteredItems={matches}
+        value={label}
+        onValueChange={setLabel}
+        inline
+        open
+      >
         <div className={styles.field}>
           <label htmlFor={id}>Label</label>
           <Autocomplete.Input
             id={id}
             className={styles.input}
             placeholder="For example, spike"
+            aria-expanded={matches.length > 0}
             onFocus={(event) => event.currentTarget.select()}
           />
         </div>
-        <Autocomplete.Portal>
-          <Autocomplete.Positioner sideOffset={4} className={styles.suggestions}>
-            <Autocomplete.Popup className={styles.suggestionsPopup}>
-              <Autocomplete.List className={styles.suggestionList}>
-                {(item: string) => (
-                  <Autocomplete.Item key={item} value={item} className={styles.suggestion}>
-                    {item}
-                  </Autocomplete.Item>
-                )}
-              </Autocomplete.List>
-            </Autocomplete.Popup>
-          </Autocomplete.Positioner>
-        </Autocomplete.Portal>
+        <Autocomplete.Status className={styles.spoken}>
+          {matches.length > 0 && `${matches.length} suggestion${matches.length === 1 ? "" : "s"}`}
+        </Autocomplete.Status>
+        {matches.length > 0 && (
+          <Autocomplete.List className={styles.suggestionList} aria-label="Label suggestions">
+            {(item: string) => (
+              <Autocomplete.Item
+                key={item}
+                value={item}
+                className={styles.suggestion}
+                onClick={() => setLabel(item)}
+              >
+                {item}
+              </Autocomplete.Item>
+            )}
+          </Autocomplete.List>
+        )}
       </Autocomplete.Root>
       {!created && (
         <div className={styles.times}>

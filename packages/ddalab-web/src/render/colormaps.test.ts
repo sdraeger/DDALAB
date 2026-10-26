@@ -16,12 +16,17 @@ function published(map: MapName): number[] {
   ]);
 }
 
-test("tables_are_the_published_batlow_and_vik", () => {
-  for (const map of ["batlow", "vik"] as const) expect([...LUTS[map]]).toEqual(published(map));
+test("tables_are_the_published_batlow_vik_and_berlin", () => {
+  for (const map of ["batlow", "vik", "berlin"] as const) expect([...LUTS[map]]).toEqual(published(map));
 });
 
 test("map_follows_the_array_kind", () => {
   for (const variant of ["ST", "CT", "CD", "SY"]) expect(mapOf(variant, "q")).toBe("vik");
+  // In the dark theme signed arrays take berlin, dark in the middle; sequential ones keep batlow.
+  for (const variant of ["ST", "CT", "CD", "SY"]) expect(mapOf(variant, "q", true)).toBe("berlin");
+  expect(mapOf("DE", "q", true)).toBe("batlow");
+  expect(mapOf("ST", "fit_error", true)).toBe("batlow");
+  expect(scaleOf("berlin", 0.1, 0.3)).toEqual({ lo: -0.3, hi: 0.3 });
   expect(mapOf("DE", "q")).toBe("batlow");
   for (const variant of ["ST", "CT"]) expect(mapOf(variant, "fit_error")).toBe("batlow");
   // Vik is centered at zero whatever the values; batlow spans them.

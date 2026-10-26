@@ -8,7 +8,7 @@
 // whose levels the first view writes beside the array (`<array>.L<level>.f32`, `<array>.pyramid.json`); an export
 // of the bundle leaves them out.
 import { buildPyramid, FANOUT, type ResultTile, resultLevels, TILE_CELLS } from "../render/resultPyramid";
-import { put } from "./opfs";
+import { put, STORAGE_UNAVAILABLE } from "./opfs";
 import type { ResultArray } from "./protocol";
 import type { BlockChunks, BundleLayout, ResultDocument } from "./types";
 
@@ -18,8 +18,19 @@ const writing = new Map<
   { files: FileSystemSyncAccessHandle[]; bytes: number; release: () => void }
 >();
 
-export const resultsDirectory = async () =>
-  (await navigator.storage.getDirectory()).getDirectoryHandle("results", { create: true });
+/**
+ * The folder of every result, for writing and reading. A window without OPFS rejects with an UnknownError that calls
+ * itself transient (private browsing can cause it), or has no `navigator.storage` at all (an insecure origin).
+ */
+export async function resultsDirectory() {
+  let root: FileSystemDirectoryHandle;
+  try {
+    root = await navigator.storage.getDirectory();
+  } catch (cause) {
+    throw new Error(STORAGE_UNAVAILABLE, { cause });
+  }
+  return root.getDirectoryHandle("results", { create: true });
+}
 
 const arrayBytes = ({ header, shape }: BundleLayout["arrays"][number]) =>
   header.length + 8 * shape.reduce((n, d) => n * d, 1);

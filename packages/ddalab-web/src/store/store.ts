@@ -26,7 +26,7 @@ export type Epoch = 10 | 20 | 30;
 export const EPOCHS: Epoch[] = [10, 20, 30];
 /** The sensitivity steps of the `[` and `]` keys, in µV/mm. */
 export const SENSITIVITIES = [1, 2, 3, 5, 7, 10, 15, 20, 30, 50, 70, 100];
-/** CSS pixels in a CSS millimetre. */
+/** CSS pixels in a CSS millimeter. */
 export const CSS_PX_PER_MM = 96 / 25.4;
 /** The shortest span the view zooms to, in samples. */
 export const MIN_SPAN_SAMPLES = 8;
@@ -39,7 +39,7 @@ export interface View {
   rowCount: number;
   epochS: Epoch;
   sensitivityUvPerMm: number;
-  /** Physical millimetres in one CSS millimetre on this display (the calibration setting). */
+  /** Physical millimeters in one CSS millimeter on this display (the calibration setting). */
   mmPerCssMm: number;
 }
 
@@ -131,6 +131,8 @@ export interface State {
   annotationEditor: { id: string; created: boolean } | null;
   /** A user annotation where a drag on the plot has it now, until the drag ends. */
   annotationDraft: UserAnnotation | null;
+  /** A new version of the app waits to take over, or took over in another window (app/update.ts). */
+  updateReady: boolean;
 }
 
 const CALIBRATION_KEY = "ddalab.mmPerCssMm";
@@ -178,6 +180,7 @@ export const useStore = create<State>()(() => ({
   pickedAnnotation: null,
   annotationEditor: null,
   annotationDraft: null,
+  updateReady: false,
 }));
 
 export const activeRecording = (s: State) =>
@@ -185,7 +188,8 @@ export const activeRecording = (s: State) =>
 
 /**
  * `view` moved inside the recording: whole span in range, at least 8 samples, rows within the channels. Without a
- * recording it stays inside `interval`, the analysis interval of a result shown alone, when there is one.
+ * recording it stays inside `interval`, the analysis interval of a result shown alone, when there is one, and spans at
+ * least a millionth of it (the most windows a result has): a zoom never reaches a span of zero.
  */
 function clamp(
   view: View,
@@ -194,7 +198,8 @@ function clamp(
 ): View {
   if (!recording) {
     if (!interval) return view;
-    const span = Math.min(interval.t1 - interval.t0, view.t1 - view.t0);
+    const length = interval.t1 - interval.t0;
+    const span = Math.min(length, Math.max(length / 1e6, view.t1 - view.t0));
     const t0 = Math.min(interval.t1 - span, Math.max(interval.t0, view.t0));
     return { ...view, t0, t1: t0 + span };
   }
@@ -390,7 +395,7 @@ export function stepSensitivity(steps: number) {
 /** The epoch becomes the span from the current start. */
 export const setEpoch = (epochS: Epoch) => setView((v) => ({ epochS, t1: v.t0 + epochS }));
 
-/** Physical millimetres per second across the plot. */
+/** Physical millimeters per second across the plot. */
 export const timebaseOf = (view: View, plotCssWidth: number) =>
   ((plotCssWidth / CSS_PX_PER_MM) * view.mmPerCssMm) / (view.t1 - view.t0);
 

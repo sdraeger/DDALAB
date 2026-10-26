@@ -6,10 +6,10 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { instantiateCore } from "../src/core/abi";
-import { pyramidBytes, tileSlot } from "../src/core/opfs";
+import { pyramidBytes, STORAGE_UNAVAILABLE, tileSlot } from "../src/core/opfs";
 import type { ScanState } from "../src/core/protocol";
 import { readSynthetic, type SyntheticSpec, syntheticEdfSize } from "../src/core/synthetic";
-import { expect, type Page, test } from "./test";
+import { expect, hasStorage, NO_STORAGE, type Page, test } from "./test";
 
 const SPEC = { channels: 64, rateHz: 128, durationS: 2 * 3600, seed: 11 };
 const ROWS = SPEC.rateHz * SPEC.durationS;
@@ -51,16 +51,6 @@ const fingerprintOf = (page: Page, id: string) =>
   page.evaluate((id) => window.__ddalab.store.getState().recordings[id].fingerprint, id);
 const scanOf = (page: Page, id: string) =>
   page.evaluate((id) => window.__ddalab.store.getState().recordings[id].scan, id);
-
-// Playwright's WebKit has no OPFS (getDirectory throws UnknownError); Safari itself has.
-const hasStorage = (page: Page) =>
-  page.evaluate(() =>
-    navigator.storage.getDirectory().then(
-      () => true,
-      () => false,
-    ),
-  );
-const NO_STORAGE = "this browser window has no OPFS";
 
 /** Records the scanned rows of every store update from now on. */
 const watchProgress = (page: Page) =>
@@ -195,7 +185,7 @@ test("quota_error_message", async ({ page }) => {
 test("storage_unavailable_message", async ({ page }) => {
   test.skip(await hasStorage(page), "this browser window has OPFS");
   const id = await open(page);
-  await expect(page.getByText("Browser storage is not available in this window")).toBeVisible();
+  await expect(page.getByText(STORAGE_UNAVAILABLE, { exact: true })).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
   expect((await scanOf(page, id)).scannedRows).toBe(0);
   expect(await tileDigest(page, id, 0, 12)).toBe(await expectedTile(0, 12));

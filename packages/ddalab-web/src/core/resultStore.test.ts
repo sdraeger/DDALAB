@@ -3,7 +3,8 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { memoryOpfs, putFile, type Tree } from "./memoryOpfs";
 import { npyHeader } from "./npy";
-import { deleteResult, resultArray, sweepInterrupted } from "./resultStore";
+import { STORAGE_UNAVAILABLE } from "./opfs";
+import { deleteResult, resultArray, resultsDirectory, sweepInterrupted } from "./resultStore";
 
 /** A result directory whose `status` file holds `status`. */
 const result = (status: string) => ({
@@ -33,6 +34,16 @@ test("a_result_that_cannot_be_removed_leaves_the_others_swept", async () => {
   });
   expect(await sweepInterrupted()).toEqual(["a", "d"]);
   expect(removed).toEqual(["a", "d"]);
+});
+
+test("a_window_without_opfs_says_so", async () => {
+  const unknown = new DOMException("The operation failed for an unknown transient reason", "UnknownError");
+  vi.stubGlobal("navigator", { storage: { getDirectory: () => Promise.reject(unknown) } });
+  const rejected = await resultsDirectory().catch((error: Error) => error);
+  expect(rejected).toMatchObject({ message: STORAGE_UNAVAILABLE, cause: unknown });
+  // An insecure origin has no navigator.storage at all.
+  vi.stubGlobal("navigator", {});
+  await expect(resultsDirectory()).rejects.toThrow(STORAGE_UNAVAILABLE);
 });
 
 test("delete_waits_for_a_pyramid_build_then_removes_its_files", async () => {

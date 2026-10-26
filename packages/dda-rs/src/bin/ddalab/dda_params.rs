@@ -1,10 +1,8 @@
 use crate::cli;
 use dda_rs::blocks::validate_request;
-use dda_rs::io::{open_recording, FileSet};
 use dda_rs::{
-    format_select_mask, generate_select_mask, load_ascii_matrix_from_path,
-    load_f64_matrix_from_path, AlgorithmSelection, ComputeDevice, DDARequest, DDAResult,
-    DelayParameters, FileType, ModelParameters, PreprocessingOptions, PureRustOptions,
+    format_select_mask, generate_select_mask, AlgorithmSelection, ComputeDevice, DDARequest,
+    DDAResult, DelayParameters, FileType, ModelParameters, PreprocessingOptions, PureRustOptions,
     PureRustProgress, PureRustRunner, TimeRange, VariantChannelConfig, WindowParameters,
 };
 use serde::Deserialize;
@@ -41,59 +39,6 @@ pub fn pure_rust_matrix_support_reason(request: &DDARequest) -> Result<(), Strin
     pure_rust_common_support_reason(request)
 }
 
-/// The samples and labels of the analysis channels of the file `request` names. ASCII files keep the loader
-/// the `serve` protocol relies on; every other format goes through its reader.
-fn load_samples(request: &DDARequest) -> Result<(Vec<Vec<f64>>, Option<Vec<String>>), String> {
-    let path = Path::new(&request.file_path);
-    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    if FileType::from_extension(ext) == Some(FileType::ASCII) {
-        let samples =
-            load_ascii_matrix_from_path(&request.file_path).map_err(|error| error.to_string())?;
-        return Ok((samples, None));
-    }
-    let reader = FileSet::from_path(path)
-        .and_then(|files| open_recording(&files, request.sampling_rate))
-        .map_err(|error| error.to_string())?;
-    let info = reader.info();
-    let channels = info.analysis_channels();
-    let samples = reader
-        .read_rows(&channels, 0, info.sample_count as usize)
-        .map_err(|error| error.to_string())?;
-    let labels = channels
-        .iter()
-        .map(|&c| info.channels[c].label.clone())
-        .collect();
-    Ok((samples, Some(labels)))
-}
-
-pub async fn execute_request_with_progress_on_device<F>(
-    request: &DDARequest,
-    start_bound: Option<u64>,
-    end_bound: Option<u64>,
-    device: ComputeDevice,
-    on_progress: F,
-) -> Result<DDAResult, String>
-where
-    F: FnMut(&PureRustProgress),
-{
-    pure_rust_matrix_support_reason(request)
-        .map_err(|reason| format!("Pure Rust DDA cannot execute this request: {}", reason))?;
-    let (samples, labels) =
-        load_samples(request).map_err(|error| format!("Pure Rust DDA failed: {}", error))?;
-    let mut adjusted_request = request.clone();
-    if let (Some(start), Some(end)) = (start_bound, end_bound) {
-        adjusted_request.time_range.start = start as f64;
-        adjusted_request.time_range.end = end as f64;
-    }
-    run_on_samples(
-        &adjusted_request,
-        &samples,
-        labels.as_deref(),
-        device,
-        on_progress,
-    )
-}
-
 pub async fn execute_request_on_matrix_with_progress_on_device<F>(
     request: &DDARequest,
     samples: &[Vec<f64>],
@@ -107,26 +52,6 @@ where
     pure_rust_matrix_support_reason(request)
         .map_err(|reason| format!("Pure Rust DDA cannot execute this request: {}", reason))?;
     run_on_samples(request, samples, channel_labels, device, on_progress)
-}
-
-#[allow(clippy::too_many_arguments)]
-pub async fn execute_request_on_matrix_file_with_progress_on_device<F>(
-    request: &DDARequest,
-    matrix_path: &str,
-    rows: usize,
-    cols: usize,
-    channel_labels: Option<&[String]>,
-    device: ComputeDevice,
-    on_progress: F,
-) -> Result<DDAResult, String>
-where
-    F: FnMut(&PureRustProgress),
-{
-    pure_rust_matrix_support_reason(request)
-        .map_err(|reason| format!("Pure Rust DDA cannot execute this request: {}", reason))?;
-    let samples = load_f64_matrix_from_path(matrix_path, rows, cols)
-        .map_err(|error| format!("Pure Rust DDA failed: {}", error))?;
-    run_on_samples(request, &samples, channel_labels, device, on_progress)
 }
 
 /// Runs `request` on `samples` (rows of channels) once `validate_request` accepts it for their columns.
@@ -148,26 +73,6 @@ where
     })
     .run_on_matrix_with_progress(request, samples, channel_labels, on_progress)
     .map_err(|error| format!("Pure Rust DDA failed: {}", error))
-}
-
-/// Validate a single file path: existence and supported extension.
-pub fn validate_file(file_path: &str) -> Result<(), String> {
-    if !Path::new(file_path).exists() {
-        return Err(format!("Input file not found: {}", file_path));
-    }
-
-    let ext = Path::new(file_path)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("");
-    if FileType::from_extension(ext).is_none() {
-        return Err(format!(
-            "Unsupported file extension '{}'. Supported: edf, ascii, txt, csv",
-            ext
-        ));
-    }
-
-    Ok(())
 }
 
 const VARIANT_IDS: &[(&str, &str)] = &[
@@ -390,35 +295,9 @@ pub fn prepare_selection(
     })
 }
 
-/// Validate shared DDA parameters (not file-specific).
-pub fn validate_common_params(
-    channels: &[usize],
-    variants: &[String],
-    delays: &[i32],
-    wl: u32,
-    ws: u32,
-    ct_pairs: &Option<Vec<[usize; 2]>>,
-    cd_pairs: &Option<Vec<[usize; 2]>>,
-) -> Result<(), String> {
-    let normalized_variants = normalize_variants(variants)?;
-
-    let requires_single_channels = normalized_variants
-        .iter()
-        .any(|v| v == "ST" || v == "DE" || v == "SY");
-
-    if requires_single_channels && channels.is_empty() {
-        return Err(
-            "At least one channel must be specified for ST/DE/SY variants (use --channels or --variant-configs)"
-                .to_string(),
-        );
-    }
-
-    validate_params_except_channels(variants, delays, wl, ws, ct_pairs, cd_pairs)
-}
-
-/// `validate_common_params` without the check that ST, DE and SY have channels, for callers that
-/// fill an empty selection in once the recording is open.
-pub fn validate_params_except_channels(
+/// Validates the DDA parameters that do not depend on the recording; an empty channel selection is filled in
+/// once the recording is open.
+pub fn validate_params(
     variants: &[String],
     delays: &[i32],
     wl: u32,
@@ -492,7 +371,7 @@ pub fn validate_params_except_channels(
     Ok(())
 }
 
-/// Inputs used to construct a DDA request from CLI or sidecar parameters.
+/// Inputs used to construct a DDA request from CLI parameters.
 pub struct RequestConfig<'a> {
     pub file_path: &'a str,
     pub channels: &'a [usize],
@@ -516,7 +395,7 @@ pub struct RequestConfig<'a> {
     pub variant_configs: Option<HashMap<String, VariantChannelConfig>>,
 }
 
-/// Build a DDA request from normalized CLI or sidecar options.
+/// Build a DDA request from normalized CLI options.
 pub fn build_dda_request(config: RequestConfig<'_>) -> Result<DDARequest, String> {
     let normalized_variants = normalize_variants(config.variants)?;
     let variant_refs: Vec<&str> = normalized_variants.iter().map(|s| s.as_str()).collect();
@@ -567,29 +446,6 @@ pub fn build_dda_request(config: RequestConfig<'_>) -> Result<DDARequest, String
     })
 }
 
-/// Compute sample bounds from time or sample-based arguments.
-pub fn compute_bounds(
-    start: Option<f64>,
-    end: Option<f64>,
-    start_sample: Option<u64>,
-    end_sample: Option<u64>,
-    sr: Option<f64>,
-) -> (Option<u64>, Option<u64>) {
-    // Sample-based bounds take precedence
-    if start_sample.is_some() || end_sample.is_some() {
-        return (start_sample, end_sample);
-    }
-
-    // Time-based bounds require sampling rate
-    if let (Some(start), Some(end), Some(sr)) = (start, end, sr) {
-        let start_sample = (start * sr) as u64;
-        let end_sample = (end * sr) as u64;
-        return (Some(start_sample), Some(end_sample));
-    }
-
-    (None, None)
-}
-
 /// Check if a file extension is supported for DDA analysis.
 #[allow(dead_code)]
 pub fn is_supported_extension(path: &Path) -> bool {
@@ -600,29 +456,8 @@ pub fn is_supported_extension(path: &Path) -> bool {
 }
 
 #[cfg(test)]
-#[path = "../../../tests/support/mod.rs"]
-mod support;
-
-#[cfg(test)]
 mod tests {
-    use super::support::{edf_bytes, EdfSpec};
     use super::*;
-    use tempfile::NamedTempFile;
-
-    fn write_ascii_fixture() -> NamedTempFile {
-        use std::io::Write;
-
-        let mut file = tempfile::Builder::new()
-            .suffix(".ascii")
-            .tempfile()
-            .unwrap();
-        for t in 0..256 {
-            let x = (t as f64 * 0.05).sin();
-            let y = 0.7 * x + (t as f64 * 0.09).cos() * 0.1;
-            writeln!(file, "{x:.12} {y:.12}").unwrap();
-        }
-        file
-    }
 
     fn test_request_config<'a>(
         file_path: &'a str,
@@ -657,55 +492,35 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_common_params_valid() {
-        let result = validate_common_params(
-            &[0, 1, 2],
-            &["ST".to_string()],
-            &[7, 10],
-            200,
-            100,
-            &None,
-            &None,
-        );
+    fn test_validate_params_valid() {
+        let result = validate_params(&["ST".to_string()], &[7, 10], 200, 100, &None, &None);
         assert!(result.is_ok());
     }
 
     #[test]
-    fn test_validate_common_params_empty_channels() {
-        let result =
-            validate_common_params(&[], &["ST".to_string()], &[7, 10], 200, 100, &None, &None);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("channel"));
-    }
-
-    #[test]
-    fn test_validate_common_params_invalid_variant() {
-        let result =
-            validate_common_params(&[0], &["INVALID".to_string()], &[7], 200, 100, &None, &None);
+    fn test_validate_params_invalid_variant() {
+        let result = validate_params(&["INVALID".to_string()], &[7], 200, 100, &None, &None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Unknown variant"));
     }
 
     #[test]
-    fn test_validate_common_params_delay_out_of_range() {
-        let result =
-            validate_common_params(&[0], &["ST".to_string()], &[200], 200, 100, &None, &None);
+    fn test_validate_params_delay_out_of_range() {
+        let result = validate_params(&["ST".to_string()], &[200], 200, 100, &None, &None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("out of range"));
     }
 
     #[test]
-    fn test_validate_common_params_negative_delay_is_rejected() {
-        let result =
-            validate_common_params(&[0], &["ST".to_string()], &[-7, 10], 200, 100, &None, &None);
+    fn test_validate_params_negative_delay_is_rejected() {
+        let result = validate_params(&["ST".to_string()], &[-7, 10], 200, 100, &None, &None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("non-negative"));
     }
 
     #[test]
-    fn test_validate_common_params_ws_exceeds_wl() {
-        let result =
-            validate_common_params(&[0], &["ST".to_string()], &[7], 100, 200, &None, &None);
+    fn test_validate_params_ws_exceeds_wl() {
+        let result = validate_params(&["ST".to_string()], &[7], 100, 200, &None, &None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("must not exceed"));
     }
@@ -779,98 +594,6 @@ mod tests {
         assert_eq!(request.ct_channel_pairs.unwrap(), vec![[0, 1]]);
     }
 
-    #[test]
-    fn test_compute_bounds_sample_based() {
-        let (start, end) = compute_bounds(None, None, Some(0), Some(6000), None);
-        assert_eq!(start, Some(0));
-        assert_eq!(end, Some(6000));
-    }
-
-    #[test]
-    fn test_compute_bounds_time_based() {
-        let (start, end) = compute_bounds(Some(0.0), Some(10.0), None, None, Some(256.0));
-        assert_eq!(start, Some(0));
-        assert_eq!(end, Some(2560));
-    }
-
-    #[test]
-    fn test_compute_bounds_none() {
-        let (start, end) = compute_bounds(None, None, None, None, None);
-        assert_eq!(start, None);
-        assert_eq!(end, None);
-    }
-
-    #[tokio::test]
-    async fn test_execute_request_runs_ascii_without_native_runner() {
-        let ascii = write_ascii_fixture();
-        let request = build_dda_request(test_request_config(
-            ascii.path().to_str().unwrap(),
-            &[0, 1],
-            &["ST".to_string()],
-            64,
-            32,
-            &[1, 2],
-        ))
-        .unwrap();
-
-        let result = execute_request_with_progress_on_device(
-            &request,
-            None,
-            None,
-            ComputeDevice::Cpu,
-            |_| {},
-        )
-        .await
-        .unwrap();
-        let variants = result.variant_results.unwrap();
-        assert_eq!(variants.len(), 1);
-        assert_eq!(variants[0].variant_id, "ST");
-        let coefficients = variants[0]
-            .coefficient_matrices
-            .as_ref()
-            .expect("ST coefficient matrices");
-        assert_eq!(coefficients.len(), dda_rs::DEFAULT_MODEL_TERMS.len());
-        assert_eq!(coefficients[0], variants[0].q_matrix);
-        let fit_errors = variants[0]
-            .fit_error_matrix
-            .as_ref()
-            .expect("ST fit error matrix");
-        assert_eq!(fit_errors.len(), 2);
-        assert_eq!(fit_errors[0].len(), variants[0].q_matrix[0].len());
-        assert!(fit_errors.iter().flatten().all(|value| value.is_finite()));
-    }
-
-    #[tokio::test]
-    async fn test_execute_request_accepts_edf() {
-        let mut edf = tempfile::Builder::new().suffix(".edf").tempfile().unwrap();
-        std::io::Write::write_all(&mut edf, &edf_bytes(&EdfSpec::default())).unwrap();
-        let request = build_dda_request(test_request_config(
-            edf.path().to_str().unwrap(),
-            &[0, 1],
-            &["ST".to_string()],
-            64,
-            32,
-            &[1, 2],
-        ))
-        .unwrap();
-
-        let result = execute_request_with_progress_on_device(
-            &request,
-            None,
-            None,
-            ComputeDevice::Cpu,
-            |_| {},
-        )
-        .await
-        .unwrap();
-        let variants = result.variant_results.unwrap();
-        assert_eq!(variants[0].variant_id, "ST");
-        assert_eq!(
-            variants[0].channel_labels.as_deref(),
-            Some(&["Fp1".to_string(), "Fp2".to_string()][..])
-        );
-    }
-
     #[tokio::test]
     async fn test_execute_request_on_matrix_accepts_non_ascii_source_path() {
         let variants = ["ST".to_string()];
@@ -932,43 +655,5 @@ mod tests {
         .await
         .unwrap_err();
         assert!(error.contains("channel 9 is out of range"), "{error}");
-    }
-
-    #[tokio::test]
-    async fn test_execute_request_on_matrix_file_accepts_non_ascii_source_path() {
-        use std::io::Write;
-
-        let variants = ["ST".to_string()];
-        let mut config = test_request_config("/tmp/test.edf", &[0, 1], &variants, 32, 16, &[1, 2]);
-        config.start = Some(0.0);
-        config.end = Some(63.0);
-        let request = build_dda_request(config).unwrap();
-
-        let samples = (0..64)
-            .map(|index| {
-                let x = index as f64 * 0.05;
-                vec![x.sin(), (x * 1.7).cos()]
-            })
-            .collect::<Vec<_>>();
-        let labels = vec!["A".to_string(), "B".to_string()];
-        let mut raw = tempfile::Builder::new().suffix(".f64").tempfile().unwrap();
-        for row in &samples {
-            for value in row {
-                raw.write_all(&value.to_le_bytes()).unwrap();
-            }
-        }
-
-        let result = execute_request_on_matrix_file_with_progress_on_device(
-            &request,
-            raw.path().to_str().unwrap(),
-            samples.len(),
-            samples[0].len(),
-            Some(labels.as_slice()),
-            ComputeDevice::Cpu,
-            |_| {},
-        )
-        .await
-        .unwrap();
-        assert_eq!(result.file_path, "/tmp/test.edf");
     }
 }

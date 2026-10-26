@@ -18,6 +18,11 @@
   gap: var(--space-2);
 }
 
+/* A borderless button that starts a line: its text in the rail's text column, past its own padding. */
+.ghost {
+  margin-inline-start: calc(-1 * var(--space-2));
+}
+
 .heading {
   display: flex;
   align-items: baseline;
@@ -39,6 +44,7 @@
   color: var(--muted);
   font-size: var(--text-small);
   line-height: var(--leading-small);
+  text-wrap: pretty;
 }
 
 .error {

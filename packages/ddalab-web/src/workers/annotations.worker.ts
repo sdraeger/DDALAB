@@ -7,6 +7,7 @@ import { compileWasm } from "../core/compileWasm";
 import wasmUrl from "../core/ddalab.wasm?url";
 import type { AnnotationsReply, AnnotationsRequest, MemoryReply, MemoryRequest } from "../core/protocol";
 import { openRequestOf, type Part, partsOf, readSource } from "../core/sources";
+import { CACHE_MB } from "../core/tileCache";
 
 /** The files of the recording being read: file id `n` is `parts[n - 1]`. A request sets it and uses it at once. */
 let parts: Part[] = [];
@@ -35,7 +36,7 @@ self.addEventListener("message", async ({ data }: MessageEvent<AnnotationsReques
         parts,
         parts.map((_, i) => i + 1),
       ),
-      { cacheMb: 8 },
+      { cacheMb: CACHE_MB.workerFiles },
     );
     try {
       self.postMessage({ n, ok: engine.annotations(handle) } satisfies AnnotationsReply);

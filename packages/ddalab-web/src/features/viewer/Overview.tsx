@@ -7,7 +7,7 @@ import { tileCount, tileRows } from "../../core/opfs";
 import type { ScanState } from "../../core/protocol";
 import { observeDevicePixels, type PlotSize } from "../../render/devicePixels";
 import { paramsOf } from "../../render/display";
-import { drawOverview, envelope, overviewLevel } from "../../render/overviewLayer";
+import { drawOverview, envelope, overviewLevel, signalChannels } from "../../render/overviewLayer";
 import { readColors, watchTheme } from "../../render/themeColors";
 import { setView, useStore } from "../../store/store";
 import { userOf } from "../annotations/model";
@@ -45,6 +45,7 @@ export function Overview({ recordingId }: { recordingId: string }) {
     const level = overviewLevel(rows);
     const count = tileCount(rows, level);
     const params = paramsOf(opened);
+    const counted = signalChannels(opened.analysis_channels.map((c) => opened.info.channels[c]));
     const tiles = new Map<number, Float32Array>();
     /** Why each tile was last asked for; a tile asked for before the scan reached it is asked again after. */
     const asked = new Map<number, "scanned" | "idle" | "failed">();
@@ -54,7 +55,7 @@ export function Overview({ recordingId }: { recordingId: string }) {
     /** The view and the strip width the outline was last placed for. */
     let last = { t0: Number.NaN, t1: Number.NaN, cssW: Number.NaN };
     let colors = readColors(stripEl);
-    /** What the canvas last showed: it is redrawn when that changes, not on every move of the view. */
+    /** What the canvas last showed: it is redrawn when that changes, and a move of the view alone leaves it. */
     let drawnScene: unknown[] = [];
     const schedule = () => {
       if (!raf) raf = requestAnimationFrame(paint);
@@ -78,7 +79,7 @@ export function Overview({ recordingId }: { recordingId: string }) {
         engine
           .tile(recordingId, level, i)
           .then((found) => {
-            if (found) tiles.set(i, envelope(found.bytes, params));
+            if (found) tiles.set(i, envelope(found.bytes, params, counted));
             report(null);
           })
           .catch((error: Error) => {

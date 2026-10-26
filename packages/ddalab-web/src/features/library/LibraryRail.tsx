@@ -3,7 +3,10 @@
 import FilePlus from "lucide-react/dist/esm/icons/file-plus.mjs";
 import FolderOpen from "lucide-react/dist/esm/icons/folder-open.mjs";
 import { type ChangeEvent, lazy, Suspense, use, useEffect, useEffectEvent, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { engineVersion } from "../../app/analyses";
+import { beside } from "../../app/handles";
+import { consumeLaunches, grantedRoots, launchQueue, openLaunched } from "../../app/launch";
 import {
   canPickFiles,
   type FileHandles,
@@ -65,6 +68,8 @@ export function LibraryRail() {
   const showFolder = (source: FolderSource, resume?: string) =>
     setFolder((shown) => ({ source, key: (shown?.key ?? 0) + 1, resume }));
   const recent = useStore((s) => s.recent);
+  // The hint is for a first open: it goes once a recording has a tab.
+  const untouched = useStore((s) => s.tabs.length === 0);
   const attempt = useRef<Attempt>({ files: [] });
   const filesInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
@@ -101,10 +106,17 @@ export function LibraryRail() {
   };
   async function openFolder() {
     locating.current = undefined;
+    // A header opened alone (a .vhdr from the picker or launched by the system) has its handle: when the folder chosen
+    // holds it, the recording opens from there with its companions, where the tree would ask for another click.
+    const lone =
+      outcome?.kind === "error" && outcome.folder ? attempt.current.handles?.files?.[0] : undefined;
     const pick = (window as { showDirectoryPicker?: DirectoryPicker }).showDirectoryPicker;
     if (!pick) return folderInput.current?.click();
     const handle = await pick({ mode: "read" }).catch(() => null); // null: the user closed the picker
-    if (handle) showFolder({ kind: "handle", handle });
+    if (!handle) return;
+    const found = lone && (await beside(handle, lone).catch(() => undefined));
+    if (found) return void run({ files: found.files, handles: found.handles }, found.choice);
+    showFolder({ kind: "handle", handle });
   }
   async function open(entry: RecentEntry) {
     if (!entry.handle) return chooseFiles(entry.fingerprint);
@@ -136,6 +148,19 @@ export function LibraryRail() {
     }
     await run(await droppedFiles(data));
   });
+  // Files the system opens the installed app with (Chromium). The consumer is set once, when the rail first mounts.
+  const launched = useEffectEvent(async (handles: FileSystemFileHandle[]) => {
+    locating.current = undefined;
+    setOpening(true);
+    try {
+      const result = await openLaunched(handles, { open: openFiles, roots: grantedRoots });
+      attempt.current = result.attempt;
+      setOutcome(result.outcome);
+    } finally {
+      setOpening(false);
+    }
+  });
+  useEffect(() => consumeLaunches(launchQueue(), (handles) => void launched(handles)), []);
   useEffect(() => {
     const over = (event: DragEvent) => event.preventDefault();
     const drop = (event: DragEvent) => {
@@ -163,9 +188,11 @@ export function LibraryRail() {
             Open folder
           </button>
         </div>
-        <p className={styles.hint}>
-          Or drop a recording, or the folder that holds it, anywhere in this window.
-        </p>
+        {untouched && (
+          <p className={styles.hint}>
+            Or drop a recording, or the folder that holds it, anywhere in this window.
+          </p>
+        )}
         <input ref={filesInput} type="file" multiple hidden aria-label="Recording files" onChange={picked} />
         <input
           ref={folderInput}
@@ -235,7 +262,7 @@ function Notice(props: {
       <div key="error" role="alert" className={styles.error}>
         <p>{outcome.message}</p>
         {outcome.folder && (
-          <button type="button" className={controls.quiet} onClick={props.onFolder}>
+          <button type="button" className={`${controls.quiet} ${styles.ghost}`} onClick={props.onFolder}>
             Open the folder that contains it.
           </button>
         )}
@@ -262,6 +289,7 @@ function Notice(props: {
 }
 
 function Recent(props: { entries: RecentEntry[]; onOpen(entry: RecentEntry): void }) {
+  const open = useStore(useShallow((s) => Object.values(s.recordings).map((r) => r.fingerprint)));
   if (props.entries.length === 0) return null;
   return (
     <section className={styles.section} aria-label="Recent recordings" data-appear>
@@ -274,7 +302,9 @@ function Recent(props: { entries: RecentEntry[]; onOpen(entry: RecentEntry): voi
             <span className={styles.entryName} title={entry.names.join(", ")}>
               {entry.primary}
             </span>
-            {!entry.handle && <span className={styles.entryMeta}>Select the file again to reopen it. </span>}
+            {!entry.handle && !open.includes(entry.fingerprint) && (
+              <span className={styles.entryMeta}>Select the file again to reopen it. </span>
+            )}
             <span className={styles.recentActions}>
               <button
                 type="button"

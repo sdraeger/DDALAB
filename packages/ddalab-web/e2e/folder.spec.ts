@@ -2,7 +2,8 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, type Page, test } from "./test";
+import { bigFolder, openBigFolder } from "./perfMeasures";
+import { expect, hasStorage, NO_STORAGE, type Page, test } from "./test";
 
 const fixturePath = (name: string) =>
   fileURLToPath(new URL(`../../dda-rs/tests/fixtures/${name}`, import.meta.url));
@@ -240,6 +241,13 @@ test("filter_keeps_the_folders_of_matches", async ({ page }) => {
 // not beside it.
 test("folder_drop_lists_its_recordings", async ({ page }) => {
   const header = readFileSync(fixturePath("fixture.vhdr"), "utf8");
+  // The library listens for drops from an effect, which WebKit may run well after the library shows: a drop before
+  // then is lost. A dragover it cancels says it listens.
+  const listening = () =>
+    page.evaluate(
+      () => !document.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true })),
+    );
+  await expect.poll(listening).toBe(true);
   await page.evaluate((text) => {
     const file = {
       name: "x.vhdr",
@@ -279,12 +287,12 @@ test("folder_drop_lists_its_recordings", async ({ page }) => {
 // The header's data file is listed, then deleted before the recording opens: the core cannot read it, and the error
 // shows in the Folder section beside the tree.
 test("open_error_shows_beside_the_tree", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
   const parts = ["fixture.vhdr", "fixture.eeg", "fixture.vmrk"].map((name) => ({
     name,
     base64: readFileSync(fixturePath(name)).toString("base64"),
   }));
-  const writable = await page.evaluate(async (files) => {
-    if (!("createWritable" in FileSystemFileHandle.prototype)) return false;
+  await page.evaluate(async (files) => {
     const folder = await (await navigator.storage.getDirectory()).getDirectoryHandle("vanishing", {
       create: true,
     });
@@ -294,9 +302,7 @@ test("open_error_shows_beside_the_tree", async ({ page }) => {
       await stream.close();
     }
     Object.assign(window, { showDirectoryPicker: async () => folder });
-    return true;
   }, parts);
-  test.skip(!writable, "this browser cannot write to its private file system");
   await page.getByRole("button", { name: "Open folder" }).click();
   const folder = page.getByRole("region", { name: /^Folder/ });
   const row = folder.getByRole("treeitem", { name: "fixture.vhdr" });
@@ -340,54 +346,13 @@ test("walk_shows_its_count_and_cancels", async ({ page }) => {
   await expect(folder).toHaveCount(0);
 });
 
-// 5,000 files: 714 subjects with two runs (an EDF with its channels and events tables each) and a scans table, and
-// the dataset's description and participants. The walk, the classification and the tree may not hold the page for
-// more than 200 ms at a time.
-test("walk_of_5000_files_keeps_the_page_responsive", async ({ page }) => {
+// The 5,000 files of `bigFolder` list as 1,428 recordings in a tree of 2,142 rows, of which only those in view render,
+// and the keyboard reaches the last. perf.spec.ts holds the walk's longest pause of the page under 200 ms.
+test("walk_of_5000_files_lists_them_in_a_virtual_tree", async ({ page }) => {
   test.setTimeout(180_000);
-  const made = await page.evaluate(async () => {
-    const big = await (await navigator.storage.getDirectory()).getDirectoryHandle("big", { create: true });
-    const top = ["dataset_description.json", "participants.tsv"];
-    await Promise.all(top.map((name) => big.getFileHandle(name, { create: true })));
-    let count = top.length;
-    for (let s = 1; s <= 714; s++) {
-      const sub = `sub-${String(s).padStart(3, "0")}`;
-      const folder = await big.getDirectoryHandle(sub, { create: true });
-      const eeg = await folder.getDirectoryHandle("eeg", { create: true });
-      const names = [1, 2].flatMap((run) =>
-        ["eeg.edf", "channels.tsv", "events.tsv"].map((end) => `${sub}_task-rest_run-${run}_${end}`),
-      );
-      await Promise.all(names.map((name) => eeg.getFileHandle(name, { create: true })));
-      await folder.getFileHandle(`${sub}_scans.tsv`, { create: true });
-      count += names.length + 1;
-    }
-    Object.assign(window, { showDirectoryPicker: async () => big });
-    return count;
-  });
-  expect(made).toBe(5000);
-  // The longest gap between timer tasks while the folder opens.
-  await page.evaluate(() => {
-    const probe = { gap: 0, stop: false };
-    let last = performance.now();
-    const tick = () => {
-      const now = performance.now();
-      probe.gap = Math.max(probe.gap, now - last);
-      last = now;
-      if (!probe.stop) setTimeout(tick, 0);
-    };
-    setTimeout(tick, 0);
-    Object.assign(window, { gapProbe: probe });
-  });
-  await page.getByRole("button", { name: "Open folder" }).click();
-  const tree = page.getByRole("tree", { name: "Recordings in big" });
-  await expect(tree).toBeVisible({ timeout: 120_000 });
-  await expect(page.getByRole("heading", { name: "Folder 1428" })).toBeVisible();
-  const gap = await page.evaluate(() => {
-    const { gapProbe } = window as unknown as { gapProbe: { gap: number; stop: boolean } };
-    gapProbe.stop = true;
-    return gapProbe.gap;
-  });
-  expect(gap).toBeLessThan(200);
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  expect(await bigFolder(page)).toBe(5000);
+  const tree = await openBigFolder(page);
   // 714 expanded folders hold 2,142 rows: only those in view are rendered.
   const rendered = await tree.getByRole("treeitem").count();
   expect(rendered).toBeGreaterThan(5);
