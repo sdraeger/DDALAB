@@ -240,6 +240,13 @@ test("filter_keeps_the_folders_of_matches", async ({ page }) => {
 // not beside it.
 test("folder_drop_lists_its_recordings", async ({ page }) => {
   const header = readFileSync(fixturePath("fixture.vhdr"), "utf8");
+  // The library listens for drops from an effect, which WebKit may run well after the library shows: a drop before
+  // then is lost. A dragover it cancels says it listens.
+  const listening = () =>
+    page.evaluate(
+      () => !document.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true })),
+    );
+  await expect.poll(listening).toBe(true);
   await page.evaluate((text) => {
     const file = {
       name: "x.vhdr",
