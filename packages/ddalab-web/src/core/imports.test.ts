@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { beforeEach, expect, test } from "vitest";
 import { documentJson } from "./exporters";
 import { deleteAnalysis, listAnalyses } from "./history";
-import { type FolderFile, importResult } from "./imports";
+import { type FolderFile, importResult, importResults } from "./imports";
 import { memoryOpfs, type Tree } from "./memoryOpfs";
 
 const CLI = fileURLToPath(new URL("../../../dda-rs/target/release/ddalab", import.meta.url));
@@ -222,6 +222,46 @@ test("only_the_fields_of_a_result_document_are_kept", async () => {
     "a.dda is not a DDALAB result (schema ddalab.result/2): file_name is missing or malformed",
   );
 }, 60_000);
+
+// The history loads every record at each start: one result's record, and all of a project's together, are bounded,
+// and a project over its total adds none of its results.
+test("a_project_s_results_past_their_total_add_nothing", async () => {
+  // A record of `mib` MiB: its diagnostics, each a string at its 64 KiB bound.
+  const result = (n: number, mib: number) => ({
+    input: bundle((m) => {
+      m.diagnostics = Array.from({ length: mib * 16 }, () => "d".repeat(64 * 1024));
+    }),
+    kept: {
+      id: `00000000-0000-4000-8000-00000000000${n}`,
+      fingerprint: "a".repeat(64),
+      fileName: "a.edf",
+      createdAt: 1,
+    },
+  });
+  const stored = () => [...((root.get("results") as Tree | undefined) ?? new Map()).keys()];
+  await expect(importResults([result(1, 11), result(2, 11), result(3, 11)])).rejects.toThrow(
+    "together they would add 33 MiB to the history, more than the 32 MiB a project may add",
+  );
+  expect(stored()).toEqual([]);
+  expect(await listAnalyses()).toEqual([]);
+  // One past its own bound is refused alone, and the others are added.
+  const outcomes = await importResults([result(1, 17), result(2, 1)]);
+  expect(outcomes).toEqual([
+    { error: "The manifest of a.dda is above 16 MiB without its window centers" },
+    { id: "00000000-0000-4000-8000-000000000002" },
+  ]);
+  expect(stored()).toEqual(["00000000-0000-4000-8000-000000000002"]);
+  // Pairs of channels past what its channels make.
+  const pairs = bundle((m) => {
+    (reproduction(m).request as Record<string, unknown>).ct_channel_pairs = [
+      [0, 0],
+      [0, 0],
+    ];
+  });
+  await expect(importResult(pairs)).rejects.toThrow(
+    "a.dda lists more channel pairs than its 1 channels make",
+  );
+}, 120_000);
 
 test("refuses_a_document_that_is_not_one", async () => {
   await expect(importResult(new File(["null"], "null.json"))).rejects.toThrow(

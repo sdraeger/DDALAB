@@ -196,13 +196,17 @@ function malformed(document: unknown, variantFields: (v: VariantDocument) => str
   const field = FIELDS.find(([path, test]) => !test(at(document, path)))?.[0];
   if (field) return field;
   const variants = (document as ResultDocument).variants;
+  const ids = new Set<unknown>();
   for (const [i, v] of variants.entries()) {
+    // At least one row: a variant of none would let a manifest store window centers that no array bounds.
     const ok =
       isObject(v) &&
       /^[A-Z0-9]+$/.test(String(v.id)) &&
       isString(v.label) &&
       listOf(isString)(v.row_labels) &&
-      variants.findIndex((other) => other?.id === v.id) === i;
+      (v.row_labels as unknown[]).length > 0 &&
+      !ids.has(v.id);
+    ids.add(isObject(v) ? v.id : undefined);
     if (!ok) return `variants[${i}] (its id, label or row labels, or an id that is not unique)`;
     const wrong = variantFields(v);
     if (wrong) return `variants[${i}].${wrong}`;
@@ -366,12 +370,30 @@ function documentOf(manifest: ResultDocument, source: string): ResultDocument {
     coefficient_matrices: null,
     fit_error_matrix: null,
   }));
+  // Pairs of channels: no more than the result's channels make, which bounds the lists that grow with them.
+  const { reproduction } = document;
+  const { request } = reproduction;
+  const channels = reproduction.selected_channel_names.length;
+  const pairs = [
+    request.ct_channel_pairs,
+    request.cd_channel_pairs,
+    ...Object.values(request.variant_configs ?? {}).flatMap((c) => [c.ct_channel_pairs, c.cd_channel_pairs]),
+    ...Object.values(reproduction.variant_pair_indices ?? {}),
+    ...Object.values(reproduction.variant_pair_names ?? {}),
+  ];
+  if (pairs.some((list) => (list?.length ?? 0) > channels * channels)) {
+    throw new Error(`${source} lists more channel pairs than its ${channels} channels make`);
+  }
   const bounded = { ...document, variants };
-  if (JSON.stringify(recordedManifest(bounded)).length > RECORD_LIMIT) {
+  if (recordBytes(bounded) > RECORD_LIMIT) {
     throw new Error(`The manifest of ${source} is above 16 MiB without its window centers`);
   }
   return bounded;
 }
+
+/** Bytes (UTF-8) of the history record of `manifest`: what the history loads at each start. */
+const recordBytes = (manifest: ResultDocument) =>
+  new TextEncoder().encode(JSON.stringify(recordedManifest(manifest))).length;
 
 /** A bundle's files by path (from a zip or a folder): `manifest.json`, at the top or in one folder, and its arrays. */
 async function fromBundle(files: Map<string, Blob>, source: string): Promise<Incoming> {
@@ -505,6 +527,65 @@ export type KeptRecord = Pick<
  * the id.
  */
 export async function importResult(input: File | FolderFile[], kept?: KeptRecord): Promise<string> {
+  const { manifest, layout, values } = await prepared(input);
+  const id = kept?.id ?? crypto.randomUUID();
+  await storeResult(id, layout, values, manifest);
+  const record: AnalysisRecord = {
+    fingerprint: "",
+    fileName: manifest.file_name,
+    createdAt: Date.now(),
+    ...kept,
+    id,
+    request: manifest.reproduction.request,
+    manifest: recordedManifest(manifest),
+    plan: kept?.plan ?? { windows: manifest.window_centers_seconds.length },
+    status: "complete",
+  };
+  await saveAnalysis(record);
+  return id;
+}
+
+/** The most the history records of one project's results may take together, in bytes (UTF-8). */
+export const PROJECT_RECORDS_LIMIT = 32 * 2 ** 20;
+
+const mebibytes = (bytes: number) => (bytes / 2 ** 20).toLocaleString("en", { maximumFractionDigits: 1 });
+
+/**
+ * Imports the results of a project (app/project.ts), each as `importResult` imports a bundle folder with its `kept`
+ * record. The history loads every record at each start, so their records may take PROJECT_RECORDS_LIMIT together:
+ * they are read and checked first, and above it none is stored and this rejects. The outcome of each: its id, or why
+ * it was not added.
+ */
+export async function importResults(
+  results: { input: FolderFile[]; kept: KeptRecord }[],
+): Promise<({ id: string } | { error: string })[]> {
+  let bytes = 0;
+  // One at a time: a manifest is up to 96 MiB of text.
+  for (const { input } of results) {
+    bytes += await prepared(input).then(
+      ({ manifest }) => recordBytes(manifest),
+      () => 0,
+    );
+  }
+  if (bytes > PROJECT_RECORDS_LIMIT) {
+    throw new Error(
+      `together they would add ${mebibytes(bytes)} MiB to the history, more than the ${mebibytes(PROJECT_RECORDS_LIMIT)} MiB a project may add`,
+    );
+  }
+  const outcomes: ({ id: string } | { error: string })[] = [];
+  for (const { input, kept } of results) {
+    outcomes.push(
+      await importResult(input, kept).then(
+        (id) => ({ id }),
+        (error: Error) => ({ error: error.message }),
+      ),
+    );
+  }
+  return outcomes;
+}
+
+/** What `importResult` reads of `input` and checks, before it stores anything: the manifest, the arrays' layout and values. */
+async function prepared(input: File | FolderFile[]) {
   let incoming: Incoming;
   let source: string;
   if (Array.isArray(input)) {
@@ -528,20 +609,5 @@ export async function importResult(input: File | FolderFile[], kept?: KeptRecord
   }
   // Only what a result document holds is stored, recorded in the history and exported again.
   const manifest = documentOf(incoming.manifest, source);
-  const { layout, values } = await layoutOf({ manifest, arrays: incoming.arrays }, source);
-  const id = kept?.id ?? crypto.randomUUID();
-  await storeResult(id, layout, values, manifest);
-  const record: AnalysisRecord = {
-    fingerprint: "",
-    fileName: manifest.file_name,
-    createdAt: Date.now(),
-    ...kept,
-    id,
-    request: manifest.reproduction.request,
-    manifest: recordedManifest(manifest),
-    plan: kept?.plan ?? { windows: manifest.window_centers_seconds.length },
-    status: "complete",
-  };
-  await saveAnalysis(record);
-  return id;
+  return { manifest, ...(await layoutOf({ manifest, arrays: incoming.arrays }, source)) };
 }
