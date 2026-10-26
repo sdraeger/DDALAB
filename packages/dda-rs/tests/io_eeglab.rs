@@ -103,14 +103,20 @@ fn the_fdt_beside_a_set_joins_its_file_set() {
     assert!(files.source("fixture_eeglab.fdt").is_some());
 }
 
-#[test]
-fn an_epoched_dataset_is_refused() {
-    // The .fdt fixture's set with its trials, a double 1.0 after the field names, rewritten as 2.
+/// Why the .fdt fixture's set does not open with the double `from` after the field names, the first after `field`,
+/// rewritten as `to`.
+fn refusal_with(field: &str, from: f64, to: f64) -> String {
     let mut bytes = std::fs::read(Path::new(FIXTURES).join("fixture_eeglab.set")).unwrap();
-    let trials = bytes.windows(6).position(|w| w == b"trials").unwrap();
-    let one = 1.0f64.to_le_bytes();
-    let at = trials + bytes[trials..].windows(8).position(|w| w == one).unwrap();
-    bytes[at..at + 8].copy_from_slice(&2.0f64.to_le_bytes());
+    let name = bytes
+        .windows(field.len())
+        .position(|w| w == field.as_bytes())
+        .unwrap();
+    let at = name
+        + bytes[name..]
+            .windows(8)
+            .position(|w| w == from.to_le_bytes())
+            .unwrap();
+    bytes[at..at + 8].copy_from_slice(&to.to_le_bytes());
     let files = FileSet {
         primary: "x.set".to_string(),
         files: [(
@@ -119,9 +125,23 @@ fn an_epoched_dataset_is_refused() {
         )]
         .into(),
     };
-    let error = open_recording(&files, None).err().unwrap().to_string();
+    open_recording(&files, None).err().unwrap().to_string()
+}
+
+#[test]
+fn an_epoched_dataset_is_refused() {
+    let error = refusal_with("trials", 1.0, 2.0);
     assert!(
         error.contains("epoched EEGLAB dataset of 2 trials"),
+        "{error}"
+    );
+}
+
+#[test]
+fn an_impossible_channel_count_is_refused() {
+    let error = refusal_with("nbchan", 4.0, 1e9);
+    assert!(
+        error.contains("claims 1000000000 channels; DDALAB reads at most 65536"),
         "{error}"
     );
 }
