@@ -98,7 +98,7 @@
   display: grid;
   height: 100%;
   grid-template-columns: var(--gutter) minmax(0, 1fr);
-  grid-template-rows: var(--ruler) minmax(0, 1fr);
+  grid-template-rows: var(--ruler) minmax(0, 1fr) auto;
 }
 
 .unit {
@@ -203,18 +203,15 @@
   text-align: center;
 }
 
-/* The printed scale: physical bars and the scale settings, in a band at the lower left of the traces. */
+/* The printed scale: physical bars and the scale settings, in a band of its own under the last trace. */
 .readouts {
-  position: absolute;
-  bottom: var(--space-2);
-  left: var(--space-2);
+  grid-column: 1 / -1;
   display: flex;
   align-items: flex-end;
   gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  border: var(--hairline-width) solid var(--hairline);
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--ground) 92%, transparent);
+  padding: var(--space-1) var(--space-3) var(--space-1) calc(var(--gutter) + var(--space-2));
+  border-top: var(--hairline-width) solid var(--hairline);
+  background: var(--ground);
   font-size: var(--text-small);
   line-height: var(--leading-small);
   pointer-events: none;
