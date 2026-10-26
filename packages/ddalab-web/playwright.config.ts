@@ -21,7 +21,9 @@ export default defineConfig({
   globalSetup: "./e2e/global-setup.ts",
   // Tests against the real OpenNeuro run only with LIVE=1.
   grepInvert: process.env.LIVE ? undefined : /@live/,
-  use: { baseURL: origin },
+  // CI keeps the traces of failed tests and writes the HTML report web.yml uploads.
+  use: { baseURL: origin, trace: process.env.CI ? "retain-on-failure" : "off" },
+  reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   webServer: {
     command: dist
       ? [
