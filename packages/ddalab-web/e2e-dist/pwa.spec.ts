@@ -180,7 +180,11 @@ test.describe("updates", () => {
   }
   const updateCheck = (page: Page) =>
     page.evaluate(() => navigator.serviceWorker.getRegistration().then((r) => r?.update()));
-  const cacheNames = (page: Page) => page.evaluate(() => caches.keys()).catch(() => null);
+  /** The caches of the builds, in creation order (not the marker cache that records the active build). */
+  const cacheNames = (page: Page) =>
+    page
+      .evaluate(() => caches.keys().then((names) => names.filter((name) => name.startsWith("ddalab:"))))
+      .catch(() => null);
 
   const notice = (page: Page, text = "A new version of DDALAB is ready.") =>
     page.getByRole("status").filter({ hasText: text });

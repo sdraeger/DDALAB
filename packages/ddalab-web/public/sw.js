@@ -7,8 +7,11 @@
 //   is looked for in the cache of the previous version, then fetched: a window that started on that version still asks
 //   for its lazy chunks and workers. Nothing is added to a cache while the app runs.
 // - A new version waits until the page asks for it with the message "skipWaiting" (src/app/update.ts), and takes over
-//   the open pages once it activates. Activating deletes the caches of older versions of this scope, except the
-//   previous one while a window is open: that window may not have reloaded yet.
+//   the open pages once it activates. Activating deletes every cache of this scope but its own and the one of the
+//   version that was active until now, which stays while a window is open: that window may not have reloaded yet. The
+//   active version is recorded in a marker cache. A version that installed and never activated (a waiting worker that a
+//   newer one replaced) leaves a cache that the next activation deletes. At most two builds are stored, the current one
+//   and the previous one, which stays until the next activation even when its last window has gone.
 // scripts/precache.mjs replaces the next line at build time with the version and the files of the build.
 const BUILD = { version: "dev", files: [] };
 
@@ -18,6 +21,9 @@ const cacheName = prefix + BUILD.version;
 const urlOf = (file) => new URL(file, scope).href;
 const listed = new Set(BUILD.files.map(urlOf));
 const page = urlOf("index.html");
+/** The marker: a cache of its own (no version prefix) whose one entry holds the cache name of the active version. */
+const markerName = `ddalab-active:${scope}`;
+const markerKey = urlOf(".active");
 
 /** The cache key of what `request` asks for when this build's cache answers it; undefined otherwise. */
 function keyOf(request) {
@@ -56,10 +62,14 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     (async () => {
-      const older = await olderCaches();
+      const marker = await caches.open(markerName);
+      // The version the open windows run: the one active until now, not the newest cache there is.
+      const active = await marker.match(markerKey).then((hit) => hit?.text());
       const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-      const kept = windows.length > 0 ? older.slice(-1) : [];
-      await Promise.all(older.filter((name) => !kept.includes(name)).map((name) => caches.delete(name)));
+      const kept = windows.length > 0 ? [active] : [];
+      const doomed = (await olderCaches()).filter((name) => !kept.includes(name));
+      await Promise.all(doomed.map((name) => caches.delete(name)));
+      await marker.put(markerKey, new Response(cacheName));
       await self.clients.claim();
     })(),
   );

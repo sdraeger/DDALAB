@@ -1,6 +1,6 @@
 // public/sw.js, baked for a small build, run against stub worker globals: what it keeps, what it answers, what it
 // leaves to the network, and what it deletes when it activates.
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInNewContext } from "node:vm";
@@ -11,6 +11,16 @@ const SCOPE = "https://example.test/app/";
 let dir;
 let build;
 let source;
+/** The worker of another build: one more file in the folder gives it another version. */
+const variant = () => {
+  const other = mkdtempSync(join(tmpdir(), "sw-variant-"));
+  cpSync(dir, other, { recursive: true });
+  writeFileSync(join(other, "extra.txt"), "another build");
+  bakeServiceWorker(other);
+  const code = readFileSync(join(other, "sw.js"), "utf8");
+  rmSync(other, { recursive: true });
+  return code;
+};
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "sw-"));
   mkdirSync(join(dir, "assets"));
@@ -23,7 +33,7 @@ beforeAll(() => {
 afterAll(() => rmSync(dir, { recursive: true }));
 
 /** The worker running against stubs; `store` maps cache names to their entries (url to body). */
-function start(store = new Map(), windows = 0) {
+function start(store = new Map(), windows = 0, code = source) {
   const handlers = {};
   const calls = { claim: 0, skipWaiting: 0, fetched: [], installed: [] };
   const open = async (name) => {
@@ -33,7 +43,12 @@ function start(store = new Map(), windows = 0) {
         calls.installed.push(...requests.map((r) => [r.url, r.cache]));
         for (const r of requests) store.get(name).set(r.url, `cached ${r.url}`);
       },
-      match: async (key) => store.get(name).get(key),
+      // A real cache hands out a fresh Response each time.
+      match: async (key) => {
+        const hit = store.get(name).get(key);
+        return hit instanceof Response ? hit.clone() : hit;
+      },
+      put: async (key, response) => void store.get(name).set(key, response),
     };
   };
   const context = {
@@ -57,10 +72,11 @@ function start(store = new Map(), windows = 0) {
       return `network ${request.url}`;
     },
     Request,
+    Response,
     URL,
   };
-  runInNewContext(source, context);
-  const cacheName = `ddalab:${SCOPE}:${build.version}`;
+  runInNewContext(code, context);
+  const cacheName = `ddalab:${SCOPE}:${/^const BUILD = \{"version":"(\w+)"/m.exec(code)?.[1]}`;
   return { handlers, calls, store, cacheName };
 }
 
@@ -118,13 +134,22 @@ test("a_listed_file_missing_from_the_cache_comes_from_the_network", async () => 
   expect(worker.calls.fetched).toEqual([url]);
 });
 
-/** A cache store holding `older` caches of this scope (oldest first), one of another scope and an unrelated one. */
-const storeWith = (...older) =>
-  new Map(
-    [...older.map((v) => `ddalab:${SCOPE}:${v}`), "ddalab:https://example.test/other/:v1", "unrelated"].map(
-      (name) => [name, new Map()],
-    ),
-  );
+const MARKER = `ddalab-active:${SCOPE}`;
+const cacheOf = (version) => `ddalab:${SCOPE}:${version}`;
+const OTHER = "ddalab:https://example.test/other/:v1";
+
+/**
+ * A cache store holding the caches of the versions `older` of this scope (in the order they were created), one of
+ * another scope and an unrelated one. `active` is the version the marker records: the last one that activated.
+ */
+const storeWith = (older, active) =>
+  new Map([
+    ...older.map((version) => [cacheOf(version), new Map()]),
+    [OTHER, new Map()],
+    ["unrelated", new Map()],
+    ...(active ? [[MARKER, new Map([[`${SCOPE}.active`, new Response(cacheOf(active))]])]] : []),
+  ]);
+const markedActive = (store) => store.get(MARKER).get(`${SCOPE}.active`).clone().text();
 
 async function activate(worker) {
   let waited;
@@ -133,35 +158,64 @@ async function activate(worker) {
 }
 
 test("activate_deletes_every_older_build_of_its_scope_when_no_window_is_open", async () => {
-  const store = storeWith("old", "older");
+  const store = storeWith(["old", "older"], "older");
   const worker = start(store, 0);
   store.set(worker.cacheName, new Map());
   await activate(worker);
-  expect([...store.keys()].sort()).toEqual(
-    [worker.cacheName, "ddalab:https://example.test/other/:v1", "unrelated"].sort(),
-  );
+  expect([...store.keys()].sort()).toEqual([MARKER, worker.cacheName, OTHER, "unrelated"].sort());
   expect(worker.calls.claim).toBe(1);
   expect(worker.calls.matchAll).toEqual({ type: "window", includeUncontrolled: true });
+  expect(await markedActive(store)).toBe(worker.cacheName);
 });
 
-test("activate_keeps_the_previous_build_while_a_window_may_still_be_on_it", async () => {
-  const store = storeWith("oldest", "older", "previous");
+test("a_first_activation_with_no_marker_keeps_nothing_and_records_itself", async () => {
+  const store = storeWith(["old"]);
+  const worker = start(store, 1);
+  store.set(worker.cacheName, new Map());
+  await activate(worker);
+  expect([...store.keys()].sort()).toEqual([MARKER, worker.cacheName, OTHER, "unrelated"].sort());
+  expect(await markedActive(store)).toBe(worker.cacheName);
+});
+
+test("activate_keeps_the_active_build_while_a_window_is_open_and_nothing_else", async () => {
+  // The caches in the order they were created: the active one is not the newest.
+  const store = storeWith(["oldest", "active", "newer"], "active");
   const worker = start(store, 2);
   store.set(worker.cacheName, new Map());
   await activate(worker);
   expect([...store.keys()].sort()).toEqual(
-    [
-      worker.cacheName,
-      `ddalab:${SCOPE}:previous`,
-      "ddalab:https://example.test/other/:v1",
-      "unrelated",
-    ].sort(),
+    [MARKER, worker.cacheName, cacheOf("active"), OTHER, "unrelated"].sort(),
   );
   expect(worker.calls.claim).toBe(1);
+  expect(await markedActive(store)).toBe(worker.cacheName);
+});
+
+// A active in two windows, B installed and waits, C replaces B, and one window presses Reload: C activates. The other
+// window is still on A's page and asks for A's chunks, which A's cache alone holds.
+test("a_window_on_a_stays_served_when_c_activates_with_b_never_activated", async () => {
+  const a = cacheOf("A");
+  const store = storeWith(["A", "B"], "A");
+  store.get(a).set(`${SCOPE}assets/a-only.js`, "A's chunk");
+  const worker = start(store, 2); // the worker of C
+  store.set(worker.cacheName, new Map(build.files.map((file) => [`${SCOPE}${file}`, `cached ${file}`])));
+  await activate(worker);
+  expect([...store.keys()].sort()).toEqual([MARKER, a, worker.cacheName, OTHER, "unrelated"].sort());
+  expect(await answer(worker, { url: `${SCOPE}assets/a-only.js` })).toBe("A's chunk");
+  expect(await markedActive(store)).toBe(worker.cacheName);
+
+  // The next version, D, activates with a window still open: C stays, A goes. At most two builds are stored.
+  const later = start(store, 1, variant());
+  store.set(later.cacheName, new Map());
+  await activate(later);
+  expect([...store.keys()].sort()).toEqual(
+    [MARKER, worker.cacheName, later.cacheName, OTHER, "unrelated"].sort(),
+  );
+  expect(await markedActive(store)).toBe(later.cacheName);
+  expect(later.cacheName).not.toBe(worker.cacheName);
 });
 
 test("a_window_on_the_previous_build_gets_its_files_that_left_this_one", async () => {
-  const store = storeWith("older", "previous");
+  const store = storeWith(["older", "previous"]);
   store.get(`ddalab:${SCOPE}:older`).set(`${SCOPE}assets/gone.js`, "older gone.js");
   store.get(`ddalab:${SCOPE}:older`).set(`${SCOPE}assets/both.js`, "older both.js");
   store.get(`ddalab:${SCOPE}:previous`).set(`${SCOPE}assets/both.js`, "previous both.js");
