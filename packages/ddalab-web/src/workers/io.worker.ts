@@ -24,6 +24,7 @@ import {
 } from "../core/resultStore";
 import { blockBudgetMb, MAX_BLOCK_MB } from "../core/scheduler";
 import { isScanned, openRequestOf, partsOf, readSource, type Source } from "../core/sources";
+import { CACHE_MB } from "../core/tileCache";
 import type { RecordingInfo } from "../core/types";
 import { scan, yieldToLoop } from "./scan";
 
@@ -113,7 +114,7 @@ async function open(id: string, input: RecordingInput): Promise<IoResults["open"
   });
   let handle: number | undefined;
   try {
-    const opened = (await core).open(openRequestOf(input, parts, fileIds), { cacheMb: 64 });
+    const opened = (await core).open(openRequestOf(input, parts, fileIds), { cacheMb: CACHE_MB.ioFiles });
     handle = opened.handle;
     const { info } = opened;
     // The identity of what the core read: its files, by name.

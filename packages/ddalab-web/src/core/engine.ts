@@ -23,10 +23,10 @@ import type {
   ScanState,
   Tile,
 } from "./protocol";
-import { type AnalysisHandle, runAnalysis } from "./scheduler";
+import { type AnalysisHandle, MAX_BLOCK_MB, runAnalysis } from "./scheduler";
 import { isScanned } from "./sources";
 import type { SyntheticSpec } from "./synthetic";
-import { TileCache } from "./tileCache";
+import { CACHE_MB, TileCache } from "./tileCache";
 import type {
   Block,
   BlockChunks,
@@ -132,15 +132,36 @@ const cancelled = () => new DOMException("The run was cancelled", "AbortError");
 /** Bytes of a text recording per DDA worker: each parses the whole file. */
 const TEXT_BYTES_PER_WORKER = 512 * 2 ** 20;
 
-/** The DDA workers of a run of a binary recording: every core but one. */
-export const ddaWorkers = () => Math.max(1, navigator.hardwareConcurrency - 1);
+/** The spec's contract on JS plus wasm memory (1.5 GB), and the base of its sizing rule (290 MB), in MiB. */
+const CONTRACT_MIB = 1.5e9 / 2 ** 20;
+const BASE_MIB = 290e6 / 2 ** 20;
+/** The app's caches at their budgets, which fill whether or not a run goes on. */
+const CACHES_MIB = CACHE_MB.tiles + CACHE_MB.raw + CACHE_MB.resultTiles + CACHE_MB.ioFiles;
 
-/** The workers of a run: `ddaWorkers`, and one per 512 MiB of a text recording. */
-function poolSize(input: RecordingInput, info: RecordingInfo): number {
-  const cores = ddaWorkers();
-  if (input.kind === "synthetic" || (info.format !== "CSV" && info.format !== "ASCII")) return cores;
+/**
+ * The DDA workers of a run on `channels` channels with `cores` logical cores: as many as the memory contract allows,
+ * between 1 and every core but one. The spec's sizing rule, measured in Plan 1 (docs/superpowers/specs/
+ * 2026-10-24-ddalab-web-design.md, "Analysis streams window blocks"), gives the memory of a pool:
+ *   RSS ≈ 290 MB + workers × (8 + 1.04·budget + 0.23·channels + cache) MiB
+ * with budget the block budget (at most MAX_BLOCK_MB) and cache a DDA worker's file cache. The app's caches at their
+ * budgets come on top, which leaves workers = floor((1.5 GB - 290 MB - caches) / per-worker MiB).
+ */
+export function ddaPoolSize(cores: number, channels: number): number {
+  const perWorkerMib = 8 + 1.04 * MAX_BLOCK_MB + 0.23 * channels + CACHE_MB.workerFiles;
+  const fits = Math.floor((CONTRACT_MIB - BASE_MIB - CACHES_MIB) / perWorkerMib);
+  return Math.max(1, Math.min(cores - 1, fits));
+}
+
+/** The most DDA workers a run on this device takes (one channel). */
+export const ddaWorkers = () => ddaPoolSize(navigator.hardwareConcurrency, 1);
+
+/** The workers of a run: `ddaPoolSize` for its channels, and one per 512 MiB of a text recording. */
+function poolSize(input: RecordingInput, info: RecordingInfo, request: DDARequest): number {
+  const channels = request.channels?.length ?? info.channels.length;
+  const fits = ddaPoolSize(navigator.hardwareConcurrency, channels);
+  if (input.kind === "synthetic" || (info.format !== "CSV" && info.format !== "ASCII")) return fits;
   const bytes = input.files.find((file) => file.name === input.primary)?.size ?? 0;
-  return Math.min(cores, Math.max(1, Math.floor(TEXT_BYTES_PER_WORKER / bytes)));
+  return Math.min(fits, Math.max(1, Math.floor(TEXT_BYTES_PER_WORKER / bytes)));
 }
 
 /** The DDA workers of one run, started as blocks need them; `stop` ends them and what they were asked. */
@@ -504,13 +525,13 @@ export function createEngine(): Engine {
     },
     async plan(id, request) {
       const { input, info } = opened(id);
-      const workers = poolSize(input, info);
+      const workers = poolSize(input, info, request);
       const plan = await call({ type: "plan", id, request, workers });
       return { windows: plan.windows, blocks: plan.blocks.length, workers, budgetMb: plan.budgetMb };
     },
     async run(id, request) {
       const { input, info } = opened(id);
-      const workers = poolSize(input, info);
+      const workers = poolSize(input, info, request);
       const plan = await call({ type: "plan", id, request, workers });
       const resultId = crypto.randomUUID();
       const discard = () => call({ type: "discardResult", resultId }).catch(() => {});

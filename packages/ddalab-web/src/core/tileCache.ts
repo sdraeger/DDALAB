@@ -1,8 +1,15 @@
 import type { Tile } from "./protocol";
 
 /**
- * Tiles by key, least recently used out first once their bytes pass `maxBytes` (256 MiB by default). `sizeOf` counts
- * a tile's bytes (an extrema tile's buffer by default). The tile just set is never the one evicted.
+ * The app's caches in MiB, which the memory contract counts at their budgets (engine.ts `ddaPoolSize`): on the main
+ * thread the extrema tiles (engine.ts), the raw rows (waveformLayer.ts) and the result tiles (heatmapLayer.ts); in the
+ * IO worker the file blocks of every open recording together; in each DDA and annotation worker its file blocks.
+ */
+export const CACHE_MB = { tiles: 256, raw: 128, resultTiles: 64, ioFiles: 64, workerFiles: 8 };
+
+/**
+ * Tiles by key, least recently used out first once their bytes pass `maxBytes` (`CACHE_MB.tiles` by default).
+ * `sizeOf` counts a tile's bytes (an extrema tile's buffer by default). The tile just set is never the one evicted.
  */
 export class TileCache<T = Tile> {
   /** Each tile with the size it was counted at: a consumer that transfers the bytes empties the buffer. */
@@ -11,7 +18,7 @@ export class TileCache<T = Tile> {
   #max: number;
   #sizeOf: (tile: T) => number;
 
-  constructor(maxBytes = 256 * 2 ** 20, sizeOf = (tile: T) => (tile as Tile).bytes.byteLength) {
+  constructor(maxBytes = CACHE_MB.tiles * 2 ** 20, sizeOf = (tile: T) => (tile as Tile).bytes.byteLength) {
     this.#max = maxBytes;
     this.#sizeOf = sizeOf;
   }

@@ -1,6 +1,7 @@
 // The command bar holds still while the view zooms: wheel zooming across the whole range moves no element of the bar,
 // at 1024, 1280 and 1600 px, with the inspector open and with it closed (the run status then shows in the bar). At
 // every width from 768 px every control stays inside the window, and the scale settings behind their button work.
+import { ddaPoolSize } from "../src/core/engine";
 import { expect, type Page, test } from "./test";
 
 test.beforeEach(async ({ page }) => {
@@ -187,7 +188,7 @@ test("local_note_opens_and_closes", async ({ page }) => {
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
   const device = [
     plural(cores, "logical core"),
-    plural(Math.max(1, cores - 1), "analysis worker"),
+    `up to ${plural(ddaPoolSize(cores, 1), "analysis worker")}`,
     ...(memory ? [`at least ${memory} GB memory`] : []),
   ].join(", ");
   await expect(trigger).toHaveText("Local");
