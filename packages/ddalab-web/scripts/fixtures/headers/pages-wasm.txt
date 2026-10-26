@@ -1,0 +1,22 @@
+HTTP/2 200 
+server: GitHub.com
+content-type: application/wasm
+last-modified: Fri, 18 Sep 2026 13:01:14 GMT
+access-control-allow-origin: *
+etag: "6aad361a-53"
+expires: Mon, 26 Oct 2026 03:41:51 GMT
+cache-control: max-age=600
+x-proxy-cache: MISS
+x-github-request-id: FCFC:2A2B2D:2D7DD2:33D3E6:6ADEC9A7
+x-github-edge-region: westus3
+accept-ranges: bytes
+age: 0
+date: Mon, 26 Oct 2026 03:31:51 GMT
+via: 1.1 varnish
+x-served-by: cache-bur-kbur8200150-BUR
+x-cache: MISS
+x-cache-hits: 0
+x-timer: S1792985512.743644,VS0,VE77
+vary: Accept-Encoding
+x-fastly-request-id: 748215a7007a1be9bc018c4932f700afd6a96871
+content-length: 83
