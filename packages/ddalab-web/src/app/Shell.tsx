@@ -18,6 +18,7 @@ import { RunButton } from "../features/analysis/RunBar";
 import { useAnnotationKeys } from "../features/annotations/Annotate";
 import { ResultBoundary } from "../features/history/ResultBoundary";
 import { Inspector } from "../features/inspector/Inspector";
+import { BatchStatus } from "../features/library/BatchStatus";
 import { LibraryRail } from "../features/library/LibraryRail";
 import { preload } from "../features/results/loads";
 import { LocalData } from "../features/settings/LocalData";
@@ -47,6 +48,8 @@ export function Shell() {
   const resultShown = useStore((s) => s.shownResult !== null);
   // With no recording active, a selected tab is a detached one.
   const activeTab = useStore((s) => s.activeTab);
+  // A batch's status takes the run-status slot while it runs.
+  const batching = useStore((s) => s.batch?.status === "running");
   useViewerKeys();
   useAnnotationKeys();
   return (
@@ -76,9 +79,10 @@ export function Shell() {
             </Suspense>
           )}
           <span className={styles.grow} />
+          <BatchStatus />
           {id && (
             <Suspense fallback={null}>
-              <RunButton recordingId={id} status={!inspector} />
+              <RunButton recordingId={id} status={!inspector && !batching} />
             </Suspense>
           )}
           <PanelButton label="Display calibration" icon={<Ruler aria-hidden />} preload={loadCalibration}>
