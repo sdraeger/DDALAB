@@ -81,23 +81,16 @@ export function Shell() {
   const library = panels.library;
   const inspector = phone ? phoneState.inspector : panels.inspector;
   const id = useStore((s) => s.activeRecordingId);
-  const resultId = useStore((s) => s.shownResult?.id);
-  const resultShown = resultId !== undefined;
+  const resultShown = useStore((s) => s.shownResult !== null);
   // With no recording active, a selected tab is a detached one.
   const activeTab = useStore((s) => s.activeTab);
   // A batch's status takes the run-status slot while it runs.
   const batching = useStore((s) => s.batch?.status === "running");
   useViewerKeys();
   useAnnotationKeys();
-  // A recording opened goes to the waveform, a result shown to the results; a desktop window ignores the view.
-  useEffect(() => {
-    if (id) showPhoneView("waveform");
-  }, [id]);
-  useEffect(() => {
-    if (resultId) showPhoneView("results");
-  }, [resultId]);
   return (
     <Tooltip.Provider delay={400}>
+      <PhoneViews />
       <div
         className={styles.shell}
         data-library={library ? "open" : "closed"}
@@ -213,6 +206,23 @@ export function Shell() {
       </div>
     </Tooltip.Provider>
   );
+}
+
+/**
+ * On a phone, a recording opened shows the waveform and a result shown shows the results. A component of its own: what
+ * it follows re-renders nothing else, and a desktop window keeps the view as it was.
+ */
+function PhoneViews() {
+  const phone = usePhone();
+  const id = useStore((s) => s.activeRecordingId);
+  const resultId = useStore((s) => s.shownResult?.id);
+  useEffect(() => {
+    if (phone && id) showPhoneView("waveform");
+  }, [phone, id]);
+  useEffect(() => {
+    if (phone && resultId) showPhoneView("results");
+  }, [phone, resultId]);
+  return null;
 }
 
 /** A button of the phone's view bar; the view shows in a crossfade and closes the inspector. */
