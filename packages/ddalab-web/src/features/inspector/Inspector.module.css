@@ -106,19 +106,23 @@
   gap: var(--space-1);
 }
 
-/* The heading, the group rows and the search field at their own height; the channel list under them takes what the
-   panel has left, at least six rows, and scrolls. A short panel scrolls as a whole down to the DDA settings. */
+/* The heading, at most eight group rows (the rest behind "Show all") and the search field at their own height; under
+   them the channel list, six rows high, comes to rest on whole rows. The annotations and the settings follow. */
 .channels {
   display: flex;
-  flex: 1 0 auto;
+  flex: none;
   flex-direction: column;
   gap: var(--space-2);
   padding: var(--space-3) var(--space-4) 0;
   border-top: var(--hairline-width) solid var(--hairline);
 }
 
-.channels > :not(.scroller) {
-  flex: none;
+/* "Show all N groups": its text in line with the group rows'. */
+.more {
+  align-self: flex-start;
+  height: 24px;
+  margin: calc(-1 * var(--space-1)) 0 0 calc(-1 * var(--space-2));
+  font-size: var(--text-small);
 }
 
 .heading {
@@ -184,8 +188,7 @@
 }
 
 .scroller {
-  flex: 1 1 0;
-  min-height: 168px;
+  max-height: calc(6 * 28px);
   overflow-y: auto;
   margin: 0 calc(-1 * var(--space-4));
   transition-property: opacity;

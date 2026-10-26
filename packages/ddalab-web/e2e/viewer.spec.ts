@@ -393,6 +393,40 @@ test("sensitivity_steps", async ({ page }) => {
   expect(await sensitivity()).toBe(30);
 });
 
+// Twenty electrode groups: eight show, the rest behind "Show all", and the annotations stay in the first viewport at
+// 1440 x 900; the channel list comes to rest on whole rows.
+test("the_inspector_bounds_its_groups_and_rests_on_whole_rows", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const spec = { channels: 20, rateHz: 256, durationS: 60, seed: 4 };
+  const bytes = new Uint8Array(syntheticEdfSize(spec));
+  readSynthetic(spec, 0, bytes);
+  // Labels AX1, BX1, ... TX1: a group each (the 16-byte label fields follow the 256-byte header).
+  for (let c = 0; c < spec.channels; c++) {
+    bytes.set(new TextEncoder().encode(`${String.fromCharCode(65 + c)}X1`.padEnd(16)), 256 + 16 * c);
+  }
+  await page
+    .getByLabel("Recording files")
+    .setInputFiles({ name: "groups.edf", mimeType: "", buffer: Buffer.from(bytes) });
+  const groups = page.getByRole("list", { name: "Electrode groups" }).getByRole("listitem");
+  await expect(groups).toHaveCount(8);
+  await expect(page.getByRole("heading", { name: /^Annotations/ })).toBeInViewport();
+  const more = page.getByRole("button", { name: "Show all 20 groups" });
+  await expect(more).toHaveAttribute("aria-expanded", "false");
+  await more.focus();
+  await page.keyboard.press("Enter");
+  await expect(groups).toHaveCount(20);
+  await expect(page.getByRole("button", { name: "Show the first 8 groups" })).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+  // A scroll that stops between rows settles on a whole row.
+  const list = page.getByRole("list", { name: "Channels" });
+  await list.evaluate((element) => (element.parentElement as HTMLElement).scrollBy({ top: 40 }));
+  await expect
+    .poll(() => list.evaluate((element) => (element.parentElement as HTMLElement).scrollTop % 28))
+    .toBe(0);
+});
+
 test("virtualized_512_channels", async ({ page }) => {
   await openSynthetic(page, { channels: 512, rateHz: 256, durationS: 60, seed: 3 });
   const list = page.getByRole("list", { name: "Channels" });
