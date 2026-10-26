@@ -185,7 +185,9 @@
   min-height: 120px;
   overflow-y: auto;
   margin: 0 calc(-1 * var(--space-4));
-  transition: opacity var(--motion-fast) var(--ease-out);
+  transition-property: opacity;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
 }
 
 .scroller[data-stale] {
@@ -204,10 +206,15 @@
   gap: var(--space-3);
   height: 28px;
   padding: 0 var(--space-4);
+  transition-property: background-color;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
 }
 
-.row:hover {
-  background: var(--chrome-hover);
+@media (hover: hover) and (pointer: fine) {
+  .row:hover {
+    background: var(--chrome-hover);
+  }
 }
 
 .label {

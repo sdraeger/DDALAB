@@ -4,7 +4,6 @@ import {
   type OpenRecording,
   openResult,
   pageOf,
-  removeRecording,
   setShownResult,
   setView,
   showResult,
@@ -106,11 +105,23 @@ function viewWhenShown(id: string, act: () => void) {
 }
 
 test("a_result_that_comes_to_show_alone_starts_on_its_interval", () => {
+  // Recording A open in its tab; the tab of D is detached (its recording is not open).
   useStore.setState({
     recordings: { A: recording("fa") },
     activeRecordingId: "A",
+    tabs: [
+      { fingerprint: "fa", name: "a.edf", source: null },
+      { fingerprint: "fd", name: "d.edf", source: null },
+    ],
+    activeTab: "fa",
     shownResult: null,
-    analyses: [analyzed("imported", ""), analyzed("a", "fa")],
+    activeResultId: null,
+    analyses: [
+      analyzed("imported", ""),
+      analyzed("d", "fd"),
+      analyzed("run", "fd"),
+      record("unread", "fd", "complete"),
+    ],
   });
   // Opened with no recording of its own: in the same update as it shows, on its interval.
   expect(viewWhenShown("imported", () => openResult("imported"))).toMatchObject({ t0: 100, t1: 160 });
@@ -122,22 +133,14 @@ test("a_result_that_comes_to_show_alone_starts_on_its_interval", () => {
   setView({ t0: 110, t1: 120 });
   openResult("imported");
   expect(useStore.getState().view).toMatchObject({ t0: 110, t1: 120 });
-  // Its recording closed, a result stays on alone and moves to its interval.
-  openResult("a");
-  expect(useStore.getState().activeRecordingId).toBe("A");
-  setView({ t0: 0, t1: 10 });
-  removeRecording("A");
-  expect(useStore.getState()).toMatchObject({
-    activeRecordingId: null,
-    shownResult: { id: "a" },
-    view: { t0: 100, t1: 160 },
-  });
-  // A run that ends with its recording closed shows alone too.
-  setView({ t0: 0, t1: 10 });
-  expect(viewWhenShown("run", () => showResult(analyzed("run", "fa")))).toMatchObject({ t0: 100, t1: 160 });
+  // The result of a detached tab shows alone with the tab, on its interval.
+  expect(viewWhenShown("d", () => openResult("d"))).toMatchObject({ t0: 100, t1: 160 });
+  expect(useStore.getState()).toMatchObject({ activeTab: "fd", activeRecordingId: null });
+  // A run of the selected tab that ends shows there alone too.
+  setView({ t0: 120, t1: 130 });
+  expect(viewWhenShown("run", () => showResult(analyzed("run", "fd")))).toMatchObject({ t0: 100, t1: 160 });
   // Without a manifest, on the interval its run asked for.
-  setView({ t0: 0, t1: 10 });
-  const unread = record("unread", "fa", "complete");
+  const unread = record("unread", "fd", "complete");
   expect(viewWhenShown("unread", () => showResult(unread, { t0: 20, t1: 30 }))).toMatchObject({
     t0: 20,
     t1: 30,

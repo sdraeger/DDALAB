@@ -1,11 +1,12 @@
-// The viewer's lazy chunk (Viewer.tsx). Opening a recording asks for it and waits for it beside the open (recordings.ts):
-// the recording's first render has it in place.
+// The viewer's lazy chunk (Viewer.tsx). main.tsx loads it once the shell has painted, and an open waits for it if it is
+// not in yet (recordings.ts): the recording's first render has it in place.
 import { type ComponentType, lazy } from "react";
 import type * as Viewer from "./Viewer";
 
 let loaded: typeof Viewer | undefined;
 
 export const loadViewer = () => import("./Viewer").then((module) => (loaded = module));
+export const viewerLoaded = () => loaded !== undefined;
 
 /**
  * A part of the chunk for React.lazy, `missing` when the chunk does not load. A chunk already loaded comes at once,

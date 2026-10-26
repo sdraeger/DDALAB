@@ -10,8 +10,8 @@ export type Loaded<T> = { ok: T } | { error: string };
 export const loads = new Map<string, Promise<Loaded<unknown>>>();
 
 /**
- * One promise per key, for `use`: it settles once, a failure as its message. A failure stays until Try again drops
- * it: asked again on every render, a missing file would be read again on every frame of a pan. Settled, the promise
+ * One promise per key, for `use`, which needs the same promise on every render: a new one would suspend the view
+ * again. It settles once, a failure as its message, and a failure stays until Try again drops it. Settled, the promise
  * carries its value as React's `use` reads it, which then returns it without suspending.
  */
 export function load<T>(key: string, make: () => Promise<T>): Promise<Loaded<T>> {

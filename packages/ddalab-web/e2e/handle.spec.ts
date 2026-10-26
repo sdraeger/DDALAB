@@ -29,7 +29,10 @@ test("reopen_through_a_stored_handle", async ({ page }) => {
   await expect(channels).toHaveText(["Fp1", "Fp2"]);
   await expect(page.getByRole("button", { name: "Forget fixture.edf" })).toBeVisible(); // stored before the reload
 
+  // Its tab reattaches through the same handle, whose read permission is granted.
   await page.reload();
+  await expect(channels).toHaveText(["Fp1", "Fp2"]);
+  await page.getByRole("button", { name: "Close recording" }).click();
   await expect(channels).toHaveCount(0);
   // No "Locate": the entry holds a handle.
   await expect(page.getByText("Select the file again to reopen it.")).toHaveCount(0);

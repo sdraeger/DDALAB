@@ -3,6 +3,7 @@
 // value, which it prints. Drawn from the frame loop, not by React.
 import { type Ref, use, useImperativeHandle, useRef } from "react";
 import type { ResultArray } from "../../core/protocol";
+import { drawEvents, type EventsScene } from "../../render/axis";
 import type { Colors } from "../../render/themeColors";
 import type { Loaded } from "./loads";
 import styles from "./Results.module.css";
@@ -18,6 +19,8 @@ export interface RowPlotScene {
   width: number;
   dpr: number;
   colors: Colors;
+  /** The events marked across the plot, as on the heatmap. */
+  events: Pick<EventsScene, "recording" | "user" | "picked">;
 }
 
 export interface RowPlotHandle {
@@ -40,7 +43,7 @@ export function RowPlot(props: {
   useImperativeHandle(
     props.ref,
     () => ({
-      draw({ points, view, width, dpr, colors }) {
+      draw({ points, view, width, dpr, colors, events }) {
         const el = canvas.current;
         if (!el) return;
         const height = Math.round(ROW_PLOT_CSS * dpr);
@@ -48,6 +51,7 @@ export function RowPlot(props: {
         if (el.height !== height) el.height = height;
         const ctx = el.getContext("2d") as CanvasRenderingContext2D;
         ctx.clearRect(0, 0, width, height);
+        drawEvents(ctx, { ...events, W: width, H: height, dpr, view, colors });
         if (!known) return;
         const [a, b] = hi > lo ? [lo, hi] : [lo - 1, hi + 1];
         const pad = 6 * dpr;
@@ -88,14 +92,14 @@ export function RowPlot(props: {
 
   return (
     <>
-      <div className={styles.rowGutter}>
+      <div className={styles.rowGutter} data-appear>
         <span className={styles.rowLabel}>{props.label}</span>
         <ul className={styles.scale} aria-label="Line plot scale">
           {known && <li>{print(hi)}</li>}
           {known && <li>{print(lo)}</li>}
         </ul>
       </div>
-      <div className={styles.rowCell}>
+      <div className={styles.rowCell} data-appear>
         <canvas
           ref={canvas}
           role="img"

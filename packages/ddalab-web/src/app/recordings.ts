@@ -2,6 +2,8 @@
 import { createEngine, type RecordingInput } from "../core/engine";
 import { buildFileSet } from "../core/sources";
 import type { SyntheticSpec } from "../core/synthetic";
+import type { RecordingInfo } from "../core/types";
+import { restoreAnnotations } from "../features/annotations/model";
 import { forgetRecent, listRecent, type RecentEntry, rememberRecent } from "../store/recent";
 import {
   activateRecording,
@@ -11,15 +13,18 @@ import {
   setScan,
   useStore,
 } from "../store/store";
-import { loadViewer } from "./viewerChunk";
+import { filesSource, forgetTab, type TabSource, tabOpened } from "../store/tabs";
+import { loadViewer, viewerLoaded } from "./viewerChunk";
 
 export const engine = createEngine();
 
 /**
- * The viewer's chunk, asked for as a recording starts to open and awaited with the open: the recording then renders
- * with its plots at once (viewerChunk.ts). A chunk that does not load is reported where the plots go.
+ * The viewer's chunk, which main.tsx loads once the shell has painted, awaited before an open: the recording then
+ * renders with its plots at once (viewerChunk.ts). Before the open, never between it and `adopt`: the hash a tab keeps
+ * (tabs.ts) is taken from the scan reports that follow `adopt`. A chunk that does not load is reported where the plots
+ * go.
  */
-const viewerReady = () => loadViewer().catch(() => {});
+const viewerReady = () => (viewerLoaded() ? undefined : loadViewer().catch(() => {}));
 
 /** Brings what the engine learns about a recording after it opened into the store: its scan and its annotations. */
 function follow(id: string) {
@@ -33,18 +38,70 @@ function follow(id: string) {
     .then((found) => setAnnotations(id, found));
 }
 
-/** Shows an opened recording: a new one joins the store; one that was already open becomes the active one. */
-function adopt(opened: Awaited<ReturnType<typeof engine.open>>, source: "files" | "url" | "synthetic") {
+/**
+ * Shows an opened recording: a new one joins the store and its tab the tabs; one that was already open becomes the
+ * active one. `origin` is where its tab reads it again; `activate` false leaves the active recording as it is.
+ */
+function adopt(
+  opened: Awaited<ReturnType<typeof engine.open>>,
+  source: "files" | "url" | "synthetic",
+  origin: TabSource | null,
+  activate = true,
+) {
   const { id, info, fingerprint, analysis_channels } = opened;
-  if (useStore.getState().recordings[id]) return activateRecording(id);
-  addRecording(id, { info, fingerprint, analysis_channels, source });
-  follow(id);
+  if (!useStore.getState().recordings[id]) {
+    addRecording(id, { info, fingerprint, analysis_channels, source }, activate);
+    follow(id);
+    void restoreAnnotations(fingerprint);
+  } else if (activate) activateRecording(id);
+  tabOpened(id, fingerprint, info.input_files[0], origin);
 }
 
-/** Opens an input as the UI opens files: an OpenNeuro recording, or a synthetic one in dev and e2e builds. */
-export async function openInput(input: RecordingInput) {
-  const [opened] = await Promise.all([engine.open(input), viewerReady()]);
-  adopt(opened, input.kind);
+/** Why an opened recording is not the one of `expect`, which closes it again unless it was already open. */
+function unexpected(
+  opened: { id: string; fingerprint: string; duplicate?: boolean },
+  name: string,
+  expect?: string,
+  release = releaser(opened),
+) {
+  if (expect === undefined || opened.fingerprint === expect) return undefined;
+  release();
+  return `${name} changed since it was opened`;
+}
+
+/**
+ * Closes the engine recording of `opened` at most once, and only when this open made it and nothing shows it: the id
+ * of an open of the same content that came first (`duplicate`), or one the store holds, belongs to someone else.
+ */
+function releaser(opened: { id: string; duplicate?: boolean }) {
+  let released = false;
+  return () => {
+    if (released || opened.duplicate || useStore.getState().recordings[opened.id]) return;
+    released = true;
+    engine.close(opened.id);
+  };
+}
+
+/**
+ * Opens an input as the UI opens files: an OpenNeuro recording, or a synthetic one in dev and e2e builds. With
+ * `expect`, another recording than the one of that fingerprint is refused. Stopped (`signal`) before it shows, it
+ * closes what it opened and throws.
+ */
+export async function openInput(
+  input: RecordingInput,
+  options: { expect?: string; activate?: boolean; signal?: AbortSignal } = {},
+) {
+  await viewerReady();
+  const opened = await engine.open(input);
+  const release = releaser(opened);
+  const name = "primary" in input ? input.primary : "The recording";
+  const refused = unexpected(opened, name, options.expect, release);
+  if (refused) throw new Error(refused);
+  if (options.signal?.aborted) {
+    release();
+    throw new Error("The check was stopped");
+  }
+  adopt(opened, input.kind, input.kind === "url" ? { kind: "url", input } : null, options.activate);
   return opened.id;
 }
 
@@ -52,9 +109,12 @@ export const openSynthetic = (spec: SyntheticSpec) => openInput({ kind: "synthet
 
 /** What the UI tells the user after an attempt to open. */
 export type Outcome =
-  | { kind: "opened"; warning?: string }
+  | { kind: "opened"; id: string; warning?: string }
   | { kind: "error"; message: string; folder: boolean }
   | { kind: "choose"; candidates: string[] };
+
+/** The handles of a recording's files and of the folder they were walked from, where the browser gives them. */
+export type FileHandles = { files?: FileSystemFileHandle[]; root?: FileSystemDirectoryHandle };
 
 // The core's reply to a header whose data file is not in the set.
 const MISSING_COMPANION = /names .+, which is not among the opened files/;
@@ -75,24 +135,95 @@ export async function refreshRecent() {
   useStore.setState({ recent: await listRecent().catch(() => []) });
 }
 
+/** Why the hash of the open recording `id` could not be computed, apart from any error of its scan. */
+function hashErrorOf(id: string) {
+  let found: string | undefined;
+  engine.onScan(id, (state) => {
+    found = state.hashError;
+  })();
+  return found;
+}
+
+/**
+ * Hashes the recording `opened` before it shows: why its files are not the ones of `verify` (their SHA-256), or
+ * `undefined` when they are. `signal` stops the check at any time, and `release` then closes the recording.
+ */
+async function verified(
+  opened: { id: string; info: RecordingInfo },
+  verify: Record<string, string>,
+  release: () => void,
+  signal?: AbortSignal,
+) {
+  signal?.addEventListener("abort", release, { once: true });
+  // Resolves with every file's SHA-256, or with fewer once the hash failed or the recording closed.
+  const sha256 = await engine.hashes(opened.id);
+  signal?.removeEventListener("abort", release);
+  if (signal?.aborted) return "The check was stopped";
+  const names = opened.info.input_files;
+  const differs = names.find((name) => verify[name] && sha256[name] && sha256[name] !== verify[name]);
+  if (differs) return `${differs} changed since it was opened`;
+  if (names.some((name) => !sha256[name]))
+    return `${names[0]} could not be checked. ${hashErrorOf(opened.id) ?? ""}`;
+  return undefined;
+}
+
 /**
  * Opens the recording in `files`. `choice` picks among several (see `buildFileSet`). `expect` is the fingerprint of
- * the recording the user is locating again; another file opens, with a warning. `handle` lets the recent list
- * reopen a single-file recording without a picker.
+ * the recording the user is locating again; another file opens, with a warning, or with `exact` is refused. `verify`
+ * holds the SHA-256 its files must have: they are hashed before the recording shows, other content is refused, and
+ * `signal` stops the check. `handle` lets the recent list reopen a single-file recording without a picker. `handles`
+ * (from a folder walk or the browser's file picker) keeps the files' and the folder's handles in its tab, which then
+ * reattaches on the next visit (tabs.ts). `activate` false opens it beside the active recording.
  */
 export async function openFiles(
   files: File[],
-  options: { choice?: string; expect?: string; handle?: FileSystemHandle } = {},
+  options: {
+    choice?: string;
+    expect?: string;
+    exact?: boolean;
+    verify?: Record<string, string>;
+    signal?: AbortSignal;
+    handle?: FileSystemHandle;
+    handles?: FileHandles;
+    activate?: boolean;
+  } = {},
 ): Promise<Outcome> {
   const set = buildFileSet(files, options.choice);
   if ("error" in set) return { kind: "error", message: set.error, folder: false };
   if ("candidates" in set) return { kind: "choose", candidates: set.candidates };
   try {
-    const input = { kind: "files", files: set.files, primary: set.primary } as const;
-    const [opened] = await Promise.all([engine.open(input), viewerReady()]);
-    adopt(opened, "files");
+    await viewerReady();
+    const opened = await engine.open({ kind: "files", files: set.files, primary: set.primary });
+    const release = releaser(opened);
+    const refused = options.exact && unexpected(opened, set.primary, options.expect, release);
+    if (refused) return { kind: "error", message: refused, folder: false };
+    if (options.signal?.aborted) {
+      release();
+      return { kind: "error", message: "The check was stopped", folder: false };
+    }
+    if (options.verify && !useStore.getState().recordings[opened.id]) {
+      const refusal = await verified(opened, options.verify, release, options.signal);
+      if (refusal) {
+        release();
+        return { kind: "error", message: refusal.trim(), folder: false };
+      }
+    }
     const { info, fingerprint } = opened;
-    const handle = info.input_files.length === 1 ? options.handle : undefined;
+    // Each file's handle, from `handles` in the order of `files`, or the one `handle` of a single file.
+    const byFile = new Map<File, FileSystemFileHandle>();
+    for (const [i, file] of files.entries()) {
+      const own = options.handles?.files?.[i];
+      if (own) byFile.set(file, own);
+    }
+    if (options.handle?.kind === "file" && files.length === 1) {
+      byFile.set(files[0], options.handle as FileSystemFileHandle);
+    }
+    const used = [set.primary, ...info.input_files.filter((name) => name !== set.primary)];
+    const source = filesSource(set.files, used, { files: byFile, root: options.handles?.root });
+    adopt(opened, "files", source, options.activate);
+    const primary = set.files.find((file) => file.name === set.primary);
+    const handle =
+      info.input_files.length === 1 ? (options.handle ?? (primary && byFile.get(primary))) : undefined;
     await rememberRecent({ fingerprint, primary: set.primary, names: info.input_files, handle }).catch(
       () => {},
     );
@@ -100,6 +231,7 @@ export async function openFiles(
     const differs = options.expect !== undefined && options.expect !== fingerprint;
     return {
       kind: "opened",
+      id: opened.id,
       warning: differs ? "This file differs from the recording you opened before" : undefined,
     };
   } catch (error) {
@@ -109,13 +241,16 @@ export async function openFiles(
 }
 
 /** The files the user picks in the browser's own picker, which also gives handles; `undefined` without one. */
-export async function pickFiles(): Promise<{ files: File[]; handle?: FileSystemHandle } | undefined> {
+export async function pickFiles(): Promise<
+  { files: File[]; handle?: FileSystemHandle; handles: FileHandles } | undefined
+> {
   const show = picker();
   if (!show) return undefined;
   const handles = await show({ multiple: true });
   return {
     files: await Promise.all(handles.map((h) => h.getFile())),
     handle: handles.length === 1 ? handles[0] : undefined,
+    handles: { files: handles },
   };
 }
 
@@ -139,7 +274,10 @@ export async function forget(entry: RecentEntry) {
   await refreshRecent();
 }
 
+/** Closes a recording and its tab, which leaves the remembered set; the recording stays in the recent list. */
 export function closeRecording(id: string) {
+  const fingerprint = useStore.getState().recordings[id]?.fingerprint;
+  if (fingerprint) forgetTab(fingerprint);
   engine.close(id);
   removeRecording(id);
 }

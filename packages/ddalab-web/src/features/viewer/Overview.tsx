@@ -1,18 +1,18 @@
 // The overview locator: the whole recording, the view outlined with its range tab, the selection and the events.
-// Paging glides the outline to its new place (the one authored motion); dragging and wheel moves follow at once.
+// The outline follows every view change at once, paging included: it moves with the traces.
 import { useEffect, useRef } from "react";
 import { engine } from "../../app/recordings";
 import { EngineStopped } from "../../core/engine";
 import { tileCount, tileRows } from "../../core/opfs";
 import type { ScanState } from "../../core/protocol";
+import { observeDevicePixels, type PlotSize } from "../../render/devicePixels";
 import { paramsOf } from "../../render/display";
 import { drawOverview, envelope, overviewLevel } from "../../render/overviewLayer";
 import { readColors, watchTheme } from "../../render/themeColors";
 import { setView, useStore } from "../../store/store";
+import { userOf } from "../annotations/model";
 import styles from "./Viewer.module.css";
 
-/** View changes closer together than this are a continuous move: the outline follows without gliding. */
-const CONTINUOUS_MS = 150;
 /** A tile that failed to read is asked for again after this pause. */
 const RETRY_MS = 5000;
 
@@ -49,11 +49,10 @@ export function Overview({ recordingId }: { recordingId: string }) {
     /** Why each tile was last asked for; a tile asked for before the scan reached it is asked again after. */
     const asked = new Map<number, "scanned" | "idle" | "failed">();
     const pending = new Set<number>();
-    let size = { cssW: 0, W: 0, H: 0, dpr: 1 };
+    let size: PlotSize = { cssW: 0, cssH: 0, dpr: 1, W: 0, H: 0 };
     let raf = 0;
-    let last = { t0: Number.NaN, t1: Number.NaN, at: 0 };
-    /** The strip width the outline was last placed for. */
-    let outlinedW = Number.NaN;
+    /** The view and the strip width the outline was last placed for. */
+    let last = { t0: Number.NaN, t1: Number.NaN, cssW: Number.NaN };
     let colors = readColors(stripEl);
     /** What the canvas last showed: it is redrawn when that changes, not on every move of the view. */
     let drawnScene: unknown[] = [];
@@ -110,7 +109,8 @@ export function Overview({ recordingId }: { recordingId: string }) {
       const scanPercent = scanning ? Math.floor((100 * scan.scannedRows) / scan.totalRows) : null;
       const { selection } = state;
       const { annotations } = recording.info;
-      const scene = [tiles.size, scanPercent, selection?.t0, selection?.t1, annotations, size, colors];
+      const user = userOf(state, recording.fingerprint);
+      const scene = [tiles.size, scanPercent, selection?.t0, selection?.t1, annotations, user, size, colors];
       if (scene.some((part, i) => part !== drawnScene[i])) {
         drawnScene = scene;
         drawOverview(ctx, {
@@ -124,20 +124,16 @@ export function Overview({ recordingId }: { recordingId: string }) {
           scanPercent,
           selection,
           annotations: annotations.map((a) => a.onset_s),
+          user: user.map((a) => a.onset_s),
           colors,
         });
       }
       const { t0, t1 } = state.view;
-      if (t0 === last.t0 && t1 === last.t1 && size.cssW === outlinedW) return;
-      outlinedW = size.cssW;
+      if (t0 === last.t0 && t1 === last.t1 && size.cssW === last.cssW) return;
+      last = { t0, t1, cssW: size.cssW };
       // Read before the writes, from the last frame's layout: the tabular numerals (base.css) give a text that differs
       // only in its digits the same width. Any other change of the text is measured after it is written.
       let tabW = tabEl.offsetWidth;
-      if (t0 !== last.t0 || t1 !== last.t1) {
-        const now = performance.now();
-        outlineEl.dataset.live = String(now - last.at < CONTINUOUS_MS);
-        last = { t0, t1, at: now };
-      }
       const left = (t0 / span) * size.cssW;
       const width = Math.max(2, ((t1 - t0) / span) * size.cssW);
       outlineEl.style.transform = `translateX(${left}px)`;
@@ -151,21 +147,21 @@ export function Overview({ recordingId }: { recordingId: string }) {
       tabEl.style.transform = `translateX(${Math.min(size.cssW - left - tabW, Math.max(-left, centered))}px)`;
     };
 
-    const resize = new ResizeObserver(([entry]) => {
-      const dpr = window.devicePixelRatio || 1;
-      const { width, height } = entry.contentRect;
-      size = { cssW: width, W: Math.round(width * dpr), H: Math.round(height * dpr), dpr };
+    const stopResize = observeDevicePixels(canvasEl, (next) => {
+      size = next;
       canvasEl.width = size.W;
       canvasEl.height = size.H;
       paint();
     });
-    resize.observe(canvasEl);
-    // A paint follows what it draws: the view, the selection and the recording (its scan, its events).
+    // A paint follows what it draws: the view, the selection, the recording (its scan, its events) and the user's
+    // annotations.
     const unsubscribe = useStore.subscribe((s, p) => {
       if (
         s.view !== p.view ||
         s.selection !== p.selection ||
-        s.recordings[recordingId] !== p.recordings[recordingId]
+        s.recordings[recordingId] !== p.recordings[recordingId] ||
+        s.annotations !== p.annotations ||
+        s.annotationDraft !== p.annotationDraft
       )
         schedule();
     });
@@ -174,8 +170,8 @@ export function Overview({ recordingId }: { recordingId: string }) {
       schedule();
     });
 
-    // Pointing at the strip centres the view there; dragging moves it along.
-    const centre = (clientX: number) => {
+    // Pointing at the strip centers the view there; dragging moves it along.
+    const center = (clientX: number) => {
       const box = canvasEl.getBoundingClientRect();
       const at = ((clientX - box.left) / box.width) * span;
       setView((v) => ({ t0: at - (v.t1 - v.t0) / 2, t1: at + (v.t1 - v.t0) / 2 }));
@@ -185,10 +181,10 @@ export function Overview({ recordingId }: { recordingId: string }) {
       if (event.button !== 0) return;
       dragging = true;
       stripEl.setPointerCapture(event.pointerId);
-      centre(event.clientX);
+      center(event.clientX);
     };
     const move = (event: PointerEvent) => {
-      if (dragging) centre(event.clientX);
+      if (dragging) center(event.clientX);
     };
     const up = () => {
       dragging = false;
@@ -200,7 +196,7 @@ export function Overview({ recordingId }: { recordingId: string }) {
 
     return () => {
       cancelAnimationFrame(raf);
-      resize.disconnect();
+      stopResize();
       unsubscribe();
       unwatch();
       stripEl.removeEventListener("pointerdown", down);
@@ -211,7 +207,7 @@ export function Overview({ recordingId }: { recordingId: string }) {
   }, [recordingId]);
 
   return (
-    <div className={styles.overview}>
+    <div className={styles.overview} data-appear>
       <div className={styles.overviewLabel}>
         <span>Overview</span>
         <span className={styles.muted}>{compact(duration)} s</span>

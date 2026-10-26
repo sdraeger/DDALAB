@@ -11,6 +11,7 @@
 // view and for the top tile, which stay loaded, so the plot never blanks once a region is scanned.
 import { bucketSize, levelCount, tileRows } from "../core/opfs";
 import type { Tile } from "../core/protocol";
+import { TileCache } from "../core/tileCache";
 import { program } from "./gl";
 import { type DrawPlan, drawPlan, tileIndices } from "./levels";
 import { type Failure, nextFailure } from "./retry";
@@ -32,6 +33,8 @@ const RUN_BYTES = 32 * 2 ** 20;
 const MAX_IN_FLIGHT = 6;
 /** Raw chunks put into layers from the CPU cache within one frame. */
 const UPLOADS_PER_FRAME = 32;
+/** Raw chunks of every display channel by `${trace.key}/${chunk}`, least recently used first; shared by the layers. */
+const rawCache = new TileCache<Float32Array>(RAW_CACHE, (values) => values.byteLength);
 /** The view is covered by at most this many tiles of the cover level. */
 const COVER_TILES = 4;
 
@@ -41,6 +44,8 @@ export interface DataSource {
 }
 
 export interface Trace {
+  /** What the raw chunks are cached by (the recording's fingerprint): a layer made again for it finds them. */
+  key: string;
   /** Display channels, the columns of every raw row and tile. */
   channels: number;
   rows: number;
@@ -315,9 +320,7 @@ export function createWaveformLayer(
 
   const chunkBytes = channels * LAYER_ROWS * 4;
   const runChunks = Math.max(1, Math.min(16, Math.floor(RUN_BYTES / chunkBytes)));
-  /** Raw chunks of every display channel, least recently used first. */
-  const cache = new Map<number, Float32Array>();
-  let cacheBytes = 0;
+  const chunkKey = (chunk: number) => `${trace.key}/${chunk}`;
   /** Requests in flight by key: tiles `level/index`, raw chunks `r<chunk>`. */
   const inFlight = new Set<string>();
   let tilesInFlight = 0;
@@ -393,24 +396,11 @@ export function createWaveformLayer(
   }
 
   function remember(chunk: number, values: Float32Array) {
-    cacheBytes -= cache.get(chunk)?.byteLength ?? 0;
-    cache.delete(chunk);
-    cache.set(chunk, values);
-    cacheBytes += values.byteLength;
-    for (const [old, kept] of cache) {
-      if (cacheBytes <= RAW_CACHE) break;
-      cache.delete(old);
-      cacheBytes -= kept.byteLength;
-    }
+    rawCache.set(chunkKey(chunk), values);
   }
 
   function cached(chunk: number): Float32Array | undefined {
-    const values = cache.get(chunk);
-    if (values) {
-      cache.delete(chunk);
-      cache.set(chunk, values);
-    }
-    return values;
+    return rawCache.get(chunkKey(chunk));
   }
 
   /** A failed request is asked again as retry.ts says. */
@@ -589,7 +579,7 @@ export function createWaveformLayer(
         continue;
       }
       complete = false;
-      if (raw && cache.has(k)) deferred = true;
+      if (raw && rawCache.has(chunkKey(k))) deferred = true;
       else if (raw) wantRaw.push(k);
       else wantTiles.push(k);
       const start = k * slotRows;
@@ -626,7 +616,7 @@ export function createWaveformLayer(
         const around: number[] = [];
         for (let i = 1; i <= ahead; i++) {
           for (const k of [lastChunk + i, firstChunk - i]) {
-            const loaded = cache.has(k) || raws.resident.has(`${k}@${rawFirst}`);
+            const loaded = rawCache.has(chunkKey(k)) || raws.resident.has(`${k}@${rawFirst}`);
             if (k >= 0 && k * LAYER_ROWS < rows && !loaded) around.push(k);
           }
         }

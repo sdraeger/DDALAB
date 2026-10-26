@@ -117,14 +117,17 @@ export function RunBar({ recordingId }: { recordingId: string }) {
   return (
     <section aria-label="Run" className={styles.runBar}>
       <IntervalFields interval={interval} duration={duration} error={errors.range} />
+      {/* Keyed: a line of another kind mounts anew and fades in, where React would reuse the paragraph. */}
       {reason ? (
-        <p className={styles.note}>{reason}</p>
+        <p key="reason" className={styles.note} data-appear>
+          {reason}
+        </p>
       ) : plan?.refused ? (
-        <p role="alert" className={styles.error}>
+        <p key="refused" role="alert" className={styles.error}>
           {plan.text}
         </p>
       ) : (
-        <p className={styles.plan}>
+        <p key="plan" className={styles.plan} data-appear>
           {plan ? (
             <>
               <b>Plan</b> {plan.text}
@@ -148,7 +151,11 @@ export function RunBar({ recordingId }: { recordingId: string }) {
           Run DDA
         </button>
       )}
-      {busy && !ours && <p className={styles.note}>{ELSEWHERE}</p>}
+      {busy && !ours && (
+        <p className={styles.note} data-appear>
+          {ELSEWHERE}
+        </p>
+      )}
       {ours && <Outcome status={status} error={error} />}
     </section>
   );
@@ -180,6 +187,7 @@ export function RunButton({ recordingId, status }: { recordingId: string; status
       <button
         type="button"
         className={controls.primary}
+        data-appear
         disabled={!request || busy || (status && plan?.refused)}
         onClick={() => runNow(recordingId, now)}
       >
@@ -281,7 +289,7 @@ function IntervalFields(props: { interval: Interval; duration: number; error?: s
         {field("end", "End")}
       </div>
       {error && (
-        <p id={`${id}-error`} className={styles.fieldError}>
+        <p id={`${id}-error`} className={styles.fieldError} data-appear>
           {error}
         </p>
       )}
@@ -295,7 +303,7 @@ function Progress() {
   const { blocksDone, blocks, windowsDone, windows, etaS } = progress;
   const left = etaS === null ? "" : `, about ${count(Math.ceil(etaS), "second")} left`;
   return (
-    <div className={styles.progress}>
+    <div className={styles.progress} data-appear>
       <progress aria-label="Run progress" max={windows || 1} value={windowsDone} />
       <p className={styles.note} aria-live="polite">
         {blocks === 0
@@ -312,7 +320,7 @@ function Progress() {
 function Outcome(run: { status?: RunState["status"]; error?: string }) {
   if (run.status === "complete") {
     return (
-      <p className={styles.complete}>
+      <p className={styles.complete} data-appear>
         <Check aria-hidden />
         Complete
       </p>
@@ -325,5 +333,9 @@ function Outcome(run: { status?: RunState["status"]; error?: string }) {
       </p>
     );
   }
-  return run.status === "cancelled" ? <p className={styles.note}>Cancelled</p> : null;
+  return run.status === "cancelled" ? (
+    <p className={styles.note} data-appear>
+      Cancelled
+    </p>
+  ) : null;
 }

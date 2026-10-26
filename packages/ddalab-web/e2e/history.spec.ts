@@ -127,7 +127,7 @@ test("history_survives_reload", async ({ page }) => {
   const row = history(page).getByRole("listitem").filter({ hasText: "ST on fixture.vhdr" });
   await expect(row).toContainText("Complete");
   await row.getByRole("button", { name: /^ST on fixture\.vhdr/ }).click();
-  expect((await state(page)).activeResultId).toBe(id);
+  await expect.poll(async () => (await state(page)).activeResultId).toBe(id);
   const sha = createHash("sha256")
     .update(readFileSync(fixturePath("fixture.eeg")))
     .digest("hex");
@@ -202,6 +202,7 @@ test("import_cli_bundle_shows_heatmap_without_recording", async ({ page }) => {
   await page.getByLabel("Result file").setInputFiles(stZip());
   const row = history(page).getByRole("listitem").filter({ hasText: "ST on fixture.vhdr" });
   await expect(row).toContainText("Complete");
+  await expect(provenance(page)).toBeVisible();
   const { analyses, activeResultId, activeRecordingId } = await state(page);
   expect(activeRecordingId).toBeNull();
   expect(activeResultId).toBe(analyses[0].id);
@@ -260,6 +261,8 @@ test("history_row_activates_its_recording", async ({ page }) => {
 });
 
 test("session_restores_view", async ({ page }) => {
+  // The scale settings sit in the bar from 1400 px with the inspector open (Shell.module.css).
+  await page.setViewportSize({ width: 1440, height: 720 });
   test.skip(!(await hasStorage(page)), NO_STORAGE);
   const id = await runBrainVision(page);
   // The 30 s EDF at 20 s epochs, on its second page, which ends at the end of the recording.
@@ -269,10 +272,13 @@ test("session_restores_view", async ({ page }) => {
   await page.getByRole("option", { name: "20 s" }).click();
   await page.getByRole("button", { name: "Next page" }).click();
   await page.getByRole("button", { name: "Inspector" }).click();
+  await expect(page.getByRole("button", { name: "Inspector" })).toHaveAttribute("aria-pressed", "false");
   expect((await state(page)).view).toMatchObject({ t0: 10, t1: 30, epochS: 20 });
   await page.reload();
-  // The panels at once, the result once the history has loaded.
+  // The panels at once; the result comes back with its tab once the history has loaded.
   await expect(page.getByRole("button", { name: "Inspector" })).toHaveAttribute("aria-pressed", "false");
+  await expect(history(page).getByRole("button", { name: /^ST on fixture\.vhdr/ })).toBeVisible();
+  await page.getByRole("tab", { name: /^fixture\.vhdr/ }).click();
   await expect.poll(async () => (await state(page)).activeResultId).toBe(id);
   // The view comes back when the recording opens again.
   await page.getByLabel("Recording files").setInputFiles(fixturePath("fixture.edf"));

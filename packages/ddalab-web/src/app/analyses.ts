@@ -11,9 +11,13 @@ import type { DDARequest, VariantInfo } from "../core/types";
 import { loads, manifestKey, manifestOf, preloadPanel } from "../features/results/loads";
 import { openResult, type RunState, showResult, useStore } from "../store/store";
 import { engine } from "./recordings";
+import { inTransition } from "./viewTransition";
+
+/** The engine's version and metadata, asked for once. */
+export const engineVersion = engine.version();
 
 /** The variants the core offers, from its metadata; none when the engine did not start (the library says why). */
-export const variants = engine.version().then(
+export const variants = engineVersion.then(
   (version) => version.variants,
   (): VariantInfo[] => [],
 );
@@ -118,7 +122,9 @@ export async function startRun(recordingId: string, request: DDARequest) {
     // The result shows before its record is saved and the history listed again.
     useStore.setState((s) => ({ analyses: s.analyses.map((a) => (a.id === record.id ? complete : a)) }));
     setRun({ status: "complete" });
-    // Without its manifest, the interval comes from the request, in samples of the recording.
+    // Without its manifest, the interval comes from the request, in samples of the recording. Not in a view
+    // transition: the run ends whatever the pointer is doing, the panel fades in by itself, and the result often lands
+    // in a tab that is not shown (store.ts showResult).
     const rate = recording.info.sample_rate_hz;
     const asked = { t0: request.time_range.start / rate, t1: request.time_range.end / rate };
     showResult(complete, manifest ? undefined : asked);
@@ -137,7 +143,7 @@ export async function startRun(recordingId: string, request: DDARequest) {
 export async function deleteResult(id: string) {
   await engine.deleteResult(id);
   await deleteAnalysis(id);
-  if (useStore.getState().activeResultId === id) openResult(null);
+  if (useStore.getState().activeResultId === id) inTransition(() => openResult(null));
   await refreshAnalyses();
 }
 

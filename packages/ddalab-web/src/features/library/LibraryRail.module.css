@@ -79,10 +79,15 @@
   background: transparent;
   text-align: left;
   cursor: pointer;
+  transition-property: background-color;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
 }
 
-.entry:hover {
-  background: var(--chrome-hover);
+@media (hover: hover) and (pointer: fine) {
+  .entry:hover {
+    background: var(--chrome-hover);
+  }
 }
 
 .entry[aria-current="true"] {

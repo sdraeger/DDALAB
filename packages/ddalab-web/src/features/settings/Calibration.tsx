@@ -11,7 +11,7 @@ export default function Calibration() {
   // The bar is 50 physical mm when the setting is right: 50 / mmPerCssMm CSS mm.
   const barMm = BAR_MM / mmPerCssMm;
   return (
-    <div className={styles.calibration}>
+    <div className={styles.calibration} data-appear>
       <h2 className={styles.title}>Display calibration</h2>
       <p className={styles.text}>
         Hold a ruler to the bar and adjust until it measures {BAR_MM} mm. Sensitivity and timebase are then

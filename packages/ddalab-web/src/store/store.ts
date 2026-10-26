@@ -4,9 +4,11 @@ import type { AnalysisRecord } from "../core/history";
 import type { ScanState } from "../core/protocol";
 import type { RunProgress } from "../core/scheduler";
 import type { Annotation, RecordingInfo } from "../core/types";
+import type { UserAnnotation } from "../core/userAnnotations";
 import { type DdaForm, DEFAULT_FORM } from "../features/analysis/validate";
 import { saveTheme, storedTheme, type Theme } from "../styles/theme";
 import type { RecentEntry } from "./recent";
+import type { Tab, TabView } from "./tabs";
 
 export interface OpenRecording {
   info: RecordingInfo;
@@ -25,6 +27,8 @@ export const EPOCHS: Epoch[] = [10, 20, 30];
 export const SENSITIVITIES = [1, 2, 3, 5, 7, 10, 15, 20, 30, 50, 70, 100];
 /** CSS pixels in a CSS millimetre. */
 export const CSS_PX_PER_MM = 96 / 25.4;
+/** The shortest span the view zooms to, in samples. */
+export const MIN_SPAN_SAMPLES = 8;
 
 /** What the waveform shows: seconds from the recording start, display channel rows and the physical scale. */
 export interface View {
@@ -70,13 +74,25 @@ function intervalOf(record: AnalysisRecord | undefined) {
   return reproduction && { t0: reproduction.start_time_seconds, t1: reproduction.end_time_seconds };
 }
 
-/** A result that comes to show alone fills the time axis with its analysis interval. */
-const alone = (view: View, shownResult: ShownResult) => ({
-  shownResult,
-  view: shownResult.interval ? { ...view, ...shownResult.interval } : view,
-});
+/**
+ * `next` as an update of `s` in which a result that comes to show alone (no recording active) fills the time axis
+ * with its analysis interval, which then bounds the view. One already shown alone keeps its view.
+ */
+function shownAlone(s: State, next: Partial<State>): Partial<State> {
+  const shownResult = next.shownResult === undefined ? s.shownResult : next.shownResult;
+  const active = next.activeRecordingId === undefined ? s.activeRecordingId : next.activeRecordingId;
+  if (!shownResult || active !== null) return next;
+  if (s.activeRecordingId === null && s.shownResult?.id === shownResult.id) return next;
+  const interval = shownResult.interval ?? intervalOf(s.analyses.find((a) => a.id === shownResult.id));
+  if (!interval) return next;
+  return {
+    ...next,
+    shownResult: { ...shownResult, interval },
+    view: { ...(next.view ?? s.view), ...interval },
+  };
+}
 
-interface State {
+export interface State {
   recordings: Record<string, OpenRecording>;
   activeRecordingId: string | null;
   recent: RecentEntry[];
@@ -97,6 +113,20 @@ interface State {
   plotCssWidth: number;
   /** The theme the user picked; `null` follows the system. */
   theme: Theme | null;
+  /** The open recordings as tabs, in order (tabs.ts). */
+  tabs: Tab[];
+  /** The selected tab: the active recording's, or a detached one; `null` with none, as for a result shown alone. */
+  activeTab: string | null;
+  /** Why a detached tab did not reattach, by fingerprint. */
+  tabReasons: Record<string, string>;
+  /** The user's annotations by recording fingerprint (features/annotations/model.ts). */
+  annotations: Record<string, UserAnnotation[]>;
+  /** The annotation picked on the ruler or in the list: a user annotation's id, or `file:<index>`. */
+  pickedAnnotation: string | null;
+  /** The annotation whose editor is open; `created` until its label is first saved. */
+  annotationEditor: { id: string; created: boolean } | null;
+  /** A user annotation where a drag on the plot has it now, until the drag ends. */
+  annotationDraft: UserAnnotation | null;
 }
 
 const CALIBRATION_KEY = "ddalab.mmPerCssMm";
@@ -135,6 +165,13 @@ export const useStore = create<State>()(() => ({
   cursorS: null,
   plotCssWidth: 0,
   theme: storedTheme(),
+  tabs: [],
+  activeTab: null,
+  tabReasons: {},
+  annotations: {},
+  pickedAnnotation: null,
+  annotationEditor: null,
+  annotationDraft: null,
 }));
 
 export const activeRecording = (s: State) =>
@@ -157,7 +194,7 @@ function clamp(
   }
   const { duration_s: duration, sample_rate_hz: rate } = recording.info;
   const channels = recording.analysis_channels.length;
-  const span = Math.min(duration, Math.max(8 / rate, view.t1 - view.t0));
+  const span = Math.min(duration, Math.max(MIN_SPAN_SAMPLES / rate, view.t1 - view.t0));
   const t0 = Math.min(duration - span, Math.max(0, view.t0));
   const rowCount = Math.max(1, Math.min(channels, Math.round(view.rowCount)));
   const firstChannel = Math.max(0, Math.min(channels - rowCount, Math.round(view.firstChannel)));
@@ -173,36 +210,98 @@ function freshView(
   return { view: clamp(next, recording), selection: null, cursorS: null };
 }
 
-/** Adds a freshly opened recording, which nothing has scanned yet, and makes it the active one. */
-export function addRecording(id: string, recording: Omit<OpenRecording, "scan" | "selectedChannels">) {
-  const scan: ScanState = { scannedRows: 0, totalRows: recording.info.sample_count };
-  const added: OpenRecording = { ...recording, scan, selectedChannels: [] };
-  useStore.setState((s) => ({
-    recordings: { ...s.recordings, [id]: added },
-    activeRecordingId: id,
-    ...freshView(s.view, added),
-  }));
+/** What the selected tab keeps while another is shown; a detached tab keeps its view and takes its result along. */
+export function tabViewOf(s: State, kept?: TabView): TabView {
+  const recording = activeRecording(s);
+  const { mmPerCssMm: _, ...view } = s.view;
+  const result = { shownResult: s.shownResult, activeResultId: s.activeResultId };
+  if (recording)
+    return { view, selection: s.selection, selectedChannels: recording.selectedChannels, ...result };
+  const first = { ...view, t0: 0, t1: view.epochS, firstChannel: 0, rowCount: DEFAULT_ROWS };
+  return { ...(kept ?? { view: first, selection: null, selectedChannels: [] }), ...result };
 }
 
-/** Makes an open recording the active one. */
+/**
+ * The tab of `fingerprint` selected, as one update: the selected tab keeps its view and the tab entered gets its own
+ * back, or its recording's first epoch the first time. `change` is what the update also changes (a recording added or
+ * removed, the tab list); `result` is a result the switch opens.
+ */
+export function enter(
+  s: State,
+  fingerprint: string | null,
+  change: Partial<Pick<State, "recordings" | "tabs">> = {},
+  result?: Pick<State, "shownResult" | "activeResultId">,
+): Partial<State> {
+  const tabs = (change.tabs ?? s.tabs).map((t) =>
+    t.fingerprint === s.activeTab ? { ...t, saved: tabViewOf(s, t.saved) } : t,
+  );
+  const all = change.recordings ?? s.recordings;
+  const id = Object.keys(all).find((k) => all[k].fingerprint === fingerprint) ?? null;
+  const recording = id === null ? undefined : all[id];
+  const saved = tabs.find((t) => t.fingerprint === fingerprint)?.saved;
+  const complete = (resultId?: string | null) =>
+    s.analyses.some((a) => a.id === resultId && a.status === "complete");
+  const channels = recording?.analysis_channels.length ?? 0;
+  const recordings =
+    id !== null && recording && saved
+      ? {
+          ...all,
+          [id]: { ...recording, selectedChannels: saved.selectedChannels.filter((c) => c < channels) },
+        }
+      : all;
+  return shownAlone(s, {
+    tabs,
+    recordings,
+    activeTab: fingerprint,
+    activeRecordingId: id,
+    view: saved ? clamp({ ...s.view, ...saved.view }, recording) : freshView(s.view, recording).view,
+    selection: saved?.selection ?? null,
+    cursorS: null,
+    // The annotation UI belongs to the recording left: its pick, open editor and drag end with the switch.
+    pickedAnnotation: null,
+    annotationEditor: null,
+    annotationDraft: null,
+    ...(result ?? {
+      shownResult: complete(saved?.shownResult?.id) ? (saved?.shownResult ?? null) : null,
+      activeResultId: s.analyses.some((a) => a.id === saved?.activeResultId)
+        ? (saved?.activeResultId ?? null)
+        : null,
+    }),
+  });
+}
+
+/** Adds a freshly opened recording, which nothing has scanned yet: the active one unless `activate` is false. */
+export function addRecording(
+  id: string,
+  recording: Omit<OpenRecording, "scan" | "selectedChannels">,
+  activate = true,
+) {
+  const scan: ScanState = { scannedRows: 0, totalRows: recording.info.sample_count };
+  const added: OpenRecording = { ...recording, scan, selectedChannels: [] };
+  useStore.setState((s) => {
+    const recordings = { ...s.recordings, [id]: added };
+    return activate ? enter(s, added.fingerprint, { recordings }) : { recordings };
+  });
+}
+
+/** Makes an open recording the active one, with its tab's view. */
 export function activateRecording(id: string) {
   useStore.setState((s) =>
-    s.recordings[id] && s.activeRecordingId !== id
-      ? { activeRecordingId: id, ...freshView(s.view, s.recordings[id]) }
-      : s,
+    s.recordings[id] && s.activeRecordingId !== id ? enter(s, s.recordings[id].fingerprint) : s,
   );
 }
 
-/** Drops a recording; the most recently added of the rest becomes the active one. */
-export function removeRecording(id: string) {
+/**
+ * Drops a recording. When it was the active one, `select` is the tab shown instead: by default the next tab, else the
+ * previous one.
+ */
+export function removeRecording(id: string, select?: string | null) {
   useStore.setState((s) => {
-    const { [id]: _, ...recordings } = s.recordings;
+    const { [id]: removed, ...recordings } = s.recordings;
     if (s.activeRecordingId !== id) return { recordings };
-    const active = Object.keys(recordings).at(-1) ?? null;
-    const fresh = freshView(s.view, active ? recordings[active] : undefined);
-    // With no recording left active, the shown result stays on alone.
-    const shown = active === null && s.shownResult ? alone(fresh.view, s.shownResult) : {};
-    return { recordings, activeRecordingId: active, ...fresh, ...shown };
+    const i = s.tabs.findIndex((t) => t.fingerprint === removed?.fingerprint);
+    const next = (i < 0 ? undefined : (s.tabs[i + 1] ?? s.tabs[i - 1]))?.fingerprint ?? null;
+    return enter(s, select === undefined ? next : select, { recordings });
   });
 }
 
@@ -316,43 +415,42 @@ export const openResult = (id: string | null) =>
   useStore.setState((s): Partial<State> => {
     const record = s.analyses.find((a) => a.id === id);
     if (id === null || record?.status !== "complete") return { activeResultId: id, shownResult: null };
-    const shown = s.shownResult?.id === id ? s.shownResult : null;
-    const shownResult: ShownResult = shown ?? {
-      id,
-      fingerprint: record.fingerprint,
-      variant: null,
-      array: "q",
-      row: null,
-      interval: intervalOf(record),
-    };
-    const own =
-      Object.keys(s.recordings).find((r) => s.recordings[r].fingerprint === record.fingerprint) ?? null;
-    if (own === s.activeRecordingId) {
-      // Shown alone already, it keeps its view.
-      const comes = own === null && !shown;
-      return { activeResultId: id, ...(comes ? alone(s.view, shownResult) : { shownResult }) };
-    }
-    const fresh = freshView(s.view, own === null ? undefined : s.recordings[own]);
-    return {
-      activeResultId: id,
-      activeRecordingId: own,
-      ...fresh,
-      ...(own === null ? alone(fresh.view, shownResult) : { shownResult }),
-    };
+    const shownResult: ShownResult =
+      s.shownResult?.id === id
+        ? s.shownResult
+        : {
+            id,
+            fingerprint: record.fingerprint,
+            variant: null,
+            array: "q",
+            row: null,
+            interval: intervalOf(record),
+          };
+    // Its own tab, attached or detached, or none: a detached tab shows it alone under its reattach line.
+    const known = (fp: string) =>
+      s.tabs.some((t) => t.fingerprint === fp) ||
+      Object.values(s.recordings).some((r) => r.fingerprint === fp);
+    const own = known(record.fingerprint) ? record.fingerprint : null;
+    if (own === s.activeTab) return shownAlone(s, { activeResultId: id, shownResult });
+    return enter(s, own, {}, { activeResultId: id, shownResult });
   });
 
 /**
- * Opens the complete result of `record`, which has just finished, with or without a history. `interval` stands in for
- * the one its manifest gives, when the record has none.
+ * Opens the complete result of `record`, which has just finished, with or without a history. The result of a tab that
+ * is not shown waits in that tab's view; with its tab closed it is in the history only. `interval` stands in for the
+ * one its manifest gives, when the record has none.
  */
 export const showResult = (record: AnalysisRecord, interval = intervalOf(record)) =>
   useStore.setState((s) => {
     const { id, fingerprint } = record;
     const shownResult: ShownResult = { id, fingerprint, variant: null, array: "q", row: null, interval };
-    // Its recording was closed during the run: it shows alone.
+    if (s.activeTab === fingerprint) return shownAlone(s, { activeResultId: id, shownResult });
     return {
-      activeResultId: id,
-      ...(s.activeRecordingId === null ? alone(s.view, shownResult) : { shownResult }),
+      tabs: s.tabs.map((t) =>
+        t.fingerprint === fingerprint && t.saved
+          ? { ...t, saved: { ...t.saved, shownResult, activeResultId: id } }
+          : t,
+      ),
     };
   });
 

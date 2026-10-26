@@ -25,6 +25,11 @@ export class TileCache<T = Tile> {
     return entry?.tile;
   }
 
+  /** Whether `key` is kept; unlike `get`, it leaves the order of use alone. */
+  has(key: string): boolean {
+    return this.#tiles.has(key);
+  }
+
   /** A tile larger than the whole budget is not kept. */
   set(key: string, tile: T): void {
     this.#bytes -= this.#tiles.get(key)?.size ?? 0;

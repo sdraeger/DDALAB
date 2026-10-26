@@ -7,6 +7,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "./app/App";
 import { sweepAnalyses } from "./app/analyses";
 import { engine, openInput, openSynthetic, refreshRecent } from "./app/recordings";
+import { flushTabs, restoreTabs } from "./app/tabs";
 import { loadViewer } from "./app/viewerChunk";
 import { heatmapProbe } from "./features/results/probe";
 import { viewerProbe } from "./features/viewer/probe";
@@ -27,6 +28,7 @@ if (import.meta.env.DEV || import.meta.env.MODE === "e2e") {
       openSynthetic,
       viewer: viewerProbe,
       results: heatmapProbe,
+      tabs: { flush: flushTabs },
     },
   });
 }
@@ -38,7 +40,9 @@ if (location.search.includes("openneuro=")) {
   preconnect("https://s3.amazonaws.com", { crossOrigin: "anonymous" });
 }
 void refreshRecent();
-restoreSession(sweepAnalyses());
+const listed = sweepAnalyses();
+restoreSession(listed);
+void restoreTabs(listed);
 // Before React renders: the CSP allows no inline script, and the module entry is the earliest script there is.
 applyTheme(storedTheme());
 

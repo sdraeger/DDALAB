@@ -1,21 +1,22 @@
-// The library rail: opening recordings (picker, folder, drop anywhere in the window), the open ones, the recent ones,
-// OpenNeuro and the history of results.
+// The library rail: opening recordings (picker, folder, drop anywhere in the window), the recent ones, OpenNeuro and
+// the history of results. The open ones are the tabs over the canvas.
 import FilePlus from "lucide-react/dist/esm/icons/file-plus.mjs";
 import FolderOpen from "lucide-react/dist/esm/icons/folder-open.mjs";
 import { type ChangeEvent, lazy, Suspense, use, useEffect, useEffectEvent, useRef, useState } from "react";
-import { useShallow } from "zustand/react/shallow";
+import { engineVersion } from "../../app/analyses";
 import {
   canPickFiles,
-  engine,
+  type FileHandles,
   forget,
   type Outcome,
   openFiles,
   pickFiles,
   reopen,
 } from "../../app/recordings";
+import type { FolderSource } from "../../core/folder";
 import { droppedFiles } from "../../core/sources";
 import type { RecentEntry } from "../../store/recent";
-import { activateRecording, useStore } from "../../store/store";
+import { useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
 import styles from "./LibraryRail.module.css";
 
@@ -31,8 +32,18 @@ function OpenNeuroMissing() {
   return <p className={styles.hint}>OpenNeuro search did not load. Reload the page to use it.</p>;
 }
 const HistoryRail = lazy(() => import("../history/HistoryRail"));
+// Loaded the first time a folder opens.
+const FolderTree = lazy(() =>
+  import("./FolderTree").catch(() => ({
+    default: () => (
+      <p className={styles.hint}>The folder view did not load. Reload the page to open folders.</p>
+    ),
+  })),
+);
 
-const version = engine.version().then(
+type DirectoryPicker = (options: { mode: "read" }) => Promise<FileSystemDirectoryHandle>;
+
+const version = engineVersion.then(
   (v) => v.engine_version,
   (error: Error) => `failed: ${error.message}`,
 );
@@ -41,12 +52,16 @@ const version = engine.version().then(
 interface Attempt {
   files: File[];
   handle?: FileSystemHandle;
+  /** The handles of `files` (Chromium), which let their tab reattach on the next visit. */
+  handles?: FileHandles;
   expect?: string;
 }
 
 export function LibraryRail() {
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [opening, setOpening] = useState(false);
+  const [folder, setFolder] = useState<{ source: FolderSource; key: number } | null>(null);
+  const showFolder = (source: FolderSource) => setFolder((shown) => ({ source, key: (shown?.key ?? 0) + 1 }));
   const recent = useStore((s) => s.recent);
   const attempt = useRef<Attempt>({ files: [] });
   const filesInput = useRef<HTMLInputElement>(null);
@@ -77,9 +92,17 @@ export function LibraryRail() {
     locating.current = undefined;
     if (chosen) await run({ ...chosen, expect });
   }
-  function openFolder() {
+  const pickedFolder = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    showFolder({ kind: "files", files });
+  };
+  async function openFolder() {
     locating.current = undefined;
-    folderInput.current?.click();
+    const pick = (window as { showDirectoryPicker?: DirectoryPicker }).showDirectoryPicker;
+    if (!pick) return folderInput.current?.click();
+    const handle = await pick({ mode: "read" }).catch(() => null); // null: the user closed the picker
+    if (handle) showFolder({ kind: "handle", handle });
   }
   async function open(entry: RecentEntry) {
     if (!entry.handle) return chooseFiles(entry.fingerprint);
@@ -91,6 +114,24 @@ export function LibraryRail() {
   // Files dropped anywhere in the window open; without this the browser would replace the page with the file.
   const dropped = useEffectEvent(async (data: DataTransfer) => {
     locating.current = undefined;
+    // A dropped folder is walked into the tree. The item list empties when the event ends: read it before any await.
+    const items = Array.from(data.items).filter((item) => item.kind === "file");
+    const entries = items.map((item) => item.webkitGetAsEntry()).filter((entry) => entry !== null);
+    if (entries.some((entry) => entry.isDirectory)) {
+      // Chromium also gives a single dropped folder as a handle, which keeps its files' handles through the walk.
+      const item = items[0] as DataTransferItem & {
+        getAsFileSystemHandle?(): Promise<FileSystemHandle | null>;
+      };
+      // shortcut: several dropped folders keep no folder handle (their tabs reattach by picker); ask each item for
+      // its handle before the first await if that matters.
+      const pending = entries.length === 1 ? item.getAsFileSystemHandle?.() : undefined;
+      const handle = await pending?.catch(() => null);
+      return showFolder(
+        handle?.kind === "directory"
+          ? { kind: "handle", handle: handle as FileSystemDirectoryHandle }
+          : { kind: "entries", entries },
+      );
+    }
     await run(await droppedFiles(data));
   });
   useEffect(() => {
@@ -129,7 +170,7 @@ export function LibraryRail() {
           type="file"
           hidden
           aria-label="Recording folder"
-          onChange={picked}
+          onChange={pickedFolder}
           {...{ webkitdirectory: "" }}
         />
         <Notice
@@ -139,8 +180,18 @@ export function LibraryRail() {
           onFolder={openFolder}
         />
       </section>
-      <OpenRecordings />
       <Recent entries={recent} onOpen={open} />
+      {folder && (
+        <Suspense fallback={null}>
+          <FolderTree
+            key={folder.key}
+            source={folder.source}
+            // The tree shows how its own opens went, beside its rows.
+            onOpen={(recording, handles) => openFiles(recording.files, { choice: recording.path, handles })}
+            onClose={() => setFolder(null)}
+          />
+        </Suspense>
+      )}
       <Suspense>
         <OpenNeuroPanel />
       </Suspense>
@@ -168,16 +219,17 @@ function Notice(props: {
   onFolder(): void;
 }) {
   const { outcome } = props;
+  // Keyed: a notice of another kind mounts anew and fades in, where React would reuse the paragraph.
   if (props.opening) {
     return (
-      <p className={styles.hint} aria-live="polite">
+      <p key="opening" className={styles.hint} aria-live="polite">
         Opening
       </p>
     );
   }
   if (outcome?.kind === "error") {
     return (
-      <div role="alert" className={styles.error}>
+      <div key="error" role="alert" className={styles.error}>
         <p>{outcome.message}</p>
         {outcome.folder && (
           <button type="button" className={controls.quiet} onClick={props.onFolder}>
@@ -189,7 +241,7 @@ function Notice(props: {
   }
   if (outcome?.kind === "choose") {
     return (
-      <fieldset className={styles.choose}>
+      <fieldset key="choose" className={styles.choose} data-appear>
         <legend>Several recordings found</legend>
         {outcome.candidates.map((path) => (
           <button type="button" className={controls.quiet} key={path} onClick={() => props.onChoose(path)}>
@@ -200,64 +252,22 @@ function Notice(props: {
     );
   }
   return outcome?.kind === "opened" && outcome.warning ? (
-    <p role="alert" className={styles.error}>
+    <p key="warning" role="alert" className={styles.error}>
       {outcome.warning}
     </p>
   ) : null;
 }
 
-function OpenRecordings() {
-  // The ids only: a scan report replaces its recording, which the rows read.
-  const ids = useStore(useShallow((s) => Object.keys(s.recordings)));
-  const active = useStore((s) => s.activeRecordingId);
-  if (ids.length === 0) return null;
-  return (
-    <section className={styles.section} aria-labelledby="open-heading">
-      <h2 id="open-heading" className={styles.heading}>
-        Open <span className={styles.count}>{ids.length}</span>
-      </h2>
-      <ul className={styles.entries}>
-        {ids.map((id) => (
-          <OpenRecording key={id} id={id} current={id === active} />
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-function OpenRecording({ id, current }: { id: string; current: boolean }) {
-  const info = useStore((s) => s.recordings[id]?.info);
-  const channels = useStore((s) => s.recordings[id]?.analysis_channels.length);
-  if (!info) return null;
-  return (
-    <li>
-      <button
-        type="button"
-        className={styles.entry}
-        aria-current={current ? "true" : undefined}
-        onClick={() => activateRecording(id)}
-      >
-        <span className={styles.entryName}>{info.input_files[0]}</span>
-        <span className={styles.entryMeta}>
-          {info.format}
-          <span className={styles.thin} aria-hidden />
-          {channels} channels
-        </span>
-      </button>
-    </li>
-  );
-}
-
 function Recent(props: { entries: RecentEntry[]; onOpen(entry: RecentEntry): void }) {
   if (props.entries.length === 0) return null;
   return (
-    <section className={styles.section} aria-label="Recent recordings">
+    <section className={styles.section} aria-label="Recent recordings" data-appear>
       <h2 className={styles.heading}>
         Recent <span className={styles.count}>{props.entries.length}</span>
       </h2>
       <ul className={styles.entries}>
         {props.entries.map((entry) => (
-          <li key={entry.fingerprint} className={styles.recent}>
+          <li key={entry.fingerprint} className={styles.recent} data-appear>
             <span className={styles.entryName} title={entry.names.join(", ")}>
               {entry.primary}
             </span>

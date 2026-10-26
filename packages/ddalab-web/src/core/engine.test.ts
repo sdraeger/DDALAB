@@ -194,6 +194,9 @@ test("opening_a_recording_that_is_open_returns_its_id", async () => {
   const first = await engine.open(input("a.edf"));
   const second = await engine.open(input("a.edf"));
   expect(second.id).toBe(first.id);
+  // The second open did not make the recording: closing it is for the first.
+  expect(first.duplicate).toBeUndefined();
+  expect(second.duplicate).toBe(true);
   FakeWorker.io[0].fail("lost");
   await until(() => FakeWorker.io.length === 2);
   // Only the first was held: a replacement opens one recording.
@@ -303,6 +306,36 @@ function runner(
 const computes = (worker: FakeWorker, message: { block?: { w0: number } }) =>
   worker.send({ ok: message.block ? { chunks: [] } : { schema: "ddalab.result/2" } });
 const sentToIo = () => FakeWorker.io[0].received.map((m) => m.type);
+
+test("hashes_resolve_once_every_file_is_hashed", async () => {
+  runner(computes);
+  const engine = createEngine();
+  const { id } = await engine.open(input("a.edf"));
+  await expect(engine.hashes(id)).resolves.toEqual({ "a.edf": "00" });
+});
+
+test("hashes_resolve_on_a_hash_error_kept_apart_from_the_scan_error", async () => {
+  runner(computes, (worker, message) =>
+    worker.send({ id: (message as { id: string }).id, error: "the file is unreadable" }),
+  );
+  const engine = createEngine();
+  const { id } = await engine.open(input("a.edf"));
+  await expect(engine.hashes(id)).resolves.toEqual({});
+  // A scan error of its own takes `error`; the hash's stays in `hashError`.
+  FakeWorker.io[0].send({ event: "scan", id, state: { scannedRows: 0, totalRows: 100, error: "no room" } });
+  const seen = states(engine, id);
+  await until(() => seen.at(-1)?.error === "no room");
+  expect(seen.at(-1)?.hashError).toBe("The hash could not be computed: the file is unreadable");
+});
+
+test("hashes_resolve_with_what_they_have_once_the_recording_closes", async () => {
+  runner(computes, () => {}); // the hashes never come
+  const engine = createEngine();
+  const { id } = await engine.open(input("a.edf"));
+  const waiting = engine.hashes(id);
+  engine.close(id);
+  await expect(waiting).resolves.toEqual({});
+});
 
 test("cancel_ends_a_run_that_waits_for_the_input_hashes", async () => {
   runner(computes, () => {}); // the hashes never come
