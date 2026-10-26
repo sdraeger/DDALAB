@@ -1,6 +1,7 @@
 // The command bar holds still while the view zooms: wheel zooming across the whole range moves no element of the bar,
 // at 1024, 1280 and 1600 px, with the inspector open and with it closed (the run status then shows in the bar). At
 // every width from 768 px every control stays inside the window, and the scale settings behind their button work.
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { ddaPoolSize } from "../src/core/engine";
 import { expect, type Page, test } from "./test";
@@ -253,4 +254,17 @@ test("storage_clears_cached_tiles_but_an_open_recordings", async ({ page }) => {
   await expect(storage).toContainText("Cached tiles take 0 kB.");
   expect(await tileFolders()).toBe(0);
   await expect(clear).toBeDisabled();
+});
+
+// At 1440 px the bar's recording name elides in its middle: a BIDS name keeps its last entity in view.
+test("the_bar_name_keeps_its_last_entity_in_view", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const name = "sub-pt01_ses-presurgery_task-ictal_acq-ecog_run-01_ieeg.edf";
+  const edf = fileURLToPath(new URL("../../dda-rs/tests/fixtures/fixture.edf", import.meta.url));
+  await page.getByLabel("Recording files").setInputFiles({ name, mimeType: "", buffer: readFileSync(edf) });
+  const bar = page.locator("header").getByTitle(name);
+  const tail = bar.getByText("run-01", { exact: true });
+  await expect(tail).toBeVisible();
+  const [box, end] = [await bar.boundingBox(), await tail.boundingBox()];
+  expect((end?.x ?? 0) + (end?.width ?? 0)).toBeLessThanOrEqual((box?.x ?? 0) + (box?.width ?? 0) + 0.5);
 });
