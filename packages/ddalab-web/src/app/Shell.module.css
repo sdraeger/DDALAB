@@ -29,6 +29,13 @@
   background: var(--chrome);
 }
 
+/* The mark sits on the wordmark's baseline and spans its capitals. */
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
 .wordmark {
   font-weight: var(--weight-strong);
   letter-spacing: 0.02em;

@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="packages/ddalab-web/public/logo-dark.svg">
+  <img src="packages/ddalab-web/public/logo-light.svg" alt="DDALAB logo" height="48">
+</picture>
+
 # DDALAB &mdash; Delay Differential Analysis Laboratory
 
 **DDALAB** is a local-first analysis environment for performing **Delay Differential Analysis (DDA)** on neurophysiological time series.
