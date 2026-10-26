@@ -212,7 +212,7 @@ A cool neutral chrome carries the interface; color is spent on the cobalt accent
 
 ## Layout
 
-The shell is a grid: a 44 px command bar across the top, then the library rail (248 px), the center and the inspector (304 px). Either side panel closes to zero width and stays mounted. The center stacks the 32 px recording tab strip, the 64 px overview locator strip, the waveform pane with its printed scale band and the heatmap on the same time axis. Overview, waveform and heatmap share one 76 px label gutter and a reserved scrollbar gutter, which keeps every time axis aligned.
+The shell is a grid: a 44 px command bar across the top, then the library rail (248 px), the center and the inspector (304 px). Either side panel closes to zero width and stays mounted. The center stacks the 32 px recording tab strip, the 64 px overview locator strip, the waveform pane with its printed scale band and the heatmap on the same time axis. Overview, waveform and heatmap share one 76 px label gutter and a reserved scrollbar gutter, which keeps every time axis aligned. Each waveform row draws its trace inside its own band, so a trace taller than its row never covers a neighbor: an excursion beyond the band draws along the band's edge, and a channel off scale throughout reads as a line at the edge, never as a gap or an empty row.
 
 Spacing runs on a 4 px unit (`spacing.1` to `spacing.6`). Rail sections sit 24 px apart with 16 px and 12 px insets; controls group at 8 px; control groups in the bar are split by a 20 px hairline rule.
 
@@ -250,6 +250,8 @@ Controls are compact and plain: a hairline box, the system face, one accent.
 - **Primary:** cobalt fill and border with `primary-ink` text; hover mixes 12% ink into the cobalt.
 - **Quiet:** borderless, cobalt text, 8 px padding (Locate, Forget, Close, Import folder). A quiet button that starts a line pulls its text onto the rail's text column.
 - **Icon button:** 28 px square, muted 16 px line icon, hover fills `chrome-hover` and inks the icon; pressed state inks it.
+- **Toggle:** a default button that is on takes a cobalt border and text on `primary-wash` and a check before its label, which forced colors keep (Show chosen channels only). The check holds its place while off and fades in, which leaves the label still.
+- **Unavailable:** a button that cannot act now stays focusable at 45% opacity, full opacity while focused, with its reason on a line under it in aria-describedby (batch Start, Show chosen channels only). A reason that comes and goes keeps its line, which leaves everything below it in place.
 - **Press:** every button and select trigger scales to `--motion-scale` (0.97) while pressed.
 
 ### Inputs / Fields
@@ -267,13 +269,13 @@ Controls are compact and plain: a hairline box, the system face, one accent.
 - **Command bar:** chrome fill, hairline under it; panel toggle, the Echo mark and wordmark, the recording name after a hairline, paging, the scale settings, Annotate, Run, then the Local note and icon-only theme and About buttons at the far right.
 - **Recording tabs:** 32 px strip on chrome, short hairlines between tabs; the selected tab is ground with a cobalt top edge and joins the canvas.
 - **Library rail:** Open files (primary) and Open folder at the top, with the workspace's own action under them once a tab is open: a quiet Export project, whose popover states what the project holds and its size above a primary Save project. Then sections Recent, Folder (a filterable folder tree), OpenNeuro and History, each under a small-caps heading with its count at the right. The current entry is washed in `primary-wash`; metadata lines are muted 12 px fields split by a 10 px hairline.
-- **Inspector:** channel groups as swatch, small-caps acronym and count; DDA settings; the annotation list; a run bar that states windows, blocks and workers above the full-width primary Run DDA.
+- **Inspector:** channel groups as swatch, small-caps acronym and count, under a Show chosen channels only toggle that reduces the waveform rows to the channels chosen for analysis, in their order; DDA settings; the annotation list; a run bar that states windows, blocks and workers above the full-width primary Run DDA.
 
 ### Locator Strip (signature)
 The overview draws the whole recording with events in red; an ink outline (1.5 px, 2 px radius, 5% ink wash) marks the part on screen, with an ink range tab above it ("30 to 40 s"). It follows the view instantly.
 
 ### Printed Scale Bar (signature)
-A band at the waveform's lower left prints an L-shaped bar with its amplitude and time lengths, then sensitivity, timebase and view as labeled fields split by hairlines.
+A band at the waveform's lower left prints an L-shaped bar with its amplitude and time lengths, then sensitivity, timebase and view as labeled fields split by hairlines. Sensitivity steps from 1 µV/mm for scalp EEG to 10 mV/mm for intracranial contacts: 1, 2, 3, 5 and 7 µV/mm, then 1, 1.5, 2, 3, 5 and 7 in each decade. From 1 mV/mm on, the field, the bar's select and the amplitude print in mV; the field and the select keep one width at every step.
 
 ### Installed App
 DDALAB installs from the browser's menu into a standalone window whose title bar takes the `chrome` gray of the system theme; its icon is the Echo mark on chrome, with a maskable version that keeps the mark inside the safe circle. The app opens offline from a service worker's cache of the whole build. A new build announces itself in the notice strip at the foot of the window (chrome fill, hairline above, centered ink text and a quiet Reload); during a run it says the update waits, and Reload then reloads when the run ends. Recordings open from Finder and Explorer through Open With (.edf, .bdf, .vhdr, .csv, .tsv and .txt), and so do projects (.ddalab). Exports open the browser's Save dialog where it has one and go to the downloads elsewhere. About carries a one-line install hint.

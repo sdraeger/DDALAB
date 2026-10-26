@@ -49,11 +49,13 @@ async function zoom(page: Page, samplesPerPixel: number, t0: number, channel: nu
 /**
  * Compares every column of every row of the drawn traces with the full polyline through the raw samples. The
  * mapping from samples to pixels comes from the store, the recording's channel list and the canvas size, as the
- * spec states it, not from the renderer. In column c (sample positions p0 = s0 + c * spp to p1 = p0 + spp) the
- * polyline spans the samples strictly inside and its values at p0 and p1. The drawn span must contain that span and
- * lie within the union of the spans of columns c - 1 to c + 1. Each row's trace must stay inside its band of pixel
- * rows (the scenes are chosen so), which tells the rows' pixels apart. A value within TOLERANCE px of a pixel edge
- * may fall on either side (float32 in the shader, float64 here).
+ * spec states it, not from the renderer; the rows draw every display channel, or the chosen ones alone. In column c
+ * (sample positions p0 = s0 + c * spp to p1 = p0 + spp) the polyline spans the samples strictly inside and its values
+ * at p0 and p1. The drawn span must contain that span and lie within the union of the spans of columns c - 1 to
+ * c + 1, both clamped to the row's band of pixel rows (the last band ends at the canvas edge): a span past the band
+ * inks its edge row, and a row inks its own band only, which tells the rows' pixels apart. A value within TOLERANCE
+ * px of a pixel edge may fall on either side (float32 in the shader, float64 here). `clamped` counts the columns
+ * whose span leaves its band, `edge` those wholly past it, which must ink the edge row alone.
  */
 const checkPixels = (page: Page) =>
   page.evaluate(async () => {
@@ -62,7 +64,7 @@ const checkPixels = (page: Page) =>
     const frame = await viewer.settled();
     const { view, recordings, activeRecordingId } = store.getState();
     const id = activeRecordingId as string;
-    const { info, analysis_channels } = recordings[id];
+    const { info, analysis_channels, selectedChannels } = recordings[id];
     const rate = info.sample_rate_hz;
     const N = info.sample_count;
     const C = analysis_channels.length;
@@ -70,14 +72,18 @@ const checkPixels = (page: Page) =>
     const s0 = view.t0 * rate;
     const spp = ((view.t1 - view.t0) * rate) / W;
     const pxPerUnit = ((96 / 25.4 / view.mmPerCssMm) * devicePixelRatio) / view.sensitivityUvPerMm;
-    const rowHeight = H / view.rowCount;
+    const order = view.chosenOnly ? selectedChannels : analysis_channels.map((_, i) => i);
+    const rows = Math.min(view.rowCount, order.length);
+    const rowHeight = H / rows;
     const first = Math.max(0, Math.floor(s0) - 1);
     const last = Math.min(N - 1, Math.ceil(s0 + W * spp) + 1);
     const raw = await engine.raw(id, first, last - first + 1);
     const failures: string[] = [];
     let inked = 0;
-    for (let r = 0; r < Math.min(view.rowCount, C - view.firstChannel); r++) {
-      const ch = view.firstChannel + r;
+    let clamped = 0;
+    let edge = 0;
+    for (let r = 0; r < Math.min(rows, order.length - view.firstChannel); r++) {
+      const ch = order[view.firstChannel + r];
       const { unit, gain, offset } = info.channels[analysis_channels[ch]];
       const scale = unit === "V" ? 1e6 : 1;
       const v = (i: number) => raw[(i - first) * C + ch] * gain * scale + offset * scale;
@@ -87,7 +93,8 @@ const checkPixels = (page: Page) =>
       };
       const center = (r + 0.5) * rowHeight;
       const y = (value: number) => center - value * pxPerUnit;
-      const band = [Math.floor(r * rowHeight), Math.floor((r + 1) * rowHeight) - 1];
+      const band = [Math.floor(r * rowHeight), (r + 1 === rows ? H : Math.floor((r + 1) * rowHeight)) - 1];
+      const toBand = (row: number) => Math.min(band[1], Math.max(band[0], row));
       // The polyline's [top, bottom] in fractional pixel rows, per column; null where the recording has no rows.
       // Columns -1 and W lie just past the edges: a bucket or sample at an edge belongs to them.
       const reference = Array.from({ length: W + 2 }, (_, k) => {
@@ -99,10 +106,11 @@ const checkPixels = (page: Page) =>
         for (let i = Math.floor(p0) + 1; i < p1; i++) values.push(v(i));
         return [y(Math.max(...values)), y(Math.min(...values))];
       });
-      if (reference.some((s) => s && (Math.floor(s[0]) < band[0] || Math.floor(s[1]) > band[1]))) {
-        failures.push(`row ${r}: the trace leaves its band, choose another scene`);
-        continue;
-      }
+      const columns = reference.slice(1, W + 1);
+      clamped += columns.filter(
+        (s) => s && (Math.floor(s[0]) < band[0] || Math.floor(s[1]) > band[1]),
+      ).length;
+      edge += columns.filter((s) => s && (Math.floor(s[1]) < band[0] || Math.floor(s[0]) > band[1])).length;
       for (let c = 0; c < W; c++) {
         let top = -1;
         let bottom = -1;
@@ -120,11 +128,11 @@ const checkPixels = (page: Page) =>
           if (top >= 0) failures.push(`row ${r} column ${c}: ink where the recording has no rows`);
           continue;
         }
-        const need = [Math.floor(ref[0] + TOLERANCE), Math.floor(ref[1] - TOLERANCE)];
+        const need = [toBand(Math.floor(ref[0] + TOLERANCE)), toBand(Math.floor(ref[1] - TOLERANCE))];
         const near = [c, c + 1, c + 2].flatMap((k) => (reference[k] ? [reference[k]] : []));
         const allow = [
-          Math.floor(Math.min(...near.map((s) => s[0])) - TOLERANCE),
-          Math.floor(Math.max(...near.map((s) => s[1])) + TOLERANCE),
+          toBand(Math.floor(Math.min(...near.map((s) => s[0])) - TOLERANCE)),
+          toBand(Math.floor(Math.max(...near.map((s) => s[1])) + TOLERANCE)),
         ];
         inked++;
         if (top < 0) failures.push(`row ${r} column ${c}: no ink, expected rows ${need}`);
@@ -135,7 +143,7 @@ const checkPixels = (page: Page) =>
           failures.push(`row ${r} column ${c}: ${top}..${bottom} past ${allow}`);
       }
     }
-    return { mode: frame.mode, inked, failures: failures.slice(0, 10) };
+    return { mode: frame.mode, inked, clamped, edge, failures: failures.slice(0, 10) };
   });
 
 test.beforeEach(async ({ page }) => {
@@ -185,6 +193,27 @@ test("waveform_is_pixel_exact_with_many_rows", async ({ page }) => {
   const result = await checkPixels(page);
   expect(result).toMatchObject({ mode: "rawSpan", failures: [] });
   expect(result.inked).toBeGreaterThan(6 * 1000);
+});
+
+// Four rows at 30 µV/mm: the synthetic traces (up to about 1050 µV) and their spikes at 97 s (3000 µV, up on even
+// channels and down on odd ones) leave their rows. Each row inks its own band and none of its neighbors' ink, in raw
+// spans and in the polyline: a trace past the band rides its edge, and a column wholly past it inks the edge row.
+test("traces_stay_in_their_rows", async ({ page }) => {
+  test.setTimeout(120_000);
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
+  await openSynthetic(page, { channels: 4, rateHz: 256, durationS: 120, seed: 9 });
+  for (const [mode, spp, t0] of [
+    ["line", 0.5, 96],
+    ["rawSpan", 5, 90],
+  ] as const) {
+    await zoom(page, spp, t0, 0, 4);
+    await setView(page, { sensitivityUvPerMm: 30 });
+    const result = await checkPixels(page);
+    expect(result, `${spp} samples per pixel`).toMatchObject({ mode, failures: [] });
+    expect(result.inked).toBeGreaterThan(1000);
+    expect(result.clamped).toBeGreaterThan(100);
+    expect(result.edge).toBeGreaterThan(20);
+  }
 });
 
 // The synthetic recording has a +30000 spike (3000 µV) on its first channel every 97 s; the traces stay under
@@ -350,6 +379,75 @@ test("paging_keys", async ({ page }) => {
   await expect(page.getByText("Page 2 of 2")).toBeVisible();
 });
 
+// Twelve channels: "Show chosen channels only" shows the chosen ones alone, in order, paged by the same keys and
+// scrolling; the rows follow the choice and each draws its own channel (CH3, CH7 and CH10 are not a run of channels).
+// Off, every channel shows from the top row's channel.
+test("chosen_channels_alone", async ({ page }) => {
+  test.setTimeout(120_000);
+  const gl = await hasWebGL2(page);
+  await openSynthetic(page, { channels: 12, rateHz: 256, durationS: 60, seed: 5 });
+  const toggle = page.getByRole("button", { name: "Show chosen channels only" });
+  const rows = page.getByRole("list", { name: "Channel rows" }).getByRole("listitem");
+  const choose = (label: string, on = true) =>
+    page.getByRole("checkbox", { name: `Select ${label}`, exact: true }).setChecked(on);
+  const drawn = () => page.evaluate(async () => (await window.__ddalab.viewer.settled()).channels);
+  // With none chosen it cannot act, and says why.
+  await expect(toggle).toHaveAttribute("aria-disabled", "true");
+  await expect(toggle).toHaveAccessibleDescription("No channel is chosen.");
+  // Playwright waits for an aria-disabled button to turn enabled before it clicks; a pointer reaches it at once.
+  await toggle.click({ force: true });
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  // The note's line stays when the first channel is chosen: nothing below it moves.
+  const groups = page.getByRole("list", { name: "Electrode groups" });
+  const groupsAt = await groups.boundingBox();
+  for (const label of ["CH10", "CH3", "CH7"]) await choose(label);
+  await expect(toggle).not.toHaveAttribute("aria-disabled");
+  expect(await groups.boundingBox()).toEqual(groupsAt);
+  // On, a check marks it besides the color. The check holds its place while off, which keeps the button's size.
+  const check = toggle.locator("svg");
+  const toggleAt = await toggle.boundingBox();
+  await expect(check).toHaveCSS("opacity", "0");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await expect(check).toHaveCSS("opacity", "1");
+  expect(await toggle.boundingBox()).toEqual(toggleAt);
+  await expect(rows).toHaveText([/^CH3\b/, /^CH7\b/, /^CH10\b/]);
+  if (gl) {
+    expect(await drawn()).toEqual([2, 6, 9]);
+    await zoom(page, 5, 3.1, 0, 3);
+    expect(await checkPixels(page)).toMatchObject({ mode: "rawSpan", failures: [] });
+  }
+  // Two rows: the arrow keys and the scroller page through the chosen channels.
+  await setView(page, { rowCount: 2 });
+  const pane = page.getByRole("region", { name: "Waveforms" });
+  await pane.focus();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await expect(rows).toHaveText([/^CH7\b/, /^CH10\b/]);
+  // The next frame moves the scroller to the row; a scroll back to the top then shows the first row again.
+  const scroller = () => pane.evaluate((p) => (p.firstElementChild as HTMLElement).scrollTop);
+  await expect.poll(scroller).toBeGreaterThan(0);
+  await pane.evaluate((p) => p.firstElementChild?.scrollTo(0, 0));
+  await expect(rows).toHaveText([/^CH3\b/, /^CH7\b/]);
+  // A channel chosen joins in order; the top row's channel unchosen gives way to the next.
+  await choose("CH5");
+  await expect(rows).toHaveText([/^CH3\b/, /^CH5\b/]);
+  await choose("CH3", false);
+  await expect(rows).toHaveText([/^CH5\b/, /^CH7\b/]);
+  if (gl) expect(await drawn()).toEqual([4, 6]);
+  // Off: every channel, from the top row's.
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await expect(rows).toHaveText([/^CH5\b/, /^CH6\b/]);
+  if (gl) expect(await drawn()).toEqual([4, 5]);
+  // Unchoosing the last channel while on shows every channel again, and the note says why it is off.
+  await toggle.click();
+  for (const label of ["CH5", "CH7", "CH10"]) await choose(label, false);
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await expect(toggle).toHaveAttribute("aria-disabled", "true");
+  await expect(rows).toHaveText([/^CH10\b/, /^CH11\b/]);
+});
+
 test("escape_and_a_press_off_the_plot_let_the_cursor_go", async ({ page }) => {
   test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   await openFixture(page);
@@ -370,25 +468,46 @@ test("sensitivity_steps", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 720 });
   await openFixture(page);
   const sensitivity = async () => (await view(page)).sensitivityUvPerMm;
+  // The printed scale's field, as it reads (hidden copies of the other unit hold its width).
+  const readout = page.getByRole("region", { name: "Waveforms" }).getByRole("definition").first();
+  const control = page.getByRole("combobox", { name: "Sensitivity" });
+  const widths = async () => [(await readout.boundingBox())?.width, (await control.boundingBox())?.width];
   await setView(page, { sensitivityUvPerMm: 7 });
   await page.keyboard.press("]");
   expect(await sensitivity()).toBe(10);
-  await expect(
-    page.getByRole("region", { name: "Waveforms" }).getByText("10 µV/mm", { exact: true }),
-  ).toBeVisible();
+  await expect(readout).toHaveText("10 µV/mm", { useInnerText: true });
+  const width = await widths();
   await page.keyboard.press("[");
   await page.keyboard.press("[");
   expect(await sensitivity()).toBe(5);
+  // Past 100 µV/mm to 10 mV/mm, in mV/mm from 1 mV/mm on, and no wider.
   await setView(page, { sensitivityUvPerMm: 100 });
   await page.keyboard.press("]");
-  expect(await sensitivity()).toBe(100);
+  expect(await sensitivity()).toBe(150);
+  for (const [value, text] of [
+    [700, "700 µV/mm"],
+    [1000, "1 mV/mm"],
+    [1500, "1.5 mV/mm"],
+    [10000, "10 mV/mm"],
+  ] as const) {
+    await setView(page, { sensitivityUvPerMm: value });
+    await expect(readout).toHaveText(text, { useInnerText: true });
+    await expect(control).toHaveText(text, { useInnerText: true });
+    expect(await widths(), text).toEqual(width);
+  }
+  await page.keyboard.press("]");
+  expect(await sensitivity()).toBe(10000);
+  await expect(page.getByText("100 mV", { exact: true })).toBeAttached();
   await setView(page, { sensitivityUvPerMm: 1 });
   await page.keyboard.press("[");
   expect(await sensitivity()).toBe(1);
   // The command bar sets it too.
-  await page.getByRole("combobox", { name: "Sensitivity" }).click();
+  await control.click();
   await page.getByRole("option", { name: "30 µV/mm" }).click();
   expect(await sensitivity()).toBe(30);
+  await control.click();
+  await page.getByRole("option", { name: "1.5 mV/mm" }).click();
+  expect(await sensitivity()).toBe(1500);
 });
 
 // Twenty electrode groups: eight show, the rest behind "Show all", and the annotations stay in the first viewport at

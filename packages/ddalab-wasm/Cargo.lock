@@ -262,7 +262,7 @@ dependencies = [
 
 [[package]]
 name = "dda-rs"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "chrono",
  "clap",
@@ -286,7 +286,7 @@ dependencies = [
 
 [[package]]
 name = "ddalab-wasm"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "dda-rs",
  "serde",

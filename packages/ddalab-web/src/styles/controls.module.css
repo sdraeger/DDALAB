@@ -91,6 +91,13 @@
   }
 }
 
+/* A toggle that is on: edged and washed in the primary, as the current rail entry is. */
+.button[aria-pressed="true"] {
+  border-color: var(--primary);
+  background: var(--primary-wash);
+  color: var(--primary);
+}
+
 /* A button that cannot act now and keeps the keyboard, its reason in aria-describedby: dimmed, with no hover or press. */
 .button[aria-disabled="true"] {
   opacity: 0.45;

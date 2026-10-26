@@ -10,6 +10,8 @@ export interface ProbeFrame {
   height: number;
   cssWidth: number;
   rowCount: number;
+  /** The display channels of the rows on screen, top to bottom. */
+  channels: number[];
   mode: DrawPlan["mode"];
   level: number | null;
   /** Every slot drew from its planned data. */
