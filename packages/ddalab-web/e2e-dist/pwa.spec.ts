@@ -180,7 +180,7 @@ test.describe("updates", () => {
   }
   const updateCheck = (page: Page) =>
     page.evaluate(() => navigator.serviceWorker.getRegistration().then((r) => r?.update()));
-  /** The caches of the builds, in creation order (not the marker cache that records the active build). */
+  /** The caches of the builds, in creation order. The marker cache that records the active build is left out. */
   const cacheNames = (page: Page) =>
     page
       .evaluate(() => caches.keys().then((names) => names.filter((name) => name.startsWith("ddalab:"))))
