@@ -131,6 +131,19 @@ export type Outcome =
 /** The handles of a recording's files and of the folder they were walked from, where the browser gives them. */
 export type FileHandles = { files?: FileSystemFileHandle[]; root?: FileSystemDirectoryHandle };
 
+/** How `openFiles` opens files (see there). */
+export interface OpenOptions {
+  choice?: string;
+  expect?: string;
+  exact?: boolean;
+  verify?: Record<string, string>;
+  signal?: AbortSignal;
+  handle?: FileSystemHandle;
+  handles?: FileHandles;
+  activate?: boolean;
+  origin?: TabSource;
+}
+
 // The core's reply to a header whose data file is not in the set.
 const MISSING_COMPANION = /names .+, which is not among the opened files/;
 
@@ -188,21 +201,11 @@ async function verified(
  * holds the SHA-256 its files must have: they are hashed before the recording shows, other content is refused, and
  * `signal` stops the check. `handle` lets the recent list reopen a single-file recording without a picker. `handles`
  * (from a folder walk or the browser's file picker) keeps the files' and the folder's handles in its tab, which then
- * reattaches on the next visit (tabs.ts). `activate` false opens it beside the active recording.
+ * reattaches on the next visit (tabs.ts). `activate` false opens it beside the active recording. `origin` is where its
+ * tab reads it again in place of the files (a project's recording), and it stays out of the recent list, whose entries
+ * reopen loose files.
  */
-export async function openFiles(
-  files: File[],
-  options: {
-    choice?: string;
-    expect?: string;
-    exact?: boolean;
-    verify?: Record<string, string>;
-    signal?: AbortSignal;
-    handle?: FileSystemHandle;
-    handles?: FileHandles;
-    activate?: boolean;
-  } = {},
-): Promise<Outcome> {
+export async function openFiles(files: File[], options: OpenOptions = {}): Promise<Outcome> {
   const set = buildFileSet(files, options.choice);
   if ("error" in set) return { kind: "error", message: set.error, folder: false };
   if ("candidates" in set) return { kind: "choose", candidates: set.candidates };
@@ -234,15 +237,18 @@ export async function openFiles(
       byFile.set(files[0], options.handle as FileSystemFileHandle);
     }
     const used = [set.primary, ...info.input_files.filter((name) => name !== set.primary)];
-    const source = filesSource(set.files, used, { files: byFile, root: options.handles?.root });
+    const source =
+      options.origin ?? filesSource(set.files, used, { files: byFile, root: options.handles?.root });
     adopt(opened, "files", source, options.activate);
     const primary = set.files.find((file) => file.name === set.primary);
     const handle =
       info.input_files.length === 1 ? (options.handle ?? (primary && byFile.get(primary))) : undefined;
-    await rememberRecent({ fingerprint, primary: set.primary, names: info.input_files, handle }).catch(
-      () => {},
-    );
-    await refreshRecent();
+    if (!options.origin) {
+      await rememberRecent({ fingerprint, primary: set.primary, names: info.input_files, handle }).catch(
+        () => {},
+      );
+      await refreshRecent();
+    }
     const differs = options.expect !== undefined && options.expect !== fingerprint;
     return {
       kind: "opened",

@@ -34,6 +34,8 @@ export type FileSet =
   | { error: string };
 
 export const extension = (name: string) => (name.split(".").slice(1).at(-1) ?? "").toLowerCase();
+/** A DDALAB project (core/project.ts), which opens as its tabs. */
+export const isProject = (name: string) => extension(name) === "ddalab";
 /** What a folder pick reports (`dir/sub/file`), or the bare name. */
 export const pathOf = (file: File) => file.webkitRelativePath || file.name;
 export const directory = (path: string) => path.slice(0, path.lastIndexOf("/") + 1);
