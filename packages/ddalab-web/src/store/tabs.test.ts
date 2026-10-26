@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto";
 import { deleteDB, openDB } from "idb";
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import type { AnalysisRecord } from "../core/history";
 import { database, listRecent } from "./recent";
 import {
@@ -83,7 +83,10 @@ test("version_4_annotation_lists_become_a_record_each", async () => {
   });
   const other = { ...mark, id: "n", label: "seizure" };
   await old.put("annotations", { fingerprint: "f", annotations: [mark, other] });
-  await old.put("annotations", { fingerprint: "g", annotations: [{ ...mark, id: "o" }] });
+  // An annotation without an id is left out with a warning; the rest of its list upgrades.
+  const { id: _, ...unkeyed } = mark;
+  await old.put("annotations", { fingerprint: "g", annotations: [unkeyed, { ...mark, id: "o" }] });
+  const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
   old.close();
   const db = await database();
   expect([...db.objectStoreNames].sort()).toEqual(STORES);
@@ -94,6 +97,8 @@ test("version_4_annotation_lists_become_a_record_each", async () => {
   expect(await db.getAllFromIndex("annotations", "fingerprint", "g")).toEqual([
     { ...mark, id: "o", fingerprint: "g" },
   ]);
+  expect(warned).toHaveBeenCalledOnce();
+  warned.mockRestore();
 });
 
 const file = (path: string, size: number, lastModified = 1000) => {

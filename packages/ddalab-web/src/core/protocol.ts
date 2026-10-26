@@ -155,7 +155,8 @@ export interface AnnotationsRequest {
   input: RecordingInput;
 }
 
-export type Annotations = { annotations: Annotation[]; warnings: string[] };
+/** A recording's annotation list; `skipped`: the pass over the file was not made (a remote file above 1 GiB). */
+export type Annotations = { annotations: Annotation[]; warnings: string[]; skipped?: boolean };
 
 /** Asks a DDA worker, which opens `input` itself, for a block of a run or, with `extras`, for its manifest. */
 export type DdaRequest =

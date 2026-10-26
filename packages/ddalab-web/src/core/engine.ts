@@ -137,11 +137,16 @@ const cancelled = () => new DOMException("The run was cancelled", "AbortError");
 /** Bytes of a text recording per DDA worker: each parses the whole file. */
 const TEXT_BYTES_PER_WORKER = 512 * 2 ** 20;
 
-/** The spec's contract on JS plus wasm memory (1.5 GB), and the base of its sizing rule (290 MB), in MiB. */
+/**
+ * The spec's contract on JS plus wasm memory (1.5 GB), the base of its sizing rule (290 MB) and the margin the pool
+ * leaves under the contract for what the rule does not model (50 MB), in MiB.
+ */
 const CONTRACT_MIB = 1.5e9 / 2 ** 20;
 const BASE_MIB = 290e6 / 2 ** 20;
-/** The app's caches at their budgets, which fill whether or not a run goes on. */
-const CACHES_MIB = CACHE_MB.tiles + CACHE_MB.raw + CACHE_MB.resultTiles + CACHE_MB.ioFiles;
+const MARGIN_MIB = 50e6 / 2 ** 20;
+/** The app's caches at their budgets, which fill whether or not a run goes on: the annotation worker's file cache too. */
+const CACHES_MIB =
+  CACHE_MB.tiles + CACHE_MB.raw + CACHE_MB.resultTiles + CACHE_MB.ioFiles + CACHE_MB.workerFiles;
 
 /**
  * The DDA workers of a run on `channels` channels with `cores` logical cores: as many as the memory contract allows,
@@ -149,11 +154,11 @@ const CACHES_MIB = CACHE_MB.tiles + CACHE_MB.raw + CACHE_MB.resultTiles + CACHE_
  * 2026-10-24-ddalab-web-design.md, "Analysis streams window blocks"), gives the memory of a pool:
  *   RSS ≈ 290 MB + workers × (8 + 1.04·budget + 0.23·channels + cache) MiB
  * with budget the block budget (at most MAX_BLOCK_MB) and cache a DDA worker's file cache. The app's caches at their
- * budgets come on top, which leaves workers = floor((1.5 GB - 290 MB - caches) / per-worker MiB).
+ * budgets and a margin come on top: workers = floor((1.5 GB - 290 MB - caches - 50 MB) / per-worker MiB).
  */
 export function ddaPoolSize(cores: number, channels: number): number {
   const perWorkerMib = 8 + 1.04 * MAX_BLOCK_MB + 0.23 * channels + CACHE_MB.workerFiles;
-  const fits = Math.floor((CONTRACT_MIB - BASE_MIB - CACHES_MIB) / perWorkerMib);
+  const fits = Math.floor((CONTRACT_MIB - BASE_MIB - CACHES_MIB - MARGIN_MIB) / perWorkerMib);
   return Math.max(1, Math.min(cores - 1, fits));
 }
 
@@ -409,16 +414,14 @@ export function createEngine(): Engine {
         else entry.sha256 = { ...entry.sha256, [data.name]: data.sha256 };
         publish(data.id);
       };
-      // A worker that failed answers nothing more: every recording it was hashing says so, and the next open
-      // starts another.
+      // A worker that failed answers nothing more: every recording it was asked to hash says so, and the next hash
+      // starts another. A recording not asked yet (a URL one) is asked of that one.
       started.onerror = (event) => {
         if (hasher !== started) return;
         hasher = undefined;
         started.terminate();
         for (const [id, entry] of scans) {
-          const input = held.get(id);
-          if (!input || !isScanned(input) || entry.info.input_files.every((name) => entry.sha256[name]))
-            continue;
+          if (!entry.hashing || entry.info.input_files.every((name) => entry.sha256[name])) continue;
           entry.hashError = `The hash could not be computed: ${event.message || "the hash worker stopped"}`;
           publish(id);
         }
@@ -545,6 +548,7 @@ export function createEngine(): Engine {
         return Promise.resolve({
           annotations: info.annotations,
           warnings: info.format === "EDF+" ? [skipped] : [],
+          skipped: true,
         });
       }
       return annotate(input);
