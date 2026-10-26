@@ -53,6 +53,12 @@ const FolderTree = lazy(() =>
 
 type DirectoryPicker = (options: { mode: "read" }) => Promise<FileSystemDirectoryHandle>;
 
+/** The rail's opens, as the application menu and its shortcuts run them (app/AppMenu.tsx); set while it is mounted. */
+export const railActions = { openFiles() {}, openFolder() {}, openProject() {} };
+/** The Export project popover, which the application menu opens too, by its trigger's id. */
+export const exportPanel = Popover.createHandle();
+export const EXPORT_TRIGGER = "export-project";
+
 const version = engineVersion.then(
   (v) => v.engine_version,
   (error: Error) => `failed: ${error.message}`,
@@ -119,11 +125,15 @@ export function LibraryRail() {
     void run({ files, expect: locating.current });
     locating.current = undefined;
   };
-  async function chooseFiles(expect?: string) {
+  /** `project`: the picker offers .ddalab projects only. */
+  async function chooseFiles(expect?: string, project = false) {
     locating.current = expect;
     // The <input> opens only in the task of the click that asked for it, before any await.
-    if (!canPickFiles()) return filesInput.current?.click();
-    const chosen = await pickFiles().catch(() => null); // null: the user closed the picker
+    if (!canPickFiles() && filesInput.current) {
+      filesInput.current.accept = project ? ".ddalab" : "";
+      return filesInput.current.click();
+    }
+    const chosen = await pickFiles(project).catch(() => null); // null: the user closed the picker
     locating.current = undefined;
     if (chosen) await run({ ...chosen, expect });
   }
@@ -193,6 +203,13 @@ export function LibraryRail() {
   });
   useEffect(() => consumeLaunches(launchQueue(), (handles) => void launched(handles)), []);
   useEffect(() => {
+    Object.assign(railActions, {
+      openFiles: () => void chooseFiles(),
+      openFolder: () => void openFolder(),
+      openProject: () => void chooseFiles(undefined, true),
+    });
+  });
+  useEffect(() => {
     const over = (event: DragEvent) => event.preventDefault();
     const drop = (event: DragEvent) => {
       event.preventDefault();
@@ -224,8 +241,11 @@ export function LibraryRail() {
             Or drop a recording, the folder that holds it, or a .ddalab project anywhere in this window.
           </p>
         ) : (
-          <Popover.Root>
-            <Popover.Trigger className={`${controls.quiet} ${styles.ghost} ${styles.start}`}>
+          <Popover.Root handle={exportPanel}>
+            <Popover.Trigger
+              id={EXPORT_TRIGGER}
+              className={`${controls.quiet} ${styles.ghost} ${styles.start}`}
+            >
               Export project
             </Popover.Trigger>
             <Popover.Portal>
