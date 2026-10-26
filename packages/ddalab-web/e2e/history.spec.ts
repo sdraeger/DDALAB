@@ -27,7 +27,7 @@ const state = (page: Page) =>
 /** Runs `variants` on Fp1 and Fp2 of the BrainVision fixture from 1 s to 5 s; the result id. */
 async function runBrainVision(page: Page, variants = ["ST"]) {
   await page.getByLabel("Recording files").setInputFiles(BRAINVISION.map(fixturePath));
-  await expect(page.getByRole("heading", { name: "fixture.vhdr" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "fixture.vhdr", exact: true })).toBeVisible();
   await page.getByRole("checkbox", { name: "Select Fp1" }).check();
   await page.getByRole("checkbox", { name: "Select Fp2" }).check();
   const settings = page.getByRole("region", { name: "DDA settings" });
