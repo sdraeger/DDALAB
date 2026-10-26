@@ -41,10 +41,15 @@
   font-weight: var(--weight-strong);
   letter-spacing: 0.06em;
   cursor: pointer;
+  transition-property: color, background-color, border-color;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
 }
 
-.tab:hover {
-  color: var(--ink);
+@media (hover: hover) and (pointer: fine) {
+  .tab:hover {
+    color: var(--ink);
+  }
 }
 
 .tab[data-active] {
@@ -67,6 +72,9 @@
   color: var(--muted);
   font-size: var(--text-small);
   cursor: pointer;
+  transition-property: color, background-color, border-color;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
 }
 
 .toggle:first-child {
@@ -184,11 +192,15 @@
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: pointer;
+  transition-property: color;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
 }
 
-.rowButton:hover,
-.rowButton[aria-pressed="true"] {
-  color: var(--ink);
+@media (hover: hover) and (pointer: fine) {
+  .rowButton:hover {
+    color: var(--ink);
+  }
 }
 
 /* The plotted row: primary and heavier, the weight carrying it where color cannot. */

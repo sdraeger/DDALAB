@@ -25,6 +25,8 @@ export const EPOCHS: Epoch[] = [10, 20, 30];
 export const SENSITIVITIES = [1, 2, 3, 5, 7, 10, 15, 20, 30, 50, 70, 100];
 /** CSS pixels in a CSS millimetre. */
 export const CSS_PX_PER_MM = 96 / 25.4;
+/** The shortest span the view zooms to, in samples. */
+export const MIN_SPAN_SAMPLES = 8;
 
 /** What the waveform shows: seconds from the recording start, display channel rows and the physical scale. */
 export interface View {
@@ -145,7 +147,7 @@ function clamp(
   }
   const { duration_s: duration, sample_rate_hz: rate } = recording.info;
   const channels = recording.analysis_channels.length;
-  const span = Math.min(duration, Math.max(8 / rate, view.t1 - view.t0));
+  const span = Math.min(duration, Math.max(MIN_SPAN_SAMPLES / rate, view.t1 - view.t0));
   const t0 = Math.min(duration - span, Math.max(0, view.t0));
   const rowCount = Math.max(1, Math.min(channels, Math.round(view.rowCount)));
   const firstChannel = Math.max(0, Math.min(channels - rowCount, Math.round(view.firstChannel)));

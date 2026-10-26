@@ -453,7 +453,7 @@ function Heatmap({
     <Tabs.Root
       value={variant.id}
       onValueChange={(value) => setShownResult({ variant: value as string, row: null })}
-      render={<section className={styles.result} aria-label="Result" />}
+      render={<section className={styles.result} aria-label="Result" data-appear />}
     >
       <div className={styles.bar}>
         <VariantTabs
@@ -516,7 +516,11 @@ function Heatmap({
         <div className={styles.plot} ref={plot}>
           <canvas ref={heat} className={styles.layer} aria-hidden data-heatmap />
           <canvas ref={marks} className={styles.layer} aria-hidden />
-          {glProblem && <p className={styles.message}>{glProblem}</p>}
+          {glProblem && (
+            <p className={styles.message} data-appear>
+              {glProblem}
+            </p>
+          )}
           <Suspense
             fallback={
               <p role="status" className={styles.message}>
@@ -566,6 +570,7 @@ function ColorBar(props: { loading: Promise<Loaded<ResultArray>>; name: string; 
   return (
     <span
       className={styles.colorBar}
+      data-appear
       role="img"
       aria-label={`${props.name} from ${print(lo)} to ${print(hi)}`}
     >

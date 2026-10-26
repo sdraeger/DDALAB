@@ -61,3 +61,25 @@ a {
   color: var(--primary);
   text-underline-offset: 2px;
 }
+
+/* What appears in place fades in and rises: alerts, status lines and the panels marked data-appear, when they mount
+   or come out of `hidden`. No specificity: a component that lists its own transitions names opacity and transform. */
+:where([role="alert"], [role="status"], [aria-live], [data-appear]) {
+  transition-property: opacity, transform;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
+}
+
+@starting-style {
+  :where([role="alert"], [role="status"], [aria-live], [data-appear]) {
+    opacity: 0;
+    transform: translateY(var(--motion-rise));
+  }
+}
+
+/* The theme switch crossfades the whole page (ThemeToggle in Shell.tsx); the canvases redraw inside it. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--motion-duration);
+  animation-timing-function: var(--motion-ease);
+}
