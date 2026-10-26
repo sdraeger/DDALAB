@@ -97,6 +97,8 @@ async function mark(page: Page, t: number, label: string, exact?: { onset: strin
 }
 
 test.beforeEach(async ({ page }) => {
+  // No Save dialog: the exports save as downloads (save.spec.ts covers the dialog).
+  await page.addInitScript(() => Reflect.deleteProperty(window, "showSaveFilePicker"));
   await page.goto("/");
   await openFixture(page);
 });
