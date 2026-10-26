@@ -1,7 +1,16 @@
 // The background scan of a recording: one pass over every row that builds all levels of the pyramid and stores their
 // tiles in OPFS. The pass runs in slices inside the IO worker, which answers other requests between them.
 import type { Core } from "../core/abi";
-import { hasStorage, pyramidBytes, QuotaError, readJson, saveTiles, tileSlot, writeJson } from "../core/opfs";
+import {
+  hasStorage,
+  pyramidBytes,
+  QuotaError,
+  readJson,
+  STORAGE_UNAVAILABLE,
+  saveTiles,
+  tileSlot,
+  writeJson,
+} from "../core/opfs";
 import type { ScanState } from "../core/protocol";
 import type { RawType } from "../core/types";
 
@@ -41,12 +50,7 @@ export async function scan(job: ScanJob): Promise<void> {
   await yieldToLoop(); // the reply to `open` goes first
   try {
     if (!(await hasStorage())) {
-      return emit({
-        scannedRows: 0,
-        totalRows: rows,
-        notice:
-          "Browser storage is not available in this window, which private browsing can cause; no overview is stored.",
-      });
+      return emit({ scannedRows: 0, totalRows: rows, notice: STORAGE_UNAVAILABLE });
     }
     const layout = { rows, channels, rawType };
     if (JSON.stringify(await readJson(fingerprint, "scan.json")) === JSON.stringify(layout)) {

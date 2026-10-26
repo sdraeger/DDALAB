@@ -31,6 +31,64 @@ export function writeSynthetic(spec: SyntheticSpec, path: string) {
   closeSync(file);
 }
 
+/**
+ * 5,000 files in the origin private file system, behind `showDirectoryPicker`: 714 subjects with two runs (an EDF with
+ * its channels and events tables each) and a scans table, and the dataset's description and participants. Returns
+ * how many files it made.
+ */
+export const bigFolder = (page: Page) =>
+  page.evaluate(async () => {
+    const big = await (await navigator.storage.getDirectory()).getDirectoryHandle("big", { create: true });
+    const top = ["dataset_description.json", "participants.tsv"];
+    await Promise.all(top.map((name) => big.getFileHandle(name, { create: true })));
+    let count = top.length;
+    for (let s = 1; s <= 714; s++) {
+      const sub = `sub-${String(s).padStart(3, "0")}`;
+      const folder = await big.getDirectoryHandle(sub, { create: true });
+      const eeg = await folder.getDirectoryHandle("eeg", { create: true });
+      const names = [1, 2].flatMap((run) =>
+        ["eeg.edf", "channels.tsv", "events.tsv"].map((end) => `${sub}_task-rest_run-${run}_${end}`),
+      );
+      await Promise.all(names.map((name) => eeg.getFileHandle(name, { create: true })));
+      await folder.getFileHandle(`${sub}_scans.tsv`, { create: true });
+      count += names.length + 1;
+    }
+    Object.assign(window, { showDirectoryPicker: async () => big });
+    return count;
+  });
+
+/** Opens the folder of `bigFolder` and waits for its tree and its count of 1,428 recordings. */
+export async function openBigFolder(page: Page) {
+  await page.getByRole("button", { name: "Open folder" }).click();
+  const tree = page.getByRole("tree", { name: "Recordings in big" });
+  await expect(tree).toBeVisible({ timeout: 120_000 });
+  await expect(page.getByRole("heading", { name: "Folder 1428" })).toBeVisible();
+  return tree;
+}
+
+/** The longest gap between timer tasks, in ms, while the folder of `bigFolder` is walked and shown as a tree. */
+export async function walkGapMs(page: Page) {
+  expect(await bigFolder(page)).toBe(5000);
+  await page.evaluate(() => {
+    const probe = { gap: 0, stop: false };
+    let last = performance.now();
+    const tick = () => {
+      const now = performance.now();
+      probe.gap = Math.max(probe.gap, now - last);
+      last = now;
+      if (!probe.stop) setTimeout(tick, 0);
+    };
+    setTimeout(tick, 0);
+    Object.assign(window, { gapProbe: probe });
+  });
+  await openBigFolder(page);
+  return page.evaluate(() => {
+    const { gapProbe } = window as unknown as { gapProbe: { gap: number; stop: boolean } };
+    gapProbe.stop = true;
+    return gapProbe.gap;
+  });
+}
+
 /** The page with the engine started, opening files through the file input. */
 export async function start(page: Page) {
   await page.addInitScript(() => Reflect.deleteProperty(window, "showOpenFilePicker"));

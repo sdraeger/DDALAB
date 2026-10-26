@@ -216,7 +216,7 @@ The shell is a grid: a 44 px command bar across the top, then the library rail (
 
 Spacing runs on a 4 px unit (`spacing.1` to `spacing.6`). Rail sections sit 24 px apart with 16 px and 12 px insets; controls group at 8 px; control groups in the bar are split by a 20 px hairline rule.
 
-The command bar collapses by window width alone, so zooming moves nothing. Sensitivity, timebase and epoch sit in the bar while it has room and go behind one Scale button below 1400 px, or below 1600 px when the inspector is closed. Below 1024 px the wordmark and the Local and Annotate labels give way to their icons. Below 768 px the shell is replaced by a short notice that the workbench needs a wider window. Only the recording name and the run status shrink; the name elides in the middle and keeps its tail.
+The command bar collapses by window width alone, so zooming moves nothing. Sensitivity, timebase and epoch sit in the bar while it has room and go behind one Scale button below 1440 px, or below 1600 px when the inspector is closed. Below 1024 px the wordmark and the Local and Annotate labels give way to their icons. Below 768 px the shell is replaced by a short notice that the workbench needs a wider window. Only the recording name and the run status shrink; the name elides in the middle and keeps its tail.
 
 A last grid row under the panels holds the update notice. It has no height until a new version is ready.
 

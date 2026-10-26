@@ -6,7 +6,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { instantiateCore } from "../src/core/abi";
-import { pyramidBytes, tileSlot } from "../src/core/opfs";
+import { pyramidBytes, STORAGE_UNAVAILABLE, tileSlot } from "../src/core/opfs";
 import type { ScanState } from "../src/core/protocol";
 import { readSynthetic, type SyntheticSpec, syntheticEdfSize } from "../src/core/synthetic";
 import { expect, hasStorage, NO_STORAGE, type Page, test } from "./test";
@@ -185,7 +185,7 @@ test("quota_error_message", async ({ page }) => {
 test("storage_unavailable_message", async ({ page }) => {
   test.skip(await hasStorage(page), "this browser window has OPFS");
   const id = await open(page);
-  await expect(page.getByText("Browser storage is not available in this window")).toBeVisible();
+  await expect(page.getByText(STORAGE_UNAVAILABLE, { exact: true })).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
   expect((await scanOf(page, id)).scannedRows).toBe(0);
   expect(await tileDigest(page, id, 0, 12)).toBe(await expectedTile(0, 12));

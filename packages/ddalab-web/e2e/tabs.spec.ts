@@ -313,6 +313,7 @@ test("url_tabs_reattach_without_a_prompt", async ({ page }) => {
 // A URL tab that reattaches on a later visit reads what viewing needs: its overview and its annotation list are
 // stored, and it is hashed only when a run needs its digests. The file is five 4 MiB blocks long.
 test("a_url_tab_reattaching_reads_only_ranges", async ({ page }) => {
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   const spec = { channels: 16, rateHz: 512, durationS: 1200, seed: 7 };
   const bytes = new Uint8Array(syntheticEdfSize(spec));
   readSynthetic(spec, 0, bytes);
@@ -336,6 +337,7 @@ test("a_url_tab_reattaching_reads_only_ranges", async ({ page }) => {
   try {
     const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/long.edf`;
     await page.goto("/");
+    test.skip(!(await hasStorage(page)), NO_STORAGE);
     const remote = { name: "long.edf", url, size: bytes.length };
     await page.evaluate((r) => window.__ddalab.open({ kind: "url", files: [r], primary: r.name }), remote);
     // The first visit scans the file and reads its annotation list.

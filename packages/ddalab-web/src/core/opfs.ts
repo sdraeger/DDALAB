@@ -58,6 +58,11 @@ export class QuotaError extends Error {
   }
 }
 
+/** What a window without OPFS is told, by the scan and by every read or write of a result. */
+export const STORAGE_UNAVAILABLE =
+  "Browser storage, where overviews and results are kept, is not available in this window; private browsing can " +
+  "cause this. Open DDALAB in a regular window.";
+
 /** Whether this window gives workers a file system; some windows (private browsing) do not. */
 export const hasStorage = () =>
   navigator.storage.getDirectory().then(

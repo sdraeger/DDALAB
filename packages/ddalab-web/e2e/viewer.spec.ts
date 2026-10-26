@@ -351,6 +351,7 @@ test("paging_keys", async ({ page }) => {
 });
 
 test("escape_and_a_press_off_the_plot_let_the_cursor_go", async ({ page }) => {
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   await openFixture(page);
   const cursor = () => page.evaluate(() => window.__ddalab.store.getState().cursorS);
   const plot = page.locator("canvas[data-traces]");

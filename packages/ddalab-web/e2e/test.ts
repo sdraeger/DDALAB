@@ -66,5 +66,7 @@ export const NO_WEBGL2 = "this browser makes no WebGL2 context (headless Firefox
 /** The overview scan is over: at 100%, or, in Playwright's WebKit, which has no OPFS, not stored at all. */
 export const scanned = (page: Page) =>
   page.getByText(
-    test.info().project.name === "webkit" ? /^Overview 100%$|no overview is stored\.$/ : "Overview 100%",
+    test.info().project.name === "webkit"
+      ? /^Overview 100%$|^Browser storage, where overviews/
+      : "Overview 100%",
   );
