@@ -200,6 +200,22 @@ test("an_annotation_made_while_the_stored_list_loads_joins_it", async () => {
   expect(undo(fp)).toBe(false);
 });
 
+test("a_creation_deleted_while_the_stored_list_loads_leaves_the_stored_list", async () => {
+  const { create, remove, restoreAnnotations, saved, undo, redo } = m;
+  const fp = "race-delete";
+  const stored = { id: "s", onset_s: 1, duration_s: 0, label: "stored" };
+  await idb.saveAnnotations(fp, [stored]);
+  const restoring = restoreAnnotations(fp);
+  // Before the read resolves: a creation and its deletion, which store an empty list.
+  remove(fp, create(fp, 5, 0).id);
+  await restoring;
+  await saved();
+  expect(useStore.getState().annotations[fp]).toEqual([stored]);
+  expect(await idb.loadAnnotations(fp)).toEqual([stored]);
+  expect(undo(fp)).toBe(false);
+  expect(redo(fp)).toBe(false);
+});
+
 test("events_tsv_matches_the_hand_written_file", () => {
   const events = [
     { onset_s: 12.3333333, duration_s: 2.25, label: "seizure onset" },

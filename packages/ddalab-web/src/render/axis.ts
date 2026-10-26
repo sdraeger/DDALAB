@@ -113,8 +113,8 @@ export interface MarksScene extends EventsScene {
 }
 
 /**
- * Fills a vertical line `w` device pixels wide from `y` down `h`. Dashed (4 CSS px on, 3 off) it marks a file
- * event, solid a user annotation: on every plot the two kinds differ by more than their color.
+ * A vertical line `w` device pixels wide from `y` down `h`, in the fill color. Dashed (4 CSS px on, 3 off) it marks
+ * a file event, solid a user annotation: on every plot the two kinds differ by more than their color.
  */
 export function column(
   ctx: CanvasRenderingContext2D,
@@ -126,7 +126,15 @@ export function column(
   dpr: number,
 ) {
   if (!dashed) return ctx.fillRect(px, y, w, h);
-  for (let at = y; at < y + h; at += 7 * dpr) ctx.fillRect(px, at, w, Math.min(4 * dpr, y + h - at));
+  ctx.save();
+  ctx.strokeStyle = ctx.fillStyle;
+  ctx.lineWidth = w;
+  ctx.setLineDash([4 * dpr, 3 * dpr]);
+  ctx.beginPath();
+  ctx.moveTo(px + w / 2, y);
+  ctx.lineTo(px + w / 2, y + h);
+  ctx.stroke();
+  ctx.restore();
 }
 
 /** A vertical line `line` device pixels wide at `px`; over opaque data it stands on a halo of the ground color. */

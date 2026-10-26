@@ -3,30 +3,41 @@ import type { OpenRecording } from "../store/store";
 import { column, drawRuler } from "./axis";
 import type { Colors } from "./themeColors";
 
-/** The rectangles `column` fills, as [x, y, w, h]. */
-function filled(dashed: boolean, dpr: number) {
-  const rects: number[][] = [];
-  const ctx = { fillRect: (...r: number[]) => rects.push(r) } as unknown as CanvasRenderingContext2D;
+/** What `column` draws: its calls to a 2D context, by name and arguments. */
+function drawn(dashed: boolean, dpr: number) {
+  const calls: unknown[][] = [];
+  const record =
+    (name: string) =>
+    (...args: unknown[]) =>
+      calls.push([name, ...args]);
+  const ctx = {
+    fillStyle: "red",
+    fillRect: record("fillRect"),
+    save: record("save"),
+    restore: record("restore"),
+    setLineDash: record("setLineDash"),
+    beginPath: record("beginPath"),
+    moveTo: record("moveTo"),
+    lineTo: record("lineTo"),
+    stroke(this: { strokeStyle: string; lineWidth: number }) {
+      calls.push(["stroke", this.strokeStyle, this.lineWidth]);
+    },
+  } as unknown as CanvasRenderingContext2D & { strokeStyle: string; lineWidth: number };
   column(ctx, 5, 10, 1, 30 * dpr, dashed, dpr);
-  return rects;
+  return calls;
 }
 
 test("file_event_lines_are_dashed_and_user_lines_solid", () => {
-  expect(filled(false, 1)).toEqual([[5, 10, 1, 30]]);
-  // 4 px on, 3 off, the last dash cut at the end.
-  expect(filled(true, 1)).toEqual([
-    [5, 10, 1, 4],
-    [5, 17, 1, 4],
-    [5, 24, 1, 4],
-    [5, 31, 1, 4],
-    [5, 38, 1, 2],
-  ]);
-  expect(filled(true, 2).map(([, y, , h]) => [y, h])).toEqual([
-    [10, 8],
-    [24, 8],
-    [38, 8],
-    [52, 8],
-    [66, 4],
+  expect(drawn(false, 1)).toEqual([["fillRect", 5, 10, 1, 30]]);
+  // One stroke, 4 px on and 3 off in CSS pixels, down the middle of the line's pixel column.
+  expect(drawn(true, 2)).toEqual([
+    ["save"],
+    ["setLineDash", [8, 6]],
+    ["beginPath"],
+    ["moveTo", 5.5, 10],
+    ["lineTo", 5.5, 70],
+    ["stroke", "red", 1],
+    ["restore"],
   ]);
 });
 
