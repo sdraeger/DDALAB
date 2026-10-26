@@ -20,9 +20,3 @@
   gap: var(--space-2);
   min-height: 28px;
 }
-
-/* A button that waits for the run to end: it stays in the tab order, and shows that a press does nothing now. */
-.message button[aria-disabled="true"] {
-  opacity: 0.45;
-  cursor: default;
-}

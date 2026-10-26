@@ -97,6 +97,11 @@
   cursor: default;
 }
 
+/* Opacity would fade the focus ring below 3:1; the reason beside the button still says why it waits. */
+.button[aria-disabled="true"]:focus-visible {
+  opacity: 1;
+}
+
 .quiet {
   composes: button;
   border-color: transparent;
