@@ -3,8 +3,11 @@
 // settings on every recording shown (Batch.tsx); a folder opened to resume a batch resumes it once it is read.
 import { hotkeysCoreFeature, type ItemInstance, syncDataLoaderFeature } from "@headless-tree/core";
 import { useTree } from "@headless-tree/react";
+import Check from "lucide-react/dist/esm/icons/check.mjs";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right.mjs";
 import FolderOpen from "lucide-react/dist/esm/icons/folder-open.mjs";
+import Play from "lucide-react/dist/esm/icons/play.mjs";
+import X from "lucide-react/dist/esm/icons/x.mjs";
 import {
   type CSSProperties,
   type KeyboardEvent,
@@ -19,7 +22,7 @@ import {
 } from "react";
 import { resumeBatch } from "../../app/batch";
 import type { FileHandles, Outcome } from "../../app/recordings";
-import type { Mark } from "../../core/batch";
+import { discovered, type Mark } from "../../core/batch";
 import {
   classifyFolder,
   type FolderNode,
@@ -30,9 +33,10 @@ import {
   type Walked,
   walk,
 } from "../../core/folder";
+import { pathOf } from "../../core/sources";
 import { useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
-import { BatchAction, BatchProgressView, RowMark } from "./Batch";
+import { BatchAction, BatchProgressView } from "./Batch";
 import styles from "./FolderTree.module.css";
 import rail from "./LibraryRail.module.css";
 
@@ -61,12 +65,17 @@ export default function FolderTree(props: {
 }) {
   const { source, onOpen, resume } = props;
   const [count, setCount] = useState(0);
-  const [result, setResult] = useState<{ walked: Walked; recordings: FolderRecording[] }>();
+  // `bids`: the opened folder is a BIDS dataset's root, which a batch reads as `ddalab batch --bids-dir` does.
+  const [result, setResult] = useState<{ walked: Walked; recordings: FolderRecording[]; bids: boolean }>();
   const [error, setError] = useState<string>();
   useEffect(() => {
     const walking = new AbortController();
     walk(source, walking.signal, setCount)
-      .then(async (walked) => ({ walked, recordings: await classifyFolder(walked.files) }))
+      .then(async (walked) => ({
+        walked,
+        recordings: await classifyFolder(walked.files),
+        bids: walked.files.some((file) => /^[^/]+\/dataset_description\.json$/.test(pathOf(file))),
+      }))
       .then(
         (found) => {
           setResult(found);
@@ -104,6 +113,7 @@ export default function FolderTree(props: {
           recordings={result.recordings}
           unreadable={result.walked.unreadable}
           handle={result.walked.root}
+          bids={result.bids}
           onOpen={open}
         />
       ) : (
@@ -129,6 +139,7 @@ function Recordings(props: {
   recordings: FolderRecording[];
   unreadable: Walked["unreadable"];
   handle?: FileSystemDirectoryHandle;
+  bids: boolean;
   onOpen(recording: FolderRecording): Promise<Outcome>;
 }) {
   const { recordings, unreadable, onOpen } = props;
@@ -145,11 +156,12 @@ function Recordings(props: {
       r.name.toLowerCase().includes(needle) || r.path.slice(below).toLowerCase().includes(needle);
     return folderTree(recordings.filter(matches), true);
   }, [recordings, whole, filter]);
-  // The batch's recordings: the ones shown that open, in path order.
-  const runnable = useMemo(
-    () => recordings.filter((r) => !r.missing && shown.nodes[r.path] !== undefined),
-    [recordings, shown],
-  );
+  // The batch's recordings, of the ones shown: in a BIDS dataset the CLI's, a header without its data file
+  // included (it fails as in the CLI); elsewhere the ones that open, in path order.
+  const runnable = useMemo(() => {
+    const listed = recordings.filter((r) => shown.nodes[r.path] !== undefined);
+    return props.bids && whole.root ? discovered(listed, whole.root) : listed.filter((r) => !r.missing);
+  }, [recordings, shown, props.bids, whole.root]);
   const lost = [
     unreadable.files > 0 && counted(unreadable.files, "file"),
     unreadable.folders > 0 && counted(unreadable.folders, "folder"),
@@ -390,6 +402,23 @@ function Tree(props: {
         ))}
       </div>
     </div>
+  );
+}
+
+const MARK: Record<Mark, { word: string; Icon: typeof Check }> = {
+  done: { word: "Done", Icon: Check },
+  failed: { word: "Failed", Icon: X },
+  running: { word: "Running", Icon: Play },
+};
+
+/** A row's batch mark: an icon and its word, the color only repeating the word. */
+function RowMark({ mark }: { mark: Mark }) {
+  const { word, Icon } = MARK[mark];
+  return (
+    <span className={styles.mark} data-mark={mark}>
+      <Icon aria-hidden />
+      {word}
+    </span>
   );
 }
 

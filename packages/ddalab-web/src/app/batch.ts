@@ -1,19 +1,20 @@
 // Running a batch (core/batch.ts): the settings of one moment on each recording of an opened folder, one recording at
 // a time through the engine and its worker pool, which keeps memory to one run's. A recording opens in the engine
-// without a tab and closes after its run; its result becomes an ordinary analysis record. A failure is recorded and
-// the batch goes on; Cancel stops the run in progress, which leaves no files, and keeps the results before it. The
-// batch holds a Web Lock while it runs: one found running whose lock is free was cut short by a reload or a crash.
+// without a tab or an overview scan and closes after its run; its result becomes an ordinary analysis record. A
+// failure is recorded in the CLI's words and the batch goes on; Cancel stops the run in progress, which leaves no
+// files, and keeps the results before it. The batch holds a Web Lock while it runs: one found running whose lock is
+// free was cut short by a reload or a crash.
 import { makeZip } from "client-zip";
 import {
   type BatchProgress,
   type BatchRecord,
   type BatchResult,
   batchManifest,
-  bundleDirs,
   channelsFor,
   intervalFor,
   listBatches,
   type Mark,
+  outputNames,
   saveBatch,
 } from "../core/batch";
 import { bundleFiles } from "../core/exporters";
@@ -131,7 +132,7 @@ async function runBatch(start: BatchRecord, recordings: FolderRecording[]) {
         setProgress({ name: path.slice(path.lastIndexOf("/") + 1), marks: { ...marks } });
         const result = recording
           ? await runOne(batch, recording)
-          : { path, status: "error" as const, warnings: [], error: "The recording is not in the folder" };
+          : { path, status: "error" as const, warnings: [], error: `Input file not found: ${path}` };
         if (!result) break;
         marks[path] = result.status === "ok" ? "done" : "failed";
         batch = { ...batch, results: [...batch.results, result] };
@@ -145,6 +146,11 @@ async function runBatch(start: BatchRecord, recordings: FolderRecording[]) {
       setProgress({ status: batch.status, marks: { ...marks } });
       await keep(batch);
     });
+  } catch {
+    // A failure outside a recording's run (the lock, the storage) ends the batch as cut short: Resume takes it up.
+    batch = { ...batch, status: "interrupted" };
+    setProgress({ status: batch.status });
+    await keep(batch);
   } finally {
     running = false;
     current = undefined;
@@ -154,40 +160,47 @@ async function runBatch(start: BatchRecord, recordings: FolderRecording[]) {
 
 /**
  * Runs `batch`'s request on one recording: how it ended, or `undefined` when Cancel or the page closing stopped it.
- * Refusals are the single run's: the settings checked as the run bar checks them, then the core's plan.
+ * Refusals are the single run's: the settings checked as the run bar checks them, then the core's plan. A failure reads
+ * as `ddalab batch` words it: an open or a plan refused after `<path>: `, and a failure after the open followed by the
+ * recording's warnings, each after a space, with no warnings of its own.
  */
 async function runOne(batch: BatchRecord, recording: FolderRecording): Promise<BatchResult | undefined> {
   const { path } = recording;
-  const warnings: string[] = [];
-  const fail = (error: string): BatchResult => ({ path, status: "error", warnings, error });
+  const fail = (error: string): BatchResult => ({ path, status: "error", warnings: [], error });
   // The run state keeps a single run from starting beside the batch; no tab owns it.
   const zero = { blocksDone: 0, blocks: 0, windowsDone: 0, windows: 0, etaS: null };
   useStore.setState({ run: { id: "", recordingId: "", status: "running", progress: zero } });
-  if (recording.missing) return fail(recording.missing);
   const set = buildFileSet(recording.files, path);
-  if (!("primary" in set)) return fail("error" in set ? set.error : `${path} is one of several recordings`);
+  if (!("primary" in set))
+    return fail(`${path}: ${"error" in set ? set.error : "one of several recordings"}`);
   let opened: Awaited<ReturnType<typeof engine.open>>;
   try {
-    opened = await engine.open({ kind: "files", files: set.files, primary: set.primary });
+    opened = await engine.open({ kind: "files", files: set.files, primary: set.primary }, { scan: false });
   } catch (error) {
-    return fail(messageOf(error));
+    return fail(`${path}: ${messageOf(error)}`);
   }
+  const { info } = opened;
+  const failOpened = (error: string) => fail(info.warnings.reduce((text, w) => `${text} ${w}`, error));
   try {
-    const { info } = opened;
-    warnings.push(...info.warnings);
-    const channels = channelsFor(batch.channels, info, opened.analysis_channels);
-    const interval = intervalFor(batch.interval, info);
-    warnings.push(...channels.warnings, ...interval.warnings);
+    const channels = channelsFor(batch.channels, info, opened.analysis_channels, path);
+    const interval = intervalFor(batch.interval, info, path);
     const refusal = channels.error ?? interval.error;
-    if (refusal) return fail(refusal);
+    if (refusal) return failOpened(refusal);
     const chosen = (await variants).filter((v) => batch.form.variants.includes(v.abbreviation));
     const { startS, endS } = interval;
     const draft = { ...batch.form, variants: chosen, channels: channels.channels, startS, endS };
-    const { request, errors } = validateRequest(draft, info);
-    if (!request) return fail(Object.values(errors)[0]);
+    const checked = validateRequest(draft, info);
+    if (!checked.request) return failOpened(Object.values(checked.errors)[0]);
+    // The document names the file by its path in the dataset, as `ddalab batch --bids-dir <folder>` run beside it does.
+    const request = { ...checked.request, file_path: path };
     if (cancelled) return undefined;
     const createdAt = Date.now();
-    const handle = await engine.run(opened.id, request);
+    let handle: AnalysisHandle;
+    try {
+      handle = await engine.run(opened.id, request);
+    } catch (error) {
+      return failOpened(`${path}: ${messageOf(error)}`);
+    }
     current = handle;
     if (cancelled) handle.cancel();
     handle.progress((p) => useStore.setState((s) => ({ run: s.run && { ...s.run, progress: p } })));
@@ -195,7 +208,7 @@ async function runOne(batch: BatchRecord, recording: FolderRecording): Promise<B
       await handle.done;
     } catch (error) {
       if (aborted(error) || leaving) return undefined;
-      return fail(messageOf(error));
+      return failOpened(messageOf(error));
     } finally {
       current = undefined;
     }
@@ -213,30 +226,49 @@ async function runOne(batch: BatchRecord, recording: FolderRecording): Promise<B
     };
     await saveAnalysis(record).catch(() => {});
     await refreshAnalyses();
-    return { path, status: "ok", resultId: record.id, warnings };
+    return {
+      path,
+      status: "ok",
+      resultId: record.id,
+      warnings: [...info.warnings, ...channels.warnings, ...interval.warnings],
+    };
   } catch (error) {
-    return fail(messageOf(error));
+    return failOpened(messageOf(error));
   } finally {
     // A recording a tab holds (opened before, or since) stays open.
     if (!opened.duplicate && !useStore.getState().recordings[opened.id]) engine.close(opened.id);
   }
 }
 
+/** The document export's refusal of a result of more text than a tab should hold (exporters.ts `refuseAbove`). */
+const TOO_LARGE = /^The JSON document would be about/;
+
 /**
- * Saves the combined export of `batch`: its manifest as `batch.json` and each result's bundle under its recording's
- * path, streamed into one zip. Call it first thing in a click (download.ts `saveStream`).
+ * Saves the combined export of `batch` as one zip, streamed: what `ddalab batch --bids-dir <folder> --output-dir dda`
+ * writes, its manifest as `batch_manifest.json` and each result document at its `outputPath`. A result whose document
+ * the export refuses as too large goes in as its bundle, at that path without `.json`, with a warning. Call it first
+ * thing in a click (download.ts `saveStream`).
  */
 export function exportBatch(batch: BatchRecord) {
   return saveStream(`${batch.root || "batch"}.batch.zip`, async () => {
-    const { analyses } = useStore.getState();
-    const manifest = batchManifest(batch, analyses);
-    const dirs = bundleDirs(batch.paths, batch.root);
+    const manifest = batchManifest(batch, useStore.getState().analyses, await outputNames(batch.paths));
     async function* files() {
-      yield { name: "batch.json", input: `${JSON.stringify(manifest, null, 2)}\n` };
       for (const result of manifest.results) {
         const id = batch.results.find((r) => r.path === result.inputPath)?.resultId;
-        if (result.status === "ok" && id) yield* await bundleFiles(id, `${dirs.get(result.inputPath)}/`);
+        if (!id || !result.outputPath) continue;
+        try {
+          yield { name: result.outputPath, input: await engine.exportDocument(id) };
+        } catch (error) {
+          if (!TOO_LARGE.test(messageOf(error))) throw error;
+          result.outputPath = result.outputPath.replace(/\.json$/, "");
+          result.warnings.push(
+            `The result document is too large for the browser; this is its bundle. ${messageOf(error)}`,
+          );
+          yield* await bundleFiles(id, `${result.outputPath}/`);
+        }
       }
+      // Last, as the CLI prints it: a bundle in place of a document changes its row.
+      yield { name: "batch_manifest.json", input: `${JSON.stringify(manifest, null, 2)}\n` };
     }
     return makeZip(files());
   });
