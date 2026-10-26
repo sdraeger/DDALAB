@@ -256,11 +256,21 @@ test("the_list_moves_jumps_renames_and_deletes_from_the_keyboard", async ({ page
   await expect(editor(page).getByLabel("Onset (s)")).toHaveValue("4");
 });
 
-test("use_as_selection_sets_the_run_interval_a_run_takes", async ({ page }) => {
-  test.skip(!(await hasStorage(page)), NO_STORAGE);
+/** Marks "segment" from 2 s for 4 s and uses it as the selection. */
+async function useSegment(page: Page) {
   await mark(page, 2, "segment", { onset: "2", duration: "4" });
   await list(page).getByRole("button", { name: "Use as selection: segment" }).click();
+}
+
+test("use_as_selection_sets_the_run_interval", async ({ page }) => {
+  await useSegment(page);
   await expect(runBar(page).getByLabel("Start", { exact: true })).toHaveValue("2");
+  await expect(runBar(page).getByLabel("End", { exact: true })).toHaveValue("6");
+});
+
+test("a_run_takes_the_interval_of_an_annotation", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  await useSegment(page);
   await expect(runBar(page).getByLabel("End", { exact: true })).toHaveValue("6");
   await page.getByRole("checkbox", { name: "Select Fp1" }).check();
   const settings = page.getByRole("region", { name: "DDA settings" });
