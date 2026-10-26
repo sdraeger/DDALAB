@@ -8,7 +8,7 @@
 // so raw layers cost what the rows shown need, whatever the channel count. A slot texture maps the slots of a frame
 // (consecutive raw chunks, or consecutive tiles of the planned level) to layers. A slot whose own data has not
 // arrived draws from the finest loaded coarser tile over it: every frame asks for a few tiles covering the whole
-// view and for the top tile, which stay loaded, so the plot never blanks once a region is scanned.
+// view and for the top tile, which stay loaded. The plot never blanks once a region is scanned.
 import { bucketSize, levelCount, tileRows } from "../core/opfs";
 import type { Tile } from "../core/protocol";
 import { CACHE_MB, TileCache } from "../core/tileCache";
@@ -332,7 +332,7 @@ export function createWaveformLayer(
   const pinned = new Set<string>();
   /** The raw chunks of the last frame and their channel window, put into layers as they arrive. */
   let wanted = { chunks: new Set<number>(), first: 0 };
-  /** Rows the scan has stored tiles for: covers are read from storage, never built from the file. */
+  /** Rows the scan has stored tiles for: covers there are read from storage alone. */
   let scannedRows = 0;
   let frameNumber = 0;
   let disposed = false;
@@ -515,7 +515,7 @@ export function createWaveformLayer(
     }
     const rawFirst = Math.min(frame.firstChannel, channels - raws.width);
     // shortcut: raw rows of a view wider than half the raw layers draw from level 0 tiles, whose 64-row buckets can
-    // widen a span past its neighbours; split such a view into passes if screens that wide appear.
+    // widen a span past its neighbors; split such a view into passes if screens that wide appear.
     const rawChunks = Math.floor(lastRow / LAYER_ROWS) - Math.floor(firstRow / LAYER_ROWS) + 1;
     if (plan.mode !== "tile" && rawChunks * 2 > raws.layers) plan = { mode: "tile", level: 0 };
     const raw = plan.mode !== "tile";

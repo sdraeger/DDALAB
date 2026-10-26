@@ -54,7 +54,7 @@ export function Overview({ recordingId }: { recordingId: string }) {
     /** The view and the strip width the outline was last placed for. */
     let last = { t0: Number.NaN, t1: Number.NaN, cssW: Number.NaN };
     let colors = readColors(stripEl);
-    /** What the canvas last showed: it is redrawn when that changes, not on every move of the view. */
+    /** What the canvas last showed: it is redrawn when that changes, and a move of the view alone leaves it. */
     let drawnScene: unknown[] = [];
     const schedule = () => {
       if (!raf) raf = requestAnimationFrame(paint);

@@ -3,7 +3,7 @@
 // times nearer its center than any other window's center and within its analysis interval: the column under a time
 // shows the window whose center is nearest it, and a column across a border counts toward both windows. Zoomed out,
 // the cells come from the max-magnitude pyramid (resultPyramid.ts) at the coarsest level whose cells are no wider than
-// a pixel, so no outlier window disappears.
+// a pixel: no outlier window disappears.
 //
 // An R32F texture array holds one tile per layer (`rows` texels wide, 1,024 cells high). A slot texture maps the tiles
 // of a frame to layers; a tile still on its way draws from the finest loaded coarser tile over it, and the top tile,

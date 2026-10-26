@@ -187,7 +187,7 @@ test("waveform_is_pixel_exact_with_many_rows", async ({ page }) => {
   await page.getByRole("button", { name: "Library" }).click();
   await page.getByRole("button", { name: "Inspector" }).click();
   await openSynthetic(page, { channels: 512, rateHz: 2000, durationS: 120, seed: 6 });
-  // 1 to 31 s: no spike (they come every 97 s), so every trace stays within its row at 100 µV/mm.
+  // 1 to 31 s holds no spike (they come every 97 s): every trace stays within its row at 100 µV/mm.
   await setView(page, { t0: 1, t1: 31, epochS: 30, firstChannel: 500, rowCount: 6, sensitivityUvPerMm: 100 });
   const result = await checkPixels(page);
   expect(result).toMatchObject({ mode: "rawSpan", failures: [] });
@@ -284,7 +284,7 @@ test("paging_never_blanks", async ({ page }) => {
 // A read that fails is reported in the plot and tried again; the plot recovers once reads work.
 test("read_failure_is_reported", async ({ page }) => {
   test.setTimeout(120_000);
-  // About 200 MB: more than the engine's file cache, so rows in the middle are read again after the scan.
+  // About 200 MB, more than the engine's file cache: rows in the middle are read again after the scan.
   const spec = { channels: 64, rateHz: 256, durationS: 6000, seed: 12 };
   const size = syntheticEdfSize(spec);
   let failing = false;

@@ -25,7 +25,7 @@ export type Epoch = 10 | 20 | 30;
 export const EPOCHS: Epoch[] = [10, 20, 30];
 /** The sensitivity steps of the `[` and `]` keys, in µV/mm. */
 export const SENSITIVITIES = [1, 2, 3, 5, 7, 10, 15, 20, 30, 50, 70, 100];
-/** CSS pixels in a CSS millimetre. */
+/** CSS pixels in a CSS millimeter. */
 export const CSS_PX_PER_MM = 96 / 25.4;
 /** The shortest span the view zooms to, in samples. */
 export const MIN_SPAN_SAMPLES = 8;
@@ -38,7 +38,7 @@ export interface View {
   rowCount: number;
   epochS: Epoch;
   sensitivityUvPerMm: number;
-  /** Physical millimetres in one CSS millimetre on this display (the calibration setting). */
+  /** Physical millimeters in one CSS millimeter on this display (the calibration setting). */
   mmPerCssMm: number;
 }
 
@@ -386,7 +386,7 @@ export function stepSensitivity(steps: number) {
 /** The epoch becomes the span from the current start. */
 export const setEpoch = (epochS: Epoch) => setView((v) => ({ epochS, t1: v.t0 + epochS }));
 
-/** Physical millimetres per second across the plot. */
+/** Physical millimeters per second across the plot. */
 export const timebaseOf = (view: View, plotCssWidth: number) =>
   ((plotCssWidth / CSS_PX_PER_MM) * view.mmPerCssMm) / (view.t1 - view.t0);
 
