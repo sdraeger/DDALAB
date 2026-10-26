@@ -294,8 +294,8 @@ test("a_launched_project_reattaches_through_its_handle", async ({ page, browser,
   await elsewhere.close();
 });
 
-/** `path`'s project with the SHA-256 its project.json lists for `fixture.edf` replaced, written stored; its path. */
-function misdigested(path: string) {
+/** `path`'s project with its project.json `p` changed by the Python expression `edit`, written stored; its path. */
+function rewritten(path: string, edit: string) {
   const crafted = join(mkdtempSync(join(tmpdir(), "ddalab-crafted-")), basename(path));
   execFileSync("python3", [
     "-c",
@@ -305,7 +305,7 @@ function misdigested(path: string) {
       "    data = a.read(i)\n" +
       "    if i.filename == 'project.json':\n" +
       "      p = json.loads(data)\n" +
-      "      p['recordings'][0]['files'][0]['sha256'] = '0' * 64\n" +
+      `      ${edit}\n` +
       "      data = json.dumps(p).encode()\n" +
       "    b.writestr(i.filename, data)",
     path,
@@ -313,6 +313,49 @@ function misdigested(path: string) {
   ]);
   return crafted;
 }
+
+/** `path`'s project with the SHA-256 its project.json lists for `fixture.edf` replaced; its path. */
+const misdigested = (path: string) => rewritten(path, "p['recordings'][0]['files'][0]['sha256'] = '0' * 64");
+
+const chosenOnly = (page: Page) => page.getByRole("button", { name: "Show chosen channels only" });
+
+// 2.0.1's "Show chosen channels only" is part of a tab's view: it goes along with a project and comes back on. A
+// project written before it has no such field, and its tabs show every channel, whatever the tab left showed.
+test("chosen_only_travels_with_a_project", async ({ page, browser }) => {
+  await start(page);
+  await page.getByLabel("Recording files").setInputFiles(fixture("fixture.edf"));
+  await expect(page.getByRole("heading", { name: "fixture.edf" })).toBeVisible();
+  await page
+    .getByRole("list", { name: "Channels" })
+    .getByRole("checkbox", { name: /^Select / })
+    .last()
+    .check();
+  await chosenOnly(page).click();
+  await expect(chosenOnly(page)).toHaveAttribute("aria-pressed", "true");
+  const path = await exportProject(page, /^1 recording, 0 results: /);
+
+  const elsewhere = await browser.newContext();
+  const other = await elsewhere.newPage();
+  await start(other);
+  await other.getByLabel("Recording files").setInputFiles(path);
+  await expect(other.getByRole("heading", { name: "fixture.edf" })).toBeVisible();
+  await expect(chosenOnly(other)).toHaveAttribute("aria-pressed", "true");
+  await elsewhere.close();
+
+  const before = await browser.newContext();
+  const older = await before.newPage();
+  await start(older);
+  await older.getByLabel("Recording files").setInputFiles(BRAINVISION.map(fixture));
+  await expect(older.getByRole("heading", { name: "fixture.vhdr" })).toBeVisible();
+  await older.getByRole("checkbox", { name: "Select Fp1" }).check();
+  await chosenOnly(older).click();
+  await expect(chosenOnly(older)).toHaveAttribute("aria-pressed", "true");
+  const views = "[r['saved']['view'].pop('chosenOnly') for r in p['recordings'] if r['saved']]";
+  await older.getByLabel("Recording files").setInputFiles(rewritten(path, views));
+  await expect(older.getByRole("heading", { name: "fixture.edf" })).toBeVisible();
+  await expect(chosenOnly(older)).toHaveAttribute("aria-pressed", "false");
+  await before.close();
+});
 
 // A recording here and the project's agree on the fingerprint (the name, the size and the edges of each file) but not
 // on the SHA-256 the project lists: the user's tab, its source and annotations stay as they are, and the project's copy
