@@ -1,0 +1,35 @@
+.about {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* The mark sits on the title's baseline and spans its capitals (Logo.module.css). */
+.title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: var(--text-section);
+  font-weight: var(--weight-strong);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: var(--space-1) var(--space-2);
+}
+
+.facts dt {
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.facts dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.text {
+  color: var(--muted);
+  line-height: 1.45;
+}

@@ -194,7 +194,8 @@ async function handle(request: IoRequest): Promise<unknown> {
       const { handle } = recording(request.id);
       const plan16 = c.plan(handle, request.request, MAX_BLOCK_MB);
       const budget = blockBudgetMb(plan16, request.workers);
-      return budget === MAX_BLOCK_MB ? plan16 : c.plan(handle, request.request, budget);
+      const plan = budget === MAX_BLOCK_MB ? plan16 : c.plan(handle, request.request, budget);
+      return { ...plan, budgetMb: budget };
     }
     case "createResult":
       return createResultFiles(request.resultId, request.layout);

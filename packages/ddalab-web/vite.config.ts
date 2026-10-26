@@ -1,6 +1,18 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
+// The perf tests (dev server) and the benchmark (`vite preview`) measure memory with
+// performance.measureUserAgentSpecificMemory, which needs cross-origin isolation. Only they set DDALAB_ISOLATE; the
+// shipped headers live in public/.htaccess.
+const isolated = process.env.DDALAB_ISOLATE
+  ? {
+      headers: {
+        "Cross-Origin-Opener-Policy": "same-origin",
+        "Cross-Origin-Embedder-Policy": "require-corp",
+      },
+    }
+  : {};
+
 export default defineConfig({
   // Relative URLs: dist works from any path (a userdir such as /~name/ddalab/) without a rebuild.
   base: "./",
@@ -17,14 +29,9 @@ export default defineConfig({
       },
     },
   ],
+  // Minified builds drop legal comments (`/*!`, `@license`) unless asked: the color maps' MIT notice must stay.
+  build: { rolldownOptions: { output: { comments: { legal: true } } } },
   worker: { format: "es" },
-  // The perf tests measure memory with performance.measureUserAgentSpecificMemory, which needs isolation.
-  server: process.env.DDALAB_ISOLATE
-    ? {
-        headers: {
-          "Cross-Origin-Opener-Policy": "same-origin",
-          "Cross-Origin-Embedder-Policy": "require-corp",
-        },
-      }
-    : {},
+  server: isolated,
+  preview: isolated,
 });

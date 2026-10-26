@@ -12,8 +12,11 @@ import { openResult, type RunState, showResult, useStore } from "../store/store"
 import { engine } from "./recordings";
 import { inTransition } from "./viewTransition";
 
+/** The engine's version and metadata, asked for once. */
+export const engineVersion = engine.version();
+
 /** The variants the core offers, from its metadata; none when the engine did not start (the library says why). */
-export const variants = engine.version().then(
+export const variants = engineVersion.then(
   (version) => version.variants,
   (): VariantInfo[] => [],
 );
