@@ -21,8 +21,12 @@ const CPU_BUDGET = 64 * 2 ** 20;
 const MAX_IN_FLIGHT = 4;
 /** The opacity of the rows other than the hovered one. */
 const RECEDE = 0.84;
+/** Tiles on the CPU by `${array.key}/${level}/${index}`, least recently used first; shared by the layers. */
+const cpuTiles = new TileCache<ResultTile>(CPU_BUDGET, (found) => found.values.byteLength);
 
 export interface HeatmapArray {
+  /** What its tiles are cached by (result, variant and array): a layer made again for it finds them. */
+  key: string;
   windows: number;
   rows: number;
   levels: number;
@@ -160,8 +164,11 @@ export function createHeatmapLayer(
   gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 256, 1, gl.RGBA, gl.UNSIGNED_BYTE, array.lut);
   const vertices = gl.createVertexArray();
 
-  /** Tiles by `level/index`: on the CPU (least recently used first) and in layers. */
-  const cpu = new TileCache<ResultTile>(CPU_BUDGET, (found) => found.values.byteLength);
+  /** Tiles by `level/index`: on the CPU (in `cpuTiles`) and in layers. */
+  const cpu = {
+    get: (key: string) => cpuTiles.get(`${array.key}/${key}`),
+    set: (key: string, found: ResultTile) => cpuTiles.set(`${array.key}/${key}`, found),
+  };
   const resident = new Map<string, { layer: number; used: number }>();
   const free = Array.from({ length: layers }, (_, i) => layers - 1 - i);
   const inFlight = new Set<string>();

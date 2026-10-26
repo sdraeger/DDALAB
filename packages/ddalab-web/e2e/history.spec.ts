@@ -271,8 +271,10 @@ test("session_restores_view", async ({ page }) => {
   await page.getByRole("button", { name: "Inspector" }).click();
   expect((await state(page)).view).toMatchObject({ t0: 10, t1: 30, epochS: 20 });
   await page.reload();
-  // The panels at once, the result once the history has loaded.
+  // The panels at once; the result comes back with its tab once the history has loaded.
   await expect(page.getByRole("button", { name: "Inspector" })).toHaveAttribute("aria-pressed", "false");
+  await expect(history(page).getByRole("button", { name: /^ST on fixture\.vhdr/ })).toBeVisible();
+  await page.getByRole("tab", { name: /^fixture\.vhdr/ }).click();
   await expect.poll(async () => (await state(page)).activeResultId).toBe(id);
   // The view comes back when the recording opens again.
   await page.getByLabel("Recording files").setInputFiles(fixturePath("fixture.edf"));

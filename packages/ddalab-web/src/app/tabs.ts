@@ -1,11 +1,12 @@
-// Tabs across visits: the open set written to IndexedDB as it changes, brought back on the next visit, and reattached
-// as smoothly as each browser allows. URL recordings, and files whose handles may still be read (Chromium), reattach
-// on their own. Reattach asks for read access once per distinct folder or file handle (Chromium), or opens a picker
-// once (every browser): the picked files reattach every detached tab they match, and the hash worker confirms each
-// by SHA-256 afterwards.
-import { removeRecording, useStore } from "../store/store";
+// Tabs across visits: the open set written to IndexedDB, brought back on the next visit, and reattached as smoothly as
+// each browser allows. URL recordings, and files whose handles may still be read (Chromium), reattach on their own.
+// Reattach acts on one tab: it asks for read access to one of its handles (Chromium), retries its URL, or opens a
+// picker, whose files reattach every detached tab they match by name and size. Files of another date are hashed
+// against the tab's SHA-256 before they attach; the others attach at once and the hash worker confirms them after.
+import { removeRecording, type State, useStore } from "../store/store";
 import {
   forgetTab,
+  hasHandles,
   idOf,
   loadTabs,
   matchFiles,
@@ -14,19 +15,16 @@ import {
   setReason,
   type Tab,
   type TabSource,
-  tabOf,
   updateTab,
-  useTabs,
 } from "../store/tabs";
-import { fileAt, permissionsOnce } from "./handles";
+import { ask, fileAt, permitted } from "./handles";
 import { closeRecording, engine, type Handles, openFiles, openInput } from "./recordings";
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /** The tabs whose recording is not open. */
-export function detachedTabs(): Tab[] {
-  const { recordings } = useStore.getState();
-  return useTabs.getState().tabs.filter((t) => !idOf(t.fingerprint, recordings));
+export function detachedTabs(s: State = useStore.getState()): Tab[] {
+  return s.tabs.filter((t) => !idOf(t.fingerprint, s.recordings));
 }
 
 export function closeTab(fingerprint: string) {
@@ -37,191 +35,228 @@ export function closeTab(fingerprint: string) {
 
 /** Closes every tab and recording. Results, tiles and the recent list stay. */
 export function closeAll() {
-  useTabs.setState({ tabs: [], active: null, reasons: {} });
+  useStore.setState({ tabs: [], activeTab: null, tabReasons: {} });
   for (const id of Object.keys(useStore.getState().recordings)) closeRecording(id);
 }
 
-/** Closes the recording of a tab and keeps the tab, detached, with `reason`. */
+/** Closes the recording of a tab and keeps the tab, detached, with `reason`; a selected tab stays selected. */
 function detach(fingerprint: string, reason: string) {
   const id = idOf(fingerprint);
-  const shown = useTabs.getState().active === fingerprint;
   if (id) {
     engine.close(id);
-    removeRecording(id);
+    removeRecording(id, fingerprint);
   }
   setReason(fingerprint, reason);
-  if (shown) selectTab(fingerprint);
 }
 
-/** Opens the detached `tab` from `files` when they hold its files; `false` when they hold none of them. */
-async function attachFiles(tab: Tab, files: File[], handles?: Handles): Promise<boolean> {
+/** Recordings reattached without the user picking their files (handles, URLs): another SHA-256 detaches them. */
+const unpicked = new Set<string>();
+
+/**
+ * Opens the detached `tab` from `files` when they hold its files; `false` when they hold none of them. `picked`: the
+ * user chose these files.
+ */
+async function attachFiles(tab: Tab, files: File[], handles: Handles | undefined, picked: boolean) {
   if (tab.source?.kind !== "files") return false;
+  const { fingerprint } = tab;
   const match = matchFiles(tab.source.files, files);
   if (!match) return false;
   if ("reason" in match) {
-    setReason(tab.fingerprint, match.reason);
+    setReason(fingerprint, match.reason);
     return true;
   }
-  const { primary } = match;
-  const options = { choice: primary, expect: tab.fingerprint, exact: true, handles, activate: false };
+  // Same name and size with another date (a copy, a download again): hashed against the tab's digest first.
+  const verify = match.same ? undefined : tab.sha256;
+  if (verify) updateTab(fingerprint, { verifying: true });
+  if (picked) unpicked.delete(fingerprint);
+  else unpicked.add(fingerprint);
+  const options = {
+    choice: match.primary,
+    expect: fingerprint,
+    exact: true,
+    verify,
+    handles,
+    activate: false,
+  };
   const outcome = await openFiles(match.files, options);
-  if (outcome.kind === "error") setReason(tab.fingerprint, outcome.message);
+  if (verify) updateTab(fingerprint, { verifying: false });
+  if (outcome.kind === "error") setReason(fingerprint, outcome.message);
   return true;
 }
 
-async function attachUrl(tab: Tab & { source: { kind: "url" } }) {
+export async function attachUrl(tab: Tab) {
+  if (tab.source?.kind !== "url") return;
+  unpicked.add(tab.fingerprint);
   await openInput(tab.source.input, { expect: tab.fingerprint, activate: false }).catch((error) =>
     setReason(tab.fingerprint, `${tab.name} could not be read: ${messageOf(error)}`),
   );
 }
 
 /** The handles a reattach reads `source` through: its folder's, else every file's. */
-const handlesOf = (source: TabSource & { kind: "files" }) =>
-  source.root ? [source.root] : source.files.map((f) => f.handle).filter((h) => h !== undefined);
+const handlesOf = (source: TabSource & { kind: "files" }): FileSystemHandle[] =>
+  source.root ? [source.root] : source.files.flatMap((f) => (f.handle ? [f.handle] : []));
 
-/** The files of `source` read through its handles when `permit` grants access; `undefined` otherwise. */
-async function viaHandles(
-  source: TabSource & { kind: "files" },
-  permit: (h: FileSystemHandle) => Promise<boolean>,
-) {
+/** The files of `source` read through its handles, when the browser lets them be read; `undefined` otherwise. */
+async function viaHandles(source: TabSource & { kind: "files" }) {
   const { root } = source;
-  if (root) {
-    if (!(await permit(root))) return undefined;
-    const files = await Promise.all(source.files.map((f) => fileAt(root, f.path)));
-    return { files, handles: { root } };
-  }
-  const handles = source.files.map((f) => f.handle).filter((h) => h !== undefined);
-  if (handles.length === 0 || handles.length < source.files.length) return undefined;
-  for (const handle of handles) if (!(await permit(handle))) return undefined;
+  if (!hasHandles(source)) return undefined;
+  for (const handle of handlesOf(source)) if (!(await permitted(handle))) return undefined;
+  if (root)
+    return { files: await Promise.all(source.files.map((f) => fileAt(root, f.path))), handles: { root } };
+  const handles = source.files.map((f) => f.handle as FileSystemFileHandle);
   const files = await Promise.all(handles.map((h) => h.getFile()));
   return { files, handles: { files: new Map(files.map((file, i) => [file, handles[i]])) } };
 }
 
-/** Reattaches `tab` by URL or through its handles; `false` when access to its files is not granted. */
-async function attachTab(tab: Tab, permit: (h: FileSystemHandle) => Promise<boolean>): Promise<boolean> {
-  const { source } = tab;
-  if (source?.kind === "url") await attachUrl({ ...tab, source });
-  if (source?.kind !== "files") return true;
-  try {
-    const read = await viaHandles(source, permit);
-    if (read) await attachFiles(tab, read.files, read.handles);
-    return read !== undefined;
-  } catch (error) {
-    setReason(tab.fingerprint, `${tab.name} could not be read: ${messageOf(error)}`);
-    return true;
+/** Reattaches what needs no prompt: URL recordings, and files whose handles may still be read; `first` goes first. */
+async function attachQuietly(first?: string | null) {
+  const tabs = detachedTabs().sort(
+    (a, b) => Number(b.fingerprint === first) - Number(a.fingerprint === first),
+  );
+  for (const tab of tabs) {
+    if (tab.source?.kind === "url") await attachUrl(tab);
+    if (tab.source?.kind !== "files") continue;
+    try {
+      const read = await viaHandles(tab.source);
+      if (read) await attachFiles(tab, read.files, read.handles, false);
+    } catch (error) {
+      setReason(tab.fingerprint, `${tab.name} could not be read: ${messageOf(error)}`);
+    }
   }
 }
 
-/** Whether Reattach asks for access (every detached file tab has handles) rather than opening a picker. */
-export function reattachAsks(): boolean {
-  const { reasons } = useTabs.getState();
-  const files = detachedTabs().filter((t) => t.source?.kind === "files");
-  return files.every(
-    (t) => t.source?.kind === "files" && handlesOf(t.source).length > 0 && !reasons[t.fingerprint],
-  );
+/**
+ * Asks for read access to one handle of `tab`: its folder's, else the first of its files' not granted yet. A click must
+ * call it, and asks one question: a recording of loose files takes a click per file. Every tab the grant covers then
+ * reattaches.
+ */
+export async function requestAccess(tab: Tab) {
+  if (tab.source?.kind !== "files") return;
+  for (const handle of handlesOf(tab.source)) {
+    if (await permitted(handle)) continue;
+    const answer = await ask(handle);
+    if (answer === "lapsed") return setReason(tab.fingerprint, "Click Reattach again to let the browser ask");
+    if (answer !== "granted") return setReason(tab.fingerprint, "Permission not granted");
+    break;
+  }
+  await attachQuietly(tab.fingerprint);
 }
 
-/** The picker Reattach opens: the folder one when a detached recording came from a folder. */
-export const pickerFor = (): "folder" | "files" =>
-  detachedTabs().some((t) => t.source?.kind === "files" && t.source.files.some((f) => f.path.includes("/")))
+/** The picker that finds `tab`'s files: the folder one when they came from a folder. */
+export const pickerFor = (tab: Tab): "folder" | "files" =>
+  tab.source?.kind === "files" && (tab.source.root || tab.source.files.some((f) => f.path.includes("/")))
     ? "folder"
     : "files";
 
-/** Reattaches every detached tab, asking for read access once per distinct handle. A click must call it. */
-export async function reattachWithAccess() {
-  const permit = permissionsOnce(true);
-  const tabs = detachedTabs();
-  // Every prompt first, while the click still counts as the user's gesture.
-  for (const { source } of tabs)
-    if (source?.kind === "files") for (const h of handlesOf(source)) await permit(h);
-  for (const tab of tabs) {
-    if (!(await attachTab(tab, permit)))
-      setReason(tab.fingerprint, `Read access to ${tab.name} was not granted`);
-  }
-}
-
-/** Reattaches every detached tab whose files are among `picked`, and the URL ones. */
-export async function reattachFrom(picked: File[], handles?: Handles) {
-  const { active } = useTabs.getState();
-  for (const tab of detachedTabs()) {
-    if (tab.source?.kind === "url") await attachUrl({ ...tab, source: tab.source });
-    else if (!(await attachFiles(tab, picked, handles)) && tab.fingerprint === active) {
-      setReason(tab.fingerprint, `None of the chosen files is ${tab.name}`);
-    }
-  }
+/** Reattaches every detached tab whose files are among the picked ones; `target` says when none of its files is. */
+export async function reattachFrom(picked: File[], target: string | null, handles?: Handles) {
+  await Promise.all(
+    detachedTabs().map(async (tab) => {
+      const found = await attachFiles(tab, picked, handles, true);
+      if (!found && tab.fingerprint === target)
+        setReason(tab.fingerprint, `None of the chosen files is ${tab.name}`);
+    }),
+  );
 }
 
 /** Writes are held until the stored set has been read: an earlier write would replace it. */
 let restored = false;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let writing = Promise.resolve();
+let unsaved = false;
 
 /** Writes the open set now; resolves once it is written. */
 export function flushTabs() {
   clearTimeout(timer);
   timer = undefined;
-  if (restored) writing = writing.then(() => saveTabs()).catch(() => {});
+  if (!restored) return writing;
+  writing = writing
+    .then(() => saveTabs())
+    .catch((error) => {
+      if (!unsaved) console.warn("The open tabs could not be saved", error);
+      unsaved = true;
+    });
   return writing;
 }
 
-// A change of the tabs is written at once: a reload right after opening a recording finds it. A view moves many times
-// a second while panning and is written 200 ms after it starts moving, and as the page hides.
+// The set, its order and the selected tab are written at once: a reload right after an open or a switch finds them.
+// The rest (views, the channel search, hashes) is written 300 ms after it stops changing, and as the page hides.
 const later = () => {
-  if (restored && timer === undefined) timer = setTimeout(flushTabs, 200);
+  clearTimeout(timer);
+  if (restored) timer = setTimeout(flushTabs, 300);
 };
-useTabs.subscribe(() => void flushTabs());
+const order = (s: State) => s.tabs.map((t) => t.fingerprint).join("\n");
 useStore.subscribe((now, before) => {
+  if (now.activeTab !== before.activeTab || (now.tabs !== before.tabs && order(now) !== order(before))) {
+    return void flushTabs();
+  }
   const channels = () =>
     Object.keys(now.recordings).some(
       (id) => now.recordings[id].selectedChannels !== before.recordings[id]?.selectedChannels,
     );
-  const { view, selection, shownResult, activeResultId } = now;
   if (
-    view !== before.view ||
-    selection !== before.selection ||
-    shownResult !== before.shownResult ||
-    activeResultId !== before.activeResultId ||
+    now.tabs !== before.tabs ||
+    now.view !== before.view ||
+    now.selection !== before.selection ||
+    now.shownResult !== before.shownResult ||
+    now.activeResultId !== before.activeResultId ||
     channels()
   )
     later();
 });
 addEventListener("pagehide", () => void flushTabs());
 
-// A tab keeps the SHA-256 of its files from the first time they are hashed. A reattached recording whose hash
-// differs (an edit the fingerprint does not see) is closed again and its tab says why.
+/** Adds `warning` to the warnings of the open recording `id`, which the inspector lists. */
+const warn = (id: string, warning: string) =>
+  useStore.setState((s) => {
+    const recording = s.recordings[id];
+    if (!recording) return s;
+    const warnings = [...new Set([...recording.info.warnings, warning])];
+    return { recordings: { ...s.recordings, [id]: { ...recording, info: { ...recording.info, warnings } } } };
+  });
+
+// A tab keeps the SHA-256 of its files from the first time they are hashed. A recording reattached without a pick whose
+// hash differs (an edit the fingerprint does not see) is closed again and its tab says why; files the user picked stay
+// open with a warning, and their hash becomes the tab's.
 useStore.subscribe((now, before) => {
   if (now.recordings === before.recordings) return;
   for (const [id, { scan, info, fingerprint }] of Object.entries(now.recordings)) {
     if (scan === before.recordings[id]?.scan) continue;
     const sha256 = scan.sha256 ?? {};
-    const tab = tabOf(fingerprint);
+    const tab = now.tabs.find((t) => t.fingerprint === fingerprint);
     if (!tab?.source || !info.input_files.every((name) => sha256[name])) continue;
-    const kept = tab.sha256;
-    if (!kept) updateTab(fingerprint, { sha256 });
-    const changed = info.input_files.find((name) => kept?.[name] && kept[name] !== sha256[name]);
-    if (changed) queueMicrotask(() => detach(fingerprint, `${changed} changed since it was opened`));
+    const quiet = unpicked.delete(fingerprint);
+    const changed = info.input_files.find((name) => tab.sha256?.[name] && tab.sha256[name] !== sha256[name]);
+    queueMicrotask(() => {
+      if (changed && quiet) return detach(fingerprint, `${changed} changed since it was opened`);
+      if (changed) {
+        warn(
+          id,
+          `${changed} differs from the file this tab had open before: results from before may not match it.`,
+        );
+      }
+      if (changed || !tab.sha256) updateTab(fingerprint, { sha256 });
+    });
   }
 });
 
 /**
  * Brings back the stored set: its tabs, detached, before any opened since the page loaded; then, once the history is
- * listed (`listed`), reattaches what needs no prompt.
+ * listed (`listed`), reattaches what needs no prompt, the selected tab first.
  */
 export async function restoreTabs(listed: Promise<unknown>) {
   const stored = await loadTabs().catch(() => undefined);
   restored = true;
   if (stored && stored.tabs.length > 0) {
-    useTabs.setState((s) => {
+    useStore.setState((s) => {
       const live = (t: Tab) => s.tabs.find((o) => o.fingerprint === t.fingerprint);
       const merged = stored.tabs.map((t) => ({ ...t, ...live(t), saved: live(t)?.saved ?? t.saved }));
-      return {
-        tabs: [...merged, ...s.tabs.filter((t) => !stored.tabs.some((o) => o.fingerprint === t.fingerprint))],
-      };
+      const fresh = s.tabs.filter((t) => !stored.tabs.some((o) => o.fingerprint === t.fingerprint));
+      return { tabs: [...merged, ...fresh] };
     });
-    if (useTabs.getState().active === null && stored.active) selectTab(stored.active);
+    if (useStore.getState().activeTab === null && stored.active) selectTab(stored.active);
   }
   void flushTabs(); // tabs opened while the stored set loaded
   await listed.catch(() => {});
-  const permit = permissionsOnce(false);
-  for (const tab of detachedTabs()) await attachTab(tab, permit);
+  await attachQuietly(useStore.getState().activeTab);
 }

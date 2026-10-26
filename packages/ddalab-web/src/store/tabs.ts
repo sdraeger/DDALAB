@@ -1,20 +1,12 @@
 // The open recordings as tabs: their order, the view each keeps while another is shown, and where each one's files
-// are read again on the next visit. Tabs are keyed by fingerprint, as results and tiles are. A tab is attached while
-// its recording is open in the store and detached while the browser cannot read its files yet. The set lives in
-// IndexedDB beside the recent list (`saveTabs`); app/tabs.ts restores and reattaches it.
-import { create } from "zustand";
+// are read again on the next visit. Tabs live in the one store (`tabs`, `activeTab`, `tabReasons`) and are keyed by
+// fingerprint, as results and tiles are. A tab is attached while its recording is open and detached while the browser
+// cannot read its files yet. A switch is one update (`enter` in store.ts). The set lives in IndexedDB beside the
+// recent list (`saveTabs`); app/tabs.ts restores and reattaches it.
 import type { RecordingInput } from "../core/engine";
 import { directory, pathOf } from "../core/sources";
 import { database } from "./recent";
-import {
-  activateRecording,
-  activeRecording,
-  type OpenRecording,
-  type ShownResult,
-  setView,
-  useStore,
-  type View,
-} from "./store";
+import { enter, type ShownResult, tabViewOf, useStore, type View } from "./store";
 
 /** One file of a recording as it was opened: what tells it apart among picked files, and its handle (Chromium). */
 export interface TabFile {
@@ -49,29 +41,22 @@ export interface Tab {
   saved?: TabView;
   /** The inspector's channel search. */
   channelQuery?: string;
-  /** The SHA-256 of each file once hashed: a reattached recording must hash the same. */
+  /** The SHA-256 of each file once hashed: a file picked again with another date must hash the same. */
   sha256?: Record<string, string>;
+  /** Its picked files are being hashed before it reattaches (not remembered). */
+  verifying?: boolean;
 }
-
-interface TabsState {
-  tabs: Tab[];
-  /** The active tab: the active recording's, or a detached one the user selected. */
-  active: string | null;
-  /** Why a detached tab did not reattach. */
-  reasons: Record<string, string>;
-}
-
-export const useTabs = create<TabsState>()(() => ({ tabs: [], active: null, reasons: {} }));
 
 export const tabOf = (fingerprint: string) =>
-  useTabs.getState().tabs.find((t) => t.fingerprint === fingerprint);
+  useStore.getState().tabs.find((t) => t.fingerprint === fingerprint);
 
 /** The id of the open recording of `fingerprint`, which is attached; `undefined` while detached. */
 export function idOf(fingerprint: string, recordings = useStore.getState().recordings) {
   return Object.keys(recordings).find((id) => recordings[id].fingerprint === fingerprint);
 }
 
-const hasHandles = (source: TabSource | null) =>
+/** Whether every file of `source` can be read again through a handle: its folder's, or each file's. */
+export const hasHandles = (source: TabSource | null) =>
   source?.kind === "files" && (source.root !== undefined || source.files.every((f) => f.handle));
 
 /**
@@ -94,51 +79,50 @@ export function filesSource(
   return { kind: "files", files: tabFiles, root };
 }
 
-/** A recording opened: its tab joins at the end, or the detached tab of the same recording attaches in place. */
+/**
+ * A recording opened: its tab joins at the end, or the detached tab of the same recording attaches in place, and shows
+ * its recording at once when it is the selected tab.
+ */
 export function tabOpened(id: string, fingerprint: string, name: string, source: TabSource | null) {
-  useTabs.setState((s) => {
-    const { [fingerprint]: _, ...reasons } = s.reasons;
+  useStore.setState((s) => {
+    const { [fingerprint]: _, ...tabReasons } = s.tabReasons;
     const old = s.tabs.find((t) => t.fingerprint === fingerprint);
-    if (!old) return { tabs: [...s.tabs, { fingerprint, name, source }], reasons };
     // A source without handles does not replace one with them: the next visit could not reattach on its own.
-    const kept = hasHandles(old.source) && !hasHandles(source) ? old.source : (source ?? old.source);
-    return { tabs: s.tabs.map((t) => (t === old ? { ...old, source: kept } : t)), reasons };
+    const kept = old && hasHandles(old.source) && !hasHandles(source) ? old.source : (source ?? old?.source);
+    const tabs = old
+      ? s.tabs.map((t) => (t === old ? { ...old, source: kept ?? null } : t))
+      : [...s.tabs, { fingerprint, name, source }];
+    if (s.activeTab === fingerprint && s.activeRecordingId !== id) {
+      return { ...enter(s, fingerprint, { tabs }), tabReasons };
+    }
+    return { tabs, tabReasons };
   });
-  // The detached tab the user is looking at shows its recording once it attaches.
-  if (useTabs.getState().active === fingerprint) activateRecording(id);
 }
 
-/** Makes the tab of `fingerprint` the active one; a detached tab leaves no recording active. */
+/** Makes the tab of `fingerprint` the selected one, in one update; a detached tab leaves no recording active. */
 export function selectTab(fingerprint: string) {
-  const id = idOf(fingerprint);
-  if (id) return activateRecording(id);
-  if (!tabOf(fingerprint)) return;
-  useStore.setState({
-    activeRecordingId: null,
-    selection: null,
-    cursorS: null,
-    shownResult: null,
-    activeResultId: null,
-  });
-  useTabs.setState({ active: fingerprint });
+  useStore.setState((s) =>
+    s.activeTab === fingerprint || !s.tabs.some((t) => t.fingerprint === fingerprint)
+      ? s
+      : enter(s, fingerprint),
+  );
 }
 
-/** Removes the tab of `fingerprint` from the set; the next tab, else the previous one, becomes active first. */
+/** Removes the tab of `fingerprint` from the set; when it was selected the next tab, else the previous one, is. */
 export function forgetTab(fingerprint: string) {
-  const { tabs, active } = useTabs.getState();
-  const i = tabs.findIndex((t) => t.fingerprint === fingerprint);
-  if (i < 0) return;
-  const next = tabs[i + 1] ?? tabs[i - 1];
-  if (active === fingerprint && next) selectTab(next.fingerprint);
-  useTabs.setState((s) => ({
-    tabs: s.tabs.filter((t) => t.fingerprint !== fingerprint),
-    active: s.active === fingerprint ? null : s.active,
-  }));
+  useStore.setState((s) => {
+    const i = s.tabs.findIndex((t) => t.fingerprint === fingerprint);
+    if (i < 0) return s;
+    const tabs = s.tabs.filter((_, k) => k !== i);
+    if (s.activeTab !== fingerprint) return { tabs };
+    const next = s.tabs[i + 1] ?? s.tabs[i - 1];
+    return enter({ ...s, tabs, activeTab: null }, next?.fingerprint ?? null);
+  });
 }
 
 /** Moves the tab at `from` to `to`. */
 export function moveTab(from: number, to: number) {
-  useTabs.setState((s) => {
+  useStore.setState((s) => {
     const tabs = [...s.tabs];
     tabs.splice(to, 0, ...tabs.splice(from, 1));
     return { tabs };
@@ -146,62 +130,12 @@ export function moveTab(from: number, to: number) {
 }
 
 export const setReason = (fingerprint: string, reason: string) =>
-  useTabs.setState((s) => ({ reasons: { ...s.reasons, [fingerprint]: reason } }));
+  useStore.setState((s) => ({ tabReasons: { ...s.tabReasons, [fingerprint]: reason } }));
 
 export const updateTab = (fingerprint: string, change: Partial<Tab>) =>
-  useTabs.setState((s) => ({
+  useStore.setState((s) => ({
     tabs: s.tabs.map((t) => (t.fingerprint === fingerprint ? { ...t, ...change } : t)),
   }));
-
-/** The view of `state` with `recording` active, as a tab keeps it. */
-function snapshot(state: ReturnType<typeof useStore.getState>, recording: OpenRecording): TabView {
-  const { mmPerCssMm: _, ...view } = state.view;
-  return {
-    view,
-    selection: state.selection,
-    selectedChannels: recording.selectedChannels,
-    shownResult: state.shownResult,
-    activeResultId: state.activeResultId,
-  };
-}
-
-/** Puts `saved` back on the active recording `id`; `keepResult` leaves the result a switch opened. */
-function restore(saved: TabView, id: string, keepResult: boolean) {
-  setView(saved.view);
-  useStore.setState((s) => {
-    const recording = s.recordings[id];
-    const complete = (resultId?: string | null) =>
-      s.analyses.some((a) => a.id === resultId && a.status === "complete");
-    const channels = recording.analysis_channels.length;
-    const selectedChannels = saved.selectedChannels.filter((c) => c < channels);
-    return {
-      selection: saved.selection,
-      recordings: { ...s.recordings, [id]: { ...recording, selectedChannels } },
-      ...(keepResult
-        ? {}
-        : {
-            shownResult: complete(saved.shownResult?.id) ? saved.shownResult : null,
-            activeResultId: s.analyses.some((a) => a.id === saved.activeResultId)
-              ? saved.activeResultId
-              : null,
-          }),
-    };
-  });
-}
-
-// A switch keeps the view of the recording left and puts back the one of the recording entered. A switch that
-// opened a result (openResult) keeps that result.
-useStore.subscribe((now, before) => {
-  if (now.activeRecordingId === before.activeRecordingId) return;
-  const left = before.activeRecordingId ? before.recordings[before.activeRecordingId] : undefined;
-  if (left && tabOf(left.fingerprint)) updateTab(left.fingerprint, { saved: snapshot(before, left) });
-  const entered = activeRecording(now);
-  useTabs.setState({ active: entered?.fingerprint ?? null });
-  const saved = entered && tabOf(entered.fingerprint)?.saved;
-  if (saved && now.activeRecordingId) {
-    restore(saved, now.activeRecordingId, now.activeResultId !== before.activeResultId);
-  }
-});
 
 /**
  * Names for the tabs of `names`: a BIDS name drops the entities every BIDS name among them shares, as in
@@ -222,17 +156,18 @@ export function shortNames(names: string[]): string[] {
 }
 
 /**
- * The picked files that are the recording's `files` again, told by name, size and modification time: its files with
- * the path of its primary, why they do not reattach, or `null` when none of them was picked.
+ * The picked files that are the recording's `files` again, told by name and size: its files, the path of its primary
+ * and whether every modification time matches as well (`same`), why they do not reattach, or `null` when none of
+ * them was picked. Whether the content is the same is for the fingerprint and SHA-256 to say.
  */
 export function matchFiles(
   files: TabFile[],
   picked: File[],
-): { files: File[]; primary: string } | { reason: string } | null {
+): { files: File[]; primary: string; same: boolean } | { reason: string } | null {
   const named = files.map((f) => picked.filter((p) => p.name === f.name));
   if (named.every((found) => found.length === 0)) return null;
-  const same = (f: TabFile) => (p: File) => p.size === f.size && p.lastModified === f.lastModified;
-  const changed = files.find((f, i) => named[i].length > 0 && !named[i].some(same(f)));
+  const sized = files.map((f, i) => named[i].filter((p) => p.size === f.size));
+  const changed = files.find((_, i) => named[i].length > 0 && sized[i].length === 0);
   if (changed) return { reason: `${changed.name} changed since it was opened` };
   const missing = files.filter((_, i) => named[i].length === 0).map((f) => f.name);
   if (missing.length > 0) {
@@ -240,30 +175,34 @@ export function matchFiles(
       reason: `${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} not among the chosen files`,
     };
   }
-  const primary = named[0].find(same(files[0])) as File;
-  const folder = directory(pathOf(primary));
-  // The core reads a recording's files from one folder: a copy beside the primary comes first.
-  const found = files.map((f, i) => {
-    const exact = named[i].filter(same(f));
-    return i === 0 ? primary : (exact.find((p) => directory(pathOf(p)) === folder) ?? exact[0]);
-  });
-  return { files: found, primary: pathOf(primary) };
+  const dated = (f: TabFile) => (p: File) => p.lastModified === f.lastModified;
+  const primary = sized[0].find(dated(files[0])) ?? sized[0][0];
+  const beside = (p: File) => directory(pathOf(p)) === directory(pathOf(primary));
+  // The core reads a recording's files from one folder: a copy beside the primary comes first, then one of its date.
+  const found = files.map((f, i) =>
+    i === 0
+      ? primary
+      : (sized[i].find((p) => beside(p) && dated(f)(p)) ??
+        sized[i].find(beside) ??
+        sized[i].find(dated(f)) ??
+        sized[i][0]),
+  );
+  return { files: found, primary: pathOf(primary), same: found.every((p, i) => dated(files[i])(p)) };
 }
 
-/** The tabs as remembered: synthetic ones left out, the active one's view and every open one's channels current. */
+/** The tabs as remembered: synthetic ones left out, the selected one's view and every open one's channels current. */
 export function remembered(): { tabs: Tab[]; active: string | null } {
-  const { tabs, active } = useTabs.getState();
-  const state = useStore.getState();
-  const live = activeRecording(state);
-  const kept = tabs
+  const s = useStore.getState();
+  const tabs = s.tabs
     .filter((t) => t.source !== null)
-    .map((t) => {
-      if (live?.fingerprint === t.fingerprint) return { ...t, saved: snapshot(state, live) };
-      const id = idOf(t.fingerprint, state.recordings);
-      const selectedChannels = id ? state.recordings[id].selectedChannels : undefined;
-      return t.saved && selectedChannels ? { ...t, saved: { ...t.saved, selectedChannels } } : t;
+    .map(({ verifying: _, ...t }) => {
+      if (t.fingerprint === s.activeTab) return { ...t, saved: tabViewOf(s, t.saved) };
+      const id = idOf(t.fingerprint, s.recordings);
+      return t.saved && id
+        ? { ...t, saved: { ...t.saved, selectedChannels: s.recordings[id].selectedChannels } }
+        : t;
     });
-  return { tabs: kept, active };
+  return { tabs, active: s.activeTab };
 }
 
 const KEY = "open";

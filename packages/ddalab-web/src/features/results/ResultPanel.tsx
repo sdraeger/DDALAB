@@ -218,7 +218,14 @@ function Heatmap({
         layer = createHeatmapLayer(
           gl,
           (level, index) => engine.resultTile(resultId, variant.id, array, level, index),
-          { ...scale, windows: found.windows, rows: found.rows, levels: found.levels, lut: LUTS[scale.map] },
+          {
+            ...scale,
+            key: arrayKey(resultId, variant.id, array),
+            windows: found.windows,
+            rows: found.rows,
+            levels: found.levels,
+            lut: LUTS[scale.map],
+          },
           schedule,
         );
         setGlProblem(null);

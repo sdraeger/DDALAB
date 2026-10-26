@@ -11,7 +11,6 @@ import { heatmapProbe } from "./features/results/probe";
 import { viewerProbe } from "./features/viewer/probe";
 import { restoreSession } from "./store/session";
 import { useStore } from "./store/store";
-import { useTabs } from "./store/tabs";
 import { applyTheme, storedTheme } from "./styles/theme";
 
 const root = document.getElementById("root");
@@ -27,7 +26,7 @@ if (import.meta.env.DEV || import.meta.env.MODE === "e2e") {
       openSynthetic,
       viewer: viewerProbe,
       results: heatmapProbe,
-      tabs: { store: useTabs, flush: flushTabs },
+      tabs: { flush: flushTabs },
     },
   });
 }

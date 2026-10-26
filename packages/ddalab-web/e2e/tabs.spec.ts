@@ -1,12 +1,22 @@
 // Recording tabs: switching by click, keys and the quick switcher with each tab's view kept, no refetch of cached
 // tiles on a switch back, reordering and closing, the open set across a reload, and reattaching by picker, through
 // stored handles (Chromium) and by URL.
-import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
+import {
+  appendFileSync,
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readSynthetic, syntheticEdfSize } from "../src/core/synthetic";
 import { expect, type Page, test } from "./test";
 
 const fixturePath = (name: string) =>
@@ -116,9 +126,10 @@ test("tabs_switch_and_keep_their_view", async ({ page }) => {
   // The quick switcher: type to filter, Enter switches.
   await page.keyboard.press("Alt+k");
   const switcher = page.getByRole("dialog", { name: "Switch recording" });
-  await expect(switcher.getByRole("option")).toHaveText(["fixture.edf", "fixture.bdf", "fixture.vhdr"]);
-  await switcher.getByRole("combobox").fill("vhdr");
-  await expect(switcher.getByRole("option")).toHaveText(["fixture.vhdr"]);
+  const rows = switcher.getByRole("list", { name: "Matching recordings" }).getByRole("listitem");
+  await expect(rows).toHaveText(["fixture.edf", "fixture.bdf", "fixture.vhdr"]);
+  await switcher.getByRole("searchbox").fill("vhdr");
+  await expect(rows).toHaveText(["fixture.vhdr"]);
   await page.keyboard.press("Enter");
   await expect(switcher).toBeHidden();
   await expect(tabs(page).nth(2)).toHaveAttribute("aria-selected", "true");
@@ -126,6 +137,27 @@ test("tabs_switch_and_keep_their_view", async ({ page }) => {
   await page.getByLabel("Search channels").focus();
   await page.keyboard.press("Alt+1");
   await expect(tabs(page).nth(2)).toHaveAttribute("aria-selected", "true");
+});
+
+test("reorder_by_keyboard_and_by_click", async ({ page }) => {
+  await page.goto("/");
+  await openThree(page);
+  // Alt+Shift+[ moves the selected tab left and says where it is now.
+  await page.getByRole("region", { name: "Waveforms" }).focus();
+  await page.keyboard.press("Alt+Shift+BracketLeft");
+  await expect(tabs(page)).toHaveText(["fixture.edf", "fixture.vhdr", "fixture.bdf"]);
+  await expect(page.getByText("fixture.vhdr, position 2 of 3")).toBeAttached();
+  await page.keyboard.press("Alt+Shift+BracketRight");
+  await expect(tabs(page)).toHaveText(["fixture.edf", "fixture.bdf", "fixture.vhdr"]);
+  // Move left and Move right in the menu of all tabs, by click.
+  await page.getByRole("button", { name: "All tabs" }).click();
+  const switcher = page.getByRole("dialog", { name: "Switch recording" });
+  await expect(switcher.getByRole("button", { name: "Move fixture.edf left" })).toBeDisabled();
+  await switcher.getByRole("button", { name: "Move fixture.edf right" }).click();
+  await expect(tabs(page)).toHaveText(["fixture.bdf", "fixture.edf", "fixture.vhdr"]);
+  await expect(switcher.getByText("fixture.edf, position 2 of 3")).toBeAttached();
+  await switcher.getByRole("button", { name: "Move fixture.vhdr left" }).click();
+  await expect(tabs(page)).toHaveText(["fixture.bdf", "fixture.vhdr", "fixture.edf"]);
 });
 
 test("reorder_by_drag_and_close", async ({ page }) => {
@@ -247,15 +279,123 @@ test("url_tabs_reattach_without_a_prompt", async ({ page }) => {
   }
 });
 
+/** An EDF of `name` above 128 KiB in `folder`: an edit in its middle is outside the fingerprint's first and last 64 KiB. */
+function largeEdf(folder: string, name: string, seed: number) {
+  const spec = { channels: 2, rateHz: 256, durationS: 300, seed };
+  const bytes = new Uint8Array(syntheticEdfSize(spec));
+  readSynthetic(spec, 0, bytes);
+  mkdirSync(folder, { recursive: true });
+  writeFileSync(join(folder, name), bytes);
+  return join(folder, name);
+}
+
+test("same_name_and_size_reattach_through_the_hash", async ({ page }) => {
+  const root = mkdtempSync(join(tmpdir(), "ddalab-tabs-"));
+  const [one, two] = [
+    largeEdf(join(root, "first"), "one.edf", 1),
+    largeEdf(join(root, "first"), "two.edf", 2),
+  ];
+  await page.goto("/");
+  for (const path of [one, two]) await page.getByLabel("Recording files").setInputFiles(path);
+  await expect(tabs(page)).toHaveText(["one.edf", "two.edf"]);
+  // Each tab keeps its files' SHA-256 once hashed.
+  const hashed = () => page.evaluate(() => window.__ddalab.store.getState().tabs.every((t) => t.sha256));
+  await expect.poll(hashed, { timeout: 30_000 }).toBe(true);
+  await flush(page);
+  await page.reload();
+  await expect(tabs(page)).toHaveText(["one.edf, detached", "two.edf, detached"]);
+
+  // Another date: a byte-for-byte copy of one, and two with a byte changed in its middle, the size kept.
+  const later = join(root, "later");
+  mkdirSync(later);
+  const copy = join(later, "one.edf");
+  copyFileSync(one, copy);
+  const edited = readFileSync(two);
+  edited[edited.length >> 1] ^= 0xff;
+  writeFileSync(join(later, "two.edf"), edited);
+  const moved = new Date("2025-01-02T03:04:05Z");
+  for (const path of [copy, join(later, "two.edf")]) utimesSync(path, moved, moved);
+  await page.getByLabel("Reattach files").setInputFiles([copy, join(later, "two.edf")]);
+  // The copy hashes the same and reattaches; the edit stays detached with the reason.
+  await expect(tabs(page)).toHaveText(["one.edf", "two.edf, detached"], { timeout: 30_000 });
+  await tabs(page).nth(1).click();
+  await expect(page.getByRole("alert")).toHaveText("two.edf changed since it was opened");
+
+  // The edit with its first date back attaches at once (name, size, date and fingerprint agree). The hash that
+  // follows differs: a file the user picked stays open, with a warning.
+  // Seconds with the fraction: browsers round the modification time to milliseconds.
+  utimesSync(join(later, "two.edf"), moved, statSync(two).mtimeMs / 1000);
+  await page.getByLabel("Reattach files").setInputFiles(join(later, "two.edf"));
+  await expect(tabs(page)).toHaveText(["one.edf", "two.edf"]);
+  await expect(page.getByRole("list", { name: "Warnings" })).toContainText(
+    "two.edf differs from the file this tab had open before",
+    { timeout: 30_000 },
+  );
+  await expect(tabs(page)).toHaveText(["one.edf", "two.edf"]);
+});
+
+test("a_run_that_ends_in_another_tab_shows_there", async ({ page }) => {
+  await page.goto("/");
+  await page.getByLabel("Recording files").setInputFiles(fixturePath("fixture.edf"));
+  await expect(heading(page, "fixture.edf")).toBeVisible();
+  await page.evaluate(() =>
+    window.__ddalab.openSynthetic({ channels: 2, rateHz: 256, durationS: 60, seed: 3 }),
+  );
+  await expect(tabs(page)).toHaveText(["fixture.edf", "synthetic.edf"]);
+  await page.getByRole("checkbox", { name: "Select group CH" }).check();
+  const runBar = page.getByRole("region", { name: "Run" });
+  await expect(runBar.getByText(/^Plan /)).toBeVisible();
+  // Run, and switch to the EDF's tab in the same task: the run ends while that tab is shown.
+  const status = await page.evaluate(() => {
+    const buttons = Array.from(document.querySelectorAll<HTMLElement>("section[aria-label='Run'] button"));
+    buttons.find((button) => button.textContent?.includes("Run DDA"))?.click();
+    document.querySelector<HTMLElement>("[role='tab']")?.click();
+    return window.__ddalab.store.getState().run?.status;
+  });
+  expect(status).toBe("running");
+  const last = () => page.evaluate(() => window.__ddalab.store.getState().analyses[0]?.status);
+  await expect.poll(last, { timeout: 60_000 }).toBe("complete");
+  await expect(heading(page, "fixture.edf")).toBeVisible();
+  // The EDF's tab shows nothing of the run's result.
+  await expect(page.getByRole("region", { name: "Provenance" })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Result" })).toHaveCount(0);
+  // Back on its own tab the result is there.
+  await tabs(page).nth(1).click();
+  await expect(page.getByRole("region", { name: "Result" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Provenance" })).toBeVisible();
+});
+
+test("a_result_opened_on_a_detached_tab_shows_alone", async ({ page }) => {
+  await page.goto("/");
+  await page.getByLabel("Recording files").setInputFiles(BRAINVISION.map(fixturePath));
+  await page.getByRole("checkbox", { name: "Select Fp1" }).check();
+  const runBar = page.getByRole("region", { name: "Run" });
+  await expect(runBar.getByText(/^Plan /)).toBeVisible();
+  await runBar.getByRole("button", { name: "Run DDA" }).click();
+  await expect(runBar.getByText("Complete", { exact: true })).toBeVisible({ timeout: 60_000 });
+  // Nothing shown when the page reloads: the tab comes back detached and empty.
+  await page.evaluate(() => window.__ddalab.store.setState({ shownResult: null, activeResultId: null }));
+  await flush(page);
+  await page.reload();
+  await expect(tabs(page)).toHaveText(["fixture.vhdr, detached"]);
+  await expect(page.getByRole("region", { name: "Result" })).toHaveCount(0);
+  // The result from the history shows alone, under one line that keeps Reattach at hand.
+  const history = page.getByRole("region", { name: "History" });
+  await history.getByRole("button", { name: /^ST on fixture\.vhdr/ }).click();
+  await expect(page.getByRole("region", { name: "Result" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Reattach", exact: true })).toBeVisible();
+  await expect(tabs(page).nth(0)).toHaveAttribute("aria-selected", "true");
+});
+
 /**
  * Chromium only: FileSystemHandles persist only there. Picked files are stood in for by a real folder handle from the
  * origin private file system (`recordings`, holding a/fixture.edf and b/copy.edf), which IndexedDB stores like any
- * other and whose read permission the browser grants. `prompt` simulates the state of a folder handle on a later
- * visit: queryPermission answers "prompt" until requestPermission, which is counted, is called.
+ * other and whose read permission the browser grants. `answer` simulates the state of a folder handle on a later
+ * visit: queryPermission answers "prompt" until requestPermission, which is counted, answers `answer`.
  */
-async function stubFolderPicker(page: Page, prompt: boolean) {
+async function stubFolderPicker(page: Page, answer?: "granted" | "denied") {
   await page.addInitScript(
-    ({ base64, prompt }) => {
+    ({ base64, answer }) => {
       const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
       // Written once: a file written again would have changed since it was opened.
       const write = async (folder: FileSystemDirectoryHandle, name: string) => {
@@ -275,25 +415,25 @@ async function stubFolderPicker(page: Page, prompt: boolean) {
           return root;
         },
       });
-      if (!prompt) return;
+      if (!answer) return;
       type Asking = { queryPermission(): Promise<string>; requestPermission(): Promise<string> };
       const handle = FileSystemHandle.prototype as unknown as Asking;
-      let granted = false;
-      handle.queryPermission = async () => (granted ? "granted" : "prompt");
+      let state = "prompt";
+      handle.queryPermission = async () => state;
       handle.requestPermission = async () => {
         (window as unknown as { requested: number }).requested++;
-        granted = true;
-        return "granted";
+        state = answer;
+        return answer;
       };
     },
-    { base64: readFileSync(fixturePath("fixture.edf")).toString("base64"), prompt },
+    { base64: readFileSync(fixturePath("fixture.edf")).toString("base64"), answer },
   );
 }
 
 test("granted_handles_reattach_on_their_own_and_one_grant_covers_a_folder", async ({ page, browserName }) => {
   test.skip(browserName !== "chromium", "FileSystemHandles persist only in Chromium");
   await page.addInitScript(() => Reflect.deleteProperty(window, "showOpenFilePicker"));
-  await stubFolderPicker(page, false);
+  await stubFolderPicker(page);
   await page.goto("/");
   const choose = page.getByRole("group", { name: "Several recordings found" });
   for (const path of ["recordings/a/fixture.edf", "recordings/b/copy.edf"]) {
@@ -309,12 +449,28 @@ test("granted_handles_reattach_on_their_own_and_one_grant_covers_a_folder", asyn
   await expect(tabs(page)).toHaveText(["fixture.edf", "copy.edf"]);
   await expect(heading(page, "copy.edf")).toBeVisible();
 
-  // Access lapsed: both come back detached, and one Reattach asks once for the folder that holds both.
-  await stubFolderPicker(page, true);
+  // Access lapsed: both come back detached. One click asks once, for the folder of the selected tab, and both
+  // reattach, since the folder holds both.
+  await stubFolderPicker(page, "granted");
   await page.reload();
   await expect(tabs(page)).toHaveText(["fixture.edf, detached", "copy.edf, detached"]);
-  await expect(page.getByText(/It asks once for each folder/)).toBeVisible();
-  await page.getByRole("button", { name: "Reattach" }).first().click();
+  await expect(page.getByText("Reattach to let the browser read copy.edf again.")).toBeVisible();
+  await expect(page.getByText("1 more to reattach")).toBeVisible();
+  await page.getByRole("button", { name: "Reattach", exact: true }).click();
   await expect(tabs(page)).toHaveText(["fixture.edf", "copy.edf"]);
   expect(await page.evaluate(() => (window as unknown as { requested: number }).requested)).toBe(1);
+
+  // Refused: the tab stays detached with the reason and its Reattach button; no picker opens.
+  await stubFolderPicker(page, "denied");
+  await page.reload();
+  await expect(tabs(page)).toHaveText(["fixture.edf, detached", "copy.edf, detached"]);
+  let chooser = false;
+  page.on("filechooser", () => {
+    chooser = true;
+  });
+  await page.getByRole("button", { name: "Reattach", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveText("Permission not granted");
+  await expect(page.getByRole("button", { name: "Reattach", exact: true })).toBeVisible();
+  await expect(tabs(page)).toHaveText(["fixture.edf, detached", "copy.edf, detached"]);
+  expect(chooser).toBe(false);
 });
