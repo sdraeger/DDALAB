@@ -1,7 +1,7 @@
 // The overview strip: the whole recording as the envelope of every display channel, drawn on a 2D canvas from the
 // pyramid level whose tiles are few enough to fetch at once.
 import { bucketSize, levelCount, tileCount } from "../core/opfs";
-import { hatch, tickLabel, ticks } from "./axis";
+import { column, hatch, tickLabel, ticks } from "./axis";
 import type { Colors } from "./themeColors";
 import { decodeTile } from "./waveformLayer";
 
@@ -52,7 +52,9 @@ export interface OverviewScene {
   /** Percent of the scan done while one runs. */
   scanPercent: number | null;
   selection: { t0: number; t1: number } | null;
+  /** Onsets of the file's events and of the user's annotations. */
   annotations: number[];
+  user: number[];
   colors: Colors;
 }
 
@@ -129,7 +131,21 @@ export function drawOverview(ctx: CanvasRenderingContext2D, scene: OverviewScene
     ctx.fillText(label, from, middle);
   }
 
-  ctx.fillStyle = colors.event;
-  for (const onset of scene.annotations)
-    ctx.fillRect(Math.round(x(onset)), band, Math.max(1, Math.round(dpr)), plotH);
+  // The events as on the plots, dashed red for the file's and solid ink for the user's, each on a ground halo.
+  const line = Math.max(1, Math.round(dpr));
+  const marks: [number[], string, boolean][] = [
+    [scene.annotations, colors.event, true],
+    [scene.user, colors.ink, false],
+  ];
+  for (const [onsets, color, dashed] of marks) {
+    for (const onset of onsets) {
+      const px = Math.round(x(onset));
+      ctx.globalAlpha = 0.6;
+      ctx.fillStyle = colors.ground;
+      column(ctx, px - line, band, 3 * line, plotH, dashed, dpr);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = color;
+      column(ctx, px, band, line, plotH, dashed, dpr);
+    }
+  }
 }

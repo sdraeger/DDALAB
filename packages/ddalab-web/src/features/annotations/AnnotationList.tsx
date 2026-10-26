@@ -136,7 +136,12 @@ export default function AnnotationList({ recordingId }: { recordingId: string })
           <Popover.Positioner sideOffset={6} align="start">
             <Popover.Popup className={controls.panel}>
               <div className={history.export}>
-                <Popover.Title className={history.subheading}>Export {count(shown.length)}</Popover.Title>
+                <Popover.Title className={history.subheading}>
+                  Export{" "}
+                  {shown.length === all.length
+                    ? count(all.length)
+                    : `${shown.length} of ${count(all.length)}`}
+                </Popover.Title>
                 <button
                   type="button"
                   className={history.option}

@@ -1,34 +1,5 @@
-/* Annotations: the tip over a ruler flag, the editor popover at a flag, and the inspector's list. Yours are solid ink,
- * the file's events outlined red, in the list as on the ruler. */
-
-/* The full name of the flag under the pointer, under the ruler. */
-.tip {
-  position: fixed;
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
-  max-width: 36ch;
-  padding: 3px var(--space-2);
-  border-radius: var(--radius-small);
-  background: var(--ink);
-  color: var(--ground);
-  font-size: var(--text-small);
-  line-height: var(--leading-small);
-  pointer-events: none;
-}
-
-.tip[hidden] {
-  display: none;
-}
-
-.tip b {
-  overflow-wrap: anywhere;
-  font-weight: var(--weight-strong);
-}
-
-.tip span {
-  color: color-mix(in srgb, var(--ground) 78%, var(--ink));
-}
+/* Annotations: the editor popover at a flag and the inspector's list, both loaded lazily (the tip over a ruler flag
+ * is in Viewer.module.css). Yours are solid ink, the file's events outlined red, in the list as on the ruler. */
 
 .editor {
   width: 288px;
