@@ -177,3 +177,49 @@ test("canvases_repaint_for_what_they_draw", async ({ page }) => {
   expect(moved.overview).toBeGreaterThan(5);
   expect(moved.heatmap).toBeGreaterThan(5);
 });
+
+test("a_closed_inspector_neither_renders_nor_plans", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.getByRole("button", { name: "Inspector" }).click();
+  const id = await page.evaluate((spec) => window.__ddalab.openSynthetic(spec), SCAN);
+  const counts = await rendersDuring(page, ["Inspector", "Scan", "RunBar", "RunButton"], async () => {
+    await expect
+      .poll(
+        () =>
+          page.evaluate((id) => {
+            const { scan } = window.__ddalab.store.getState().recordings[id];
+            return scan.scannedRows === scan.totalRows;
+          }, id),
+        { timeout: 100_000 },
+      )
+      .toBe(true);
+  });
+  expect(counts.Scan).toBeLessThanOrEqual(1);
+  expect(counts.Inspector).toBeLessThanOrEqual(1);
+  // Each rested view asks the core for one plan: the command bar's, which says why a run cannot start.
+  const plans = await page.evaluate(async (id) => {
+    const { engine, store } = window.__ddalab;
+    store.setState((s) => ({
+      recordings: { ...s.recordings, [id]: { ...s.recordings[id], selectedChannels: [0, 1] } },
+    }));
+    await new Promise((rested) => setTimeout(rested, 600));
+    let asked = 0;
+    const plan = engine.plan.bind(engine);
+    engine.plan = (...args: Parameters<typeof plan>) => {
+      asked++;
+      return plan(...args);
+    };
+    for (let i = 1; i <= 4; i++) {
+      store.setState((s) => ({ view: { ...s.view, t0: i * 10, t1: i * 10 + 10 } }));
+      await new Promise((rested) => setTimeout(rested, 800));
+    }
+    await new Promise((rested) => setTimeout(rested, 2000));
+    return asked;
+  }, id);
+  expect(plans).toBe(4);
+  // Opened again, the inspector shows the interval of this moment.
+  await page.getByRole("button", { name: "Inspector" }).click();
+  await expect(page.getByRole("region", { name: "Run" }).getByLabel("Start", { exact: true })).toHaveValue(
+    "40",
+  );
+});

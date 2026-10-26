@@ -24,14 +24,17 @@ const runInterval = (): Interval => {
 function useRestingInterval(): Interval {
   const [interval, settle] = useState(runInterval);
   useEffect(() => {
+    const rest = () => {
+      const next = runInterval();
+      settle((old) => (old.t0 === next.t0 && old.t1 === next.t1 ? old : next));
+    };
+    // A hidden inspector (Shell.tsx) unmounts this effect: what moved meanwhile is read as it mounts again.
+    rest();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const stop = useStore.subscribe((now, last) => {
       if (now.selection === last.selection && now.view === last.view) return;
       clearTimeout(timer);
-      timer = setTimeout(() => {
-        const next = runInterval();
-        settle((old) => (old.t0 === next.t0 && old.t1 === next.t1 ? old : next));
-      }, 200);
+      timer = setTimeout(rest, 200);
     });
     return () => {
       clearTimeout(timer);
