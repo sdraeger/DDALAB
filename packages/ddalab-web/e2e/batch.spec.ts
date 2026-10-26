@@ -18,7 +18,7 @@ import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readSynthetic, syntheticEdfSize } from "../src/core/synthetic";
 import { CLI } from "./global-setup";
-import { expect, type Page, test } from "./test";
+import { expect, hasStorage, NO_STORAGE, type Page, test } from "./test";
 
 const DDA_RS = fileURLToPath(new URL("../../dda-rs/", import.meta.url));
 const fixturePath = (name: string) => join(DDA_RS, "tests/fixtures", name);
@@ -31,16 +31,6 @@ const stem = (n: number) => `sub-0${n}_task-rest_eeg`;
  * seconds, long enough to act while it runs.
  */
 const SLOW = { channels: 8, rateHz: 256, durationS: 120 };
-
-// Playwright's WebKit has no OPFS (getDirectory throws UnknownError); Safari itself has.
-const hasStorage = (page: Page) =>
-  page.evaluate(() =>
-    navigator.storage.getDirectory().then(
-      () => true,
-      () => false,
-    ),
-  );
-const NO_STORAGE = "this browser window has no OPFS";
 
 /**
  * `fixtures/`: a BIDS dataset (src/core/golden/batch-manifest.json says what the CLI makes of it): two runs of the EDF
@@ -208,6 +198,14 @@ test("batch_runs_the_datasets_recordings_into_the_history_and_the_clis_layout", 
   // A result opens as any other, with its provenance.
   await results.getByRole("button", { name: new RegExp(`^ST on ${stem(2)}\\.edf`) }).click();
   await expect(page.getByRole("region", { name: "Provenance" })).toBeVisible();
+  // A click on a range field chooses the range.
+  await run.click();
+  await expect(panel.getByRole("radio", { name: "Whole recording" })).toBeChecked();
+  await panel.getByRole("textbox", { name: "Start in seconds" }).click();
+  await expect(panel.getByRole("radio", { name: /^From start to end/ })).toBeChecked();
+  await expect(panel.getByRole("textbox", { name: "Start in seconds" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(panel).toHaveCount(0);
 
   // The combined export holds what `ddalab batch --bids-dir fixtures --output-dir dda` writes beside the dataset.
   const [download] = await Promise.all([
@@ -260,9 +258,10 @@ test("batch_runs_the_datasets_recordings_into_the_history_and_the_clis_layout", 
       (p) => p.startsWith("dda/") && stemOf(p) === stemOf(result.outputPath),
     );
     if (!counterpart) throw new Error(`the CLI wrote no document for ${result.inputPath}`);
-    expect(comparable(JSON.parse(exported[result.outputPath].toString()))).toEqual(
-      comparable(JSON.parse(cliFiles[counterpart].toString())),
-    );
+    // Laid out as the CLI's: serde_json's pretty printer, two spaces a level, no newline after the last brace.
+    const text = exported[result.outputPath].toString();
+    expect(text).toBe(JSON.stringify(JSON.parse(text), null, 2));
+    expect(comparable(JSON.parse(text))).toEqual(comparable(JSON.parse(cliFiles[counterpart].toString())));
   }
 });
 
