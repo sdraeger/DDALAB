@@ -83,3 +83,42 @@ test("a_scan_re_renders_its_progress_only", async ({ page }) => {
     expect(counts[name], name).toBeLessThanOrEqual(2);
   }
 });
+
+test("a_run_re_renders_its_progress_only", async ({ page }) => {
+  test.setTimeout(180_000);
+  test.skip(
+    !(await page.evaluate(() =>
+      navigator.storage.getDirectory().then(
+        () => true,
+        () => false,
+      ),
+    )),
+    "this browser window has no OPFS",
+  );
+  // Four DDA workers whatever the machine, for a fixed count of blocks.
+  await page.addInitScript(() => Object.defineProperty(navigator, "hardwareConcurrency", { get: () => 5 }));
+  await page.reload();
+  await page.evaluate(() =>
+    window.__ddalab.openSynthetic({ channels: 8, rateHz: 256, durationS: 2 * 3600, seed: 5 }),
+  );
+  await page.getByRole("checkbox", { name: "Select group CH" }).check();
+  const settings = page.getByRole("region", { name: "DDA settings" });
+  await settings.getByLabel("Window", { exact: true }).fill("4000");
+  await settings.getByLabel("Step", { exact: true }).fill("10");
+  const runBar = page.getByRole("region", { name: "Run" });
+  await runBar.getByLabel("Start", { exact: true }).fill("0");
+  await runBar.getByLabel("End", { exact: true }).fill("1200");
+  await runBar.getByLabel("End", { exact: true }).press("Enter");
+  const plan = runBar.getByText(/windows, [\d,]+ blocks, \d+ workers?/);
+  await expect(plan).toBeVisible();
+  const blocks = Number(/([\d,]+) blocks/.exec((await plan.textContent()) ?? "")?.[1].replace(",", ""));
+  expect(blocks).toBeGreaterThanOrEqual(4);
+  const counts = await rendersDuring(page, ["RunBar", "RunButton", "Progress"], async () => {
+    await runBar.getByRole("button", { name: "Run DDA" }).click();
+    await expect(runBar.getByText("Complete", { exact: true })).toBeVisible({ timeout: 150_000 });
+  });
+  // Progress follows every block; the bar and the button follow the start and the end.
+  expect(counts.Progress).toBeGreaterThanOrEqual(blocks);
+  expect(counts.RunBar).toBeLessThanOrEqual(3);
+  expect(counts.RunButton).toBeLessThanOrEqual(3);
+});

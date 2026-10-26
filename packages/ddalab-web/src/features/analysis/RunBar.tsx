@@ -3,6 +3,7 @@
 import Check from "lucide-react/dist/esm/icons/check.mjs";
 import Play from "lucide-react/dist/esm/icons/play.mjs";
 import { use, useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { cancelRun, startRun, variants } from "../../app/analyses";
 import { engine } from "../../app/recordings";
 import type { DDARequest } from "../../core/types";
@@ -99,10 +100,16 @@ function usePlan(recordingId: string, request: DDARequest | undefined) {
 export function RunBar({ recordingId }: { recordingId: string }) {
   const { request, errors, interval, now } = useRunRequest(recordingId);
   const plan = usePlan(recordingId, request);
-  const run = useStore((s) => s.run);
+  // How the run stands, without its progress: that changes with every block, and Progress follows it.
+  const { status, ours, error } = useStore(
+    useShallow((s) => ({
+      status: s.run?.status,
+      ours: s.run?.recordingId === recordingId,
+      error: s.run?.error,
+    })),
+  );
   const duration = useStore((s) => s.recordings[recordingId]?.info.duration_s ?? 0);
-  const ours = run?.recordingId === recordingId ? run : null;
-  const busy = run?.status === "running";
+  const busy = status === "running";
   const reason = Object.values(errors)[0];
   return (
     <section aria-label="Run" className={styles.runBar}>
@@ -124,8 +131,8 @@ export function RunBar({ recordingId }: { recordingId: string }) {
           )}
         </p>
       )}
-      {ours?.status === "running" ? (
-        <Progress run={ours} />
+      {ours && busy ? (
+        <Progress />
       ) : (
         <button
           type="button"
@@ -139,7 +146,7 @@ export function RunBar({ recordingId }: { recordingId: string }) {
         </button>
       )}
       {busy && !ours && <p className={styles.note}>{ELSEWHERE}</p>}
-      {ours && <Outcome run={ours} />}
+      {ours && <Outcome status={status} error={error} />}
     </section>
   );
 }
@@ -149,10 +156,12 @@ export function RunButton({ recordingId, status }: { recordingId: string; status
   const { request, errors, now } = useRunRequest(recordingId);
   // With the inspector hidden, the run bar is too: this button says why it cannot run and how the run goes.
   const plan = usePlan(recordingId, status ? request : undefined);
-  const run = useStore((s) => s.run);
-  const busy = run?.status === "running";
+  const busy = useStore((s) => s.run?.status === "running");
   const refusal = Object.values(errors)[0] ?? (plan?.refused ? plan.text : undefined);
-  const [text, refused] = barStatus(run, recordingId, refusal);
+  // The status as text, which changes once a percent: the run's progress changes with every block.
+  const [text, refused] = useStore(
+    useShallow((s) => (status ? barStatus(s.run, recordingId, refusal) : NO_STATUS)),
+  );
   return (
     <>
       {status && (
@@ -177,6 +186,8 @@ export function RunButton({ recordingId, status }: { recordingId: string; status
     </>
   );
 }
+
+const NO_STATUS: [text: string, refused: boolean] = ["", false];
 
 /** The command bar's status: the run's progress, else why it cannot run, else how the last run failed. */
 function barStatus(
@@ -275,8 +286,10 @@ function IntervalFields(props: { interval: Interval; duration: number; error?: s
   );
 }
 
-function Progress({ run }: { run: RunState }) {
-  const { blocksDone, blocks, windowsDone, windows, etaS } = run.progress;
+function Progress() {
+  const progress = useStore((s) => s.run?.progress);
+  if (!progress) return null;
+  const { blocksDone, blocks, windowsDone, windows, etaS } = progress;
   const left = etaS === null ? "" : `, about ${count(Math.ceil(etaS), "second")} left`;
   return (
     <div className={styles.progress}>
@@ -293,7 +306,7 @@ function Progress({ run }: { run: RunState }) {
   );
 }
 
-function Outcome({ run }: { run: RunState }) {
+function Outcome(run: { status?: RunState["status"]; error?: string }) {
   if (run.status === "complete") {
     return (
       <p className={styles.complete}>
