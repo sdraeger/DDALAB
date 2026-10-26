@@ -134,6 +134,18 @@ test("a_selection_then_a_marks_a_span", async ({ page }) => {
   await expect(list(page).getByRole("button", { name: "Use as selection: seizure" })).toBeVisible();
 });
 
+test("a_click_on_the_plot_then_annotate_marks_the_cursor", async ({ page }) => {
+  const { x, y } = await plotAt(page, 7);
+  await page.mouse.click(x, y);
+  await page.getByRole("button", { name: "Annotate" }).click();
+  await expect(editor(page)).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(editor(page)).toBeHidden();
+  const [[onset, duration]] = await mine(page);
+  expect(Math.abs(onset - 7)).toBeLessThanOrEqual(await pixelS(page));
+  expect(duration).toBe(0);
+});
+
 test("a_double_click_marks_a_point_and_a_press_elsewhere_keeps_its_label", async ({ page }) => {
   const { x, y } = await plotAt(page, 7);
   await page.mouse.dblclick(x, y);

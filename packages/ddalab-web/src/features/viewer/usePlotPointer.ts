@@ -68,9 +68,12 @@ export function usePlotPointer(plot: RefObject<HTMLElement | null>, recordingId:
       drag = null;
       delete plotEl.dataset.dragging;
     };
-    // A press anywhere off the plot lets the cursor go; one on another plot sets it there as the press ends.
+    // A press anywhere off the plot lets the cursor go; one on another plot sets it there as the press ends. A control
+    // that acts at the cursor (Annotate, `data-keeps-cursor`) keeps it.
     const off = (event: PointerEvent) => {
-      if (!plotEl.contains(event.target as Node) && useStore.getState().cursorS !== null) setCursor(null);
+      const target = event.target as Element;
+      if (plotEl.contains(target) || target.closest?.("[data-keeps-cursor]")) return;
+      if (useStore.getState().cursorS !== null) setCursor(null);
     };
     document.addEventListener("pointerdown", off);
     plotEl.addEventListener("wheel", wheel, { passive: false });
