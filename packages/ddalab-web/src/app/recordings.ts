@@ -45,9 +45,12 @@ export const openSynthetic = (spec: SyntheticSpec) => openInput({ kind: "synthet
 
 /** What the UI tells the user after an attempt to open. */
 export type Outcome =
-  | { kind: "opened"; warning?: string }
+  | { kind: "opened"; id: string; warning?: string }
   | { kind: "error"; message: string; folder: boolean }
   | { kind: "choose"; candidates: string[] };
+
+/** The handles of a recording's files and of the folder they were walked from, where the browser gives them. */
+export type FileHandles = { files?: FileSystemFileHandle[]; root?: FileSystemDirectoryHandle };
 
 // The core's reply to a header whose data file is not in the set.
 const MISSING_COMPANION = /names .+, which is not among the opened files/;
@@ -71,11 +74,11 @@ export async function refreshRecent() {
 /**
  * Opens the recording in `files`. `choice` picks among several (see `buildFileSet`). `expect` is the fingerprint of
  * the recording the user is locating again; another file opens, with a warning. `handle` lets the recent list
- * reopen a single-file recording without a picker.
+ * reopen a single-file recording without a picker. `handles`, from a folder walk, is accepted and not used yet.
  */
 export async function openFiles(
   files: File[],
-  options: { choice?: string; expect?: string; handle?: FileSystemHandle } = {},
+  options: { choice?: string; expect?: string; handle?: FileSystemHandle; handles?: FileHandles } = {},
 ): Promise<Outcome> {
   const set = buildFileSet(files, options.choice);
   if ("error" in set) return { kind: "error", message: set.error, folder: false };
@@ -92,6 +95,7 @@ export async function openFiles(
     const differs = options.expect !== undefined && options.expect !== fingerprint;
     return {
       kind: "opened",
+      id: opened.id,
       warning: differs ? "This file differs from the recording you opened before" : undefined,
     };
   } catch (error) {

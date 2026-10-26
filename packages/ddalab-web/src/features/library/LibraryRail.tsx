@@ -5,6 +5,7 @@ import FolderOpen from "lucide-react/dist/esm/icons/folder-open.mjs";
 import { type ChangeEvent, lazy, Suspense, use, useEffect, useEffectEvent, useRef, useState } from "react";
 import { engineVersion } from "../../app/analyses";
 import { canPickFiles, forget, type Outcome, openFiles, pickFiles, reopen } from "../../app/recordings";
+import type { FolderSource } from "../../core/folder";
 import { droppedFiles } from "../../core/sources";
 import type { RecentEntry } from "../../store/recent";
 import { activateRecording, useStore } from "../../store/store";
@@ -23,6 +24,16 @@ function OpenNeuroMissing() {
   return <p className={styles.hint}>OpenNeuro search did not load. Reload the page to use it.</p>;
 }
 const HistoryRail = lazy(() => import("../history/HistoryRail"));
+// Loaded the first time a folder opens.
+const FolderTree = lazy(() =>
+  import("./FolderTree").catch(() => ({
+    default: () => (
+      <p className={styles.hint}>The folder view did not load. Reload the page to open folders.</p>
+    ),
+  })),
+);
+
+type DirectoryPicker = (options: { mode: "read" }) => Promise<FileSystemDirectoryHandle>;
 
 const version = engineVersion.then(
   (v) => v.engine_version,
@@ -39,6 +50,8 @@ interface Attempt {
 export function LibraryRail() {
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [opening, setOpening] = useState(false);
+  const [folder, setFolder] = useState<{ source: FolderSource; key: number } | null>(null);
+  const showFolder = (source: FolderSource) => setFolder((shown) => ({ source, key: (shown?.key ?? 0) + 1 }));
   const recent = useStore((s) => s.recent);
   const attempt = useRef<Attempt>({ files: [] });
   const filesInput = useRef<HTMLInputElement>(null);
@@ -69,9 +82,17 @@ export function LibraryRail() {
     locating.current = undefined;
     if (chosen) await run({ ...chosen, expect });
   }
-  function openFolder() {
+  const pickedFolder = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    showFolder({ kind: "files", files });
+  };
+  async function openFolder() {
     locating.current = undefined;
-    folderInput.current?.click();
+    const pick = (window as { showDirectoryPicker?: DirectoryPicker }).showDirectoryPicker;
+    if (!pick) return folderInput.current?.click();
+    const handle = await pick({ mode: "read" }).catch(() => null); // null: the user closed the picker
+    if (handle) showFolder({ kind: "handle", handle });
   }
   async function open(entry: RecentEntry) {
     if (!entry.handle) return chooseFiles(entry.fingerprint);
@@ -83,6 +104,22 @@ export function LibraryRail() {
   // Files dropped anywhere in the window open; without this the browser would replace the page with the file.
   const dropped = useEffectEvent(async (data: DataTransfer) => {
     locating.current = undefined;
+    // A dropped folder is walked into the tree. The item list empties when the event ends: read it before any await.
+    const items = Array.from(data.items).filter((item) => item.kind === "file");
+    const entries = items.map((item) => item.webkitGetAsEntry()).filter((entry) => entry !== null);
+    if (entries.some((entry) => entry.isDirectory)) {
+      // Chromium also gives a single dropped folder as a handle, which keeps its files' handles through the walk.
+      const item = items[0] as DataTransferItem & {
+        getAsFileSystemHandle?(): Promise<FileSystemHandle | null>;
+      };
+      const pending = entries.length === 1 ? item.getAsFileSystemHandle?.() : undefined;
+      const handle = await pending?.catch(() => null);
+      return showFolder(
+        handle?.kind === "directory"
+          ? { kind: "handle", handle: handle as FileSystemDirectoryHandle }
+          : { kind: "entries", entries },
+      );
+    }
     await run(await droppedFiles(data));
   });
   useEffect(() => {
@@ -121,7 +158,7 @@ export function LibraryRail() {
           type="file"
           hidden
           aria-label="Recording folder"
-          onChange={picked}
+          onChange={pickedFolder}
           {...{ webkitdirectory: "" }}
         />
         <Notice
@@ -133,6 +170,17 @@ export function LibraryRail() {
       </section>
       <OpenRecordings />
       <Recent entries={recent} onOpen={open} />
+      {folder && (
+        <Suspense fallback={null}>
+          <FolderTree
+            key={folder.key}
+            source={folder.source}
+            // The tree shows how its own opens went, beside its rows.
+            onOpen={(recording, handles) => openFiles(recording.files, { choice: recording.path, handles })}
+            onClose={() => setFolder(null)}
+          />
+        </Suspense>
+      )}
       <Suspense>
         <OpenNeuroPanel />
       </Suspense>
