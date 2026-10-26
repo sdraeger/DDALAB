@@ -51,3 +51,15 @@ test("baking_writes_the_list_into_the_worker", () => {
   bakeServiceWorker(dir);
   expect(readFileSync(join(dir, "sw.js"), "utf8")).toBe(baked);
 });
+
+test("a_change_of_the_worker_alone_makes_a_new_version", () => {
+  const template = join(tmpdir(), `precache-template-${process.pid}.js`);
+  writeFileSync(template, "const BUILD = {};\nself.step = 1;");
+  const first = precacheOf(dir, template).version;
+  expect(precacheOf(dir, template).version).toBe(first);
+  writeFileSync(template, "const BUILD = {};\nself.step = 2;");
+  expect(precacheOf(dir, template).version).not.toBe(first);
+  // The files are the same: only the worker changed.
+  expect(precacheOf(dir, template).files).toEqual(precacheOf(dir).files);
+  rmSync(template);
+});

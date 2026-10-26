@@ -168,6 +168,17 @@ test("activate_deletes_every_older_build_of_its_scope_when_no_window_is_open", a
   expect(await markedActive(store)).toBe(worker.cacheName);
 });
 
+test("an_activation_cut_short_during_the_deletes_has_recorded_itself_already", async () => {
+  const store = storeWith(["old", "older"], "old");
+  const worker = start(store, 0);
+  store.set(worker.cacheName, new Map());
+  store.delete = () => {
+    throw new Error("cut short");
+  };
+  await expect(activate(worker)).rejects.toThrow("cut short");
+  expect(await markedActive(store)).toBe(worker.cacheName);
+});
+
 test("a_first_activation_with_no_marker_keeps_nothing_and_records_itself", async () => {
   const store = storeWith(["old"]);
   const worker = start(store, 1);

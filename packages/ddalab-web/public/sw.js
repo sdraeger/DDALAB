@@ -10,8 +10,9 @@
 //   the open pages once it activates. Activating deletes every cache of this scope but its own and the one of the
 //   version that was active until now, which stays while a window is open: that window may not have reloaded yet. The
 //   active version is recorded in a marker cache. A version that installed and never activated (a waiting worker that a
-//   newer one replaced) leaves a cache that the next activation deletes. At most two builds are stored, the current one
-//   and the previous one, which stays until the next activation even when its last window has gone.
+//   newer one replaced) leaves a cache that the next activation deletes. Right after each activation at most two builds
+//   remain: the current one and the previous one, which stays until the next activation even when its last window has
+//   gone. Between an install and the next activation, waiting builds add to that.
 // scripts/precache.mjs replaces the next line at build time with the version and the files of the build.
 const BUILD = { version: "dev", files: [] };
 
@@ -63,13 +64,15 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     (async () => {
       const marker = await caches.open(markerName);
-      // The version the open windows run: the one active until now, not the newest cache there is.
+      // The open windows run the version that was active until now, whatever caches are newer.
       const active = await marker.match(markerKey).then((hit) => hit?.text());
       const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
       const kept = windows.length > 0 ? [active] : [];
       const doomed = (await olderCaches()).filter((name) => !kept.includes(name));
-      await Promise.all(doomed.map((name) => caches.delete(name)));
+      // The marker first: an activation cut short after this line leaves a marker that names this version, and the
+      // caches it did not get to delete go at the next activation.
       await marker.put(markerKey, new Response(cacheName));
+      await Promise.all(doomed.map((name) => caches.delete(name)));
       await self.clients.claim();
     })(),
   );
