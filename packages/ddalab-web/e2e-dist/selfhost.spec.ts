@@ -46,8 +46,11 @@ test("opens_a_recording_and_runs_dda", async ({ page }, testInfo) => {
   // Base UI adds an inline <style> to an opened Select unless the app turns that off; style-src 'self' blocks it. Below
   // 1440 px the scale settings sit behind their button.
   const scales = page.getByRole("button", { name: "Epoch, sensitivity and timebase" });
+  const epoch = page.getByRole("combobox", { name: "Epoch" });
+  // isVisible does not wait: let the command bar settle on one of the two layouts first.
+  await expect(scales.or(epoch)).toBeVisible();
   if (await scales.isVisible()) await scales.click();
-  await page.getByRole("combobox", { name: "Epoch" }).click();
+  await epoch.click();
   await expect(page.getByRole("listbox")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("listbox")).toHaveCount(0);
