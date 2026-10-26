@@ -119,8 +119,9 @@ export function BatchEntry(props: {
             // aria-disabled keeps the keyboard on it while a second click does nothing.
             <button
               type="button"
-              className={`${controls.button} ${styles.busy}`}
+              className={controls.button}
               aria-disabled={exporting || undefined}
+              aria-describedby={exporting ? `${id}-preparing` : undefined}
               onClick={save}
             >
               <Download aria-hidden />
@@ -146,7 +147,7 @@ export function BatchEntry(props: {
           </p>
         )}
         {exporting && (
-          <p className={styles.note} aria-live="polite">
+          <p id={`${id}-preparing`} className={styles.note} aria-live="polite">
             Preparing the file
           </p>
         )}
