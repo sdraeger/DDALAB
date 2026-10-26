@@ -51,14 +51,15 @@ const intended: string[] = [];
 const INTENDED = 3;
 
 /**
- * Bounds the cache: the reads of the shown result stay, and the manifests of the results last pointed at; the rest
- * goes, to be read again when it is shown.
+ * Bounds the cache: the reads of the shown result stay, and of the results the other tabs show again when selected,
+ * and the manifests of the results last pointed at; the rest goes, to be read again when it is shown.
  */
 function evict() {
-  const shown = useStore.getState().shownResult?.id;
+  const { shownResult, tabs } = useStore.getState();
+  const kept = new Set([shownResult?.id, ...tabs.map((tab) => tab.saved?.shownResult?.id)]);
   for (const key of loads.keys()) {
     const id = key.slice(0, key.indexOf("/"));
-    if (id !== shown && !(key === manifestKey(id) && intended.includes(id))) loads.delete(key);
+    if (!kept.has(id) && !(key === manifestKey(id) && intended.includes(id))) loads.delete(key);
   }
 }
 

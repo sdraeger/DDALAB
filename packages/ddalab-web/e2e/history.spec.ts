@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundleDir } from "./global-setup";
+import { showFixture } from "./resultFixture";
 import { expect, type Page, test } from "./test";
 
 const DDA_RS = fileURLToPath(new URL("../../dda-rs/", import.meta.url));
@@ -506,4 +507,57 @@ test("a_run_whose_manifest_read_fails_shows_on_its_request", async ({ page }) =>
   expect((await state(page)).analyses[0].manifest).toBeUndefined();
   await expect(result(page)).toBeVisible();
   expect((await heatmapDrawn(page)).frame).toMatchObject({ resultId: id, complete: true });
+});
+
+// Each tab shows its own result again after a switch, from the reads it made: the loader cache keeps what the tabs show.
+test("a_tab_switch_shows_its_own_result_read_once", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  await logWorkers(page);
+  await page.reload();
+  /** A recording with a result of its own, which it shows; the result's record is complete. */
+  const openWith = async (seed: number, id: string) => {
+    await page.evaluate(
+      (seed) => window.__ddalab.openSynthetic({ channels: 4, rateHz: 256, durationS: 60, seed }),
+      seed,
+    );
+    await page.evaluate(() => window.__ddalab.viewer.settled());
+    await page.evaluate((id) => {
+      const { store } = window.__ddalab;
+      const s = store.getState();
+      const { fingerprint } = s.recordings[s.activeRecordingId as string];
+      const request = {
+        file_path: "synthetic.edf",
+        channels: [0],
+        time_range: { start: 0, end: 1000 },
+        preprocessing_options: { highpass: null, lowpass: null },
+        algorithm_selection: { enabled_variants: ["ST"] },
+        window_parameters: { window_length: 200, window_step: 100 },
+        delay_parameters: { delays: [7, 10] },
+      };
+      const record = {
+        id,
+        fingerprint,
+        fileName: "synthetic.edf",
+        request,
+        createdAt: Date.now(),
+        status: "complete",
+      };
+      store.setState({ analyses: [record as never, ...s.analyses] });
+    }, id);
+    await showFixture(page, { id, windows: 100, rows: 4, first: 0.5, step: 0.25, values: [] });
+    expect((await heatmapDrawn(page)).frame).toMatchObject({ resultId: id, complete: true });
+  };
+  await openWith(1, "ra");
+  await openWith(2, "rb");
+  const tabs = page.getByRole("tablist", { name: "Open recordings" }).getByRole("tab");
+  for (const [tab, id] of [
+    [0, "ra"],
+    [1, "rb"],
+    [0, "ra"],
+  ] as const) {
+    await tabs.nth(tab).click();
+    await expect.poll(() => page.evaluate(() => window.__ddalab.store.getState().shownResult?.id)).toBe(id);
+    expect((await heatmapDrawn(page)).frame).toMatchObject({ resultId: id, complete: true });
+  }
+  expect(await asked(page, "resultManifest")).toBe(2);
 });
