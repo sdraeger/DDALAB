@@ -1,4 +1,4 @@
-use dda_rs::io::{BlockCache, ByteSource, FileSet, MemorySource, MmapSource};
+use dda_rs::io::{BlockCache, BlockPool, ByteSource, FileSet, MemorySource, MmapSource};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -93,6 +93,38 @@ fn block_cache_evicts_least_recently_used() {
     assert_eq!(count(), 3);
     touch(1); // reloaded
     assert_eq!(count(), 4);
+}
+
+#[test]
+fn caches_in_one_pool_share_its_capacity() {
+    let reads = Arc::new(AtomicUsize::new(0));
+    let pool = Arc::new(BlockPool::new(3));
+    let source = |seed| Counting(MemorySource(random_bytes(100, seed)), reads.clone());
+    let (a, b) = (
+        BlockCache::in_pool(source(5), 10, pool.clone()),
+        BlockCache::in_pool(source(6), 10, pool.clone()),
+    );
+    let count = || reads.load(Ordering::SeqCst);
+    read(&a, 0, 1);
+    read(&a, 10, 1);
+    read(&b, 0, 1);
+    assert_eq!((pool.len(), count()), (3, 3));
+    read(&a, 0, 1); // hit: a's block 1 is now the oldest
+    read(&b, 10, 1); // evicts a's block 1, whatever cache it belongs to
+    assert_eq!((pool.len(), count()), (3, 4));
+    read(&a, 0, 1);
+    assert_eq!(count(), 4);
+    read(&a, 10, 1);
+    assert_eq!(count(), 5);
+    // A smaller capacity evicts at once (b's block 1 goes); a dropped cache frees its blocks and no other's.
+    pool.set_capacity(2);
+    assert_eq!(pool.len(), 2);
+    read(&b, 10, 1); // evicts a's block 0
+    assert_eq!(count(), 6);
+    drop(a);
+    assert_eq!(pool.len(), 1);
+    assert_eq!(read(&b, 10, 1), random_bytes(100, 6)[10..11]);
+    assert_eq!(count(), 6);
 }
 
 #[test]
