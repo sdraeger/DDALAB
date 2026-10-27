@@ -1,17 +1,17 @@
-use crate::cli::RunArgs;
-use crate::dda_params;
-use crate::exit_codes;
-use crate::output;
-use dda_rs::blocks::{
+use crate::cli::args::RunArgs;
+use crate::cli::dda_params;
+use crate::cli::exit_codes;
+use crate::cli::output;
+use crate::blocks::{
     check_block_support, merge_blocks, plan_blocks, run_block, validate_request, Block,
 };
-use dda_rs::document::{
+use crate::document::{
     build_document, build_manifest, bundle_layout, encode_block, BundleLayout, BundleWriter,
     ResultDocument,
 };
-use dda_rs::io::{open_recording, ByteSource, ChannelInfo, FileSet, Reader, RecordingInfo};
-use dda_rs::tiles::Sha256Stream;
-use dda_rs::{ComputeDevice, DDARequest, DDAResult, PureRustProgress, TimeRange};
+use crate::io::{open_recording, ByteSource, ChannelInfo, FileSet, Reader, RecordingInfo};
+use crate::tiles::Sha256Stream;
+use crate::{ComputeDevice, DDARequest, DDAResult, PureRustProgress, TimeRange};
 use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::path::Path;
@@ -61,7 +61,7 @@ fn is_bad(channel: &ChannelInfo) -> bool {
 }
 
 /// The SHA-256 of `source`, hex.
-fn sha256(source: &dyn ByteSource) -> dda_rs::Result<String> {
+fn sha256(source: &dyn ByteSource) -> crate::Result<String> {
     let mut hash = Sha256Stream::new();
     let mut slice = vec![0u8; HASH_SLICE];
     let mut offset = 0;
@@ -90,7 +90,7 @@ impl Sink {
         let bundle = bundle
             .map(|dir| {
                 let layout = bundle_layout(request, info, windows)?;
-                Ok::<_, dda_rs::DDAError>((BundleWriter::create(dir, &layout)?, layout))
+                Ok::<_, crate::DDAError>((BundleWriter::create(dir, &layout)?, layout))
             })
             .transpose()
             .map_err(execution)?;
@@ -413,9 +413,9 @@ pub async fn execute(args: RunArgs) -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use crate::cli::RunArgs;
-    use crate::dda_params;
-    use dda_rs::{format_select_mask, generate_select_mask};
+    use crate::cli::args::RunArgs;
+    use crate::cli::dda_params;
+    use crate::{format_select_mask, generate_select_mask};
 
     fn make_test_args() -> RunArgs {
         RunArgs {
@@ -444,24 +444,24 @@ mod tests {
             binary: None,
             output: None,
             bundle: None,
-            block_mb: crate::cli::DEFAULT_BLOCK_MB,
+            block_mb: crate::cli::args::DEFAULT_BLOCK_MB,
             compact: false,
             quiet: false,
-            device: dda_rs::ComputeDevice::Cpu,
+            device: crate::ComputeDevice::Cpu,
         }
     }
 
-    fn build_test_request(args: &RunArgs, file_path: &str) -> dda_rs::DDARequest {
+    fn build_test_request(args: &RunArgs, file_path: &str) -> crate::DDARequest {
         let ct_channel_pairs = args
             .ct_pairs
             .as_ref()
-            .map(|pairs| crate::cli::parse_pairs(pairs))
+            .map(|pairs| crate::cli::args::parse_pairs(pairs))
             .transpose()
             .unwrap();
         let cd_channel_pairs = args
             .cd_pairs
             .as_ref()
-            .map(|pairs| crate::cli::parse_pairs(pairs))
+            .map(|pairs| crate::cli::args::parse_pairs(pairs))
             .transpose()
             .unwrap();
         dda_params::build_dda_request(dda_params::RequestConfig {

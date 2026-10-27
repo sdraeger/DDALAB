@@ -6,8 +6,8 @@ pub mod samples;
 pub mod validate;
 pub mod variants;
 
-use crate::exit_codes;
-use dda_rs::io::{open_recording, FileSet, Reader};
+use crate::cli::exit_codes;
+use crate::io::{open_recording, FileSet, Reader};
 use std::path::Path;
 
 /// Opens the recording at `file` with its BIDS sidecars; on failure prints the error and returns the exit code.

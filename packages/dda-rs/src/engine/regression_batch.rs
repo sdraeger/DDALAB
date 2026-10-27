@@ -39,7 +39,7 @@ pub(crate) struct BasicJobs<'a> {
 /// Solves the basic regressions; CUDA state is created once per run.
 pub(crate) enum BasicSolver {
     Cpu,
-    #[cfg(feature = "cuda")]
+    #[cfg(all(feature = "cuda", target_os = "linux"))]
     Cuda(super::gpu::CudaSolver),
 }
 
@@ -53,15 +53,15 @@ impl BasicSolver {
                 "CUDA acceleration requires SvdBackend::RobustSvd".to_string(),
             ));
         }
-        #[cfg(feature = "cuda")]
+        #[cfg(all(feature = "cuda", target_os = "linux"))]
         {
             super::gpu::CudaSolver::new(device_index).map(Self::Cuda)
         }
-        #[cfg(not(feature = "cuda"))]
+        #[cfg(not(all(feature = "cuda", target_os = "linux")))]
         {
             let _ = device_index;
             Err(DDAError::ExecutionFailed(
-                "CUDA support is not compiled in; rebuild dda-rs with --features cuda".to_string(),
+                "CUDA support is not compiled in: CUDA runs in Linux builds with --features cuda".to_string(),
             ))
         }
     }
@@ -70,7 +70,7 @@ impl BasicSolver {
     pub(crate) fn cpu_fallbacks(&self) -> (usize, usize) {
         match self {
             Self::Cpu => (0, 0),
-            #[cfg(feature = "cuda")]
+            #[cfg(all(feature = "cuda", target_os = "linux"))]
             Self::Cuda(solver) => (solver.cpu_fallbacks, solver.problems),
         }
     }
@@ -84,7 +84,7 @@ impl BasicSolver {
             Self::Cpu => Ok(solve_channels_parallel(problems, |problem| {
                 solve_regression_window(problem, svd_backend)
             })),
-            #[cfg(feature = "cuda")]
+            #[cfg(all(feature = "cuda", target_os = "linux"))]
             Self::Cuda(solver) => solver.solve(problems, svd_backend),
         }
     }

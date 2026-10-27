@@ -7,7 +7,7 @@ use crate::types::{
     PreprocessingOptions, TimeRange, VariantChannelConfig, WindowParameters,
 };
 
-#[cfg(feature = "cuda")]
+#[cfg(all(feature = "cuda", target_os = "linux"))]
 fn synthetic_samples() -> Vec<Vec<f64>> {
     let mut x0 = vec![0.0; 1800];
     let mut x1 = vec![0.0; 1800];
@@ -365,13 +365,13 @@ fn compute_device_accepts_cpu_and_indexed_cuda() {
     assert!("metal".parse::<ComputeDevice>().is_err());
 }
 
-#[cfg(not(feature = "cuda"))]
+#[cfg(not(all(feature = "cuda", target_os = "linux")))]
 #[test]
 fn cuda_inventory_is_empty_without_cuda_support() {
     assert!(available_cuda_devices().is_empty());
 }
 
-#[cfg(not(feature = "cuda"))]
+#[cfg(not(all(feature = "cuda", target_os = "linux")))]
 #[test]
 fn cuda_request_without_feature_has_a_clear_error() {
     use super::regression_batch::BasicSolver;
@@ -379,10 +379,10 @@ fn cuda_request_without_feature_has_a_clear_error() {
     let Err(error) = BasicSolver::new(ComputeDevice::Cuda(0), SvdBackend::RobustSvd) else {
         panic!("CUDA solver created without CUDA support");
     };
-    assert!(error.to_string().contains("--features cuda"));
+    assert!(error.to_string().contains("Linux builds with --features cuda"));
 }
 
-#[cfg(feature = "cuda")]
+#[cfg(all(feature = "cuda", target_os = "linux"))]
 #[test]
 fn cuda_matches_cpu_for_supported_dda_flavors_when_available() {
     let request = DDARequest {

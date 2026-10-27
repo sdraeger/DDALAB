@@ -57,11 +57,11 @@ pub struct RunArgs {
     pub variants: Vec<String>,
 
     /// Window length in samples
-    #[arg(long, default_value_t = dda_rs::DEFAULT_WINDOW_LENGTH)]
+    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_LENGTH)]
     pub wl: u32,
 
     /// Window step in samples
-    #[arg(long, default_value_t = dda_rs::DEFAULT_WINDOW_STEP)]
+    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_STEP)]
     pub ws: u32,
 
     /// Channels per CT and DE group when no pairs are given (default: every selected channel)
@@ -75,7 +75,7 @@ pub struct RunArgs {
     /// Delay values (tau)
     #[arg(
         long,
-        default_values_t = vec![dda_rs::DEFAULT_DELAYS[0], dda_rs::DEFAULT_DELAYS[1]],
+        default_values_t = vec![crate::DEFAULT_DELAYS[0], crate::DEFAULT_DELAYS[1]],
         num_args = 1..
     )]
     pub delays: Vec<i32>,
@@ -86,15 +86,15 @@ pub struct RunArgs {
     pub model: Option<Vec<i32>>,
 
     /// Model dimension
-    #[arg(long, default_value_t = dda_rs::DEFAULT_MODEL_DIMENSION)]
+    #[arg(long, default_value_t = crate::DEFAULT_MODEL_DIMENSION)]
     pub dm: u32,
 
     /// Polynomial order
-    #[arg(long, default_value_t = dda_rs::DEFAULT_POLYNOMIAL_ORDER)]
+    #[arg(long, default_value_t = crate::DEFAULT_POLYNOMIAL_ORDER)]
     pub order: u32,
 
     /// Number of tau values
-    #[arg(long, default_value_t = dda_rs::DEFAULT_NUM_TAU)]
+    #[arg(long, default_value_t = crate::DEFAULT_NUM_TAU)]
     pub nr_tau: u32,
 
     /// CT channel pairs as "i,j" (e.g., "0,1" "0,2")
@@ -167,7 +167,7 @@ pub struct RunArgs {
 
     /// Compute device: cpu, cuda, or cuda:N (a non-cpu device runs the recording whole)
     #[arg(long, default_value = "cpu")]
-    pub device: dda_rs::ComputeDevice,
+    pub device: crate::ComputeDevice,
 }
 
 #[derive(Args)]
@@ -268,11 +268,11 @@ pub struct BatchArgs {
     pub variants: Vec<String>,
 
     /// Window length in samples
-    #[arg(long, default_value_t = dda_rs::DEFAULT_WINDOW_LENGTH)]
+    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_LENGTH)]
     pub wl: u32,
 
     /// Window step in samples
-    #[arg(long, default_value_t = dda_rs::DEFAULT_WINDOW_STEP)]
+    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_STEP)]
     pub ws: u32,
 
     /// Channels per CT and DE group when no pairs are given (default: every selected channel)
@@ -286,7 +286,7 @@ pub struct BatchArgs {
     /// Delay values (tau)
     #[arg(
         long,
-        default_values_t = vec![dda_rs::DEFAULT_DELAYS[0], dda_rs::DEFAULT_DELAYS[1]],
+        default_values_t = vec![crate::DEFAULT_DELAYS[0], crate::DEFAULT_DELAYS[1]],
         num_args = 1..
     )]
     pub delays: Vec<i32>,
@@ -297,15 +297,15 @@ pub struct BatchArgs {
     pub model: Option<Vec<i32>>,
 
     /// Model dimension
-    #[arg(long, default_value_t = dda_rs::DEFAULT_MODEL_DIMENSION)]
+    #[arg(long, default_value_t = crate::DEFAULT_MODEL_DIMENSION)]
     pub dm: u32,
 
     /// Polynomial order
-    #[arg(long, default_value_t = dda_rs::DEFAULT_POLYNOMIAL_ORDER)]
+    #[arg(long, default_value_t = crate::DEFAULT_POLYNOMIAL_ORDER)]
     pub order: u32,
 
     /// Number of tau values
-    #[arg(long, default_value_t = dda_rs::DEFAULT_NUM_TAU)]
+    #[arg(long, default_value_t = crate::DEFAULT_NUM_TAU)]
     pub nr_tau: u32,
 
     /// CT channel pairs as "i,j" (e.g., "0,1" "0,2")
@@ -363,7 +363,7 @@ pub struct BatchArgs {
 
     /// Compute device: cpu, cuda, or cuda:N (a non-cpu device runs the recording whole)
     #[arg(long, default_value = "cpu")]
-    pub device: dda_rs::ComputeDevice,
+    pub device: crate::ComputeDevice,
 }
 
 /// Parse a channel pair string "i,j" into [usize; 2].

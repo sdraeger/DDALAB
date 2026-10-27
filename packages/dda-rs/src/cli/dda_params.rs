@@ -1,6 +1,6 @@
-use crate::cli;
-use dda_rs::blocks::validate_request;
-use dda_rs::{
+use crate::cli::args as cli;
+use crate::blocks::validate_request;
+use crate::{
     format_select_mask, generate_select_mask, AlgorithmSelection, ComputeDevice, DDARequest,
     DDAResult, DelayParameters, FileType, ModelParameters, PreprocessingOptions, PureRustOptions,
     PureRustProgress, PureRustRunner, TimeRange, VariantChannelConfig, WindowParameters,
@@ -24,7 +24,7 @@ fn pure_rust_common_support_reason(request: &DDARequest) -> Result<(), String> {
         .model_parameters
         .as_ref()
         .map(|model| model.nr_tau as usize)
-        .unwrap_or(dda_rs::DEFAULT_NUM_TAU as usize);
+        .unwrap_or(crate::DEFAULT_NUM_TAU as usize);
     if request.delay_parameters.delays.len() < nr_tau {
         return Err(format!(
             "pure Rust DDA needs at least nr_tau={} delays, but only {} were supplied",
@@ -176,7 +176,7 @@ struct VariantConfigInput {
     ct_channel_pairs: Option<Vec<[usize; 2]>>,
     cd_channel_pairs: Option<Vec<[usize; 2]>>,
     conditioning_channels: Option<Vec<usize>>,
-    conditioning_strategy: Option<dda_rs::CcdConditioningStrategy>,
+    conditioning_strategy: Option<crate::CcdConditioningStrategy>,
     surrogate_shifts: Option<Vec<usize>>,
     temporal_lambda: Option<f64>,
     max_active_sources: Option<usize>,

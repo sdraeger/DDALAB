@@ -1,8 +1,8 @@
-use crate::cli::ValidateArgs;
-use crate::exit_codes;
-use crate::output;
-use dda_rs::io::{open_recording, FileSet};
-use dda_rs::DDAError;
+use crate::cli::args::ValidateArgs;
+use crate::cli::exit_codes;
+use crate::cli::output;
+use crate::io::{open_recording, FileSet};
+use crate::DDAError;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::Path;
