@@ -1,6 +1,10 @@
 // What re-renders while values change at a high rate: the scan and the hashes of a recording, the blocks of a run,
 // scrolling and the keyboard in lists. Counted per component through React's devtools hook (renders.ts). And what
 // the canvases repaint for.
+import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { countRenders, renders } from "./renders";
 import { showFixture } from "./resultFixture";
 import { expect, hasStorage, hasWebGL2, NO_STORAGE, NO_WEBGL2, type Page, scanned, test } from "./test";
@@ -20,6 +24,19 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => Reflect.deleteProperty(window, "showOpenFilePicker"));
   await countRenders(page);
   await page.goto("/");
+});
+
+// Hiding and showing the library changes the layout around the panels, none of what they show.
+test("toggling_a_panel_leaves_the_panels_alone", async ({ page }) => {
+  const library = page.getByRole("button", { name: "Library", exact: true }).first();
+  await expect(library).toBeVisible();
+  const counts = await rendersDuring(page, ["LibraryRail", "TabStrip", "Inspector"], async () => {
+    for (let i = 0; i < 2; i++) {
+      await library.click();
+      await page.waitForTimeout(300);
+    }
+  });
+  expect(counts).toEqual({ LibraryRail: 0, TabStrip: 0, Inspector: 0 });
 });
 
 test("a_scan_re_renders_its_progress_only", async ({ page }) => {
@@ -77,6 +94,37 @@ test("a_scan_re_renders_its_progress_only", async ({ page }) => {
   // changes.
   for (const name of ["Inspector", "DdaSettings", "RunBar", "Details", "Command", "TabStrip"]) {
     expect(counts[name], name).toBeLessThanOrEqual(2);
+  }
+});
+
+// The folder tree marks which of its recordings are open: another recording's scan reports change nothing it shows.
+test("a_scan_leaves_the_folder_tree_alone", async ({ page }) => {
+  test.setTimeout(120_000);
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  const folder = mkdtempSync(join(tmpdir(), "ddalab-tree-"));
+  try {
+    copyFileSync(
+      fileURLToPath(new URL("../../dda-rs/tests/fixtures/fixture.edf", import.meta.url)),
+      join(folder, "fixture.edf"),
+    );
+    await page.getByLabel("Recording folder").setInputFiles(folder);
+    await expect(page.getByRole("treeitem", { name: "fixture.edf" })).toBeVisible();
+    const id = await page.evaluate((spec) => window.__ddalab.openSynthetic(spec), SCAN);
+    const counts = await rendersDuring(page, ["Tree"], () =>
+      expect
+        .poll(
+          () =>
+            page.evaluate((id) => {
+              const { scan } = window.__ddalab.store.getState().recordings[id];
+              return scan.scannedRows === scan.totalRows && Object.keys(scan.sha256 ?? {}).length === 1;
+            }, id),
+          { timeout: 100_000 },
+        )
+        .toBe(true),
+    );
+    expect(counts.Tree).toBeLessThanOrEqual(1);
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
   }
 });
 

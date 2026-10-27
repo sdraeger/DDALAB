@@ -37,6 +37,7 @@ import { blockBudgetMb, MAX_BLOCK_MB } from "../core/scheduler";
 import { isScanned, openRequestOf, partsOf, readSource, type Source } from "../core/sources";
 import { CACHE_MB } from "../core/tileCache";
 import type { RecordingInfo } from "../core/types";
+import { BESIDE } from "./beside";
 import { scan, yieldToLoop } from "./scan";
 
 /** Bytes `a..b` of a source, for the fingerprint. */
@@ -308,21 +309,6 @@ const transfers = (ok: unknown): ArrayBuffer[] =>
 // queued behind the one that trapped fail at once, until the engine replaces this worker.
 let stopped = false;
 let queue = Promise.resolve();
-/**
- * Requests that use no engine and can take seconds (a large result, a lock another tab holds): tiles and rows go on
- * while they run. The startup sweep runs here too, without waiting for the wasm compile; a result being written holds
- * its lock from before its directory exists (createResultFiles), which the sweep skips. So do manifest reads, which a
- * pointer over the history makes and which must not hold back the waveform's reads.
- */
-const BESIDE = new Set<IoRequest["type"]>([
-  "exportDocument",
-  "exportCsv",
-  "importResult",
-  "importResults",
-  "deleteResult",
-  "sweepResults",
-  "resultManifest",
-]);
 
 async function answer(data: IoRequest & { n: number }) {
   const { n } = data;

@@ -738,3 +738,69 @@ fn auto_group_omp_overbudget_stays_within_one_membership_error() {
         "auto_group_omp should stay within one membership error on the planted two-confound case when over-budgeted (selected={selected:?}, errors={membership_errors})"
     );
 }
+
+// A pair's conditioned CCD model is its target's full model when every source is a candidate: then each target's
+// full model is fitted once per window, whatever the environment.
+#[test]
+fn all_selected_ccd_reuses_the_full_model_when_every_source_is_a_candidate() {
+    let pairs = [[0, 1], [1, 0], [2, 0]];
+    let all = [0, 1, 2];
+    assert!(ccd_reuses_full_model(
+        CcdConditioningStrategy::AllSelected,
+        false,
+        &pairs,
+        &all
+    ));
+    assert!(!ccd_reuses_full_model(
+        CcdConditioningStrategy::AllSelected,
+        true,
+        &pairs,
+        &all
+    ));
+    assert!(!ccd_reuses_full_model(
+        CcdConditioningStrategy::AllSelected,
+        false,
+        &pairs,
+        &[0, 2]
+    ));
+    assert!(!ccd_reuses_full_model(
+        CcdConditioningStrategy::AutoTargetSparse,
+        false,
+        &pairs,
+        &all
+    ));
+}
+
+// DE on the same channel groups as CT reads CT's solutions: a window's batched problems hold those regressions once.
+#[test]
+fn de_on_the_ct_groups_adds_no_regressions_to_a_window() {
+    let samples = common_drive_samples();
+    let request = ccd_auto_request(
+        "common_drive".to_string(),
+        CcdConditioningStrategy::AllSelected,
+    );
+    let dataset = super::dataset::MatrixDataset::new(&samples, None).expect("dataset");
+    let model = super::model::ModelSpec::from_request(&request).expect("model");
+    let bounds =
+        super::dataset::AnalysisBounds::from_request(&request, dataset.rows).expect("bounds");
+    let window = super::prepare_window_for_analysis(
+        &dataset,
+        &bounds,
+        &model,
+        0,
+        &PureRustOptions::default(),
+    )
+    .expect("prepared window");
+    let groups = vec![vec![0, 1, 2]];
+    let jobs = super::regression_batch::BasicJobs {
+        channel_count: 3,
+        st_channels: &[],
+        ct_groups: &groups,
+        de_groups: &groups,
+        cd_pairs: &[],
+        sy_pairs: &[],
+    };
+    let mut problems = Vec::new();
+    super::regression_batch::build_window_references(&mut problems, &window, &jobs, &model);
+    assert_eq!(problems.len(), 1);
+}

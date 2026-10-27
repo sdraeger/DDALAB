@@ -11,6 +11,7 @@ import X from "lucide-react/dist/esm/icons/x.mjs";
 import {
   type ChangeEvent,
   type KeyboardEvent,
+  memo,
   type PointerEvent,
   type ReactElement,
   type ReactNode,
@@ -106,7 +107,7 @@ export function useAttached() {
   return { open, running };
 }
 
-export function TabStrip() {
+export const TabStrip = memo(function TabStrip() {
   const tabs = useStore((s) => s.tabs);
   const active = useStore((s) => s.activeTab);
   const { open, running } = useAttached();
@@ -276,7 +277,7 @@ export function TabStrip() {
       {switching && <Switcher onClose={() => setSwitching(false)} />}
     </div>
   );
-}
+});
 
 /** A tooltip on `children`, the one element it describes. */
 function Hint({ label, children }: { label: string; children: ReactNode }) {

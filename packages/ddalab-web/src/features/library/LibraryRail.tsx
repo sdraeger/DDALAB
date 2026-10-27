@@ -4,7 +4,17 @@
 import { Popover } from "@base-ui/react/popover";
 import FilePlus from "lucide-react/dist/esm/icons/file-plus.mjs";
 import FolderOpen from "lucide-react/dist/esm/icons/folder-open.mjs";
-import { type ChangeEvent, lazy, Suspense, use, useEffect, useEffectEvent, useRef, useState } from "react";
+import {
+  type ChangeEvent,
+  lazy,
+  memo,
+  Suspense,
+  use,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+} from "react";
 import { useShallow } from "zustand/react/shallow";
 import { engineVersion } from "../../app/analyses";
 import { beside } from "../../app/handles";
@@ -88,7 +98,7 @@ interface Attempt {
   expect?: string;
 }
 
-export function LibraryRail() {
+export const LibraryRail = memo(function LibraryRail() {
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [opening, setOpening] = useState(false);
   // `resume`: the batch the history resumes on this folder once it is read.
@@ -302,7 +312,7 @@ export function LibraryRail() {
       </p>
     </div>
   );
-}
+});
 
 function EngineVersion() {
   return <output>{use(version)}</output>;

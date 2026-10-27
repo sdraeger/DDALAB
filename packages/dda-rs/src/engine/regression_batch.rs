@@ -36,6 +36,13 @@ pub(crate) struct BasicJobs<'a> {
     pub(crate) sy_pairs: &'a [[usize; 2]],
 }
 
+impl BasicJobs<'_> {
+    /// DE on CT's channel groups: the same regressions, so CT's solutions serve DE.
+    fn de_shares_ct(&self) -> bool {
+        self.de_groups == self.ct_groups
+    }
+}
+
 /// Solves the basic regressions; CUDA state is created once per run.
 pub(crate) enum BasicSolver {
     Cpu,
@@ -91,7 +98,7 @@ impl BasicSolver {
     }
 }
 
-struct WindowReferences {
+pub(super) struct WindowReferences {
     st: Vec<Option<usize>>,
     ct: Vec<usize>,
     de: Vec<usize>,
@@ -117,7 +124,11 @@ pub(crate) fn solve_basic_windows(
 
     let jobs_per_window = jobs.st_channels.len()
         + jobs.ct_groups.len()
-        + jobs.de_groups.len()
+        + if jobs.de_shares_ct() {
+            0
+        } else {
+            jobs.de_groups.len()
+        }
         + jobs.cd_pairs.len()
         + 2 * jobs.sy_pairs.len();
     let windows_per_batch =
@@ -170,17 +181,23 @@ fn solve_window_on_cpu(
         .iter()
         .map(|&[left, right]| [right, left])
         .collect::<Vec<_>>();
+    let ct = solve_groups(jobs.ct_groups);
+    let de = if jobs.de_shares_ct() {
+        ct.clone()
+    } else {
+        solve_groups(jobs.de_groups)
+    };
     WindowSolutions {
         st,
-        ct: solve_groups(jobs.ct_groups),
-        de: solve_groups(jobs.de_groups),
+        ct,
+        de,
         cd: solve_pairs(jobs.cd_pairs, false),
         sy_forward: solve_pairs(jobs.sy_pairs, true),
         sy_reverse: solve_pairs(&reversed_sy_pairs, true),
     }
 }
 
-fn build_window_references(
+pub(super) fn build_window_references(
     problems: &mut Vec<RegressionWindow>,
     prepared: &PreparedWindow,
     jobs: &BasicJobs<'_>,
@@ -196,7 +213,11 @@ fn build_window_references(
         st[channel] = Some(index);
     }
     let ct = push_group_problems(problems, prepared, jobs.ct_groups, model);
-    let de = push_group_problems(problems, prepared, jobs.de_groups, model);
+    let de = if jobs.de_shares_ct() {
+        ct.clone()
+    } else {
+        push_group_problems(problems, prepared, jobs.de_groups, model)
+    };
     let cd = push_pair_problems(problems, prepared, jobs.cd_pairs, model, false);
     let sy_forward = push_pair_problems(problems, prepared, jobs.sy_pairs, model, true);
     let built = jobs
