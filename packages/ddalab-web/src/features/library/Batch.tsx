@@ -17,7 +17,7 @@ import { STANDARD, validateRequest } from "../analysis/validate";
 import styles from "./Batch.module.css";
 import { recordingOf, useRunPercent } from "./BatchStatus";
 
-/** A recording of two samples at 1 Hz: the settings checked on it fail only for the settings themselves. */
+/** A recording of two samples at 1 Hz: too short for any model, so only the settings' own errors count on it. */
 const PROBE = { sample_rate_hz: 1, sample_count: 2, input_files: [""] } as RecordingInfo;
 
 /** The labels of the active recording's chosen channels. */
@@ -92,7 +92,8 @@ function BatchPanel(props: {
 
   const chosen = metadata.filter((v) => form.variants.includes(v.abbreviation));
   const probe = { ...form, variants: chosen, channels: [0, 1], startS: 0, endS: 1 };
-  const formError = Object.values(validateRequest(probe, PROBE).errors)[0];
+  const { range: _, ...settingsErrors } = validateRequest(probe, PROBE).errors;
+  const formError = Object.values(settingsErrors)[0];
   const [startS, endS] = [Number(range.start), Number(range.end)];
   const typed = range.start.trim() !== "" && range.end.trim() !== "";
   const rangeError =

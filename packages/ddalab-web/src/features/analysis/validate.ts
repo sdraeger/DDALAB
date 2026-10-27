@@ -99,6 +99,12 @@ export function validateRequest(
   const start = sample(draft.startS);
   const end = Math.min(sample(draft.endS), info.sample_count - 1);
   if (!(end > start)) errors.range = "The interval must end after it starts, within the recording";
+  // The core's shortest interval (`analysis_window_count` in dda-rs engine.rs): WL + 2 dm + max(delays) - 1 samples.
+  const needed = windowLength + 2 * model.dm + Math.max(...model.delays) - 1;
+  if (end > start && end - start + 1 < needed) {
+    const has = (end - start + 1).toLocaleString("en");
+    errors.range = `The interval has ${has} samples and these settings need at least ${needed.toLocaleString("en")}`;
+  }
 
   if (Object.keys(errors).length > 0) return { errors };
   const mask = Array.from({ length: SELECT_MASK_SIZE }, (_, i) =>
