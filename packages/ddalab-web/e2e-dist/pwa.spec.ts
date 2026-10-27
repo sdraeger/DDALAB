@@ -74,9 +74,7 @@ test("the_worker_controls_the_page_after_the_first_load_at_the_apps_folder", asy
   expect(scope).toBe(folder);
   // Under /DDALAB/ (the pages-* projects) it is that folder; the other host is the userdir path.
   if (!process.env.DIST_URL)
-    expect(scope).toMatch(
-      testInfo.project.name.startsWith("pages-") ? /\/DDALAB\/$/ : /\/~user\/ddalab\/$/,
-    );
+    expect(scope).toMatch(testInfo.project.name.startsWith("pages-") ? /\/DDALAB\/$/ : /\/~user\/ddalab\/$/);
   // The page's files now come from the worker's cache.
   const script = await page.locator('script[type="module"]').getAttribute("src");
   const served = page.waitForResponse((r) => r.url() === new URL(script as string, page.url()).href);

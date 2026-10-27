@@ -113,10 +113,6 @@ cd packages/ddalab-web && npm ci && npm run dev
 
 A release is a `v*` tag. `.github/workflows/release.yml` builds the CLI archives and the PyPI wheels from that commit and records the commit in every result document (`reproduction.git_commit`).
 
-## Community
-
-Workshops, new tools, and recent work from the lab are listed on the [lab website](https://sdraeger.github.io/DDALAB/).
-
 ## Citation
 
 ```bibtex

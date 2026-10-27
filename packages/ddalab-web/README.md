@@ -59,23 +59,19 @@ Two things work in Chromium only, and other browsers ignore them:
 
 The release attaches `ddalab-web-<version>.zip`, the contents of `dist/`. Unzip it onto any static web server that uses HTTPS (or `localhost`): the app needs a secure context for the worker and for the origin private file system. Users open that address, and install, offline use and updates work as on Pages. To update, replace the files; installed copies show the update notice. Opening `index.html` from disk does not work, because browsers do not start workers from `file://` pages. A shared userdir host has the one-origin problem described below.
 
-### userdir web space (optional)
+### Apache userdir hosting
 
-The userdir site is `https://example.org/ddalab`, an optional self-hosting path.
+> **Warning:** a shared userdir host serves every user's pages from one origin. Another page on that host can read what the app stores in the browser (results, history, settings) and can rewrite the worker's cache, which replaces the app's code until the next version. Prefer Pages for real data: its origin is shared only with the owner's own pages.
 
-> **Warning:** a shared userdir host serves every user's pages from one origin. Another page on `example.org` can read what the app stores in the browser (results, history, settings) and can rewrite the worker's cache, which replaces the app's code until the next version. Prefer Pages for real data: its origin is shared only with the owner's own pages.
-
-Apache serves the site from `~/public_html/ddalab` on the cluster's shared home. `dist/.htaccess` (from `public/.htaccess`) sets the MIME type and compression for `.wasm`, the Content-Security-Policy, immutable caching for the hashed assets and no caching for `index.html`. It replaces the server's own `Expires` and `Cache-Control` defaults. Each response then carries one `Cache-Control`.
+`dist/.htaccess` (from `public/.htaccess`) sets the MIME type and compression for `.wasm`, the Content-Security-Policy, immutable caching for the hashed assets and no caching for `index.html`. It replaces the server's own `Expires` and `Cache-Control` defaults. Each response then carries one `Cache-Control`.
 
 The folder needs `AllowOverride FileInfo` (or `All`). With `AllowOverride None` Apache ignores the file and the app runs without the headers. With any other value that lacks `FileInfo`, Apache answers 500 for the whole folder.
 
 ```sh
-npm run deploy:userdir                # builds, runs the checks, lists what rsync would change on compute-host
-npm run deploy:userdir -- --publish   # copies dist/ to compute-host:public_html/ddalab/, then checks the headers the host sends
-npm run check:live                # the header check alone, against the site
+npm run check:live -- <site URL>   # the headers the host sends
 ```
 
-A publish copies everything except `index.html` first, then `index.html` with `--delete-delay`, which removes older files last. `--publish` refuses a target that is not empty and lacks the `.ddalab-web` marker (the build writes it into `dist/`), unless `--replace` is also given. The header check sends HEAD requests for the folder, `index.html`, the entry script, a style sheet and the wasm module, and exits non-zero when one gets no answer or lacks the MIME type, the single `Cache-Control` or the CSP of `public/.htaccess`.
+The header check sends HEAD requests for the folder, `index.html`, the entry script, a style sheet and the wasm module, and exits non-zero when one gets no answer or lacks the MIME type, the single `Cache-Control` or the CSP of `public/.htaccess`.
 
 ### Content-Security-Policy
 

@@ -24,7 +24,7 @@
       ".vhdr"
     ]
   },
-  "config_sha256": "2a13bc5366977290ccb41243d06e301cae9f561321f09507f84130bf8215a692",
+  "config_sha256": "c834891dde01ade3cfb2471a265c05bc94c12900d6658766002deef49037c804",
   "command": [
     "reader_conformance.py",
     "reader_conformance_config.json",
