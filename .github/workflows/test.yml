@@ -22,10 +22,13 @@ jobs:
       - name: Cache Rust artifacts
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: "./packages/dda-rs -> target"
+          workspaces: |
+            ./packages/dda-rs -> target
+            ./packages/ddalab-cli -> target
 
       # Release profile: blocks_equal_single_run alone takes 17 minutes unoptimized.
       - name: Run dda-rs tests
         run: |
           cargo test --release --locked --manifest-path packages/dda-rs/Cargo.toml
           cargo test --release --locked --features cuda --manifest-path packages/dda-rs/Cargo.toml
+          cargo test --release --locked --features cuda --manifest-path packages/ddalab-cli/Cargo.toml

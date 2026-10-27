@@ -1,0 +1,10 @@
+# Steps cargo-dist runs before each build (dist-workspace.toml: github-build-setup).
+- name: Check the versions against the tag
+  shell: bash
+  run: scripts/check-versions.sh
+- name: Build settings
+  shell: bash
+  run: |
+    # Compiled into every result document as reproduction.git_commit.
+    echo "DDALAB_GIT_COMMIT=$GITHUB_SHA" >> "$GITHUB_ENV"
+    if [[ "$RUNNER_OS" == "macOS" ]]; then echo "MACOSX_DEPLOYMENT_TARGET=11.0" >> "$GITHUB_ENV"; fi

@@ -52,7 +52,7 @@ Window, then New window opens another DDALAB window. Each window has its own tab
 
 ### Updates
 
-Updates are automatic. A new version is published when a `v*` tag is pushed. The tag must equal the version of `dda-rs`, `ddalab-wasm` and `ddalab-web`, or the release workflow fails. The next launch with a network connection downloads the new version in the background and shows "A new version of DDALAB is ready" with a Reload button. A window that stays open looks again once an hour. While an analysis runs, the notice says the new version will be ready after the run, and Reload waits for the run to end.
+Updates are automatic. A new version is published when a `v*` tag is pushed. The tag must equal the version of every package and of `CITATION.cff` (`scripts/check-versions.sh`), or the release workflows fail. The next launch with a network connection downloads the new version in the background and shows "A new version of DDALAB is ready" with a Reload button. A window that stays open looks again once an hour. While an analysis runs, the notice says the new version will be ready after the run, and Reload waits for the run to end.
 
 If you ignore the notice, the new version takes over once every DDALAB window has been closed and opened again. When you reload one of several windows, the others keep working and show the notice again. Without a network the cached version keeps working. About shows the version and the engine commit. Results, history, annotations and tabs stay across updates. Pre-release tags (a `-` in the tag) are not published to the site.
 
@@ -84,13 +84,32 @@ ddalab run --file recording.edf --variants ST --wl 1000 --ws 200 --delays 7 10 -
 ddalab batch --help
 ```
 
-Without Python, download the archive for your system from the [release page](https://github.com/sdraeger/DDALAB/releases): `ddalab-<version>-linux-x64.tar.gz`, `ddalab-<version>-macos-x64.tar.gz`, `ddalab-<version>-macos-arm64.tar.gz` or `ddalab-<version>-windows-x64.zip`. Each comes with a `.sha256` file. An archive unpacks to a folder `ddalab-<version>-<platform>/` that holds `ddalab` (`ddalab.exe` on Windows), `LICENSE` and `README.md`. Verify the archive, unpack it and put the folder on your PATH. The programs are unsigned.
+Without Python, use an installer, Homebrew or Scoop. The installers put `ddalab` in `~/.cargo/bin` (`$CARGO_HOME/bin` when that is set) and add it to your PATH:
 
-- Linux: `sha256sum -c ddalab-<version>-linux-x64.tar.gz.sha256`, then `tar -xzf ddalab-<version>-linux-x64.tar.gz`.
-- macOS: `shasum -a 256 -c ddalab-<version>-macos-arm64.tar.gz.sha256`, then `tar -xzf ddalab-<version>-macos-arm64.tar.gz`, then `xattr -dr com.apple.quarantine ddalab-<version>-macos-arm64` to remove the quarantine a browser download sets.
-- Windows (PowerShell): `Get-FileHash ddalab-<version>-windows-x64.zip` and compare the hash with the one in the `.sha256` file, then `Expand-Archive ddalab-<version>-windows-x64.zip .`. If SmartScreen blocks the program, choose More info, then Run anyway, or run `Unblock-File` on `ddalab.exe`.
+```sh
+# Linux and macOS
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sdraeger/DDALAB/releases/latest/download/ddalab-installer.sh | sh
+# Homebrew (macOS, Linux)
+brew install sdraeger/tap/ddalab
+```
 
-To update an archive install, download the new archive. To build from source, run `cargo build --release --locked` in `packages/dda-rs`; the program is `target/release/ddalab`.
+```powershell
+# Windows
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/sdraeger/DDALAB/releases/latest/download/ddalab-installer.ps1 | iex"
+# Scoop
+scoop bucket add sdraeger https://github.com/sdraeger/scoop-bucket
+scoop install ddalab
+```
+
+Or download the archive for your system from the [release page](https://github.com/sdraeger/DDALAB/releases): `ddalab-x86_64-unknown-linux-gnu.tar.xz` (Linux), `ddalab-aarch64-apple-darwin.tar.xz` (Apple silicon), `ddalab-x86_64-apple-darwin.tar.xz` (Intel Mac) or `ddalab-x86_64-pc-windows-msvc.zip` (Windows). Each comes with a `.sha256` file, and holds `ddalab` (`ddalab.exe` on Windows), `LICENSE` and `README.md`. Verify the archive, unpack it and put the folder on your PATH. The programs are unsigned.
+
+- Linux: `sha256sum -c ddalab-x86_64-unknown-linux-gnu.tar.xz.sha256`, then `tar -xJf ddalab-x86_64-unknown-linux-gnu.tar.xz`.
+- macOS: `shasum -a 256 -c ddalab-aarch64-apple-darwin.tar.xz.sha256`, then `tar -xJf ddalab-aarch64-apple-darwin.tar.xz`, then `xattr -dr com.apple.quarantine ddalab-aarch64-apple-darwin` to remove the quarantine a browser download sets.
+- Windows (PowerShell): `Get-FileHash ddalab-x86_64-pc-windows-msvc.zip` and compare the hash with the one in the `.sha256` file, then `Expand-Archive ddalab-x86_64-pc-windows-msvc.zip .`. If SmartScreen blocks the program, choose More info, then Run anyway, or run `Unblock-File` on `ddalab.exe`.
+
+Every archive, installer, wheel and web bundle of a release carries a build provenance attestation: `gh attestation verify <file> --repo sdraeger/DDALAB` shows that GitHub Actions built it from this repository at the release tag.
+
+To update an archive install, download the new archive; run the installer again, or `brew upgrade ddalab`, `scoop update ddalab`. To build from source, run `cargo build --release --locked` in `packages/ddalab-cli`; the program is `target/release/ddalab`.
 
 ### Sites that block outside websites
 
@@ -98,7 +117,8 @@ Download `ddalab-web-<version>.zip` from the [release page](https://github.com/s
 
 ## Repository layout
 
-- `packages/dda-rs`: the Rust core (engine, readers, tiles, block runner, result documents) and the `ddalab` CLI.
+- `packages/dda-rs`: the Rust core (engine, readers, tiles, block runner, result documents) and the `ddalab` CLI (`dda_rs::cli`).
+- `packages/ddalab-cli`: the `ddalab` binary that the release archives and installers carry.
 - `packages/ddalab-wasm`: `dda-rs` compiled to `wasm32-unknown-unknown` with a plain `extern "C"` ABI.
 - `packages/ddalab-web`: the React and TypeScript web application.
 
@@ -113,7 +133,7 @@ cd packages/ddalab-web && npm ci && npm run dev
 
 `npm run build`, `npm test`, and `npm run test:e2e` build the wasm module first.
 
-A release is a `v*` tag. `.github/workflows/release.yml` builds the CLI archives and the PyPI wheels from that commit and records the commit in every result document (`reproduction.git_commit`).
+A release is a `v*` tag. `.github/workflows/release.yml`, generated by [cargo-dist](https://github.com/axodotdev/cargo-dist) from `dist-workspace.toml`, builds the CLI archives, installers and Homebrew formula and creates the GitHub release; `pypi.yml` builds and publishes the wheels; `web.yml` deploys the site and attaches the web bundle. Each records the commit in every result document (`reproduction.git_commit`). After changing `dist-workspace.toml`, run `dist generate`.
 
 ## Citation
 

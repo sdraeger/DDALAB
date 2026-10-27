@@ -178,7 +178,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [web, e2e]
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 40
     permissions:
       contents: write
       attestations: write
@@ -197,14 +197,13 @@ jobs:
         with:
           subject-path: ddalab-web-*.zip
 
-      # The release workflow creates the same release for the tag and can run at the same time. When it wins the race
-      # between this view and create, the create fails and the release exists: view it again before giving up.
+      # release.yml (cargo-dist) creates the release once its builds pass, which can take longer than this workflow.
       - name: Attach the bundle
         run: |
-          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release create "$GITHUB_REF_NAME" --title "DDALAB ${GITHUB_REF_NAME#v}" --generate-notes ||
-              { sleep 10; gh release view "$GITHUB_REF_NAME" >/dev/null; }
-          fi
+          for _ in $(seq 60); do
+            gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 && break
+            sleep 30
+          done
           gh release upload "$GITHUB_REF_NAME" ddalab-web-*.zip --clobber
 
   # Publishes the dist the web job built and tested at https://sdraeger.github.io/DDALAB/ (the base path is relative).
