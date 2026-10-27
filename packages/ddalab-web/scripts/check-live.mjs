@@ -9,15 +9,14 @@
 //   public/.htaccess.
 // A host that does not answer fails in both.
 // Usage: node scripts/check-live.mjs [--pages] [site URL] [dist directory]
-// The site defaults to https://sdraeger.github.io/DDALAB/ with --pages (project paths are case-sensitive); an Apache
-// host is named.
+// The site defaults to https://ddalab.org/ with --pages; an Apache host is named.
 import { readdirSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundleSizes } from "./check-bundle-size.mjs";
 import { cspOf, IMMUTABLE, metaCspOf, NO_CACHE } from "./policy.mjs";
 
-export const PAGES_SITE = "https://sdraeger.github.io/DDALAB/";
+export const PAGES_SITE = "https://ddalab.org/";
 
 const TYPES = {
   html: ["text/html"],

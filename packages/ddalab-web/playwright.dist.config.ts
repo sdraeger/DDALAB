@@ -3,7 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 // The built app (dist/, from `npm run build`) on a static host, once per browser and per host kind:
 // - chromium, firefox, webkit: under a userdir path (/~user/ddalab/), with the Content-Security-Policy header of
 //   dist/.htaccess as Apache sends it, besides the <meta> policy of index.html.
-// - pages-chromium, pages-firefox, pages-webkit: under /DDALAB/ with no policy header, as Pages serves a project site.
+// - pages-chromium, pages-firefox, pages-webkit: at the root with no policy header, as Pages serves ddalab.org.
 //   Only the <meta> policy of index.html governs the page.
 // DIST_WASM_TYPE=application/octet-stream serves the wasm module without its MIME type, as a host that ignores the
 // .htaccess does. DDALAB_E2E_PORT (5175 by default) is the port of the userdir server; the Pages one takes the next.
@@ -11,7 +11,7 @@ import { defineConfig, devices } from "@playwright/test";
 // or the deployed Pages site.
 const port = Number(process.env.DDALAB_E2E_PORT ?? 5175);
 const userdir = process.env.DIST_URL ?? `http://127.0.0.1:${port}/~user/ddalab/`;
-const pages = `http://127.0.0.1:${port + 1}/DDALAB/`;
+const pages = `http://127.0.0.1:${port + 1}/`;
 const browsers = {
   chromium: devices["Desktop Chrome"],
   firefox: devices["Desktop Firefox"],
@@ -24,7 +24,7 @@ export default defineConfig({
     ? undefined
     : [
         { command: `node scripts/serve-dist.mjs ${port} /~user/ddalab/`, url: userdir },
-        { command: `node scripts/serve-dist.mjs ${port + 1} /DDALAB/ --no-csp-header`, url: pages },
+        { command: `node scripts/serve-dist.mjs ${port + 1} / --no-csp-header`, url: pages },
       ].map((server) => ({ ...server, reuseExistingServer: false })),
   projects: Object.entries(browsers).flatMap(([name, device]) => [
     { name, use: { ...device, baseURL: userdir } },

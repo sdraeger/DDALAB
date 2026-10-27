@@ -1,6 +1,6 @@
 // The installable app on the production build: its manifest, and the service worker that keeps the app for offline use
 // and offers an update. Chromium only (Playwright's Firefox and WebKit differ in worker and offline support). The
-// worker is registered at the app's folder, under /~user/ddalab/ and under /DDALAB/ alike.
+// worker is registered at the app's folder, under /~user/ddalab/ and at the root alike.
 import { type ChildProcess, spawn } from "node:child_process";
 import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
@@ -72,9 +72,11 @@ test("the_worker_controls_the_page_after_the_first_load_at_the_apps_folder", asy
   expect(await page.evaluate(() => navigator.serviceWorker.controller?.scriptURL)).toBe(`${folder}sw.js`);
   const scope = await page.evaluate(() => navigator.serviceWorker.getRegistration().then((r) => r?.scope));
   expect(scope).toBe(folder);
-  // Under /DDALAB/ (the pages-* projects) it is that folder; the other host is the userdir path.
+  // At the root (the pages-* projects) it is the origin; the other host is the userdir path.
   if (!process.env.DIST_URL)
-    expect(scope).toMatch(testInfo.project.name.startsWith("pages-") ? /\/DDALAB\/$/ : /\/~user\/ddalab\/$/);
+    expect(scope).toMatch(
+      testInfo.project.name.startsWith("pages-") ? /^http:\/\/[^/]+\/$/ : /\/~user\/ddalab\/$/,
+    );
   // The page's files now come from the worker's cache.
   const script = await page.locator('script[type="module"]').getAttribute("src");
   const served = page.waitForResponse((r) => r.url() === new URL(script as string, page.url()).href);

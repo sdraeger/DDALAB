@@ -24,7 +24,7 @@ classifiers = [
 ddalab = "ddalab._cli:main"
 
 [project.urls]
-Homepage = "https://sdraeger.github.io/DDALAB/"
+Homepage = "https://ddalab.org/"
 Repository = "https://github.com/sdraeger/DDALAB"
 Issues = "https://github.com/sdraeger/DDALAB/issues"
 

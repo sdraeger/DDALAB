@@ -1,6 +1,6 @@
 # dda-rs
 
-Pure Rust Delay Differential Analysis (DDA) engine and the `ddalab` command-line tool. The same crate runs in the browser as WebAssembly in the [DDALAB web application](https://sdraeger.github.io/DDALAB/).
+Pure Rust Delay Differential Analysis (DDA) engine and the `ddalab` command-line tool. The same crate runs in the browser as WebAssembly in the [DDALAB web application](https://ddalab.org/).
 
 All analysis runs through the Rust engine directly; nothing shells out to a native DDA binary.
 
