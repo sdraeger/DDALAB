@@ -161,6 +161,20 @@ test("an_interval_too_short_for_the_model_says_so_once", async ({ page }) => {
   await expect(runBar(page).getByRole("button", { name: "Run DDA" })).toBeDisabled();
 });
 
+// A Run that cannot act looks it: dimmed and without the pointer, beside its reason.
+test("run_looks_disabled_until_a_channel_is_chosen", async ({ page }) => {
+  await openBrainVision(page);
+  const run = runBar(page).getByRole("button", { name: "Run DDA" });
+  await expect(runBar(page).getByText("Choose at least one channel")).toBeVisible();
+  await expect(run).toBeDisabled();
+  await expect(run).toHaveCSS("opacity", "0.45");
+  await expect(run).toHaveCSS("cursor", "default");
+  await page.getByRole("checkbox", { name: "Select Fp1" }).check();
+  await expect(run).toBeEnabled();
+  await expect(run).toHaveCSS("opacity", "1");
+  await expect(run).toHaveCSS("cursor", "pointer");
+});
+
 test("escape_puts_back_the_interval", async ({ page }) => {
   await openBrainVision(page);
   const end = runBar(page).getByLabel("End", { exact: true });
