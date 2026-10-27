@@ -45,7 +45,10 @@ where
         .format_timestamp(None)
         .try_init();
 
-    let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
         Ok(runtime) => runtime,
         Err(error) => {
             eprintln!("Error: cannot start the async runtime: {error}");

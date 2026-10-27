@@ -64,7 +64,7 @@ In Chrome or Edge, open the menu of the app window and choose Uninstall DDALAB. 
 
 `ddalab` is a native program for batch runs and GPUs. It runs the same engine as the web app, and it also runs the CCD family, which the web app does not.
 
-Install it with Python's tools. Python 3.8 or later is needed only to install it, and uv fetches an interpreter when there is none:
+Install it with Python's tools. It needs Python 3.9 or later, and uv fetches an interpreter when there is none:
 
 ```sh
 uv tool install ddalab      # or: pipx install ddalab, or: pip install ddalab
@@ -74,7 +74,7 @@ uv tool upgrade ddalab      # or: pipx upgrade ddalab
 
 To try it without installing, `uvx` fetches it into a cache and runs it: `uvx ddalab run --file recording.edf`. Pin a version with `uvx ddalab@2.4.1 …`.
 
-The wheel holds only the `ddalab` executable. No Python code runs; Python only installs it. Wheels cover Linux x86-64, Windows x86-64, and macOS 11 or later on Intel and on Apple silicon. The Linux wheel and archive are built with CUDA: `--device cuda` runs on NVIDIA GPUs and loads the driver at run time. The default CPU device needs no CUDA. Installing with uv or pipx also avoids the macOS warning for unsigned downloads.
+The wheel holds the `ddalab` command and the `ddalab` Python library (below), which share one engine; the command runs it in the Python process. NumPy is its one dependency. Wheels cover Linux x86-64, Windows x86-64, and macOS 11 or later on Intel and on Apple silicon. The Linux wheel and archive are built with CUDA: `--device cuda` runs on NVIDIA GPUs and loads the driver at run time. The default CPU device needs no CUDA. Installing with uv or pipx also avoids the macOS warning for unsigned downloads.
 
 The main commands:
 
@@ -111,6 +111,22 @@ Every archive, installer, wheel and web bundle of a release carries a build prov
 
 To update an archive install, download the new archive; run the installer again, or `brew upgrade ddalab`, `scoop update ddalab`. To build from source, run `cargo build --release --locked` in `packages/ddalab-cli`; the program is `target/release/ddalab`.
 
+### Python
+
+The same install gives `import ddalab`. `ddalab.run` takes a path, a recording from `ddalab.read`, an MNE `Raw` or a NumPy array of shape (channels, samples), and runs the engine with the defaults and result document of `ddalab run`:
+
+```python
+import ddalab
+
+result = ddalab.run("sub-01_eeg.edf", variants=["ST", "CT"], ct_pairs=[(0, 1)], wl=200, ws=100)
+result.variants["ST"].q        # NumPy array, (channels, windows)
+result.window_centers          # seconds
+result.save("result.json")     # the document `ddalab run -o result.json` writes
+
+recording = ddalab.read("sub-01_eeg.edf")   # data (channels, samples) in SI units, sfreq, ch_names, events
+ddalab.run(recording.data, sfreq=recording.sfreq, ch_names=recording.ch_names)
+```
+
 ### Sites that block outside websites
 
 Download `ddalab-web-<version>.zip` from the [release page](https://github.com/sdraeger/DDALAB/releases) and unzip it onto any internal static web server. The server must use HTTPS (or be `localhost`), because the app needs a secure context. Users open that address and everything above applies. Update by replacing the files. Opening `index.html` from disk does not work, because browsers do not start workers from `file://` pages. See [`packages/ddalab-web`](packages/ddalab-web/README.md) for the server settings and a warning about hosts that share one origin between users.
@@ -119,6 +135,7 @@ Download `ddalab-web-<version>.zip` from the [release page](https://github.com/s
 
 - `packages/dda-rs`: the Rust core (engine, readers, tiles, block runner, result documents) and the `ddalab` CLI (`dda_rs::cli`).
 - `packages/ddalab-cli`: the `ddalab` binary that the release archives and installers carry.
+- `packages/ddalab-py`: the PyPI wheel, the engine for Python (`ddalab._core`, PyO3) and the `ddalab` command.
 - `packages/ddalab-wasm`: `dda-rs` compiled to `wasm32-unknown-unknown` with a plain `extern "C"` ABI.
 - `packages/ddalab-web`: the React and TypeScript web application.
 

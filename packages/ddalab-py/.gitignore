@@ -1,0 +1,5 @@
+target/
+# maturin develop builds the extension in place.
+python/ddalab/_core*.so
+python/ddalab/_core*.pyd
+__pycache__/

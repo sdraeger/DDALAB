@@ -1,10 +1,10 @@
+use crate::blocks::{
+    check_block_support, merge_blocks, plan_blocks, run_block, validate_request, Block,
+};
 use crate::cli::args::RunArgs;
 use crate::cli::dda_params;
 use crate::cli::exit_codes;
 use crate::cli::output;
-use crate::blocks::{
-    check_block_support, merge_blocks, plan_blocks, run_block, validate_request, Block,
-};
 use crate::document::{
     build_document, build_manifest, bundle_layout, encode_block, BundleLayout, BundleWriter,
     ResultDocument,
@@ -136,7 +136,8 @@ pub async fn analyze(job: Job<'_>) -> Result<Analysis, Failure> {
         })
 }
 
-async fn analyze_open(
+/// `analyze` on a recording already open: `files` holds the bytes its input files are hashed from.
+pub async fn analyze_open(
     job: Job<'_>,
     files: &FileSet,
     reader: &dyn Reader,
@@ -289,43 +290,35 @@ async fn analyze_open(
     })
 }
 
-pub async fn execute(args: RunArgs) -> i32 {
-    let selection = match dda_params::prepare_selection(
-        args.channels.clone(),
-        &args.variants,
-        args.ct_pairs.as_deref(),
-        args.cd_pairs.as_deref(),
-        args.variant_configs.as_deref(),
-    ) {
-        Ok(selection) => selection,
-        Err(msg) => {
-            eprintln!("Error: {}", msg);
-            return exit_codes::INPUT_ERROR;
-        }
-    };
+/// The request `ddalab run` makes of `args`, and the normalized variant names; a refusal is the message to print.
+/// `analyze` sets the time range and, when the request names none, the channels.
+pub fn request_of(args: &RunArgs) -> Result<(DDARequest, Vec<String>), String> {
     let dda_params::PreparedSelection {
         variants: normalized_variants,
         channels: effective_channels,
         ct_pairs: effective_ct_pairs,
         cd_pairs: effective_cd_pairs,
         variant_configs,
-    } = selection;
+    } = dda_params::prepare_selection(
+        args.channels.clone(),
+        &args.variants,
+        args.ct_pairs.as_deref(),
+        args.cd_pairs.as_deref(),
+        args.variant_configs.as_deref(),
+    )?;
 
     // Validate shared params; an empty channel selection means the recording's good channels.
-    if let Err(msg) = dda_params::validate_params(
+    dda_params::validate_params(
         &normalized_variants,
         &args.delays,
         args.wl,
         args.ws,
         &effective_ct_pairs,
         &effective_cd_pairs,
-    ) {
-        eprintln!("Error: {}", msg);
-        return exit_codes::INPUT_ERROR;
-    }
+    )?;
 
     // Build DDARequest; `analyze` sets the time range
-    let request = match dda_params::build_dda_request(dda_params::RequestConfig {
+    let request = dda_params::build_dda_request(dda_params::RequestConfig {
         file_path: &args.file,
         channels: &effective_channels,
         variants: &normalized_variants,
@@ -346,8 +339,30 @@ pub async fn execute(args: RunArgs) -> i32 {
         highpass: args.highpass,
         lowpass: args.lowpass,
         variant_configs,
-    }) {
-        Ok(r) => r,
+    })?;
+    Ok((request, normalized_variants))
+}
+
+/// The job `ddalab run` runs for `args` and its `request`.
+pub fn job_of(args: &RunArgs, request: DDARequest) -> Job<'_> {
+    Job {
+        file: &args.file,
+        sample_rate_hz: args.sr,
+        request,
+        start: args.start,
+        end: args.end,
+        start_sample: args.start_sample,
+        end_sample: args.end_sample,
+        device: args.device,
+        block_mb: args.block_mb,
+        bundle: args.bundle.as_deref().map(Path::new),
+        progress: !args.quiet,
+    }
+}
+
+pub async fn execute(args: RunArgs) -> i32 {
+    let (request, normalized_variants) = match request_of(&args) {
+        Ok(prepared) => prepared,
         Err(msg) => {
             eprintln!("Error: {}", msg);
             return exit_codes::INPUT_ERROR;
@@ -366,21 +381,7 @@ pub async fn execute(args: RunArgs) -> i32 {
         }
     }
 
-    let analysis = match analyze(Job {
-        file: &args.file,
-        sample_rate_hz: args.sr,
-        request,
-        start: args.start,
-        end: args.end,
-        start_sample: args.start_sample,
-        end_sample: args.end_sample,
-        device: args.device,
-        block_mb: args.block_mb,
-        bundle: args.bundle.as_deref().map(Path::new),
-        progress: !args.quiet,
-    })
-    .await
-    {
+    let analysis = match analyze(job_of(&args, request)).await {
         Ok(analysis) => analysis,
         Err((code, message)) => {
             eprintln!("Error: {message}");

@@ -61,7 +61,8 @@ impl BasicSolver {
         {
             let _ = device_index;
             Err(DDAError::ExecutionFailed(
-                "CUDA support is not compiled in: CUDA runs in Linux builds with --features cuda".to_string(),
+                "CUDA support is not compiled in: CUDA runs in Linux builds with --features cuda"
+                    .to_string(),
             ))
         }
     }

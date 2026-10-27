@@ -1,5 +1,5 @@
-use crate::cli::args as cli;
 use crate::blocks::validate_request;
+use crate::cli::args as cli;
 use crate::{
     format_select_mask, generate_select_mask, AlgorithmSelection, ComputeDevice, DDARequest,
     DDAResult, DelayParameters, FileType, ModelParameters, PreprocessingOptions, PureRustOptions,

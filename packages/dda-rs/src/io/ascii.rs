@@ -337,3 +337,54 @@ impl Reader for AsciiReader {
         Ok(())
     }
 }
+
+/// A recording held in memory: `data` row-major, one value per channel of `labels` in each row, in physical SI units.
+/// It has no input files, so a result names no file hashes.
+pub fn open_matrix(
+    labels: Vec<String>,
+    sample_rate_hz: f64,
+    data: Vec<f64>,
+) -> Result<Box<dyn Reader>> {
+    if !(sample_rate_hz.is_finite() && sample_rate_hz > 0.0) {
+        return Err(DDAError::InvalidParameter(format!(
+            "sample rate must be positive and finite, got {sample_rate_hz}"
+        )));
+    }
+    let width = labels.len();
+    if width == 0 || data.len() % width != 0 {
+        return Err(DDAError::InvalidParameter(format!(
+            "{} values do not fill rows of {width} channels",
+            data.len()
+        )));
+    }
+    let channels = unique_names(labels)
+        .into_iter()
+        .map(|label| ChannelInfo {
+            label,
+            unit: String::new(),
+            sample_rate_hz,
+            gain: 1.0,
+            offset: 0.0,
+            kind: ChannelKind::Signal,
+            bids_status: None,
+            bids_type: None,
+        })
+        .collect();
+    let sample_count = (data.len() / width) as u64;
+    Ok(Box::new(AsciiReader {
+        info: RecordingInfo {
+            format: "Array".to_string(),
+            channels,
+            sample_rate_hz,
+            sample_count,
+            duration_s: sample_count as f64 / sample_rate_hz,
+            raw_type: RawType::F64,
+            annotations: Vec::new(),
+            warnings: Vec::new(),
+            input_files: Vec::new(),
+        },
+        data,
+        width,
+        first: 0,
+    }))
+}

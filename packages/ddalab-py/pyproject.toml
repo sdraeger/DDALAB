@@ -1,0 +1,36 @@
+[build-system]
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
+
+[project]
+name = "ddalab"
+dynamic = ["version"]
+description = "Delay differential analysis of neurophysiological recordings: the ddalab command line and Python library"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.9"
+dependencies = ["numpy>=1.22"]
+keywords = ["dda", "delay-differential", "eeg", "ieeg", "time-series"]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Rust",
+  "Topic :: Scientific/Engineering",
+]
+
+[project.scripts]
+ddalab = "ddalab._cli:main"
+
+[project.urls]
+Homepage = "https://sdraeger.github.io/DDALAB/"
+Repository = "https://github.com/sdraeger/DDALAB"
+Issues = "https://github.com/sdraeger/DDALAB/issues"
+
+[tool.maturin]
+# One abi3 wheel per platform holds the engine (ddalab._core) and the command line; the version comes from Cargo.toml.
+python-source = "python"
+module-name = "ddalab._core"
+features = ["pyo3/extension-module"]
+strip = true

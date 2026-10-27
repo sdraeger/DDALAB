@@ -12,6 +12,7 @@ check() {
   fi
 }
 check ddalab "$(cargo_version packages/ddalab-cli/Cargo.toml)"
+check ddalab-py "$(cargo_version packages/ddalab-py/Cargo.toml)"
 check ddalab-wasm "$(cargo_version packages/ddalab-wasm/Cargo.toml)"
 check ddalab-web "$(sed -n 's/^  "version": "\(.*\)",/\1/p' packages/ddalab-web/package.json | head -n 1 | tr -d '\r')"
 check CITATION.cff "$(sed -n 's/^version: //p' CITATION.cff | tr -d '\r')"

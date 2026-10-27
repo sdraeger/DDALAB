@@ -379,7 +379,9 @@ fn cuda_request_without_feature_has_a_clear_error() {
     let Err(error) = BasicSolver::new(ComputeDevice::Cuda(0), SvdBackend::RobustSvd) else {
         panic!("CUDA solver created without CUDA support");
     };
-    assert!(error.to_string().contains("Linux builds with --features cuda"));
+    assert!(error
+        .to_string()
+        .contains("Linux builds with --features cuda"));
 }
 
 #[cfg(all(feature = "cuda", target_os = "linux"))]
