@@ -1,6 +1,4 @@
-<img src="packages/ddalab-web/public/favicon.svg" alt="DDALAB logo" height="56">
-
-# DDALAB: Delay Differential Analysis Laboratory
+# <img src="packages/ddalab-web/public/favicon.svg" alt="" height="36" align="top"> DDALAB: Delay Differential Analysis Laboratory
 
 DDALAB runs **Delay Differential Analysis (DDA)** on neurophysiological recordings. One Rust core, `dda-rs`, serves two front ends: a web application that runs it as WebAssembly in your browser, and the `ddalab` command-line tool for batch and GPU work. Recordings are read from your disk in place and never uploaded.
 
