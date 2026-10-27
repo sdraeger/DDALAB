@@ -1,7 +1,7 @@
 {
   "name": "ddalab-web",
   "private": true,
-  "version": "2.4.1",
+  "version": "2.5.0-rc.1",
   "type": "module",
   "scripts": {
     "build:wasm": "node scripts/build-wasm.mjs",

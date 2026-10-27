@@ -1,6 +1,6 @@
 [package]
 name = "ddalab-py"
-version = "2.4.1"
+version = "2.5.0-rc.1"
 edition = "2021"
 authors = ["DDALAB Contributors"]
 description = "The ddalab Python wheel: the dda-rs engine for NumPy and the ddalab command line"
