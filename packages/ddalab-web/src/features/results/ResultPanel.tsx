@@ -59,8 +59,11 @@ function scaleOfArray(map: MapName, { rows, rowMin, rowMax }: ResultArray) {
   return { map, ...scaleOf(map, min, max) };
 }
 
-/** The channels a row label names: "A", "A & B", "A <- B" or "A <-> B". */
-const channelsOf = (label: string) => label.split(/ (?:<->|<-|&) /);
+/** A row label as shown: the engine's ASCII arrows as the arrows LaTeX draws (\leftrightarrow, \leftarrow). */
+const arrows = (label: string) => label.replace(" <-> ", " ↔ ").replace(" <- ", " ← ");
+
+/** The channels a shown row label names: "A", "A & B", "A ← B" or "A ↔ B". */
+const channelsOf = (label: string) => label.split(/ (?:↔|←|&) /);
 
 export default function ResultPanel(props: { recordingId: string | null; resultId: string }) {
   const loaded = use(manifestOf(props.resultId));
@@ -102,7 +105,7 @@ function Heatmap({
     recordingId === null ? undefined : s.recordings[recordingId]?.analysis_channels,
   );
   const { variant, hasFitError, array } = pick(manifest, shown);
-  const labels = variant.row_labels;
+  const labels = useMemo(() => variant.row_labels.map(arrows), [variant.row_labels]);
   const rows = labels.length;
   const picked = shown?.row != null && shown.row < rows ? shown.row : null;
   // The diverging map follows the theme: the heatmap is drawn again when it changes.
