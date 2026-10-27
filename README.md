@@ -68,11 +68,11 @@ Install it with Python's tools. It needs Python 3.9 or later, and uv fetches an 
 
 ```sh
 uv tool install ddalab      # or: pipx install ddalab, or: pip install ddalab
-ddalab --version            # prints: ddalab 2.5.0
+ddalab --version            # prints: ddalab 2.5.1
 uv tool upgrade ddalab      # or: pipx upgrade ddalab
 ```
 
-To try it without installing, `uvx` fetches it into a cache and runs it: `uvx ddalab run --file recording.edf`. Pin a version with `uvx ddalab@2.5.0 …`.
+To try it without installing, `uvx` fetches it into a cache and runs it: `uvx ddalab run --file recording.edf`. Pin a version with `uvx ddalab@2.5.1 …`.
 
 The wheel holds the `ddalab` command and the `ddalab` Python library (below), which share one engine; the command runs it in the Python process. NumPy is its one dependency. Wheels cover Linux x86-64, Windows x86-64, and macOS 11 or later on Intel and on Apple silicon. The Linux wheel and archive are built with CUDA: `--device cuda` runs on NVIDIA GPUs and loads the driver at run time. The default CPU device needs no CUDA. Installing with uv or pipx also avoids the macOS warning for unsigned downloads.
 

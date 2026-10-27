@@ -1,6 +1,6 @@
 {
   "name": "ddalab-wasm",
-  "version": "2.5.0",
+  "version": "2.5.1",
   "description": "The DDALAB delay differential analysis engine (dda-rs) as WebAssembly, with a Node host",
   "type": "module",
   "exports": {
@@ -23,7 +23,7 @@
   },
   "keywords": ["dda", "delay-differential-analysis", "eeg", "ieeg", "wasm", "time-series"],
   "license": "MIT",
-  "homepage": "https://github.com/sdraeger/DDALAB/tree/main/packages/ddalab-wasm#readme",
+  "homepage": "https://ddalab.org/",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/sdraeger/DDALAB.git",
