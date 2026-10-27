@@ -259,7 +259,8 @@ test("variant_tabs_switch", async ({ page }) => {
   expect((await heatmapRows(page)).frame).toMatchObject({ variant: "CT", array: "q", rows: 1 });
 
   await result(page).getByRole("tab", { name: "SY" }).click();
-  await expect(result(page).getByRole("button", { name: "Fp1 <-> Fp2" })).toBeVisible();
+  // The engine's ASCII arrows show as the arrows LaTeX draws.
+  await expect(result(page).getByRole("button", { name: "Fp1 ↔ Fp2" })).toBeVisible();
   const sy = npy("ct_cd_de_sy", "SY/q.npy");
   const centers = manifest("ct_cd_de_sy").window_centers_seconds;
   await setView(page, { t0: 1, t1: 5 });
@@ -275,7 +276,7 @@ test("variant_tabs_switch", async ({ page }) => {
   await result(page).getByRole("tab", { name: "SY" }).press("ArrowLeft");
   await result(page).getByRole("tab", { name: "DE" }).press("ArrowLeft");
   await expect(result(page).getByRole("tab", { name: "CD" })).toHaveAttribute("aria-selected", "true");
-  await expect(result(page).getByRole("button", { name: "Fp2 <- Fp1" })).toBeVisible();
+  await expect(result(page).getByRole("button", { name: "Fp2 ← Fp1" })).toBeVisible();
   expect((await heatmapRows(page)).frame).toMatchObject({ variant: "CD", rows: 2, map: "vik" });
   // DE is an absolute value: batlow, from its smallest to its largest value.
   await result(page).getByRole("tab", { name: "DE" }).click();
