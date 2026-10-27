@@ -1,6 +1,6 @@
 {
   "name": "ddalab-wasm",
-  "version": "2.5.1",
+  "version": "2.5.2",
   "description": "The DDALAB delay differential analysis engine (dda-rs) as WebAssembly, with a Node host",
   "type": "module",
   "exports": {
