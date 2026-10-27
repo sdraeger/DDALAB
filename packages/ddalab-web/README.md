@@ -1,6 +1,6 @@
 # ddalab-web
 
-The DDALAB web app: React and TypeScript on Vite. The engine, `packages/dda-rs`, runs as WebAssembly in Web Workers. Recordings stay on the user's machine. The app is at <https://sdraeger.github.io/DDALAB/>.
+The DDALAB web app: React and TypeScript on Vite. The engine, `packages/dda-rs`, runs as WebAssembly in Web Workers. Recordings stay on the user's machine. The app is at <https://ddalab.org/>.
 
 Needs Node 26 and Rust stable with the `wasm32-unknown-unknown` target.
 
@@ -11,7 +11,7 @@ npm run check         # Biome
 npm test              # unit tests
 npm run test:e2e      # Playwright on Chromium, Firefox and WebKit; builds the native CLI it compares with
 npm run build         # wasm, type check, vite build, then the dist and bundle size checks
-npm run test:dist     # smoke and install tests of dist/ under /~user/ddalab/ and /DDALAB/ with its CSP (run `npm run build` first)
+npm run test:dist     # smoke and install tests of dist/ under /~user/ddalab/ and at the root with its CSP (run `npm run build` first)
 ```
 
 `npm run build` writes `dist/`. Its checks fail the build when `dist/` holds a test hook, or when the JavaScript the entry page loads exceeds 200 kB gzipped. The engine's wasm module (about 1.1 MB, 0.36 MB gzipped) loads in the workers. It has no limit; the build prints its size.
@@ -24,9 +24,9 @@ The host should send `application/wasm` for `.wasm` files. Without it the worker
 
 ### GitHub Pages
 
-The app is served from <https://sdraeger.github.io/DDALAB/>. Project paths are case-sensitive: `/ddalab/` is a 404. The `pages` job of `.github/workflows/web.yml` deploys the `dist/` that the web job built and tested, on every `v*` tag after the web and e2e jobs pass. A tag with a `-` (a pre-release) stays off the site, since every installed copy would offer it as an update. The repository's `github-pages` environment needs a deployment rule for `v*` tags; by default it allows only `main`.
+The app is served from <https://ddalab.org/>, the custom domain set in the repository's Pages settings; <https://sdraeger.github.io/DDALAB/> redirects there. The `pages` job of `.github/workflows/web.yml` deploys the `dist/` that the web job built and tested, on every `v*` tag after the web and e2e jobs pass. A tag with a `-` (a pre-release) stays off the site, since every installed copy would offer it as an update. The repository's `github-pages` environment needs a deployment rule for `v*` tags; by default it allows only `main`.
 
-The origin is `https://sdraeger.github.io`, which the user site `sdraeger/sdraeger.github.io` shares. DDALAB's browser storage (results, history, stored file handles and the worker's cache) is shared only with the pages under `sdraeger.github.io`, which are the owner's own. Keep that site free of third-party scripts and of a service worker at its root: such a worker would answer requests for `/DDALAB/` until DDALAB's own worker is installed.
+The origin `https://ddalab.org` is DDALAB's alone, so its browser storage (results, history, stored file handles and the worker's cache) is shared with no other site. Browsers keep that storage per origin: what was saved at the earlier address, `https://sdraeger.github.io/DDALAB/`, stays there, and an app installed from it is installed again from ddalab.org.
 
 Pages cannot send headers and ignores `.htaccess`. Its `index.html` carries the Content-Security-Policy as a `<meta>` element, which the build generates from `public/.htaccess`. A `<meta>` policy has two limits. It cannot carry `frame-ancestors` (the browser ignores that directive there), which leaves other sites free to frame the app. And it does not govern worker scripts: a worker runs under the headers of its own response, which on Pages hold no policy. The policy restricts the page and leaves the engine and IO workers alone. `worker-src` still limits which workers the page may start.
 
@@ -75,7 +75,7 @@ The header check sends HEAD requests for the folder, `index.html`, the entry scr
 
 ### Content-Security-Policy
 
-The policy lives in one place, `public/.htaccess`. Its `connect-src` line lists the hosts the app may fetch from (`'self'`, OpenNeuro's API and its S3 file host). When the app reaches a new host, add it there. The production build copies the policy into `index.html` as a `<meta>` element (see GitHub Pages above for its limits). Keep `frame-ancestors`, `report-uri` and `sandbox`, which a `<meta>` policy ignores, out of that line. A host that serves `dist/` another way and can send headers sets the same policy in its own configuration. `npm run test:dist` serves `dist/` under `/~user/ddalab/` with the policy header read from `dist/.htaccess` and under `/DDALAB/` without a header, as Pages does. It fails on any violation, and on a `<meta>` policy that differs from the `.htaccess` one.
+The policy lives in one place, `public/.htaccess`. Its `connect-src` line lists the hosts the app may fetch from (`'self'`, OpenNeuro's API and its S3 file host). When the app reaches a new host, add it there. The production build copies the policy into `index.html` as a `<meta>` element (see GitHub Pages above for its limits). Keep `frame-ancestors`, `report-uri` and `sandbox`, which a `<meta>` policy ignores, out of that line. A host that serves `dist/` another way and can send headers sets the same policy in its own configuration. `npm run test:dist` serves `dist/` under `/~user/ddalab/` with the policy header read from `dist/.htaccess` and at the root without a header, as Pages does. It fails on any violation, and on a `<meta>` policy that differs from the `.htaccess` one.
 
 Base UI adds an inline `<style>` to some components, which `style-src 'self'` blocks. `src/main.tsx` wraps the app in `CSPProvider` with `disableStyleElements` for that reason.
 

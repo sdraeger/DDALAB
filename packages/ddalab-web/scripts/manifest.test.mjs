@@ -27,7 +27,7 @@ test("the_manifest_names_an_app_that_opens_in_its_own_window_from_its_folder", (
 test("the_identity_is_the_apps_folder_on_every_host", () => {
   expect(manifest).not.toHaveProperty("id");
   for (const folder of [
-    "https://sdraeger.github.io/DDALAB/",
+    "https://ddalab.org/",
     "https://example.edu/~user/ddalab/",
     "https://internal.example/tools/",
   ]) {

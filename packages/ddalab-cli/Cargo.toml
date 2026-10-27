@@ -6,7 +6,7 @@ authors = ["DDALAB Contributors"]
 description = "Delay differential analysis of neurophysiological recordings: the ddalab command-line tool"
 license = "MIT"
 repository = "https://github.com/sdraeger/DDALAB"
-homepage = "https://sdraeger.github.io/DDALAB/"
+homepage = "https://ddalab.org/"
 readme = "README.md"
 publish = false
 

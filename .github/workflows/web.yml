@@ -211,7 +211,7 @@ jobs:
           done
           gh release upload "$GITHUB_REF_NAME" ddalab-web-*.zip --clobber
 
-  # Publishes the dist the web job built and tested at https://sdraeger.github.io/DDALAB/ (the base path is relative).
+  # Publishes the dist the web job built and tested at https://ddalab.org/, the repository's Pages custom domain (the base path is relative).
   # The github-pages environment must allow deployments from v* tags. A tag with a "-" is a pre-release and stays off
   # the site: every installed copy would offer it as an update.
   pages:

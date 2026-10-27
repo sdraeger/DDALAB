@@ -4,7 +4,7 @@ DDALAB runs **Delay Differential Analysis (DDA)** on neurophysiological recordin
 
 ## Web application
 
-Open **<https://sdraeger.github.io/DDALAB/>**. There is nothing to install.
+Open **<https://ddalab.org/>**. There is nothing to install.
 
 The app opens EDF, BDF, BrainVision, EEGLAB (.set, with its .fdt or with the samples inside), and delimited text (ASCII, TXT, CSV) recordings, shows the waveform at pixel resolution, runs the ST, CT, CD, DE, and SY flavors, and exports result bundles (a manifest plus `.npy` arrays), result JSON, and CSV. Analysis history and caches stay in your browser (OPFS and IndexedDB).
 
@@ -12,7 +12,7 @@ The app opens EDF, BDF, BrainVision, EEGLAB (.set, with its .fdt or with the sam
 
 ### In the browser
 
-Open <https://sdraeger.github.io/DDALAB/> in Chrome, Edge, Firefox or Safari. Choose Open files or Open folder, or drag recordings onto the window. Files are read in place and are never uploaded. On a phone the library, the waveform and the results each take the screen, chosen in a bar at the bottom; pinch the waveform to zoom, and hold a finger still before dragging to select.
+Open <https://ddalab.org/> in Chrome, Edge, Firefox or Safari. Choose Open files or Open folder, or drag recordings onto the window. Files are read in place and are never uploaded. On a phone the library, the waveform and the results each take the screen, chosen in a bar at the bottom; pinch the waveform to zoom, and hold a finger still before dragging to select.
 
 ### Public data from OpenNeuro
 

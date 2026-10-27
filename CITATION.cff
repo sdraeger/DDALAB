@@ -16,7 +16,7 @@ version: 2.5.0
 date-released: 2026-10-27
 license: MIT
 repository-code: https://github.com/sdraeger/DDALAB
-url: https://sdraeger.github.io/DDALAB/
+url: https://ddalab.org/
 keywords:
   - delay differential analysis
   - DDA
