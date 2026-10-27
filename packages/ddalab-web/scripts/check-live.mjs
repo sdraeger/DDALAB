@@ -1,6 +1,6 @@
 // Checks a deployed build of the app with requests for the folder, index.html, the entry script, a style sheet and the
 // wasm module.
-// - Apache with public/.htaccess (the userdir site; the default): each must carry what public/.htaccess sets: the file's
+// - Apache with public/.htaccess (the default): each must carry what public/.htaccess sets: the file's
 //   Content-Type, exactly one Cache-Control of the policy, no Expires and the Content-Security-Policy header. A host that
 //   ignores the .htaccess, or adds defaults of its own, fails here.
 // - --pages (GitHub Pages; npm run check:pages): Pages sends its own headers and ignores the .htaccess. The header
@@ -9,15 +9,14 @@
 //   public/.htaccess.
 // A host that does not answer fails in both.
 // Usage: node scripts/check-live.mjs [--pages] [site URL] [dist directory]
-// The site defaults to https://sdraeger.github.io/DDALAB/ with --pages (project paths are case-sensitive) and to
-// https://example.org/ddalab without.
+// The site defaults to https://sdraeger.github.io/DDALAB/ with --pages (project paths are case-sensitive); an Apache
+// host is named.
 import { readdirSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundleSizes } from "./check-bundle-size.mjs";
 import { cspOf, IMMUTABLE, metaCspOf, NO_CACHE } from "./policy.mjs";
 
-export const USERDIR_SITE = "https://example.org/ddalab";
 export const PAGES_SITE = "https://sdraeger.github.io/DDALAB/";
 
 const TYPES = {
@@ -101,8 +100,12 @@ export async function checkLive(site, dist, { pages = false } = {}) {
 
 if (realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
   const pages = process.argv.includes("--pages");
-  const [site = pages ? PAGES_SITE : USERDIR_SITE, dist = fileURLToPath(new URL("../dist", import.meta.url))] =
+  const [site = pages ? PAGES_SITE : undefined, dist = fileURLToPath(new URL("../dist", import.meta.url))] =
     process.argv.slice(2).filter((arg) => arg !== "--pages");
+  if (!site) {
+    console.error("name the site: node scripts/check-live.mjs <site URL> [dist directory], or --pages");
+    process.exit(2);
+  }
   if (pages)
     console.log(
       "skipped: Cache-Control, Expires and the Content-Security-Policy header (Pages sets its own headers and ignores public/.htaccess)",

@@ -13,7 +13,7 @@ const run = promisify(execFile);
 const SCRIPT = fileURLToPath(new URL("check-live.mjs", import.meta.url));
 const HTACCESS = readFileSync(new URL("../public/.htaccess", import.meta.url), "utf8");
 
-// Header lines of recorded responses (`curl -I`). The live-* files are the userdir host on 2026-10-25, before any publish:
+// Header lines of recorded responses (`curl -I`). The live-* files are a userdir host on 2026-10-25, before any publish:
 // its own defaults only. The apache-* files are an Apache 2.4.67 with those same defaults (mod_expires for HTML and
 // CSS, three security headers) and public/.htaccess applied, recorded with `curl -I -H 'Accept-Encoding: gzip'`;
 // apache-folder is the folder URL (Apache answers it with index.html). The pages-* files are GitHub Pages on
@@ -111,8 +111,8 @@ test.each([
   expect(metaCspOf(html)).toBe(policy);
 });
 
-test("the_build_writes_the_files_deploy_and_apache_need", () => {
-  for (const name of [".htaccess", ".ddalab-web"])
+test("the_build_writes_the_file_apache_needs", () => {
+  for (const name of [".htaccess"])
     expect(readFileSync(new URL(`../public/${name}`, import.meta.url), "utf8")).not.toBe("");
 });
 
