@@ -98,7 +98,11 @@
   color: var(--primary);
 }
 
-/* A button that cannot act now and keeps the keyboard, its reason in aria-describedby: dimmed, with no hover or press. */
+/*
+ * A button that cannot act now: dimmed, with no hover or press. A disabled one leaves the keyboard; an aria-disabled
+ * one keeps it, its reason in aria-describedby.
+ */
+.button:disabled,
 .button[aria-disabled="true"] {
   opacity: 0.45;
   cursor: default;
