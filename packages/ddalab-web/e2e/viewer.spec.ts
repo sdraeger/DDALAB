@@ -398,20 +398,33 @@ test("chosen_channels_alone", async ({ page }) => {
   // Playwright waits for an aria-disabled button to turn enabled before it clicks; a pointer reaches it at once.
   await toggle.click({ force: true });
   await expect(toggle).toHaveAttribute("aria-pressed", "false");
-  // The note's line stays when the first channel is chosen: nothing below it moves.
+  // The note's line stays when the first channel is chosen: nothing below it moves. The place is taken in the
+  // content of the scrolling panel, to the pixel: checking a channel scrolls it into view (WebKit), and WebKit's
+  // boxes differ in the fifth decimal from one layout to the next.
+  const placeOf = (element: ReturnType<Page["locator"]>) =>
+    element.evaluate((el) => {
+      let scroller = el.parentElement;
+      while (scroller && !/auto|scroll/.test(getComputedStyle(scroller).overflowY))
+        scroller = scroller.parentElement;
+      const box = el.getBoundingClientRect();
+      const base = scroller?.getBoundingClientRect() ?? { top: 0, left: 0 };
+      const top = box.top - base.top + (scroller?.scrollTop ?? 0);
+      const left = box.left - base.left + (scroller?.scrollLeft ?? 0);
+      return [top, left, box.width, box.height].map(Math.round);
+    });
   const groups = page.getByRole("list", { name: "Electrode groups" });
-  const groupsAt = await groups.boundingBox();
+  const groupsAt = await placeOf(groups);
   for (const label of ["CH10", "CH3", "CH7"]) await choose(label);
   await expect(toggle).not.toHaveAttribute("aria-disabled");
-  expect(await groups.boundingBox()).toEqual(groupsAt);
+  expect(await placeOf(groups)).toEqual(groupsAt);
   // On, a check marks it besides the color. The check holds its place while off, which keeps the button's size.
   const check = toggle.locator("svg");
-  const toggleAt = await toggle.boundingBox();
+  const toggleAt = await placeOf(toggle);
   await expect(check).toHaveCSS("opacity", "0");
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-pressed", "true");
   await expect(check).toHaveCSS("opacity", "1");
-  expect(await toggle.boundingBox()).toEqual(toggleAt);
+  expect(await placeOf(toggle)).toEqual(toggleAt);
   await expect(rows).toHaveText([/^CH3\b/, /^CH7\b/, /^CH10\b/]);
   if (gl) {
     expect(await drawn()).toEqual([2, 6, 9]);
