@@ -1,6 +1,6 @@
 [package]
 name = "ddalab"
-version = "2.5.1"
+version = "2.5.2"
 edition = "2021"
 authors = ["DDALAB Contributors"]
 description = "Delay differential analysis of neurophysiological recordings: the ddalab command-line tool"
