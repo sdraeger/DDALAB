@@ -23,7 +23,7 @@
   },
   "keywords": ["dda", "delay-differential-analysis", "eeg", "ieeg", "wasm", "time-series"],
   "license": "MIT",
-  "homepage": "https://github.com/sdraeger/DDALAB/tree/main/packages/ddalab-wasm#readme",
+  "homepage": "https://ddalab.org/",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/sdraeger/DDALAB.git",
