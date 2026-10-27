@@ -36,7 +36,7 @@ files of a corpus: files = number of rows; gate_pass = rows with gate_pass; max_
 max_rel and of max_rel_channel over the rows that have one; channels_compared = sum of n_compared; n_zero_ref_channels and
 n_mne_warnings = sums over the rows; onsets_ok and onsets_ok_wo_first_new_segment = rows with onset_max_diff, respectively
 onset_max_diff_wo_first_new_segment, at most tol_onset_s; files_single_rate and files_edf_d = rows with single_rate, respectively edf_d.
-The manifest records the resolved config, the commit and SHA-256 of the ddalab binary, library versions
+The manifest records the config as written, the commit and SHA-256 of the ddalab binary, library versions
 and the SHA-256 of every input file the Rust reader names (primary and sidecars).
 
 CSV columns (blank when the value does not exist, for example after a reader failure):
@@ -64,15 +64,21 @@ are sorted by full path and the first is kept: `*_Seizures*/*.edf` matches a sub
 MG07_Seizures_Tasks), `*Seizure*.edf` matches loose files in the folder (MG08 has such files). Folders without a match are
 skipped. The first mgh_patients folders with a match give the files.
 
-Command (on node32):
-  OMP_NUM_THREADS=1 nice -n 19 venv/bin/python reader_conformance.py reader_conformance_config.json reader_conformance.csv
+Paths in the config start with $SCRATCH, the data root of the machine that runs the script, and the outputs write them
+the same way: the root stays out of the recorded files.
+
+Command (on the machine that holds the recordings):
+  SCRATCH=<data root> OMP_NUM_THREADS=1 nice -n 19 venv/bin/python reader_conformance.py reader_conformance_config.json reader_conformance.csv
 Input: the config JSON and the recordings it names. Output: the CSV, reader_conformance_summary.csv and
 reader_conformance_manifest.json beside it.
 """
 import csv, glob, hashlib, json, multiprocessing, os, subprocess, sys, tempfile, warnings
 import mne, numpy as np
 
-cfg = json.load(open(sys.argv[1]))
+SCRATCH = os.environ["SCRATCH"]
+raw = json.load(open(sys.argv[1]))
+cfg = json.loads(json.dumps(raw).replace("$SCRATCH", SCRATCH))
+shown = lambda value: value.replace(SCRATCH, "$SCRATCH") if isinstance(value, str) else value
 out = sys.argv[2]
 mne.set_log_level(cfg["mne_log_level"])
 READERS = {"edf": mne.io.read_raw_edf, "bdf": mne.io.read_raw_bdf, "vhdr": mne.io.read_raw_brainvision}
@@ -188,15 +194,15 @@ if __name__ == "__main__":
     jobs += [("mne_testing", p) for p in sorted(glob.glob(f"{testing}/**", recursive=True)) if p.lower().endswith(tuple(cfg["mne_testing_suffixes"]))]
     with multiprocessing.Pool(cfg["workers"]) as pool:
         results = pool.map(compare, jobs, chunksize=1)
-    rows = [r for r, _ in results]
+    rows = [{k: shown(v) for k, v in r.items()} for r, _ in results]
     with open(out, "w", newline="") as f:
         w = csv.DictWriter(f, FIELDS)
         w.writeheader()
         w.writerows(rows)
-    manifest = {"config": cfg, "config_sha256": sha256(sys.argv[1]), "command": sys.argv, "ddalab_commit": cfg["ddalab_commit"],
+    manifest = {"config": raw, "config_sha256": sha256(sys.argv[1]), "command": sys.argv, "ddalab_commit": cfg["ddalab_commit"],
                 "ddalab_sha256": sha256(cfg["ddalab"]), "mne": mne.__version__, "numpy": np.__version__,
                 "python": sys.version.split()[0], "mne_testing_version": open(f"{testing}/version.txt").read().strip(),
-                "input_sha256": {p: h for _, hashes in results for p, h in hashes.items()}}
+                "input_sha256": {shown(p): h for _, hashes in results for p, h in hashes.items()}}
     json.dump(manifest, open(os.path.splitext(out)[0] + "_manifest.json", "w"), indent=2)
     tol, summary = cfg["tol_onset_s"], []
     for c in dict.fromkeys(r["corpus"] for r in rows):

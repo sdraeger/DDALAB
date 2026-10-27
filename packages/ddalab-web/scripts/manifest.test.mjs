@@ -28,7 +28,7 @@ test("the_identity_is_the_apps_folder_on_every_host", () => {
   expect(manifest).not.toHaveProperty("id");
   for (const folder of [
     "https://sdraeger.github.io/DDALAB/",
-    "https://snl.salk.edu/~sfdraeger/ddalab/",
+    "https://example.edu/~user/ddalab/",
     "https://internal.example/tools/",
   ]) {
     expect(new URL(manifest.start_url, `${folder}manifest.webmanifest`).href).toBe(folder);

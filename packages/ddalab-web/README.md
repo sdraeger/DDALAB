@@ -11,7 +11,7 @@ npm run check         # Biome
 npm test              # unit tests
 npm run test:e2e      # Playwright on Chromium, Firefox and WebKit; builds the native CLI it compares with
 npm run build         # wasm, type check, vite build, then the dist and bundle size checks
-npm run test:dist     # smoke and install tests of dist/ under /~sfdraeger/ddalab/ and /DDALAB/ with its CSP (run `npm run build` first)
+npm run test:dist     # smoke and install tests of dist/ under /~user/ddalab/ and /DDALAB/ with its CSP (run `npm run build` first)
 ```
 
 `npm run build` writes `dist/`. Its checks fail the build when `dist/` holds a test hook, or when the JavaScript the entry page loads exceeds 200 kB gzipped. The engine's wasm module (about 1.1 MB, 0.36 MB gzipped) loads in the workers. It has no limit; the build prints its size.
@@ -59,27 +59,23 @@ Two things work in Chromium only, and other browsers ignore them:
 
 The release attaches `ddalab-web-<version>.zip`, the contents of `dist/`. Unzip it onto any static web server that uses HTTPS (or `localhost`): the app needs a secure context for the worker and for the origin private file system. Users open that address, and install, offline use and updates work as on Pages. To update, replace the files; installed copies show the update notice. Opening `index.html` from disk does not work, because browsers do not start workers from `file://` pages. A shared userdir host has the one-origin problem described below.
 
-### SNL web space (optional)
+### Apache userdir hosting
 
-The SNL site is `https://snl.salk.edu/~sfdraeger/ddalab`, an optional self-hosting path.
+> **Warning:** a shared userdir host serves every user's pages from one origin. Another page on that host can read what the app stores in the browser (results, history, settings) and can rewrite the worker's cache, which replaces the app's code until the next version. Prefer Pages for real data: its origin is shared only with the owner's own pages.
 
-> **Warning:** a shared userdir host serves every user's pages from one origin. Another page on `snl.salk.edu` can read what the app stores in the browser (results, history, settings) and can rewrite the worker's cache, which replaces the app's code until the next version. Prefer Pages for real data: its origin is shared only with the owner's own pages.
-
-Apache serves the site from `~/public_html/ddalab` on the cluster's shared home. `dist/.htaccess` (from `public/.htaccess`) sets the MIME type and compression for `.wasm`, the Content-Security-Policy, immutable caching for the hashed assets and no caching for `index.html`. It replaces the server's own `Expires` and `Cache-Control` defaults. Each response then carries one `Cache-Control`.
+`dist/.htaccess` (from `public/.htaccess`) sets the MIME type and compression for `.wasm`, the Content-Security-Policy, immutable caching for the hashed assets and no caching for `index.html`. It replaces the server's own `Expires` and `Cache-Control` defaults. Each response then carries one `Cache-Control`.
 
 The folder needs `AllowOverride FileInfo` (or `All`). With `AllowOverride None` Apache ignores the file and the app runs without the headers. With any other value that lacks `FileInfo`, Apache answers 500 for the whole folder.
 
 ```sh
-npm run deploy:snl                # builds, runs the checks, lists what rsync would change on node32
-npm run deploy:snl -- --publish   # copies dist/ to node32:public_html/ddalab/, then checks the headers the host sends
-npm run check:live                # the header check alone, against the site
+npm run check:live -- <site URL>   # the headers the host sends
 ```
 
-A publish copies everything except `index.html` first, then `index.html` with `--delete-delay`, which removes older files last. `--publish` refuses a target that is not empty and lacks the `.ddalab-web` marker (the build writes it into `dist/`), unless `--replace` is also given. The header check sends HEAD requests for the folder, `index.html`, the entry script, a style sheet and the wasm module, and exits non-zero when one gets no answer or lacks the MIME type, the single `Cache-Control` or the CSP of `public/.htaccess`.
+The header check sends HEAD requests for the folder, `index.html`, the entry script, a style sheet and the wasm module, and exits non-zero when one gets no answer or lacks the MIME type, the single `Cache-Control` or the CSP of `public/.htaccess`.
 
 ### Content-Security-Policy
 
-The policy lives in one place, `public/.htaccess`. Its `connect-src` line lists the hosts the app may fetch from (`'self'`, OpenNeuro's API and its S3 file host). When the app reaches a new host, add it there. The production build copies the policy into `index.html` as a `<meta>` element (see GitHub Pages above for its limits). Keep `frame-ancestors`, `report-uri` and `sandbox`, which a `<meta>` policy ignores, out of that line. A host that serves `dist/` another way and can send headers sets the same policy in its own configuration. `npm run test:dist` serves `dist/` under `/~sfdraeger/ddalab/` with the policy header read from `dist/.htaccess` and under `/DDALAB/` without a header, as Pages does. It fails on any violation, and on a `<meta>` policy that differs from the `.htaccess` one.
+The policy lives in one place, `public/.htaccess`. Its `connect-src` line lists the hosts the app may fetch from (`'self'`, OpenNeuro's API and its S3 file host). When the app reaches a new host, add it there. The production build copies the policy into `index.html` as a `<meta>` element (see GitHub Pages above for its limits). Keep `frame-ancestors`, `report-uri` and `sandbox`, which a `<meta>` policy ignores, out of that line. A host that serves `dist/` another way and can send headers sets the same policy in its own configuration. `npm run test:dist` serves `dist/` under `/~user/ddalab/` with the policy header read from `dist/.htaccess` and under `/DDALAB/` without a header, as Pages does. It fails on any violation, and on a `<meta>` policy that differs from the `.htaccess` one.
 
 Base UI adds an inline `<style>` to some components, which `style-src 'self'` blocks. `src/main.tsx` wraps the app in `CSPProvider` with `disableStyleElements` for that reason.
 

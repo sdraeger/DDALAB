@@ -13,7 +13,6 @@ beforeEach(() => {
   writeFileSync(join(dir, "assets", "app-1.js"), "export {};");
   writeFileSync(join(dir, "assets", "engine.wasm"), Buffer.from([0, 97, 115, 109, 1, 0, 0, 0]));
   writeFileSync(join(dir, ".htaccess"), "Header unset Expires");
-  writeFileSync(join(dir, ".ddalab-web"), "marker");
 });
 afterEach(() => rmSync(dir, { recursive: true }));
 

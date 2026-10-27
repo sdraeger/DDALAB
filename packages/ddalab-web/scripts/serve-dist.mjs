@@ -3,7 +3,7 @@
 // application/octet-stream stands for a host that ignores the .htaccess. --no-csp-header sends no policy header, as
 // GitHub Pages does: the page then has only the <meta> policy that the build put into index.html.
 // DIST_DIR serves another folder than dist/ (the update test serves a copy it changes).
-// Usage: node scripts/serve-dist.mjs <port> <mount path, for example /~sfdraeger/ddalab/> [--no-csp-header]
+// Usage: node scripts/serve-dist.mjs <port> <mount path, for example /~user/ddalab/> [--no-csp-header]
 import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { extname, join, resolve } from "node:path";
