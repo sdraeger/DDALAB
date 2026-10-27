@@ -15,7 +15,7 @@ gh release download "v$version" --repo "$repo" --pattern "$asset.sha256" --dir "
 hash="$(cut -d ' ' -f 1 "$tmp/$asset.sha256" | tr '[:lower:]' '[:upper:]')"
 [[ "$hash" =~ ^[0-9A-F]{64}$ ]] || { echo "Unexpected checksum file: $(cat "$tmp/$asset.sha256")" >&2; exit 1; }
 mkdir -p "$dir"
-schema=1.10.0
+schema=1.12.0
 cat > "$dir/$id.yaml" <<YAML
 # yaml-language-server: \$schema=https://aka.ms/winget-manifest.version.$schema.schema.json
 PackageIdentifier: $id
