@@ -1,0 +1,29 @@
+[package]
+name = "ddalab"
+version = "2.5.0"
+edition = "2021"
+authors = ["DDALAB Contributors"]
+description = "Delay differential analysis of neurophysiological recordings: the ddalab command-line tool"
+license = "MIT"
+repository = "https://github.com/sdraeger/DDALAB"
+homepage = "https://sdraeger.github.io/DDALAB/"
+readme = "README.md"
+publish = false
+
+[[bin]]
+name = "ddalab"
+path = "src/main.rs"
+
+[features]
+cuda = ["dda-rs/cuda"]
+
+[dependencies]
+dda-rs = { path = "../dda-rs" }
+
+# cargo-dist builds every target with the `cuda` feature; it compiles to nothing outside Linux.
+[package.metadata.dist]
+dist = true
+features = ["cuda"]
+
+[profile.dist]
+inherits = "release"

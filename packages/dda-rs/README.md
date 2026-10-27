@@ -30,7 +30,7 @@ It reads EDF, BDF, BrainVision and delimited text. `ddalab --help` lists the oth
 
 ```toml
 [dependencies]
-dda-rs = "2.4.1"
+dda-rs = "2.5.0"
 ```
 
 ## Quick Start
@@ -99,7 +99,7 @@ The Rust engine exposes two SVD backends through `PureRustOptions::svd_backend`:
 
 ## CUDA
 
-CPU execution remains the default. Build the optional CUDA backend and select a device with:
+CPU execution remains the default. CUDA runs in Linux builds; elsewhere the `cuda` feature compiles nothing. Build the optional CUDA backend and select a device with:
 
 ```bash
 cargo run --release --features cuda -- run --file data.csv --channels 0 1 --device cuda

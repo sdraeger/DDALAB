@@ -26,6 +26,13 @@ test("the_list_holds_every_visible_file_but_the_worker", () => {
   ]);
 });
 
+// The manifest's screenshots serve install sheets and store listings, which fetch them from the network.
+test("the_store_screenshots_are_not_kept_offline", () => {
+  mkdirSync(join(dir, "screenshots"));
+  writeFileSync(join(dir, "screenshots", "wide.png"), "");
+  expect(precacheOf(dir).files).not.toContain("screenshots/wide.png");
+});
+
 test("the_version_is_stable_and_follows_every_file", () => {
   const { version } = precacheOf(dir);
   expect(version).toMatch(/^[0-9a-f]{12}$/);

@@ -1,0 +1,147 @@
+name: PyPI
+
+# A v* tag builds the wheels and the sdist, checks them and publishes them to PyPI with build provenance.
+# A manual run builds and uploads the artifacts only. The CLI archives and installers come from release.yml (cargo-dist).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Compiled into every result document as reproduction.git_commit.
+  DDALAB_GIT_COMMIT: ${{ github.sha }}
+
+jobs:
+  wheels:
+    name: Wheel (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # cudarc loads the CUDA driver at run time and the Linux build needs no CUDA toolkit.
+          - { name: linux-x64, runner: ubuntu-22.04, features: "--features cuda", macos_target: "" }
+          - { name: windows-x64, runner: windows-2022, features: "", macos_target: "" }
+          - { name: macos-x64, runner: macos-15-intel, features: "", macos_target: "11.0" }
+          - { name: macos-arm64, runner: macos-14, features: "", macos_target: "11.0" }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    env:
+      MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos_target }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check the versions against the tag
+        run: echo "VERSION=$(scripts/check-versions.sh)" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build the wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: packages/ddalab-py
+          command: build
+          args: --release --locked --out dist ${{ matrix.features }}
+          manylinux: auto
+          # The manylinux container does not inherit the runner's environment.
+          docker-options: -e DDALAB_GIT_COMMIT
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      # The library's tests run against the installed wheel, and its command runs a fixture.
+      - name: Test the wheel
+        run: |
+          python -m pip install numpy pytest
+          python -m pip install --no-index --find-links packages/ddalab-py/dist ddalab
+          test "$(ddalab --version | tr -d '\r')" = "ddalab ${VERSION}"
+          ddalab run --file packages/dda-rs/tests/fixtures/fixture.edf --quiet --compact -o "$RUNNER_TEMP/smoke.json"
+          test -s "$RUNNER_TEMP/smoke.json"
+          python -m pytest -q packages/ddalab-py/tests
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wheel-${{ matrix.name }}
+          path: packages/ddalab-py/dist/*.whl
+          if-no-files-found: error
+
+  sdist:
+    name: Source distribution
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check the versions against the tag
+        run: scripts/check-versions.sh
+
+      - name: Build the sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: packages/ddalab-py
+          command: sdist
+          args: --out dist
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      # conda-forge and platforms without a wheel build from it: it must build.
+      - name: Build the sdist into a wheel and run it
+        run: |
+          python -m pip install packages/ddalab-py/dist/*.tar.gz
+          ddalab --version
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sdist
+          path: packages/ddalab-py/dist/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: Publish to PyPI
+    if: github.ref_type == 'tag'
+    needs: [wheels, sdist]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    environment:
+      name: pypi
+      url: https://pypi.org/p/ddalab
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      # PyPI versions cannot be replaced: publish only once release.yml (cargo-dist) has built and released the tag.
+      - name: Wait for the GitHub release
+        run: |
+          for _ in $(seq 90); do
+            gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 && exit 0
+            sleep 30
+          done
+          echo "No GitHub release for $GITHUB_REF_NAME after 45 minutes: release.yml failed or is still running" >&2
+          exit 1
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: "{wheel-*,sdist}"
+          path: dist
+          merge-multiple: true
+
+      # `gh attestation verify <file> --repo sdraeger/DDALAB` checks a wheel or the sdist.
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: dist/*
+
+      - uses: pypa/gh-action-pypi-publish@release/v1

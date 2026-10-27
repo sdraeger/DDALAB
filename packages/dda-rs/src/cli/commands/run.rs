@@ -1,17 +1,17 @@
-use crate::cli::RunArgs;
-use crate::dda_params;
-use crate::exit_codes;
-use crate::output;
-use dda_rs::blocks::{
+use crate::blocks::{
     check_block_support, merge_blocks, plan_blocks, run_block, validate_request, Block,
 };
-use dda_rs::document::{
+use crate::cli::args::RunArgs;
+use crate::cli::dda_params;
+use crate::cli::exit_codes;
+use crate::cli::output;
+use crate::document::{
     build_document, build_manifest, bundle_layout, encode_block, BundleLayout, BundleWriter,
     ResultDocument,
 };
-use dda_rs::io::{open_recording, ByteSource, ChannelInfo, FileSet, Reader, RecordingInfo};
-use dda_rs::tiles::Sha256Stream;
-use dda_rs::{ComputeDevice, DDARequest, DDAResult, PureRustProgress, TimeRange};
+use crate::io::{open_recording, ByteSource, ChannelInfo, FileSet, Reader, RecordingInfo};
+use crate::tiles::Sha256Stream;
+use crate::{ComputeDevice, DDARequest, DDAResult, PureRustProgress, TimeRange};
 use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::path::Path;
@@ -61,7 +61,7 @@ fn is_bad(channel: &ChannelInfo) -> bool {
 }
 
 /// The SHA-256 of `source`, hex.
-fn sha256(source: &dyn ByteSource) -> dda_rs::Result<String> {
+fn sha256(source: &dyn ByteSource) -> crate::Result<String> {
     let mut hash = Sha256Stream::new();
     let mut slice = vec![0u8; HASH_SLICE];
     let mut offset = 0;
@@ -90,7 +90,7 @@ impl Sink {
         let bundle = bundle
             .map(|dir| {
                 let layout = bundle_layout(request, info, windows)?;
-                Ok::<_, dda_rs::DDAError>((BundleWriter::create(dir, &layout)?, layout))
+                Ok::<_, crate::DDAError>((BundleWriter::create(dir, &layout)?, layout))
             })
             .transpose()
             .map_err(execution)?;
@@ -136,7 +136,8 @@ pub async fn analyze(job: Job<'_>) -> Result<Analysis, Failure> {
         })
 }
 
-async fn analyze_open(
+/// `analyze` on a recording already open: `files` holds the bytes its input files are hashed from.
+pub async fn analyze_open(
     job: Job<'_>,
     files: &FileSet,
     reader: &dyn Reader,
@@ -289,43 +290,35 @@ async fn analyze_open(
     })
 }
 
-pub async fn execute(args: RunArgs) -> i32 {
-    let selection = match dda_params::prepare_selection(
-        args.channels.clone(),
-        &args.variants,
-        args.ct_pairs.as_deref(),
-        args.cd_pairs.as_deref(),
-        args.variant_configs.as_deref(),
-    ) {
-        Ok(selection) => selection,
-        Err(msg) => {
-            eprintln!("Error: {}", msg);
-            return exit_codes::INPUT_ERROR;
-        }
-    };
+/// The request `ddalab run` makes of `args`, and the normalized variant names; a refusal is the message to print.
+/// `analyze` sets the time range and, when the request names none, the channels.
+pub fn request_of(args: &RunArgs) -> Result<(DDARequest, Vec<String>), String> {
     let dda_params::PreparedSelection {
         variants: normalized_variants,
         channels: effective_channels,
         ct_pairs: effective_ct_pairs,
         cd_pairs: effective_cd_pairs,
         variant_configs,
-    } = selection;
+    } = dda_params::prepare_selection(
+        args.channels.clone(),
+        &args.variants,
+        args.ct_pairs.as_deref(),
+        args.cd_pairs.as_deref(),
+        args.variant_configs.as_deref(),
+    )?;
 
     // Validate shared params; an empty channel selection means the recording's good channels.
-    if let Err(msg) = dda_params::validate_params(
+    dda_params::validate_params(
         &normalized_variants,
         &args.delays,
         args.wl,
         args.ws,
         &effective_ct_pairs,
         &effective_cd_pairs,
-    ) {
-        eprintln!("Error: {}", msg);
-        return exit_codes::INPUT_ERROR;
-    }
+    )?;
 
     // Build DDARequest; `analyze` sets the time range
-    let request = match dda_params::build_dda_request(dda_params::RequestConfig {
+    let request = dda_params::build_dda_request(dda_params::RequestConfig {
         file_path: &args.file,
         channels: &effective_channels,
         variants: &normalized_variants,
@@ -346,8 +339,30 @@ pub async fn execute(args: RunArgs) -> i32 {
         highpass: args.highpass,
         lowpass: args.lowpass,
         variant_configs,
-    }) {
-        Ok(r) => r,
+    })?;
+    Ok((request, normalized_variants))
+}
+
+/// The job `ddalab run` runs for `args` and its `request`.
+pub fn job_of(args: &RunArgs, request: DDARequest) -> Job<'_> {
+    Job {
+        file: &args.file,
+        sample_rate_hz: args.sr,
+        request,
+        start: args.start,
+        end: args.end,
+        start_sample: args.start_sample,
+        end_sample: args.end_sample,
+        device: args.device,
+        block_mb: args.block_mb,
+        bundle: args.bundle.as_deref().map(Path::new),
+        progress: !args.quiet,
+    }
+}
+
+pub async fn execute(args: RunArgs) -> i32 {
+    let (request, normalized_variants) = match request_of(&args) {
+        Ok(prepared) => prepared,
         Err(msg) => {
             eprintln!("Error: {}", msg);
             return exit_codes::INPUT_ERROR;
@@ -366,21 +381,7 @@ pub async fn execute(args: RunArgs) -> i32 {
         }
     }
 
-    let analysis = match analyze(Job {
-        file: &args.file,
-        sample_rate_hz: args.sr,
-        request,
-        start: args.start,
-        end: args.end,
-        start_sample: args.start_sample,
-        end_sample: args.end_sample,
-        device: args.device,
-        block_mb: args.block_mb,
-        bundle: args.bundle.as_deref().map(Path::new),
-        progress: !args.quiet,
-    })
-    .await
-    {
+    let analysis = match analyze(job_of(&args, request)).await {
         Ok(analysis) => analysis,
         Err((code, message)) => {
             eprintln!("Error: {message}");
@@ -413,9 +414,9 @@ pub async fn execute(args: RunArgs) -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use crate::cli::RunArgs;
-    use crate::dda_params;
-    use dda_rs::{format_select_mask, generate_select_mask};
+    use crate::cli::args::RunArgs;
+    use crate::cli::dda_params;
+    use crate::{format_select_mask, generate_select_mask};
 
     fn make_test_args() -> RunArgs {
         RunArgs {
@@ -444,24 +445,24 @@ mod tests {
             binary: None,
             output: None,
             bundle: None,
-            block_mb: crate::cli::DEFAULT_BLOCK_MB,
+            block_mb: crate::cli::args::DEFAULT_BLOCK_MB,
             compact: false,
             quiet: false,
-            device: dda_rs::ComputeDevice::Cpu,
+            device: crate::ComputeDevice::Cpu,
         }
     }
 
-    fn build_test_request(args: &RunArgs, file_path: &str) -> dda_rs::DDARequest {
+    fn build_test_request(args: &RunArgs, file_path: &str) -> crate::DDARequest {
         let ct_channel_pairs = args
             .ct_pairs
             .as_ref()
-            .map(|pairs| crate::cli::parse_pairs(pairs))
+            .map(|pairs| crate::cli::args::parse_pairs(pairs))
             .transpose()
             .unwrap();
         let cd_channel_pairs = args
             .cd_pairs
             .as_ref()
-            .map(|pairs| crate::cli::parse_pairs(pairs))
+            .map(|pairs| crate::cli::args::parse_pairs(pairs))
             .transpose()
             .unwrap();
         dda_params::build_dda_request(dda_params::RequestConfig {

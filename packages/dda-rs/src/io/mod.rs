@@ -9,7 +9,7 @@ mod mat;
 mod recording;
 mod source;
 
-pub use ascii::open_ascii;
+pub use ascii::{open_ascii, open_matrix};
 pub use bids::apply_bids_sidecars;
 #[cfg(not(target_arch = "wasm32"))]
 pub use bids::discover_bids_recordings;

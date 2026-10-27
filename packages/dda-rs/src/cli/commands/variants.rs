@@ -1,8 +1,8 @@
-use crate::cli::VariantsArgs;
-use crate::dda_params;
-use crate::exit_codes;
-use crate::output;
-use dda_rs::VariantMetadata;
+use crate::cli::args::VariantsArgs;
+use crate::cli::dda_params;
+use crate::cli::exit_codes;
+use crate::cli::output;
+use crate::VariantMetadata;
 use serde::Serialize;
 
 #[derive(Serialize)]

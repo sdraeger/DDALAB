@@ -52,7 +52,7 @@ Window, then New window opens another DDALAB window. Each window has its own tab
 
 ### Updates
 
-Updates are automatic. A new version is published when a `v*` tag is pushed. The tag must equal the version of `dda-rs`, `ddalab-wasm` and `ddalab-web`, or the release workflow fails. The next launch with a network connection downloads the new version in the background and shows "A new version of DDALAB is ready" with a Reload button. A window that stays open looks again once an hour. While an analysis runs, the notice says the new version will be ready after the run, and Reload waits for the run to end.
+Updates are automatic. A new version is published when a `v*` tag is pushed. The tag must equal the version of every package and of `CITATION.cff` (`scripts/check-versions.sh`), or the release workflows fail. The next launch with a network connection downloads the new version in the background and shows "A new version of DDALAB is ready" with a Reload button. A window that stays open looks again once an hour. While an analysis runs, the notice says the new version will be ready after the run, and Reload waits for the run to end.
 
 If you ignore the notice, the new version takes over once every DDALAB window has been closed and opened again. When you reload one of several windows, the others keep working and show the notice again. Without a network the cached version keeps working. About shows the version and the engine commit. Results, history, annotations and tabs stay across updates. Pre-release tags (a `-` in the tag) are not published to the site.
 
@@ -64,15 +64,17 @@ In Chrome or Edge, open the menu of the app window and choose Uninstall DDALAB. 
 
 `ddalab` is a native program for batch runs and GPUs. It runs the same engine as the web app, and it also runs the CCD family, which the web app does not.
 
-Install it with Python's tools. Python 3.8 or later is needed only to install it, and uv fetches an interpreter when there is none:
+Install it with Python's tools. It needs Python 3.9 or later, and uv fetches an interpreter when there is none:
 
 ```sh
 uv tool install ddalab      # or: pipx install ddalab, or: pip install ddalab
-ddalab --version            # prints: ddalab 2.4.1
+ddalab --version            # prints: ddalab 2.5.0
 uv tool upgrade ddalab      # or: pipx upgrade ddalab
 ```
 
-The wheel holds only the `ddalab` executable. No Python code runs; Python only installs it. Wheels cover Linux x86-64, Windows x86-64, and macOS 11 or later on Intel and on Apple silicon. The Linux wheel and archive are built with CUDA: `--device cuda` runs on NVIDIA GPUs and loads the driver at run time. The default CPU device needs no CUDA. Installing with uv or pipx also avoids the macOS warning for unsigned downloads.
+To try it without installing, `uvx` fetches it into a cache and runs it: `uvx ddalab run --file recording.edf`. Pin a version with `uvx ddalab@2.5.0 …`.
+
+The wheel holds the `ddalab` command and the `ddalab` Python library (below), which share one engine; the command runs it in the Python process. NumPy is its one dependency. Wheels cover Linux x86-64, Windows x86-64, and macOS 11 or later on Intel and on Apple silicon. The Linux wheel and archive are built with CUDA: `--device cuda` runs on NVIDIA GPUs and loads the driver at run time. The default CPU device needs no CUDA. Installing with uv or pipx also avoids the macOS warning for unsigned downloads.
 
 The main commands:
 
@@ -82,13 +84,59 @@ ddalab run --file recording.edf --variants ST --wl 1000 --ws 200 --delays 7 10 -
 ddalab batch --help
 ```
 
-Without Python, download the archive for your system from the [release page](https://github.com/sdraeger/DDALAB/releases): `ddalab-<version>-linux-x64.tar.gz`, `ddalab-<version>-macos-x64.tar.gz`, `ddalab-<version>-macos-arm64.tar.gz` or `ddalab-<version>-windows-x64.zip`. Each comes with a `.sha256` file. An archive unpacks to a folder `ddalab-<version>-<platform>/` that holds `ddalab` (`ddalab.exe` on Windows), `LICENSE` and `README.md`. Verify the archive, unpack it and put the folder on your PATH. The programs are unsigned.
+Without Python, use an installer, Homebrew or Scoop. The installers put `ddalab` in `~/.cargo/bin` (`$CARGO_HOME/bin` when that is set) and add it to your PATH:
 
-- Linux: `sha256sum -c ddalab-<version>-linux-x64.tar.gz.sha256`, then `tar -xzf ddalab-<version>-linux-x64.tar.gz`.
-- macOS: `shasum -a 256 -c ddalab-<version>-macos-arm64.tar.gz.sha256`, then `tar -xzf ddalab-<version>-macos-arm64.tar.gz`, then `xattr -dr com.apple.quarantine ddalab-<version>-macos-arm64` to remove the quarantine a browser download sets.
-- Windows (PowerShell): `Get-FileHash ddalab-<version>-windows-x64.zip` and compare the hash with the one in the `.sha256` file, then `Expand-Archive ddalab-<version>-windows-x64.zip .`. If SmartScreen blocks the program, choose More info, then Run anyway, or run `Unblock-File` on `ddalab.exe`.
+```sh
+# Linux and macOS
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/sdraeger/DDALAB/releases/latest/download/ddalab-installer.sh | sh
+# Homebrew (macOS, Linux)
+brew install sdraeger/tap/ddalab
+```
 
-To update an archive install, download the new archive. To build from source, run `cargo build --release --locked` in `packages/dda-rs`; the program is `target/release/ddalab`.
+```powershell
+# Windows
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/sdraeger/DDALAB/releases/latest/download/ddalab-installer.ps1 | iex"
+# Scoop
+scoop bucket add sdraeger https://github.com/sdraeger/scoop-bucket
+scoop install ddalab
+```
+
+Or download the archive for your system from the [release page](https://github.com/sdraeger/DDALAB/releases): `ddalab-x86_64-unknown-linux-gnu.tar.xz` (Linux), `ddalab-aarch64-apple-darwin.tar.xz` (Apple silicon), `ddalab-x86_64-apple-darwin.tar.xz` (Intel Mac) or `ddalab-x86_64-pc-windows-msvc.zip` (Windows). Each comes with a `.sha256` file. A tarball unpacks to a folder named like the archive, and every archive holds `ddalab` (`ddalab.exe` on Windows), `LICENSE` and `README.md`. Verify the archive, unpack it and put the folder on your PATH. The programs are unsigned.
+
+- Linux: `sha256sum -c ddalab-x86_64-unknown-linux-gnu.tar.xz.sha256`, then `tar -xJf ddalab-x86_64-unknown-linux-gnu.tar.xz`.
+- macOS: `shasum -a 256 -c ddalab-aarch64-apple-darwin.tar.xz.sha256`, then `tar -xJf ddalab-aarch64-apple-darwin.tar.xz`, then `xattr -dr com.apple.quarantine ddalab-aarch64-apple-darwin` to remove the quarantine a browser download sets.
+- Windows (PowerShell): `Get-FileHash ddalab-x86_64-pc-windows-msvc.zip` and compare the hash with the one in the `.sha256` file, then `Expand-Archive ddalab-x86_64-pc-windows-msvc.zip ddalab`, which unpacks into a folder `ddalab`. If SmartScreen blocks the program, choose More info, then Run anyway, or run `Unblock-File` on `ddalab.exe`.
+
+Every archive, installer, wheel and web bundle of a release carries a build provenance attestation: `gh attestation verify <file> --repo sdraeger/DDALAB` shows that GitHub Actions built it from this repository at the release tag.
+
+To update an archive install, download the new archive; run the installer again, or `brew upgrade ddalab`, `scoop update ddalab`. To build from source, run `cargo build --release --locked` in `packages/ddalab-cli`; the program is `target/release/ddalab`.
+
+### Python
+
+The same install gives `import ddalab`. `ddalab.run` takes a path, a recording from `ddalab.read`, an MNE `Raw` or a NumPy array of shape (channels, samples), and runs the engine with the defaults and result document of `ddalab run`:
+
+```python
+import ddalab
+
+result = ddalab.run("sub-01_eeg.edf", variants=["ST", "CT"], ct_pairs=[(0, 1)], wl=200, ws=100)
+result.variants["ST"].q        # NumPy array, (channels, windows)
+result.window_centers          # seconds
+result.save("result.json")     # the document `ddalab run -o result.json` writes
+
+recording = ddalab.read("sub-01_eeg.edf")   # data (channels, samples) in SI units, sfreq, ch_names, events
+ddalab.run(recording.data, sfreq=recording.sfreq, ch_names=recording.ch_names)
+```
+
+### Container (BIDS App)
+
+`ghcr.io/sdraeger/ddalab` runs `ddalab batch` over a BIDS dataset with the [BIDS App](https://bids-apps.neuroimaging.io) arguments, once per participant (the ones `--participant_label` names, else every `sub-*` folder). Each participant's result documents and batch manifest `batch.json` go to `output_dir/sub-<label>/`, and a derivative `dataset_description.json` to the output folder. Other arguments go to `ddalab batch`:
+
+```sh
+docker run --rm -v /data/ds004080:/data:ro -v /data/out:/out ghcr.io/sdraeger/ddalab:latest /data /out participant --participant_label 01 02 --variants ST --wl 200
+apptainer run -B /data docker://ghcr.io/sdraeger/ddalab:latest /data/ds004080 /data/out participant
+```
+
+The container runs on the CPU; for NVIDIA GPUs, install `ddalab` on the host.
 
 ### Sites that block outside websites
 
@@ -96,7 +144,9 @@ Download `ddalab-web-<version>.zip` from the [release page](https://github.com/s
 
 ## Repository layout
 
-- `packages/dda-rs`: the Rust core (engine, readers, tiles, block runner, result documents) and the `ddalab` CLI.
+- `packages/dda-rs`: the Rust core (engine, readers, tiles, block runner, result documents) and the `ddalab` CLI (`dda_rs::cli`).
+- `packages/ddalab-cli`: the `ddalab` binary that the release archives and installers carry.
+- `packages/ddalab-py`: the PyPI wheel, the engine for Python (`ddalab._core`, PyO3) and the `ddalab` command.
 - `packages/ddalab-wasm`: `dda-rs` compiled to `wasm32-unknown-unknown` with a plain `extern "C"` ABI.
 - `packages/ddalab-web`: the React and TypeScript web application.
 
@@ -111,9 +161,11 @@ cd packages/ddalab-web && npm ci && npm run dev
 
 `npm run build`, `npm test`, and `npm run test:e2e` build the wasm module first.
 
-A release is a `v*` tag. `.github/workflows/release.yml` builds the CLI archives and the PyPI wheels from that commit and records the commit in every result document (`reproduction.git_commit`).
+A release is a `v*` tag. `.github/workflows/release.yml`, generated by [cargo-dist](https://github.com/axodotdev/cargo-dist) from `dist-workspace.toml`, builds the CLI archives, installers and Homebrew formula and creates the GitHub release; `pypi.yml` builds and publishes the wheels; `web.yml` deploys the site and attaches the web bundle. Each records the commit in every result document (`reproduction.git_commit`). After changing `dist-workspace.toml`, run `dist generate`.
 
 ## Citation
+
+[`CITATION.cff`](CITATION.cff) holds the citation; GitHub's "Cite this repository" offers it as APA and BibTeX.
 
 ```bibtex
 @software{draeger-ddalab-2025,

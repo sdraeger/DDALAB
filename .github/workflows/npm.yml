@@ -1,0 +1,76 @@
+name: npm
+
+# A v* tag builds the ddalab-wasm package, tests it, attests the tarball and attaches it to the release. It publishes to
+# npm (with provenance, through trusted publishing) only when the repository variable NPM_PUBLISH is "true": the first
+# version is published by hand from the attached tarball, then the trusted publisher and the variable are set.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: ddalab-wasm
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      attestations: write
+      id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      # Compiled into every result document as reproduction.git_commit.
+      DDALAB_GIT_COMMIT: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check the versions against the tag
+        id: version
+        run: echo "version=$(scripts/check-versions.sh)" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Build and test the package
+        working-directory: packages/ddalab-wasm
+        run: |
+          cargo build --release --locked --target wasm32-unknown-unknown
+          npm test
+          npm pack
+
+      # `gh attestation verify ddalab-wasm-<version>.tgz --repo sdraeger/DDALAB` checks it.
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: packages/ddalab-wasm/ddalab-wasm-*.tgz
+
+      # release.yml (cargo-dist) creates the release once its builds pass.
+      - name: Attach the tarball to the release
+        if: github.ref_type == 'tag'
+        run: |
+          for _ in $(seq 60); do
+            gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 && break
+            sleep 30
+          done
+          gh release upload "$GITHUB_REF_NAME" packages/ddalab-wasm/ddalab-wasm-*.tgz --clobber
+
+      - name: Publish to npm
+        if: github.ref_type == 'tag' && vars.NPM_PUBLISH == 'true'
+        working-directory: packages/ddalab-wasm
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # Trusted publishing needs npm 11.5 or later.
+          npm install -g npm@latest
+          tag=latest
+          if [[ "$VERSION" == *-* ]]; then tag=next; fi
+          npm publish ddalab-wasm-*.tgz --provenance --access public --tag "$tag"

@@ -1,8 +1,8 @@
 use super::open_reader;
-use crate::cli::InspectArgs;
-use crate::exit_codes;
-use crate::output;
-use dda_rs::io::RecordingInfo;
+use crate::cli::args::InspectArgs;
+use crate::cli::exit_codes;
+use crate::cli::output;
+use crate::io::RecordingInfo;
 use serde::Serialize;
 
 #[derive(Serialize)]

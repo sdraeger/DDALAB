@@ -1,5 +1,5 @@
 pub(crate) mod dataset;
-#[cfg(feature = "cuda")]
+#[cfg(all(feature = "cuda", target_os = "linux"))]
 mod gpu;
 pub(crate) mod model;
 mod regression_batch;
@@ -70,11 +70,11 @@ pub struct CudaDeviceInfo {
 }
 
 pub fn available_cuda_devices() -> Vec<CudaDeviceInfo> {
-    #[cfg(feature = "cuda")]
+    #[cfg(all(feature = "cuda", target_os = "linux"))]
     {
         gpu::available_devices()
     }
-    #[cfg(not(feature = "cuda"))]
+    #[cfg(not(all(feature = "cuda", target_os = "linux")))]
     {
         Vec::new()
     }

@@ -1,9 +1,9 @@
 use super::run::{analyze, Job};
-use crate::cli::BatchArgs;
-use crate::dda_params;
-use crate::exit_codes;
-use crate::output;
-use dda_rs::io::discover_bids_recordings;
+use crate::cli::args::BatchArgs;
+use crate::cli::dda_params;
+use crate::cli::exit_codes;
+use crate::cli::output;
+use crate::io::discover_bids_recordings;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -391,12 +391,12 @@ mod tests {
             sr: None,
             binary: None,
             output_dir: None,
-            block_mb: crate::cli::DEFAULT_BLOCK_MB,
+            block_mb: crate::cli::args::DEFAULT_BLOCK_MB,
             continue_on_error: false,
             dry_run: false,
             compact: false,
             quiet: false,
-            device: dda_rs::ComputeDevice::Cpu,
+            device: crate::ComputeDevice::Cpu,
         }
     }
 

@@ -1,5 +1,7 @@
 pub mod blocks;
 pub mod ccd_stats;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod cli;
 pub mod document;
 pub mod engine;
 pub mod error;

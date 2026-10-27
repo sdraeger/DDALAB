@@ -1,8 +1,8 @@
 use super::open_reader;
-use crate::cli::SamplesArgs;
-use crate::exit_codes;
-use dda_rs::document::npy_header;
-use dda_rs::io::Reader;
+use crate::cli::args::SamplesArgs;
+use crate::cli::exit_codes;
+use crate::document::npy_header;
+use crate::io::Reader;
 use std::io::Write;
 
 /// Bytes of samples read at a time.
