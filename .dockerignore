@@ -1,0 +1,6 @@
+# The container (packaging/container/Dockerfile) needs only the engine, the binary and the entrypoint.
+*
+!packages/dda-rs
+!packages/ddalab-cli
+!packaging/container
+**/target
