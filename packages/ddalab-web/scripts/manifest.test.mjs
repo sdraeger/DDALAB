@@ -81,3 +81,17 @@ test("the_file_handlers_cover_the_formats_the_app_reads", () => {
   }
   expect(extensions.sort()).toEqual([".bdf", ".csv", ".ddalab", ".edf", ".set", ".tsv", ".txt", ".vhdr"]);
 });
+
+// Store listings (Microsoft Store through PWABuilder, Google Play through Bubblewrap) and Chromium's richer install
+// sheet read these. The categories make no medical claim: DDALAB is a research tool.
+test("the_store_fields_name_categories_and_screenshots_at_their_sizes", () => {
+  expect(manifest.categories).toEqual(["education", "productivity", "utilities"]);
+  expect(manifest.screenshots.map((s) => s.form_factor)).toEqual(["wide", "narrow"]);
+  for (const shot of manifest.screenshots) {
+    expect(shot.type).toBe("image/png");
+    expect(shot.label).toBeTruthy();
+    const png = readFileSync(publicFile(shot.src));
+    // The IHDR chunk holds the width and the height, big-endian, from byte 16.
+    expect(`${png.readUInt32BE(16)}x${png.readUInt32BE(20)}`).toBe(shot.sizes);
+  }
+});
