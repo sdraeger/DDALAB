@@ -17,11 +17,13 @@ import json
 import os
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Any, Optional, Sequence, Tuple, Union
-
-import numpy as np
+from typing import TYPE_CHECKING, Any, Optional, Sequence, Tuple, Union
 
 from . import _core
+
+# NumPy is imported where an array is made: the `ddalab` command imports this package and starts without it.
+if TYPE_CHECKING:
+    import numpy as np
 
 __version__: str = _core.__version__
 __all__ = ["Recording", "Result", "VariantResult", "read", "run", "__version__"]
@@ -95,6 +97,24 @@ def read(path: PathLike, *, sfreq: Optional[float] = None) -> Recording:
     return Recording(path, data, float(info["sample_rate_hz"]), names, json.loads(events), info)
 
 
+TEXT_FORMATS = ("CSV", "ASCII")
+
+# MNE's data channel types: an MNE Raw is analyzed on these, without the channels info["bads"] marks, as a file is on
+# its signal channels without the BIDS bad ones. Stimulus, misc and other channels are left out.
+DATA_TYPES = {"eeg", "seeg", "ecog", "dbs", "mag", "grad", "csd", "hbo", "hbr"}
+
+
+def _raw_data(raw: Any) -> "tuple[np.ndarray, list]":
+    """The data channels of an MNE Raw that are not marked bad, and their names."""
+    names = list(raw.ch_names)
+    types = raw.get_channel_types() if hasattr(raw, "get_channel_types") else ["eeg"] * len(names)
+    bads = set(raw.info.get("bads", []) if hasattr(raw.info, "get") else [])
+    picks = [i for i, (name, kind) in enumerate(zip(names, types)) if kind in DATA_TYPES and name not in bads]
+    if not picks:
+        raise ValueError("the Raw has no data channel that is not marked bad")
+    return raw.get_data(picks=picks), [names[i] for i in picks]
+
+
 def _analysis_channels(info: dict) -> list:
     rate = info["sample_rate_hz"]
     return [
@@ -131,19 +151,25 @@ def run(
     analysis channels; `start` and `end` are seconds; pairs index `channels`. Raises ValueError for a request or input
     the command refuses.
     """
+    import numpy as np
+
     data = None
     if isinstance(source, (str, os.PathLike)):
         file = os.fspath(source)
     elif isinstance(source, Recording):
         file = source.path
+        # A text recording's rate is the one `read` was given (or found); other formats carry their own.
+        if sfreq is None and source.info["format"] in TEXT_FORMATS:
+            sfreq = source.sfreq
     elif hasattr(source, "get_data") and hasattr(source, "info"):
-        data = source.get_data()
+        data, ch_names = _raw_data(source)
         sfreq = float(source.info["sfreq"])
-        ch_names = list(source.ch_names)
         file = "raw"
     else:
         data = source
         file = "array"
+    if data is None and ch_names is not None:
+        raise ValueError("ch_names names the rows of an array; a file names its own channels")
     if data is not None:
         data = np.ascontiguousarray(data, dtype=np.float64)
         if data.ndim != 2:
@@ -165,6 +191,9 @@ def run(
         values = value if isinstance(value, (list, tuple)) else [value]
         argv.extend([f"--{name}", *map(str, values)])
 
+    if data is None:
+        # The rate of a text file without a time column; other formats ignore it, as `ddalab run --sr` does.
+        flag("sr", sfreq)
     flag("variants", list(variants) if variants is not None else None)
     flag("wl", wl)
     flag("ws", ws)

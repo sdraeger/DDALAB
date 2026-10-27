@@ -33,6 +33,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
+      # A tag deploys the site: it must equal the packages' version.
+      - name: Check the versions against the tag
+        working-directory: .
+        run: scripts/check-versions.sh
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:

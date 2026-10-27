@@ -16,17 +16,28 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 
 "$@" --version | grep -q '^ddalab ' || fail "--version"
 
+"$@" -h | grep -q 'participant_label' || fail "-h prints the usage"
+
+# Every participant, each in its own folder as a named one is.
 "$@" "$bids" "$work/all" participant --quiet
-ls "$work/all"/*.dda.json >/dev/null 2>&1 || fail "no documents for the whole dataset"
-[ "$(find "$work/all" -name "*.dda.json" | wc -l)" -eq 2 ] || fail "expected two documents"
+for s in 01 02; do
+  ls "$work/all/sub-$s"/*.dda.json >/dev/null 2>&1 || fail "no document for sub-$s"
+  [ -s "$work/all/sub-$s/batch.json" ] || fail "no batch manifest for sub-$s"
+done
 grep -q '"DatasetType": "derivative"' "$work/all/dataset_description.json" || fail "derivative description"
-[ -s "$work/all/batch.json" ] || fail "no batch manifest"
 
 "$@" "$bids" "$work/one" participant --participant_label 02 -- --variants ST --wl 100 --quiet
 [ -d "$work/one/sub-02" ] && [ ! -d "$work/one/sub-01" ] || fail "participant_label"
 ls "$work/one/sub-02"/*.dda.json >/dev/null 2>&1 || fail "no document for sub-02"
 grep -q '"window_length_samples": *100' "$work/one/sub-02"/*.dda.json || fail "batch options after --"
 
+# Options may come before the labels.
+"$@" "$bids" "$work/two" participant --wl 100 --participant_label sub-01 --quiet
+[ -d "$work/two/sub-01" ] && [ ! -d "$work/two/sub-02" ] || fail "labels after an option"
+grep -q '"window_length_samples": *100' "$work/two/sub-01"/*.dda.json || fail "an option before the labels"
+
+if "$@" "$bids" "$work/none" participant --participant_label 2>/dev/null; then fail "an empty label list must fail"; fi
+if "$@" "$bids" "$work/none" participant --participant_label -- --quiet 2>/dev/null; then fail "labels then -- must fail"; fi
 "$@" "$bids" "$work/group" group || fail "group level should succeed"
 if "$@" "$bids" "$work/bad" participant --participant_label 99 2>/dev/null; then fail "a missing participant must fail"; fi
 if "$@" "$bids" 2>/dev/null; then fail "missing arguments must fail"; fi

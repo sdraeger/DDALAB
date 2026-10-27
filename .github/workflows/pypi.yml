@@ -88,6 +88,18 @@ jobs:
           command: sdist
           args: --out dist
 
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      # conda-forge and platforms without a wheel build from it: it must build.
+      - name: Build the sdist into a wheel and run it
+        run: |
+          python -m pip install packages/ddalab-py/dist/*.tar.gz
+          ddalab --version
+
       - uses: actions/upload-artifact@v7
         with:
           name: sdist
@@ -99,14 +111,28 @@ jobs:
     if: github.ref_type == 'tag'
     needs: [wheels, sdist]
     runs-on: ubuntu-22.04
-    timeout-minutes: 10
+    timeout-minutes: 60
     environment:
       name: pypi
       url: https://pypi.org/p/ddalab
     permissions:
+      contents: read
       id-token: write
       attestations: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
     steps:
+      # PyPI versions cannot be replaced: publish only once release.yml (cargo-dist) has built and released the tag.
+      - name: Wait for the GitHub release
+        run: |
+          for _ in $(seq 90); do
+            gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 && exit 0
+            sleep 30
+          done
+          echo "No GitHub release for $GITHUB_REF_NAME after 45 minutes: release.yml failed or is still running" >&2
+          exit 1
+
       - uses: actions/download-artifact@v8
         with:
           pattern: "{wheel-*,sdist}"

@@ -129,14 +129,14 @@ ddalab.run(recording.data, sfreq=recording.sfreq, ch_names=recording.ch_names)
 
 ### Container (BIDS App)
 
-`ghcr.io/sdraeger/ddalab` runs `ddalab batch` over a BIDS dataset with the [BIDS App](https://bids-apps.neuroimaging.io) arguments. It writes one result document per recording, the batch manifest `batch.json` and a derivative `dataset_description.json` to the output folder; options after `--` go to `ddalab batch`:
+`ghcr.io/sdraeger/ddalab` runs `ddalab batch` over a BIDS dataset with the [BIDS App](https://bids-apps.neuroimaging.io) arguments, once per participant (the ones `--participant_label` names, else every `sub-*` folder). Each participant's result documents and batch manifest `batch.json` go to `output_dir/sub-<label>/`, and a derivative `dataset_description.json` to the output folder. Other arguments go to `ddalab batch`:
 
 ```sh
-docker run --rm -v /data/ds004080:/data:ro -v /data/out:/out ghcr.io/sdraeger/ddalab:latest /data /out participant --participant_label 01 02 -- --variants ST --wl 200
-apptainer run docker://ghcr.io/sdraeger/ddalab:latest /data/ds004080 /data/out participant
+docker run --rm -v /data/ds004080:/data:ro -v /data/out:/out ghcr.io/sdraeger/ddalab:latest /data /out participant --participant_label 01 02 --variants ST --wl 200
+apptainer run -B /data docker://ghcr.io/sdraeger/ddalab:latest /data/ds004080 /data/out participant
 ```
 
-`docker run --gpus all … -- --device cuda` runs on NVIDIA GPUs.
+The container runs on the CPU; for NVIDIA GPUs, install `ddalab` on the host.
 
 ### Sites that block outside websites
 

@@ -9,5 +9,8 @@ installers = ["shell", "powershell", "homebrew"]
 tap = "sdraeger/homebrew-tap"
 install-path = "CARGO_HOME"
 github-attestations = true
+# Attested when the release is hosted, so the installers, the formula and the checksums are attested with the archives.
+github-attestations-phase = "host"
+github-attestations-filters = ["*.tar.xz", "*.zip", "*.sh", "*.ps1", "*.rb", "*.sum", "*.tar.gz"]
 pr-run-mode = "plan"
 github-build-setup = "../build-setup.yml"

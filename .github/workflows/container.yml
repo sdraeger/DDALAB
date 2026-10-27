@@ -21,7 +21,7 @@ jobs:
   image:
     name: BIDS App image
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 90
     permissions:
       contents: read
       packages: write
@@ -59,6 +59,20 @@ jobs:
           export TEST_DIR="$RUNNER_TEMP/bids-test"
           mkdir -p "$TEST_DIR"
           packaging/container/test-run.sh docker run --rm -v "$TEST_DIR:$TEST_DIR" ddalab:test
+
+      # A pushed tag cannot be taken back from every pull: push only once release.yml (cargo-dist) has released the tag.
+      - name: Wait for the GitHub release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          for _ in $(seq 90); do
+            gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 && exit 0
+            sleep 30
+          done
+          echo "No GitHub release for $GITHUB_REF_NAME after 45 minutes: release.yml failed or is still running" >&2
+          exit 1
 
       - name: Log in to ghcr.io
         if: github.ref_type == 'tag'

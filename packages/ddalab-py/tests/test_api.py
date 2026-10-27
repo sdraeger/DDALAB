@@ -79,8 +79,8 @@ def test_mne_like_input_equals_file():
         info = {"sfreq": recording.sfreq}
         ch_names = recording.ch_names
 
-        def get_data(self):
-            return recording.data
+        def get_data(self, picks=None):
+            return recording.data if picks is None else recording.data[picks]
 
     assert_same_arrays(ddalab.run(Raw()), ddalab.run(EDF))
 
@@ -112,3 +112,55 @@ def test_save_writes_the_document(tmp_path):
     result = ddalab.run(EDF)
     result.save(tmp_path / "result.json")
     assert json.loads((tmp_path / "result.json").read_text()) == result.document
+
+
+def headerless_csv(tmp_path):
+    """Two channels, 3000 rows, no header and no time column: only a given rate places it in time."""
+    rows = np.sin(np.arange(3000)[:, None] * np.array([[0.05, 0.11]]))
+    path = tmp_path / "plain.csv"
+    np.savetxt(path, rows, delimiter=",")
+    return path
+
+
+def test_the_rate_of_a_text_file_reaches_the_engine(tmp_path):
+    path = headerless_csv(tmp_path)
+    out = tmp_path / "cli.json"
+    command = [sys.executable, "-m", "ddalab", "run", "--file", str(path), "--sr", "500", "--start", "1", "--end", "5"]
+    subprocess.run([*command, "--quiet", "--compact", "-o", str(out)], check=True)
+    expected = json.loads(out.read_text())
+    result = ddalab.run(path, sfreq=500, start=1, end=5)
+    np.testing.assert_array_equal(result.window_centers, expected["window_centers_seconds"])
+    assert result.document["reproduction"] == expected["reproduction"]
+    # A recording read at a rate is run at that rate.
+    again = ddalab.run(ddalab.read(path, sfreq=500), start=1, end=5)
+    np.testing.assert_array_equal(again.window_centers, result.window_centers)
+
+
+def test_channel_names_for_a_file_are_refused(tmp_path):
+    with pytest.raises(ValueError, match="ch_names"):
+        ddalab.run(EDF, ch_names=["a", "b"])
+
+
+def test_mne_input_leaves_out_bad_and_stimulus_channels():
+    recording = ddalab.read(EDF)
+    names = [*recording.ch_names, "STI 014"]
+    data = np.vstack([recording.data, np.zeros(recording.data.shape[1])])
+
+    class Raw:
+        info = {"sfreq": recording.sfreq, "bads": [names[0]]}
+        ch_names = names
+
+        def get_channel_types(self):
+            return ["eeg"] * len(recording.ch_names) + ["stim"]
+
+        def get_data(self, picks=None):
+            return data if picks is None else data[picks]
+
+    result = ddalab.run(Raw())
+    assert result.variants["ST"].row_labels == recording.ch_names[1:]
+
+
+def test_the_command_starts_without_numpy():
+    code = "import sys, ddalab._cli; print('numpy' in sys.modules)"
+    done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert done.stdout.strip() == "False"
