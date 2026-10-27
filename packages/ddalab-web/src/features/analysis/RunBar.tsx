@@ -116,7 +116,8 @@ export function RunBar({ recordingId }: { recordingId: string }) {
   );
   const duration = useStore((s) => s.recordings[recordingId]?.info.duration_s ?? 0);
   const busy = status === "running";
-  const reason = Object.values(errors)[0];
+  // The interval fields show the interval's own error.
+  const reason = Object.values(errors).find((error) => error !== errors.range);
   return (
     <section aria-label="Run" className={styles.runBar}>
       <IntervalFields interval={interval} duration={duration} error={errors.range} />
@@ -125,7 +126,7 @@ export function RunBar({ recordingId }: { recordingId: string }) {
         <p key="reason" className={styles.note} data-appear>
           {reason}
         </p>
-      ) : plan?.refused ? (
+      ) : errors.range ? null : plan?.refused ? (
         <p key="refused" role="alert" className={styles.error}>
           {plan.text}
         </p>

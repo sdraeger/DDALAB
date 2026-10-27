@@ -150,6 +150,17 @@ test("typed_interval_survives_the_resting_interval", async ({ page }) => {
   expect((await lastRun(page)).record.request.time_range).toEqual({ start: 500, end: 2500 });
 });
 
+// 164 samples at 500 Hz, where the standard model needs 217: the interval says so once, and Run waits.
+test("an_interval_too_short_for_the_model_says_so_once", async ({ page }) => {
+  await openBrainVision(page);
+  await page.getByRole("checkbox", { name: "Select Fp1" }).check();
+  await page.evaluate(() => window.__ddalab.store.setState({ selection: { t0: 1, t1: 1.326 } }));
+  const message = "The interval has 164 samples and these settings need at least 217";
+  await expect(runBar(page).getByText(message)).toHaveCount(1);
+  await expect(runBar(page).getByRole("alert")).toHaveCount(0);
+  await expect(runBar(page).getByRole("button", { name: "Run DDA" })).toBeDisabled();
+});
+
 test("escape_puts_back_the_interval", async ({ page }) => {
   await openBrainVision(page);
   const end = runBar(page).getByLabel("End", { exact: true });

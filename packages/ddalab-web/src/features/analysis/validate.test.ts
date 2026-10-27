@@ -59,6 +59,18 @@ test("selection_maps_to_samples", () => {
   expect(validateRequest(draft({ startS: 2, endS: 2 }), info).errors.range).toBeDefined();
 });
 
+test("interval_shorter_than_the_model_needs_rejected", () => {
+  // Standard mode needs 200 + 2 * 4 + 10 - 1 = 217 samples: samples 0 to 216.
+  expect(validateRequest(draft({ startS: 0, endS: 0.432 }), info).errors).toEqual({});
+  const { request, errors } = validateRequest(draft({ startS: 0, endS: 0.43 }), info);
+  expect(request).toBeUndefined();
+  expect(errors.range).toBe("The interval has 216 samples and these settings need at least 217");
+  const expert = draft({ expert: true, windowLength: "100", delays: "3, 20", dm: "2", startS: 0, endS: 0.2 });
+  expect(validateRequest(expert, info).errors.range).toBe(
+    "The interval has 101 samples and these settings need at least 123",
+  );
+});
+
 test("pairs_follow_the_variant_metadata", () => {
   const { request } = validateRequest(draft({ variants: [ST, CT, CD], channels: [0, 2, 3] }), info);
   expect(request?.algorithm_selection).toEqual({
