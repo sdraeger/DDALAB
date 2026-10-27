@@ -181,6 +181,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
+      attestations: write
+      id-token: write
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
@@ -189,6 +191,11 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: web-bundle
+
+      # `gh attestation verify ddalab-web-<version>.zip --repo sdraeger/DDALAB` checks it.
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: ddalab-web-*.zip
 
       # The release workflow creates the same release for the tag and can run at the same time. When it wins the race
       # between this view and create, the create fails and the release exists: view it again before giving up.

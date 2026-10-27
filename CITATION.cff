@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: If you use DDALAB, please cite it as below.
+type: software
+title: "DDALAB: Delay Differential Analysis Laboratory"
+abstract: >-
+  Delay differential analysis (DDA) of EEG, iEEG and other multichannel recordings: a web app that runs in the
+  browser, the ddalab command-line tool and the dda-rs engine they share.
+authors:
+  - family-names: Dräger
+    given-names: Simon
+  - family-names: Lainscsek
+    given-names: Claudia
+  - family-names: Sejnowski
+    given-names: Terrence J.
+version: 2.4.1
+date-released: 2026-10-27
+license: MIT
+repository-code: https://github.com/sdraeger/DDALAB
+url: https://sdraeger.github.io/DDALAB/
+keywords:
+  - delay differential analysis
+  - DDA
+  - EEG
+  - iEEG
+  - time series

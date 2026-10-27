@@ -72,6 +72,8 @@ ddalab --version            # prints: ddalab 2.4.1
 uv tool upgrade ddalab      # or: pipx upgrade ddalab
 ```
 
+To try it without installing, `uvx` fetches it into a cache and runs it: `uvx ddalab run --file recording.edf`. Pin a version with `uvx ddalab@2.4.1 …`.
+
 The wheel holds only the `ddalab` executable. No Python code runs; Python only installs it. Wheels cover Linux x86-64, Windows x86-64, and macOS 11 or later on Intel and on Apple silicon. The Linux wheel and archive are built with CUDA: `--device cuda` runs on NVIDIA GPUs and loads the driver at run time. The default CPU device needs no CUDA. Installing with uv or pipx also avoids the macOS warning for unsigned downloads.
 
 The main commands:
@@ -114,6 +116,8 @@ cd packages/ddalab-web && npm ci && npm run dev
 A release is a `v*` tag. `.github/workflows/release.yml` builds the CLI archives and the PyPI wheels from that commit and records the commit in every result document (`reproduction.git_commit`).
 
 ## Citation
+
+[`CITATION.cff`](CITATION.cff) holds the citation; GitHub's "Cite this repository" offers it as APA and BibTeX.
 
 ```bibtex
 @software{draeger-ddalab-2025,
