@@ -101,11 +101,11 @@ scoop bucket add sdraeger https://github.com/sdraeger/scoop-bucket
 scoop install ddalab
 ```
 
-Or download the archive for your system from the [release page](https://github.com/sdraeger/DDALAB/releases): `ddalab-x86_64-unknown-linux-gnu.tar.xz` (Linux), `ddalab-aarch64-apple-darwin.tar.xz` (Apple silicon), `ddalab-x86_64-apple-darwin.tar.xz` (Intel Mac) or `ddalab-x86_64-pc-windows-msvc.zip` (Windows). Each comes with a `.sha256` file, and holds `ddalab` (`ddalab.exe` on Windows), `LICENSE` and `README.md`. Verify the archive, unpack it and put the folder on your PATH. The programs are unsigned.
+Or download the archive for your system from the [release page](https://github.com/sdraeger/DDALAB/releases): `ddalab-x86_64-unknown-linux-gnu.tar.xz` (Linux), `ddalab-aarch64-apple-darwin.tar.xz` (Apple silicon), `ddalab-x86_64-apple-darwin.tar.xz` (Intel Mac) or `ddalab-x86_64-pc-windows-msvc.zip` (Windows). Each comes with a `.sha256` file. A tarball unpacks to a folder named like the archive, and every archive holds `ddalab` (`ddalab.exe` on Windows), `LICENSE` and `README.md`. Verify the archive, unpack it and put the folder on your PATH. The programs are unsigned.
 
 - Linux: `sha256sum -c ddalab-x86_64-unknown-linux-gnu.tar.xz.sha256`, then `tar -xJf ddalab-x86_64-unknown-linux-gnu.tar.xz`.
 - macOS: `shasum -a 256 -c ddalab-aarch64-apple-darwin.tar.xz.sha256`, then `tar -xJf ddalab-aarch64-apple-darwin.tar.xz`, then `xattr -dr com.apple.quarantine ddalab-aarch64-apple-darwin` to remove the quarantine a browser download sets.
-- Windows (PowerShell): `Get-FileHash ddalab-x86_64-pc-windows-msvc.zip` and compare the hash with the one in the `.sha256` file, then `Expand-Archive ddalab-x86_64-pc-windows-msvc.zip .`. If SmartScreen blocks the program, choose More info, then Run anyway, or run `Unblock-File` on `ddalab.exe`.
+- Windows (PowerShell): `Get-FileHash ddalab-x86_64-pc-windows-msvc.zip` and compare the hash with the one in the `.sha256` file, then `Expand-Archive ddalab-x86_64-pc-windows-msvc.zip ddalab`, which unpacks into a folder `ddalab`. If SmartScreen blocks the program, choose More info, then Run anyway, or run `Unblock-File` on `ddalab.exe`.
 
 Every archive, installer, wheel and web bundle of a release carries a build provenance attestation: `gh attestation verify <file> --repo sdraeger/DDALAB` shows that GitHub Actions built it from this repository at the release tag.
 
