@@ -68,7 +68,7 @@ Install it with Python's tools. Python 3.8 or later is needed only to install it
 
 ```sh
 uv tool install ddalab      # or: pipx install ddalab, or: pip install ddalab
-ddalab --version            # prints: ddalab 2.4.0
+ddalab --version            # prints: ddalab 2.4.1
 uv tool upgrade ddalab      # or: pipx upgrade ddalab
 ```
 
