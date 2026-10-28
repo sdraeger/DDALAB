@@ -317,6 +317,34 @@ test("batch_progress_and_cancel_keep_the_finished_results", async ({ page }) => 
 });
 
 // Focus the user took elsewhere while the batch ran stays there when it ends.
+// Each finished recording adds its record to the history; the records listed before stay the objects they were, so
+// the history neither reads every record again nor re-renders them.
+test("a_batch_adds_each_result_to_the_history_without_listing_it_again", async ({ page }) => {
+  test.skip(!(await hasStorage(page)), NO_STORAGE);
+  test.setTimeout(120_000);
+  const three = join(root, "three");
+  mkdirSync(three, { recursive: true });
+  for (const n of [1, 2, 3]) copyFileSync(fixturePath("fixture.edf"), join(three, `rec-${n}.edf`));
+  await page.evaluate(() => {
+    const { store } = window.__ddalab;
+    const kept = window as unknown as { first?: object };
+    store.subscribe(({ analyses }) => {
+      kept.first ??= analyses.find((a) => a.batch);
+    });
+  });
+  await startBatch(page, three, 3);
+  await expect(folder(page).getByText(/^Batch finished/)).toBeVisible({ timeout: 100_000 });
+  const kept = await page.evaluate(() => {
+    const { first } = window as unknown as { first?: { id: string } };
+    const { analyses } = window.__ddalab.store.getState();
+    return {
+      batched: analyses.filter((a) => a.batch).length,
+      same: first !== undefined && analyses.find((a) => a.id === first.id) === first,
+    };
+  });
+  expect(kept).toEqual({ batched: 3, same: true });
+});
+
 test("the_end_of_a_batch_leaves_focus_where_the_user_put_it", async ({ page }) => {
   test.skip(!(await hasStorage(page)), NO_STORAGE);
   test.setTimeout(180_000);

@@ -87,10 +87,10 @@ fn variant_matrix(result: &dda_rs::DDAResult, variant_id: &str) -> Vec<Vec<f64>>
 }
 
 #[test]
+// The default CCDLOG run fits each target's full model once; CCDSIG forces the pairwise fits.
 fn optimized_all_selected_ccdlog_matches_legacy_pairwise_path() {
     let samples = synthetic_common_driver(900);
     let labels = vec!["X".to_string(), "Y".to_string(), "Z".to_string()];
-    std::env::set_var("DDA_RS_OPTIMIZE_ALLSELECTED_CCD", "1");
     let optimized = run_request_on_matrix(
         &request(
             samples.len(),
@@ -100,7 +100,6 @@ fn optimized_all_selected_ccdlog_matches_legacy_pairwise_path() {
         Some(&labels),
     )
     .expect("optimized CCDLOG run");
-    std::env::remove_var("DDA_RS_OPTIMIZE_ALLSELECTED_CCD");
     let legacy = run_request_on_matrix(
         &request(
             samples.len(),

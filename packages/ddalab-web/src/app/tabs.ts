@@ -371,7 +371,8 @@ const warn = (id: string, warning: string) =>
 useStore.subscribe((now, before) => {
   if (now.recordings === before.recordings) return;
   for (const [id, { scan, info, fingerprint }] of Object.entries(now.recordings)) {
-    if (scan === before.recordings[id]?.scan) continue;
+    // A scan reports its progress about 10 times a second; the digests object changes only when a digest arrives.
+    if (scan.sha256 === before.recordings[id]?.scan.sha256) continue;
     const sha256 = scan.sha256 ?? {};
     const tab = now.tabs.find((t) => t.fingerprint === fingerprint);
     if (!tab?.source || !info.input_files.every((name) => sha256[name])) continue;

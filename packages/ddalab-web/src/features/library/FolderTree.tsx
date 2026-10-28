@@ -26,6 +26,7 @@ import {
   useState,
   useTransition,
 } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { resumeBatch } from "../../app/batch";
 import type { FileHandles, Outcome } from "../../app/recordings";
 import { discovered, type Mark } from "../../core/batch";
@@ -297,7 +298,8 @@ function Tree(props: {
   const { nodes, opened, onOpen } = props;
   // Row heights in px as FolderTree.module.css sets them (--hit, --hit-two): the list places rows by them.
   const row = useHit();
-  const recordings = useStore((s) => s.recordings);
+  // The ids of the open recordings: a scan's reports replace `recordings` 10 times a second and change none of them.
+  const openIds = useStore(useShallow((s) => Object.keys(s.recordings)));
   const active = useStore((s) => s.activeRecordingId);
   // The marks of this folder's batch.
   const marks = useStore((s) => (s.batch?.root === props.root ? s.batch.marks : undefined));
@@ -433,7 +435,7 @@ function Tree(props: {
             wrap={wrapped[item.getItemMeta().index]}
             tabbable={item.isFocused() || (focusedIndex < 0 && item.getItemMeta().index === 0)}
             describe={`${describe}-${item.getItemMeta().index}`}
-            open={item.getId() in opened && opened[item.getId()] in recordings}
+            open={item.getId() in opened && openIds.includes(opened[item.getId()])}
             active={active !== null && opened[item.getId()] === active}
             mark={marks?.[item.getId()]}
           />

@@ -27,7 +27,7 @@ import type { AnalysisHandle } from "../core/scheduler";
 import { buildFileSet } from "../core/sources";
 import { validateRequest } from "../features/analysis/validate";
 import { useStore } from "../store/store";
-import { leaving, refreshAnalyses, variants } from "./analyses";
+import { leaving, variants } from "./analyses";
 import { download } from "./download";
 import { engine } from "./recordings";
 
@@ -241,7 +241,8 @@ async function runOne(batch: BatchRecord, recording: BatchInput): Promise<BatchR
     };
     await saveAnalysis(record).catch(() => {});
     void persistStorage();
-    await refreshAnalyses();
+    // Newest first, as the history lists them: listing every record again after each recording grows with the batch.
+    useStore.setState((s) => ({ analyses: [record, ...s.analyses.filter((a) => a.id !== record.id)] }));
     return {
       path,
       status: "ok",

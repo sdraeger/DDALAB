@@ -394,6 +394,12 @@ impl PureRustRunner {
         let enabled_ccdpr2 = variant_mode.ccdpr2_enabled && !ccd_pairs.is_empty();
         let enabled_ccdsig = variant_mode.ccdsig_enabled && !ccd_pairs.is_empty();
         let enabled_ccdstab = variant_mode.ccdstab_enabled && !ccd_pairs.is_empty();
+        let ccd_full_model_reuse = ccd_reuses_full_model(
+            ccd_conditioning_strategy,
+            enabled_ccdsig,
+            &ccd_pairs,
+            &ccd_candidate_channels,
+        );
         let enabled_trccd = variant_mode.trccd_enabled && !ccd_pairs.is_empty();
         let enabled_mvccd = variant_mode.mvccd_enabled && !ccd_pairs.is_empty();
         let enabled_de = variant_mode.de_enabled;
@@ -759,17 +765,7 @@ impl PureRustRunner {
             }
 
             if enabled_ccd_core {
-                let allow_full_model_reuse = std::env::var("DDA_RS_OPTIMIZE_ALLSELECTED_CCD")
-                    .ok()
-                    .as_deref()
-                    == Some("1");
-                let ccd_values = if allow_full_model_reuse
-                    && matches!(
-                        ccd_conditioning_strategy,
-                        CcdConditioningStrategy::AllSelected
-                    )
-                    && !enabled_ccdsig
-                {
+                let ccd_values = if ccd_full_model_reuse {
                     solve_all_selected_ccd_values_with_full_model_reuse(
                         prepared,
                         &ccd_pairs,
@@ -1261,6 +1257,20 @@ fn extract_shifted_channel_series(prepared: &PreparedWindow, channel: usize) -> 
         .iter()
         .map(|row| row[channel])
         .collect::<Vec<_>>()
+}
+
+/// Whether every pair's conditioned model (its confounds and its source) is its target's full model, all candidates
+/// but the target: then `solve_all_selected_ccd_values_with_full_model_reuse` fits that model once per target. CCDSIG
+/// needs the pairwise fits for its surrogates.
+fn ccd_reuses_full_model(
+    strategy: CcdConditioningStrategy,
+    ccdsig: bool,
+    pairs: &[[usize; 2]],
+    candidates: &[usize],
+) -> bool {
+    matches!(strategy, CcdConditioningStrategy::AllSelected)
+        && !ccdsig
+        && pairs.iter().all(|pair| candidates.contains(&pair[1]))
 }
 
 fn solve_all_selected_ccd_values_with_full_model_reuse(
