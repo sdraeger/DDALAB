@@ -235,7 +235,22 @@ test("a_closed_inspector_neither_renders_nor_plans", async ({ page }) => {
   test.setTimeout(120_000);
   const stored = await hasStorage(page);
   await page.getByRole("button", { name: "Inspector" }).click();
-  const id = await page.evaluate((spec) => window.__ddalab.openSynthetic(spec), SCAN);
+  const id = await page.evaluate(async (spec) => {
+    const { openSynthetic, store } = window.__ddalab;
+    const id = await openSynthetic(spec);
+    // The full annotation list replaces the info the open returned once read (recordings.ts), which makes a new
+    // request: it may arrive after a scan that is not stored is over.
+    const opened = store.getState().recordings[id].info;
+    const annotated = new Promise<void>((done) => {
+      const stop = store.subscribe((s) => {
+        if (s.recordings[id]?.info === opened) return;
+        stop();
+        done();
+      });
+    });
+    Object.assign(window, { annotated });
+    return id;
+  }, SCAN);
   const counts = await rendersDuring(page, ["Inspector", "Scan", "RunBar", "RunButton"], async () => {
     await expect
       .poll(
@@ -257,24 +272,32 @@ test("a_closed_inspector_neither_renders_nor_plans", async ({ page }) => {
   // Each rested view asks the core for one plan: the command bar's, which says why a run cannot start.
   const plans = await page.evaluate(async (id) => {
     const { engine, store } = window.__ddalab;
+    await (window as unknown as { annotated: Promise<void> }).annotated;
+    const asked: number[][] = [];
+    const plan = engine.plan.bind(engine);
+    engine.plan = (...args: Parameters<typeof plan>) => {
+      asked.push([args[1].time_range.start, args[1].time_range.end]);
+      return plan(...args);
+    };
+    // Waits for the `n`th plan, or 10 s: a slow machine plans later, not more often.
+    const planned = async (n: number) => {
+      const until = performance.now() + 10_000;
+      while (asked.length < n && performance.now() < until) await new Promise((r) => setTimeout(r, 50));
+    };
     store.setState((s) => ({
       recordings: { ...s.recordings, [id]: { ...s.recordings[id], selectedChannels: [0, 1] } },
     }));
-    await new Promise((rested) => setTimeout(rested, 600));
-    let asked = 0;
-    const plan = engine.plan.bind(engine);
-    engine.plan = (...args: Parameters<typeof plan>) => {
-      asked++;
-      return plan(...args);
-    };
+    await planned(1);
+    asked.length = 0;
     for (let i = 1; i <= 4; i++) {
       store.setState((s) => ({ view: { ...s.view, t0: i * 10, t1: i * 10 + 10 } }));
-      await new Promise((rested) => setTimeout(rested, 800));
+      await planned(i);
     }
+    // A second plan of a view, the run bar's, would come with the first.
     await new Promise((rested) => setTimeout(rested, 2000));
     return asked;
   }, id);
-  expect(plans).toBe(4);
+  expect(plans).toEqual([10, 20, 30, 40].map((t0) => [t0 * SCAN.rateHz, (t0 + 10) * SCAN.rateHz]));
   // Opened again, the inspector shows the interval of this moment.
   await page.getByRole("button", { name: "Inspector" }).click();
   await expect(page.getByRole("region", { name: "Run" }).getByLabel("Start", { exact: true })).toHaveValue(
