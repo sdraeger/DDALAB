@@ -45,28 +45,45 @@ async function expectOnlyTokens(page: Page) {
   }
 }
 
-/** The horizontal scale of `selector`'s element on each animation frame while `act` runs and 300 ms after. */
+/**
+ * The horizontal scale of `selector`'s element on each animation frame from before `act` until it has shown on 4
+ * frames at least and its transitions are over, then once more. Counted in frames: a slow machine draws fewer of them.
+ */
 async function scalesDuring(page: Page, selector: string, act: () => Promise<void>) {
   await page.evaluate((s) => {
     const scales: number[] = [];
     const sample = () => {
       const element = document.querySelector(s);
-      if (element) {
-        const transform = getComputedStyle(element).transform;
-        scales.push(transform === "none" ? 1 : new DOMMatrix(transform).a);
-      }
-      Object.assign(window, { raf: requestAnimationFrame(sample) });
+      if (!element) return;
+      const transform = getComputedStyle(element).transform;
+      scales.push(transform === "none" ? 1 : new DOMMatrix(transform).a);
     };
-    Object.assign(window, { scales });
-    sample();
+    let raf = 0;
+    const frame = () => {
+      sample();
+      raf = requestAnimationFrame(frame);
+    };
+    const stop = () => {
+      cancelAnimationFrame(raf);
+      sample();
+      return scales;
+    };
+    Object.assign(window, { scales, stop });
+    frame();
   }, selector);
   await act();
-  await page.waitForTimeout(300);
-  return page.evaluate(() => {
-    const w = window as unknown as { raf: number; scales: number[] };
-    cancelAnimationFrame(w.raf);
-    return w.scales;
-  });
+  // getAnimations() flushes styles: the transition that the end of the starting style starts is among them.
+  await page.waitForFunction((s) => {
+    const element = document.querySelector(s);
+    const { scales } = window as unknown as { scales: number[] };
+    return (
+      element !== null &&
+      scales.length > 3 &&
+      !element.hasAttribute("data-starting-style") &&
+      element.getAnimations().every((a) => a.playState === "finished")
+    );
+  }, selector);
+  return page.evaluate(() => (window as unknown as { stop: () => number[] }).stop());
 }
 
 test("transitions_use_the_tokens", async ({ page }) => {
@@ -123,17 +140,15 @@ test("reduced_motion_popups_do_not_scale", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 720 });
   await page.emulateMedia({ reducedMotion: "reduce" });
   await openRecording(page);
-  const select = await scalesDuring(page, '[role="listbox"]', () =>
+  // The Select's popup scales, the listbox inside it does not.
+  const select = await scalesDuring(page, ':has(> [role="listbox"])', () =>
     page.getByRole("combobox", { name: "Epoch" }).click(),
   );
   await page.keyboard.press("Escape");
   const dialog = await scalesDuring(page, '[role="dialog"]', () =>
     page.getByRole("button", { name: "Local: data stays on this device" }).click(),
   );
-  for (const scales of [select, dialog]) {
-    expect(scales.length).toBeGreaterThan(3);
-    expect(new Set(scales)).toEqual(new Set([1]));
-  }
+  for (const scales of [select, dialog]) expect(new Set(scales)).toEqual(new Set([1]));
   // The fade stays.
   await expect.poll(() => timing(page.getByRole("dialog"))).toEqual({ duration: DURATION, ease: EASE });
 });
