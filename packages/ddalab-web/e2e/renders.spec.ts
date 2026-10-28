@@ -26,17 +26,43 @@ test.beforeEach(async ({ page }) => {
   await page.goto("/");
 });
 
-// Hiding and showing the library changes the layout around the panels, none of what they show.
+// A phone's inspector is hidden until asked for: revealed, it shows whole, with no lazy section arriving after and
+// pushing the rest down.
+test("revealing_the_phone_inspector_shows_it_whole", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const fixtures = ["fixture.vhdr", "fixture.eeg", "fixture.vmrk"].map((name) =>
+    fileURLToPath(new URL(`../../dda-rs/tests/fixtures/${name}`, import.meta.url)),
+  );
+  await page.getByLabel("Recording files").setInputFiles(fixtures);
+  await expect(page.getByRole("banner").getByText("Choose at least one channel")).toBeVisible();
+  await page.getByRole("banner").getByRole("button", { name: "Inspector" }).click();
+  await expect(page.getByRole("heading", { name: "fixture.vhdr" })).toBeVisible();
+  await expect(scanned(page)).toBeVisible();
+  const added = await page.evaluate(
+    () =>
+      new Promise<number>((resolve) => {
+        let count = 0;
+        const inspector = document.querySelector('section[aria-label="Inspector"]') as Element;
+        new MutationObserver((records) => {
+          count += records.reduce((n, r) => n + r.addedNodes.length, 0);
+        }).observe(inspector, { childList: true });
+        setTimeout(() => resolve(count), 1000);
+      }),
+  );
+  expect(added).toBe(0);
+});
+
+// Hiding and showing the library changes the layout around the library and the tabs, none of what they show.
 test("toggling_a_panel_leaves_the_panels_alone", async ({ page }) => {
   const library = page.getByRole("button", { name: "Library", exact: true }).first();
   await expect(library).toBeVisible();
-  const counts = await rendersDuring(page, ["LibraryRail", "TabStrip", "Inspector"], async () => {
+  const counts = await rendersDuring(page, ["LibraryRail", "TabStrip"], async () => {
     for (let i = 0; i < 2; i++) {
       await library.click();
       await page.waitForTimeout(300);
     }
   });
-  expect(counts).toEqual({ LibraryRail: 0, TabStrip: 0, Inspector: 0 });
+  expect(counts).toEqual({ LibraryRail: 0, TabStrip: 0 });
 });
 
 test("a_scan_re_renders_its_progress_only", async ({ page }) => {

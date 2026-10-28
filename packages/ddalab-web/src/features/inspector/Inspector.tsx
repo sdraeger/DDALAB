@@ -22,7 +22,9 @@ const GROUPS_SHOWN = 8;
 /** Rows rendered above and below the visible ones. */
 const OVERSCAN = 6;
 
-export const Inspector = memo(function Inspector() {
+// Not memoized: the reveal of a hidden inspector (Shell's Activity) must render it again, or a lazy section that
+// suspended while hidden arrives a moment later and shifts the panel.
+export function Inspector() {
   const id = useStore((s) => s.activeRecordingId);
   // Each part on its own: a scan report replaces the recording but keeps these, and only Scan follows it.
   const fingerprint = useStore((s) => activeRecording(s)?.fingerprint);
@@ -91,7 +93,7 @@ export const Inspector = memo(function Inspector() {
       </Suspense>
     </section>
   );
-});
+}
 
 function Scan({ id }: { id: string }) {
   const scan = useStore((s) => s.recordings[id]?.scan);
