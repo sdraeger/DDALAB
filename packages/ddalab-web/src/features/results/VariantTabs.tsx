@@ -19,7 +19,7 @@ const VALUES: Record<string, [name: string, definition: string]> = {
   ],
   CD: [
     "RMSE reduction",
-    "For a row A <- B: the RMSE of A's own model less the RMSE of A's model with B's terms added",
+    "For a row A ← B: the RMSE of A's own model less the RMSE of A's model with B's terms added",
   ],
   DE: [
     "|ST/CT RMSE − 1|",
@@ -28,7 +28,7 @@ const VALUES: Record<string, [name: string, definition: string]> = {
   // shortcut: a legacy select mask (SY mode 2) stores each direction's RMSE instead; name it if such results appear.
   SY: [
     "RMSE asymmetry",
-    "For a row A <-> B: the reverse model's RMSE over the forward's, less the forward's over the reverse's",
+    "For a row A ↔ B: the reverse model's RMSE over the forward's, less the forward's over the reverse's",
   ],
 };
 const FIT_ERROR: [string, string] = [
