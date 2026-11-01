@@ -376,7 +376,7 @@ test("command_bar_run_speaks_while_the_inspector_is_hidden", async ({ page }) =>
   await settings(page).getByLabel("Step", { exact: true }).fill("10");
   await interval(page, "0", String(LONG.durationS));
   await inspector.click();
-  await banner.getByRole("button", { name: "Run", exact: true }).click();
+  await banner.getByRole("button", { name: "Run DDA" }).click();
   await expect(banner.getByText(/^(Starting|Running, \d+%)$/)).toBeVisible();
   await expect(banner.getByText(/^Running, [1-9]\d?%$/)).toBeVisible({ timeout: 120_000 });
 });

@@ -167,6 +167,13 @@
   color: var(--event);
 }
 
+/* Below 1024 px (Shell.module.css) the command bar's Run DDA says Run, as Annotate keeps its flag alone. */
+@container commandbar (width < 1008px) {
+  .dda {
+    display: none;
+  }
+}
+
 /* A phone's bar (Shell.module.css) gives the status all the room its buttons leave. */
 @media (width < 768px) {
   .barStatus {

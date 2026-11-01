@@ -165,10 +165,12 @@ export function RunBar({ recordingId }: { recordingId: string }) {
   );
 }
 
-/** The command bar's Run: the run bar's request, without its plan. */
+/**
+ * Run DDA in the command bar, which Shell shows only while the inspector, and with it the run bar, is hidden: one Run
+ * DDA on screen at a time. It runs the run bar's request and says why it cannot run and how the run goes.
+ */
 export function RunButton({ recordingId, status }: { recordingId: string; status: boolean }) {
   const { request, errors, now } = useRunRequest(recordingId);
-  // With the inspector hidden, the run bar is too: this button says why it cannot run and how the run goes.
   const plan = usePlan(recordingId, status ? request : undefined);
   const busy = useStore((s) => s.run?.status === "running");
   const refusal = Object.values(errors)[0] ?? (plan?.refused ? plan.text : undefined);
@@ -190,13 +192,16 @@ export function RunButton({ recordingId, status }: { recordingId: string; status
       )}
       <button
         type="button"
-        className={controls.button}
+        className={controls.primary}
+        aria-label="Run DDA"
         data-appear
         disabled={!request || busy || (status && plan?.refused)}
         onClick={() => runNow(recordingId, now)}
       >
         <Play aria-hidden />
-        Run
+        <span>
+          Run<span className={styles.dda}> DDA</span>
+        </span>
       </button>
     </>
   );

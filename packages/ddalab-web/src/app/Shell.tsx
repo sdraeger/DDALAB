@@ -115,9 +115,9 @@ export function Shell() {
           )}
           <span className={styles.grow} />
           <BatchStatus />
-          {id && (
+          {id && !inspector && (
             <Suspense fallback={null}>
-              <RunButton recordingId={id} status={!inspector && !batching} />
+              <RunButton recordingId={id} status={!batching} />
             </Suspense>
           )}
           {/* On a phone these live in the application menu (View, Help). */}

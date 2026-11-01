@@ -15,8 +15,8 @@ async function openDay(page: Page) {
   await page.evaluate(() =>
     window.__ddalab.openSynthetic({ channels: 2, rateHz: 256, durationS: 86_400, seed: 5 }),
   );
-  // Run joins the bar once the engine has listed its variants.
-  await expect(page.getByRole("button", { name: "Run", exact: true })).toBeVisible();
+  // Run DDA shows (in the inspector) once the engine has listed its variants.
+  await expect(page.getByRole("button", { name: "Run DDA" })).toBeVisible();
 }
 
 /** Each width with the inspector open, then each with it closed. */
@@ -133,7 +133,7 @@ test("bar_fits_the_window", async ({ page }) => {
       ];
     });
     expect(outside, layout).toEqual([]);
-    for (const name of ["Local: data stays on this device", "Annotate", "Dark theme", "Run"]) {
+    for (const name of ["Local: data stays on this device", "Annotate", "Dark theme", "Run DDA"]) {
       await expect(page.getByRole("button", { name, exact: true }), layout).toBeInViewport({ ratio: 1 });
     }
     const scales = page.getByRole("button", { name: "Epoch, sensitivity and timebase" });

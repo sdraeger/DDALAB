@@ -138,7 +138,7 @@ test("the_bar_takes_the_title_bar_area_beside_the_window_controls", async ({ pag
   await page.evaluate(() =>
     window.__ddalab.openSynthetic({ channels: 2, rateHz: 256, durationS: 600, seed: 5 }),
   );
-  await expect(page.getByRole("button", { name: "Run", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Run DDA" })).toBeVisible();
   const bar = page.getByRole("banner");
   expect((await bar.boundingBox())?.height).toBe(44);
   for (const [x, width] of [
