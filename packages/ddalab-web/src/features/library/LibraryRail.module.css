@@ -12,9 +12,10 @@
   gap: var(--space-2);
 }
 
+/* Open files and Open folder, stacked, both as wide as the wider. */
 .actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: max-content;
   gap: var(--space-2);
 }
 

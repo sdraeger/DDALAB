@@ -1,7 +1,8 @@
 // The inspector's lines on a recording streamed from OpenNeuro: the dataset it comes from, and a copy kept on this
 // device (core/offline.ts), made, followed and removed here. A copy under way goes on while the inspector shows another
 // recording; this module follows it by the recording's fingerprint.
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
+import { create } from "zustand";
 import type { RecordingInput } from "../../core/engine";
 import { canKeep, dropCopy, keepCopy, keptFiles } from "../../core/offline";
 import { useStore } from "../../store/store";
@@ -16,16 +17,10 @@ type Copy =
   | { kind: "none" }
   | { kind: "failed"; reason: string };
 
-const copies = new Map<string, Copy>();
-const listeners = new Set<() => void>();
-const set = (fingerprint: string, copy: Copy) => {
-  copies.set(fingerprint, copy);
-  for (const listener of listeners) listener();
-};
-const subscribe = (listener: () => void) => {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
-};
+/** The copies by recording fingerprint. */
+const useCopies = create<Record<string, Copy>>()(() => ({}));
+const set = (fingerprint: string, copy: Copy) => useCopies.setState({ [fingerprint]: copy });
+const known = (fingerprint: string) => fingerprint in useCopies.getState();
 const controllers = new Map<string, AbortController>();
 
 function keep(fingerprint: string, input: UrlInput) {
@@ -65,12 +60,12 @@ export function Streamed({ fingerprint }: { fingerprint: string }) {
     const source = s.tabs.find((t) => t.fingerprint === fingerprint)?.source;
     return source?.kind === "url" ? source.input : undefined;
   });
-  const copy = useSyncExternalStore(subscribe, () => copies.get(fingerprint));
+  const copy = useCopies((s) => s[fingerprint]);
   const [checked, setChecked] = useState(false);
   useEffect(() => {
-    if (!input || copies.has(fingerprint)) return setChecked(true);
+    if (!input || known(fingerprint)) return setChecked(true);
     keptFiles(input).then((files) => {
-      if (!copies.has(fingerprint)) set(fingerprint, files ? { kind: "kept" } : { kind: "none" });
+      if (!known(fingerprint)) set(fingerprint, files ? { kind: "kept" } : { kind: "none" });
       setChecked(true);
     });
   }, [fingerprint, input]);
