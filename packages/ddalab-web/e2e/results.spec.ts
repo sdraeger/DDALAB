@@ -344,7 +344,7 @@ test("keyboard_reads_window_values", async ({ page }) => {
   await expect(readout).toContainText(`${centers[w].toFixed(3)} s`);
   await expect(readout).toContainText(q.at(w, 1).toPrecision(4));
   // Screen readers hear it; the focus stays, and the view did not page.
-  const spoken = `Fp2, window at ${centers[w].toFixed(3)} s, Q ${q.at(w, 1).toPrecision(4)}`;
+  const spoken = `Fp2, window at ${centers[w].toFixed(3)} s, a₁ coefficient ${q.at(w, 1).toPrecision(4)}`;
   const status = result(page).getByRole("status").filter({ hasText: "window at" });
   await expect(status).toHaveText(spoken);
   await expect(row).toBeFocused();
