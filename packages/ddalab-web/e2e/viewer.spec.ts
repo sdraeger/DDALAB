@@ -708,7 +708,7 @@ test.describe("phone", () => {
     for (const width of [360, 390]) {
       await page.setViewportSize({ width, height: 844 });
       expect(await outside(page.locator("header").first()), `${width} px`).toEqual([]);
-      for (const name of ["Annotate", "Run", "Inspector"])
+      for (const name of ["Annotate", "Run DDA", "Inspector"])
         await expect(page.getByRole("button", { name, exact: true })).toBeInViewport({ ratio: 1 });
     }
     // The inspector covers the view; picking a view closes it.
