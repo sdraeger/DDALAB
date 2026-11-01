@@ -14,3 +14,7 @@ github-attestations-phase = "host"
 github-attestations-filters = ["*.tar.xz", "*.zip", "*.sh", "*.ps1", "*.rb", "*.sum", "*.tar.gz"]
 pr-run-mode = "plan"
 github-build-setup = "../build-setup.yml"
+
+# dist puts Apple Silicon on macos-14, which GitHub retires on 2026-11-02.
+[dist.github-custom-runners]
+aarch64-apple-darwin = "macos-15"
