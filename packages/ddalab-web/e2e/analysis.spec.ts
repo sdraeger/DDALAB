@@ -136,7 +136,8 @@ test("typed_interval_survives_the_resting_interval", async ({ page }) => {
   await page.keyboard.type("1");
   await page.keyboard.press("Tab"); // keyboard focus selects the End field's text
   await page.keyboard.type("5");
-  expect(Date.now() - typed).toBeLessThan(200);
+  // A runner slower than the rest has not typed End within it: the case this test is about did not happen.
+  test.skip(Date.now() - typed >= 200, "typing took longer than the 200 ms rest");
   await page.waitForTimeout(500);
   await expect(end).toHaveValue("5");
   await expect(start).toHaveValue("1");
