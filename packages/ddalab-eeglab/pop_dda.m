@@ -10,7 +10,8 @@
 %   'ws'        window step in samples.
 %   'delays'    delays (tau) in samples.
 %   'ct_pairs'  N-by-2 channel pairs for CT, 1-based. Required with CT.
-%   'cd_pairs'  N-by-2 directed channel pairs (from, to) for CD, 1-based. Required with CD.
+%   'cd_pairs'  N-by-2 directed channel pairs (target, source) for CD, 1-based: row "A <- B" is how much B improves
+%               the model of A. Required with CD.
 %   'binary'    the ddalab executable. Default the DDALAB_CLI environment variable, else ddalab on the PATH.
 %
 % The result document (schema ddalab.result/2) is stored in EEG.etc.dda; pop_ddaplot draws it.
@@ -21,7 +22,7 @@ if nargin < 2
     ask = {'Variants (ST CT CD DE SY)' 'ST'; 'Channel indices (blank: all)' ''; ...
         'Window length in samples (blank: default)' ''; 'Window step in samples (blank: default)' ''; ...
         'Delays in samples (blank: default)' ''; 'CT channel pairs, e.g. 1 2; 1 3' ''; ...
-        'CD directed pairs, e.g. 1 2; 2 1' ''};
+        'CD pairs as target source, e.g. 1 2; 2 1' ''};
     uilist = cell(1, 2 * size(ask, 1));
     uilist(1:2:end) = cellfun(@(s) {'style' 'text' 'string' s}, ask(:, 1)', 'uniformoutput', false);
     uilist(2:2:end) = cellfun(@(s) {'style' 'edit' 'string' s}, ask(:, 2)', 'uniformoutput', false);
