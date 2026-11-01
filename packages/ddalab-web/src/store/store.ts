@@ -117,6 +117,8 @@ export interface State {
   activeResultId: string | null;
   /** The side panels: open or collapsed. */
   panels: { library: boolean; inspector: boolean };
+  /** The result heatmap's height in CSS pixels as the user set it; null: from its rows. */
+  resultHeight: number | null;
   /** On a phone (a window below 768 px): the one view shown, and whether the inspector covers it. */
   phone: { view: PhoneView; inspector: boolean };
   run: RunState | null;
@@ -170,6 +172,7 @@ export const useStore = create<State>()(() => ({
   batch: null,
   activeResultId: null,
   panels: { library: true, inspector: true },
+  resultHeight: null,
   phone: { view: "library", inspector: false },
   run: null,
   shownResult: null,
@@ -540,6 +543,8 @@ export const showResult = (record: AnalysisRecord, interval = intervalOf(record)
 
 export const setShownResult = (change: Partial<ShownResult>) =>
   useStore.setState((s) => ({ shownResult: s.shownResult && { ...s.shownResult, ...change } }));
+
+export const setResultHeight = (resultHeight: number) => useStore.setState({ resultHeight });
 
 export const togglePanel = (panel: keyof State["panels"]) =>
   useStore.setState((s) => ({ panels: { ...s.panels, [panel]: !s.panels[panel] } }));

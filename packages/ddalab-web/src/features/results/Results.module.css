@@ -3,6 +3,7 @@
 .result {
   --gutter: 76px;
   --axis: 22px;
+  position: relative;
   display: flex;
   flex: none;
   flex-direction: column;
@@ -187,13 +188,49 @@
    screen to itself (Shell.module.css), rows of a fingertip up to half of it. */
 .gutter,
 .plot {
-  height: clamp(56px, calc(var(--rows) * 24px), 32vh);
+  height: var(--plot-height, clamp(56px, calc(var(--rows) * 24px), 32vh));
+}
+
+/* The top edge, which sets the height (ResultPanel.tsx): a line in the primary color while it is hovered or focused. */
+.resize {
+  position: absolute;
+  top: -4px;
+  right: 0;
+  left: 0;
+  z-index: 1;
+  height: 8px;
+  margin: 0;
+  border: 0;
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.resize::after {
+  position: absolute;
+  inset: 3px 0;
+  background: var(--primary);
+  opacity: 0;
+  content: "";
+  transition: opacity var(--motion-duration) var(--motion-ease);
+}
+
+.resize:hover::after,
+.resize:focus-visible::after {
+  opacity: 1;
+}
+
+.resize:focus-visible {
+  outline: none;
 }
 
 @media (width < 768px) {
   .gutter,
   .plot {
     height: clamp(80px, calc(var(--rows) * var(--hit)), 50dvh);
+  }
+
+  .resize {
+    display: none;
   }
 }
 

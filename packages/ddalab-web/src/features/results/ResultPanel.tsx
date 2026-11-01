@@ -11,6 +11,7 @@ import {
   type CSSProperties,
   type KeyboardEvent,
   memo,
+  type PointerEvent as ReactPointerEvent,
   type Ref,
   Suspense,
   use,
@@ -30,9 +31,9 @@ import { gradient, LUTS, type MapName, mapOf, scaleOf } from "../../render/color
 import { observeDevicePixels } from "../../render/devicePixels";
 import { webgl2 } from "../../render/gl";
 import { createHeatmapLayer, type HeatmapLayer } from "../../render/heatmapLayer";
-import { FANOUT, type ResultTile } from "../../render/resultPyramid";
+import { FANOUT } from "../../render/resultPyramid";
 import { isDark, readColors, watchTheme } from "../../render/themeColors";
-import { openResult, setCursor, setShownResult, setView, useStore } from "../../store/store";
+import { openResult, setCursor, setResultHeight, setShownResult, setView, useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
 import { userOf } from "../annotations/model";
 import { electrodeGroups } from "../inspector/groups";
@@ -43,13 +44,14 @@ import { arrayKey, arrayOf, type Loaded, loads, manifestKey, manifestOf, pick } 
 import { type HeatmapProbeFrame, heatmapProbe } from "./probe";
 import styles from "./Results.module.css";
 import { RowPlot, type RowPlotHandle } from "./RowPlot";
-import { VariantTabs } from "./VariantTabs";
+import { VariantTabs, valueInfo } from "./VariantTabs";
 
 const AXIS_CSS = 22;
+/** The heatmap's height as the user sets it, in CSS pixels: from the CSS minimum to 60 % of the window. */
+const heightOf = (height: number) => Math.round(Math.max(56, Math.min(height, 0.6 * innerHeight)));
 const GL_MISSING = "The heatmap is drawn with WebGL2, which this browser does not provide.";
 const GL_LOST = "The browser reset WebGL2 drawing. The heatmap returns once it restores it.";
 
-const NAMES: Record<ResultTile["array"], string> = { q: "Q", fit_error: "Fit error" };
 const print = (value: number) => value.toPrecision(3);
 
 /** The limits of an array in `map`, from the range of all its rows. */
@@ -138,6 +140,8 @@ function Heatmap({
   const spoken = useRef<HTMLParagraphElement>(null);
   const readout = useRef<HoverReadoutHandle>(null);
   const rowPlot = useRef<RowPlotHandle>(null);
+  const handle = useRef<HTMLHRElement>(null);
+  const height = useStore((s) => s.resultHeight);
   usePlotPointer(plot, recordingId);
 
   useEffect(() => {
@@ -170,7 +174,7 @@ function Heatmap({
       opened?.info.sample_rate_hz ??
       (request.time_range.end - request.time_range.start) / (end_time_seconds - start_time_seconds);
     const halfS = length / rate / 2;
-    const name = NAMES[array];
+    const [name] = valueInfo(variant.id, array);
     let colors = readColors(plotEl);
     let size = { cssW: 0, cssH: 0, dpr: 1, W: 0, H: 0 };
     let raf = 0;
@@ -327,6 +331,7 @@ function Heatmap({
       }
       axisEl.width = next.W;
       axisEl.height = Math.round(AXIS_CSS * next.dpr);
+      handle.current?.setAttribute("aria-valuenow", String(Math.round(next.cssH)));
       paint();
     });
 
@@ -433,15 +438,47 @@ function Heatmap({
   }, [recordingId, resultId, manifest, variant, array, map, labels, rows, loading]);
 
   const centers = manifest.window_centers_seconds;
+  const [name, definition] = valueInfo(variant.id, array);
+  // The top edge sets the heatmap's height: dragged, or with Up and Down.
+  const resize = (event: ReactPointerEvent<HTMLHRElement>) => {
+    const el = event.currentTarget;
+    const [y0, h0] = [event.clientY, plot.current?.offsetHeight ?? 0];
+    el.setPointerCapture(event.pointerId);
+    const move = (e: PointerEvent) => setResultHeight(heightOf(h0 + y0 - e.clientY));
+    el.addEventListener("pointermove", move);
+    el.addEventListener("lostpointercapture", () => el.removeEventListener("pointermove", move), {
+      once: true,
+    });
+  };
+  const step = (event: KeyboardEvent<HTMLHRElement>) => {
+    const by = { ArrowUp: 24, ArrowDown: -24 }[event.key];
+    if (by === undefined) return;
+    event.preventDefault();
+    setResultHeight(heightOf((plot.current?.offsetHeight ?? 0) + by));
+  };
   return (
     <Tabs.Root
       value={variant.id}
       onValueChange={(value) => setShownResult({ variant: value as string, row: null })}
       render={<section className={styles.result} aria-label="Result" data-appear />}
     >
+      <hr
+        ref={handle}
+        aria-orientation="horizontal"
+        aria-label="Result height"
+        aria-valuemin={56}
+        aria-valuemax={heightOf(Number.POSITIVE_INFINITY)}
+        aria-valuenow={height ?? undefined}
+        tabIndex={0}
+        className={styles.resize}
+        onPointerDown={resize}
+        onKeyDown={step}
+        data-own-keys
+      />
       <div className={styles.bar}>
         <VariantTabs
           variants={manifest.variants}
+          variant={variant.id}
           hasFitError={hasFitError}
           array={array}
           onArray={(next) => setShownResult({ array: next })}
@@ -464,7 +501,7 @@ function Heatmap({
           )}
         </span>
         <Suspense fallback={null}>
-          <ColorBar loading={loading} name={NAMES[array]} map={map} />
+          <ColorBar loading={loading} name={name} definition={definition} map={map} />
         </Suspense>
         <button
           type="button"
@@ -476,7 +513,11 @@ function Heatmap({
           <X aria-hidden />
         </button>
       </div>
-      <Tabs.Panel value={variant.id} className={styles.panel} style={{ "--rows": rows } as CSSProperties}>
+      <Tabs.Panel
+        value={variant.id}
+        className={styles.panel}
+        style={{ "--rows": rows, "--plot-height": height && `min(${height}px, 60vh)` } as CSSProperties}
+      >
         <Gutter ref={gutter} labels={labels} tints={tints} picked={picked} centers={centers} />
         <div className={styles.plot} ref={plot}>
           <canvas ref={heat} className={styles.layer} aria-hidden data-heatmap />
@@ -489,7 +530,7 @@ function Heatmap({
           <Suspense
             fallback={
               <p role="status" className={styles.message}>
-                Building the zoomed-out levels of {NAMES[array]}
+                Building the zoomed-out levels of {name}
               </p>
             }
           >
@@ -593,8 +634,13 @@ function ArrayStatus(props: { loading: Promise<Loaded<ResultArray>>; onRetry(): 
   );
 }
 
-/** The color bar: the array's name, its map from the lower to the upper limit, both printed. */
-function ColorBar(props: { loading: Promise<Loaded<ResultArray>>; name: string; map: MapName }) {
+/** The color bar: what the values are, their map from the lower to the upper limit, both printed. */
+function ColorBar(props: {
+  loading: Promise<Loaded<ResultArray>>;
+  name: string;
+  definition: string;
+  map: MapName;
+}) {
   const loaded = use(props.loading);
   if ("error" in loaded) return null;
   const { map, lo, hi } = scaleOfArray(props.map, loaded.ok);
@@ -604,6 +650,7 @@ function ColorBar(props: { loading: Promise<Loaded<ResultArray>>; name: string; 
       data-appear
       role="img"
       aria-label={`${props.name} from ${print(lo)} to ${print(hi)}`}
+      title={props.definition}
     >
       <b>{props.name}</b>
       <small>{print(lo)}</small>

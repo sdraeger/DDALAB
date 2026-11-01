@@ -9,7 +9,7 @@ export interface HoverFields {
   center: number;
   /** As stored (float32); `undefined` while it is read. */
   value: number | undefined;
-  /** The array's name: Q or Fit error. */
+  /** What the values are (VariantTabs.valueInfo). */
   name: string;
 }
 

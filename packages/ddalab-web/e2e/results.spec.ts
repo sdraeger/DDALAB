@@ -289,10 +289,10 @@ test("variant_tabs_switch", async ({ page }) => {
   });
 
   // CT keeps a fit error per window: its own toggle shows it, a sequential quantity in batlow.
-  await expect(result(page).getByRole("button", { name: "Fit error" })).toHaveCount(0);
+  await expect(result(page).getByRole("button", { name: "Fit RMSE" })).toHaveCount(0);
   await result(page).getByRole("tab", { name: "CT" }).click();
   expect((await heatmapRows(page)).frame).toMatchObject({ variant: "CT", array: "q", map: "vik" });
-  await result(page).getByRole("button", { name: "Fit error" }).click();
+  await result(page).getByRole("button", { name: "Fit RMSE" }).click();
   expect((await heatmapRows(page)).frame).toMatchObject({ variant: "CT", array: "fit_error", map: "batlow" });
 });
 

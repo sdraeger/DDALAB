@@ -9,6 +9,7 @@ import { sessionKey } from "./windows";
 
 interface Session {
   panels: { library: boolean; inspector: boolean };
+  resultHeight?: number | null;
   activeResultId: string | null;
   /** The view of the recording with `fingerprint`; the calibration has a setting of its own. */
   view?: Omit<View, "mmPerCssMm"> & { fingerprint: string };
@@ -28,6 +29,7 @@ function save() {
   const { mmPerCssMm: _, ...view } = state.view;
   const session: Session = {
     panels: state.panels,
+    resultHeight: state.resultHeight,
     activeResultId: state.activeResultId,
     view: recording ? { ...view, fingerprint: recording.fingerprint } : stored().view,
   };
@@ -43,6 +45,7 @@ export function restoreSession(listed: Promise<unknown>) {
     const { library, inspector } = saved.panels;
     useStore.setState({ panels: { library: library !== false, inspector: inspector !== false } });
   }
+  if (typeof saved.resultHeight === "number") useStore.setState({ resultHeight: saved.resultHeight });
   const resultId = saved.activeResultId;
   if (resultId) {
     // Its view loads while the history is listed.
