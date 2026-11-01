@@ -12,7 +12,7 @@ authors:
     given-names: Claudia
   - family-names: Sejnowski
     given-names: Terrence J.
-version: 2.6.0
+version: 2.6.1
 date-released: 2026-11-01
 license: MIT
 repository-code: https://github.com/sdraeger/DDALAB
