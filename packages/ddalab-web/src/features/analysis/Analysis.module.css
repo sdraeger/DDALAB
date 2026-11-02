@@ -199,6 +199,13 @@
   gap: var(--space-2);
 }
 
+/* Under the fields, aligned with Start's label. */
+.whole {
+  grid-column: 1 / -1;
+  justify-self: start;
+  padding-inline: 0;
+}
+
 .timeField {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

@@ -176,6 +176,25 @@ test("run_looks_disabled_until_a_channel_is_chosen", async ({ page }) => {
   await expect(run).toHaveCSS("cursor", "pointer");
 });
 
+// A minute, six times the first view: the run interval is the whole recording until a part of it is chosen.
+test("the_interval_is_the_whole_recording_until_one_is_chosen", async ({ page }) => {
+  await page.evaluate(() =>
+    window.__ddalab.openSynthetic({ channels: 2, rateHz: 100, durationS: 60, seed: 1 }),
+  );
+  const start = runBar(page).getByLabel("Start", { exact: true });
+  const end = runBar(page).getByLabel("End", { exact: true });
+  const whole = runBar(page).getByRole("button", { name: "Whole recording" });
+  await expect(end).toHaveValue("60");
+  await expect(start).toHaveValue("0");
+  await expect(whole).toBeDisabled();
+  await interval(page, "1", "5");
+  await expect(whole).toBeEnabled();
+  await whole.click();
+  await expect(end).toHaveValue("60");
+  await expect(start).toHaveValue("0");
+  expect(await page.evaluate(() => window.__ddalab.store.getState().selection)).toBeNull();
+});
+
 test("escape_puts_back_the_interval", async ({ page }) => {
   await openBrainVision(page);
   const end = runBar(page).getByLabel("End", { exact: true });
@@ -212,11 +231,11 @@ test("escape_within_200_ms_of_enter_leaves_no_stale_interval", async ({ page }) 
     return performance.now() - at;
   });
   expect(gap).toBeLessThan(200);
-  /** The interval a run takes now (the selection, else the view), as the fields print it. */
+  /** The interval a run takes now (the selection, else the whole recording), as the fields print it. */
   const committed = () =>
     page.evaluate(() => {
-      const { selection, view } = window.__ddalab.store.getState();
-      const { t0, t1 } = selection ?? view;
+      const { selection, recordings, activeRecordingId } = window.__ddalab.store.getState();
+      const { t0, t1 } = selection ?? { t0: 0, t1: recordings[activeRecordingId ?? ""].info.duration_s };
       return [t0, t1].map((t) => String(Number(t.toFixed(3))));
     });
   const fields = async () => [await start.inputValue(), await end.inputValue()];

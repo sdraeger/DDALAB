@@ -22,7 +22,7 @@ export interface DdaDraft extends Omit<DdaForm, "variants"> {
   variants: VariantInfo[];
   /** Indices into the recording's analysis channels. */
   channels: number[];
-  /** The run interval in seconds: the selection, or the view interval when nothing is selected. */
+  /** The run interval in seconds: the selection, or the whole recording when nothing is selected. */
   startS: number;
   endS: number;
 }

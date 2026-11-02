@@ -1,4 +1,5 @@
-// The run bar at the foot of the inspector: the interval the run covers (typed here, or selected on the plots), the
+// The run bar at the foot of the inspector: the interval the run covers (the whole recording, or a part typed here or
+// selected on the plots), the
 // plan the core makes for it, Run and the run's progress, and how the last run ended.
 import Check from "lucide-react/dist/esm/icons/check.mjs";
 import Play from "lucide-react/dist/esm/icons/play.mjs";
@@ -14,28 +15,28 @@ import { validateRequest } from "./validate";
 
 type Interval = { t0: number; t1: number };
 
-/** The selection, else the view interval. */
-const runInterval = (): Interval => {
-  const { selection, view } = useStore.getState();
-  return { t0: (selection ?? view).t0, t1: (selection ?? view).t1 };
+/** The selection, else the whole recording. */
+const runInterval = (recordingId: string): Interval => {
+  const { selection, recordings } = useStore.getState();
+  return selection ?? { t0: 0, t1: recordings[recordingId]?.info.duration_s ?? 0 };
 };
 
 /** Milliseconds the run interval rests before what depends on it renders. */
 const REST_MS = 200;
 
-/** The run interval once it has rested for 200 ms: a pan or a selection drag does not re-render what depends on it. */
-function useRestingInterval(): Interval {
-  const [interval, settle] = useState(runInterval);
+/** The run interval once it has rested for 200 ms: a selection drag does not re-render what depends on it. */
+function useRestingInterval(recordingId: string): Interval {
+  const [interval, settle] = useState(() => runInterval(recordingId));
   useEffect(() => {
     const rest = () => {
-      const next = runInterval();
+      const next = runInterval(recordingId);
       settle((old) => (old.t0 === next.t0 && old.t1 === next.t1 ? old : next));
     };
     // A hidden inspector (Shell.tsx) unmounts this effect: what moved meanwhile is read as it mounts again.
     rest();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const stop = useStore.subscribe((now, last) => {
-      if (now.selection === last.selection && now.view === last.view) return;
+      if (now.selection === last.selection) return;
       clearTimeout(timer);
       timer = setTimeout(rest, REST_MS);
     });
@@ -43,19 +44,20 @@ function useRestingInterval(): Interval {
       clearTimeout(timer);
       stop();
     };
-  }, []);
+  }, [recordingId]);
   return interval;
 }
 
 /**
- * The request of the settings, the chosen channels and the interval (the selection, else the view), or why not.
+ * The request of the settings, the chosen channels and the interval (the selection, else the whole recording), or
+ * why not.
  * `now` builds it from the interval of this moment, which may not have rested yet: what Run sends.
  */
 export function useRunRequest(recordingId: string) {
   const form = useStore((s) => s.ddaForm);
   const info = useStore((s) => s.recordings[recordingId]?.info);
   const channels = useStore((s) => s.recordings[recordingId]?.selectedChannels);
-  const interval = useRestingInterval();
+  const interval = useRestingInterval(recordingId);
   const metadata = use(variants);
   const check = useCallback(
     ({ t0, t1 }: Interval) => {
@@ -66,7 +68,7 @@ export function useRunRequest(recordingId: string) {
     [form, info, channels, metadata],
   );
   const checked = useMemo(() => check(interval), [check, interval]);
-  return { ...checked, interval, now: () => check(runInterval()).request };
+  return { ...checked, interval, now: () => check(runInterval(recordingId)).request };
 }
 
 /** Starts a run of the request of this moment. */
@@ -120,7 +122,12 @@ export function RunBar({ recordingId }: { recordingId: string }) {
   const reason = Object.values(errors).find((error) => error !== errors.range);
   return (
     <section aria-label="Run" className={styles.runBar}>
-      <IntervalFields interval={interval} duration={duration} error={errors.range} />
+      <IntervalFields
+        recordingId={recordingId}
+        interval={interval}
+        duration={duration}
+        error={errors.range}
+      />
       {/* Keyed: a line of another kind mounts anew and fades in, where React would reuse the paragraph. */}
       {reason ? (
         <p key="reason" className={styles.note} data-appear>
@@ -232,14 +239,20 @@ type Field = "start" | "end";
 /**
  * Start and end in seconds: typing them sets the selection, the keyboard's way to choose what to run on. Enter or
  * leaving a field commits both; Escape puts back the rested interval. A field typed in keeps its text until
- * then, whatever the selection or the view does meanwhile.
+ * then, whatever the selection does meanwhile. Whole recording clears the selection.
  */
-function IntervalFields(props: { interval: Interval; duration: number; error?: string }) {
+function IntervalFields(props: {
+  recordingId: string;
+  interval: Interval;
+  duration: number;
+  error?: string;
+}) {
   const { interval, duration } = props;
   const id = useId();
   const shown = (i: Interval) => ({ start: seconds(i.t0), end: seconds(i.t1) });
   const [text, setText] = useState({ ...shown(interval), of: interval, typed: [] as Field[] });
   const [typo, setTypo] = useState(false);
+  const selected = useStore((s) => s.selection !== null);
   /** The selection before the last commit, and when it was made. */
   const pending = useRef<{ before: Interval | null; at: number } | null>(null);
   // The selection or the view moved: the fields not typed in show it.
@@ -255,7 +268,7 @@ function IntervalFields(props: { interval: Interval; duration: number; error?: s
   const commit = () => {
     if (text.typed.length === 0) return;
     // A field not typed in stands for the interval of this moment, which may not have rested yet.
-    const now = shown(runInterval());
+    const now = shown(runInterval(props.recordingId));
     const [start, end] = (["start", "end"] as const).map((f) => (text.typed.includes(f) ? text[f] : now[f]));
     const t0 = Math.max(0, Number(start));
     const t1 = Math.min(duration, Number(end));
@@ -304,6 +317,19 @@ function IntervalFields(props: { interval: Interval; duration: number; error?: s
       <div className={styles.interval}>
         {field("start", "Start")}
         {field("end", "End")}
+        <button
+          type="button"
+          className={`${controls.quiet} ${styles.whole}`}
+          disabled={!selected}
+          onClick={() => {
+            pending.current = null;
+            setSelection(null);
+            setText({ ...shown(runInterval(props.recordingId)), of: interval, typed: [] });
+            setTypo(false);
+          }}
+        >
+          Whole recording
+        </button>
       </div>
       {error && (
         <p id={`${id}-error`} className={styles.fieldError} data-appear>
