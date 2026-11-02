@@ -6,6 +6,8 @@ import { type UpdateCheck, useStore } from "../store/store";
 const HOUR_MS = 3_600_000;
 /** A window shown again checks at most this often. */
 const SHOWN_MS = 600_000;
+/** The least time a check by the user says "Checking". */
+const CHECKING_MS = 800;
 
 /** The worker a click on Reload switches to: a waiting one, or the one that took over in another window. */
 let target: ServiceWorker | null = null;
@@ -33,13 +35,18 @@ export async function checkForUpdate() {
   if (!registration) return useStore.setState({ updateCheck: "unavailable" });
   useStore.setState({ updateCheck: "checking" });
   lastCheck = Date.now();
+  // A check often answers within a frame: "Checking" stays long enough to read rather than flicker.
+  const shown = new Promise((resolve) => setTimeout(resolve, CHECKING_MS));
+  let check: UpdateCheck;
   try {
     await registration.update();
     const found = registration.installing ?? registration.waiting;
-    useStore.setState({ updateCheck: found || useStore.getState().updateReady ? "found" : "current" });
+    check = found || useStore.getState().updateReady ? "found" : "current";
   } catch {
-    useStore.setState({ updateCheck: "failed" });
+    check = "failed";
   }
+  await shown;
+  useStore.setState({ updateCheck: check });
 }
 
 /**

@@ -62,3 +62,18 @@ test("a_check_with_no_new_version_says_up_to_date", async () => {
   await checkForUpdate();
   expect(useStore.getState().updateCheck).toBe("current");
 });
+
+test("a_quick_check_says_checking_long_enough_to_read", async () => {
+  page(false);
+  const { registerWorker, checkForUpdate, useStore } = await load();
+  registerWorker();
+  await new Promise((r) => setTimeout(r));
+  vi.useFakeTimers();
+  const done = checkForUpdate();
+  await vi.advanceTimersByTimeAsync(100);
+  expect(useStore.getState().updateCheck).toBe("checking");
+  await vi.runAllTimersAsync();
+  await done;
+  vi.useRealTimers();
+  expect(useStore.getState().updateCheck).toBe("current");
+});
