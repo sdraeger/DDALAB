@@ -161,16 +161,14 @@ test("a_run_re_renders_its_progress_only", async ({ page }) => {
   await page.addInitScript(() => Object.defineProperty(navigator, "hardwareConcurrency", { get: () => 5 }));
   await page.reload();
   await page.evaluate(() =>
-    window.__ddalab.openSynthetic({ channels: 8, rateHz: 256, durationS: 2 * 3600, seed: 5 }),
+    window.__ddalab.openSynthetic({ channels: 8, rateHz: 256, durationS: 1200, seed: 5 }),
   );
   await page.getByRole("checkbox", { name: "Select group CH" }).check();
   const settings = page.getByRole("region", { name: "DDA settings" });
   await settings.getByLabel("Window", { exact: true }).fill("4000");
   await settings.getByLabel("Step", { exact: true }).fill("10");
+  // The run interval is the whole recording.
   const runBar = page.getByRole("region", { name: "Run" });
-  await runBar.getByLabel("Start", { exact: true }).fill("0");
-  await runBar.getByLabel("End", { exact: true }).fill("1200");
-  await runBar.getByLabel("End", { exact: true }).press("Enter");
   const plan = runBar.getByText(/windows, [\d,]+ blocks, \d+ workers?/);
   await expect(plan).toBeVisible();
   const blocks = Number(/([\d,]+) blocks/.exec((await plan.textContent()) ?? "")?.[1].replace(",", ""));
@@ -269,7 +267,7 @@ test("a_closed_inspector_neither_renders_nor_plans", async ({ page }) => {
   });
   expect(counts.Scan).toBeLessThanOrEqual(1);
   expect(counts.Inspector).toBeLessThanOrEqual(1);
-  // Each rested view asks the core for one plan: the command bar's, which says why a run cannot start.
+  // Each rested selection asks the core for one plan: the command bar's, which says why a run cannot start.
   const plans = await page.evaluate(async (id) => {
     const { engine, store } = window.__ddalab;
     await (window as unknown as { annotated: Promise<void> }).annotated;
@@ -290,10 +288,10 @@ test("a_closed_inspector_neither_renders_nor_plans", async ({ page }) => {
     await planned(1);
     asked.length = 0;
     for (let i = 1; i <= 4; i++) {
-      store.setState((s) => ({ view: { ...s.view, t0: i * 10, t1: i * 10 + 10 } }));
+      store.setState({ selection: { t0: i * 10, t1: i * 10 + 10 } });
       await planned(i);
     }
-    // A second plan of a view, the run bar's, would come with the first.
+    // A second plan of a selection, the run bar's, would come with the first.
     await new Promise((rested) => setTimeout(rested, 2000));
     return asked;
   }, id);
