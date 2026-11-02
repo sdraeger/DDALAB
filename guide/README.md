@@ -49,7 +49,7 @@ In Chrome or Edge, open the menu of the app window and choose Uninstall DDALAB. 
 
 ### Sites that block outside websites
 
-Download `ddalab-web-<version>.zip` from the [release page](https://github.com/sdraeger/DDALAB/releases) and unzip it onto any internal static web server. The server must use HTTPS (or be `localhost`), because the app needs a secure context. Users open that address and everything above applies. Update by replacing the files. Opening `index.html` from disk does not work, because browsers do not start workers from `file://` pages. See [`packages/ddalab-web`](../packages/ddalab-web/README.md) for the server settings and a warning about hosts that share one origin between users.
+Download `ddalab-web-<version>.zip` from the [release page](https://github.com/sdraeger/DDALAB/releases) and unzip it onto any internal static web server. The server must use HTTPS (or be `localhost`), because the app needs a secure context. Users open that address and everything above applies. Update by replacing the files. Opening `index.html` from disk does not work, because browsers do not start workers from `file://` pages. See [`packages/ddalab-web`](../packages/ddalab-web/README.md) for the server settings and a warning about hosts that share one origin between users. With Docker, the `ghcr.io/sdraeger/ddalab-web` image serves the same files with those settings; the [README](../README.md#run-it-with-docker) has the commands.
 
 ## Command line
 
@@ -116,6 +116,24 @@ result.save("result.json")     # the document `ddalab run -o result.json` writes
 
 recording = ddalab.read("sub-01_eeg.edf")   # data (channels, samples) in SI units, sfreq, ch_names, events
 ddalab.run(recording.data, sfreq=recording.sfreq, ch_names=recording.ch_names)
+```
+
+## AI agents (MCP)
+
+`ddalab mcp` serves DDALAB to AI agents over the Model Context Protocol, so an agent can inspect a recording, run DDA and read the result. To add it to Claude Code:
+
+```sh
+claude mcp add ddalab -- ddalab mcp
+```
+
+Other clients, such as Claude Desktop, take the same command in their MCP configuration: `{"mcpServers": {"ddalab": {"command": "ddalab", "args": ["mcp"]}}}`. The tools are `ddalab_info`, `inspect_recording` (channels, sampling rate, duration and annotations), `run_dda` (runs DDA, saves the whole result as JSON and returns a summary) and `read_result` (a result's values, averaged into time bins).
+
+DDALAB runs on your computer, but the agent's model does not: the arguments and results of every tool call, file paths included, go to the model provider. HIPAA mode, on by default, limits what the tools return to a recording's channel layout and timing and to DDA results. It withholds annotation text, which can hold free-text notes, and the recording's samples. No tool returns the patient, recording or start date fields of a file's header in either mode. HIPAA mode does not make sending protected health information to a model provider compliant by itself: that needs a business associate agreement between your institution and the provider, so ask your privacy office whether your account has one. It also does not govern the agent's own tools: give Claude Code a `deny` rule for `Read` and `Bash` on folders of patient data, and give the agent copies whose header fields the metadata editor has cleared and whose file names identify no one.
+
+For recordings without patient data, `ddalab mcp --no-hipaa` also returns annotation text and adds `read_samples`, which returns up to 10,000 samples per call:
+
+```sh
+claude mcp add ddalab -- ddalab mcp --no-hipaa
 ```
 
 ## Container (BIDS App)

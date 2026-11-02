@@ -10,6 +10,22 @@ Open <https://ddalab.org/> in Chrome, Edge, Firefox or Safari. Choose Open files
 
 The [guide](guide/README.md) covers OpenNeuro, shared projects, windows, updates and hosting the app yourself.
 
+## Run it with Docker
+
+Every release publishes the web app as an image, `ghcr.io/sdraeger/ddalab-web`, tagged with its version and `latest`. To run it on your computer at <http://localhost:8080/>:
+
+```sh
+docker run -d --name ddalab -p 8080:8080 ghcr.io/sdraeger/ddalab-web
+```
+
+To serve it to other computers, point a DNS name at the server and pass it as `DDALAB_ADDRESS`. Caddy, the server inside the image, then gets an HTTPS certificate for that name, which browsers need for every address but `localhost`:
+
+```sh
+docker run -d --name ddalab -p 80:80 -p 443:443 -e DDALAB_ADDRESS=ddalab.example.org -v ddalab-caddy:/data ghcr.io/sdraeger/ddalab-web
+```
+
+Behind a proxy that already handles HTTPS, use the first command and forward to port 8080. The server only hands out the app: recordings are read in each user's browser and never reach it. To update, pull the new image (`docker pull ghcr.io/sdraeger/ddalab-web`) and start the container again; open windows then offer the new version. The command line has an image of its own, `ghcr.io/sdraeger/ddalab`, which runs as a [BIDS App](guide/README.md#container-bids-app).
+
 ## Install the app
 
 Installing is optional. The installed app opens in its own window, starts from the Dock or the Start menu, and works offline after its first launch. It updates itself.
@@ -56,7 +72,7 @@ result = ddalab.run("sub-01_eeg.edf", variants=["ST"], wl=200, ws=100)
 result.variants["ST"].q     # NumPy array, (channels, windows)
 ```
 
-For BIDS datasets, `ghcr.io/sdraeger/ddalab` is a [BIDS App](guide/README.md#container-bids-app).
+For BIDS datasets, `ghcr.io/sdraeger/ddalab` is a [BIDS App](guide/README.md#container-bids-app). `ddalab mcp` serves DDALAB to AI agents such as Claude Code (`claude mcp add ddalab -- ddalab mcp`), in a HIPAA mode by default that keeps annotation text and samples from the model; the [guide](guide/README.md#ai-agents-mcp) says what it covers.
 
 ## Repository layout
 

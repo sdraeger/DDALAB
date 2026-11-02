@@ -211,6 +211,85 @@ jobs:
           done
           gh release upload "$GITHUB_REF_NAME" ddalab-web-*.zip --clobber
 
+  # The same tested bundle as an image, ghcr.io/sdraeger/ddalab-web:<version> (and :latest when the tag has no "-"),
+  # served by Caddy from packaging/web. The image has no RUN step, so it builds for both platforms without emulation.
+  image:
+    name: Web app image
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [web, e2e]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download the bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: web-bundle
+
+      - name: Unpack the bundle and name the tags
+        id: version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          unzip -q "ddalab-web-$version.zip" -d packaging/web/dist
+          tags="ghcr.io/sdraeger/ddalab-web:$version"
+          if [[ "$version" != *-* ]]; then tags="$tags,ghcr.io/sdraeger/ddalab-web:latest"; fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build the image
+        uses: docker/build-push-action@v7
+        with:
+          context: packaging/web
+          build-args: VERSION=${{ steps.version.outputs.version }}
+          load: true
+          tags: ddalab-web:test
+
+      - name: Test the image
+        run: |
+          docker run -d --rm --name web -p 8080:8080 ddalab-web:test
+          for _ in $(seq 20); do curl -sf -o /dev/null http://localhost:8080/ && break; sleep 1; done
+          header() { curl -sfI "http://localhost:8080$1" | tr -d '\r' | grep -i "^$2:" ; }
+          wasm="$(cd packaging/web/dist && find ./assets -name "*.wasm" | head -1 | cut -c2-)"
+          header / cache-control | grep -q no-cache
+          header /sw.js cache-control | grep -q no-cache
+          header "$wasm" content-type | grep -q application/wasm
+          header "$wasm" cache-control | grep -q immutable
+          curl -sf http://localhost:8080/ | grep -q 'http-equiv="Content-Security-Policy"'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/.htaccess)" = 404
+          docker stop web
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push the image
+        id: push
+        uses: docker/build-push-action@v7
+        with:
+          context: packaging/web
+          build-args: VERSION=${{ steps.version.outputs.version }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.version.outputs.tags }}
+
+      # `gh attestation verify oci://ghcr.io/sdraeger/ddalab-web:<version> --repo sdraeger/DDALAB` checks it.
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ghcr.io/sdraeger/ddalab-web
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
   # Publishes the dist the web job built and tested at https://ddalab.org/, the repository's Pages custom domain (the base path is relative).
   # The github-pages environment must allow deployments from v* tags. A tag with a "-" is a pre-release and stays off
   # the site: every installed copy would offer it as an update. It waits for the build alone: the tagged commit passed the
