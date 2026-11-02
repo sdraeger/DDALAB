@@ -4,6 +4,7 @@ mod ascii;
 mod bids;
 mod brainvision;
 mod edf;
+pub mod edit;
 mod eeglab;
 mod mat;
 mod recording;

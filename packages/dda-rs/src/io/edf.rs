@@ -1,6 +1,7 @@
 //! EDF, EDF+, BDF and BDF+ reader (https://www.edfplus.info/specs/): a 256-byte header, 256 bytes per
 //! signal, then data records that each hold `record_duration_s` of every signal, signal after signal.
 
+use super::edit::{copy_name, field, invalid, value, Channel, Metadata, OutFile, Part};
 use super::recording::*;
 use super::{ByteSource, FileSet};
 use crate::error::{DDAError, Result};
@@ -17,6 +18,22 @@ const PHYSICAL_MAX: usize = 4;
 const DIGITAL_MIN: usize = 5;
 const DIGITAL_MAX: usize = 6;
 const SAMPLES_PER_RECORD: usize = 8;
+const TRANSDUCER: usize = 1;
+const PREFILTER: usize = 7;
+/// The recording fields the editor offers: key, name and byte range in the fixed header.
+const RECORDING_FIELDS: [(&str, &str, usize, usize); 4] = [
+    ("patient", "Patient", 8, 88),
+    ("recording", "Recording", 88, 168),
+    ("startdate", "Start date (dd.mm.yy)", 168, 176),
+    ("starttime", "Start time (hh.mm.ss)", 176, 184),
+];
+/// The signal columns the editor offers: key, name and column.
+const SIGNAL_COLUMNS: [(&str, &str, usize); 4] = [
+    ("label", "Label", LABEL),
+    ("unit", "Unit", DIMENSION),
+    ("transducer", "Transducer", TRANSDUCER),
+    ("prefilter", "Prefilter", PREFILTER),
+];
 
 /// Most bytes one `read_at` fetches, which keeps a long request from holding its whole span in memory.
 const MAX_READ_BYTES: usize = 8 << 20;
@@ -536,4 +553,112 @@ impl Reader for EdfReader {
             out[row * channels.len() + k] = raw as f32
         })
     }
+}
+
+/// The whole header (fixed part and signal part) of the EDF or BDF file `name`, which opens, and its signal count.
+fn header(files: &FileSet, name: &str) -> Result<(Vec<u8>, usize)> {
+    let reader = open_edf(files, name)?;
+    let signals = reader.info().channels.len();
+    let mut bytes = vec![0u8; FIXED_HEADER * (1 + signals)];
+    files
+        .source(name)
+        .ok_or_else(|| DDAError::FileNotFound(name.to_string()))?
+        .read_at(0, &mut bytes)?;
+    Ok((bytes, signals))
+}
+
+/// The byte range of column `column`'s cell of signal `signal` in a header of `signals` signals.
+fn cell_range(signals: usize, column: usize, signal: usize) -> std::ops::Range<usize> {
+    let start =
+        FIXED_HEADER + signals * WIDTHS[..column].iter().sum::<usize>() + signal * WIDTHS[column];
+    start..start + WIDTHS[column]
+}
+
+/// The patient, recording, start date and start time, and each signal's label, unit, transducer and prefilter; the
+/// annotation signals are left as they are.
+pub(super) fn metadata(files: &FileSet, name: &str) -> Result<Metadata> {
+    let (head, signals) = header(files, name)?;
+    let fields = RECORDING_FIELDS
+        .iter()
+        .map(|&(key, label, a, b)| field(key, label, &text(&head[a..b]), Some(b - a), true))
+        .collect();
+    let columns = SIGNAL_COLUMNS
+        .iter()
+        .map(|&(key, label, c)| field(key, label, "", Some(WIDTHS[c]), true))
+        .collect();
+    let channels = (0..signals)
+        .filter(|&i| !annotation_label(&text(&head[cell_range(signals, LABEL, i)])))
+        .map(|i| Channel {
+            index: i,
+            values: SIGNAL_COLUMNS
+                .iter()
+                .map(|&(_, _, c)| text(&head[cell_range(signals, c, i)]))
+                .collect(),
+        })
+        .collect();
+    Ok(Metadata {
+        writes_as: if head[..8] == *b"\xFFBIOSEMI" {
+            "BDF"
+        } else {
+            "EDF"
+        }
+        .to_string(),
+        fields,
+        columns,
+        channels,
+        notes: Vec::new(),
+    })
+}
+
+/// `dd.mm.yy` or `hh.mm.ss` with each part below its limit.
+fn clock(value: &str, limits: [u32; 3]) -> bool {
+    let parts: Vec<&str> = value.split('.').collect();
+    parts.len() == 3
+        && parts
+            .iter()
+            .zip(limits)
+            .all(|(part, limit)| part.len() == 2 && part.parse::<u32>().is_ok_and(|n| n <= limit))
+}
+
+/// The header with the edited values, padded with spaces, followed by the original data records.
+pub(super) fn edited(files: &FileSet, name: &str, edited: &Metadata) -> Result<Vec<OutFile>> {
+    let (mut head, signals) = header(files, name)?;
+    let date = value(edited, "startdate");
+    let time = value(edited, "starttime");
+    if !clock(date, [31, 12, 99]) || date.starts_with("00") || date[3..5] == *"00" {
+        return Err(invalid(format!("the start date {date} is not dd.mm.yy")));
+    }
+    if !clock(time, [23, 59, 59]) {
+        return Err(invalid(format!("the start time {time} is not hh.mm.ss")));
+    }
+    let mut put = |range: std::ops::Range<usize>, value: &str| {
+        let cell = &mut head[range];
+        cell.fill(b' ');
+        cell[..value.len()].copy_from_slice(value.as_bytes());
+    };
+    for (&(_, _, a, b), field) in RECORDING_FIELDS.iter().zip(&edited.fields) {
+        put(a..b, &field.value);
+    }
+    for channel in &edited.channels {
+        for (&(_, _, c), value) in SIGNAL_COLUMNS.iter().zip(&channel.values) {
+            put(cell_range(signals, c, channel.index), value);
+        }
+    }
+    let len = files
+        .source(name)
+        .ok_or_else(|| DDAError::FileNotFound(name.to_string()))?
+        .len();
+    Ok(vec![OutFile {
+        name: copy_name(name),
+        parts: vec![
+            Part::Bytes {
+                bytes: head.clone(),
+            },
+            Part::Slice {
+                file: name.to_string(),
+                start: head.len() as u64,
+                end: len,
+            },
+        ],
+    }])
 }

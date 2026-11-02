@@ -1,6 +1,7 @@
 //! ASCII and delimited text reader (CSV, TSV, semicolon or whitespace separated): one sample per line, an optional
 //! header row of labels and an optional leading time column. Ported from `readers/delimited.py`.
 
+use super::edit::{column, copy_name, field, invalid, Channel, Metadata, OutFile, Part};
 use super::recording::*;
 use super::{ByteSource, FileSet};
 use crate::error::{DDAError, Result};
@@ -387,4 +388,126 @@ pub fn open_matrix(
         width,
         first: 0,
     }))
+}
+
+/// The most bytes before the end of a text recording's first line: its header, or its first row.
+const FIRST_LINE_BYTES: usize = 1 << 20;
+
+/// The start of the file up to the end of its first line that holds something (as `for_each_line` skips blank and
+/// `#` lines), and that line's byte range.
+fn first_line(source: &dyn ByteSource, name: &str) -> Result<(Vec<u8>, std::ops::Range<usize>)> {
+    let n = source.len().min(FIRST_LINE_BYTES as u64) as usize;
+    let mut head = vec![0u8; n];
+    source.read_at(0, &mut head)?;
+    let mut start = 0;
+    while start < n {
+        let end = head[start..]
+            .iter()
+            .position(|&b| b == b'\r' || b == b'\n')
+            .map_or(n, |p| start + p);
+        if end == n && (n as u64) < source.len() {
+            break;
+        }
+        let text = String::from_utf8_lossy(&head[start..end]);
+        let text = text.trim().trim_start_matches('\u{feff}').trim();
+        if !text.is_empty() && !text.starts_with('#') {
+            return Ok((head, start..end));
+        }
+        start = end + 1;
+    }
+    Err(invalid(format!(
+        "{name} has no line within its first {FIRST_LINE_BYTES} bytes"
+    )))
+}
+
+/// The tokens of the first line, its delimiter, whether it is a header and whether that header has a time column
+/// first, as `open_ascii` decides for `channels` channels.
+fn header_of(line: &str, channels: usize) -> (Vec<String>, Option<char>, bool, bool) {
+    let line = line.trim().trim_start_matches('\u{feff}').trim();
+    let delimiter = delimiter(line);
+    let tokens: Vec<String> = split(line, delimiter)
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+    let header = tokens.iter().any(|t| !t.is_empty() && number(t).is_none());
+    let time = header && tokens.len() > channels && is_time_header(&tokens[0]);
+    (tokens, delimiter, header, time)
+}
+
+/// Each channel's label.
+pub(super) fn metadata(files: &FileSet, name: &str) -> Result<Metadata> {
+    let reader = open_ascii(files, name, None)?;
+    Ok(Metadata {
+        writes_as: reader.info().format.clone(),
+        fields: Vec::new(),
+        columns: vec![field("label", "Label", "", None, false)],
+        channels: reader
+            .info()
+            .channels
+            .iter()
+            .enumerate()
+            .map(|(index, c)| Channel {
+                index,
+                values: vec![c.label.clone()],
+            })
+            .collect(),
+        notes: Vec::new(),
+    })
+}
+
+/// The file with its header line written from the edited labels (a time column's label kept), or a header line
+/// added before the first row of a file without one; every other byte stays.
+pub(super) fn edited(files: &FileSet, name: &str, edited: &Metadata) -> Result<Vec<OutFile>> {
+    let source = files
+        .source(name)
+        .ok_or_else(|| DDAError::FileNotFound(name.to_string()))?;
+    let labels = column(edited, "label");
+    let (head, line) = first_line(source.as_ref(), name)?;
+    let (tokens, delimiter, header, time) =
+        header_of(&String::from_utf8_lossy(&head[line.clone()]), labels.len());
+    for label in &labels {
+        let splits = match delimiter {
+            Some(d) => label.contains(d),
+            None => label.contains(char::is_whitespace),
+        };
+        if splits || label.trim() != *label {
+            return Err(invalid(format!(
+                "the label {label:?} would split the header or lose its spaces"
+            )));
+        }
+        if number(label).is_some() || label.starts_with('#') {
+            return Err(invalid(format!(
+                "the label {label} would read as a number or a comment"
+            )));
+        }
+    }
+    let mut cells: Vec<String> = Vec::new();
+    if time {
+        cells.push(tokens[0].clone());
+    }
+    cells.extend(labels.iter().map(|l| l.to_string()));
+    // Header cells past the columns stay as they were.
+    if header {
+        cells.extend(tokens.iter().skip(cells.len()).cloned());
+    }
+    let separator = delimiter.map_or(" ".to_string(), |d| d.to_string());
+    let mut bytes = head[..line.start].to_vec();
+    bytes.extend_from_slice(cells.join(&separator).as_bytes());
+    let rest = if header {
+        line.end
+    } else {
+        bytes.push(b'\n');
+        line.start
+    };
+    Ok(vec![OutFile {
+        name: copy_name(name),
+        parts: vec![
+            Part::Bytes { bytes },
+            Part::Slice {
+                file: name.to_string(),
+                start: rest as u64,
+                end: source.len(),
+            },
+        ],
+    }])
 }

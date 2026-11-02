@@ -36,7 +36,7 @@ import {
 import { blockBudgetMb, MAX_BLOCK_MB } from "../core/scheduler";
 import { isScanned, openRequestOf, partsOf, readSource, type Source } from "../core/sources";
 import { CACHE_MB } from "../core/tileCache";
-import type { RecordingInfo } from "../core/types";
+import type { Metadata, OpenRequest, RecordingInfo } from "../core/types";
 import { BESIDE } from "./beside";
 import { scan, yieldToLoop } from "./scan";
 
@@ -54,6 +54,10 @@ const ON_DEMAND_BYTES = 64 * 2 ** 20;
 interface Recording {
   handle: number;
   fileIds: number[];
+  /** What the core opened it with, which its metadata and edited copy read again. */
+  request: OpenRequest;
+  /** Its files by name. */
+  byName: Map<string, Source>;
   fingerprint: string;
   info: RecordingInfo;
   /** Display channels, which the tiles hold. */
@@ -144,7 +148,8 @@ async function open(id: string, input: RecordingInput, scan = true): Promise<IoR
   });
   let handle: number | undefined;
   try {
-    const opened = (await core).open(openRequestOf(input, parts, fileIds), { cacheMb: CACHE_MB.ioFiles });
+    const request = openRequestOf(input, parts, fileIds);
+    const opened = (await core).open(request, { cacheMb: CACHE_MB.ioFiles });
     handle = opened.handle;
     const { info } = opened;
     // The identity of what the core read: its files, by name.
@@ -168,6 +173,8 @@ async function open(id: string, input: RecordingInput, scan = true): Promise<IoR
     const rec: Recording = {
       handle,
       fileIds,
+      request,
+      byName: new Map(parts.map(({ name, source }) => [name, source])),
       fingerprint,
       info,
       channels: opened.analysis_channels.length,
@@ -200,6 +207,46 @@ async function close(id: string) {
   recordings.delete(id);
 }
 
+/** Bytes per chunk a copy reads from a file that is not a Blob, or of samples. */
+const COPY_CHUNK = 8 * 2 ** 20;
+
+/** Bytes `start..end` of `source` as Blob parts: a slice of a file, else read in chunks. */
+function sliceOf(source: Source, start: number, end: number): BlobPart[] {
+  if ("file" in source) return [source.file.slice(start, end)];
+  const chunks: BlobPart[] = [];
+  for (let at = start; at < end; at += COPY_CHUNK) {
+    const bytes = new Uint8Array(Math.min(COPY_CHUNK, end - at));
+    readSource(source, at, bytes);
+    chunks.push(bytes);
+  }
+  return chunks;
+}
+
+/** The edited copy of recording `id` as files: new bytes, slices of its files and its stored samples. */
+async function editCopy(id: string, metadata: Metadata): Promise<IoResults["editCopy"]> {
+  const rec = recording(id);
+  const c = await core;
+  const rowsPerChunk = Math.max(1, Math.floor(COPY_CHUNK / (4 * rec.channels)));
+  return c.edit(rec.request, metadata).map(({ name, parts }) => {
+    const blobParts = parts.flatMap((part): BlobPart[] => {
+      if (part.kind === "bytes") return [new Uint8Array(part.bytes)];
+      if (part.kind === "slice") {
+        const source = rec.byName.get(part.file);
+        if (!source) throw new Error(`the copy names ${part.file}, which the recording does not have`);
+        return sliceOf(source, part.start, part.end);
+      }
+      const chunks: BlobPart[] = [];
+      for (let row0 = 0; row0 < part.rows; row0 += rowsPerChunk) {
+        chunks.push(
+          c.readRaw(rec.handle, row0, Math.min(rowsPerChunk, part.rows - row0)).buffer as ArrayBuffer,
+        );
+      }
+      return chunks;
+    });
+    return { name, blob: new Blob(blobParts) };
+  });
+}
+
 /** Tile `index` of `level`: stored by the scan, or built from the file when that is quick, else `null`. */
 async function tile(id: string, level: number, index: number): Promise<IoResults["tile"]> {
   const rec = recording(id);
@@ -229,6 +276,10 @@ async function handle(request: IoRequest): Promise<unknown> {
       return close(request.id);
     case "raw":
       return (await core).readRaw(recording(request.id).handle, request.row0, request.rows);
+    case "metadata":
+      return (await core).metadata(recording(request.id).request);
+    case "editCopy":
+      return editCopy(request.id, request.metadata);
     case "tile":
       return tile(request.id, request.level, request.index);
     case "plan": {

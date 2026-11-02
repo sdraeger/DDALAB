@@ -4,9 +4,11 @@ import type {
   Annotation,
   Block,
   BlockChunks,
+  CopyFile,
   DDARequest,
   EngineVersion,
   ManifestExtras,
+  Metadata,
   Opened,
   OpenRequest,
   Plan,
@@ -23,6 +25,10 @@ export interface Core {
   open(input: OpenRequest, options?: { cacheMb?: number }): Opened;
   /** Also drops the pyramids built from `handle`. */
   close(handle: number): void;
+  /** The editable metadata of the recording `input` names. */
+  metadata(input: OpenRequest): Metadata;
+  /** The files of the copy of the recording `input` names with `metadata` (which `metadata` gave, edited). */
+  edit(input: OpenRequest, metadata: Metadata): CopyFile[];
   /** The full annotation list. It scans the file: call it after `open`, in the background. */
   annotations(handle: number): { annotations: Annotation[]; warnings: string[] };
   /** The `encode_tile` bytes of a tile. */
@@ -52,6 +58,8 @@ interface Exports {
   ddalab_version(): bigint;
   ddalab_open(ptr: number, len: number): bigint;
   ddalab_close(handle: number): void;
+  ddalab_metadata(ptr: number, len: number): bigint;
+  ddalab_edit(ptr: number, len: number): bigint;
   ddalab_annotations(handle: number): bigint;
   ddalab_raw_tile(handle: number, level: number, tile: number): bigint;
   ddalab_read_raw(handle: number, row0: number, rows: number): bigint;
@@ -157,6 +165,8 @@ export async function instantiateCore(
     open: (input, options) =>
       withJson({ ...input, cache_mb: options?.cacheMb }, (p, n) => json(abi.ddalab_open(p, n))),
     close: (handle) => abi.ddalab_close(handle),
+    metadata: (input) => withJson(input, (p, n) => json(abi.ddalab_metadata(p, n))),
+    edit: (input, metadata) => withJson({ open: input, metadata }, (p, n) => json(abi.ddalab_edit(p, n))),
     annotations: (handle) => json(abi.ddalab_annotations(handle)),
     rawTile: (handle, level, index) => binary(abi.ddalab_raw_tile(handle, level, index)).buffer,
     readRaw: (handle, row0, rows) => new Float32Array(binary(abi.ddalab_read_raw(handle, row0, rows)).buffer),

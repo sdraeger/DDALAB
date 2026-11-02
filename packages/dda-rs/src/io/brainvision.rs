@@ -1,6 +1,7 @@
 //! BrainVision reader (BrainVision Core Data Format 1.0): an INI `.vhdr` header, a binary little-endian data file
 //! laid out sample by sample (`MULTIPLEXED`) or channel by channel (`VECTORIZED`), and a `.vmrk` marker file.
 
+use super::edit::{copy_name, field, invalid, Channel, Metadata, OutFile, Part};
 use super::recording::*;
 use super::{ByteSource, FileSet};
 use crate::error::{DDAError, Result};
@@ -422,4 +423,230 @@ impl Reader for BrainVisionReader {
             out[row * channels.len() + k] = raw as f32
         })
     }
+}
+
+/// The text of an INI file as `parse_ini` reads it, and whether it is UTF-8 (else Latin-1).
+fn decode_text(bytes: &[u8]) -> (String, bool) {
+    match std::str::from_utf8(bytes) {
+        Ok(text) => (text.to_string(), true),
+        Err(_) => (bytes.iter().map(|&b| b as char).collect(), false),
+    }
+}
+
+/// `text` in UTF-8, or in Latin-1, which refuses a character past U+00FF.
+fn encode_text(text: &str, utf8: bool) -> Result<Vec<u8>> {
+    if utf8 {
+        return Ok(text.as_bytes().to_vec());
+    }
+    text.chars()
+        .map(|c| u8::try_from(c as u32).ok())
+        .collect::<Option<Vec<u8>>>()
+        .ok_or_else(|| {
+            invalid("the header is Latin-1, which cannot hold a character of the edit".to_string())
+        })
+}
+
+/// `name` as a channel or marker name: a comma written as `\1`.
+fn escaped(name: &str) -> String {
+    name.replace(',', "\\1")
+}
+
+/// The fields of each `Ch<n>=` line of the header, in channel order.
+fn channel_fields(ini: &[Entry], count: usize) -> Vec<Vec<String>> {
+    (1..=count)
+        .map(|i| {
+            get(ini, "Channel Infos", &format!("Ch{i}"))
+                .unwrap_or_default()
+                .split(',')
+                .map(|f| f.trim().to_string())
+                .collect()
+        })
+        .collect()
+}
+
+/// Each channel's label and unit (empty meaning microvolts).
+pub(super) fn metadata(files: &FileSet, name: &str) -> Result<Metadata> {
+    let count = open_brainvision(files, name)?.info().channels.len();
+    let header = files
+        .source(name)
+        .ok_or_else(|| DDAError::FileNotFound(name.to_string()))?;
+    let ini = parse_ini(&read_all(header)?);
+    Ok(Metadata {
+        writes_as: "BrainVision".to_string(),
+        fields: Vec::new(),
+        columns: vec![
+            field("label", "Label", "", None, false),
+            field("unit", "Unit", "", None, false),
+        ],
+        channels: channel_fields(&ini, count)
+            .into_iter()
+            .enumerate()
+            .map(|(index, fields)| Channel {
+                index,
+                values: vec![
+                    self::name(fields.first().map_or("", String::as_str)),
+                    fields.get(3).cloned().unwrap_or_default(),
+                ],
+            })
+            .collect(),
+        notes: Vec::new(),
+    })
+}
+
+/// `text` with `DataFile=` and `MarkerFile=` of `[Common Infos]` set to `data` and `marker`, and each `Ch<n>=` of
+/// `[Channel Infos]` given by `channel(n)`; other lines, comments and line endings stay.
+fn rewrite(
+    text: &str,
+    data: &str,
+    marker: Option<&str>,
+    channel: impl Fn(usize) -> Option<String>,
+) -> String {
+    let mut section = String::new();
+    let mut out = String::with_capacity(text.len());
+    for line in text.split_inclusive('\n') {
+        let body = line.trim_end_matches(['\r', '\n']);
+        let ending = &line[body.len()..];
+        let trimmed = body.trim();
+        if let Some(name) = trimmed.strip_prefix('[').and_then(|r| r.strip_suffix(']')) {
+            section = name.trim().to_string();
+        }
+        let key = trimmed
+            .split_once('=')
+            .filter(|_| !trimmed.starts_with(';'))
+            .map(|(k, _)| k.trim());
+        let replaced = match key {
+            Some(k)
+                if section.eq_ignore_ascii_case("Common Infos")
+                    && k.eq_ignore_ascii_case("DataFile") =>
+            {
+                Some(format!("{k}={data}"))
+            }
+            Some(k)
+                if section.eq_ignore_ascii_case("Common Infos")
+                    && k.eq_ignore_ascii_case("MarkerFile") =>
+            {
+                marker.map(|m| format!("{k}={m}"))
+            }
+            Some(k) if section.eq_ignore_ascii_case("Channel Infos") => k
+                .get(..2)
+                .filter(|p| p.eq_ignore_ascii_case("Ch"))
+                .and_then(|_| k[2..].parse::<usize>().ok())
+                .and_then(&channel)
+                .map(|value| format!("{k}={value}")),
+            _ => None,
+        };
+        out.push_str(replaced.as_deref().unwrap_or(body));
+        out.push_str(ending);
+    }
+    out
+}
+
+/// The header with the edited labels and units and the new file names, the data file as it is under its new name,
+/// and the marker file pointing at it.
+pub(super) fn edited(files: &FileSet, vhdr_name: &str, edited: &Metadata) -> Result<Vec<OutFile>> {
+    let header = files
+        .source(vhdr_name)
+        .ok_or_else(|| DDAError::FileNotFound(vhdr_name.to_string()))?;
+    let bytes = read_all(header)?;
+    let ini = parse_ini(&bytes);
+    let (text, utf8) = decode_text(&bytes);
+    let stem = copy_name(vhdr_name);
+    let stem = stem
+        .strip_suffix(".vhdr")
+        .or(stem.strip_suffix(".VHDR"))
+        .unwrap_or(&stem);
+    let renamed = |old: &str| match old.rsplit_once('.') {
+        Some((_, extension)) => format!("{stem}.{extension}"),
+        None => stem.to_string(),
+    };
+    let data_name = base_name(get(&ini, "Common Infos", "DataFile").unwrap_or_default());
+    let marker_name = get(&ini, "Common Infos", "MarkerFile")
+        .map(base_name)
+        .filter(|m| !m.is_empty() && files.source(m).is_some());
+    let fields = channel_fields(&ini, edited.channels.len());
+    let channel = |n: usize| {
+        let edit = edited.channels.get(n.checked_sub(1)?)?;
+        let mut line = fields[n - 1].clone();
+        line.resize(line.len().max(4), String::new());
+        line[0] = escaped(&edit.values[0]);
+        line[3] = edit.values[1].clone();
+        Some(line.join(","))
+    };
+    let vhdr = rewrite(
+        &text,
+        &renamed(data_name),
+        marker_name.map(renamed).as_deref(),
+        channel,
+    );
+    let data = files
+        .source(data_name)
+        .ok_or_else(|| DDAError::FileNotFound(data_name.to_string()))?;
+    let mut out = vec![
+        OutFile {
+            name: format!("{stem}.vhdr"),
+            parts: vec![Part::Bytes {
+                bytes: encode_text(&vhdr, utf8)?,
+            }],
+        },
+        OutFile {
+            name: renamed(data_name),
+            parts: vec![Part::Slice {
+                file: data_name.to_string(),
+                start: 0,
+                end: data.len(),
+            }],
+        },
+    ];
+    if let Some(marker_name) = marker_name {
+        let marker_bytes = read_all(files.source(marker_name).expect("checked above"))?;
+        let (marker_text, marker_utf8) = decode_text(&marker_bytes);
+        let vmrk = rewrite(&marker_text, &renamed(data_name), None, |_| None);
+        out.push(OutFile {
+            name: renamed(marker_name),
+            parts: vec![Part::Bytes {
+                bytes: encode_text(&vmrk, marker_utf8)?,
+            }],
+        });
+    }
+    Ok(out)
+}
+
+/// A UTF-8 `.vhdr` for float32 MULTIPLEXED samples in `<stem>.eeg` of `channels` (label, resolution, unit) at
+/// `rate` Hz, and its `.vmrk` with each annotation as a Comment (no New Segment, which readers would load as one more
+/// annotation).
+pub(super) fn write_headers(
+    stem: &str,
+    rate: f64,
+    channels: &[(String, f64, String)],
+    annotations: &[Annotation],
+    comment: &str,
+) -> (Vec<u8>, Vec<u8>) {
+    let mut vhdr = format!(
+        "Brain Vision Data Exchange Header File Version 1.0\n; {comment}\n\n[Common Infos]\nCodepage=UTF-8\n\
+         DataFile={stem}.eeg\nMarkerFile={stem}.vmrk\nDataFormat=BINARY\nDataOrientation=MULTIPLEXED\n\
+         NumberOfChannels={}\nSamplingInterval={}\n\n[Binary Infos]\nBinaryFormat=IEEE_FLOAT_32\n\n[Channel Infos]\n",
+        channels.len(),
+        1e6 / rate
+    );
+    for (i, (label, resolution, unit)) in channels.iter().enumerate() {
+        vhdr.push_str(&format!(
+            "Ch{}={},,{resolution},{unit}\n",
+            i + 1,
+            escaped(label)
+        ));
+    }
+    let mut vmrk = format!(
+        "Brain Vision Data Exchange Marker File, Version 1.0\n\n[Common Infos]\nCodepage=UTF-8\nDataFile={stem}.eeg\n\n\
+         [Marker Infos]\n"
+    );
+    for (i, a) in annotations.iter().enumerate() {
+        let position = (a.onset_s * rate).round() as i64 + 1;
+        let points = ((a.duration_s * rate).round() as i64).max(1);
+        vmrk.push_str(&format!(
+            "Mk{}=Comment,{},{position},{points},0\n",
+            i + 1,
+            escaped(&a.label)
+        ));
+    }
+    (vhdr.into_bytes(), vmrk.into_bytes())
 }

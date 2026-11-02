@@ -25,6 +25,35 @@ export interface OpenRequest {
   sample_rate_hz?: number;
 }
 
+/** One editable value (dda_rs::io::edit::Field): a recording field, or a channel column with an empty `value`. */
+export interface MetadataField {
+  key: string;
+  name: string;
+  value: string;
+  max: number | null;
+  ascii: boolean;
+}
+
+/** The editable metadata of a recording (dda_rs::io::edit::Metadata). */
+export interface Metadata {
+  writes_as: string;
+  fields: MetadataField[];
+  columns: MetadataField[];
+  channels: { index: number; values: string[] }[];
+  notes: string[];
+}
+
+/** A run of an edited copy's bytes: new bytes, a range of an input file, or the stored samples of rows `0..rows`. */
+export type CopyPart =
+  | { kind: "bytes"; bytes: number[] }
+  | { kind: "slice"; file: string; start: number; end: number }
+  | { kind: "samples"; rows: number };
+
+export interface CopyFile {
+  name: string;
+  parts: CopyPart[];
+}
+
 export type RawType = "I16" | "I24" | "I32" | "F32" | "F64";
 export type ChannelKind = "Signal" | "Annotation" | "Status" | "Other";
 

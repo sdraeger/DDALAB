@@ -12,6 +12,7 @@
 
 use dda_rs::blocks::{block_of, plan_blocks, run_block, validate_request};
 use dda_rs::document::{build_manifest, bundle_layout, encode_block};
+use dda_rs::io::edit::{edit, metadata, Metadata};
 use dda_rs::io::{open_recording, BlockCache, BlockPool, ByteSource, FileSet, Reader};
 use dda_rs::tiles::{encode_tile, raw_tile, PyramidBuilder, Sha256Stream, Tile};
 use dda_rs::{DDAError, DDARequest, PureRustProgress, Result, VariantMetadata, ENGINE_VERSION};
@@ -241,9 +242,8 @@ struct OpenFile {
 /// gives way to the one being read. A closed recording's blocks go with it.
 static BLOCKS: LazyLock<Arc<BlockPool>> = LazyLock::new(|| Arc::new(BlockPool::new(16)));
 
-fn open(bytes: &[u8]) -> Result<Value> {
-    let opened: OpenRequest = parse(bytes, "open")?;
-    BLOCKS.set_capacity((opened.cache_mb.unwrap_or(64) / 4).max(1) as usize);
+/// The files of `opened`, read through the host and cached in `BLOCKS`.
+fn file_set(opened: OpenRequest) -> FileSet {
     let files = opened.files.into_iter().map(|f| {
         let source = HostFile {
             file_id: f.file_id,
@@ -254,11 +254,18 @@ fn open(bytes: &[u8]) -> Result<Value> {
             Arc::new(BlockCache::in_pool(source, 4 << 20, BLOCKS.clone()));
         (f.name, cached)
     });
-    let files = FileSet {
+    FileSet {
         primary: opened.primary,
         files: files.collect(),
-    };
-    let reader: Arc<dyn Reader> = open_recording(&files, opened.sample_rate_hz)?.into();
+    }
+}
+
+fn open(bytes: &[u8]) -> Result<Value> {
+    let opened: OpenRequest = parse(bytes, "open")?;
+    BLOCKS.set_capacity((opened.cache_mb.unwrap_or(64) / 4).max(1) as usize);
+    let rate = opened.sample_rate_hz;
+    let files = file_set(opened);
+    let reader: Arc<dyn Reader> = open_recording(&files, rate)?.into();
     let info = reader.info();
     let mut reply = json!({ "info": info, "analysis_channels": info.analysis_channels() });
     reply["handle"] = RECORDINGS.lock().unwrap().insert(reader).into();
@@ -270,6 +277,36 @@ fn open(bytes: &[u8]) -> Result<Value> {
 #[no_mangle]
 pub unsafe extern "C" fn ddalab_open(ptr: u32, len: u32) -> u64 {
     json_reply(open(input(ptr, len)))
+}
+
+/// The editable metadata of the recording an open request names (`dda_rs::io::edit::metadata`).
+///
+/// # Safety
+/// `ptr` and `len` name a buffer the host wrote.
+#[no_mangle]
+pub unsafe extern "C" fn ddalab_metadata(ptr: u32, len: u32) -> u64 {
+    json_reply((|| {
+        let opened: OpenRequest = parse(input(ptr, len), "metadata")?;
+        Ok(json!(metadata(&file_set(opened))?))
+    })())
+}
+
+#[derive(Deserialize)]
+struct EditRequest {
+    open: OpenRequest,
+    metadata: Metadata,
+}
+
+/// The files of the edited copy (`dda_rs::io::edit::edit`) of the recording `open` names.
+///
+/// # Safety
+/// `ptr` and `len` name a buffer the host wrote.
+#[no_mangle]
+pub unsafe extern "C" fn ddalab_edit(ptr: u32, len: u32) -> u64 {
+    json_reply((|| {
+        let request: EditRequest = parse(input(ptr, len), "edit")?;
+        Ok(json!(edit(&file_set(request.open), &request.metadata)?))
+    })())
 }
 
 /// Also drops the pyramids built from `handle`.

@@ -16,6 +16,7 @@ import styles from "./Inspector.module.css";
 
 const Provenance = lazy(() => import("../history/Provenance"));
 const Annotations = lazy(() => import("../annotations/AnnotationList"));
+const MetadataEditor = lazy(() => import("./MetadataEditor"));
 
 /** The electrode groups listed before "Show all". */
 const GROUPS_SHOWN = 8;
@@ -84,6 +85,13 @@ export function Inspector() {
         <DdaSettings recordingId={id} />
       </Suspense>
       <footer className={styles.footer}>
+        <Suspense fallback={null}>
+          <MetadataEditor
+            recordingId={id}
+            fileName={info.input_files[0]}
+            sidecar={info.input_files.some((f) => f.endsWith("_channels.tsv"))}
+          />
+        </Suspense>
         <button type="button" className={controls.button} onClick={() => closeRecording(id)}>
           Close recording
         </button>

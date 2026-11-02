@@ -33,6 +33,7 @@ import type {
   DDARequest,
   EngineVersion,
   ManifestExtras,
+  Metadata,
   RecordingInfo,
   ResultDocument,
 } from "./types";
@@ -88,6 +89,10 @@ export interface Engine {
   tile(id: string, level: number, index: number): Promise<Tile | null>;
   /** All display channels, row-major. */
   raw(id: string, row0: number, rows: number): Promise<Float32Array>;
+  /** The editable metadata of recording `id`. */
+  metadata(id: string): Promise<Metadata>;
+  /** The files of the copy of recording `id` with `metadata` (which `metadata` gave, edited); the originals stay. */
+  editCopy(id: string, metadata: Metadata): Promise<{ name: string; blob: Blob }[]>;
   /**
    * The full annotation list. An EDF+ takes a pass over the whole file, which a worker of its own makes: the
    * answer comes late and nothing else waits for it. Remote recordings above 1 GiB keep the list the open read; for
@@ -612,6 +617,8 @@ export function createEngine(): Engine {
       return inFlight;
     },
     raw: (id, row0, rows) => call({ type: "raw", id, row0, rows }),
+    metadata: (id) => call({ type: "metadata", id }),
+    editCopy: (id, metadata) => call({ type: "editCopy", id, metadata }),
     annotations(id) {
       const input = held.get(id);
       const info = scans.get(id)?.info;

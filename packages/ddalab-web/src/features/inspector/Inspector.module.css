@@ -275,6 +275,9 @@
 }
 
 .footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
   border-top: var(--hairline-width) solid var(--hairline);
 }

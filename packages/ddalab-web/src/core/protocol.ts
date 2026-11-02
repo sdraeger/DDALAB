@@ -10,6 +10,7 @@ import type {
   DDARequest,
   EngineVersion,
   ManifestExtras,
+  Metadata,
   Plan,
   RecordingInfo,
   ResultDocument,
@@ -52,6 +53,9 @@ export type IoRequest =
   | { type: "open"; id: string; input: RecordingInput; scan?: boolean }
   | { type: "close"; id: string }
   | { type: "raw"; id: string; row0: number; rows: number }
+  | { type: "metadata"; id: string }
+  /** The files of the copy of recording `id` with `metadata` (which `metadata` gave, edited). */
+  | { type: "editCopy"; id: string; metadata: Metadata }
   | { type: "tile"; id: string; level: number; index: number }
   /** The blocks of a run of `request` on `workers` workers (see `blockBudgetMb`). */
   | { type: "plan"; id: string; request: DDARequest; workers: number }
@@ -95,6 +99,8 @@ export interface IoResults {
   };
   close: undefined;
   raw: Float32Array;
+  metadata: Metadata;
+  editCopy: { name: string; blob: Blob }[];
   /** `null` while the scan has not reached the tile and reading it from the file would take too long. */
   tile: Tile | null;
   /** With the block budget it was made with, in MiB. */
