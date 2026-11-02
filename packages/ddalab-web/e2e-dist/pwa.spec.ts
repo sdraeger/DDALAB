@@ -188,6 +188,25 @@ test.describe("updates", () => {
 
   const notice = (page: Page, text = "A new version of DDALAB is ready.") =>
     page.getByRole("status").filter({ hasText: text });
+  /** Opens a recording: with one open, a new version waits for the user's Reload. */
+  const openRecording = async (page: Page) => {
+    await page.getByLabel("Recording files").setInputFiles(BRAINVISION);
+    await expect(page.getByRole("heading", { name: "fixture.vhdr" })).toBeVisible();
+  };
+
+  test("the_start_screen_switches_to_a_new_build_at_once", async ({ page }) => {
+    const { origin, site } = await serveCopy();
+    await page.goto(`${origin}/`);
+    await controlled(page);
+    // Set after the load: a reload would lose it.
+    await page.evaluate(() => Object.assign(window, { sameDocument: true }));
+    const b = rebuild(site, "build B");
+    await updateCheck(page);
+    await expect.poll(() => page.evaluate(() => "sameDocument" in window).catch(() => true)).toBe(false);
+    await expect(page.getByRole("heading", { name: "DDALAB" })).toBeVisible();
+    expect(await cacheNames(page)).toContain(`ddalab:${origin}/:${b}`);
+    await expect(notice(page)).toHaveCount(0);
+  });
 
   test("a_new_build_shows_the_prompt_and_reload_switches_to_it", async ({ page }) => {
     const { origin, site } = await serveCopy();
@@ -201,6 +220,7 @@ test.describe("updates", () => {
     expect(await cacheNames(page)).toEqual([name(a)]);
     expect(await text(page, sheet)).not.toContain("build B");
     await expect(page.getByText("A new version of DDALAB")).toHaveCount(0);
+    await openRecording(page);
 
     const b = rebuild(site, "build B");
     await updateCheck(page);
@@ -220,6 +240,7 @@ test.describe("updates", () => {
     expect(loads.length - before).toBe(1);
 
     // The next version takes over: the cache of the version before the previous one goes.
+    await openRecording(page);
     const c = rebuild(site, "build C");
     await updateCheck(page);
     await notice(page).getByRole("button", { name: "Reload" }).click();
@@ -233,6 +254,7 @@ test.describe("updates", () => {
     for (const page of [first, second]) {
       await page.goto(`${origin}/`);
       await controlled(page);
+      await openRecording(page);
     }
     // Set after the load: a reload would lose it.
     await second.evaluate(() => Object.assign(window, { sameDocument: true }));
@@ -263,6 +285,7 @@ test.describe("updates", () => {
     await page.clock.install();
     await page.goto(`${origin}/`);
     await controlled(page);
+    await openRecording(page);
     rebuild(site, "build B");
     await page.clock.fastForward("01:00:05");
     await expect(notice(page)).toBeVisible();
