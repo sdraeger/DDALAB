@@ -14,7 +14,7 @@ ddalab inspect --file recording.edf
 ddalab run --file recording.edf --variants ST --wl 1000 --ws 200 --delays 7 10 --bundle out
 ```
 
-It reads EDF, BDF, BrainVision and delimited text. `ddalab --help` lists the other commands (`batch`, `variants`, `validate`, `samples`, `info`).
+It reads EDF, BDF, BrainVision and delimited text. `ddalab --help` lists the other commands (`batch`, `variants`, `validate`, `samples`, `info`, and `mcp` for AI agents).
 
 ## Features
 

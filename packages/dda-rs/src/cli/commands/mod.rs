@@ -1,6 +1,7 @@
 pub mod batch;
 pub mod info;
 pub mod inspect;
+pub mod mcp;
 pub mod run;
 pub mod samples;
 pub mod validate;

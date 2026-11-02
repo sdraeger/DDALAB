@@ -33,6 +33,16 @@ pub enum Command {
     Inspect(InspectArgs),
     /// Write physical samples of a recording to a .npy file
     Samples(SamplesArgs),
+    /// Serve DDALAB to AI agents over MCP on stdin and stdout (`claude mcp add ddalab -- ddalab mcp`)
+    Mcp(McpArgs),
+}
+
+#[derive(Args)]
+pub struct McpArgs {
+    /// Also give the agent annotation text and raw samples. HIPAA mode, the default, keeps both from the model
+    /// provider: use this only for recordings without patient data
+    #[arg(long = "no-hipaa", action = clap::ArgAction::SetFalse)]
+    pub hipaa: bool,
 }
 
 /// Default `--block-mb`.

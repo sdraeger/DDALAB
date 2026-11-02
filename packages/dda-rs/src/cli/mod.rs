@@ -64,6 +64,7 @@ where
             Command::Batch(args) => commands::batch::execute(args).await,
             Command::Inspect(args) => commands::inspect::execute(args),
             Command::Samples(args) => commands::samples::execute(args),
+            Command::Mcp(args) => commands::mcp::execute(args),
         }
     })
 }
