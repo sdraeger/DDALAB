@@ -280,6 +280,24 @@ test.describe("updates", () => {
     await expect(notice(second)).toHaveCount(0);
   });
 
+  test("check_for_updates_finds_a_new_build", async ({ page }) => {
+    const { site, origin } = await serveCopy();
+    await page.goto(`${origin}/`);
+    await controlled(page);
+    await openRecording(page);
+    await page.getByRole("button", { name: "About DDALAB" }).click();
+    const about = page.getByRole("dialog", { name: "About DDALAB" });
+    await about.getByRole("button", { name: "Check for updates" }).click();
+    await expect(about.getByText("Up to date")).toBeVisible();
+    await page.keyboard.press("Escape");
+    // The same check from the quiet button beside the engine version.
+    rebuild(site, "build B");
+    const library = page.getByRole("complementary", { name: "Library" });
+    await library.getByRole("button", { name: "Check for updates" }).click();
+    await expect(library.getByText("A new version is ready")).toBeVisible();
+    await expect(notice(page)).toBeVisible();
+  });
+
   test("an_open_window_looks_for_a_new_version_every_hour", async ({ page }) => {
     const { origin, site } = await serveCopy();
     await page.clock.install();

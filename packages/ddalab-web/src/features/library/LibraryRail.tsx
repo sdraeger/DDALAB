@@ -4,6 +4,7 @@
 import { Popover } from "@base-ui/react/popover";
 import FilePlus from "lucide-react/dist/esm/icons/file-plus.mjs";
 import FolderOpen from "lucide-react/dist/esm/icons/folder-open.mjs";
+import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw.mjs";
 import {
   type ChangeEvent,
   lazy,
@@ -28,6 +29,7 @@ import {
   pickFiles,
   reopen,
 } from "../../app/recordings";
+import { CHECK_TEXT, checkForUpdate } from "../../app/update";
 import type { FolderSource } from "../../core/folder";
 import { droppedFiles, isProject } from "../../core/sources";
 import type { RecentEntry } from "../../store/recent";
@@ -309,10 +311,31 @@ export const LibraryRail = memo(function LibraryRail() {
         <Suspense fallback={<output>loading</output>}>
           <EngineVersion />
         </Suspense>
+        <UpdateCheck />
       </p>
     </div>
   );
 });
+
+/** A quiet check for a new version beside the engine's (as the one in About), and what it found. */
+function UpdateCheck() {
+  const check = useStore((s) => s.updateCheck);
+  return (
+    <>
+      <button
+        type="button"
+        className={styles.update}
+        aria-label="Check for updates"
+        title="Check for updates"
+        aria-disabled={check === "checking"}
+        onClick={() => check !== "checking" && void checkForUpdate()}
+      >
+        <RefreshCw aria-hidden />
+      </button>
+      <span aria-live="polite">{CHECK_TEXT[check]}</span>
+    </>
+  );
+}
 
 function EngineVersion() {
   return <output>{use(version)}</output>;

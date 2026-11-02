@@ -2,10 +2,14 @@
 // shortcuts (also on their own, from Help > Keyboard shortcuts), and, under its own heading, the citation and license
 // notice the heatmap's color maps come with (render/colormaps.ts).
 import { Popover } from "@base-ui/react/popover";
+import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw.mjs";
 import { use } from "react";
 import { version } from "../../../package.json";
 import { engineVersion } from "../../app/analyses";
 import { Logo } from "../../app/Logo";
+import { CHECK_TEXT, checkForUpdate } from "../../app/update";
+import { useStore } from "../../store/store";
+import controls from "../../styles/controls.module.css";
 import { LINUX_NOTE, MENU_KEYS, TAB_KEYS } from "../tabs/keys";
 import styles from "./About.module.css";
 
@@ -25,7 +29,10 @@ export default function About() {
       <p className={styles.byline}>By Simon Dräger, Claudia Lainscsek and Terrence J. Sejnowski</p>
       <dl className={styles.facts}>
         <dt>Version</dt>
-        <dd>{version}</dd>
+        <dd className={styles.version}>
+          {version}
+          <UpdateButton />
+        </dd>
         <dt>Engine</dt>
         <dd>{found.version}</dd>
         <dt>Commit</dt>
@@ -51,6 +58,28 @@ export default function About() {
         <p className={styles.text}>MIT License, Copyright (c) 2020 Fabio Crameri</p>
       </section>
     </div>
+  );
+}
+
+/** Checks for a new version now; one that is found is offered as any other (UpdateNotice). */
+function UpdateButton() {
+  const check = useStore((s) => s.updateCheck);
+  const checking = check === "checking";
+  return (
+    <>
+      <button
+        type="button"
+        className={`${controls.quiet} ${styles.check}`}
+        aria-disabled={checking}
+        onClick={() => !checking && void checkForUpdate()}
+      >
+        <RefreshCw aria-hidden />
+        Check for updates
+      </button>
+      <span role="status" className={styles.checkResult}>
+        {CHECK_TEXT[check]}
+      </span>
+    </>
   );
 }
 

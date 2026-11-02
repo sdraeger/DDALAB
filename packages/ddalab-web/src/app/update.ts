@@ -1,14 +1,46 @@
 // The service worker (public/sw.js) in production builds: its registration, and the new version that is ready for this
 // window to switch to: at once on the start screen, else when the user asks (`updateReady` in the store, which
 // UpdateNotice reads).
-import { useStore } from "../store/store";
+import { type UpdateCheck, useStore } from "../store/store";
 
 const HOUR_MS = 3_600_000;
+/** A window shown again checks at most this often. */
+const SHOWN_MS = 600_000;
 
 /** The worker a click on Reload switches to: a waiting one, or the one that took over in another window. */
 let target: ServiceWorker | null = null;
 /** Set by `applyUpdate`: the next change of controller is the one this page asked for. */
 let reloading = false;
+/** The registration of this page's worker, once registered. */
+let registration: ServiceWorkerRegistration | null = null;
+let lastCheck = 0;
+
+/** What the last check found, as About and the library's footer say it. */
+export const CHECK_TEXT: Record<UpdateCheck, string> = {
+  idle: "",
+  checking: "Checking for updates",
+  current: "Up to date",
+  found: "A new version is ready",
+  failed: "Could not reach the server",
+  unavailable: "This build does not update itself",
+};
+
+/**
+ * Asks the host for a newer worker, at the user's request. A new one installs and is offered (`offer`); `updateCheck`
+ * in the store says what the check found. The automatic checks (`look`) say nothing.
+ */
+export async function checkForUpdate() {
+  if (!registration) return useStore.setState({ updateCheck: "unavailable" });
+  useStore.setState({ updateCheck: "checking" });
+  lastCheck = Date.now();
+  try {
+    await registration.update();
+    const found = registration.installing ?? registration.waiting;
+    useStore.setState({ updateCheck: found || useStore.getState().updateReady ? "found" : "current" });
+  } catch {
+    useStore.setState({ updateCheck: "failed" });
+  }
+}
 
 /**
  * Makes `worker` the version to switch to. With no recording open and no run, nothing is lost by a reload: it switches
@@ -35,19 +67,29 @@ export function registerWorker() {
     if (registration.waiting && serviceWorker.controller) offer(registration.waiting);
   };
   serviceWorker.register("./sw.js", { scope: "./" }).then(
-    (registration) => {
-      check(registration);
-      registration.addEventListener("updatefound", () => {
-        const installing = registration.installing;
+    (registered) => {
+      registration = registered;
+      lastCheck = Date.now();
+      check(registered);
+      registered.addEventListener("updatefound", () => {
+        const installing = registered.installing;
         installing?.addEventListener(
           "statechange",
-          () => installing.state === "installed" && check(registration),
+          () => installing.state === "installed" && check(registered),
         );
       });
-      // A window that stays open has no navigation for the browser to check on: ask once an hour while it shows.
+      // A window that stays open has no navigation for the browser to check on: ask once an hour while it shows, and
+      // when it is shown again after a while.
+      const look = () => {
+        lastCheck = Date.now();
+        registered.update().catch(() => {});
+      };
       setInterval(() => {
-        if (document.visibilityState === "visible") registration.update().catch(() => {});
+        if (document.visibilityState === "visible") look();
       }, HOUR_MS);
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible" && Date.now() - lastCheck > SHOWN_MS) look();
+      });
     },
     () => {},
   );

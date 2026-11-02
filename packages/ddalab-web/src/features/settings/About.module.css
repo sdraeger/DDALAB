@@ -34,6 +34,24 @@
   overflow-wrap: anywhere;
 }
 
+/* The version, the update check and what it found, on one line that wraps. */
+.version {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--space-2);
+}
+
+.check {
+  gap: var(--space-1);
+  font-size: var(--text-small);
+}
+
+.checkResult {
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
 .text {
   color: var(--muted);
   line-height: 1.45;

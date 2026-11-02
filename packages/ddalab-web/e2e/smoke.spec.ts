@@ -18,11 +18,14 @@ test("about_names_the_authors_and_versions_and_credits_the_color_maps", async ({
   const engine = await page.evaluate(() => window.__ddalab.engine.version());
   // The versions, then what each shortcut does: the menu's, then the tabs'.
   await expect(about.getByRole("definition")).toHaveText([
-    version,
+    `${version}Check for updates`,
     engine.engine_version,
     engine.git_commit ?? "not recorded in this build",
     ...[...MENU_KEYS, ...TAB_KEYS].map(([, action]) => action),
   ]);
+  // A dev build has no service worker to update.
+  await about.getByRole("button", { name: "Check for updates" }).click();
+  await expect(about.getByRole("status")).toHaveText("This build does not update itself");
   // The color map credit stands under its own heading, apart from DDALAB's authors.
   const colorMaps = about.getByRole("region", { name: "Color maps" });
   await expect(colorMaps).toContainText(

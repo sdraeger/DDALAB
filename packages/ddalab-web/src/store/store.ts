@@ -154,7 +154,12 @@ export interface State {
   annotationDraft: UserAnnotation | null;
   /** A new version of the app waits to take over, or took over in another window (app/update.ts). */
   updateReady: boolean;
+  /** The last check for a new version (app/update.ts `checkForUpdate`), shown beside the version in About. */
+  updateCheck: UpdateCheck;
 }
+
+/** `unavailable`: a build without the service worker (dev, e2e), which never updates itself. */
+export type UpdateCheck = "idle" | "checking" | "current" | "found" | "failed" | "unavailable";
 
 const CALIBRATION_KEY = "ddalab.mmPerCssMm";
 function storedCalibration(): number {
@@ -207,6 +212,7 @@ export const useStore = create<State>()(() => ({
   annotationEditor: null,
   annotationDraft: null,
   updateReady: false,
+  updateCheck: "idle",
 }));
 
 export const activeRecording = (s: State) =>

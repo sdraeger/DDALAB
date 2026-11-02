@@ -146,7 +146,37 @@
 }
 
 .footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--space-1);
   margin-top: auto;
   color: var(--muted);
   font-size: var(--text-small);
+}
+
+/* The update check: an icon in the footer's own color until hovered or focused. */
+.update {
+  display: flex;
+  align-items: baseline;
+  padding: var(--space-1);
+  border: 0;
+  border-radius: var(--radius-small);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.update svg {
+  block-size: 1cap;
+  inline-size: auto;
+}
+
+.update:hover,
+.update:focus-visible {
+  color: var(--primary);
+}
+
+.update[aria-disabled="true"] {
+  cursor: default;
 }

@@ -18,6 +18,7 @@ import styles from "./AppMenu.module.css";
 import { Logo } from "./Logo";
 import { ABOUT_TRIGGER, aboutPanel, CALIBRATION_TRIGGER, calibrationPanel, toggle } from "./Shell";
 import { closeTab } from "./tabs";
+import { checkForUpdate } from "./update";
 import { inTransition } from "./viewTransition";
 
 const Shortcuts = lazy(() => import("../features/settings/About").then((m) => ({ default: m.Shortcuts })));
@@ -168,6 +169,16 @@ export default function AppMenu() {
                   </Menu.Item>
                   <Menu.Item className={styles.item} onClick={() => aboutPanel.open(ABOUT_TRIGGER)}>
                     <span className={styles.label}>About DDALAB</span>
+                  </Menu.Item>
+                  <Menu.Item
+                    className={styles.item}
+                    onClick={() => {
+                      // About shows what the check finds, beside the version.
+                      void checkForUpdate();
+                      aboutPanel.open(ABOUT_TRIGGER);
+                    }}
+                  >
+                    <span className={styles.label}>Check for updates</span>
                   </Menu.Item>
                 </Submenu>
               </Menu.Popup>
