@@ -213,11 +213,12 @@ jobs:
 
   # Publishes the dist the web job built and tested at https://ddalab.org/, the repository's Pages custom domain (the base path is relative).
   # The github-pages environment must allow deployments from v* tags. A tag with a "-" is a pre-release and stays off
-  # the site: every installed copy would offer it as an update.
+  # the site: every installed copy would offer it as an update. It waits for the build alone: the tagged commit passed the
+  # end-to-end tests on main, and a flaky rerun here must not hold the release off the site.
   pages:
     name: Deploy to GitHub Pages
     if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
-    needs: [web, e2e]
+    needs: [web]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
