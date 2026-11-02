@@ -1,12 +1,14 @@
 // The one store. Sample, tile and result arrays never enter it; they live in workers.
 import { create } from "zustand";
 import type { BatchProgress, BatchRecord } from "../core/batch";
+import { type Filter, saveFilter, storedFilter } from "../core/filter";
 import type { AnalysisRecord } from "../core/history";
 import type { ScanState } from "../core/protocol";
 import type { RunProgress } from "../core/scheduler";
 import type { Annotation, RecordingInfo } from "../core/types";
 import type { UserAnnotation } from "../core/userAnnotations";
 import { type DdaForm, DEFAULT_FORM } from "../features/analysis/validate";
+import type { MapName } from "../render/colormaps";
 import { saveTheme, storedTheme, type Theme } from "../styles/theme";
 import type { RecentEntry } from "./recent";
 import type { Tab, TabView } from "./tabs";
@@ -132,6 +134,10 @@ export interface State {
   plotCssWidth: number;
   /** The theme the user picked; `null` follows the system. */
   theme: Theme | null;
+  /** The waveform's display filter, the same for every recording (core/filter.ts). */
+  filter: Filter;
+  /** The heatmap's color map the user picked, for every result; `null` picks one by the array (`mapOf`). */
+  colormap: MapName | null;
   /** The open recordings as tabs, in order (tabs.ts). */
   tabs: Tab[];
   /** The selected tab: the active recording's, or a detached one; `null` with none, as for a result shown alone. */
@@ -191,6 +197,8 @@ export const useStore = create<State>()(() => ({
   cursorS: null,
   plotCssWidth: 0,
   theme: storedTheme(),
+  filter: storedFilter(),
+  colormap: storedColormap(),
   tabs: [],
   activeTab: null,
   tabReasons: {},
@@ -557,6 +565,31 @@ export const togglePhoneInspector = () =>
 export const setSelection = (selection: State["selection"]) => useStore.setState({ selection });
 export const setCursor = (cursorS: number | null) => useStore.setState({ cursorS });
 export const setPlotWidth = (plotCssWidth: number) => useStore.setState({ plotCssWidth });
+
+export function setFilter(change: Partial<Filter>) {
+  const filter = { ...useStore.getState().filter, ...change };
+  saveFilter(filter);
+  useStore.setState({ filter });
+}
+
+const COLORMAP_KEY = "ddalab.colormap";
+
+/** The color map last picked, which localStorage keeps; `null` without one, or without storage. */
+function storedColormap(): MapName | null {
+  try {
+    return (localStorage.getItem(COLORMAP_KEY) as MapName | null) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function setColormap(colormap: MapName | null) {
+  try {
+    if (colormap) localStorage.setItem(COLORMAP_KEY, colormap);
+    else localStorage.removeItem(COLORMAP_KEY);
+  } catch {}
+  useStore.setState({ colormap });
+}
 
 export function setTheme(theme: Theme | null) {
   saveTheme(theme);

@@ -27,7 +27,7 @@ import { inTransition } from "../../app/viewTransition";
 import type { ResultArray } from "../../core/protocol";
 import type { ResultDocument } from "../../core/types";
 import { drawMarks, drawTimeAxis } from "../../render/axis";
-import { gradient, LUTS, type MapName, mapOf, scaleOf } from "../../render/colormaps";
+import { LUTS, type MapName, mapOf, scaleOf } from "../../render/colormaps";
 import { observeDevicePixels } from "../../render/devicePixels";
 import { webgl2 } from "../../render/gl";
 import { createHeatmapLayer, type HeatmapLayer } from "../../render/heatmapLayer";
@@ -39,6 +39,7 @@ import { userOf } from "../annotations/model";
 import { electrodeGroups } from "../inspector/groups";
 import { probing } from "../viewer/probe";
 import { usePlotPointer } from "../viewer/usePlotPointer";
+import { ColorMapPicker } from "./ColorMapPicker";
 import { HoverReadout, type HoverReadoutHandle } from "./HoverReadout";
 import { arrayKey, arrayOf, type Loaded, loads, manifestKey, manifestOf, pick } from "./loads";
 import { type HeatmapProbeFrame, heatmapProbe } from "./probe";
@@ -112,7 +113,9 @@ function Heatmap({
   const picked = shown?.row != null && shown.row < rows ? shown.row : null;
   // The diverging map follows the theme: the heatmap is drawn again when it changes.
   const dark = useSyncExternalStore(watchTheme, isDark);
-  const map = mapOf(variant.id, array, dark);
+  const colormap = useStore((s) => s.colormap);
+  const auto = mapOf(variant.id, array, dark);
+  const map = mapOf(variant.id, array, dark, colormap);
   const loading = arrayOf(resultId, variant.id, array);
   const [, rerender] = useReducer((n: number) => n + 1, 0);
   const retry = () => {
@@ -501,7 +504,7 @@ function Heatmap({
           )}
         </span>
         <Suspense fallback={null}>
-          <ColorBar loading={loading} name={name} definition={definition} map={map} />
+          <ColorBar loading={loading} name={name} definition={definition} map={map} auto={auto} />
         </Suspense>
         <button
           type="button"
@@ -634,28 +637,23 @@ function ArrayStatus(props: { loading: Promise<Loaded<ResultArray>>; onRetry(): 
   );
 }
 
-/** The color bar: what the values are, their map from the lower to the upper limit, both printed. */
+/** The color bar: what the values are, their map from the lower to the upper limit, both printed; the map picks another. */
 function ColorBar(props: {
   loading: Promise<Loaded<ResultArray>>;
   name: string;
   definition: string;
   map: MapName;
+  auto: MapName;
 }) {
   const loaded = use(props.loading);
   if ("error" in loaded) return null;
   const { map, lo, hi } = scaleOfArray(props.map, loaded.ok);
   return (
-    <span
-      className={styles.colorBar}
-      data-appear
-      role="img"
-      aria-label={`${props.name} from ${print(lo)} to ${print(hi)}`}
-      title={props.definition}
-    >
-      <b>{props.name}</b>
-      <small>{print(lo)}</small>
-      <span className={styles.ramp} style={{ background: gradient(map) }} />
-      <small>{print(hi)}</small>
+    <span className={styles.colorBar} data-appear>
+      <b title={props.definition}>{props.name}</b>
+      <small aria-hidden>{print(lo)}</small>
+      <ColorMapPicker map={map} auto={props.auto} label={`${props.name} from ${print(lo)} to ${print(hi)}`} />
+      <small aria-hidden>{print(hi)}</small>
     </span>
   );
 }

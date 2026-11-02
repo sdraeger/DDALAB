@@ -759,6 +759,31 @@ test("theme_toggle_remembers_the_pick", async ({ page }) => {
   await expect(toggle).toHaveAttribute("aria-pressed", "false");
 });
 
+// A display filter redraws the traces from filtered samples, off draws the raw samples again, and the setting is kept.
+test("display_filter_redraws_and_is_remembered", async ({ page }) => {
+  test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
+  await openFixture(page);
+  await zoom(page, 5, 3.1, 0);
+  expect((await checkPixels(page)).failures).toEqual([]);
+  await page.getByRole("button", { name: "Display filter: Off" }).click();
+  await page.getByRole("button", { name: "Delta" }).click();
+  await expect(page.getByRole("button", { name: "Display filter: 0.5–4 Hz" })).toBeVisible();
+  expect((await checkPixels(page)).failures).not.toEqual([]);
+  if (await hasStorage(page)) {
+    await page.reload();
+    expect(await page.evaluate(() => window.__ddalab.store.getState().filter)).toEqual({
+      highpassHz: 0.5,
+      lowpassHz: 4,
+      notchHz: null,
+    });
+    await openFixture(page);
+    await zoom(page, 5, 3.1, 0);
+    await page.getByRole("button", { name: "Display filter: 0.5–4 Hz" }).click();
+  }
+  await page.getByRole("button", { name: "Turn off" }).click();
+  expect((await checkPixels(page)).failures).toEqual([]);
+});
+
 test("webgl_context_loss_and_restore", async ({ page }) => {
   test.skip(!(await hasWebGL2(page)), NO_WEBGL2);
   await openFixture(page);

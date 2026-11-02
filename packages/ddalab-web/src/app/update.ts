@@ -1,5 +1,6 @@
 // The service worker (public/sw.js) in production builds: its registration, and the new version that is ready for this
-// window to switch to. Whether one is ready is `updateReady` in the store, which UpdateNotice reads.
+// window to switch to: at once on the start screen, else when the user asks (`updateReady` in the store, which
+// UpdateNotice reads).
 import { useStore } from "../store/store";
 
 const HOUR_MS = 3_600_000;
@@ -9,9 +10,16 @@ let target: ServiceWorker | null = null;
 /** Set by `applyUpdate`: the next change of controller is the one this page asked for. */
 let reloading = false;
 
+/**
+ * Makes `worker` the version to switch to. With no recording open and no run, nothing is lost by a reload: it switches
+ * at once, or a reload of the browser's own would keep the old version (a waiting worker takes over only once every
+ * window of the old one has closed). Otherwise the notice offers it.
+ */
 const offer = (worker: ServiceWorker | null) => {
   target = worker;
-  useStore.setState({ updateReady: true });
+  const { recordings, run } = useStore.getState();
+  if (Object.keys(recordings).length === 0 && run?.status !== "running") applyUpdate();
+  else useStore.setState({ updateReady: true });
 };
 
 /**

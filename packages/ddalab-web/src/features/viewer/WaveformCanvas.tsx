@@ -3,6 +3,7 @@
 // React renders the structure and the visible gutter rows only.
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { engine } from "../../app/recordings";
+import { applyFilter, padRows } from "../../core/filter";
 import { drawRuler, drawUnderlay, type Flag } from "../../render/axis";
 import { observeDevicePixels } from "../../render/devicePixels";
 import { paramsOf } from "../../render/display";
@@ -92,13 +93,23 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
       try {
         gl = webgl2(tracesEl);
         if (!gl) return setGlProblem(GL_MISSING);
+        // Raw rows are filtered with `pad` rows read either side, for the filters to settle before them.
+        // shortcut: pyramid tiles (64 or more samples per pixel) stay unfiltered; filter them if wide views need it.
+        const { filter } = useStore.getState();
+        const rate = opened.info.sample_rate_hz;
+        const total = opened.info.sample_count;
+        const pad = padRows(filter, rate);
+        const raw = async (row0: number, rows: number) => {
+          if (pad === 0) return engine.raw(recordingId, row0, rows);
+          const from = Math.max(0, row0 - pad);
+          const read = await engine.raw(recordingId, from, Math.min(total, row0 + rows + pad) - from);
+          const start = (row0 - from) * channels;
+          return applyFilter(read, channels, rate, filter).subarray(start, start + rows * channels);
+        };
         layer = createWaveformLayer(
           gl,
-          {
-            tile: (level, index) => engine.tile(recordingId, level, index),
-            raw: (row0, rows) => engine.raw(recordingId, row0, rows),
-          },
-          { key: opened.fingerprint, channels, rows: opened.info.sample_count, params },
+          { tile: (level, index) => engine.tile(recordingId, level, index), raw },
+          { key: `${opened.fingerprint} ${JSON.stringify(filter)}`, channels, rows: total, params },
           schedule,
         );
         setGlProblem(null);
@@ -240,6 +251,14 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
       )
         schedule();
     });
+    // A new filter draws from raw rows filtered by it: a new layer, as after a lost context.
+    const unfilter = useStore.subscribe((s, p) => {
+      if (s.filter === p.filter) return;
+      layer?.dispose();
+      lastScanned = -1;
+      start();
+      schedule();
+    });
     const unwatch = watchTheme(() => {
       colors = readColors(plotEl);
       schedule();
@@ -280,6 +299,7 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
       cancelAnimationFrame(raf);
       stopResize();
       unsubscribe();
+      unfilter();
       unwatch();
       tracesEl.removeEventListener("webglcontextlost", lost);
       tracesEl.removeEventListener("webglcontextrestored", restored);

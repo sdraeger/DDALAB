@@ -1,8 +1,11 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
-import { LUTS, type MapName, mapOf, scaleOf } from "./colormaps";
+import { LUTS, MAPS, type MapName, mapOf, scaleOf } from "./colormaps";
 
-/** A table of cmcrameri 1.10 (fixtures/, 256 rows of r g b in 0 to 1), as sRGB bytes rounded from the floats. */
+/**
+ * A published table (fixtures/: cmcrameri 1.10, or matplotlib 3.6.3 sampled at 256 points; 256 rows of r g b in 0 to
+ * 1), as sRGB bytes rounded from the floats.
+ */
 function published(map: MapName): number[] {
   const text = readFileSync(new URL(`./fixtures/${map}.txt`, import.meta.url), "utf8");
   const rows = text.trim().split("\n");
@@ -16,8 +19,17 @@ function published(map: MapName): number[] {
   ]);
 }
 
-test("tables_are_the_published_batlow_vik_and_berlin", () => {
-  for (const map of ["batlow", "vik", "berlin"] as const) expect([...LUTS[map]]).toEqual(published(map));
+test("tables_are_the_published_maps", () => {
+  for (const map of MAPS.map((m) => m.name)) expect([...LUTS[map]], map).toEqual(published(map));
+});
+
+test("a_picked_map_replaces_the_automatic_one", () => {
+  expect(mapOf("ST", "q", false, "jet")).toBe("jet");
+  expect(mapOf("DE", "q", true, "inferno")).toBe("inferno");
+  expect(mapOf("ST", "q", true, null)).toBe("berlin");
+  // Only a diverging map centers the limits at zero.
+  expect(scaleOf("jet", -0.2, 0.1)).toEqual({ lo: -0.2, hi: 0.1 });
+  expect(scaleOf("viridis", 0.3, 0.4)).toEqual({ lo: 0.3, hi: 0.4 });
 });
 
 test("map_follows_the_array_kind", () => {
