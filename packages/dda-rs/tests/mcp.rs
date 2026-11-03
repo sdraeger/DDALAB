@@ -243,6 +243,31 @@ fn bad_requests_get_errors_and_the_server_keeps_going() {
 }
 
 #[test]
+fn a_pair_variant_without_pairs_names_the_tool_argument() {
+    let replies = session(
+        &[],
+        &[
+            initialize(),
+            call(1, "run_dda", json!({"file": EDF, "variants": ["ct"]})),
+            call(
+                2,
+                "run_dda",
+                json!({"file": EDF, "variants": ["CD"], "cd_pairs": []}),
+            ),
+        ],
+    );
+    for (reply, argument) in replies[1..].iter().zip(["ct_pairs", "cd_pairs"]) {
+        let (message, error) = content(reply);
+        assert!(error);
+        let message = message.as_str().unwrap();
+        assert!(
+            message.contains(argument) && !message.contains("--"),
+            "{message}"
+        );
+    }
+}
+
+#[test]
 fn a_malformed_line_gets_a_parse_error() {
     let output = assert_cmd::cargo::cargo_bin_cmd!("ddalab")
         .arg("mcp")

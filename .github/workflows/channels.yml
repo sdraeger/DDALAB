@@ -1,0 +1,50 @@
+name: Channels
+
+# A v* tag publishes through release.yml, pypi.yml, npm.yml, container.yml and web.yml, and sdraeger/homebrew-tap and
+# sdraeger/scoop-bucket copy the latest release on an hourly schedule that GitHub runs late or not at all. This waits
+# until every channel serves the tag's version (scripts/check-channels.sh) and fails, naming the ones that do not, after
+# three hours. With the secret SATELLITE_TOKEN (a fine-grained token with Actions read and write on those two
+# repositories) it starts their copy itself instead of waiting for the schedule.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  channels:
+    name: Every channel serves the version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 200
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      NPM_PUBLISH: ${{ vars.NPM_PUBLISH }}
+      SATELLITE_TOKEN: ${{ secrets.SATELLITE_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Wait for every channel
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          for attempt in $(seq 18); do
+            if missing="$(scripts/check-channels.sh "$version")"; then
+              echo "Every channel serves $version"
+              exit 0
+            fi
+            echo "Attempt $attempt, not yet:"
+            echo "$missing"
+            # The copies take the latest release, so they start only once the release is complete.
+            if [[ -n "$SATELLITE_TOKEN" ]] && ! grep -q '^GitHub release' <<<"$missing"; then
+              for repo in homebrew-tap scoop-bucket; do
+                name="$([[ $repo == homebrew-tap ]] && echo Homebrew || echo Scoop)"
+                if grep -q "^$name" <<<"$missing"; then
+                  GH_TOKEN="$SATELLITE_TOKEN" gh workflow run update.yml --repo "sdraeger/$repo"
+                fi
+              done
+            fi
+            sleep 600
+          done
+          while read -r line; do echo "::error::$line does not serve $version"; done <<<"$missing"
+          exit 1

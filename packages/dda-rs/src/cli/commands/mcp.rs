@@ -328,6 +328,18 @@ struct RunTool {
 
 /// Runs the request `ddalab run` makes of the same flags, so the defaults and checks are the command line's.
 async fn run(args: RunTool) -> Result<Value, String> {
+    // The command line's own message names its flags (--ct-pairs), which this tool does not have.
+    let variants = dda_params::normalize_variants(args.variants.as_deref().unwrap_or_default())?;
+    for (variant, argument, pairs, example) in [
+        ("CT", "ct_pairs", &args.ct_pairs, "[[0, 1], [0, 2]]"),
+        ("CD", "cd_pairs", &args.cd_pairs, "[[0, 1], [1, 0]]"),
+    ] {
+        if variants.iter().any(|v| v == variant) && pairs.as_ref().is_none_or(Vec::is_empty) {
+            return Err(format!(
+                "{variant} needs {argument}: pairs of analysis channel indices, such as {example}"
+            ));
+        }
+    }
     let mut argv = vec![
         "ddalab".to_string(),
         "run".into(),
