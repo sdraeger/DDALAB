@@ -298,6 +298,7 @@ pub fn open_edf(files: &FileSet, name: &str) -> Result<Box<dyn Reader>> {
 
     let prefix = if bdf { "BDF" } else { "EDF" };
     let info = RecordingInfo {
+        reference: None,
         format: if plus {
             format!("{prefix}+")
         } else {

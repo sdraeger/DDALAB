@@ -7,6 +7,8 @@ import wasmUrl from "../core/ddalab.wasm?url";
 import type { DdaReply, DdaRequest } from "../core/protocol";
 import { openRequestOf, type Part, partsOf, readSource } from "../core/sources";
 import { CACHE_MB } from "../core/tileCache";
+import type { Block, DDARequest } from "../core/types";
+import { stSums } from "../core/webgpu";
 
 /** The files of the recording: file id `n` is `parts[n - 1]`. */
 let parts: Part[] = [];
@@ -31,11 +33,12 @@ self.addEventListener("message", async ({ data }: MessageEvent<DdaRequest>) => {
     if ("extras" in data) {
       self.postMessage({ ok: engine.manifest(handle, request, data.extras) } satisfies DdaReply);
     } else {
-      const ok = engine.runBlock(handle, request, data.block);
+      const gpu = data.gpu ? await onGpu(await core, handle, request, data.block) : null;
+      const ok = gpu ?? engine.runBlock(handle, request, data.block);
       // Dev and e2e builds report the instance's memory with each block (e2e/bench.spec.ts).
       const memory =
         import.meta.env.DEV || import.meta.env.MODE === "e2e" ? { wasmBytes: engine.memoryBytes() } : {};
-      self.postMessage({ ok, ...memory } satisfies DdaReply, {
+      self.postMessage({ ok, gpu: gpu !== null, ...memory } satisfies DdaReply, {
         transfer: ok.chunks.map((chunk) => chunk.bytes),
       });
     }
@@ -47,3 +50,11 @@ self.addEventListener("message", async ({ data }: MessageEvent<DdaRequest>) => {
     } satisfies DdaReply);
   }
 });
+
+/** The block's chunks from sums on the GPU; `null` when it runs on the CPU (not ST alone, no GPU, or a GPU error). */
+async function onGpu(engine: Awaited<typeof core>, handle: number, request: DDARequest, block: Block) {
+  const inputs = engine.stInputs(handle, request, block);
+  if (!inputs) return null;
+  const sums = await stSums(inputs.plan, inputs.rows).catch(() => null);
+  return sums && engine.stFinish(handle, request, block, sums);
+}

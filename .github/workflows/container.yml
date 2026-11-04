@@ -59,6 +59,9 @@ jobs:
           export TEST_DIR="$RUNNER_TEMP/bids-test"
           mkdir -p "$TEST_DIR"
           packaging/container/test-run.sh docker run --rm -v "$TEST_DIR:$TEST_DIR" ddalab:test
+          # liblsl loads: with no stream to find, `ddalab stream` gets as far as looking for one.
+          docker run --rm --entrypoint ddalab ddalab:test stream --stream none --timeout 1 2>&1 | tee "$RUNNER_TEMP/stream.log" || true
+          grep -q "no LSL stream" "$RUNNER_TEMP/stream.log"
 
       # A pushed tag cannot be taken back from every pull: push only once release.yml (cargo-dist) has released the tag.
       - name: Wait for the GitHub release

@@ -672,7 +672,8 @@ test("webgl2_missing_message", async ({ page }) => {
       kind: string,
       ...rest: unknown[]
     ) {
-      return kind === "webgl2" ? null : getContext.call(this, kind as "2d", ...(rest as []));
+      const original = getContext as (this: HTMLCanvasElement, kind: string, ...rest: unknown[]) => unknown;
+      return kind === "webgl2" ? null : original.call(this, kind, ...rest);
     } as typeof getContext;
   });
   await page.reload();

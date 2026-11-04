@@ -23,6 +23,38 @@ export interface OpenRequest {
   primary: string;
   files: { name: string; file_id: number; len: number }[];
   sample_rate_hz?: number;
+  reference?: Reference;
+}
+
+/**
+ * A reference the core derives the analysis channels with (dda_rs::io::Reference). `name` is the file a TSV came
+ * from, for the command that redoes a run; the core ignores it.
+ */
+export type Reference =
+  | { kind: "average" }
+  | { kind: "bipolar" }
+  | { kind: "laplacian"; neighbors?: number; electrodes_tsv?: string; name?: string }
+  | { kind: "custom"; montage_tsv: string; name: string };
+
+/** What the GPU sums for an ST block (dda_rs::blocks::StGpuPlan). */
+export interface StGpuPlan {
+  channels: number;
+  rows: number;
+  window_starts: number[];
+  raw_len: number;
+  dm: number;
+  max_delay: number;
+  window_length: number;
+  /** `factors` delays per model term, padded with 2^32 - 1. */
+  terms: number[];
+  factors: number;
+  nr_exclude: number;
+}
+
+/** A derived channel's sources and weights, by label. */
+export interface ResolvedReference {
+  reference: Reference;
+  channels: { label: string; terms: { source: string; weight: number }[] }[];
 }
 
 /** One editable value (dda_rs::io::edit::Field): a recording field, or a channel column with an empty `value`. */
@@ -87,6 +119,8 @@ export interface RecordingInfo {
   annotations: Annotation[];
   warnings: string[];
   input_files: string[];
+  /** The reference the analysis channels are derived with. */
+  reference?: ResolvedReference;
 }
 
 export interface Opened {
@@ -185,6 +219,7 @@ export interface Reproduction {
   input_sha256: Record<string, string>;
   engine_version: string;
   git_commit: string | null;
+  reference?: ResolvedReference;
   request: DDARequest;
 }
 
@@ -220,6 +255,8 @@ export interface ManifestExtras {
   created_at_iso: string;
   input_sha256: Record<string, string>;
   windows: number;
+  /** Where the run computed, when not the CPU alone: "webgpu-f32". */
+  compute_device?: string;
 }
 
 /** A progress report of the engine, within one block. */

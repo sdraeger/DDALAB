@@ -1,10 +1,11 @@
 // ddalab._core: the dda-rs engine and the `ddalab` command line for the Python package in `python/ddalab`.
 use clap::Parser;
-use dda_rs::cli::args::{Cli, Command};
+use dda_rs::cli::args::{Cli, Command, ReferenceArgs};
+use dda_rs::cli::commands::reference_of;
 use dda_rs::cli::commands::run::{analyze, analyze_open, job_of, request_of, Failure};
 use dda_rs::cli::{exit_codes, output};
 use dda_rs::document::ResultDocument;
-use dda_rs::io::{open_matrix, open_recording, FileSet};
+use dda_rs::io::{open_matrix, open_referenced, with_reference, FileSet};
 use numpy::{PyArray1, PyArray2, PyArray3, PyArrayMethods, PyReadonlyArray2};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -26,18 +27,25 @@ fn cli(py: Python<'_>, argv: Vec<String>) -> i32 {
     py.detach(|| dda_rs::cli::main_with_args(argv))
 }
 
-/// The recording at `path`: its info as JSON, its analysis channels as `(channels, samples)` in SI units, and its
-/// annotations as JSON.
+/// The recording at `path`, with the reference `reference` and `electrodes` name as `ddalab --reference` does: its info
+/// as JSON, its analysis channels as `(channels, samples)` in SI units, and its annotations as JSON.
 #[pyfunction]
-#[pyo3(signature = (path, sample_rate_hz=None))]
+#[pyo3(signature = (path, sample_rate_hz=None, reference=None, electrodes=None))]
 fn read<'py>(
     py: Python<'py>,
     path: &str,
     sample_rate_hz: Option<f64>,
+    reference: Option<String>,
+    electrodes: Option<String>,
 ) -> PyResult<(String, Bound<'py, PyArray2<f64>>, String)> {
+    let reference = reference_of(&ReferenceArgs {
+        reference,
+        electrodes,
+    })
+    .map_err(PyValueError::new_err)?;
     let opened = py.detach(|| {
         let files = FileSet::from_path(Path::new(path))?;
-        let reader = open_recording(&files, sample_rate_hz)?;
+        let reader = open_referenced(&files, sample_rate_hz, reference.as_ref())?;
         let info = reader.info();
         let channels = info.analysis_channels();
         let rows = reader.read_rows(&channels, 0, info.sample_count as usize)?;
@@ -142,6 +150,7 @@ fn run(
         ));
     };
     let (request, _) = request_of(&args).map_err(PyValueError::new_err)?;
+    let reference = reference_of(&args.reference).map_err(PyValueError::new_err)?;
     // Row-major samples, as a recording reads them.
     let matrix = match data {
         Some(data) => {
@@ -154,10 +163,15 @@ fn run(
             let values: Vec<f64> = (0..samples)
                 .flat_map(|s| array.column(s).to_vec())
                 .collect();
-            Some(
-                open_matrix(labels, rate, values)
-                    .map_err(|e| PyValueError::new_err(e.to_string()))?,
-            )
+            let no_files = FileSet {
+                primary: args.file.clone(),
+                files: BTreeMap::new(),
+            };
+            let reader = open_matrix(labels, rate, values).and_then(|reader| match &reference {
+                Some(reference) => with_reference(reader, reference, &no_files),
+                None => Ok(reader),
+            });
+            Some(reader.map_err(|e| PyValueError::new_err(e.to_string()))?)
         }
         None => None,
     };

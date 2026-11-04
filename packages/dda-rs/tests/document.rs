@@ -61,6 +61,7 @@ impl Recording {
             channel("D", ChannelKind::Signal),
         ];
         let info = RecordingInfo {
+            reference: None,
             format: "test".into(),
             channels,
             sample_rate_hz: rate,
@@ -528,8 +529,10 @@ fn read_f64s(path: &std::path::Path, header: &[u8]) -> Vec<f64> {
     let bytes = std::fs::read(path).unwrap();
     assert_eq!(&bytes[..header.len()], header, "{path:?} header");
     bytes[header.len()..]
-        .chunks_exact(8)
-        .map(|b| f64::from_le_bytes(b.try_into().unwrap()))
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|b| f64::from_le_bytes(*b))
         .collect()
 }
 

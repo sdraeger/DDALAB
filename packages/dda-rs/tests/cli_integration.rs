@@ -538,8 +538,10 @@ fn samples_npy_header_and_values() {
     let data = &bytes[10 + header_len..];
     assert_eq!(data.len(), 5 * 2 * 8);
     let got: Vec<f64> = data
-        .chunks_exact(8)
-        .map(|b| f64::from_le_bytes(b.try_into().unwrap()))
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|b| f64::from_le_bytes(*b))
         .collect();
     assert_eq!(got, want.concat());
 }
@@ -651,8 +653,10 @@ fn fast_request() -> DDARequest {
 /// The values of a `.npy` file of f64 after its `header_len` header bytes.
 fn npy_values(path: &Path, header_len: usize) -> Vec<f64> {
     std::fs::read(path).unwrap()[header_len..]
-        .chunks_exact(8)
-        .map(|b| f64::from_le_bytes(b.try_into().unwrap()))
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|b| f64::from_le_bytes(*b))
         .collect()
 }
 

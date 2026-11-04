@@ -52,6 +52,8 @@ export type IoRequest =
   /** `scan` false: no overview scan (a batch's open); the tiles of the view are built as they are asked for. */
   | { type: "open"; id: string; input: RecordingInput; scan?: boolean }
   | { type: "close"; id: string }
+  /** Opens recording `id` again under the same id, with the reference of `input` (none: its recorded channels). */
+  | { type: "reference"; id: string; input: RecordingInput }
   | { type: "raw"; id: string; row0: number; rows: number }
   | { type: "metadata"; id: string }
   /** The files of the copy of recording `id` with `metadata` (which `metadata` gave, edited). */
@@ -98,6 +100,7 @@ export interface IoResults {
     duplicateOf?: string;
   };
   close: undefined;
+  reference: { info: RecordingInfo; analysis_channels: number[] };
   raw: Float32Array;
   metadata: Metadata;
   editCopy: { name: string; blob: Blob }[];
@@ -169,13 +172,16 @@ export type Annotations = { annotations: Annotation[]; warnings: string[]; skipp
 
 /** Asks a DDA worker, which opens `input` itself, for a block of a run or, with `extras`, for its manifest. */
 export type DdaRequest =
-  | { input: RecordingInput; request: DDARequest; block: Block }
+  /** `gpu`: sum the block's ST windows on the GPU where it can (core/webgpu.ts). */
+  | { input: RecordingInput; request: DDARequest; block: Block; gpu?: boolean }
   | { input: RecordingInput; request: DDARequest; extras: ManifestExtras };
 
 /** A DDA worker has one request at a time. `trapped`: the wasm instance trapped and is unusable. */
 export type DdaReply =
   /** `wasmBytes`: the instance's memory after a block, in dev and e2e builds. */
-  { ok: BlockChunks | ResultDocument; wasmBytes?: number } | { error: string; trapped: boolean };
+  /** `gpu`: the block's sums came from the GPU. */
+  | { ok: BlockChunks | ResultDocument; wasmBytes?: number; gpu?: boolean }
+  | { error: string; trapped: boolean };
 
 export type AnnotationsReply =
   | { n: number; ok: Annotations }

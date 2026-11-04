@@ -3,6 +3,7 @@
 import { type ReactNode, type Ref, useImperativeHandle, useRef } from "react";
 import { CSS_PX_PER_MM, timebaseOf, type View, voltage } from "../../store/store";
 import { Filters } from "./Filters";
+import { Reference } from "./Reference";
 import styles from "./Viewer.module.css";
 
 export interface ReadoutsHandle {
@@ -75,6 +76,7 @@ export function Readouts({ ref }: { ref: Ref<ReadoutsHandle> }) {
           <dt>View</dt>
           <dd ref={interval} />
         </div>
+        <Reference />
         <Filters />
       </dl>
     </div>

@@ -164,3 +164,51 @@ def test_the_command_starts_without_numpy():
     code = "import sys, ddalab._cli; print('numpy' in sys.modules)"
     done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
     assert done.stdout.strip() == "False"
+
+
+def test_read_and_run_take_a_reference():
+    recording = ddalab.read(EDF, reference="average")
+    assert recording.ch_names == ["Fp1-avg", "Fp2-avg"]
+    # Two channels: each minus their mean is half their difference.
+    plain = ddalab.read(EDF)
+    np.testing.assert_allclose(recording.data[0], (plain.data[0] - plain.data[1]) / 2, atol=1e-12)
+    result = ddalab.run(EDF, reference="bipolar", wl=256, ws=256)
+    assert result.document["reproduction"]["reference"]["reference"] == {"kind": "bipolar"}
+
+
+def test_an_array_takes_a_reference():
+    rng = np.random.default_rng(0)
+    data = rng.standard_normal((3, 2000))
+    result = ddalab.run(data, sfreq=256.0, ch_names=["A", "B", "C"], reference="average", wl=256, ws=256)
+    assert result.variants["ST"].row_labels == ["A-avg", "B-avg", "C-avg"]
+
+
+def test_classify_then_predict(tmp_path):
+    rng = np.random.default_rng(1)
+    t = np.arange(256 * 20) / 256
+
+    def write(path, hz):
+        s = np.sin(2 * np.pi * hz * t)
+        data = np.column_stack([t, s + 0.3 * rng.standard_normal(t.size), 0.5 * s + 0.3 * rng.standard_normal(t.size)])
+        np.savetxt(path, data, delimiter=",", header="time,A,B", comments="")
+
+    rows = ["file\tlabel"]
+    for subject in (1, 2, 3):
+        for label, hz in (("slow", 4.0), ("fast", 18.0)):
+            path = tmp_path / f"sub-{subject}_{label}.csv"
+            write(path, hz)
+            rows.append(f"{path}\t{label}")
+    (tmp_path / "samples.tsv").write_text("\n".join(rows) + "\n")
+    small = dict(segment=2, wl=128, ws=64, order=2, terms=2, delay_range=(1, 4), folds=3)
+    report = ddalab.classify(samples=tmp_path / "samples.tsv", **small)
+    assert report["classes"] == ["fast", "slow"]
+    assert report["nested_score"] > 0.9
+    write(tmp_path / "new.csv", 18.0)
+    predictions = ddalab.predict(report, [tmp_path / "new.csv"], segment=2)
+    assert predictions["files"][0]["class"] == "fast"
+
+
+def test_a_recording_runs_with_the_reference_it_was_read_with():
+    recording = ddalab.read(EDF, reference="average")
+    result = ddalab.run(recording, wl=256, ws=256)
+    assert result.variants["ST"].row_labels == ["Fp1-avg", "Fp2-avg"]

@@ -10,6 +10,18 @@ Open <https://ddalab.org/> in Chrome, Edge, Firefox or Safari. Choose Open files
 
 On a phone the library, the waveform and the results each take the screen, chosen in a bar at the bottom; pinch the waveform to zoom, and hold a finger still before dragging to select.
 
+### Reference
+
+Reference, beside Filter under the waveform, re-references the recording: Average, Bipolar, Laplacian, a montage file, or Recorded to go back. The derived channels replace the recorded ones in the viewer and in DDA runs, and a result records the reference and each derived channel's sources and weights. [Re-referencing](#re-referencing) below defines each. Laplacian from positions… takes an electrodes TSV when the recording's folder has none.
+
+### GPU
+
+In a browser with WebGPU (Chrome and Edge, Safari 26), DDA settings show GPU for ST. A run then sums each window's least-squares problem on the GPU in single precision and solves it on the CPU in double precision; windows too ill-conditioned for single-precision sums run on the CPU. Results agree with the CPU's to about 1e-4 (relative), and the result records `webgpu-f32` as its compute device. On a 64-channel, 30-minute synthetic recording, an Apple laptop ran it 2.6 times as fast as on its 17 CPU workers. Runs with other variants, and blocks with missing samples, run on the CPU.
+
+### Live streams
+
+Live stream in the library connects to `ddalab stream --serve` (see [Live streams](#live-streams-lab-streaming-layer)) on the same computer: paste the address it prints. A window shows the last 10 seconds of every channel, each variant's results as they come, and the latest class when the stream classifies. The address carries a token, so other pages cannot read the stream.
+
 ### Public data from OpenNeuro
 
 Search OpenNeuro in the library by words, by modality (EEG or iEEG) or both, ordered by relevance, newest first or by name; More datasets loads the next page. A dataset shows its name, authors, license, DOI and README, with a version menu for its older snapshots and Copy the citation. Its recordings stream in place, a range at a time, and the result of every run on one names the dataset, its snapshot and its citation in its provenance. Find recordings to run on, in any folder of a snapshot, lists the EEG and iEEG recordings there and below as `ddalab batch` finds them; Run on all runs the batch on them, streamed one at a time, and Resume in the History walks the folder again. In the inspector, Keep a copy on this device stores a streamed recording in the browser, which then opens it without the network, where the browser lets a page write files to its storage (Chrome, Edge and Firefox; elsewhere the button does not show); Remove the copy deletes it.
@@ -73,6 +85,8 @@ The main commands:
 ddalab inspect --file recording.edf
 ddalab run --file recording.edf --variants ST --wl 1000 --ws 200 --delays 7 10 --bundle out
 ddalab batch --help
+ddalab classify --help    # structure selection and classification
+ddalab stream --help      # live DDA on a Lab Streaming Layer stream
 ```
 
 Without Python, use an installer, Homebrew or Scoop. The installers put `ddalab` in `~/.cargo/bin` (`$CARGO_HOME/bin` when that is set) and add it to your PATH:
@@ -118,6 +132,52 @@ recording = ddalab.read("sub-01_eeg.edf")   # data (channels, samples) in SI uni
 ddalab.run(recording.data, sfreq=recording.sfreq, ch_names=recording.ch_names)
 ```
 
+## Re-referencing
+
+`--reference` (in `run`, `batch`, `inspect`, `samples`, `classify` and `stream`; `reference=` in Python) derives the analysis channels from the recorded ones before anything reads them. The derived channels replace the analysis channels, so `--channels` counts them:
+
+- `average`: each channel minus the mean of the analysis channels that BIDS does not mark bad, labeled `Fz-avg`.
+- `bipolar`: the longitudinal (double banana) chains for a recording with their 10-20 names (T7, T8, P7 and P8 stand in for T3, T4, T5 and T6; `EEG` prefixes and `-REF` suffixes are ignored), otherwise neighboring contacts of each electrode shaft (the same letters, consecutive numbers: `LA1-LA2`).
+- `laplacian`: each channel minus the inverse-distance weighted mean of its 4 nearest electrodes (Hjorth), with positions from `--electrodes` (a TSV with the columns name, x, y and z) or the subject's `*_electrodes.tsv` beside a BIDS recording.
+- A path: a montage TSV whose rows `channel`, `source`, `weight` sum to the derived channels, for any linear montage.
+
+```sh
+ddalab run --file sub-01_ieeg.edf --reference bipolar --variants ST
+ddalab inspect --file sub-01_eeg.edf --reference laplacian --electrodes positions.tsv
+```
+
+## Classification
+
+`ddalab classify` finds the ST model, its terms and delays, whose features separate labeled segments best, and trains the classifier of that model. The features of a segment are, per channel, the window means of the model's coefficients and of its fit error. The classifier is linear discriminant analysis with a shrunk covariance (`--shrinkage`, default 0.1). The search scores every set of `--terms` model terms at `--delays`, then every delay pair in `--delay-range` with the best terms. The score is the balanced accuracy (the mean of the per-class recalls) of grouped cross-validation, in which all segments of a subject (or, without subjects, of a recording) stay in one fold. The report gives two scores: the search score, optimistic because the same folds chose the model, and the nested score, which repeats the whole search in each outer fold and is the one to report.
+
+The labels come from one of three places:
+
+```sh
+# a table: file, label, and optional start, end (seconds) and group
+ddalab classify --samples labels.tsv -o report.json
+# annotations: seizure segments against unannotated time
+ddalab classify --files sub-*/ieeg/*.edf --classes seizure --rest baseline --segment 10 -o report.json
+# a BIDS participants.tsv column, one label per recording
+ddalab classify --files sub-*/eeg/*.edf --participants participants.tsv --column group -o report.json
+```
+
+Every stretch is cut into `--segment` second segments (at most `--max-segments` per stretch). The report holds the ranking, both scores, the confusion matrix, every segment and the trained model. `ddalab predict --model report.json --files new.edf` classifies new recordings segment by segment, with the model's reference and channels. In Python, `ddalab.classify(...)` and `ddalab.predict(report, files)` take the same arguments.
+
+## Live streams (Lab Streaming Layer)
+
+`ddalab stream` runs DDA on a live [Lab Streaming Layer](https://labstreaminglayer.org) stream: every `--ws` samples, the variants on the last window of `--wl`, with the stream's channels re-referenced as a recording's are. It writes a JSON line per result. `--outlet` publishes the results as LSL streams (`<stream>-ST` and so on, a value per row), which other LSL tools can record or plot. `--classify report.json` adds the class of the latest segment every `--every` seconds (a `<stream>-class` marker stream with `--outlet`). `--serve 8765` feeds the web app (see Live streams above) and prints the address to paste there.
+
+```sh
+ddalab stream --stream EEG --reference average --wl 512 --ws 128 --serve 8765
+ddalab stream --stream EEG --classify report.json --segment 10 --outlet --quiet
+```
+
+`ddalab stream` uses the liblsl on your computer: `pip install pylsl` installs one, which the Python package's `ddalab` finds by itself. Otherwise set `DDALAB_LIBLSL` to the library's path. The container image carries liblsl; LSL finds streams by multicast, so the container needs the host's network (Linux):
+
+```sh
+docker run --rm --network host --entrypoint ddalab ghcr.io/sdraeger/ddalab stream --stream EEG --serve 8765
+```
+
 ## AI agents (MCP)
 
 `ddalab mcp` serves DDALAB to AI agents over the Model Context Protocol, so an agent can inspect a recording, run DDA and read the result. To add it to Claude Code:
@@ -126,7 +186,7 @@ ddalab.run(recording.data, sfreq=recording.sfreq, ch_names=recording.ch_names)
 claude mcp add ddalab -- ddalab mcp
 ```
 
-Other clients, such as Claude Desktop, take the same command in their MCP configuration: `{"mcpServers": {"ddalab": {"command": "ddalab", "args": ["mcp"]}}}`. The tools are `ddalab_info`, `inspect_recording` (channels, sampling rate, duration and annotations), `run_dda` (runs DDA, saves the whole result as JSON and returns a summary) and `read_result` (a result's values, averaged into time bins).
+Other clients, such as Claude Desktop, take the same command in their MCP configuration: `{"mcpServers": {"ddalab": {"command": "ddalab", "args": ["mcp"]}}}`. The tools are `ddalab_info`, `inspect_recording` (channels, sampling rate, duration and annotations), `run_dda` (runs DDA, saves the whole result as JSON and returns a summary), `read_result` (a result's values, averaged into time bins), and `classify` and `predict` (structure selection and classification, as the commands). The tools that read recordings take a `reference`, as `--reference` does.
 
 DDALAB runs on your computer, but the agent's model does not: the arguments and results of every tool call, file paths included, go to the model provider. HIPAA mode, on by default, limits what the tools return to a recording's channel layout and timing and to DDA results. It withholds annotation text, which can hold free-text notes, and the recording's samples. No tool returns the patient, recording or start date fields of a file's header in either mode. HIPAA mode does not make sending protected health information to a model provider compliant by itself: that needs a business associate agreement between your institution and the provider, so ask your privacy office whether your account has one. It also does not govern the agent's own tools: give Claude Code a `deny` rule for `Read` and `Bash` on folders of patient data, and give the agent copies whose header fields the metadata editor has cleared and whose file names identify no one.
 

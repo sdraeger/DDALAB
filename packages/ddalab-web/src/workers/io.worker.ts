@@ -36,7 +36,7 @@ import {
 import { blockBudgetMb, MAX_BLOCK_MB } from "../core/scheduler";
 import { isScanned, openRequestOf, partsOf, readSource, type Source } from "../core/sources";
 import { CACHE_MB } from "../core/tileCache";
-import type { Metadata, OpenRequest, RecordingInfo } from "../core/types";
+import type { Metadata, OpenRequest, RecordingInfo, Reference } from "../core/types";
 import { BESIDE } from "./beside";
 import { scan, yieldToLoop } from "./scan";
 
@@ -59,6 +59,8 @@ interface Recording {
   /** Its files by name. */
   byName: Map<string, Source>;
   fingerprint: string;
+  /** What its tiles are stored under: the fingerprint, and the reference when there is one. */
+  tiles: string;
   info: RecordingInfo;
   /** Display channels, which the tiles hold. */
   channels: number;
@@ -90,10 +92,12 @@ const recording = (id: string) => {
 };
 
 function startScan(id: string, input: RecordingInput, rec: Recording) {
-  const { info } = rec;
+  const { info, handle } = rec;
   rec.scanning = true;
+  // A recording opened again with another reference (`rereference`) has a new handle: this scan's work is done.
+  const ended = () => rec.closed || rec.handle !== handle;
   const emit = (state: ScanState) => {
-    if (!rec.closed) self.postMessage({ event: "scan", id, state } satisfies IoEvent);
+    if (!ended()) self.postMessage({ event: "scan", id, state } satisfies IoEvent);
   };
   // Events follow the reply to `open`: the engine knows a recording from that reply on.
   if (!isScanned(input)) {
@@ -112,13 +116,13 @@ function startScan(id: string, input: RecordingInput, rec: Recording) {
       scan({
         core: c,
         handle: rec.handle,
-        fingerprint: rec.fingerprint,
+        fingerprint: rec.tiles,
         rows: info.sample_count,
         channels: rec.channels,
         rawType: info.raw_type,
         fileBytes: rec.fileBytes,
         emit,
-        closed: () => rec.closed,
+        closed: ended,
       }),
     )
     .then(
@@ -135,7 +139,7 @@ function startScan(id: string, input: RecordingInput, rec: Recording) {
 
 /** A recording opened to be viewed: its tiles count as used now, and its scan starts. A batch's open does neither. */
 function viewed(id: string, input: RecordingInput, rec: Recording) {
-  void touchTiles(rec.fingerprint).catch(() => {}); // without storage (private windows) there is nothing to keep
+  void touchTiles(rec.tiles).catch(() => {}); // without storage (private windows) there is nothing to keep
   startScan(id, input, rec);
 }
 
@@ -160,8 +164,9 @@ async function open(id: string, input: RecordingInput, scan = true): Promise<IoR
       used.map(({ name, size, source }) => fingerprintOf(name, size, slice(source))),
     );
     const fingerprint = await sha256Hex(prints.join("\n"));
-    // Tiles and hashes are kept per fingerprint: one engine recording per content.
-    const known = [...recordings].find(([, other]) => other.fingerprint === fingerprint)?.[0];
+    const tiles = await tilesOf(fingerprint, input.reference);
+    // Tiles and hashes are kept per fingerprint (and tiles per reference): one engine recording per content.
+    const known = [...recordings].find(([, other]) => other.tiles === tiles)?.[0];
     if (known !== undefined) {
       // A recording a batch opened without its scan gets one when it opens to be viewed.
       const other = recordings.get(known);
@@ -176,6 +181,7 @@ async function open(id: string, input: RecordingInput, scan = true): Promise<IoR
       request,
       byName: new Map(parts.map(({ name, source }) => [name, source])),
       fingerprint,
+      tiles,
       info,
       channels: opened.analysis_channels.length,
       fileBytes: parts.reduce((sum, { size }) => sum + size, 0),
@@ -183,12 +189,7 @@ async function open(id: string, input: RecordingInput, scan = true): Promise<IoR
       release: () => {},
     };
     recordings.set(id, rec);
-    // Held while the recording is open, in this tab or another: eviction leaves its tiles.
-    void navigator.locks
-      .request(tilesLock(fingerprint), { mode: "shared" }, () =>
-        rec.closed ? undefined : new Promise<void>((done) => (rec.release = done)),
-      )
-      .catch(() => {});
+    holdTiles(rec);
     if (scan) viewed(id, input, rec);
     return { info, fingerprint, analysis_channels: opened.analysis_channels };
   } catch (error) {
@@ -196,6 +197,47 @@ async function open(id: string, input: RecordingInput, scan = true): Promise<IoR
     for (const fileId of fileIds) sources.delete(fileId);
     throw error;
   }
+}
+
+/** The key of the tiles of `fingerprint` under `reference`: the fingerprint alone for the recorded channels. */
+const tilesOf = async (fingerprint: string, reference: Reference | undefined) =>
+  reference ? `${fingerprint}-${(await sha256Hex(JSON.stringify(reference))).slice(0, 16)}` : fingerprint;
+
+/** Held while the recording is open, in this tab or another: eviction leaves its tiles. */
+function holdTiles(rec: Recording) {
+  void navigator.locks
+    .request(tilesLock(rec.tiles), { mode: "shared" }, () =>
+      rec.closed ? undefined : new Promise<void>((done) => (rec.release = done)),
+    )
+    .catch(() => {});
+}
+
+/**
+ * Opens recording `id` again with `reference` under the same id: its files and fingerprint stay, its channels, tiles
+ * and scan are those of the reference. A reference the core refuses leaves the recording as it was.
+ */
+async function rereference(id: string, input: RecordingInput): Promise<IoResults["reference"]> {
+  const rec = recording(id);
+  const c = await core;
+  const request = { ...rec.request, reference: input.reference };
+  // Everything that waits comes first: the switch below runs in one turn, so no request sees half of it.
+  const tiles = await tilesOf(rec.fingerprint, input.reference);
+  const opened = c.open(request, { cacheMb: CACHE_MB.ioFiles });
+  const old = rec.handle;
+  rec.release();
+  Object.assign(rec, {
+    handle: opened.handle,
+    request,
+    info: opened.info,
+    channels: opened.analysis_channels.length,
+    tiles,
+    scanning: false,
+    release: () => {},
+  });
+  c.close(old);
+  holdTiles(rec);
+  viewed(id, input, rec);
+  return { info: opened.info, analysis_channels: opened.analysis_channels };
 }
 
 async function close(id: string) {
@@ -255,14 +297,14 @@ async function tile(id: string, level: number, index: number): Promise<IoResults
     throw new Error(`tile ${index} of level ${level} does not exist for ${rows} rows`);
   }
   const slot = tileSlot(rec.channels, rawType);
-  const stored = await loadTile(rec.fingerprint, { level, index, channels: rec.channels, rawType }).catch(
+  const stored = await loadTile(rec.tiles, { level, index, channels: rec.channels, rawType }).catch(
     () => null,
   );
   if (stored) return { level, index, bytes: stored };
   // The tiles of the region on screen come this way while the scan, which can only start at row 0, works its way up.
   if ((Math.min(tileRows(level), rows) * rec.fileBytes) / rows > ON_DEMAND_BYTES) return null;
   const bytes = (await core).rawTile(rec.handle, level, index);
-  await saveTiles(rec.fingerprint, slot, [bytes]).catch(() => {}); // a full or missing storage only costs the reuse
+  await saveTiles(rec.tiles, slot, [bytes]).catch(() => {}); // a full or missing storage only costs the reuse
   return { level, index, bytes };
 }
 
@@ -274,6 +316,8 @@ async function handle(request: IoRequest): Promise<unknown> {
       return open(request.id, request.input, request.scan);
     case "close":
       return close(request.id);
+    case "reference":
+      return rereference(request.id, request.input);
     case "raw":
       return (await core).readRaw(recording(request.id).handle, request.row0, request.rows);
     case "metadata":

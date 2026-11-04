@@ -323,6 +323,7 @@ pub fn open_brainvision(files: &FileSet, vhdr_name: &str) -> Result<Box<dyn Read
 
     Ok(Box::new(BrainVisionReader {
         info: RecordingInfo {
+            reference: None,
             format: "BrainVision".to_string(),
             channels,
             sample_rate_hz: rate,

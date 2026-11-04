@@ -109,12 +109,21 @@
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
+  overflow: hidden;
   color: var(--muted);
   font-size: var(--text-small);
 }
 
 .facts > span {
   flex: none;
+}
+
+/* The window centers give way to an ellipsis before the facts reach the color bar. */
+.facts > .shrinks {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .facts b {

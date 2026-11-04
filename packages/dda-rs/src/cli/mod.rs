@@ -65,6 +65,9 @@ where
             Command::Inspect(args) => commands::inspect::execute(args),
             Command::Samples(args) => commands::samples::execute(args),
             Command::Mcp(args) => commands::mcp::execute(args),
+            Command::Classify(args) => commands::classify::execute(args),
+            Command::Predict(args) => commands::classify::predict(args),
+            Command::Stream(args) => commands::stream::execute(args),
         }
     })
 }

@@ -1954,6 +1954,11 @@ fn same_sign(left: f64, right: f64) -> bool {
     (left > 0.0 && right > 0.0) || (left < 0.0 && right < 0.0)
 }
 
+/// The number of model terms (monomials) of `nr_tau` delays up to polynomial `order`: model term indices run 1..=it.
+pub fn model_term_count(nr_tau: usize, order: usize) -> usize {
+    model::nr_multicombinations(nr_tau, order)
+}
+
 pub fn run_request_on_matrix(
     request: &DDARequest,
     samples: &[Vec<f64>],

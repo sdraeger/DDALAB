@@ -318,3 +318,505 @@ fn append(rows: &mut [Vec<f64>], more: Vec<Vec<f64>>) {
         row.extend(more);
     }
 }
+
+/// What a GPU sums for an ST block (`st_from_sums` solves it): each window's raw rows, masked, differentiated and
+/// z-scored as `engine::window` prepares them, give per channel the sums of its least-squares problem.
+#[derive(Debug, Clone, Serialize)]
+pub struct StGpuPlan {
+    /// Columns of the rows: the channels the block reads.
+    pub channels: usize,
+    pub rows: usize,
+    /// The first row of each window's raw stretch of `raw_len` rows.
+    pub window_starts: Vec<u32>,
+    pub raw_len: u32,
+    pub dm: u32,
+    pub max_delay: u32,
+    pub window_length: u32,
+    /// The delays of each model term, `factors` per term, padded with `u32::MAX`.
+    pub terms: Vec<u32>,
+    pub factors: u32,
+    /// Runs of this many equal samples are missing (`PureRustOptions::nr_exclude`).
+    pub nr_exclude: u32,
+}
+
+/// Values per window and channel the sums hold: the valid row count n, the upper triangle of X'X by rows, X'y and
+/// y'y, for `terms` model terms.
+pub fn st_sum_width(terms: usize) -> usize {
+    1 + terms * (terms + 1) / 2 + terms + 1
+}
+
+/// The GPU's inputs for `block` and its rows (row-major f32), or `None` when the block runs on the CPU: a variant
+/// besides ST, a sample that is not finite, or a last window that passes the end of the recording.
+pub fn st_gpu_inputs(
+    reader: &dyn Reader,
+    request: &DDARequest,
+    block: &Block,
+) -> Result<Option<(StGpuPlan, Vec<f32>)>> {
+    let mode = VariantMode::from_request(request);
+    let only_st = mode.st_enabled
+        && !(mode.ct_enabled || mode.cd_enabled || mode.de_enabled || mode.sy_mode != 0)
+        && request
+            .variant_configs
+            .as_ref()
+            .is_none_or(|c| c.is_empty());
+    if !only_st {
+        return Ok(None);
+    }
+    let info = reader.info();
+    let grid = Grid::new(request, info.sample_count)?;
+    let model = ModelSpec::from_request(request)?;
+    let raw_len = model.window_length + model.max_delay + 2 * model.dm;
+    let analysis = info.analysis_channels();
+    let (used, _) = localize(request, analysis.len());
+    let columns: Vec<usize> = used.iter().map(|&i| analysis[i]).collect();
+    let rows = (block.row1 - block.row0) as usize;
+    let window_starts: Vec<u32> = (block.w0..block.w1)
+        .map(|w| (grid.first_row(w) - block.row0) as u32)
+        .collect();
+    if window_starts.iter().any(|&s| s as usize + raw_len > rows) {
+        return Ok(None);
+    }
+    let data = reader.read_rows(&columns, block.row0, rows)?;
+    if data.iter().flatten().any(|v| !v.is_finite()) {
+        return Ok(None);
+    }
+    let factors = model.primary_terms.iter().map(Vec::len).max().unwrap_or(1);
+    let terms = model
+        .primary_terms
+        .iter()
+        .flat_map(|t| (0..factors).map(|f| t.get(f).map_or(u32::MAX, |&d| d as u32)))
+        .collect();
+    let plan = StGpuPlan {
+        channels: columns.len(),
+        rows,
+        window_starts,
+        raw_len: raw_len as u32,
+        dm: model.dm as u32,
+        max_delay: model.max_delay as u32,
+        window_length: model.window_length as u32,
+        terms,
+        factors: factors as u32,
+        nr_exclude: crate::engine::PureRustOptions::default().nr_exclude as u32,
+    };
+    // Each channel less its block mean, in f64: f32 then keeps the signal of a DC-coupled recording (microvolts on
+    // tens of millivolts). The z-scores and derivatives of the windows are the same; equal samples stay equal.
+    let width = columns.len();
+    let means: Vec<f64> = (0..width)
+        .map(|c| data.iter().map(|row| row[c]).sum::<f64>() / rows as f64)
+        .collect();
+    let centered = data
+        .iter()
+        .flat_map(|row| row.iter().zip(&means).map(|(&v, m)| (v - m) as f32))
+        .collect();
+    Ok(Some((plan, centered)))
+}
+
+/// The coefficients and fit error of one window and channel from its sums: NaN with fewer than 60% valid rows, as
+/// the CPU leaves such a window; `None` when X'X is too ill-conditioned for sums kept in f32 to solve it.
+fn solve_sums(sums: &[f64], terms: usize, window_length: usize) -> Option<(Vec<f64>, f64)> {
+    let n = sums[0];
+    if n / window_length as f64 * 100.0 < 60.0 {
+        return Some((vec![f64::NAN; terms], f64::NAN));
+    }
+    let mut at = 1;
+    let mut a = nalgebra::DMatrix::<f64>::zeros(terms, terms);
+    for i in 0..terms {
+        for j in i..terms {
+            a[(i, j)] = sums[at];
+            a[(j, i)] = sums[at];
+            at += 1;
+        }
+    }
+    let b = nalgebra::DVector::from_column_slice(&sums[at..at + terms]);
+    let yy = sums[at + terms];
+    let cholesky = a.clone().cholesky()?;
+    // The pivots of L: their spread squared estimates the condition of X'X. Sums kept in f32 (relative error about
+    // 1e-7) then give coefficients to about 1e-3 at worst; a worse-conditioned window runs on the CPU.
+    let pivots: Vec<f64> = (0..terms).map(|i| cholesky.l_dirty()[(i, i)]).collect();
+    let (lo, hi) = pivots
+        .iter()
+        .fold((f64::INFINITY, 0f64), |(lo, hi), &p| (lo.min(p), hi.max(p)));
+    if lo.is_nan() || lo <= 0.0 || (hi / lo).powi(2) > 1e4 {
+        return None;
+    }
+    let coefficients = cholesky.solve(&b);
+    let rss = yy - 2.0 * coefficients.dot(&b) + coefficients.dot(&(&a * &coefficients));
+    Some((
+        coefficients.iter().copied().collect(),
+        (rss.max(0.0) / n).sqrt(),
+    ))
+}
+
+/// The ST result of `block` from the GPU's `sums` (`st_sum_width` values per window and channel, windows outer): each
+/// system solved in f64, and a window the sums cannot solve, with the first window of the block, run on the CPU.
+pub fn st_from_sums(
+    reader: &dyn Reader,
+    request: &DDARequest,
+    block: &Block,
+    sums: &[f32],
+) -> Result<DDAResult> {
+    let info = reader.info();
+    let model = ModelSpec::from_request(request)?;
+    let terms = model.primary_terms.len();
+    let width = st_sum_width(terms);
+    let analysis = info.analysis_channels();
+    let (used, local) = localize(request, analysis.len());
+    let windows = block.w1 - block.w0;
+    if sums.len() != windows * used.len() * width {
+        return Err(DDAError::InvalidParameter(format!(
+            "{} sums for {windows} windows of {} channels",
+            sums.len(),
+            used.len()
+        )));
+    }
+    let cpu = |w: usize| {
+        run_block(
+            reader,
+            request,
+            &block_of(request, info.sample_count, w, w + 1)?,
+            None,
+        )
+    };
+    // The CPU's first window: the result's labels and markers, and its own values.
+    let mut result = cpu(block.w0)?;
+    let step = model.window_step as f64;
+    // No channels, or an empty list, is every channel, as `localize` reads it.
+    let st_rows: Vec<usize> = local
+        .channels
+        .clone()
+        .filter(|c| !c.is_empty())
+        .unwrap_or_else(|| (0..used.len()).collect());
+    for variant in result.variant_results.iter_mut().flatten() {
+        let marker = variant
+            .error_values
+            .as_ref()
+            .and_then(|v| v.first().copied())
+            .unwrap_or(f64::NAN);
+        variant.error_values = Some((0..windows).map(|w| marker + w as f64 * step).collect());
+        for row in &mut variant.q_matrix {
+            row.resize(windows, f64::NAN);
+        }
+        for matrix in variant.coefficient_matrices.iter_mut().flatten() {
+            for row in matrix.iter_mut() {
+                row.resize(windows, f64::NAN);
+            }
+        }
+        for row in variant.fit_error_matrix.iter_mut().flatten() {
+            row.resize(windows, f64::NAN);
+        }
+    }
+    let marker = result
+        .error_values
+        .as_ref()
+        .and_then(|v| v.first().copied())
+        .unwrap_or(f64::NAN);
+    result.error_values = Some((0..windows).map(|w| marker + w as f64 * step).collect());
+    for row in &mut result.q_matrix {
+        row.resize(windows, f64::NAN);
+    }
+
+    let mut fallbacks = 0usize;
+    for w in 1..windows {
+        let solved: Option<Vec<(Vec<f64>, f64)>> = st_rows
+            .iter()
+            .map(|&c| {
+                let at = (w * used.len() + c) * width;
+                let window: Vec<f64> = sums[at..at + width].iter().map(|&v| v as f64).collect();
+                solve_sums(&window, terms, model.window_length)
+            })
+            .collect();
+        let solved = match solved {
+            Some(solved) => solved,
+            None => {
+                fallbacks += 1;
+                let exact = cpu(block.w0 + w)?;
+                let st = exact
+                    .variant_results
+                    .iter()
+                    .flatten()
+                    .find(|v| v.variant_id == "ST");
+                st.map(|v| {
+                    (0..st_rows.len())
+                        .map(|r| {
+                            let coefficients = v
+                                .coefficient_matrices
+                                .iter()
+                                .flatten()
+                                .map(|m| m[r][0])
+                                .collect();
+                            (
+                                coefficients,
+                                v.fit_error_matrix.as_ref().map_or(f64::NAN, |e| e[r][0]),
+                            )
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+            }
+        };
+        for variant in result
+            .variant_results
+            .iter_mut()
+            .flatten()
+            .filter(|v| v.variant_id == "ST")
+        {
+            for (r, (coefficients, rmse)) in solved.iter().enumerate() {
+                variant.q_matrix[r][w] = coefficients.first().copied().unwrap_or(f64::NAN);
+                for (k, matrix) in variant
+                    .coefficient_matrices
+                    .iter_mut()
+                    .flatten()
+                    .enumerate()
+                {
+                    matrix[r][w] = coefficients.get(k).copied().unwrap_or(f64::NAN);
+                }
+                if let Some(errors) = variant.fit_error_matrix.as_mut() {
+                    errors[r][w] = *rmse;
+                }
+            }
+        }
+    }
+    if let Some(st) = result
+        .variant_results
+        .iter()
+        .flatten()
+        .find(|v| v.variant_id == "ST")
+    {
+        result.q_matrix = st.q_matrix.clone();
+    }
+    result.engine_notes.push(format!(
+        "ST sums on the GPU in f32, solved in f64; {fallbacks} of {windows} windows in this block ran on the CPU"
+    ));
+    Ok(result)
+}
+
+/// The sums of `plan` on `rows` as the GPU computes them, in f32 with Kahan compensation: the reference the shader
+/// (packages/ddalab-web/src/core/webgpu.ts) transliterates, one window and channel per invocation.
+pub fn st_sums_reference(plan: &StGpuPlan, rows: &[f32]) -> Vec<f32> {
+    let terms = plan.terms.len() / plan.factors as usize;
+    let width = st_sum_width(terms);
+    let mut out = vec![0f32; plan.window_starts.len() * plan.channels * width];
+    for (w, &start) in plan.window_starts.iter().enumerate() {
+        for c in 0..plan.channels {
+            let sums = st_window_sums(plan, rows, start as usize, c, terms);
+            let at = (w * plan.channels + c) * width;
+            out[at..at + width].copy_from_slice(&sums);
+        }
+    }
+    out
+}
+
+fn st_window_sums(
+    plan: &StGpuPlan,
+    rows: &[f32],
+    start: usize,
+    c: usize,
+    terms: usize,
+) -> Vec<f32> {
+    let (dm, max_delay, wl, raw_len) = (
+        plan.dm as usize,
+        plan.max_delay as usize,
+        plan.window_length as usize,
+        plan.raw_len as usize,
+    );
+    let x = |r: usize| rows[(start + r) * plan.channels + c];
+    // A sample in a run of nr_exclude or more equal samples of the window is missing.
+    let missing = |r: usize| {
+        let limit = plan.nr_exclude as usize;
+        let mut run = 1;
+        let mut i = r;
+        while i > 0 && run < limit && x(i - 1) == x(r) {
+            run += 1;
+            i -= 1;
+        }
+        let mut i = r;
+        while i + 1 < raw_len && run < limit && x(i + 1) == x(r) {
+            run += 1;
+            i += 1;
+        }
+        run >= limit
+    };
+    // z-score over the shifted rows dm..dm + wl + max_delay, the sample deviation.
+    let shifted = wl + max_delay;
+    let (mut sum, mut count) = (0f32, 0f32);
+    for r in dm..dm + shifted {
+        if !missing(r) {
+            sum += x(r);
+            count += 1.0;
+        }
+    }
+    let mean = sum / count;
+    let mut square = 0f32;
+    for r in dm..dm + shifted {
+        if !missing(r) {
+            square += (x(r) - mean) * (x(r) - mean);
+        }
+    }
+    let width = st_sum_width(terms);
+    let mut acc = vec![0f32; width];
+    let mut carry = vec![0f32; width];
+    let deviation = (square / (count - 1.0)).sqrt();
+    if count < 2.0 || !deviation.is_finite() || deviation == 0.0 {
+        return acc; // n = 0: the window is invalid, as the CPU's NaN derivative makes it
+    }
+    let mut add = |k: usize, value: f32| {
+        // Kahan: carry holds what the last addition lost.
+        let y = value - carry[k];
+        let t = acc[k] + y;
+        carry[k] = (t - acc[k]) - y;
+        acc[k] = t;
+    };
+    let mut row = vec![0f32; terms];
+    'samples: for i in 0..wl {
+        // The derivative at raw row dm + max_delay + i, from the 2 dm samples around it.
+        let center = dm + max_delay + i;
+        if missing(center) {
+            continue;
+        }
+        let mut derivative = 0f32;
+        for s in 1..=dm {
+            if missing(center + s) || missing(center - s) {
+                continue 'samples;
+            }
+            derivative += (x(center + s) - x(center - s)) / s as f32;
+        }
+        let y = derivative / dm as f32 / deviation;
+        for (k, value) in row.iter_mut().enumerate() {
+            let mut product = 1f32;
+            for f in 0..plan.factors as usize {
+                let delay = plan.terms[k * plan.factors as usize + f];
+                if delay == u32::MAX {
+                    break;
+                }
+                let r = dm + i + max_delay - delay as usize;
+                if missing(r) {
+                    continue 'samples;
+                }
+                product *= (x(r) - mean) / deviation;
+            }
+            *value = product;
+        }
+        add(0, 1.0);
+        let mut at = 1;
+        for a in 0..terms {
+            for b in a..terms {
+                add(at, row[a] * row[b]);
+                at += 1;
+            }
+        }
+        for (a, &value) in row.iter().enumerate() {
+            add(at + a, value * y);
+        }
+        add(at + terms, y * y);
+    }
+    acc
+}
+
+#[cfg(test)]
+mod gpu_tests {
+    use super::*;
+    use crate::io::open_matrix;
+
+    /// Two noisy oscillations at 256 Hz, `rows` long, with a flat stretch of 20 samples (a run the engine masks).
+    fn recording(rows: usize) -> Box<dyn Reader> {
+        offset_recording(rows, 0.0, 1.0)
+    }
+
+    /// `recording` scaled by `scale` on a DC offset: a DC-coupled amplifier's microvolts on tens of millivolts.
+    fn offset_recording(rows: usize, offset: f64, scale: f64) -> Box<dyn Reader> {
+        let data: Vec<f64> = (0..rows)
+            .flat_map(|i| {
+                let t = i as f64 / 256.0;
+                let flat = (300..320).contains(&i);
+                let a = if flat {
+                    1.0
+                } else {
+                    (2.0 * std::f64::consts::PI * 9.0 * t).sin() + 0.2 * (i as f64 * 1.3).sin()
+                };
+                [
+                    a,
+                    (2.0 * std::f64::consts::PI * 4.0 * t).cos() + 0.1 * (i as f64 * 0.7).cos(),
+                ]
+            })
+            .map(|v| offset + scale * v)
+            .collect();
+        open_matrix(vec!["A".into(), "B".into()], 256.0, data).unwrap()
+    }
+
+    fn request() -> DDARequest {
+        serde_json::from_value(serde_json::json!({
+            "file_path": "", "channels": [0, 1], "time_range": {"start": 0.0, "end": 4000.0},
+            "preprocessing_options": {"highpass": null, "lowpass": null},
+            "algorithm_selection": {"enabled_variants": ["ST"]},
+            "window_parameters": {"window_length": 200, "window_step": 100},
+            "delay_parameters": {"delays": [7, 10]}
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn sums_solved_in_f64_match_the_cpu() {
+        agrees(recording(4096), request());
+    }
+
+    #[test]
+    fn a_dc_offset_costs_no_precision() {
+        agrees(offset_recording(4096, 0.03, 1e-5), request());
+    }
+
+    #[test]
+    fn an_empty_channel_list_is_every_channel() {
+        let mut request = request();
+        request.channels = Some(Vec::new());
+        agrees(recording(4096), request);
+    }
+
+    /// The GPU path's ST result of the first block equals the CPU's to 1e-4, NaNs and markers included.
+    fn agrees(reader: Box<dyn Reader>, request: DDARequest) {
+        let block = plan_blocks(&request, reader.info(), usize::MAX)
+            .unwrap()
+            .remove(0);
+        let cpu = run_block(&*reader, &request, &block, None).unwrap();
+        let (plan, rows) = st_gpu_inputs(&*reader, &request, &block)
+            .unwrap()
+            .expect("an ST block on finite samples");
+        let gpu =
+            st_from_sums(&*reader, &request, &block, &st_sums_reference(&plan, &rows)).unwrap();
+        let (cpu, gpu) = (
+            &cpu.variant_results.unwrap()[0],
+            &gpu.variant_results.unwrap()[0],
+        );
+        assert_eq!(cpu.error_values, gpu.error_values, "the window markers");
+        let compare = |a: &Vec<Vec<f64>>, b: &Vec<Vec<f64>>, what: &str| {
+            for (ra, rb) in a.iter().zip(b) {
+                for (w, (x, y)) in ra.iter().zip(rb).enumerate() {
+                    assert!(x.is_nan() == y.is_nan(), "{what} window {w}: {x} vs {y}");
+                    if x.is_finite() {
+                        assert!(
+                            (x - y).abs() <= 1e-4 * x.abs().max(1e-3),
+                            "{what} window {w}: {x} vs {y}"
+                        );
+                    }
+                }
+            }
+        };
+        compare(&cpu.q_matrix, &gpu.q_matrix, "q");
+        compare(
+            cpu.fit_error_matrix.as_ref().unwrap(),
+            gpu.fit_error_matrix.as_ref().unwrap(),
+            "rmse",
+        );
+    }
+
+    #[test]
+    fn other_variants_stay_on_the_cpu() {
+        let reader = recording(4096);
+        let mut request = request();
+        request.algorithm_selection.enabled_variants = vec!["ST".into(), "CT".into()];
+        request.ct_channel_pairs = Some(vec![[0, 1]]);
+        let block = plan_blocks(&request, reader.info(), usize::MAX)
+            .unwrap()
+            .remove(0);
+        assert!(st_gpu_inputs(&*reader, &request, &block).unwrap().is_none());
+    }
+}

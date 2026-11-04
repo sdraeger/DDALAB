@@ -9,7 +9,7 @@ use std::io::Write;
 const CHUNK_BYTES: usize = 8 << 20;
 
 pub fn execute(args: SamplesArgs) -> i32 {
-    let reader = match open_reader(&args.file, args.sr) {
+    let reader = match open_reader(&args.file, args.sr, &args.reference) {
         Ok(reader) => reader,
         Err(code) => return code,
     };

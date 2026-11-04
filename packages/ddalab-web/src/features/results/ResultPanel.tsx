@@ -493,7 +493,7 @@ function Heatmap({
           <span className={`${styles.thin} ${styles.name}`} aria-hidden />
           <span>{centers.length.toLocaleString("en")} windows</span>
           <span className={styles.thin} aria-hidden />
-          <span>
+          <span className={styles.shrinks}>
             centers {centers[0].toFixed(2)} to {centers[centers.length - 1].toFixed(2)} s
           </span>
           {recordingId === null && (

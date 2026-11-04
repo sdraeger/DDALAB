@@ -87,7 +87,7 @@ export async function startRun(recordingId: string, request: DDARequest) {
   cancelling = false;
   let handle: AnalysisHandle;
   try {
-    handle = await engine.run(recordingId, request);
+    handle = await engine.run(recordingId, request, { gpu: useStore.getState().gpu });
   } catch (error) {
     return setRun({ status: "failed", error: messageOf(error) });
   }

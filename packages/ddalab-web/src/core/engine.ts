@@ -35,6 +35,7 @@ import type {
   ManifestExtras,
   Metadata,
   RecordingInfo,
+  Reference,
   ResultDocument,
 } from "./types";
 
@@ -52,7 +53,8 @@ export interface DatasetSource {
   citation: string;
 }
 
-export type RecordingInput =
+/** Where a recording's files come from, and the reference its analysis channels are derived with. */
+export type RecordingInput = (
   | { kind: "files"; files: File[]; primary: string }
   | {
       kind: "url";
@@ -60,7 +62,8 @@ export type RecordingInput =
       primary: string;
       dataset?: DatasetSource;
     }
-  | { kind: "synthetic"; spec: SyntheticSpec }; // dev and e2e builds only
+  | { kind: "synthetic"; spec: SyntheticSpec }
+) & { reference?: Reference }; // synthetic: dev and e2e builds only
 
 export interface Engine {
   version(): Promise<EngineVersion>;
@@ -82,6 +85,14 @@ export interface Engine {
   }>;
   /** A recording a run reads stays open in the engine, its hash going on, until the run ends. */
   close(id: string): void;
+  /**
+   * Opens recording `id` again with `reference` (none: the recorded channels): its channels, tiles and scan change,
+   * its id, fingerprint, hashes and annotations stay. Runs started after it read the referenced channels.
+   */
+  reference(
+    id: string,
+    reference: Reference | undefined,
+  ): Promise<{ info: RecordingInfo; analysis_channels: number[] }>;
   /**
    * Tile `index` of pyramid `level`, or `null` while the scan has not reached it and building it from the file
    * would take too long. The bytes are shared with the tile cache: copy them to transfer them.
@@ -121,7 +132,7 @@ export interface Engine {
    * `done` resolves once the manifest is written and the result is complete; a failed or canceled run leaves no
    * files. The result id is the handle's id.
    */
-  run(id: string, request: DDARequest): Promise<AnalysisHandle>;
+  run(id: string, request: DDARequest, options?: { gpu?: boolean }): Promise<AnalysisHandle>;
   /** Deletes the files of results a reload or a crash left unfinished; their ids. */
   sweepInterrupted(): Promise<string[]>;
   /** The manifest of a complete result. */
@@ -159,7 +170,11 @@ export interface Engine {
 /** What dev and e2e builds add for tests. */
 export type DevEngine = Omit<Engine, "run"> & {
   /** A run whose handle also sums the wasm memory its DDA workers last reported, in bytes. */
-  run(id: string, request: DDARequest): Promise<AnalysisHandle & { wasmBytes(): number }>;
+  run(
+    id: string,
+    request: DDARequest,
+    options?: { gpu?: boolean },
+  ): Promise<AnalysisHandle & { wasmBytes(): number }>;
   trap(): Promise<void>;
   quota(bytes: number): Promise<void>;
   /** Bytes of wasm memory of each running worker. */
@@ -215,8 +230,10 @@ function poolSize(input: RecordingInput, info: RecordingInfo, request: DDAReques
 }
 
 /** The DDA workers of one run, started as blocks need them; `stop` ends them and what they were asked. */
-function ddaPool(input: RecordingInput, request: DDARequest) {
+function ddaPool(input: RecordingInput, request: DDARequest, gpu = false) {
   const idle: Worker[] = [];
+  /** A block of the run summed on the GPU. */
+  let usedGpu = false;
   const asked = new Map<Worker, (error: Error) => void>();
   let stopped = false;
   /** The wasm memory each worker last reported, in bytes (dev and e2e builds). */
@@ -238,6 +255,7 @@ function ddaPool(input: RecordingInput, request: DDARequest) {
         } else {
           if ((import.meta.env.DEV || import.meta.env.MODE === "e2e") && data.wasmBytes !== undefined)
             memory.set(worker, data.wasmBytes);
+          usedGpu ||= data.gpu === true;
           resolve(data.ok as T);
         }
         asked.delete(worker);
@@ -247,10 +265,11 @@ function ddaPool(input: RecordingInput, request: DDARequest) {
         reject(new Error(event.message || "A DDA worker stopped"));
         drop(worker);
       };
-      worker.postMessage({ input, request, ...task } satisfies DdaRequest);
+      worker.postMessage({ input, request, gpu, ...task } satisfies DdaRequest);
     });
   return {
     memory,
+    usedGpu: () => usedGpu,
     block: (block: Block) => ask<BlockChunks>({ block }),
     manifest: (extras: ManifestExtras) => ask<ResultDocument>({ extras }),
     stop() {
@@ -268,6 +287,8 @@ function ddaPool(input: RecordingInput, request: DDARequest) {
 
 interface Tracked {
   fingerprint: string;
+  /** The reference the recording is open with: its tiles are those of the fingerprint under it. */
+  reference?: Reference;
   info: RecordingInfo;
   scan: ScanState;
   sha256: Record<string, string>;
@@ -577,6 +598,7 @@ export function createEngine(): Engine {
       const { info, fingerprint } = opened;
       scans.set(id, {
         fingerprint,
+        reference: input.reference,
         info,
         scan: { scannedRows: 0, totalRows: info.sample_count },
         sha256: {},
@@ -599,10 +621,31 @@ export function createEngine(): Engine {
       hasher?.postMessage({ type: "cancel", id } satisfies HashRequest);
       call({ type: "close", id }).catch(() => {});
     },
+    async reference(id, reference) {
+      const input = held.get(id);
+      const entry = scans.get(id);
+      if (!input || !entry) throw new Error(`no open recording ${id}`);
+      const next: RecordingInput = { ...input, reference };
+      // Tiles asked for from here on are keyed by the new reference: the IO worker answers them after it switched.
+      const before = entry.reference;
+      entry.reference = reference;
+      const opened = await call({ type: "reference", id, input: next }).catch((error: Error) => {
+        entry.reference = before;
+        throw error;
+      });
+      held.set(id, next);
+      Object.assign(entry, {
+        info: opened.info,
+        scan: { scannedRows: 0, totalRows: opened.info.sample_count },
+      });
+      publish(id);
+      return opened;
+    },
     tile(id, level, index) {
       const entry = scans.get(id);
       if (!entry) return Promise.reject(new Error(`no open recording ${id}`));
-      const key = `${entry.fingerprint}/${level}/${index}`;
+      const reference = entry.reference ? `~${JSON.stringify(entry.reference)}` : "";
+      const key = `${entry.fingerprint}${reference}/${level}/${index}`;
       const hit = cache.get(key);
       if (hit) return Promise.resolve(hit);
       const inFlight =
@@ -649,7 +692,7 @@ export function createEngine(): Engine {
       const plan = await call({ type: "plan", id, request, workers });
       return { windows: plan.windows, blocks: plan.blocks.length, workers, budgetMb: plan.budgetMb };
     },
-    async run(id, request) {
+    async run(id, request, options) {
       const { input, info } = opened(id);
       const workers = poolSize(input, info, request);
       const plan = await call({ type: "plan", id, request, workers });
@@ -659,7 +702,7 @@ export function createEngine(): Engine {
         await discard();
         throw error;
       });
-      const pool = ddaPool(input, request);
+      const pool = ddaPool(input, request, options?.gpu);
       // The run holds its recording: closed meanwhile, it stays open in the engine and its hash goes on.
       runs.set(id, (runs.get(id) ?? 0) + 1);
       if (isScanned(input)) startHash(id);
@@ -684,6 +727,7 @@ export function createEngine(): Engine {
             created_at_iso: new Date().toISOString(),
             input_sha256: await inputHashes(id, cancelling.signal),
             windows: plan.windows,
+            ...(pool.usedGpu() ? { compute_device: "webgpu-f32" } : {}),
           };
           await call({ type: "finishResult", resultId, manifest: await pool.manifest(extras) });
           return { resultId };

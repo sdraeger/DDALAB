@@ -72,7 +72,7 @@ result = ddalab.run("sub-01_eeg.edf", variants=["ST"], wl=200, ws=100)
 result.variants["ST"].q     # NumPy array, (channels, windows)
 ```
 
-For BIDS datasets, `ghcr.io/sdraeger/ddalab` is a [BIDS App](guide/README.md#container-bids-app). `ddalab mcp` serves DDALAB to AI agents such as Claude Code (`claude mcp add ddalab -- ddalab mcp`), in a HIPAA mode by default that keeps annotation text and samples from the model; the [guide](guide/README.md#ai-agents-mcp) says what it covers.
+`--reference` re-references recordings (average, bipolar, Laplacian or any montage), `ddalab classify` finds the DDA model that separates labeled segments and trains its classifier, and `ddalab stream` runs DDA live on a Lab Streaming Layer stream; the [guide](guide/README.md#re-referencing) covers each. For BIDS datasets, `ghcr.io/sdraeger/ddalab` is a [BIDS App](guide/README.md#container-bids-app). `ddalab mcp` serves DDALAB to AI agents such as Claude Code (`claude mcp add ddalab -- ddalab mcp`), in a HIPAA mode by default that keeps annotation text and samples from the model; the [guide](guide/README.md#ai-agents-mcp) says what it covers.
 
 ## Repository layout
 

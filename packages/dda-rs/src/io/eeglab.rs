@@ -174,6 +174,7 @@ pub fn open_eeglab(files: &FileSet, set_name: &str) -> Result<Box<dyn Reader>> {
 
     Ok(Box::new(EeglabReader {
         info: RecordingInfo {
+            reference: None,
             format: "EEGLAB".to_string(),
             channels,
             sample_rate_hz: rate,

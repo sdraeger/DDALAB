@@ -74,9 +74,10 @@ reader_conformance_manifest.json beside it.
 """
 import csv, glob, hashlib, json, multiprocessing, os, subprocess, sys, tempfile, warnings
 import mne, numpy as np
+from pathlib import Path
 
 SCRATCH = os.environ["SCRATCH"]
-raw = json.load(open(sys.argv[1]))
+raw = json.loads(Path(sys.argv[1]).read_text())
 cfg = json.loads(json.dumps(raw).replace("$SCRATCH", SCRATCH))
 shown = lambda value: value.replace(SCRATCH, "$SCRATCH") if isinstance(value, str) else value
 out = sys.argv[2]
@@ -201,9 +202,9 @@ if __name__ == "__main__":
         w.writerows(rows)
     manifest = {"config": raw, "config_sha256": sha256(sys.argv[1]), "command": sys.argv, "ddalab_commit": cfg["ddalab_commit"],
                 "ddalab_sha256": sha256(cfg["ddalab"]), "mne": mne.__version__, "numpy": np.__version__,
-                "python": sys.version.split()[0], "mne_testing_version": open(f"{testing}/version.txt").read().strip(),
+                "python": sys.version.split()[0], "mne_testing_version": Path(f"{testing}/version.txt").read_text().strip(),
                 "input_sha256": {shown(p): h for _, hashes in results for p, h in hashes.items()}}
-    json.dump(manifest, open(os.path.splitext(out)[0] + "_manifest.json", "w"), indent=2)
+    Path(os.path.splitext(out)[0] + "_manifest.json").write_text(json.dumps(manifest, indent=2))
     tol, summary = cfg["tol_onset_s"], []
     for c in dict.fromkeys(r["corpus"] for r in rows):
         sub = [r for r in rows if r["corpus"] == c]

@@ -2,9 +2,10 @@
 // Everything a tool returns goes to the agent's model provider. No tool returns a recording's header identity fields
 // (`RecordingInfo` holds none); HIPAA mode, the default, also keeps annotation text and samples from the model.
 use super::run::{analyze, job_of, request_of};
-use crate::cli::args::{Cli, Command, McpArgs};
+use crate::cli::args::{Cli, Command, McpArgs, PredictArgs, ReferenceArgs};
+use crate::cli::output;
 use crate::cli::{dda_params, exit_codes};
-use crate::io::{open_recording, FileSet, Reader};
+use crate::io::{open_referenced, FileSet, Reader};
 use crate::VariantMetadata;
 use clap::Parser;
 use serde::de::DeserializeOwned;
@@ -114,6 +115,11 @@ fn tools(hipaa: bool) -> Vec<Value> {
     let sr = json!({"type": "number", "description": "Sampling rate in Hz, for text files only"});
     let indices = |what: &str| json!({"type": "array", "items": {"type": "integer", "minimum": 0}, "description": what});
     let pairs = |what: &str| json!({"type": "array", "items": {"type": "array", "items": {"type": "integer", "minimum": 0}, "minItems": 2, "maxItems": 2}, "description": what});
+    let reference = json!({"type": "string", "description": "Re-reference the analysis channels: average, bipolar, \
+        laplacian, or the path of a montage TSV (columns channel, source, weight). The derived channels replace the \
+        analysis channels, so channel indices count them"});
+    let electrodes = json!({"type": "string", "description": "For reference laplacian: the path of an electrodes TSV \
+        (name, x, y, z); default the subject's *_electrodes.tsv beside the recording"});
     let mut tools = vec![
         json!({
             "name": "ddalab_info",
@@ -127,7 +133,7 @@ fn tools(hipaa: bool) -> Vec<Value> {
             "title": "Inspect a recording",
             "description": "A recording's format, sampling rate, duration, analysis channels (with the 0-based indices \
                 run_dda takes), other channels, annotations and warnings.",
-            "inputSchema": {"type": "object", "properties": {"file": file, "sr": sr}, "required": ["file"]},
+            "inputSchema": {"type": "object", "properties": {"file": file, "sr": sr, "reference": reference, "electrodes": electrodes}, "required": ["file"]},
             "annotations": read_only,
         }),
         json!({
@@ -148,9 +154,9 @@ fn tools(hipaa: bool) -> Vec<Value> {
                 "model": {"type": "array", "items": {"type": "integer"}, "description": "Model term indices, such as [1, 2, 10]"},
                 "ct_pairs": pairs("Channel pairs for CT, as analysis channel indices"),
                 "cd_pairs": pairs("Directed channel pairs for CD, as analysis channel indices"),
-                "highpass": {"type": "number", "description": "High-pass cutoff in Hz"},
-                "lowpass": {"type": "number", "description": "Low-pass cutoff in Hz"},
                 "sr": sr,
+                "reference": reference,
+                "electrodes": electrodes,
                 "output": {"type": "string", "description": "Where to save the result JSON; default: a file in the system's temporary folder"},
             }, "required": ["file"]},
             "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false},
@@ -171,6 +177,49 @@ fn tools(hipaa: bool) -> Vec<Value> {
             }, "required": ["result"]},
             "annotations": read_only,
         }),
+        json!({
+            "name": "classify",
+            "title": "Find the DDA model that classifies segments",
+            "description": "Cuts labeled recordings into segments, searches ST DDA structures (model terms, then delay \
+                pairs) for the one whose features separate the classes best under grouped cross-validation with \
+                shrinkage LDA, and trains its classifier. Labels come from a samples TSV (file, label, optional start, \
+                end, group), from annotations of files matched by classes (plus rest for unannotated stretches), or \
+                from a column of a BIDS participants.tsv. Reports the ranking, the search and nested balanced \
+                accuracies (the nested one is unbiased), the confusion matrix and the saved report, which predict takes. \
+                A search can take minutes.",
+            "inputSchema": {"type": "object", "properties": {
+                "samples": {"type": "string", "description": "Path of a samples TSV"},
+                "files": {"type": "array", "items": {"type": "string"}, "description": "Recording paths for classes or participants"},
+                "classes": {"type": "array", "items": {"type": "string"}, "description": "Annotation classes: NAME, or NAME=TEXT matching annotations containing TEXT"},
+                "rest": {"type": "string", "description": "A class for stretches no annotation covers"},
+                "participants": {"type": "string", "description": "Path of a BIDS participants.tsv"},
+                "column": {"type": "string", "description": "Its column holding the class"},
+                "segment": {"type": "number", "description": "Seconds per segment, default 10"},
+                "channels": {"type": "array", "items": {"type": "string"}, "description": "Channel labels; default every analysis channel"},
+                "reference": reference,
+                "electrodes": electrodes,
+                "wl": {"type": "integer", "minimum": 1},
+                "ws": {"type": "integer", "minimum": 1},
+                "terms": {"type": "integer", "minimum": 1, "description": "Model terms per structure, default 3"},
+                "delay_range": {"type": "array", "items": {"type": "integer", "minimum": 1}, "minItems": 2, "maxItems": 2, "description": "Smallest and largest delay searched, default [1, 20]"},
+                "folds": {"type": "integer", "minimum": 2},
+                "sr": sr,
+                "output": {"type": "string", "description": "Report path; default a file in the temporary directory"},
+            }},
+            "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false},
+        }),
+        json!({
+            "name": "predict",
+            "title": "Classify recordings",
+            "description": "Classifies recordings segment by segment with the model of a classify report: each file's class by majority, its votes and every segment's class.",
+            "inputSchema": {"type": "object", "properties": {
+                "model": {"type": "string", "description": "Path of a classify report"},
+                "files": {"type": "array", "items": {"type": "string"}},
+                "segment": {"type": "number", "description": "Seconds per segment, default 10"},
+                "sr": sr,
+            }, "required": ["model", "files"]},
+            "annotations": read_only,
+        }),
     ];
     if !hipaa {
         tools.push(json!({
@@ -183,6 +232,8 @@ fn tools(hipaa: bool) -> Vec<Value> {
                 "start_sample": {"type": "integer", "minimum": 0},
                 "count": {"type": "integer", "minimum": 1, "description": "Samples per channel"},
                 "sr": sr,
+                "reference": reference,
+                "electrodes": electrodes,
             }, "required": ["file", "channels", "start_sample", "count"]},
             "annotations": read_only,
         }));
@@ -210,6 +261,8 @@ async fn call(name: &str, arguments: Value, hipaa: bool) -> Result<Value, String
         "run_dda" => run(parse(arguments)?).await,
         "read_result" => read_result(parse(arguments)?),
         "read_samples" => samples(parse(arguments)?),
+        "classify" => classify(parse(arguments)?),
+        "predict" => predict(parse(arguments)?),
         _ => Err(format!("Unknown tool: {name}")),
     }
 }
@@ -218,9 +271,18 @@ fn parse<T: DeserializeOwned>(arguments: Value) -> Result<T, String> {
     serde_json::from_value(arguments).map_err(|e| format!("Invalid arguments: {e}"))
 }
 
-fn open(file: &str, sr: Option<f64>) -> Result<Box<dyn Reader>, String> {
+fn open(
+    file: &str,
+    sr: Option<f64>,
+    reference: Option<String>,
+    electrodes: Option<String>,
+) -> Result<Box<dyn Reader>, String> {
+    let reference = super::reference_of(&ReferenceArgs {
+        reference,
+        electrodes,
+    })?;
     FileSet::from_path(Path::new(file))
-        .and_then(|files| open_recording(&files, sr))
+        .and_then(|files| open_referenced(&files, sr, reference.as_ref()))
         .map_err(|e| format!("{file}: {e}"))
 }
 
@@ -261,10 +323,12 @@ fn info() -> Value {
 struct InspectTool {
     file: String,
     sr: Option<f64>,
+    reference: Option<String>,
+    electrodes: Option<String>,
 }
 
 fn inspect(args: InspectTool, hipaa: bool) -> Result<Value, String> {
-    let reader = open(&args.file, args.sr)?;
+    let reader = open(&args.file, args.sr, args.reference, args.electrodes)?;
     let (annotations, scan_warnings) = reader
         .scan_annotations()
         .map_err(|e| format!("{}: {e}", args.file))?;
@@ -320,9 +384,9 @@ struct RunTool {
     model: Option<Vec<i32>>,
     ct_pairs: Option<Vec<[usize; 2]>>,
     cd_pairs: Option<Vec<[usize; 2]>>,
-    highpass: Option<f64>,
-    lowpass: Option<f64>,
     sr: Option<f64>,
+    reference: Option<String>,
+    electrodes: Option<String>,
     output: Option<String>,
 }
 
@@ -376,15 +440,11 @@ async fn run(args: RunTool) -> Result<Value, String> {
     );
     flag("ct-pairs", pairs(args.ct_pairs));
     flag("cd-pairs", pairs(args.cd_pairs));
+    flag("reference", text(args.reference.map(|r| vec![r])));
+    flag("electrodes", text(args.electrodes.map(|e| vec![e])));
     flag("wl", all(args.wl.map(|v| vec![i64::from(v)])));
     flag("ws", all(args.ws.map(|v| vec![i64::from(v)])));
-    for (name, value) in [
-        ("start", args.start),
-        ("end", args.end),
-        ("highpass", args.highpass),
-        ("lowpass", args.lowpass),
-        ("sr", args.sr),
-    ] {
+    for (name, value) in [("start", args.start), ("end", args.end), ("sr", args.sr)] {
         flag(name, text(value.map(|v| vec![v.to_string()])));
     }
     let run_args = match Cli::try_parse_from(&argv)
@@ -554,6 +614,8 @@ struct SamplesTool {
     start_sample: u64,
     count: usize,
     sr: Option<f64>,
+    reference: Option<String>,
+    electrodes: Option<String>,
 }
 
 fn samples(args: SamplesTool) -> Result<Value, String> {
@@ -565,7 +627,7 @@ fn samples(args: SamplesTool) -> Result<Value, String> {
             "At most {MAX_SAMPLES} values per call: ask for fewer samples or channels"
         ));
     }
-    let reader = open(&args.file, args.sr)?;
+    let reader = open(&args.file, args.sr, args.reference, args.electrodes)?;
     let info = reader.info();
     let analysis = info.analysis_channels();
     let channels: Vec<usize> = args
@@ -598,4 +660,114 @@ fn samples(args: SamplesTool) -> Result<Value, String> {
         "start_sample": args.start_sample,
         "values": values,
     }))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ClassifyTool {
+    samples: Option<String>,
+    files: Option<Vec<String>>,
+    classes: Option<Vec<String>>,
+    rest: Option<String>,
+    participants: Option<String>,
+    column: Option<String>,
+    segment: Option<f64>,
+    channels: Option<Vec<String>>,
+    reference: Option<String>,
+    electrodes: Option<String>,
+    wl: Option<u32>,
+    ws: Option<u32>,
+    terms: Option<u32>,
+    delay_range: Option<[u32; 2]>,
+    folds: Option<u32>,
+    sr: Option<f64>,
+    output: Option<String>,
+}
+
+/// `ddalab classify` with the flags of `args`: the summary of its report, which it saves.
+fn classify(args: ClassifyTool) -> Result<Value, String> {
+    let path = match args.output {
+        Some(output) => PathBuf::from(output),
+        None => {
+            let dir = results_dir();
+            std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+            dir.join(format!("classify-{}.json", uuid::Uuid::new_v4()))
+        }
+    };
+    let mut argv = vec![
+        "ddalab".to_string(),
+        "classify".into(),
+        "--quiet".into(),
+        "-o".into(),
+        path.display().to_string(),
+    ];
+    let mut flag = |name: &str, values: Vec<String>| {
+        if !values.is_empty() {
+            argv.push(format!("--{name}"));
+            argv.extend(values);
+        }
+    };
+    let one = |v: Option<String>| v.into_iter().collect::<Vec<_>>();
+    let number = |v: Option<f64>| v.map(|v| v.to_string()).into_iter().collect::<Vec<_>>();
+    let int = |v: Option<u32>| v.map(|v| v.to_string()).into_iter().collect::<Vec<_>>();
+    flag("samples", one(args.samples));
+    flag("files", args.files.unwrap_or_default());
+    flag("classes", args.classes.unwrap_or_default());
+    flag("rest", one(args.rest));
+    flag("participants", one(args.participants));
+    flag("column", one(args.column));
+    flag("segment", number(args.segment));
+    flag("channels", args.channels.unwrap_or_default());
+    flag("reference", one(args.reference));
+    flag("electrodes", one(args.electrodes));
+    flag("wl", int(args.wl));
+    flag("ws", int(args.ws));
+    flag("terms", int(args.terms));
+    flag(
+        "delay-range",
+        args.delay_range
+            .map(|r| r.iter().map(u32::to_string).collect())
+            .unwrap_or_default(),
+    );
+    flag("folds", int(args.folds));
+    flag("sr", number(args.sr));
+    let Command::Classify(classify_args) = Cli::try_parse_from(&argv)
+        .map_err(|e| e.render().to_string())?
+        .command
+    else {
+        unreachable!("argv names the classify command");
+    };
+    let report = super::classify::train(&classify_args)?;
+    output::write_json(&report, false, Some(&path.display().to_string()))?;
+    Ok(json!({
+        "report": path,
+        "classes": report.classes,
+        "segments_per_class": report.segments_per_class,
+        "groups": report.groups,
+        "folds": report.folds,
+        "best": report.best,
+        "search_balanced_accuracy": report.search_score,
+        "nested_balanced_accuracy": report.nested_score,
+        "confusion_true_by_predicted": report.confusion,
+        "ranking": report.ranking.iter().take(5).collect::<Vec<_>>(),
+    }))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PredictTool {
+    model: String,
+    files: Vec<String>,
+    segment: Option<f64>,
+    sr: Option<f64>,
+}
+
+fn predict(args: PredictTool) -> Result<Value, String> {
+    super::classify::predictions(&PredictArgs {
+        model: args.model,
+        files: args.files,
+        segment: args.segment.unwrap_or(10.0),
+        sr: args.sr,
+        output: None,
+    })
 }

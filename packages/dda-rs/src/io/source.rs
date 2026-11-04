@@ -10,6 +10,10 @@ use std::path::Path;
 pub trait ByteSource: Send + Sync {
     fn len(&self) -> u64;
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<()>;
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 /// The range `offset..offset + n` as indices, or the out-of-range error naming `name`.
@@ -276,6 +280,21 @@ impl FileSet {
         }
 
         let dir = path.parent().unwrap_or(Path::new(""));
+        // The electrode positions of the subject (for a laplacian reference): `sub-<label>_..._electrodes.tsv`.
+        if let Some(subject) = primary.split('_').next().filter(|s| s.starts_with("sub-")) {
+            for entry in std::fs::read_dir(if dir.as_os_str().is_empty() {
+                Path::new(".")
+            } else {
+                dir
+            })?
+            .flatten()
+            {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if name.starts_with(&format!("{subject}_")) && name.ends_with("_electrodes.tsv") {
+                    names.push(name);
+                }
+            }
+        }
         let mut files = BTreeMap::new();
         for name in names {
             let sibling = dir.join(&name);

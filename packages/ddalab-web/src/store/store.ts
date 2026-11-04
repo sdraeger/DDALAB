@@ -5,7 +5,7 @@ import { type Filter, saveFilter, storedFilter } from "../core/filter";
 import type { AnalysisRecord } from "../core/history";
 import type { ScanState } from "../core/protocol";
 import type { RunProgress } from "../core/scheduler";
-import type { Annotation, RecordingInfo } from "../core/types";
+import type { Annotation, RecordingInfo, Reference } from "../core/types";
 import type { UserAnnotation } from "../core/userAnnotations";
 import { type DdaForm, DEFAULT_FORM } from "../features/analysis/validate";
 import type { MapName } from "../render/colormaps";
@@ -22,6 +22,8 @@ export interface OpenRecording {
   source: "files" | "url" | "synthetic";
   /** Display channels chosen for analysis, as indices into `analysis_channels`, ascending. */
   selectedChannels: number[];
+  /** The reference the display channels are derived with; none for the recorded channels. */
+  reference?: Reference;
 }
 
 export type Epoch = 10 | 20 | 30;
@@ -138,6 +140,8 @@ export interface State {
   filter: Filter;
   /** The heatmap's color map the user picked, for every result; `null` picks one by the array (`mapOf`). */
   colormap: MapName | null;
+  /** Runs sum ST windows on the GPU (core/webgpu.ts) where the browser has one. */
+  gpu: boolean;
   /** The open recordings as tabs, in order (tabs.ts). */
   tabs: Tab[];
   /** The selected tab: the active recording's, or a detached one; `null` with none, as for a result shown alone. */
@@ -204,6 +208,7 @@ export const useStore = create<State>()(() => ({
   theme: storedTheme(),
   filter: storedFilter(),
   colormap: storedColormap(),
+  gpu: storedGpu(),
   tabs: [],
   activeTab: null,
   tabReasons: {},
@@ -364,6 +369,24 @@ export function addRecording(
   useStore.setState((s) => {
     const recordings = { ...s.recordings, [id]: added };
     return activate ? enter(s, added.fingerprint, { recordings }) : { recordings };
+  });
+}
+
+/**
+ * Recording `id` with the channels of `reference`: they replace its display channels, so the channels chosen for
+ * analysis start over and the scan starts again.
+ */
+export function setReferenced(
+  id: string,
+  opened: { info: RecordingInfo; analysis_channels: number[] },
+  reference: Reference | undefined,
+) {
+  useStore.setState((s) => {
+    const recording = s.recordings[id];
+    if (!recording) return s;
+    const scan: ScanState = { scannedRows: 0, totalRows: opened.info.sample_count };
+    const updated = { ...recording, ...opened, reference, scan, selectedChannels: [] };
+    return { recordings: { ...s.recordings, [id]: updated } };
   });
 }
 
@@ -576,6 +599,26 @@ export function setFilter(change: Partial<Filter>) {
   const filter = { ...useStore.getState().filter, ...change };
   saveFilter(filter);
   useStore.setState({ filter });
+}
+
+const GPU_KEY = "ddalab.gpu";
+
+/** Whether the GPU was last chosen for runs; off without storage. */
+function storedGpu(): boolean {
+  try {
+    return localStorage.getItem(GPU_KEY) === "on";
+  } catch {
+    return false;
+  }
+}
+
+export function setGpu(gpu: boolean) {
+  try {
+    localStorage.setItem(GPU_KEY, gpu ? "on" : "off");
+  } catch {
+    // without storage the choice lasts this visit
+  }
+  useStore.setState({ gpu });
 }
 
 const COLORMAP_KEY = "ddalab.colormap";

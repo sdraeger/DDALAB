@@ -171,9 +171,9 @@ pub fn edf_bytes(spec: &EdfSpec) -> Vec<u8> {
                 out.extend_from_slice(&value.to_le_bytes()[..bps]);
             }
         }
-        if plus {
-            out.extend_from_slice(&tals[r]);
-            out.resize(out.len() + ann_spr * bps - tals[r].len(), 0);
+        if let Some(tal) = tals.get(r).filter(|_| plus) {
+            out.extend_from_slice(tal);
+            out.resize(out.len() + ann_spr * bps - tal.len(), 0);
         }
     }
     out

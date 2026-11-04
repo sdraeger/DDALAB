@@ -1,0 +1,85 @@
+/* The live stream: its address in the rail, and the dialog with the newest samples and results. */
+.form {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.field {
+  flex: 1;
+  min-width: 0;
+  height: var(--hit);
+  padding: 0 var(--space-2);
+  border: var(--hairline-width) solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--ground);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-small);
+}
+
+.field::placeholder {
+  color: var(--muted);
+}
+
+/* The dialog takes most of the window: the traces need the width. */
+.popup {
+  width: min(1100px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+}
+
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-4);
+}
+
+.class {
+  margin-left: auto;
+  color: var(--primary);
+  font-size: var(--text-section);
+  font-weight: var(--weight-strong);
+}
+
+.figure {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+}
+
+/* Channel labels beside their lanes: the list and the canvas share their height. */
+.lanes {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-2);
+}
+
+.labels {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  margin: 0;
+  padding: 0;
+  color: var(--muted);
+  font-size: var(--text-small);
+  list-style: none;
+}
+
+.waveform {
+  width: 100%;
+  height: clamp(160px, 40vh, 420px);
+}
+
+/* One result per pixel column, stretched: the browser's smoothing would blur the cells. */
+.heatmap {
+  width: 100%;
+  height: clamp(48px, 16vh, 200px);
+  image-rendering: pixelated;
+}

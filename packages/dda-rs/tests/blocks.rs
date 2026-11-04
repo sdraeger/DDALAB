@@ -92,6 +92,7 @@ impl Recording {
             })
             .collect();
         let info = RecordingInfo {
+            reference: None,
             format: "test".into(),
             channels,
             sample_rate_hz: 100.0,

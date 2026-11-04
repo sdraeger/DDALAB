@@ -35,6 +35,214 @@ pub enum Command {
     Samples(SamplesArgs),
     /// Serve DDALAB to AI agents over MCP on stdin and stdout (`claude mcp add ddalab -- ddalab mcp`)
     Mcp(McpArgs),
+    /// Find the DDA model that separates labeled segments best, and train its classifier
+    Classify(ClassifyArgs),
+    /// Classify recordings, segment by segment, with a model `ddalab classify` trained
+    Predict(PredictArgs),
+    /// Run DDA live on a Lab Streaming Layer stream: results to stdout, LSL outlets and the web app
+    Stream(StreamArgs),
+}
+
+#[derive(Args)]
+pub struct StreamArgs {
+    /// The LSL stream to read, by its name (or its type, with --by type)
+    #[arg(long)]
+    pub stream: String,
+
+    /// What --stream names
+    #[arg(long, value_parser = ["name", "type"], default_value = "name")]
+    pub by: String,
+
+    /// Seconds to wait for the stream
+    #[arg(long, default_value_t = 10.0)]
+    pub timeout: f64,
+
+    #[command(flatten)]
+    pub reference: ReferenceArgs,
+
+    /// DDA variants to run live: ST, DE and SY on every channel, CT and CD on --ct-pairs and --cd-pairs
+    #[arg(long, num_args = 1.., default_values_t = ["ST".to_string()])]
+    pub variants: Vec<String>,
+
+    /// CT channel pairs as "i,j"
+    #[arg(long, num_args = 1..)]
+    pub ct_pairs: Option<Vec<String>>,
+
+    /// CD directed channel pairs as "i,j"
+    #[arg(long, num_args = 1..)]
+    pub cd_pairs: Option<Vec<String>>,
+
+    /// Window length in samples
+    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_LENGTH)]
+    pub wl: u32,
+
+    /// Samples between windows: a result every ws samples
+    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_STEP)]
+    pub ws: u32,
+
+    /// Delay values
+    #[arg(long, num_args = 1.., default_values_t = crate::DEFAULT_DELAYS)]
+    pub delays: Vec<i32>,
+
+    /// Model term indices
+    #[arg(long, num_args = 1.., default_values_t = crate::DEFAULT_MODEL_TERMS)]
+    pub model: Vec<i32>,
+
+    /// A report of `ddalab classify`: the class of the latest segment of its channels, every --every seconds
+    #[arg(long)]
+    pub classify: Option<String>,
+
+    /// Seconds per classified segment, as `ddalab classify --segment` trained it
+    #[arg(long, default_value_t = 10.0, requires = "classify")]
+    pub segment: f64,
+
+    /// Seconds between classifications
+    #[arg(long, default_value_t = 1.0, requires = "classify")]
+    pub every: f64,
+
+    /// Publish the results as LSL streams: <stream>-<variant> with a value per row, and <stream>-class markers
+    #[arg(long)]
+    pub outlet: bool,
+
+    /// Serve samples and results to the web app on ws://127.0.0.1:PORT, which prints the address with its token
+    #[arg(long)]
+    pub serve: Option<u16>,
+
+    /// Stop after this many seconds of stream; default: until interrupted
+    #[arg(long)]
+    pub duration: Option<f64>,
+
+    /// Leave out the JSON line per result on stdout
+    #[arg(long)]
+    pub quiet: bool,
+}
+
+/// Where the labels come from: a table, annotations, or a participants column.
+#[derive(Args)]
+#[command(group(clap::ArgGroup::new("labels").required(true).args(["samples", "classes", "participants"])))]
+pub struct ClassifyArgs {
+    /// A TSV of labeled stretches: the columns file and label, and optional start and end (seconds; default the
+    /// whole recording) and group (default the subject, sub-<label> in the path, else the file)
+    #[arg(long)]
+    pub samples: Option<String>,
+
+    /// Recordings whose annotations (--classes) or subjects (--participants) give the labels
+    #[arg(long, num_args = 1..)]
+    pub files: Option<Vec<String>>,
+
+    /// Classes from annotations: NAME takes the annotations whose text contains NAME, NAME=TEXT those containing TEXT,
+    /// ignoring case. An annotation matching two classes goes to the first
+    #[arg(long, num_args = 1.., requires = "files")]
+    pub classes: Option<Vec<String>>,
+
+    /// A class for stretches no annotation covers (more than a segment away from any): as many segments per recording
+    /// as its annotated classes have, or --max-segments when it has none
+    #[arg(long, requires = "classes")]
+    pub rest: Option<String>,
+
+    /// A BIDS participants.tsv: each recording is labeled with the --column value of its subject's row
+    #[arg(long, requires_all = ["files", "column"])]
+    pub participants: Option<String>,
+
+    /// The participants.tsv column holding the class
+    #[arg(long)]
+    pub column: Option<String>,
+
+    /// Seconds per segment: labeled stretches are cut into segments this long, and shorter events are lengthened
+    #[arg(long, default_value_t = 10.0)]
+    pub segment: f64,
+
+    /// Most segments of one labeled stretch, evenly spaced
+    #[arg(long, default_value_t = 20)]
+    pub max_segments: usize,
+
+    /// Channels by label. Default: the analysis channels of the first recording that BIDS does not mark bad. Every
+    /// recording must have them
+    #[arg(long, num_args = 1..)]
+    pub channels: Option<Vec<String>>,
+
+    /// Sampling rate in Hz for text files, which store none
+    #[arg(long)]
+    pub sr: Option<f64>,
+
+    #[command(flatten)]
+    pub reference: ReferenceArgs,
+
+    /// Window length in samples
+    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_LENGTH)]
+    pub wl: u32,
+
+    /// Window step in samples
+    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_STEP)]
+    pub ws: u32,
+
+    /// Embedding dimension
+    #[arg(long, default_value_t = crate::DEFAULT_MODEL_DIMENSION)]
+    pub dm: u32,
+
+    /// Polynomial order: the terms searched are the monomials up to it
+    #[arg(long, default_value_t = crate::DEFAULT_POLYNOMIAL_ORDER)]
+    pub order: u32,
+
+    /// Model terms per structure
+    #[arg(long, default_value_t = 3)]
+    pub terms: usize,
+
+    /// The two delays the term search runs at
+    #[arg(long, num_args = 2, default_values_t = crate::DEFAULT_DELAYS)]
+    pub delays: Vec<i32>,
+
+    /// The smallest and largest delay of the delay search
+    #[arg(long, num_args = 2, default_values_t = [1, 20])]
+    pub delay_range: Vec<i32>,
+
+    /// Folds of the grouped cross-validation (at most the number of groups)
+    #[arg(long, default_value_t = 5)]
+    pub folds: usize,
+
+    /// Shrinkage of the LDA covariance toward a scaled identity, 0 to 1
+    #[arg(long, default_value_t = 0.1)]
+    pub shrinkage: f64,
+
+    /// Skip the nested cross-validation, which scores the whole search without the optimism of choosing on the
+    /// same folds
+    #[arg(long)]
+    pub no_nested: bool,
+
+    /// Structures the report ranks
+    #[arg(long, default_value_t = 20)]
+    pub top: usize,
+
+    /// The report JSON, with the trained model `ddalab predict` reads
+    #[arg(short, long)]
+    pub output: String,
+
+    /// No progress on stderr
+    #[arg(long)]
+    pub quiet: bool,
+}
+
+#[derive(Args)]
+pub struct PredictArgs {
+    /// A report of `ddalab classify` (or its `model` alone)
+    #[arg(long)]
+    pub model: String,
+
+    /// Recordings to classify; the model's reference and channels apply
+    #[arg(long, num_args = 1.., required = true)]
+    pub files: Vec<String>,
+
+    /// Seconds per segment
+    #[arg(long, default_value_t = 10.0)]
+    pub segment: f64,
+
+    /// Sampling rate in Hz for text files, which store none
+    #[arg(long)]
+    pub sr: Option<f64>,
+
+    /// Output JSON (default: stdout)
+    #[arg(short, long)]
+    pub output: Option<String>,
 }
 
 #[derive(Args)]
@@ -43,6 +251,20 @@ pub struct McpArgs {
     /// provider: use this only for recordings without patient data
     #[arg(long = "no-hipaa", action = clap::ArgAction::SetFalse)]
     pub hipaa: bool,
+}
+
+/// Re-referencing, for the commands that read a recording.
+#[derive(Args, Clone, Default)]
+pub struct ReferenceArgs {
+    /// Re-reference the analysis channels: average, bipolar, laplacian, or a montage TSV with the columns channel,
+    /// source and weight. The derived channels replace the analysis channels, so --channels counts them
+    #[arg(long)]
+    pub reference: Option<String>,
+
+    /// Electrode positions for --reference laplacian, a TSV with the columns name, x, y and z. Default: the
+    /// subject's *_electrodes.tsv beside the recording
+    #[arg(long, requires = "reference")]
+    pub electrodes: Option<String>,
 }
 
 /// Default `--block-mb`.
@@ -151,6 +373,9 @@ pub struct RunArgs {
     #[arg(long)]
     pub sr: Option<f64>,
 
+    #[command(flatten)]
+    pub reference: ReferenceArgs,
+
     /// Legacy native DDA binary path (ignored; native backend disabled)
     #[arg(long, env = "DDA_BINARY_PATH")]
     pub binary: Option<String>,
@@ -219,6 +444,9 @@ pub struct InspectArgs {
     #[arg(long)]
     pub sr: Option<f64>,
 
+    #[command(flatten)]
+    pub reference: ReferenceArgs,
+
     /// Output as JSON
     #[arg(long, default_value_t = false)]
     pub json: bool,
@@ -245,6 +473,9 @@ pub struct SamplesArgs {
     /// Sampling rate in Hz for text files, which store none
     #[arg(long)]
     pub sr: Option<f64>,
+
+    #[command(flatten)]
+    pub reference: ReferenceArgs,
 
     /// Output .npy file: little-endian f64, shape (count, channels), SI units
     #[arg(short, long)]
@@ -341,6 +572,9 @@ pub struct BatchArgs {
     /// Sampling rate in Hz
     #[arg(long)]
     pub sr: Option<f64>,
+
+    #[command(flatten)]
+    pub reference: ReferenceArgs,
 
     /// Legacy native DDA binary path (ignored; native backend disabled)
     #[arg(long, env = "DDA_BINARY_PATH")]

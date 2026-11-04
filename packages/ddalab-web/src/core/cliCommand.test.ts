@@ -124,3 +124,14 @@ test("quotes_names_with_spaces", () => {
   expect(words[0]).toBe("--file=it's a recording.edf");
   expect(words.at(-2)).toBe("--bundle=it's a recording.dda");
 });
+
+test("names_the_reference_of_the_run", () => {
+  const words = (reference: Parameters<typeof cliCommand>[2]) => cliCommand(request, "r.edf", reference);
+  expect(words({ kind: "average" })).toContain("--reference average");
+  expect(words({ kind: "custom", montage_tsv: "channel\tsource\tweight\n", name: "banana.tsv" })).toContain(
+    "--reference=banana.tsv",
+  );
+  const laplacian = words({ kind: "laplacian", electrodes_tsv: "name\tx\ty\tz\n", name: "pos.tsv" });
+  expect(laplacian).toContain("--reference laplacian --electrodes=pos.tsv");
+  expect(words(undefined)).not.toContain("--reference");
+});

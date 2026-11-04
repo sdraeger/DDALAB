@@ -4,7 +4,7 @@ import { keptFiles } from "../core/offline";
 import type { Annotations } from "../core/protocol";
 import { buildFileSet } from "../core/sources";
 import type { SyntheticSpec } from "../core/synthetic";
-import type { RecordingInfo } from "../core/types";
+import type { RecordingInfo, Reference } from "../core/types";
 import { restoreAnnotations } from "../features/annotations/model";
 import { database, forgetRecent, listRecent, type RecentEntry, rememberRecent } from "../store/recent";
 import {
@@ -12,6 +12,7 @@ import {
   addRecording,
   removeRecording,
   setAnnotations,
+  setReferenced,
   setScan,
   useStore,
 } from "../store/store";
@@ -126,6 +127,11 @@ export async function openInput(
 }
 
 export const openSynthetic = (spec: SyntheticSpec) => openInput({ kind: "synthetic", spec });
+
+/** Shows recording `id` with the channels of `reference` (none: as recorded). Throws what the core refuses. */
+export async function rereference(id: string, reference: Reference | undefined) {
+  setReferenced(id, await engine.reference(id, reference), reference);
+}
 
 /** What the UI tells the user after an attempt to open. */
 export type Outcome =

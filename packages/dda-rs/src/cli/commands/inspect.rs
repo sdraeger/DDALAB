@@ -14,7 +14,7 @@ struct Inspection {
 }
 
 pub fn execute(args: InspectArgs) -> i32 {
-    let reader = match open_reader(&args.file, args.sr) {
+    let reader = match open_reader(&args.file, args.sr, &args.reference) {
         Ok(reader) => reader,
         Err(code) => return code,
     };

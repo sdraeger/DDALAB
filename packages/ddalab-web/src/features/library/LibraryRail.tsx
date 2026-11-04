@@ -38,6 +38,7 @@ import controls from "../../styles/controls.module.css";
 import styles from "./LibraryRail.module.css";
 
 // A chunk that does not load (offline after a deploy) leaves a note: without the catch it would unmount the app.
+const LivePanel = lazy(() => import("../live/LivePanel").then((module) => ({ default: module.LivePanel })));
 const OpenNeuroPanel = lazy(() =>
   import("../openneuro/OpenNeuroPanel").then(
     (module) => ({ default: module.OpenNeuroPanel }),
@@ -302,6 +303,9 @@ export const LibraryRail = memo(function LibraryRail() {
       )}
       <Suspense>
         <OpenNeuroPanel />
+      </Suspense>
+      <Suspense fallback={null}>
+        <LivePanel />
       </Suspense>
       <Suspense fallback={null}>
         <HistoryRail onResume={showFolder} />

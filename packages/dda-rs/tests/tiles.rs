@@ -25,6 +25,7 @@ impl Samples {
         };
         let rows = (values.len() / channels) as u64;
         let info = RecordingInfo {
+            reference: None,
             format: "test".into(),
             channels: vec![channel; channels],
             sample_rate_hz: 100.0,

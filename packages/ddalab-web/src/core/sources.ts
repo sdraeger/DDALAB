@@ -179,6 +179,7 @@ export function partsOf(input: RecordingInput): Part[] {
 export const openRequestOf = (input: RecordingInput, parts: Part[], fileIds: number[]): OpenRequest => ({
   primary: "primary" in input ? input.primary : parts[0].name,
   files: parts.map(({ name, size }, i) => ({ name, file_id: fileIds[i], len: size })),
+  reference: input.reference,
 });
 
 /** Fills `dst` from `offset` of `source`. */

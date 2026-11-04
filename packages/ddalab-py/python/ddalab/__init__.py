@@ -9,6 +9,8 @@ also installs.
     result.variants["ST"].q          # (channels, windows)
     result.window_centers            # seconds
     result.save("result.json")       # the document `ddalab run -o result.json` writes
+
+`classify` finds the DDA model that separates labeled segments best and trains its classifier; `predict` applies it.
 """
 
 from __future__ import annotations
@@ -26,7 +28,7 @@ if TYPE_CHECKING:
     import numpy as np
 
 __version__: str = _core.__version__
-__all__ = ["Recording", "Result", "VariantResult", "read", "run", "__version__"]
+__all__ = ["Recording", "Result", "VariantResult", "classify", "predict", "read", "run", "__version__"]
 
 PathLike = Union[str, "os.PathLike[str]"]
 
@@ -44,6 +46,9 @@ class Recording:
     """Annotations: dicts with onset_s, duration_s, label and source."""
     info: dict
     """Format, all channels, sample count, duration and the reader's warnings."""
+    reference: Optional[str] = None
+    """The reference it was read with (`read`), which `run` on it applies again."""
+    electrodes: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -85,16 +90,27 @@ class Result:
         return f"<ddalab.Result {shapes}>"
 
 
-def read(path: PathLike, *, sfreq: Optional[float] = None) -> Recording:
+def read(
+    path: PathLike,
+    *,
+    sfreq: Optional[float] = None,
+    reference: Optional[str] = None,
+    electrodes: Optional[PathLike] = None,
+) -> Recording:
     """Opens the recording at `path` (EDF, BDF, BrainVision, EEGLAB, CSV or ASCII) with its BIDS sidecars.
 
-    `sfreq` is the sample rate of a text recording without a time column.
+    `sfreq` is the sample rate of a text recording without a time column. `reference` re-references the analysis
+    channels as `ddalab --reference` does: "average", "bipolar", "laplacian" (positions from `electrodes`, a TSV, or the
+    subject's *_electrodes.tsv beside the recording) or the path of a montage TSV.
     """
     path = os.fspath(path)
-    info, data, events = _core.read(path, sfreq)
+    electrodes = os.fspath(electrodes) if electrodes is not None else None
+    info, data, events = _core.read(path, sfreq, _reference(reference), electrodes)
     info = json.loads(info)
     names = [info["channels"][i]["label"] for i in _analysis_channels(info)]
-    return Recording(path, data, float(info["sample_rate_hz"]), names, json.loads(events), info)
+    return Recording(
+        path, data, float(info["sample_rate_hz"]), names, json.loads(events), info, _reference(reference), electrodes
+    )
 
 
 TEXT_FORMATS = ("CSV", "ASCII")
@@ -113,6 +129,11 @@ def _raw_data(raw: Any) -> "tuple[np.ndarray, list]":
     if not picks:
         raise ValueError("the Raw has no data channel that is not marked bad")
     return raw.get_data(picks=picks), [names[i] for i in picks]
+
+
+def _reference(reference: Optional[Any]) -> Optional[str]:
+    """`reference` as `--reference` takes it: a keyword or a montage path."""
+    return os.fspath(reference) if reference is not None else None
 
 
 def _analysis_channels(info: dict) -> list:
@@ -143,13 +164,16 @@ def run(
     sfreq: Optional[float] = None,
     ch_names: Optional[Sequence[str]] = None,
     device: Optional[str] = None,
+    reference: Optional[str] = None,
+    electrodes: Optional[PathLike] = None,
 ) -> Result:
     """Runs DDA on `source` as `ddalab run` does; a parameter left None takes the command's default.
 
     `source` is a path, a `Recording` (its file is read again), an MNE `Raw` (anything with `get_data()`, `info["sfreq"]`
     and `ch_names`) or an array of shape (channels, samples) with `sfreq` and optional `ch_names`. `channels` index the
-    analysis channels; `start` and `end` are seconds; pairs index `channels`. Raises ValueError for a request or input
-    the command refuses.
+    analysis channels; `start` and `end` are seconds; pairs index `channels`. `reference` and `electrodes` re-reference
+    the channels first, as in `read`, and `channels` then count the derived ones. Raises ValueError for a request or
+    input the command refuses.
     """
     import numpy as np
 
@@ -158,6 +182,8 @@ def run(
         file = os.fspath(source)
     elif isinstance(source, Recording):
         file = source.path
+        if reference is None:
+            reference, electrodes = source.reference, source.electrodes
         # A text recording's rate is the one `read` was given (or found); other formats carry their own.
         if sfreq is None and source.info["format"] in TEXT_FORMATS:
             sfreq = source.sfreq
@@ -208,5 +234,112 @@ def run(
     flag("ct-pairs", [f"{i},{j}" for i, j in ct_pairs] if ct_pairs is not None else None)
     flag("cd-pairs", [f"{i},{j}" for i, j in cd_pairs] if cd_pairs is not None else None)
     flag("device", device)
+    flag("reference", _reference(reference))
+    flag("electrodes", os.fspath(electrodes) if electrodes is not None else None)
     names = list(ch_names) if ch_names is not None else None
     return Result(_core.run(argv, data, sfreq, names))
+
+
+def _command(argv: "list[str]") -> dict:
+    """Runs `ddalab <argv> -o <file>` in this process and returns the JSON it wrote; a failure, whose message the
+    command prints to stderr, raises ValueError."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        out = os.path.join(tmp, "out.json")
+        code = _core.cli(["ddalab", *argv, "-o", out])
+        if code != 0:
+            raise ValueError(f"ddalab {argv[0]} failed (exit {code}); see its message on stderr")
+        with open(out, encoding="utf-8") as f:
+            return json.load(f)
+
+
+def classify(
+    *,
+    samples: Optional[PathLike] = None,
+    files: Optional[Sequence[PathLike]] = None,
+    classes: Optional[Sequence[str]] = None,
+    rest: Optional[str] = None,
+    participants: Optional[PathLike] = None,
+    column: Optional[str] = None,
+    segment: Optional[float] = None,
+    max_segments: Optional[int] = None,
+    channels: Optional[Sequence[str]] = None,
+    reference: Optional[str] = None,
+    electrodes: Optional[PathLike] = None,
+    wl: Optional[int] = None,
+    ws: Optional[int] = None,
+    order: Optional[int] = None,
+    terms: Optional[int] = None,
+    delays: Optional[Tuple[int, int]] = None,
+    delay_range: Optional[Tuple[int, int]] = None,
+    folds: Optional[int] = None,
+    shrinkage: Optional[float] = None,
+    nested: bool = True,
+    sfreq: Optional[float] = None,
+) -> dict:
+    """Searches DDA structures for the one that separates labeled segments best, as `ddalab classify` does, and
+    returns its report: the ranking, the search and nested balanced accuracies, the confusion matrix and the trained
+    `model`, which `predict` takes.
+
+    The labels come from `samples` (a TSV of file, label and optional start, end and group), from the annotations of
+    `files` matched by `classes` (with `rest` for the unannotated stretches), or from the `column` of a BIDS
+    `participants` table for `files`. A parameter left None takes the command's default.
+    """
+    argv = ["classify", "--quiet"]
+
+    def flag(name: str, value: Any) -> None:
+        if value is None:
+            return
+        values = value if isinstance(value, (list, tuple)) else [value]
+        argv.extend([f"--{name}", *(os.fspath(v) if isinstance(v, os.PathLike) else str(v) for v in values)])
+
+    flag("samples", samples)
+    flag("files", list(files) if files is not None else None)
+    flag("classes", list(classes) if classes is not None else None)
+    flag("rest", rest)
+    flag("participants", participants)
+    flag("column", column)
+    flag("segment", segment)
+    flag("max-segments", max_segments)
+    flag("channels", list(channels) if channels is not None else None)
+    flag("reference", _reference(reference))
+    flag("electrodes", electrodes)
+    flag("wl", wl)
+    flag("ws", ws)
+    flag("order", order)
+    flag("terms", terms)
+    flag("delays", list(delays) if delays is not None else None)
+    flag("delay-range", list(delay_range) if delay_range is not None else None)
+    flag("folds", folds)
+    flag("shrinkage", shrinkage)
+    flag("sr", sfreq)
+    if not nested:
+        argv.append("--no-nested")
+    return _command(argv)
+
+
+def predict(
+    model: Union[dict, PathLike],
+    files: Sequence[PathLike],
+    *,
+    segment: Optional[float] = None,
+    sfreq: Optional[float] = None,
+) -> dict:
+    """Classifies `files` segment by segment with `model` (a `classify` report, its `model`, or a path to either), as
+    `ddalab predict` does: each file's class by majority, its votes and every segment's class and scores."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        if isinstance(model, dict):
+            path = os.path.join(tmp, "model.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(model, f)
+        else:
+            path = os.fspath(model)
+        argv = ["predict", "--model", path, "--files", *map(os.fspath, files)]
+        if segment is not None:
+            argv += ["--segment", str(segment)]
+        if sfreq is not None:
+            argv += ["--sr", str(sfreq)]
+        return _command(argv)

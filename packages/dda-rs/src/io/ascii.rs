@@ -273,6 +273,7 @@ pub fn open_ascii(
     let sample_count = rows;
     Ok(Box::new(AsciiReader {
         info: RecordingInfo {
+            reference: None,
             format: if name.to_ascii_lowercase().ends_with(".csv") {
                 "CSV"
             } else {
@@ -352,7 +353,7 @@ pub fn open_matrix(
         )));
     }
     let width = labels.len();
-    if width == 0 || data.len() % width != 0 {
+    if width == 0 || !data.len().is_multiple_of(width) {
         return Err(DDAError::InvalidParameter(format!(
             "{} values do not fill rows of {width} channels",
             data.len()
@@ -374,6 +375,7 @@ pub fn open_matrix(
     let sample_count = (data.len() / width) as u64;
     Ok(Box::new(AsciiReader {
         info: RecordingInfo {
+            reference: None,
             format: "Array".to_string(),
             channels,
             sample_rate_hz,

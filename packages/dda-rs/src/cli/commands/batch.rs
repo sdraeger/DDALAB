@@ -127,6 +127,7 @@ pub async fn execute(args: BatchArgs) -> i32 {
             let analysis = analyze(Job {
                 file: file_path,
                 sample_rate_hz: args.sr,
+                reference: &args.reference,
                 request,
                 start: None,
                 end: None,
@@ -283,7 +284,7 @@ fn sha1_prefix(data: &[u8]) -> String {
         message.push(0);
     }
     message.extend((data.len() as u64 * 8).to_be_bytes());
-    for chunk in message.chunks_exact(64) {
+    for chunk in message.as_chunks::<64>().0 {
         let mut w = [0u32; 80];
         for i in 0..80 {
             w[i] = match i {
@@ -370,6 +371,7 @@ mod tests {
     fn make_batch_args() -> BatchArgs {
         BatchArgs {
             glob: None,
+            reference: Default::default(),
             files: None,
             bids_dir: None,
             channels: Some(vec![0, 1, 2]),

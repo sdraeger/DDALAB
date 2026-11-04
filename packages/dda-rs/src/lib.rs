@@ -1,12 +1,16 @@
 pub mod blocks;
 pub mod ccd_stats;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod classify;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod cli;
 pub mod document;
 pub mod engine;
 pub mod error;
 pub mod input_io;
 pub mod io;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod lsl;
 pub mod mmap_utils;
 pub mod network_motifs;
 pub mod profiling;

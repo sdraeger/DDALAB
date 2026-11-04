@@ -8,6 +8,7 @@ pub mod edit;
 mod eeglab;
 mod mat;
 mod recording;
+mod reference;
 mod source;
 
 pub use ascii::{open_ascii, open_matrix};
@@ -18,6 +19,7 @@ pub use brainvision::open_brainvision;
 pub use edf::open_edf;
 pub use eeglab::open_eeglab;
 pub use recording::*;
+pub use reference::*;
 pub use source::*;
 
 use crate::error::{DDAError, Result};
@@ -53,6 +55,19 @@ impl Reader for WithSidecars {
         out: &mut [f32],
     ) -> Result<()> {
         self.reader.read_raw_f32(channels, row0, rows, out)
+    }
+}
+
+/// `open_recording` with `reference`, when there is one, applied to its analysis channels.
+pub fn open_referenced(
+    files: &FileSet,
+    sample_rate_hz: Option<f64>,
+    reference: Option<&Reference>,
+) -> Result<Box<dyn Reader>> {
+    let reader = open_recording(files, sample_rate_hz)?;
+    match reference {
+        Some(reference) => with_reference(reader, reference, files),
+        None => Ok(reader),
     }
 }
 

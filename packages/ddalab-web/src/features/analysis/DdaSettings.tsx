@@ -1,8 +1,9 @@
 // The DDA settings in the inspector: the variants the core offers (its metadata), the windowing, and the model,
 // whose expert values are sent only in expert mode.
-import { use, useId } from "react";
+import { use, useEffect, useId, useState } from "react";
 import { variants } from "../../app/analyses";
-import { setDdaForm, useStore } from "../../store/store";
+import { gpuAvailable } from "../../core/webgpu";
+import { setDdaForm, setGpu, useStore } from "../../store/store";
 import styles from "./Analysis.module.css";
 import { useRunRequest } from "./RunBar";
 import { STANDARD } from "./validate";
@@ -111,7 +112,31 @@ export function DdaSettings({ recordingId }: { recordingId: string }) {
           </dl>
         )}
       </fieldset>
+      <Gpu />
     </section>
+  );
+}
+
+/** The GPU choice, shown where the browser offers WebGPU. */
+function Gpu() {
+  const gpu = useStore((s) => s.gpu);
+  const [available, setAvailable] = useState(false);
+  useEffect(() => {
+    void gpuAvailable().then(setAvailable);
+  }, []);
+  if (!available) return null;
+  return (
+    <fieldset className={styles.group} data-appear>
+      <legend>Compute</legend>
+      <label className={styles.expert}>
+        <input type="checkbox" checked={gpu} onChange={(event) => setGpu(event.target.checked)} />
+        GPU for ST
+      </label>
+      <p className={styles.note}>
+        Sums each window on the GPU in single precision and solves it in double: values agree with the CPU's
+        to about 1e-4, and the result records the GPU. Other variants run on the CPU.
+      </p>
+    </fieldset>
   );
 }
 

@@ -319,7 +319,11 @@ function Dataset({ source }: { source: DatasetSource }) {
 }
 
 function Command({ record }: { record: AnalysisRecord }) {
-  const command = cliCommand(record.request, record.fileName);
+  const command = cliCommand(
+    record.request,
+    record.fileName,
+    record.manifest?.reproduction.reference?.reference,
+  );
   const [copied, setCopied] = useState<boolean | null>(null);
   const copy = () =>
     Promise.resolve()

@@ -1,7 +1,7 @@
 use crate::blocks::{
     check_block_support, merge_blocks, plan_blocks, run_block, validate_request, Block,
 };
-use crate::cli::args::RunArgs;
+use crate::cli::args::{ReferenceArgs, RunArgs};
 use crate::cli::dda_params;
 use crate::cli::exit_codes;
 use crate::cli::output;
@@ -9,7 +9,7 @@ use crate::document::{
     build_document, build_manifest, bundle_layout, encode_block, BundleLayout, BundleWriter,
     ResultDocument,
 };
-use crate::io::{open_recording, ByteSource, ChannelInfo, FileSet, Reader, RecordingInfo};
+use crate::io::{open_referenced, ByteSource, FileSet, Reader, RecordingInfo};
 use crate::tiles::Sha256Stream;
 use crate::{ComputeDevice, DDARequest, DDAResult, PureRustProgress, TimeRange};
 use std::collections::BTreeMap;
@@ -35,6 +35,8 @@ fn execution(error: impl Display) -> Failure {
 pub struct Job<'a> {
     pub file: &'a str,
     pub sample_rate_hz: Option<f64>,
+    /// The reference the recording opens with (`--reference`).
+    pub reference: &'a ReferenceArgs,
     pub request: DDARequest,
     pub start: Option<f64>,
     pub end: Option<f64>,
@@ -51,13 +53,6 @@ pub struct Analysis {
     pub document: ResultDocument,
     /// The recording's warnings, also in the document's diagnostics.
     pub warnings: Vec<String>,
-}
-
-fn is_bad(channel: &ChannelInfo) -> bool {
-    channel
-        .bids_status
-        .as_deref()
-        .is_some_and(|status| status.eq_ignore_ascii_case("bad"))
 }
 
 /// The SHA-256 of `source`, hex.
@@ -122,9 +117,10 @@ pub async fn analyze(job: Job<'_>) -> Result<Analysis, Failure> {
     if !Path::new(file).exists() {
         return Err(input(format!("Input file not found: {file}")));
     }
+    let reference = super::reference_of(job.reference).map_err(input)?;
     let files = FileSet::from_path(Path::new(file)).map_err(|e| input(format!("{file}: {e}")))?;
-    let reader =
-        open_recording(&files, job.sample_rate_hz).map_err(|e| input(format!("{file}: {e}")))?;
+    let reader = open_referenced(&files, job.sample_rate_hz, reference.as_ref())
+        .map_err(|e| input(format!("{file}: {e}")))?;
     let warnings = reader.info().warnings.clone();
     analyze_open(job, &files, &*reader)
         .await
@@ -151,7 +147,7 @@ pub async fn analyze_open(
     let channels = match request.channels.take().filter(|c| !c.is_empty()) {
         Some(channels) => channels,
         None => (0..analysis.len())
-            .filter(|&i| !is_bad(&info.channels[analysis[i]]))
+            .filter(|&i| !info.channels[analysis[i]].is_bad())
             .collect(),
     };
     if channels.is_empty() {
@@ -348,6 +344,7 @@ pub fn job_of(args: &RunArgs, request: DDARequest) -> Job<'_> {
     Job {
         file: &args.file,
         sample_rate_hz: args.sr,
+        reference: &args.reference,
         request,
         start: args.start,
         end: args.end,
@@ -421,6 +418,7 @@ mod tests {
     fn make_test_args() -> RunArgs {
         RunArgs {
             file: "/tmp/test.edf".to_string(),
+            reference: Default::default(),
             channels: Some(vec![0, 1, 2]),
             variants: vec!["ST".to_string()],
             wl: 200,

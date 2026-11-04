@@ -10,10 +10,13 @@
 //! Request channel indices count in this list. Host imports must not throw or call back into the module: a failed
 //! read returns a nonzero status. Ids are never reused: a closed or finished id names nothing.
 
-use dda_rs::blocks::{block_of, plan_blocks, run_block, validate_request};
+use dda_rs::blocks::{
+    block_of, plan_blocks, run_block, st_from_sums, st_gpu_inputs, st_sums_reference,
+    validate_request,
+};
 use dda_rs::document::{build_manifest, bundle_layout, encode_block};
 use dda_rs::io::edit::{edit, metadata, Metadata};
-use dda_rs::io::{open_recording, BlockCache, BlockPool, ByteSource, FileSet, Reader};
+use dda_rs::io::{open_referenced, BlockCache, BlockPool, ByteSource, FileSet, Reader, Reference};
 use dda_rs::tiles::{encode_tile, raw_tile, PyramidBuilder, Sha256Stream, Tile};
 use dda_rs::{DDAError, DDARequest, PureRustProgress, Result, VariantMetadata, ENGINE_VERSION};
 use serde::Deserialize;
@@ -226,6 +229,9 @@ struct OpenRequest {
     primary: String,
     files: Vec<OpenFile>,
     sample_rate_hz: Option<f64>,
+    /// The reference the analysis channels are derived with (`dda_rs::io::Reference`).
+    #[serde(default)]
+    reference: Option<Reference>,
     /// MiB of 4 MiB blocks this instance caches for all its open files together: 64 when absent, at least one block.
     /// Each open sets it.
     cache_mb: Option<u32>,
@@ -264,8 +270,9 @@ fn open(bytes: &[u8]) -> Result<Value> {
     let opened: OpenRequest = parse(bytes, "open")?;
     BLOCKS.set_capacity((opened.cache_mb.unwrap_or(64) / 4).max(1) as usize);
     let rate = opened.sample_rate_hz;
+    let reference = opened.reference.clone();
     let files = file_set(opened);
-    let reader: Arc<dyn Reader> = open_recording(&files, rate)?.into();
+    let reader: Arc<dyn Reader> = open_referenced(&files, rate, reference.as_ref())?.into();
     let info = reader.info();
     let mut reply = json!({ "info": info, "analysis_channels": info.analysis_channels() });
     reply["handle"] = RECORDINGS.lock().unwrap().insert(reader).into();
@@ -403,7 +410,16 @@ fn run(handle: u32, request_json: &[u8], w0: u32, w1: u32) -> Result<Vec<u8>> {
         .map_or(0, |block| block.w1);
     let block = block_of(&request, info.sample_count, w0 as usize, w1 as usize)?;
     let result = run_block(&*reader, &request, &block, Some(&mut report_progress))?;
-    let chunks = encode_block(&bundle_layout(&request, info, windows)?, &block, &result);
+    framed(&bundle_layout(&request, info, windows)?, &block, &result)
+}
+
+/// The block's chunks as `ddalab_run_block` frames them.
+fn framed(
+    layout: &dda_rs::document::BundleLayout,
+    block: &dda_rs::blocks::Block,
+    result: &dda_rs::DDAResult,
+) -> Result<Vec<u8>> {
+    let chunks = encode_block(layout, block, result);
     let header = json!({ "chunks": chunks
         .iter()
         .map(|(array, offset, bytes)| json!({ "array": array, "offset": offset, "len": bytes.len() }))
@@ -439,6 +455,9 @@ struct Extras {
     created_at_iso: String,
     input_sha256: BTreeMap<String, String>,
     windows: usize,
+    /// Where the run computed, when not the CPU alone ("webgpu-f32").
+    #[serde(default)]
+    compute_device: Option<String>,
 }
 
 fn manifest(handle: u32, request_json: &[u8], extras: &[u8]) -> Result<Value> {
@@ -447,7 +466,7 @@ fn manifest(handle: u32, request_json: &[u8], extras: &[u8]) -> Result<Value> {
     let request = request(request_json, info.analysis_channels().len())?;
     let extras: Extras = parse(extras, "extras")?;
     let layout = bundle_layout(&request, info, extras.windows)?;
-    let document = build_manifest(
+    let mut document = build_manifest(
         info,
         &request,
         &layout,
@@ -456,6 +475,9 @@ fn manifest(handle: u32, request_json: &[u8], extras: &[u8]) -> Result<Value> {
         extras.id,
         extras.created_at_iso,
     );
+    if let Some(device) = extras.compute_device {
+        document.reproduction.compute_device = device;
+    }
     serde_json::to_value(document).map_err(|e| invalid(e.to_string()))
 }
 
@@ -583,5 +605,107 @@ pub extern "C" fn ddalab_pyramid_finish(id: u32) -> u64 {
         }
         let pyramid = pyramids.take(id).unwrap();
         Ok(frame(pyramid.builder.finish(), &*pyramid.reader))
+    })())
+}
+
+/// The request's block `w0..w1` and the window count of the whole request, checked against `handle`'s recording.
+fn st_block(
+    handle: u32,
+    request_json: &[u8],
+    w0: u32,
+    w1: u32,
+) -> Result<(
+    Arc<dyn Reader>,
+    dda_rs::DDARequest,
+    dda_rs::blocks::Block,
+    usize,
+)> {
+    let reader = recording(handle)?;
+    let info = reader.info();
+    let request = request(request_json, info.analysis_channels().len())?;
+    let windows = plan_blocks(&request, info, usize::MAX)?
+        .last()
+        .map_or(0, |block| block.w1);
+    let block = block_of(&request, info.sample_count, w0 as usize, w1 as usize)?;
+    Ok((reader, request, block, windows))
+}
+
+/// `[u32 header_len][header JSON: the GPU plan, or null when the block runs on the CPU][f32 rows]`
+/// (`dda_rs::blocks::st_gpu_inputs`).
+///
+/// # Safety
+/// `req_ptr` and `req_len` name a buffer the host wrote.
+#[no_mangle]
+pub unsafe extern "C" fn ddalab_st_inputs(
+    handle: u32,
+    req_ptr: u32,
+    req_len: u32,
+    w0: u32,
+    w1: u32,
+) -> u64 {
+    binary_reply((|| {
+        let (reader, request, block, _) = st_block(handle, input(req_ptr, req_len), w0, w1)?;
+        let inputs = st_gpu_inputs(&*reader, &request, &block)?;
+        let header = serde_json::to_string(&inputs.as_ref().map(|(plan, _)| plan))
+            .map_err(|e| invalid(e.to_string()))?;
+        let mut out = (header.len() as u32).to_le_bytes().to_vec();
+        out.extend(header.into_bytes());
+        if let Some((_, rows)) = inputs {
+            out.extend(rows.iter().flat_map(|v| v.to_le_bytes()));
+        }
+        Ok(out)
+    })())
+}
+
+/// The block's chunks, framed as `ddalab_run_block` frames them, from the GPU's sums (f32, `st_sum_width` per window
+/// and channel).
+///
+/// # Safety
+/// Both `(ptr, len)` pairs name buffers the host wrote.
+#[no_mangle]
+pub unsafe extern "C" fn ddalab_st_finish(
+    handle: u32,
+    req_ptr: u32,
+    req_len: u32,
+    w0: u32,
+    w1: u32,
+    sums_ptr: u32,
+    sums_len: u32,
+) -> u64 {
+    binary_reply((|| {
+        let (reader, request, block, windows) = st_block(handle, input(req_ptr, req_len), w0, w1)?;
+        let sums: Vec<f32> = input(sums_ptr, sums_len)
+            .chunks_exact(4)
+            .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+            .collect();
+        let result = st_from_sums(&*reader, &request, &block, &sums)?;
+        framed(
+            &bundle_layout(&request, reader.info(), windows)?,
+            &block,
+            &result,
+        )
+    })())
+}
+
+/// The sums of `ddalab_st_inputs` as the reference on the CPU computes them (f32): what the GPU's must equal.
+///
+/// # Safety
+/// `req_ptr` and `req_len` name a buffer the host wrote.
+#[no_mangle]
+pub unsafe extern "C" fn ddalab_st_reference(
+    handle: u32,
+    req_ptr: u32,
+    req_len: u32,
+    w0: u32,
+    w1: u32,
+) -> u64 {
+    binary_reply((|| {
+        let (reader, request, block, _) = st_block(handle, input(req_ptr, req_len), w0, w1)?;
+        let (plan, rows) = st_gpu_inputs(&*reader, &request, &block)?
+            .ok_or_else(|| invalid("this block runs on the CPU".to_string()))?;
+        Ok(st_sums_reference(&plan, &rows)
+            .iter()
+            .flat_map(|v| v.to_le_bytes())
+            .collect())
     })())
 }

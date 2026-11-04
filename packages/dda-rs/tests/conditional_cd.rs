@@ -55,6 +55,8 @@ fn mean_finite(values: &[f64]) -> f64 {
     finite.iter().sum::<f64>() / (finite.len() as f64)
 }
 
+// The parameters these tests vary, by name at each call.
+#[allow(clippy::too_many_arguments)]
 fn request_for_cd_and_ccd(
     samples_len: usize,
     channels: Vec<usize>,

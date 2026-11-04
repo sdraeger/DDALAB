@@ -84,6 +84,9 @@ pub struct Reproduction {
     pub input_sha256: BTreeMap<String, String>,
     pub engine_version: String,
     pub git_commit: Option<String>,
+    /// The reference the analyzed channels were derived with, and each derived channel's sources and weights.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference: Option<crate::io::ResolvedReference>,
     /// The request as run, which the fields above summarize in the Python keys.
     #[serde(serialize_with = "sorted_keys")]
     pub request: DDARequest,
@@ -305,6 +308,7 @@ fn reproduction(
         info.sample_count.saturating_sub(1) as f64
     };
     Reproduction {
+        reference: info.reference.clone(),
         expert_mode: *delays != DEFAULT_DELAYS
             || model_terms != DEFAULT_MODEL_TERMS
             || (dm, order, nr_tau)

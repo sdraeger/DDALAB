@@ -55,6 +55,18 @@ pub struct RecordingInfo {
     pub annotations: Vec<Annotation>,
     pub warnings: Vec<String>,
     pub input_files: Vec<String>,
+    /// The reference the analysis channels were derived with; `None` for the recording's own channels.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference: Option<super::ResolvedReference>,
+}
+
+impl ChannelInfo {
+    /// BIDS channels.tsv marks it bad: analyses leave it out by default.
+    pub fn is_bad(&self) -> bool {
+        self.bids_status
+            .as_deref()
+            .is_some_and(|status| status.eq_ignore_ascii_case("bad"))
+    }
 }
 
 impl RecordingInfo {

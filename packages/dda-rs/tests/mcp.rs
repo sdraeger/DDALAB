@@ -277,3 +277,32 @@ fn a_malformed_line_gets_a_parse_error() {
     let reply: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(reply["error"]["code"], -32700);
 }
+
+#[test]
+fn classify_and_predict_are_tools_and_report_refusals() {
+    let dir = tempfile::tempdir().unwrap();
+    let samples = dir.path().join("samples.tsv");
+    std::fs::write(&samples, format!("file\tlabel\n{EDF}\tonly\n")).unwrap();
+    let replies = session(
+        &[],
+        &[
+            initialize(),
+            json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
+            call(2, "classify", json!({"samples": samples, "segment": 2})),
+            call(
+                3,
+                "inspect_recording",
+                json!({"file": EDF, "reference": "bipolar"}),
+            ),
+        ],
+    );
+    let names = tool_names(&replies[1]);
+    assert!(names.contains(&"classify".to_string()) && names.contains(&"predict".to_string()));
+    let (message, error) = content(&replies[2]);
+    assert!(
+        error && message.as_str().unwrap().contains("two classes"),
+        "{message}"
+    );
+    let (info, _) = content(&replies[3]);
+    assert_eq!(info["channels"][0]["label"], "Fp1-Fp2");
+}
