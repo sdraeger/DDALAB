@@ -96,7 +96,7 @@ fn handle(message: &Value, hipaa: bool) -> Option<Value> {
 fn instructions(hipaa: bool) -> String {
     let mode = if hipaa {
         "HIPAA mode is on: the tools return no annotation text and no samples, only a recording's channel layout and \
-         timing and DDA results. The arguments and results of every call still reach the model provider, file paths \
+         timing and DDA results, and classify takes no annotation classes. The arguments and results of every call still reach the model provider, file paths \
          included."
     } else {
         "HIPAA mode is off: inspect_recording returns annotation text and read_samples returns samples. The user chose \
@@ -261,7 +261,7 @@ async fn call(name: &str, arguments: Value, hipaa: bool) -> Result<Value, String
         "run_dda" => run(parse(arguments)?).await,
         "read_result" => read_result(parse(arguments)?),
         "read_samples" => samples(parse(arguments)?),
-        "classify" => classify(parse(arguments)?),
+        "classify" => classify(parse(arguments)?, hipaa),
         "predict" => predict(parse(arguments)?),
         _ => Err(format!("Unknown tool: {name}")),
     }
@@ -684,8 +684,14 @@ struct ClassifyTool {
     output: Option<String>,
 }
 
-/// `ddalab classify` with the flags of `args`: the summary of its report, which it saves.
-fn classify(args: ClassifyTool) -> Result<Value, String> {
+/// `ddalab classify` with the flags of `args`: the summary of its report, which it saves. In HIPAA mode `classes` is
+/// refused: classes are matched against annotation text, and which ones matched would tell the model that text.
+fn classify(args: ClassifyTool, hipaa: bool) -> Result<Value, String> {
+    if hipaa && args.classes.is_some() {
+        return Err("HIPAA mode: classes are matched against annotation text, so classify takes them only without \
+                    HIPAA mode; label segments with samples or participants instead"
+            .into());
+    }
     let path = match args.output {
         Some(output) => PathBuf::from(output),
         None => {

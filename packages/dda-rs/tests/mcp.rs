@@ -306,3 +306,31 @@ fn classify_and_predict_are_tools_and_report_refusals() {
     let (info, _) = content(&replies[3]);
     assert_eq!(info["channels"][0]["label"], "Fp1-Fp2");
 }
+
+#[test]
+fn hipaa_mode_refuses_annotation_classes_so_classify_is_no_text_oracle() {
+    let probe = |flags: &[&str], needle: &str| {
+        let replies = session(
+            flags,
+            &[
+                initialize(),
+                call(
+                    1,
+                    "classify",
+                    json!({"files": [EDF], "classes": [needle], "segment": 1}),
+                ),
+            ],
+        );
+        content(&replies[1])
+    };
+    // In HIPAA mode a needle that matches the fixture's "eyes closed" and one that matches nothing get one refusal.
+    let (hit, hit_error) = probe(&[], "q=eyes");
+    let (miss, miss_error) = probe(&[], "q=zzzz");
+    assert!(hit_error && miss_error);
+    assert_eq!(hit, miss);
+    assert!(hit.as_str().unwrap().contains("HIPAA mode"), "{hit}");
+    // Without it, the classes reach the annotations: the match and the miss differ.
+    let (hit, _) = probe(&["--no-hipaa"], "q=eyes");
+    let (miss, _) = probe(&["--no-hipaa"], "q=zzzz");
+    assert_ne!(hit, miss);
+}
