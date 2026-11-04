@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { electrodeGroups } from "./groups";
+import { electrodeGroups, shownLabel } from "./groups";
 
 test("groups_follow_leading_letters", () => {
   const { groups, groupOf } = electrodeGroups(["ATT1", "ATT2", "PST1", "G12", "ATT3", "12", "G1"]);
@@ -16,4 +16,15 @@ test("groups_follow_leading_letters", () => {
     "var(--group-2)",
     "var(--group-3)",
   ]);
+});
+
+test("groups_take_letters_of_any_script", () => {
+  const { groups } = electrodeGroups(["Kanał 3", "Kanał 4", "Ödem1"]);
+  expect(groups.map((g) => g.name)).toEqual(["Kanał", "Ödem"]);
+});
+
+test("an_empty_label_shows_its_position", () => {
+  expect(shownLabel("", 5)).toBe("Ch 6");
+  expect(shownLabel("  ", 0)).toBe("Ch 1");
+  expect(shownLabel("Cz", 5)).toBe("Cz");
 });

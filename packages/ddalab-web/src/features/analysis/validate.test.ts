@@ -92,3 +92,10 @@ test("pairs_follow_the_variant_metadata", () => {
   ]);
   expect(validateRequest(draft({ variants: [CT], channels: [1] }), info).errors.channels).toBeDefined();
 });
+
+test("pair_variants_name_their_need_in_agreement", () => {
+  const one = (variants: VariantInfo[]) =>
+    validateRequest(draft({ variants, channels: [1] }), info).errors.channels;
+  expect(one([CT])).toBe("CT needs at least two channels");
+  expect(one([CT, CD])).toBe("CT and CD need at least two channels");
+});

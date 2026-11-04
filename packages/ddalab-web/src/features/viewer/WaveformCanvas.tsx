@@ -2,6 +2,7 @@
 // underlay, the printed scale and the channel scroller. View changes reach the canvases through store.subscribe;
 // React renders the structure and the visible gutter rows only.
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { MiddleText } from "../../app/MiddleText";
 import { engine } from "../../app/recordings";
 import { applyFilter, padRows } from "../../core/filter";
 import { drawRuler, drawUnderlay, type Flag } from "../../render/axis";
@@ -13,7 +14,7 @@ import { createWaveformLayer, type Drawn, type Frame, type WaveformLayer } from 
 import { CSS_PX_PER_MM, rowChannels, type State, setPlotWidth, setView, useStore } from "../../store/store";
 import { userOf } from "../annotations/model";
 import { useAnnotationGestures } from "../annotations/useAnnotationGestures";
-import { electrodeGroups } from "../inspector/groups";
+import { channelLabels } from "../inspector/groups";
 import { type ProbeFrame, probing, viewerProbe } from "./probe";
 import { Readouts, type ReadoutsHandle } from "./Readouts";
 import { usePlotPointer } from "./usePlotPointer";
@@ -33,8 +34,10 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
   const firstChannel = useStore((s) => s.view.firstChannel);
   const rowCount = useStore((s) => s.view.rowCount);
   const chosenOnly = useStore((s) => s.view.chosenOnly);
-  const labels = useMemo(() => analysis?.map((i) => info.channels[i].label) ?? [], [analysis, info]);
-  const { groups, groupOf } = useMemo(() => electrodeGroups(labels), [labels]);
+  const { labels, groups, groupOf } = useMemo(
+    () => channelLabels(info?.channels ?? [], analysis ?? []),
+    [analysis, info],
+  );
   const selected = useStore((s) => s.recordings[recordingId]?.selectedChannels);
   const chosen = useMemo(() => new Set(selected), [selected]);
   const order = useMemo(
@@ -335,7 +338,7 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
                 }}
               >
                 <span className={styles.gutterLabel} data-chosen={chosen.has(channel) || undefined}>
-                  {labels[channel]}
+                  <MiddleText text={labels[channel]} />
                   {chosen.has(channel) && <span className={styles.spoken}>, chosen</span>}
                 </span>
                 <span className={styles.tint} style={{ background: groups[groupOf[channel]]?.tint }} />

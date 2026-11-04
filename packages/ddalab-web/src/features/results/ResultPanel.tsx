@@ -22,10 +22,12 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { MiddleText } from "../../app/MiddleText";
 import { engine } from "../../app/recordings";
 import { inTransition } from "../../app/viewTransition";
 import type { ResultArray } from "../../core/protocol";
 import type { ResultDocument } from "../../core/types";
+import { count } from "../../core/words";
 import { drawMarks, drawTimeAxis } from "../../render/axis";
 import { LUTS, type MapName, mapOf, scaleOf } from "../../render/colormaps";
 import { observeDevicePixels } from "../../render/devicePixels";
@@ -36,7 +38,7 @@ import { isDark, readColors, watchTheme } from "../../render/themeColors";
 import { openResult, setCursor, setResultHeight, setShownResult, setView, useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
 import { userOf } from "../annotations/model";
-import { electrodeGroups } from "../inspector/groups";
+import { channelLabels } from "../inspector/groups";
 import { probing } from "../viewer/probe";
 import { usePlotPointer } from "../viewer/usePlotPointer";
 import { ColorMapPicker } from "./ColorMapPicker";
@@ -108,7 +110,21 @@ function Heatmap({
     recordingId === null ? undefined : s.recordings[recordingId]?.analysis_channels,
   );
   const { variant, hasFitError, array } = pick(manifest, shown);
-  const labels = useMemo(() => variant.row_labels.map(arrows), [variant.row_labels]);
+  const named = useMemo(
+    () => channelLabels(info?.channels ?? [], (info && analysis) || []),
+    [analysis, info],
+  );
+  // A row label names an unnamed channel by its empty part, which shows the channel's shown name instead.
+  const labels = useMemo(() => {
+    const k = info && analysis ? analysis.findIndex((i) => !info.channels[i].label.trim()) : -1;
+    const unnamed = k < 0 ? "" : named.labels[k];
+    return variant.row_labels.map((label) =>
+      arrows(label)
+        .split(/( (?:↔|←|&) )/)
+        .map((part) => part || unnamed)
+        .join(""),
+    );
+  }, [variant.row_labels, analysis, info, named]);
   const rows = labels.length;
   const picked = shown?.row != null && shown.row < rows ? shown.row : null;
   // The diverging map follows the theme: the heatmap is drawn again when it changes.
@@ -124,14 +140,13 @@ function Heatmap({
   };
   // Each row's electrode-group tint, as in the waveform's gutter; a pair across two groups gets both halves.
   const tints = useMemo(() => {
-    const names = (info && analysis?.map((c) => info.channels[c].label)) ?? [];
-    const { groups, groupOf } = electrodeGroups(names);
+    const { labels: names, groups, groupOf } = named;
     const tintOf = new Map(names.map((name, c) => [name, groups[groupOf[c]].tint]));
     return labels.map((label) => {
       const [a, b = a] = channelsOf(label).map((channel) => tintOf.get(channel) ?? "transparent");
       return a === b ? a : `linear-gradient(${a} 50%, ${b} 50%)`;
     });
-  }, [analysis, info, labels]);
+  }, [named, labels]);
   /** Why the heatmap cannot be drawn, when it cannot. */
   const [glProblem, setGlProblem] = useState<string | null>(null);
   const plot = useRef<HTMLDivElement>(null);
@@ -441,6 +456,8 @@ function Heatmap({
   }, [recordingId, resultId, manifest, variant, array, map, labels, rows, loading]);
 
   const centers = manifest.window_centers_seconds;
+  const [first, last] = [centers[0].toFixed(2), centers[centers.length - 1].toFixed(2)];
+  const span = centers.length === 1 ? `center ${first} s` : `centers ${first} to ${last} s`;
   const [name, definition] = valueInfo(variant.id, array);
   // The top edge sets the heatmap's height: dragged, or with Up and Down.
   const resize = (event: ReactPointerEvent<HTMLHRElement>) => {
@@ -491,10 +508,10 @@ function Heatmap({
             {variant.label}
           </b>
           <span className={`${styles.thin} ${styles.name}`} aria-hidden />
-          <span>{centers.length.toLocaleString("en")} windows</span>
+          <span>{count(centers.length, "window")}</span>
           <span className={styles.thin} aria-hidden />
-          <span className={styles.shrinks}>
-            centers {centers[0].toFixed(2)} to {centers[centers.length - 1].toFixed(2)} s
+          <span className={styles.shrinks} title={span}>
+            {span}
           </span>
           {recordingId === null && (
             <>
@@ -601,7 +618,8 @@ const Gutter = memo(function Gutter(props: {
     <ul ref={props.ref} className={styles.gutter} aria-label="Result rows" onKeyDown={rove} data-own-keys>
       {labels.map((label, r) => (
         <li
-          key={label}
+          // biome-ignore lint/suspicious/noArrayIndexKey: rows are positional; two channels can share a label
+          key={r}
           className={styles.gutterRow}
           style={{ top: `${(100 * r) / rows}%`, height: `${100 / rows}%` }}
         >
@@ -614,7 +632,7 @@ const Gutter = memo(function Gutter(props: {
             onFocus={() => setFocusRow(r)}
             onClick={() => setShownResult({ row: picked === r ? null : r })}
           >
-            {label}
+            <MiddleText text={label} />
           </button>
           <span className={styles.tint} style={{ background: tints[r] }} />
         </li>

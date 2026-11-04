@@ -1,6 +1,7 @@
 // The run bar at the foot of the inspector: the interval the run covers (the whole recording, or a part typed here or
 // selected on the plots), the
 // plan the core makes for it, Run and the run's progress, and how the last run ended.
+
 import Check from "lucide-react/dist/esm/icons/check.mjs";
 import Play from "lucide-react/dist/esm/icons/play.mjs";
 import { use, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
@@ -8,6 +9,7 @@ import { useShallow } from "zustand/react/shallow";
 import { cancelRun, startRun, variants } from "../../app/analyses";
 import { engine } from "../../app/recordings";
 import type { DDARequest } from "../../core/types";
+import { count } from "../../core/words";
 import { type RunState, setSelection, useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
 import styles from "./Analysis.module.css";
@@ -76,8 +78,6 @@ function runNow(recordingId: string, now: () => DDARequest | undefined) {
   const request = now();
   if (request) void startRun(recordingId, request);
 }
-
-const count = (n: number, word: string) => `${n.toLocaleString("en")} ${word}${n === 1 ? "" : "s"}`;
 
 /** Why Run waits while another recording runs: one run at a time. */
 const ELSEWHERE = "Another recording's run is in progress.";

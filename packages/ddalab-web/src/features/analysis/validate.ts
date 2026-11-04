@@ -91,7 +91,7 @@ export function validateRequest(
   const pairwise = draft.variants.filter((v) => v.channel_format !== "individual");
   if (channels.length === 0) errors.channels = "Choose at least one channel";
   else if (pairwise.length > 0 && channels.length < 2) {
-    errors.channels = `${pairwise.map((v) => v.abbreviation).join(" and ")} need at least two channels`;
+    errors.channels = `${pairwise.map((v) => v.abbreviation).join(" and ")} ${pairwise.length === 1 ? "needs" : "need"} at least two channels`;
   }
 
   // Seconds become samples as the CLI's `--start` and `--end` do; the end is inclusive.

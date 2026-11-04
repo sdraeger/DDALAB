@@ -1,6 +1,7 @@
 // The Folder section of the library rail: the walk of an opened folder with its running count, then the folder's
 // recordings as a tree. A click or Enter on a recording opens it with its companion files. "Run on all" runs the DDA
 // settings on every recording shown (Batch.tsx); a folder opened to resume a batch resumes it once it is read.
+
 import {
   createTree,
   hotkeysCoreFeature,
@@ -41,6 +42,7 @@ import {
   walk,
 } from "../../core/folder";
 import { pathOf } from "../../core/sources";
+import { count } from "../../core/words";
 import { useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
 import { useHit } from "../../styles/hit";
@@ -139,8 +141,6 @@ export default function FolderTree(props: {
   );
 }
 
-const counted = (n: number, what: string) => `${n.toLocaleString("en-US")} ${what}${n === 1 ? "" : "s"}`;
-
 function Recordings(props: {
   recordings: FolderRecording[];
   unreadable: Walked["unreadable"];
@@ -169,8 +169,8 @@ function Recordings(props: {
     return props.bids && whole.root ? discovered(listed, whole.root) : listed.filter((r) => !r.missing);
   }, [recordings, shown, props.bids, whole.root]);
   const lost = [
-    unreadable.files > 0 && counted(unreadable.files, "file"),
-    unreadable.folders > 0 && counted(unreadable.folders, "folder"),
+    unreadable.files > 0 && count(unreadable.files, "file"),
+    unreadable.folders > 0 && count(unreadable.folders, "folder"),
   ].filter(Boolean);
   const skipped = lost.length > 0 && (
     <p role="status" className={rail.hint}>

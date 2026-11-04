@@ -2,6 +2,7 @@
 // timings, and the CLI command that writes the same bundle natively. Until the manifest records the input files'
 // digests, the open recording's hash worker says how far it has come. A result without a manifest (running, failed,
 // interrupted) names no engine: this page's engine need not be the one that ran it.
+
 import { Popover } from "@base-ui/react/popover";
 import Copy from "lucide-react/dist/esm/icons/copy.mjs";
 import Download from "lucide-react/dist/esm/icons/download.mjs";
@@ -12,8 +13,10 @@ import { inTransition } from "../../app/viewTransition";
 import { cliCommand } from "../../core/cliCommand";
 import type { DatasetSource } from "../../core/engine";
 import { type AnalysisRecord, resultName } from "../../core/history";
+import { count } from "../../core/words";
 import { openResult, useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
+import { shownLabel } from "../inspector/groups";
 import styles from "./History.module.css";
 import { ResultBoundary } from "./ResultBoundary";
 
@@ -31,7 +34,6 @@ const focusHistory = (id: string) =>
     )?.focus(),
   );
 
-const count = (n: number, word: string) => `${n.toLocaleString("en")} ${word}${n === 1 ? "" : "s"}`;
 const when = (time: number) =>
   new Date(time).toLocaleString("en", {
     month: "short",
@@ -91,7 +93,12 @@ function Details() {
       )}
       <dl className={styles.fields}>
         <dt>Channels</dt>
-        <dd>{reproduction?.selected_channel_names.join(", ") ?? request.channels?.join(", ")}</dd>
+        <dd>
+          {/* Semicolons: a label can hold a comma (C3,C4). */}
+          {reproduction?.selected_channel_names
+            .map((name, k) => shownLabel(name, request.channels?.[k] ?? k))
+            .join("; ") ?? request.channels?.join(", ")}
+        </dd>
         <dt>Interval</dt>
         <dd>
           {reproduction &&

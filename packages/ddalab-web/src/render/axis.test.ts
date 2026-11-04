@@ -79,3 +79,33 @@ test("ruler_flags_keep_their_labels_and_tick_labels_give_way", () => {
   expect(at["3"]).toBeUndefined();
   for (let s = 4; s <= 9; s++) expect(at[String(s)], `${s} s`).toBe(100 * s + 3);
 });
+
+test("events_at_one_instant_share_a_flag_that_counts_them", () => {
+  const texts: string[] = [];
+  const ctx = {
+    clearRect() {},
+    fillRect() {},
+    strokeRect() {},
+    fillText: (text: string) => texts.push(text),
+    measureText: (text: string) => ({ width: 6 * text.length }),
+  } as unknown as CanvasRenderingContext2D;
+  const recording = { info: { annotations: [] } } as unknown as OpenRecording;
+  const user = [
+    { id: "a", onset_s: 2, duration_s: 0, label: "S  1" },
+    { id: "b", onset_s: 2, duration_s: 0, label: "start" },
+    { id: "c", onset_s: 2, duration_s: 0, label: "z" },
+  ];
+  const flags = drawRuler(ctx, {
+    W: 1000,
+    H: 22,
+    dpr: 1,
+    view: { t0: 0, t1: 10 },
+    recording,
+    user,
+    picked: null,
+    colors: {} as Colors,
+  });
+  // The last one drawn carries the label and the count of the others under it; they take no width.
+  expect(texts).toContain("z +2");
+  expect(flags.map((f) => f.x1 - f.x0)).toEqual([0, 0, 6 * "z +2".length + 8]);
+});

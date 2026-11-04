@@ -1,0 +1,41 @@
+.toggle {
+  position: fixed;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2147483647;
+  display: flex;
+  gap: 2px;
+  margin: 0;
+  border: 0;
+  padding: 2px;
+  border-radius: 8px;
+  background: #d4d4d8;
+  font:
+    12px / 1 system-ui,
+    sans-serif;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.25);
+}
+
+.segment {
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #3f3f46;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.segment[aria-pressed="true"] {
+  background: #fff;
+  color: #18181b;
+}
+
+/* Above the phone layout's bottom navigation (Shell.module.css). */
+@media (width < 768px) {
+  .toggle {
+    bottom: 72px;
+  }
+}

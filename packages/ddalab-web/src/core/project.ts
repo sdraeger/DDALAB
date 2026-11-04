@@ -6,6 +6,7 @@
 // elsewhere is untrusted: its project.json is bounded and checked field by field and rebuilt from the fields checked,
 // every file it names must be a stored entry of the size it names, and each recording's files must have the
 // fingerprint it claims.
+
 import type { TabView } from "../store/tabs";
 import type { BatchRecord } from "./batch";
 import { fingerprintOf, sha256Hex } from "./fingerprint";
@@ -27,6 +28,7 @@ import {
 } from "./imports";
 import type { ResultDocument } from "./types";
 import type { UserAnnotation } from "./userAnnotations";
+import { count } from "./words";
 
 export const SCHEMA = "ddalab.project/1";
 
@@ -433,7 +435,6 @@ export async function verdict(
   return known.every((set) => sameFiles(actual, set)) ? "same" : "differs";
 }
 
-const count = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 const listed = (items: string[]) =>
   items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
 

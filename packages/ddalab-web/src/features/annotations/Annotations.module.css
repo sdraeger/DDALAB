@@ -214,14 +214,18 @@
 }
 
 .list {
+  --use-width: 9.5em;
   position: relative;
   max-height: 240px;
   margin: 0 calc(-1 * var(--space-4));
   overflow-y: auto;
 }
 
+/* Rows off screen skip layout and paint: a recording can carry thousands of events. */
 .row {
   position: relative;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 48px;
 }
 
 .rowButton {
@@ -294,6 +298,11 @@
   color: var(--muted);
   font-size: var(--text-small);
   line-height: var(--leading-small);
+}
+
+/* The time keeps clear of "Use as selection", which sits over the row's end. */
+.rowButton[data-usable] .time {
+  padding-inline-end: var(--use-width);
 }
 
 .use {

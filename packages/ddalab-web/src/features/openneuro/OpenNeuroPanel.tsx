@@ -2,6 +2,7 @@
 // snapshot's description and pick another snapshot, walk its folders, stream a recording in place, and run a batch on
 // the recordings of a folder and below. It also opens the recording a deep link names (see deepLink.ts). The rail
 // loads it lazily.
+
 import { Select } from "@base-ui/react/select";
 import Check from "lucide-react/dist/esm/icons/check.mjs";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down.mjs";
@@ -9,6 +10,7 @@ import Folder from "lucide-react/dist/esm/icons/folder.mjs";
 import { type FormEvent, type MouseEvent, useEffect, useRef, useState } from "react";
 import { openInput } from "../../app/recordings";
 import type { BatchRecord } from "../../core/batch";
+import { count as plural } from "../../core/words";
 import { useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
 import { BatchAction, BatchProgressView } from "../library/Batch";
@@ -315,8 +317,6 @@ function StatusLine({ status }: { status: Status }) {
     </>
   );
 }
-
-const plural = (n: number, one: string) => `${n.toLocaleString("en-US")} ${n === 1 ? one : `${one}s`}`;
 
 function ResultList(props: { results: Results; onBrowse(dataset: DatasetHit): void; onMore(): void }) {
   const { search, hits, count, next } = props.results;

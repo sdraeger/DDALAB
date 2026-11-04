@@ -12,12 +12,16 @@ export interface Group {
   tint: string;
 }
 
+/** A channel's label as shown: an empty one as its 1-based position among the display channels (a request's
+ * channel indices count the same way), "Ch 6". */
+export const shownLabel = (label: string, index: number) => (label.trim() ? label : `Ch ${index + 1}`);
+
 export function electrodeGroups(labels: string[]): { groups: Group[]; groupOf: Int32Array } {
   const groups: Group[] = [];
   const byName = new Map<string, Group>();
   const groupOf = new Int32Array(labels.length);
   labels.forEach((label, channel) => {
-    const name = /^[A-Za-z]+/.exec(label.trim())?.[0] ?? "Other";
+    const name = /^\p{L}+/u.exec(label.trim())?.[0] ?? "Other";
     let group = byName.get(name);
     if (!group) {
       group = { name, members: [], tint: `var(--group-${(groups.length % TINTS) + 1})` };
@@ -28,4 +32,11 @@ export function electrodeGroups(labels: string[]): { groups: Group[]; groupOf: I
     group.members.push(channel);
   });
   return { groups, groupOf };
+}
+
+/** The shown labels of the `analysis` channels of `channels` and their electrode groups, which come from the labels
+ * as recorded: an unnamed channel joins "Other". */
+export function channelLabels(channels: { label: string }[], analysis: number[]) {
+  const recorded = analysis.map((i) => channels[i].label);
+  return { labels: recorded.map(shownLabel), ...electrodeGroups(recorded) };
 }

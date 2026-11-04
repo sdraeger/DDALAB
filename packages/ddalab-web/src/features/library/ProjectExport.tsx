@@ -1,15 +1,16 @@
 // The export of the open tabs as a project (app/project.ts), from the library rail: what it holds and its size,
 // measured as the panel opens, what to do about tabs that cannot go in, and Save project.
+
 import { Popover } from "@base-ui/react/popover";
 import { useEffect, useState } from "react";
 import { type Contents, exportProject, projectContents } from "../../app/project";
 import { mebibytes, PROJECT_RECORDS_LIMIT, RECORD_LIMIT } from "../../core/imports";
+import { count } from "../../core/words";
 import controls from "../../styles/controls.module.css";
 import styles from "../history/History.module.css";
 import { size } from "../settings/LocalData";
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
-const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** Why the results cannot go in the project, and the two ways forward. */
 function tooMuch({ bytes, refused }: Contents["budget"]) {

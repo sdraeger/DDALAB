@@ -2,10 +2,12 @@
 // document. Everything the history, the provenance and the CLI command read is checked before anything is stored: a
 // malformed file is refused with the field that is wrong. The result is stored as a bundle under a new id
 // (resultStore.ts) and recorded in the history as complete.
+
 import { type AnalysisRecord, recordedManifest, saveAnalysis } from "./history";
 import { count, npyHeader, readNpyHeader } from "./npy";
 import { storeResult } from "./resultStore";
 import type { BundleLayout, ResultDocument, VariantDocument } from "./types";
+import { count as plural } from "./words";
 
 /** A file of a bundle folder and its path from the folder that was picked or dropped. */
 export interface FolderFile {
@@ -564,7 +566,6 @@ export const mebibytes = (bytes: number) =>
   (bytes / 2 ** 20).toLocaleString("en", { maximumFractionDigits: 1 });
 /** Bytes (UTF-8) of `value` as JSON. */
 export const utf8 = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** What one result counts toward PROJECT_RECORDS_LIMIT: its record's bytes and its kept fields', at least ENTRY_BYTES. */
 export const resultCost = (record: number, kept: unknown) => Math.max(ENTRY_BYTES, record + utf8(kept));

@@ -127,7 +127,7 @@ test("history_survives_reload", async ({ page }) => {
     .update(readFileSync(fixturePath("fixture.eeg")))
     .digest("hex");
   await expect(provenance(page).getByText(sha)).toBeVisible();
-  await expect(provenance(page)).toContainText("Fp1, Fp2");
+  await expect(provenance(page)).toContainText("Fp1; Fp2");
   expect(await commandOf(page)).toBe(
     "ddalab run --file=fixture.vhdr --channels 0 1 --variants ST --wl 200 --ws 100 --delays 7 10 --model 1 2 10 " +
       "--dm 4 --order 4 --nr-tau 2 --start-sample 500 --end-sample 2500 --bundle=fixture.dda",

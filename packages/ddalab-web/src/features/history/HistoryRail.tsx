@@ -2,10 +2,12 @@
 // its result with its provenance, where it is exported or deleted. A batch's results are listed under the batch
 // (BatchEntry.tsx). Results the CLI wrote come in through the import below the list.
 import { useMemo, useState, useTransition } from "react";
+import { MiddleText } from "../../app/MiddleText";
 import { inTransition } from "../../app/viewTransition";
 import type { BatchRecord } from "../../core/batch";
 import type { FolderSource } from "../../core/folder";
 import { type AnalysisRecord, resultName } from "../../core/history";
+import { count } from "../../core/words";
 import { openResult, useStore } from "../../store/store";
 import rail from "../library/LibraryRail.module.css";
 import { prefetch } from "../results/loads";
@@ -79,7 +81,7 @@ function Results({ onResume }: { onResume: Resume }) {
         onFocus={analysis.status === "complete" ? () => prefetch(analysis.id) : undefined}
         onClick={() => inTransition(() => openResult(analysis.id))}
       >
-        <span className={rail.entryName}>{resultName(analysis)}</span>
+        <MiddleText file text={resultName(analysis)} className={rail.entryName} />
         <span className={rail.entryMeta}>
           <span className={analysis.status === "failed" ? styles.failed : undefined}>
             {STATUS[analysis.status]}
@@ -87,7 +89,7 @@ function Results({ onResume }: { onResume: Resume }) {
           <span className={rail.thin} aria-hidden />
           <Time at={analysis.createdAt} />
           <span className={rail.thin} aria-hidden />
-          {analysis.request.channels?.length ?? 0} channels
+          {count(analysis.request.channels?.length ?? 0, "channel")}
         </span>
       </button>
     </li>

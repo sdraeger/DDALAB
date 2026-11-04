@@ -2,8 +2,10 @@
 // group, chosen for analysis.
 import Check from "lucide-react/dist/esm/icons/check.mjs";
 import { lazy, memo, Suspense, useCallback, useId, useMemo, useState, useTransition } from "react";
+import { MiddleText } from "../../app/MiddleText";
 import { closeRecording } from "../../app/recordings";
 import type { RecordingInfo } from "../../core/types";
+import { decimal } from "../../core/words";
 import { activeRecording, selectChannels, showChosenOnly, useStore } from "../../store/store";
 import { tabOf, updateTab } from "../../store/tabs";
 import controls from "../../styles/controls.module.css";
@@ -11,7 +13,7 @@ import { useHit } from "../../styles/hit";
 import { DdaSettings } from "../analysis/DdaSettings";
 import { RunBar } from "../analysis/RunBar";
 import { Streamed } from "../openneuro/Streamed";
-import { electrodeGroups, type Group } from "./groups";
+import { channelLabels, type Group, shownLabel } from "./groups";
 import styles from "./Inspector.module.css";
 
 const Provenance = lazy(() => import("../history/Provenance"));
@@ -60,11 +62,11 @@ export function Inspector() {
           </div>
           <div>
             <dt>Duration</dt>
-            <dd>{info.duration_s} s</dd>
+            <dd>{decimal(info.duration_s)} s</dd>
           </div>
           <div>
             <dt>Sample rate</dt>
-            <dd>{info.sample_rate_hz} Hz</dd>
+            <dd>{decimal(info.sample_rate_hz)} Hz</dd>
           </div>
         </dl>
         <Scan id={id} />
@@ -136,8 +138,7 @@ const Channels = memo(function Channels(props: {
   selected: number[];
 }) {
   const { fingerprint, info, analysis, selected } = props;
-  const labels = useMemo(() => analysis.map((i) => info.channels[i].label), [analysis, info]);
-  const { groups, groupOf } = useMemo(() => electrodeGroups(labels), [labels]);
+  const { labels, groups, groupOf } = useMemo(() => channelLabels(info.channels, analysis), [analysis, info]);
   // The search is the tab's: it comes back when the tab does.
   const [query, setQuery] = useState(() => tabOf(fingerprint)?.channelQuery ?? "");
   const [filter, setFilter] = useState(query);
@@ -206,7 +207,7 @@ const Channels = memo(function Channels(props: {
           <ul aria-label="Not analyzed">
             {others.map(({ channel, i }) => (
               <li key={i}>
-                {channel.label} ({channel.sample_rate_hz} Hz)
+                {shownLabel(channel.label, i)} ({decimal(channel.sample_rate_hz)} Hz)
               </li>
             ))}
           </ul>
@@ -332,7 +333,7 @@ function ChannelList(props: {
                   onChange={(event) => selectChannels([channel], event.target.checked)}
                 />
                 <span className={styles.swatch} style={{ background: tints[groupOf[channel]] }} />
-                <span className={styles.label}>{labels[channel]}</span>
+                <MiddleText text={labels[channel]} className={styles.label} />
               </label>
               <span className={styles.kind}>{bids_type ?? kind}</span>
               {bids_status && (

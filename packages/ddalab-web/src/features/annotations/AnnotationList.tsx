@@ -3,11 +3,14 @@
 // (or a double-click) opens its editor and Delete removes one of the user's. The picked row scrolls into view. Use
 // as selection makes a span the run interval. Export annotations saves the listed rows as a BIDS events.tsv or as
 // JSON. Loaded lazily with the inspector's recording.
+
 import { Popover } from "@base-ui/react/popover";
 import Download from "lucide-react/dist/esm/icons/download.mjs";
 import { type KeyboardEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { download, type Saveable } from "../../app/download";
+import { MiddleText } from "../../app/MiddleText";
 import type { UserAnnotation } from "../../core/userAnnotations";
+import { count } from "../../core/words";
 import { setSelection, useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
 import history from "../history/History.module.css";
@@ -16,7 +19,7 @@ import { eventsJson, eventsTsv } from "./events";
 import { centerOn, type Listed, listed, openEditor, remove, when } from "./model";
 
 const EMPTY: UserAnnotation[] = [];
-const count = (n: number) => `${n} annotation${n === 1 ? "" : "s"}`;
+const annotations = (n: number) => count(n, "annotation");
 /** The name a row is read by: its label, when, and whose, in the order of its text (WCAG 2.5.3). */
 const spoken = (a: Listed) => `${a.label || "event"}, ${when(a)}, ${a.user ? "yours" : a.source}`;
 
@@ -131,13 +134,16 @@ export default function AnnotationList({ recordingId }: { recordingId: string })
                   onFocus={() => setActive(a.id)}
                   onClick={() => centerOn(a)}
                   onDoubleClick={() => openEditor(a.id)}
+                  data-usable={a.duration_s > 0 || undefined}
                 >
                   <span className={styles.flag} data-user={a.user || undefined} />
                   {/* The spaces render nothing in the grid; they keep the words apart in the text the name is
                       checked against. */}
-                  <span className={styles.rowLabel}>{a.label || "event"}</span>{" "}
+                  <span className={styles.rowLabel} title={a.label || "event"}>
+                    {a.label || "event"}
+                  </span>{" "}
                   <span className={styles.time}>{when(a)}</span>{" "}
-                  <span className={styles.source}>{a.source}</span>
+                  <MiddleText file text={a.source} className={styles.source} />
                 </button>
                 {a.duration_s > 0 && (
                   <button
@@ -171,8 +177,8 @@ export default function AnnotationList({ recordingId }: { recordingId: string })
                 <Popover.Title className={history.subheading}>
                   Export{" "}
                   {shown.length === all.length
-                    ? count(all.length)
-                    : `${shown.length} of ${count(all.length)}`}
+                    ? annotations(all.length)
+                    : `${shown.length} of ${annotations(all.length)}`}
                 </Popover.Title>
                 <button
                   type="button"

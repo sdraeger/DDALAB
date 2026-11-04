@@ -289,11 +289,21 @@ export function drawRuler(ctx: CanvasRenderingContext2D, scene: RulerScene): Fla
     .map((e) => ({ ...e, left: Math.max(0, Math.round(x(e.a.onset_s))) }))
     .sort((p, q) => p.left - q.left);
   const [top, h, pad, pin] = [2 * dpr, H - 6 * dpr, 4 * dpr, 4 * dpr];
-  // The flags first, each as wide as its label up to the next flag, the label elided only past that.
+  // The flags first, each as wide as its label up to the next flag, the label elided only past that. Events at one
+  // pixel share the last one's flag, which counts the others ("z +2"); theirs take no width.
   ctx.font = `600 ${11 * dpr}px ${colors.font}`;
+  let under = 0;
   const flags = events.map(({ a, left }, k) => {
     const next = events[k + 1]?.left ?? W;
-    const text = elide(ctx, a.label || "event", next - left - 2 * dpr - 2 * pad);
+    if (next === left) {
+      under++;
+      return { text: "", x0: left, x1: left };
+    }
+    const more = under > 0 ? ` +${under}` : "";
+    under = 0;
+    const room = next - left - 2 * dpr - 2 * pad - (more ? ctx.measureText(more).width : 0);
+    const label = elide(ctx, a.label || "event", room);
+    const text = label && label + more;
     return { text, x0: left, x1: left + (text ? ctx.measureText(text).width + 2 * pad : pin) };
   });
   // Then the tick labels around them: one a flag covers moves to the left of its tick, else it is left out.
@@ -320,6 +330,7 @@ export function drawRuler(ctx: CanvasRenderingContext2D, scene: RulerScene): Fla
       ctx.fillStyle = user ? colors.ink : colors.event;
       ctx.fillRect(left, H - 4 * dpr, Math.min(W, x(a.onset_s + a.duration_s)) - left, 2 * dpr);
     }
+    if (w === 0) return;
     ctx.fillStyle = user ? colors.ink : colors.ground;
     ctx.fillRect(left, top, w, h);
     if (!user) {

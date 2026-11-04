@@ -1,0 +1,36 @@
+/* As wide as the name, at most its box. */
+.middle {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  vertical-align: top;
+}
+
+/* `pre` on the parts themselves, which a caller's `white-space` cannot reach: it keeps the space the start ends with,
+   which a flex item would drop. */
+.head,
+.end {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+
+/* The start shrinks and elides at its end. */
+.end {
+  flex-shrink: 0;
+}
+
+/* Or the end, the longer part. */
+.middle[data-end-shrinks] .head {
+  flex-shrink: 0;
+}
+
+.middle[data-end-shrinks] .end {
+  flex-shrink: 1;
+}
+
+/* A file name's end elides at its start: right to left, its text kept left to right inside (dir="ltr"). */
+.middle[data-file][data-end-shrinks] .end {
+  direction: rtl;
+}

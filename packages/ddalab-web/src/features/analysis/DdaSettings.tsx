@@ -1,8 +1,10 @@
 // The DDA settings in the inspector: the variants the core offers (its metadata), the windowing, and the model,
 // whose expert values are sent only in expert mode.
+
 import { use, useEffect, useId, useState } from "react";
 import { variants } from "../../app/analyses";
 import { gpuAvailable } from "../../core/webgpu";
+import { decimal } from "../../core/words";
 import { setDdaForm, setGpu, useStore } from "../../store/store";
 import styles from "./Analysis.module.css";
 import { useRunRequest } from "./RunBar";
@@ -64,7 +66,7 @@ export function DdaSettings({ recordingId }: { recordingId: string }) {
         {field("windowStep", "Step", "samples")}
         {windowLength > 0 && windowStep > 0 && rate > 0 && (
           <p className={styles.note} data-appear>
-            {`${(windowLength / rate).toFixed(2)} s window, ${(windowStep / rate).toFixed(2)} s step at ${rate} Hz`}
+            {`${(windowLength / rate).toFixed(2)} s window, ${(windowStep / rate).toFixed(2)} s step at ${decimal(rate)} Hz`}
           </p>
         )}
       </fieldset>

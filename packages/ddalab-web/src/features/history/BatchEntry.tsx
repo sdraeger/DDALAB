@@ -3,10 +3,12 @@
 // the folder again through its handle where the browser kept one, else asks for the folder once more on the same
 // button; a batch on an OpenNeuro snapshot walks its folder there again. Once the batch resumes, its row takes the
 // focus the button had.
+
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right.mjs";
 import Download from "lucide-react/dist/esm/icons/download.mjs";
 import { type ChangeEvent, type ReactNode, useId, useRef, useState } from "react";
 import { exportBatch, reattach, resumeBatch } from "../../app/batch";
+import { MiddleText } from "../../app/MiddleText";
 import { type BatchRecord, batchOutcome, settingsLine } from "../../core/batch";
 import type { FolderSource } from "../../core/folder";
 import { useStore } from "../../store/store";
@@ -111,7 +113,7 @@ export function BatchEntry(props: {
       >
         <span className={styles.batchName}>
           <ChevronRight aria-hidden className={styles.chevron} />
-          <span className={rail.entryName}>{name}</span>
+          <MiddleText file text={name} className={rail.entryName} />
         </span>
         <span className={`${rail.entryMeta} ${styles.indent}`}>
           <span className={failures.length > 0 ? styles.failed : undefined}>{batchOutcome(batch)}</span>

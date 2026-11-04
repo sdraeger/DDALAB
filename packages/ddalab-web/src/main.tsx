@@ -59,7 +59,9 @@ applyTheme(storedTheme());
 // The window's own tabs and session (store/windows.ts): its panels are set before the first render.
 await claimWindow().catch(() => {});
 restoreSession(listed);
-void restoreTabs(listed);
+const restored = restoreTabs(listed);
+// Dev only: the demo / worst-case data toggle (dev/DataToggle.tsx); `?data=` opens a data set.
+if (import.meta.env.DEV) void import("./dev/DataToggle").then(({ mount }) => mount(restored));
 
 // The CSP allows no inline <style>, which Base UI adds to an opened Select unless told otherwise.
 createRoot(root).render(

@@ -1,6 +1,7 @@
 // The command bar's note that data stays on this device: recordings are read and analyzed in the browser, and what
 // this device brings to an analysis bounds how much it can take. Its Storage section says what the site keeps in the
 // browser and clears the cached tiles and the copy of the last export made for the downloads.
+
 import { Popover } from "@base-ui/react/popover";
 import { Tooltip } from "@base-ui/react/tooltip";
 import HardDrive from "lucide-react/dist/esm/icons/hard-drive.mjs";
@@ -8,10 +9,9 @@ import { useEffect, useId, useState } from "react";
 import { clearSpool, spoolBytes } from "../../app/download";
 import { ddaWorkers } from "../../core/engine";
 import { evictTiles } from "../../core/opfs";
+import { count } from "../../core/words";
 import controls from "../../styles/controls.module.css";
 import styles from "./LocalData.module.css";
-
-const count = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 export const size = (bytes: number) =>
   bytes >= 1e9

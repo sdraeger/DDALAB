@@ -277,7 +277,7 @@ test("a_project_of_many_small_results_adds_nothing", async () => {
   });
   const many = Array.from({ length: 8193 }, (_, n) => minimal(n));
   await expect(importResults(many, [])).rejects.toThrow(
-    "its 8193 results and 0 batches would add more than the 32 MiB a project may add to the history",
+    "its 8,193 results and 0 batches would add more than the 32 MiB a project may add to the history",
   );
   // Batches count the same, one result with them.
   await expect(
@@ -285,7 +285,7 @@ test("a_project_of_many_small_results_adds_nothing", async () => {
       many.slice(0, 1),
       Array.from({ length: 8192 }, () => ({})),
     ),
-  ).rejects.toThrow("its 1 result and 8192 batches would add more than the 32 MiB a project may add");
+  ).rejects.toThrow("its 1 result and 8,192 batches would add more than the 32 MiB a project may add");
   expect([...((root.get("results") as Tree | undefined) ?? new Map()).keys()]).toEqual([]);
   expect(await listAnalyses()).toEqual([]);
 }, 120_000);
