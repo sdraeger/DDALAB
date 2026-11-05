@@ -588,6 +588,99 @@ impl PureRustRunner {
             8
         };
         let chunk_len = rayon::current_num_threads().max(min_chunk_len);
+        // CCD and MVCCD are solved a chunk of windows at a time in parallel, like the basic jobs: with few pairs the
+        // pairs alone leave most threads idle.
+        let ccd_window = |prepared: &PreparedWindow| {
+            let ccd = if ccd_full_model_reuse {
+                solve_all_selected_ccd_values_with_full_model_reuse(
+                    prepared,
+                    &ccd_pairs,
+                    &ccd_pair_conditioning_sets,
+                    &ccd_candidate_channels,
+                    &model,
+                    self.options.svd_backend,
+                )
+            } else {
+                solve_zipped_parallel(
+                    &ccd_pairs,
+                    &ccd_pair_conditioning_sets,
+                    |(pair, confounds)| {
+                        let baseline = solve_channel_with_inputs(
+                            prepared,
+                            pair[0],
+                            confounds,
+                            &model,
+                            self.options.svd_backend,
+                        );
+                        let mut conditioned_inputs = confounds.clone();
+                        conditioned_inputs.push(pair[1]);
+                        let conditioned = solve_channel_with_inputs(
+                            prepared,
+                            pair[0],
+                            &conditioned_inputs,
+                            &model,
+                            self.options.svd_backend,
+                        );
+                        let observed = legacy_rmse_gain_from_rmse(baseline.rmse, conditioned.rmse);
+                        let log_mse_ratio = log_mse_ratio_from_rmse(
+                            baseline.rmse,
+                            conditioned.rmse,
+                            CCD_NORMALIZED_EPSILON,
+                        );
+                        let partial_r2 = partial_r2_from_rmse(baseline.rmse, conditioned.rmse);
+
+                        let significance = if enabled_ccdsig {
+                            let surrogate_shifts =
+                                ccd_surrogate_shifts.clone().unwrap_or_else(|| {
+                                    default_surrogate_shifts(prepared.shifted.len())
+                                });
+                            let surrogate_inputs = confounds
+                                .iter()
+                                .map(|channel| extract_shifted_channel_series(prepared, *channel))
+                                .collect::<Vec<_>>();
+                            let source_series = extract_shifted_channel_series(prepared, pair[1]);
+                            let null_scores = surrogate_shifts
+                                .into_iter()
+                                .filter(|shift| *shift > 0)
+                                .map(|shift| {
+                                    let shifted_source =
+                                        circular_shift_series(&source_series, shift);
+                                    let mut conditioned_surrogates = surrogate_inputs.clone();
+                                    conditioned_surrogates.push(shifted_source);
+                                    let surrogate_block = solve_channel_with_surrogate_inputs(
+                                        prepared,
+                                        pair[0],
+                                        &conditioned_surrogates,
+                                        &model,
+                                        self.options.svd_backend,
+                                    );
+                                    legacy_rmse_gain_from_rmse(baseline.rmse, surrogate_block.rmse)
+                                })
+                                .collect::<Vec<_>>();
+                            empirical_significance_confidence(observed, &null_scores)
+                        } else {
+                            f64::NAN
+                        };
+
+                        (observed, log_mse_ratio, partial_r2, significance)
+                    },
+                )
+            };
+            let mvccd = if enabled_mvccd {
+                compute_mvccd_window_scores(
+                    prepared,
+                    &ccd_pairs,
+                    &ccd_target_conditioning_sets,
+                    &model,
+                    ccd_max_active_sources,
+                    self.options.svd_backend,
+                )
+            } else {
+                Vec::new()
+            };
+            (ccd, mvccd)
+        };
+        let mut ccd_chunk = Vec::new();
         let mut prepared_chunk = Vec::new();
         let mut solved_chunk = Vec::new();
         for window_idx in 0..num_windows {
@@ -609,19 +702,21 @@ impl PureRustRunner {
                         })
                         .collect::<Result<Vec<_>>>()?;
                 }
+                let windows = prepared_windows
+                    .as_deref()
+                    .map_or(&prepared_chunk[..], |windows| &windows[chunk]);
                 solved_chunk = solve_basic_windows(
-                    prepared_windows
-                        .as_deref()
-                        .map_or(&prepared_chunk[..], |windows| &windows[chunk]),
+                    windows,
                     &basic_jobs,
                     &model,
                     self.options.svd_backend,
                     &mut basic_solver,
                 )?;
+                if enabled_ccd_core {
+                    ccd_chunk = windows.par_iter().map(ccd_window).collect::<Vec<_>>();
+                }
             }
-            let prepared = if let Some(windows) = prepared_windows.as_ref() {
-                &windows[window_idx]
-            } else {
+            if prepared_windows.is_none() {
                 report(
                     "prepare-window",
                     "Preparing analysis window",
@@ -631,8 +726,7 @@ impl PureRustRunner {
                     "window",
                     None,
                 );
-                &prepared_chunk[chunk_offset]
-            };
+            }
             let solved = &solved_chunk[chunk_offset];
 
             let st_blocks = &solved.st;
@@ -765,88 +859,7 @@ impl PureRustRunner {
             }
 
             if enabled_ccd_core {
-                let ccd_values = if ccd_full_model_reuse {
-                    solve_all_selected_ccd_values_with_full_model_reuse(
-                        prepared,
-                        &ccd_pairs,
-                        &ccd_pair_conditioning_sets,
-                        &ccd_candidate_channels,
-                        &model,
-                        self.options.svd_backend,
-                    )
-                } else {
-                    solve_zipped_parallel(
-                        &ccd_pairs,
-                        &ccd_pair_conditioning_sets,
-                        |(pair, confounds)| {
-                            let baseline = solve_channel_with_inputs(
-                                prepared,
-                                pair[0],
-                                confounds,
-                                &model,
-                                self.options.svd_backend,
-                            );
-                            let mut conditioned_inputs = confounds.clone();
-                            conditioned_inputs.push(pair[1]);
-                            let conditioned = solve_channel_with_inputs(
-                                prepared,
-                                pair[0],
-                                &conditioned_inputs,
-                                &model,
-                                self.options.svd_backend,
-                            );
-                            let observed =
-                                legacy_rmse_gain_from_rmse(baseline.rmse, conditioned.rmse);
-                            let log_mse_ratio = log_mse_ratio_from_rmse(
-                                baseline.rmse,
-                                conditioned.rmse,
-                                CCD_NORMALIZED_EPSILON,
-                            );
-                            let partial_r2 = partial_r2_from_rmse(baseline.rmse, conditioned.rmse);
-
-                            let significance = if enabled_ccdsig {
-                                let surrogate_shifts =
-                                    ccd_surrogate_shifts.clone().unwrap_or_else(|| {
-                                        default_surrogate_shifts(prepared.shifted.len())
-                                    });
-                                let surrogate_inputs = confounds
-                                    .iter()
-                                    .map(|channel| {
-                                        extract_shifted_channel_series(prepared, *channel)
-                                    })
-                                    .collect::<Vec<_>>();
-                                let source_series =
-                                    extract_shifted_channel_series(prepared, pair[1]);
-                                let null_scores = surrogate_shifts
-                                    .into_iter()
-                                    .filter(|shift| *shift > 0)
-                                    .map(|shift| {
-                                        let shifted_source =
-                                            circular_shift_series(&source_series, shift);
-                                        let mut conditioned_surrogates = surrogate_inputs.clone();
-                                        conditioned_surrogates.push(shifted_source);
-                                        let surrogate_block = solve_channel_with_surrogate_inputs(
-                                            prepared,
-                                            pair[0],
-                                            &conditioned_surrogates,
-                                            &model,
-                                            self.options.svd_backend,
-                                        );
-                                        legacy_rmse_gain_from_rmse(
-                                            baseline.rmse,
-                                            surrogate_block.rmse,
-                                        )
-                                    })
-                                    .collect::<Vec<_>>();
-                                empirical_significance_confidence(observed, &null_scores)
-                            } else {
-                                f64::NAN
-                            };
-
-                            (observed, log_mse_ratio, partial_r2, significance)
-                        },
-                    )
-                };
+                let ccd_values = &ccd_chunk[chunk_offset].0;
                 for (pair_idx, _) in ccd_pairs.iter().enumerate() {
                     report(
                         "ccd",
@@ -875,14 +888,6 @@ impl PureRustRunner {
             }
 
             if enabled_mvccd {
-                let mvccd_values = compute_mvccd_window_scores(
-                    prepared,
-                    &ccd_pairs,
-                    &ccd_target_conditioning_sets,
-                    &model,
-                    ccd_max_active_sources,
-                    self.options.svd_backend,
-                );
                 for (pair_idx, _) in ccd_pairs.iter().enumerate() {
                     report(
                         "mvccd",
@@ -897,7 +902,11 @@ impl PureRustRunner {
                     );
                 }
                 if let Some(matrix) = mvccd_matrix.as_mut() {
-                    fill_result_column(matrix, window_idx, mvccd_values);
+                    fill_result_column(
+                        matrix,
+                        window_idx,
+                        ccd_chunk[chunk_offset].1.iter().copied(),
+                    );
                 }
             }
 
