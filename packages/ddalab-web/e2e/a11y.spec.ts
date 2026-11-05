@@ -16,12 +16,20 @@ const settings = (page: Page) => page.getByRole("region", { name: "DDA settings"
 
 const THEMES = ["light", "dark"] as const;
 
-/** Switches the theme and waits for the colors that transition to it to arrive. */
+/**
+ * Switches the theme and ends its color transitions, so the colors measured are the theme's own, then waits for any
+ * other animation. The color transitions are ended rather than awaited: on Linux CI Chromium can stop producing frames,
+ * and such a transition then never finishes.
+ */
 async function theme(page: Page, colorScheme: (typeof THEMES)[number]) {
   await page.emulateMedia({ colorScheme });
-  await page.evaluate(() =>
-    Promise.all(document.getAnimations().map((a) => a.finished.catch(() => "replaced"))),
-  );
+  await page.evaluate(async () => {
+    const animations = document.getAnimations();
+    for (const a of animations) {
+      if (a instanceof CSSTransition && /color|fill|stroke|shadow/.test(a.transitionProperty)) a.finish();
+    }
+    await Promise.all(animations.map((a) => a.finished.catch(() => "replaced")));
+  });
 }
 
 /**
