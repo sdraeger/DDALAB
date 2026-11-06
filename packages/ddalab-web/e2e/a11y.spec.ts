@@ -151,6 +151,9 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => Reflect.deleteProperty(window, "showOpenFilePicker"));
   await page.goto("/");
   await expect(page.getByRole("status").first()).toHaveText(/^\d+\.\d+\.\d+/);
+  // The rail's lazy sections fade in as they mount; one mounting after `theme` would be measured mid-fade.
+  await expect(page.locator("#openneuro-heading")).toBeAttached();
+  await expect(page.locator("#history-heading")).toBeAttached();
 });
 
 test("empty_state", async ({ page }) => {
