@@ -420,7 +420,8 @@ fn char_text(units: &[u32], dims: &[usize], utf8: bool) -> String {
         let bytes: Vec<u8> = units.iter().map(|&u| u as u8).collect();
         return String::from_utf8_lossy(&bytes).into_owned();
     }
-    let rows = dims.first().copied().unwrap_or(1).max(1);
+    // A header may claim more rows than the array stores; each stored character fills at most one row.
+    let rows = dims.first().copied().unwrap_or(1).clamp(1, units.len().max(1));
     if rows == 1 {
         return units.iter().filter_map(|&u| char::from_u32(u)).collect();
     }
@@ -440,6 +441,13 @@ fn char_text(units: &[u32], dims: &[usize], utf8: bool) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// A row count beyond the stored characters, as a corrupt or crafted header gives, yields the stored rows
+    /// instead of reserving a string per claimed row (2^31 rows would reserve some 50 GB).
+    #[test]
+    fn a_char_array_claims_no_more_rows_than_it_stores() {
+        assert_eq!(char_text(&[65, 66], &[1_000_000, 1], false), "A\nB");
+    }
+
     use super::*;
 
     fn source(bytes: Vec<u8>) -> Arc<dyn ByteSource> {
