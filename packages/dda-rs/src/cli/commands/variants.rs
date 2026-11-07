@@ -3,7 +3,8 @@ use crate::cli::{execution_error, output, Failure};
 
 pub fn execute(args: VariantsArgs) -> Result<(), Failure> {
     if args.json {
-        return output::write_json(&crate::offered_variants().collect::<Vec<_>>(), false, None).map_err(execution_error);
+        return output::write_json(&crate::offered_variants().collect::<Vec<_>>(), false, None)
+            .map_err(execution_error);
     }
     println!("Available DDA Variants:\n");
     println!(
