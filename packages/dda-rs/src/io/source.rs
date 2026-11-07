@@ -56,20 +56,23 @@ pub struct FileSource {
 #[cfg(not(target_arch = "wasm32"))]
 impl FileSource {
     pub fn open(path: &Path) -> Result<Self> {
-        let in_path = |e: std::io::Error| {
-            DDAError::IoError(std::io::Error::new(
-                e.kind(),
-                format!("{}: {e}", path.display()),
-            ))
-        };
-        let file = std::fs::File::open(path).map_err(in_path)?;
-        let len = file.metadata().map_err(in_path)?.len();
+        let file = std::fs::File::open(path).map_err(|e| in_path(path, e))?;
+        let len = file.metadata().map_err(|e| in_path(path, e))?.len();
         Ok(Self {
             file,
             len,
             name: path.display().to_string(),
         })
     }
+}
+
+/// `error` with the path it concerns, so that a set of six files says which one failed.
+#[cfg(not(target_arch = "wasm32"))]
+fn in_path(path: &Path, error: std::io::Error) -> DDAError {
+    DDAError::IoError(std::io::Error::new(
+        error.kind(),
+        format!("{}: {error}", path.display()),
+    ))
 }
 
 #[cfg(unix)]
@@ -293,7 +296,9 @@ impl FileSet {
             .extension()
             .is_some_and(|ext| ext.eq_ignore_ascii_case("vhdr"))
         {
-            names.extend(vhdr_files(&std::fs::read(path)?));
+            names.extend(vhdr_files(
+                &std::fs::read(path).map_err(|e| in_path(path, e))?,
+            ));
         }
         // An EEGLAB dataset's samples are in the .fdt of its stem, as pop_saveset names it.
         if path
@@ -310,12 +315,14 @@ impl FileSet {
         let dir = path.parent().unwrap_or(Path::new(""));
         // The electrode positions of the subject (for a laplacian reference): `sub-<label>_..._electrodes.tsv`.
         if let Some(subject) = primary.split('_').next().filter(|s| s.starts_with("sub-")) {
-            for entry in std::fs::read_dir(if dir.as_os_str().is_empty() {
+            let listed = if dir.as_os_str().is_empty() {
                 Path::new(".")
             } else {
                 dir
-            })?
-            .flatten()
+            };
+            for entry in std::fs::read_dir(listed)
+                .map_err(|e| in_path(listed, e))?
+                .flatten()
             {
                 let name = entry.file_name().to_string_lossy().into_owned();
                 if name.starts_with(&format!("{subject}_")) && name.ends_with("_electrodes.tsv") {
