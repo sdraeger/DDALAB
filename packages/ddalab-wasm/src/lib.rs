@@ -117,6 +117,28 @@ impl ByteSource for HostFile {
     }
 }
 
+/// `values` as little-endian bytes, in one allocation of the exact size: a memcpy where f32 is stored little-endian,
+/// as on wasm32, instead of growing a buffer value by value.
+fn le_bytes(values: &[f32]) -> Vec<u8> {
+    #[cfg(target_endian = "little")]
+    {
+        // SAFETY: an f32 has no padding and every byte of it is initialized, u8 has alignment 1, and the length is
+        // the slice's size in bytes, so the bytes of `values` are read in place.
+        unsafe {
+            std::slice::from_raw_parts(values.as_ptr().cast::<u8>(), std::mem::size_of_val(values))
+        }
+        .to_vec()
+    }
+    #[cfg(not(target_endian = "little"))]
+    {
+        let mut out = Vec::with_capacity(std::mem::size_of_val(values));
+        for v in values {
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+        out
+    }
+}
+
 fn reply(bytes: Vec<u8>) -> u64 {
     let len = bytes.len() as u64;
     let ptr = Box::into_raw(bytes.into_boxed_slice()) as *mut u8 as u32 as u64;
@@ -363,7 +385,7 @@ pub extern "C" fn ddalab_read_raw(handle: u32, row0: f64, rows: u32) -> u64 {
         }
         let mut out = vec![0f32; values(rows, channels.len())?];
         reader.read_raw_f32(&channels, row0, rows as usize, &mut out)?;
-        Ok(out.iter().flat_map(|v| v.to_le_bytes()).collect())
+        Ok(le_bytes(&out))
     })())
 }
 
@@ -651,7 +673,7 @@ pub unsafe extern "C" fn ddalab_st_inputs(
         let mut out = (header.len() as u32).to_le_bytes().to_vec();
         out.extend(header.into_bytes());
         if let Some((_, rows)) = inputs {
-            out.extend(rows.iter().flat_map(|v| v.to_le_bytes()));
+            out.extend_from_slice(&le_bytes(&rows));
         }
         Ok(out)
     })())
@@ -675,8 +697,10 @@ pub unsafe extern "C" fn ddalab_st_finish(
     binary_reply((|| {
         let (reader, request, block, windows) = st_block(handle, input(req_ptr, req_len), w0, w1)?;
         let sums: Vec<f32> = input(sums_ptr, sums_len)
-            .chunks_exact(4)
-            .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|b| f32::from_le_bytes(*b))
             .collect();
         let result = st_from_sums(&*reader, &request, &block, &sums)?;
         framed(
@@ -703,9 +727,6 @@ pub unsafe extern "C" fn ddalab_st_reference(
         let (reader, request, block, _) = st_block(handle, input(req_ptr, req_len), w0, w1)?;
         let (plan, rows) = st_gpu_inputs(&*reader, &request, &block)?
             .ok_or_else(|| invalid("this block runs on the CPU".to_string()))?;
-        Ok(st_sums_reference(&plan, &rows)
-            .iter()
-            .flat_map(|v| v.to_le_bytes())
-            .collect())
+        Ok(le_bytes(&st_sums_reference(&plan, &rows)))
     })())
 }

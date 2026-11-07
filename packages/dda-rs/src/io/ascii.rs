@@ -99,6 +99,8 @@ fn for_each_line(source: &dyn ByteSource, mut line: impl FnMut(&str) -> Result<(
 fn unique_names(names: Vec<String>) -> Vec<String> {
     let mut seen: HashMap<String, usize> = HashMap::new();
     let mut unique: Vec<String> = Vec::new();
+    // The names given so far, for constant-time checks: a header of 50,000 columns stays linear.
+    let mut taken: std::collections::HashSet<String> = std::collections::HashSet::new();
     for name in names {
         let count = seen.entry(name.clone()).or_insert(0);
         *count += 1;
@@ -107,10 +109,11 @@ fn unique_names(names: Vec<String>) -> Vec<String> {
         } else {
             format!("{name}-{count}")
         };
-        while unique.contains(&candidate) {
+        while taken.contains(&candidate) {
             *count += 1;
             candidate = format!("{name}-{count}");
         }
+        taken.insert(candidate.clone());
         unique.push(candidate);
     }
     unique

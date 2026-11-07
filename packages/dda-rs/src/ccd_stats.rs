@@ -47,38 +47,6 @@ pub struct CcdStatResult {
     pub diagnostics: CcdRegressionDiagnostics,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum NullMode {
-    None,
-    CircularShift,
-    BlockPermutation,
-    PseudoOnset,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct NullConfig {
-    pub null_mode: NullMode,
-    pub n_null: usize,
-    pub rng_seed: u64,
-    pub min_shift: usize,
-    pub block_length: usize,
-    pub epsilon: f64,
-}
-
-impl Default for NullConfig {
-    fn default() -> Self {
-        Self {
-            null_mode: NullMode::None,
-            n_null: 0,
-            rng_seed: 0,
-            min_shift: 1,
-            block_length: 16,
-            epsilon: 1e-12,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct NullCalibration {
     pub observed_stat: f64,

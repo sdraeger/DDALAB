@@ -7,12 +7,9 @@ pub mod cli;
 pub mod document;
 pub mod engine;
 pub mod error;
-pub mod input_io;
 pub mod io;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod lsl;
-pub mod mmap_utils;
-pub mod network_motifs;
 pub mod profiling;
 pub mod tiles;
 pub mod types;
@@ -31,12 +28,8 @@ pub use engine::{
     PureRustProgress, PureRustRunner, SvdBackend,
 };
 pub use error::{DDAError, Result};
-pub use input_io::{
-    load_ascii_matrix_from_path, run_request_on_ascii_file, run_request_on_ascii_file_with_progress,
-};
 #[cfg(not(target_arch = "wasm32"))]
-pub use io::MmapSource;
+pub use io::FileSource;
 pub use io::{BlockCache, ByteSource, FileSet, MemorySource};
-pub use network_motifs::*;
 pub use types::*;
 pub use variants::*;

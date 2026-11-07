@@ -43,40 +43,71 @@ impl ByteSource for MemorySource {
     }
 }
 
-/// A read-only memory map; the file must not change while it is open (see `mmap_file`).
+/// A file read with positioned reads. Unlike a memory map, a file truncated or replaced while open (a recording
+/// still being written, a sync client rewriting it) gives an I/O error instead of killing the process with SIGBUS;
+/// every reader copies the bytes it needs anyway.
 #[cfg(not(target_arch = "wasm32"))]
-pub struct MmapSource {
-    map: Option<memmap2::Mmap>,
+pub struct FileSource {
+    file: std::fs::File,
+    len: u64,
     name: String,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl MmapSource {
+impl FileSource {
     pub fn open(path: &Path) -> Result<Self> {
-        // An empty file cannot be mapped.
-        let map = match std::fs::metadata(path)?.len() {
-            0 => None,
-            _ => Some(crate::mmap_utils::mmap_file(path)?),
-        };
+        let file = std::fs::File::open(path).map_err(|e| in_path(path, e))?;
+        let len = file.metadata().map_err(|e| in_path(path, e))?.len();
         Ok(Self {
-            map,
+            file,
+            len,
             name: path.display().to_string(),
         })
     }
+}
 
-    fn bytes(&self) -> &[u8] {
-        self.map.as_deref().unwrap_or_default()
+/// `error` with the path it concerns, so that a set of six files says which one failed.
+#[cfg(not(target_arch = "wasm32"))]
+fn in_path(path: &Path, error: std::io::Error) -> DDAError {
+    DDAError::IoError(std::io::Error::new(
+        error.kind(),
+        format!("{}: {error}", path.display()),
+    ))
+}
+
+#[cfg(unix)]
+fn read_exact_at(file: &std::fs::File, buf: &mut [u8], offset: u64) -> std::io::Result<()> {
+    std::os::unix::fs::FileExt::read_exact_at(file, buf, offset)
+}
+
+#[cfg(windows)]
+fn read_exact_at(file: &std::fs::File, mut buf: &mut [u8], mut offset: u64) -> std::io::Result<()> {
+    use std::os::windows::fs::FileExt;
+    while !buf.is_empty() {
+        match file.seek_read(buf, offset) {
+            Ok(0) => return Err(std::io::ErrorKind::UnexpectedEof.into()),
+            Ok(n) => {
+                buf = &mut buf[n..];
+                offset += n as u64;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
     }
+    Ok(())
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl ByteSource for MmapSource {
+impl ByteSource for FileSource {
     fn len(&self) -> u64 {
-        self.bytes().len() as u64
+        self.len
     }
 
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<()> {
-        read_slice(&self.name, self.bytes(), offset, buf)
+        checked_range(&self.name, offset, buf.len(), self.len)?;
+        read_exact_at(&self.file, buf, offset).map_err(|e| {
+            DDAError::IoError(std::io::Error::new(e.kind(), format!("{}: {e}", self.name)))
+        })
     }
 }
 
@@ -265,7 +296,9 @@ impl FileSet {
             .extension()
             .is_some_and(|ext| ext.eq_ignore_ascii_case("vhdr"))
         {
-            names.extend(vhdr_files(&String::from_utf8_lossy(&std::fs::read(path)?)));
+            names.extend(vhdr_files(
+                &std::fs::read(path).map_err(|e| in_path(path, e))?,
+            ));
         }
         // An EEGLAB dataset's samples are in the .fdt of its stem, as pop_saveset names it.
         if path
@@ -282,12 +315,14 @@ impl FileSet {
         let dir = path.parent().unwrap_or(Path::new(""));
         // The electrode positions of the subject (for a laplacian reference): `sub-<label>_..._electrodes.tsv`.
         if let Some(subject) = primary.split('_').next().filter(|s| s.starts_with("sub-")) {
-            for entry in std::fs::read_dir(if dir.as_os_str().is_empty() {
+            let listed = if dir.as_os_str().is_empty() {
                 Path::new(".")
             } else {
                 dir
-            })?
-            .flatten()
+            };
+            for entry in std::fs::read_dir(listed)
+                .map_err(|e| in_path(listed, e))?
+                .flatten()
             {
                 let name = entry.file_name().to_string_lossy().into_owned();
                 if name.starts_with(&format!("{subject}_")) && name.ends_with("_electrodes.tsv") {
@@ -302,7 +337,7 @@ impl FileSet {
             if name == primary || sibling.is_file() {
                 files.insert(
                     name,
-                    Arc::new(MmapSource::open(&sibling)?) as Arc<dyn ByteSource>,
+                    Arc::new(FileSource::open(&sibling)?) as Arc<dyn ByteSource>,
                 );
             }
         }
@@ -312,26 +347,13 @@ impl FileSet {
 
 /// Base names of the `DataFile` and `MarkerFile` entries in the `[Common Infos]` section of a `.vhdr`.
 #[cfg(not(target_arch = "wasm32"))]
-fn vhdr_files(text: &str) -> Vec<String> {
-    let mut in_common = false;
-    let mut names = Vec::new();
-    for line in text
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.starts_with(';'))
-    {
-        if let Some(section) = line
-            .strip_prefix('[')
-            .and_then(|rest| rest.strip_suffix(']'))
-        {
-            in_common = section.trim().eq_ignore_ascii_case("Common Infos");
-        } else if let Some((key, value)) = line.split_once('=').filter(|_| in_common) {
-            let key = key.trim();
-            if key.eq_ignore_ascii_case("DataFile") || key.eq_ignore_ascii_case("MarkerFile") {
-                // Keep the base name so a header cannot point outside its directory.
-                names.extend(value.trim().rsplit(['/', '\\']).next().map(str::to_string));
-            }
-        }
-    }
-    names
+fn vhdr_files(bytes: &[u8]) -> Vec<String> {
+    // Parsed as the BrainVision reader parses it (UTF-8, else Latin-1), so both see the same file names; the base
+    // name keeps a header from pointing outside its directory.
+    let ini = super::brainvision::parse_ini(bytes);
+    ["DataFile", "MarkerFile"]
+        .iter()
+        .filter_map(|key| super::brainvision::get(&ini, "Common Infos", key))
+        .map(|value| super::brainvision::base_name(value).to_string())
+        .collect()
 }

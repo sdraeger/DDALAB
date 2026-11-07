@@ -5,8 +5,16 @@ use std::path::Path;
 
 const EDF: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/fixture.edf");
 
-/// The replies of `ddalab mcp <flags>` to `messages`, one JSON-RPC message per line.
+/// The replies of `ddalab mcp <flags>` to `messages`, by id: the server answers tool calls as they finish.
 fn session(flags: &[&str], messages: &[Value]) -> Vec<Value> {
+    let mut replies = session_in_order(flags, messages);
+    replies.sort_by_key(|reply| reply["id"].as_i64().unwrap_or(-1));
+    replies
+}
+
+/// The replies of `ddalab mcp <flags>` to `messages` in the order the server wrote them, one JSON-RPC message per
+/// line.
+fn session_in_order(flags: &[&str], messages: &[Value]) -> Vec<Value> {
     let input: String = messages.iter().map(|m| format!("{m}\n")).collect();
     let output = assert_cmd::cargo::cargo_bin_cmd!("ddalab")
         .arg("mcp")
@@ -333,4 +341,46 @@ fn hipaa_mode_refuses_annotation_classes_so_classify_is_no_text_oracle() {
     let (hit, _) = probe(&["--no-hipaa"], "q=eyes");
     let (miss, _) = probe(&["--no-hipaa"], "q=zzzz");
     assert_ne!(hit, miss);
+}
+
+/// A value of a tool argument stays a value: "--classes" among `files` names a file, so HIPAA mode cannot be
+/// bypassed by smuggling a flag into an array the server hands to the command line parser.
+#[test]
+fn argument_values_cannot_inject_flags() {
+    let replies = session(
+        &[],
+        &[
+            initialize(),
+            call(
+                1,
+                "classify",
+                json!({"files": [EDF, "--classes", "seizure"]}),
+            ),
+        ],
+    );
+    let (text, is_error) = content(&replies[1]);
+    assert!(is_error, "{text}");
+    assert!(
+        text.as_str().unwrap_or_default().contains("--classes"),
+        "{text}"
+    );
+}
+
+/// A tool call runs beside the server's loop: a ping sent after it is answered while it still runs.
+#[test]
+fn a_ping_is_answered_while_a_call_runs() {
+    let replies = session_in_order(
+        &[],
+        &[
+            initialize(),
+            call(
+                1,
+                "run_dda",
+                json!({"file": EDF, "variants": ["ST"], "ws": 1}),
+            ),
+            json!({"jsonrpc": "2.0", "id": 2, "method": "ping"}),
+        ],
+    );
+    let ids: Vec<i64> = replies.iter().map(|r| r["id"].as_i64().unwrap()).collect();
+    assert_eq!(ids, [0, 2, 1], "{replies:?}");
 }

@@ -45,10 +45,11 @@ pub struct AlgorithmSelection {
 pub struct WindowParameters {
     pub window_length: u32,
     pub window_step: u32,
-    /// CT-specific window length (for Cross-Timeseries variant)
+    /// Channels per CT/DE group when groups are formed from the selected channels (no explicit pairs): a sliding
+    /// window over the channel list, not over samples. Default: all selected channels in one group.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ct_window_length: Option<u32>,
-    /// CT-specific window step (for Cross-Timeseries variant)
+    /// Channels between the starts of consecutive CT/DE groups (see `ct_window_length`). Default: the group size.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ct_window_step: Option<u32>,
 }
@@ -99,7 +100,7 @@ pub enum CcdStatistic {
 }
 
 /// Per-variant channel configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct VariantChannelConfig {
     /// Selected channel indices for single-channel variants (ST, DE, SY)
     #[serde(skip_serializing_if = "Option::is_none")]

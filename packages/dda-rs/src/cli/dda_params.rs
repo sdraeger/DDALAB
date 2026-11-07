@@ -2,12 +2,11 @@ use crate::blocks::validate_request;
 use crate::cli::args as cli;
 use crate::{
     format_select_mask, generate_select_mask, AlgorithmSelection, ComputeDevice, DDARequest,
-    DDAResult, DelayParameters, FileType, ModelParameters, PreprocessingOptions, PureRustOptions,
+    DDAResult, DelayParameters, ModelParameters, PreprocessingOptions, PureRustOptions,
     PureRustProgress, PureRustRunner, TimeRange, VariantChannelConfig, WindowParameters,
 };
 use serde::Deserialize;
 use std::collections::{BTreeSet, HashMap};
-use std::path::Path;
 
 fn pure_rust_common_support_reason(request: &DDARequest) -> Result<(), String> {
     if request
@@ -39,7 +38,7 @@ pub fn pure_rust_matrix_support_reason(request: &DDARequest) -> Result<(), Strin
     pure_rust_common_support_reason(request)
 }
 
-pub async fn execute_request_on_matrix_with_progress_on_device<F>(
+pub fn execute_request_on_matrix_with_progress_on_device<F>(
     request: &DDARequest,
     samples: &[Vec<f64>],
     channel_labels: Option<&[String]>,
@@ -104,44 +103,7 @@ pub fn app_variant_ids() -> impl Iterator<Item = &'static str> {
 /// Normalize variant IDs to canonical abbreviations used by dda-rs.
 /// Accepts both app IDs and CLI abbreviations.
 pub fn normalize_variant_id(input: &str) -> Option<&'static str> {
-    match input.trim().to_lowercase().as_str() {
-        "st" | "single_timeseries" | "single-timeseries" | "single timeseries" => Some("ST"),
-        "ct" | "cross_timeseries" | "cross-timeseries" | "cross timeseries" => Some("CT"),
-        "cd" | "cross_dynamical" | "cross-dynamical" | "cross dynamical" => Some("CD"),
-        "ccd"
-        | "conditional_cross_dynamical"
-        | "conditional-cross-dynamical"
-        | "conditional cross dynamical" => Some("CCD"),
-        "ccdlog"
-        | "conditional_cross_dynamical_log_mse_ratio"
-        | "conditional-cross-dynamical-log-mse-ratio"
-        | "conditional cross dynamical log mse ratio" => Some("CCDLOG"),
-        "ccdpr2"
-        | "conditional_cross_dynamical_partial_r2"
-        | "conditional-cross-dynamical-partial-r2"
-        | "conditional cross dynamical partial r2" => Some("CCDPR2"),
-        "ccdsig"
-        | "conditional_cross_dynamical_significance"
-        | "conditional-cross-dynamical-significance"
-        | "conditional cross dynamical significance" => Some("CCDSIG"),
-        "ccdstab"
-        | "conditional_cross_dynamical_stability"
-        | "conditional-cross-dynamical-stability"
-        | "conditional cross dynamical stability" => Some("CCDSTAB"),
-        "trccd"
-        | "temporally_regularized_conditional_cross_dynamical"
-        | "temporally-regularized-conditional-cross-dynamical"
-        | "temporally regularized conditional cross dynamical" => Some("TRCCD"),
-        "mvccd"
-        | "multivariate_conditional_cross_dynamical"
-        | "multivariate-conditional-cross-dynamical"
-        | "multivariate conditional cross dynamical" => Some("MVCCD"),
-        "de" | "dynamical_ergodicity" | "dynamical-ergodicity" | "dynamical ergodicity" => {
-            Some("DE")
-        }
-        "sy" | "synchronization" | "synchronisation" => Some("SY"),
-        _ => None,
-    }
+    crate::engine::variant_config::canonical_variant(input)
 }
 
 pub fn variant_app_id(abbrev: &str) -> Option<&'static str> {
@@ -446,15 +408,6 @@ pub fn build_dda_request(config: RequestConfig<'_>) -> Result<DDARequest, String
     })
 }
 
-/// Check if a file extension is supported for DDA analysis.
-#[allow(dead_code)]
-pub fn is_supported_extension(path: &Path) -> bool {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .map(|ext| FileType::from_extension(ext).is_some())
-        .unwrap_or(false)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -594,8 +547,8 @@ mod tests {
         assert_eq!(request.ct_channel_pairs.unwrap(), vec![[0, 1]]);
     }
 
-    #[tokio::test]
-    async fn test_execute_request_on_matrix_accepts_non_ascii_source_path() {
+    #[test]
+    fn test_execute_request_on_matrix_accepts_non_ascii_source_path() {
         let variants = ["ST".to_string()];
         let mut config = test_request_config("/tmp/test.edf", &[0, 1], &variants, 32, 16, &[1, 2]);
         config.start = Some(0.0);
@@ -617,13 +570,12 @@ mod tests {
             ComputeDevice::Cpu,
             |_| {},
         )
-        .await
         .unwrap();
         assert_eq!(result.file_path, "/tmp/test.edf");
     }
 
-    #[tokio::test]
-    async fn test_execute_request_on_matrix_refuses_out_of_range_variant_configs() {
+    #[test]
+    fn test_execute_request_on_matrix_refuses_out_of_range_variant_configs() {
         let variants = ["CCD".to_string()];
         let mut config = test_request_config("/tmp/test.edf", &[], &variants, 32, 16, &[1, 2]);
         config.end = Some(63.0);
@@ -652,7 +604,6 @@ mod tests {
             ComputeDevice::Cpu,
             |_| {},
         )
-        .await
         .unwrap_err();
         assert!(error.contains("channel 9 is out of range"), "{error}");
     }

@@ -11,8 +11,11 @@ use clap::Parser;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::collections::HashSet;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 
 const PROTOCOL_VERSIONS: [&str; 4] = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 /// The rows `read_result` returns when none are named, and the row labels `run_dda` lists.
@@ -20,32 +23,94 @@ const MAX_ROWS: usize = 64;
 /// The most values one `read_samples` call returns.
 const MAX_SAMPLES: usize = 10_000;
 
-/// Where `run_dda` saves a result that names no output, as `<id>.json`.
+/// Where `run_dda` saves a result that names no output, as `<id>.json`: the user's cache directory, since a
+/// shared temporary directory would let other users of a node read the results or plant files `read_result` reads.
 fn results_dir() -> PathBuf {
-    std::env::temp_dir().join("ddalab-mcp")
+    dirs::cache_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("ddalab-mcp")
 }
 
-pub fn execute(args: McpArgs) -> i32 {
-    let mut stdout = std::io::stdout().lock();
-    for line in std::io::stdin().lock().lines() {
-        let Ok(line) = line else { break };
-        if line.trim().is_empty() {
-            continue;
-        }
-        let reply = match serde_json::from_str::<Value>(&line) {
-            Ok(message) => handle(&message, args.hipaa),
-            Err(_) => Some(error(Value::Null, -32700, "Parse error")),
-        };
-        if let Some(reply) = reply {
-            if writeln!(stdout, "{reply}")
-                .and_then(|_| stdout.flush())
-                .is_err()
-            {
-                return exit_codes::EXECUTION_ERROR;
-            }
+/// `results_dir`, created readable by its owner only.
+fn private_results_dir() -> Result<PathBuf, String> {
+    let dir = results_dir();
+    let failed = |e: std::io::Error| format!("{}: {e}", dir.display());
+    std::fs::create_dir_all(&dir).map_err(failed)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&dir)
+            .map_err(failed)?
+            .permissions()
+            .mode();
+        if mode & 0o077 != 0 {
+            // Fails unless this user owns the directory, which is the refusal a planted one gets.
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+                .map_err(failed)?;
         }
     }
-    exit_codes::SUCCESS
+    Ok(dir)
+}
+
+/// Serves stdin until it closes. Tool calls run in order on a worker thread, so a call may use the result of the one
+/// before it, while this loop keeps answering `ping` and reading `notifications/cancelled` (a call can take minutes).
+/// A call cancelled before it starts is skipped, and the reply of one cancelled while it runs is dropped, as the
+/// protocol asks. At the end of input the server finishes the calls it has, then exits.
+pub fn execute(args: McpArgs) -> i32 {
+    let out = Mutex::new(std::io::stdout());
+    let failed = AtomicBool::new(false);
+    let cancelled: Mutex<HashSet<String>> = Mutex::new(HashSet::new());
+    let write = |reply: Value| {
+        let mut out = out.lock().unwrap();
+        if writeln!(out, "{reply}").and_then(|_| out.flush()).is_err() {
+            failed.store(true, Ordering::Relaxed);
+        }
+    };
+    let hipaa = args.hipaa;
+    std::thread::scope(|scope| {
+        let (calls, queued) = std::sync::mpsc::channel::<Value>();
+        let (write_call, cancelled_call) = (&write, &cancelled);
+        scope.spawn(move || {
+            for message in queued {
+                let id = message["id"].to_string();
+                if cancelled_call.lock().unwrap().remove(&id) {
+                    continue;
+                }
+                let reply = handle(&message, hipaa);
+                if !cancelled_call.lock().unwrap().remove(&id) {
+                    reply.into_iter().for_each(write_call);
+                }
+            }
+        });
+        for line in std::io::stdin().lock().lines() {
+            let Ok(line) = line else { break };
+            if line.trim().is_empty() {
+                continue;
+            }
+            let Ok(message) = serde_json::from_str::<Value>(&line) else {
+                write(error(Value::Null, -32700, "Parse error"));
+                continue;
+            };
+            if message["method"] == "notifications/cancelled" {
+                if let Some(id) = message["params"].get("requestId") {
+                    cancelled.lock().unwrap().insert(id.to_string());
+                }
+            } else if message["method"] == "tools/call" && message.get("id").is_some() {
+                // The worker outlives this loop within the scope; a send fails only if it panicked.
+                if calls.send(message).is_err() {
+                    break;
+                }
+            } else {
+                handle(&message, hipaa).into_iter().for_each(&write);
+            }
+        }
+        drop(calls);
+    });
+    if failed.load(Ordering::Relaxed) {
+        exit_codes::EXECUTION_ERROR
+    } else {
+        exit_codes::SUCCESS
+    }
 }
 
 fn error(id: Value, code: i64, message: &str) -> Value {
@@ -159,7 +224,7 @@ fn tools(hipaa: bool) -> Vec<Value> {
                 "electrodes": electrodes,
                 "output": {"type": "string", "description": "Where to save the result JSON; default: a file in the system's temporary folder"},
             }, "required": ["file"]},
-            "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false},
+            "annotations": {"readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": false},
         }),
         json!({
             "name": "read_result",
@@ -194,7 +259,7 @@ fn tools(hipaa: bool) -> Vec<Value> {
                 "rest": {"type": "string", "description": "A class for stretches no annotation covers"},
                 "participants": {"type": "string", "description": "Path of a BIDS participants.tsv"},
                 "column": {"type": "string", "description": "Its column holding the class"},
-                "segment": {"type": "number", "description": "Seconds per segment, default 10"},
+                "segment": {"type": "number", "exclusiveMinimum": 0, "description": "Seconds per segment, default 10"},
                 "channels": {"type": "array", "items": {"type": "string"}, "description": "Channel labels; default every analysis channel"},
                 "reference": reference,
                 "electrodes": electrodes,
@@ -204,9 +269,9 @@ fn tools(hipaa: bool) -> Vec<Value> {
                 "delay_range": {"type": "array", "items": {"type": "integer", "minimum": 1}, "minItems": 2, "maxItems": 2, "description": "Smallest and largest delay searched, default [1, 20]"},
                 "folds": {"type": "integer", "minimum": 2},
                 "sr": sr,
-                "output": {"type": "string", "description": "Report path; default a file in the temporary directory"},
+                "output": {"type": "string", "description": "Report path; default a file in the user's cache directory"},
             }},
-            "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false},
+            "annotations": {"readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false},
         }),
         json!({
             "name": "predict",
@@ -215,7 +280,7 @@ fn tools(hipaa: bool) -> Vec<Value> {
             "inputSchema": {"type": "object", "properties": {
                 "model": {"type": "string", "description": "Path of a classify report"},
                 "files": {"type": "array", "items": {"type": "string"}},
-                "segment": {"type": "number", "description": "Seconds per segment, default 10"},
+                "segment": {"type": "number", "exclusiveMinimum": 0, "description": "Seconds per segment, default 10"},
                 "sr": sr,
             }, "required": ["model", "files"]},
             "annotations": read_only,
@@ -243,22 +308,16 @@ fn tools(hipaa: bool) -> Vec<Value> {
 
 /// `call` on a thread of its own: a panic in the engine fails the call and leaves the server running.
 fn call_caught(name: &str, arguments: Value, hipaa: bool) -> Result<Value, String> {
-    let handle = tokio::runtime::Handle::current();
-    std::thread::scope(|scope| {
-        scope
-            .spawn(|| handle.block_on(call(name, arguments, hipaa)))
-            .join()
-    })
-    .unwrap_or_else(|_| {
-        Err("DDALAB failed with an internal error (details on the server's stderr)".into())
-    })
+    std::thread::scope(|scope| scope.spawn(|| call(name, arguments, hipaa)).join()).unwrap_or_else(
+        |_| Err("DDALAB failed with an internal error (details on the server's stderr)".into()),
+    )
 }
 
-async fn call(name: &str, arguments: Value, hipaa: bool) -> Result<Value, String> {
+fn call(name: &str, arguments: Value, hipaa: bool) -> Result<Value, String> {
     match name {
         "ddalab_info" => Ok(info()),
         "inspect_recording" => inspect(parse(arguments)?, hipaa),
-        "run_dda" => run(parse(arguments)?).await,
+        "run_dda" => run(parse(arguments)?),
         "read_result" => read_result(parse(arguments)?),
         "read_samples" => samples(parse(arguments)?),
         "classify" => classify(parse(arguments)?, hipaa),
@@ -391,7 +450,7 @@ struct RunTool {
 }
 
 /// Runs the request `ddalab run` makes of the same flags, so the defaults and checks are the command line's.
-async fn run(args: RunTool) -> Result<Value, String> {
+fn run(args: RunTool) -> Result<Value, String> {
     // The command line's own message names its flags (--ct-pairs), which this tool does not have.
     let variants = dda_params::normalize_variants(args.variants.as_deref().unwrap_or_default())?;
     for (variant, argument, pairs, example) in [
@@ -408,14 +467,11 @@ async fn run(args: RunTool) -> Result<Value, String> {
         "ddalab".to_string(),
         "run".into(),
         "--quiet".into(),
-        "--file".into(),
-        args.file.clone(),
+        format!("--file={}", args.file),
     ];
+    // Each value attached to its flag: a value that starts with "--" stays a value instead of becoming a flag.
     let mut flag = |name: &str, values: Vec<String>| {
-        if !values.is_empty() {
-            argv.push(format!("--{name}"));
-            argv.extend(values);
-        }
+        argv.extend(values.iter().map(|value| format!("--{name}={value}")));
     };
     let text = |values: Option<Vec<String>>| values.unwrap_or_default();
     let all =
@@ -456,15 +512,13 @@ async fn run(args: RunTool) -> Result<Value, String> {
     };
     let (request, _) = request_of(&run_args)?;
     let document = analyze(job_of(&run_args, request))
-        .await
         .map_err(|(_, message)| message)?
         .document;
 
     let path = match args.output {
         Some(output) => PathBuf::from(output),
         None => {
-            let dir = results_dir();
-            std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+            let dir = private_results_dir()?;
             dir.join(format!("{}.json", document.id))
         }
     };
@@ -695,8 +749,7 @@ fn classify(args: ClassifyTool, hipaa: bool) -> Result<Value, String> {
     let path = match args.output {
         Some(output) => PathBuf::from(output),
         None => {
-            let dir = results_dir();
-            std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+            let dir = private_results_dir()?;
             dir.join(format!("classify-{}.json", uuid::Uuid::new_v4()))
         }
     };
@@ -704,14 +757,11 @@ fn classify(args: ClassifyTool, hipaa: bool) -> Result<Value, String> {
         "ddalab".to_string(),
         "classify".into(),
         "--quiet".into(),
-        "-o".into(),
-        path.display().to_string(),
+        format!("--output={}", path.display()),
     ];
+    // Each value attached to its flag: a value that starts with "--" stays a value instead of becoming a flag.
     let mut flag = |name: &str, values: Vec<String>| {
-        if !values.is_empty() {
-            argv.push(format!("--{name}"));
-            argv.extend(values);
-        }
+        argv.extend(values.iter().map(|value| format!("--{name}={value}")));
     };
     let one = |v: Option<String>| v.into_iter().collect::<Vec<_>>();
     let number = |v: Option<f64>| v.map(|v| v.to_string()).into_iter().collect::<Vec<_>>();
@@ -729,14 +779,12 @@ fn classify(args: ClassifyTool, hipaa: bool) -> Result<Value, String> {
     flag("wl", int(args.wl));
     flag("ws", int(args.ws));
     flag("terms", int(args.terms));
-    flag(
-        "delay-range",
-        args.delay_range
-            .map(|r| r.iter().map(u32::to_string).collect())
-            .unwrap_or_default(),
-    );
     flag("folds", int(args.folds));
     flag("sr", number(args.sr));
+    // Two numbers to one flag, which `--name=value` cannot carry; numbers cannot pose as flags.
+    if let Some([low, high]) = args.delay_range {
+        argv.extend(["--delay-range".into(), low.to_string(), high.to_string()]);
+    }
     let Command::Classify(classify_args) = Cli::try_parse_from(&argv)
         .map_err(|e| e.render().to_string())?
         .command
@@ -769,6 +817,12 @@ struct PredictTool {
 }
 
 fn predict(args: PredictTool) -> Result<Value, String> {
+    if args
+        .segment
+        .is_some_and(|seconds| !(seconds.is_finite() && seconds > 0.0))
+    {
+        return Err("segment must be a positive number of seconds".into());
+    }
     super::classify::predictions(&PredictArgs {
         model: args.model,
         files: args.files,

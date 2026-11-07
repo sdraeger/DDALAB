@@ -804,3 +804,131 @@ fn de_on_the_ct_groups_adds_no_regressions_to_a_window() {
     super::regression_batch::build_window_references(&mut problems, &window, &jobs, &model);
     assert_eq!(problems.len(), 1);
 }
+
+/// A channel index beyond the matrix is an error from the library entry point, not a panic in a worker.
+#[test]
+fn an_out_of_range_channel_is_an_error() {
+    let samples = (0..240)
+        .map(|index| {
+            let t = index as f64 * 0.05;
+            vec![t.sin(), (t + 0.4).sin()]
+        })
+        .collect::<Vec<_>>();
+    let request = DDARequest {
+        file_path: "synthetic".to_string(),
+        channels: Some(vec![0, 99]),
+        time_range: TimeRange {
+            start: 0.0,
+            end: 239.0,
+        },
+        preprocessing_options: PreprocessingOptions {
+            highpass: None,
+            lowpass: None,
+        },
+        algorithm_selection: AlgorithmSelection {
+            enabled_variants: vec!["ST".to_string()],
+            select_mask: None,
+        },
+        window_parameters: WindowParameters {
+            window_length: 96,
+            window_step: 48,
+            ct_window_length: None,
+            ct_window_step: None,
+        },
+        delay_parameters: DelayParameters { delays: vec![1, 2] },
+        ct_channel_pairs: None,
+        cd_channel_pairs: None,
+        model_parameters: Some(ModelParameters {
+            dm: 4,
+            order: 4,
+            nr_tau: 2,
+        }),
+        model_terms: Some(vec![1, 2, 10]),
+        variant_configs: None,
+        sampling_rate: None,
+    };
+    let error = PureRustRunner::default()
+        .run_on_matrix(&request, &samples, None)
+        .unwrap_err();
+    assert!(error.to_string().contains("99"), "{error}");
+}
+
+/// The binary search finds the marker a linear scan finds, ties going to the earlier one.
+#[test]
+fn nearest_marker_matches_a_linear_scan() {
+    let markers: Vec<f64> = (0..50)
+        .map(|i| i as f64 * 1.5 + (i % 3) as f64 * 0.1)
+        .collect();
+    for k in -10..90 {
+        let target = k as f64 * 0.9;
+        let linear = markers
+            .iter()
+            .enumerate()
+            .min_by(|(_, a), (_, b)| (*a - target).abs().total_cmp(&(*b - target).abs()))
+            .map(|(i, _)| i);
+        assert_eq!(super::nearest_marker(&markers, target), linear, "{target}");
+    }
+    assert_eq!(super::nearest_marker(&[], 1.0), None);
+}
+
+fn request_with(variants: &[&str], configs: &[(&str, Vec<usize>)]) -> DDARequest {
+    DDARequest {
+        file_path: "synthetic".to_string(),
+        channels: None,
+        time_range: TimeRange {
+            start: 0.0,
+            end: 99.0,
+        },
+        preprocessing_options: PreprocessingOptions {
+            highpass: None,
+            lowpass: None,
+        },
+        algorithm_selection: AlgorithmSelection {
+            enabled_variants: variants.iter().map(|v| v.to_string()).collect(),
+            select_mask: None,
+        },
+        window_parameters: WindowParameters {
+            window_length: 50,
+            window_step: 50,
+            ct_window_length: None,
+            ct_window_step: None,
+        },
+        delay_parameters: DelayParameters { delays: vec![1, 2] },
+        ct_channel_pairs: None,
+        cd_channel_pairs: None,
+        model_parameters: None,
+        model_terms: None,
+        variant_configs: Some(
+            configs
+                .iter()
+                .map(|(key, channels)| {
+                    (
+                        key.to_string(),
+                        VariantChannelConfig {
+                            selected_channels: Some(channels.clone()),
+                            ..Default::default()
+                        },
+                    )
+                })
+                .collect(),
+        ),
+        sampling_rate: None,
+    }
+}
+
+/// A variant config is found under any spelling that enables the variant: "delay_embedding" names DE as
+/// `enabled_variants` does, in any case.
+#[test]
+fn variant_configs_match_every_spelling_of_their_variant() {
+    let request = request_with(&["delay_embedding"], &[("Delay-Embedding", vec![1])]);
+    assert!(VariantMode::from_request(&request).de_enabled);
+    assert_eq!(resolve_variant_selected_channels(&request, 3, "DE"), [1]);
+}
+
+/// The hyphenated and spaced full names enable what their abbreviations enable.
+#[test]
+fn hyphenated_variant_names_enable_their_variants() {
+    let request = request_with(&["conditional-cross-dynamical-stability"], &[]);
+    let mode = VariantMode::from_request(&request);
+    assert!(mode.ccdstab_enabled && mode.ccd_enabled);
+}

@@ -1190,3 +1190,105 @@ fn batch_reports_failures_and_exits_partial() {
         "ddalab.result/2"
     );
 }
+
+/// A segment of zero seconds is refused by the parser instead of overflowing the segment count.
+#[test]
+fn a_zero_second_segment_is_refused() {
+    ddalab()
+        .args([
+            "predict",
+            "--model",
+            "model.json",
+            "--files",
+            "a.edf",
+            "--segment",
+            "0",
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("positive"));
+}
+
+/// A window step of zero is refused when parsed: `stream` would otherwise run DDA on every sample.
+#[test]
+fn a_zero_window_step_is_refused() {
+    ddalab()
+        .args(["stream", "--stream", "eeg", "--ws", "0"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("--ws"));
+}
+
+/// `stream` checks its variants before it waits for a stream, as `run` does.
+#[test]
+fn stream_refuses_an_unknown_variant_before_waiting() {
+    ddalab()
+        .args([
+            "stream",
+            "--stream",
+            "no-such-stream",
+            "--timeout",
+            "0.1",
+            "--variants",
+            "XX",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Unknown variant"));
+}
+
+/// `batch --dry-run` validates the parameters as a real batch would, before listing the files.
+#[test]
+fn a_dry_run_batch_refuses_invalid_parameters() {
+    let edf = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/fixture.edf");
+    ddalab()
+        .args(["batch", "--files", edf, "--variants", "CT", "--dry-run"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("ct-pairs"));
+}
+
+/// The manifest's keys stay in alphabetical order, the order the web app's batch export writes and compares as text.
+#[test]
+fn the_batch_manifest_keys_are_alphabetical() {
+    let edf = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/fixture.edf");
+    let dir = tempfile::tempdir().unwrap();
+    let output = ddalab()
+        .args([
+            "batch",
+            "--files",
+            edf,
+            "--quiet",
+            "--compact",
+            "--output-dir",
+        ])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    let text = String::from_utf8(output.stdout).unwrap();
+    let at = |key: &str| text.find(&format!("\"{key}\"")).unwrap_or(usize::MAX);
+    for keys in [
+        &[
+            "failed",
+            "matchedFiles",
+            "processedFiles",
+            "results",
+            "succeeded",
+            "withWarnings",
+        ][..],
+        &[
+            "inputPath",
+            "outputPath",
+            "resolvedDatasetPath",
+            "result",
+            "status",
+            "warnings",
+        ][..],
+    ] {
+        let positions: Vec<usize> = keys.iter().map(|k| at(k)).collect();
+        assert!(
+            positions.windows(2).all(|p| p[0] < p[1]),
+            "{keys:?} in {text}"
+        );
+    }
+}

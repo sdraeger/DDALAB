@@ -54,7 +54,7 @@ pub struct StreamArgs {
     pub by: String,
 
     /// Seconds to wait for the stream
-    #[arg(long, default_value_t = 10.0)]
+    #[arg(long, default_value_t = 10.0, value_parser = positive_seconds)]
     pub timeout: f64,
 
     #[command(flatten)]
@@ -73,11 +73,11 @@ pub struct StreamArgs {
     pub cd_pairs: Option<Vec<String>>,
 
     /// Window length in samples
-    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_LENGTH)]
+    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_LENGTH, value_parser = clap::value_parser!(u32).range(1..))]
     pub wl: u32,
 
     /// Samples between windows: a result every ws samples
-    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_STEP)]
+    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_STEP, value_parser = clap::value_parser!(u32).range(1..))]
     pub ws: u32,
 
     /// Delay values
@@ -93,11 +93,11 @@ pub struct StreamArgs {
     pub classify: Option<String>,
 
     /// Seconds per classified segment, as `ddalab classify --segment` trained it
-    #[arg(long, default_value_t = 10.0, requires = "classify")]
+    #[arg(long, default_value_t = 10.0, requires = "classify", value_parser = positive_seconds)]
     pub segment: f64,
 
     /// Seconds between classifications
-    #[arg(long, default_value_t = 1.0, requires = "classify")]
+    #[arg(long, default_value_t = 1.0, requires = "classify", value_parser = positive_seconds)]
     pub every: f64,
 
     /// Publish the results as LSL streams: <stream>-<variant> with a value per row, and <stream>-class markers
@@ -149,7 +149,7 @@ pub struct ClassifyArgs {
     pub column: Option<String>,
 
     /// Seconds per segment: labeled stretches are cut into segments this long, and shorter events are lengthened
-    #[arg(long, default_value_t = 10.0)]
+    #[arg(long, default_value_t = 10.0, value_parser = positive_seconds)]
     pub segment: f64,
 
     /// Most segments of one labeled stretch, evenly spaced
@@ -169,11 +169,11 @@ pub struct ClassifyArgs {
     pub reference: ReferenceArgs,
 
     /// Window length in samples
-    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_LENGTH)]
+    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_LENGTH, value_parser = clap::value_parser!(u32).range(1..))]
     pub wl: u32,
 
     /// Window step in samples
-    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_STEP)]
+    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_STEP, value_parser = clap::value_parser!(u32).range(1..))]
     pub ws: u32,
 
     /// Embedding dimension
@@ -233,7 +233,7 @@ pub struct PredictArgs {
     pub files: Vec<String>,
 
     /// Seconds per segment
-    #[arg(long, default_value_t = 10.0)]
+    #[arg(long, default_value_t = 10.0, value_parser = positive_seconds)]
     pub segment: f64,
 
     /// Sampling rate in Hz for text files, which store none
@@ -289,11 +289,11 @@ pub struct RunArgs {
     pub variants: Vec<String>,
 
     /// Window length in samples
-    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_LENGTH)]
+    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_LENGTH, value_parser = clap::value_parser!(u32).range(1..))]
     pub wl: u32,
 
     /// Window step in samples
-    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_STEP)]
+    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_STEP, value_parser = clap::value_parser!(u32).range(1..))]
     pub ws: u32,
 
     /// Channels per CT and DE group when no pairs are given (default: every selected channel)
@@ -509,11 +509,11 @@ pub struct BatchArgs {
     pub variants: Vec<String>,
 
     /// Window length in samples
-    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_LENGTH)]
+    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_LENGTH, value_parser = clap::value_parser!(u32).range(1..))]
     pub wl: u32,
 
     /// Window step in samples
-    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_STEP)]
+    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_STEP, value_parser = clap::value_parser!(u32).range(1..))]
     pub ws: u32,
 
     /// Channels per CT and DE group when no pairs are given (default: every selected channel)
@@ -637,6 +637,14 @@ pub fn parse_pair(s: &str) -> Result<[usize; 2], String> {
 /// Parse a list of pair strings into Vec<[usize; 2]>.
 pub fn parse_pairs(pairs: &[String]) -> Result<Vec<[usize; 2]>, String> {
     pairs.iter().map(|s| parse_pair(s)).collect()
+}
+
+/// A duration in seconds above zero: a zero or negative segment would cut a stretch into infinitely many.
+fn positive_seconds(text: &str) -> Result<f64, String> {
+    match text.parse::<f64>() {
+        Ok(seconds) if seconds.is_finite() && seconds > 0.0 => Ok(seconds),
+        _ => Err(format!("{text} is not a positive number of seconds")),
+    }
 }
 
 #[cfg(test)]

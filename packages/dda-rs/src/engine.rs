@@ -103,6 +103,18 @@ pub fn available_cuda_devices() -> Vec<CudaDeviceInfo> {
     }
 }
 
+/// The matrix of `samples`, with every channel index of `request` checked against its columns, so that a bad index
+/// is an error here instead of a panic in a worker.
+fn checked_dataset<'a>(
+    request: &DDARequest,
+    samples: &'a [Vec<f64>],
+    channel_labels: Option<&[String]>,
+) -> Result<MatrixDataset<'a>> {
+    let dataset = MatrixDataset::new(samples, channel_labels)?;
+    crate::blocks::validate_request(request, dataset.cols)?;
+    Ok(dataset)
+}
+
 impl ComputeDevice {
     fn is_gpu(self) -> bool {
         matches!(self, Self::Cuda(_) | Self::Gpu(_))
@@ -247,7 +259,7 @@ impl PureRustRunner {
         samples: &[Vec<f64>],
         channel_labels: Option<&[String]>,
     ) -> Result<CcdConditioningInspection> {
-        let dataset = MatrixDataset::new(samples, channel_labels)?;
+        let dataset = checked_dataset(request, samples, channel_labels)?;
         let model = ModelSpec::from_request(request)?;
         let bounds = AnalysisBounds::from_request(request, dataset.rows)?;
         let ccd_pairs = resolve_ccd_pairs(request, dataset.cols);
@@ -255,28 +267,18 @@ impl PureRustRunner {
         let candidate_channels = resolve_ccd_candidate_channels(request, dataset.cols);
         let needs_prepared_windows = !matches!(strategy, CcdConditioningStrategy::AllSelected);
 
-        let conditioning_sets = if needs_prepared_windows {
-            let windows = prepare_analysis_windows(&dataset, &bounds, &model, &self.options)?;
-            compute_ccd_pair_conditioning_sets(
-                Some(&windows),
-                &ccd_pairs,
-                &candidate_channels,
-                strategy,
-                &model,
-                resolve_ccd_max_active_sources(request).unwrap_or(3),
-                self.options.svd_backend,
-            )
-        } else {
-            compute_ccd_pair_conditioning_sets(
-                None,
-                &ccd_pairs,
-                &candidate_channels,
-                strategy,
-                &model,
-                resolve_ccd_max_active_sources(request).unwrap_or(3),
-                self.options.svd_backend,
-            )
-        };
+        let windows = needs_prepared_windows
+            .then(|| prepare_analysis_windows(&dataset, &bounds, &model, &self.options))
+            .transpose()?;
+        let conditioning_sets = compute_ccd_pair_conditioning_sets(
+            windows.as_deref(),
+            &ccd_pairs,
+            &candidate_channels,
+            strategy,
+            &model,
+            resolve_ccd_max_active_sources(request).unwrap_or(3),
+            self.options.svd_backend,
+        );
 
         Ok(CcdConditioningInspection {
             pairs: ccd_pairs,
@@ -294,27 +296,20 @@ impl PureRustRunner {
         pair: [usize; 2],
         confound_sets: &[Vec<usize>],
     ) -> Result<Vec<CcdConditioningSubsetScore>> {
-        let dataset = MatrixDataset::new(samples, channel_labels)?;
-        let model = ModelSpec::from_request(request)?;
-        let bounds = AnalysisBounds::from_request(request, dataset.rows)?;
-        let windows = prepare_analysis_windows(&dataset, &bounds, &model, &self.options)?;
-
-        Ok(confound_sets
-            .iter()
-            .map(|confounds| {
-                let (bic_like_score, mean_rmse) = average_conditioned_baseline_metrics(
-                    &windows,
-                    pair[0],
-                    confounds,
-                    &model,
-                    self.options.svd_backend,
-                );
-                CcdConditioningSubsetScore {
-                    pair,
-                    confounds: confounds.clone(),
-                    bic_like_score,
-                    mean_rmse,
-                }
+        Ok(self
+            .profile_ccd_conditioning_subsets_on_matrix(
+                request,
+                samples,
+                channel_labels,
+                pair,
+                confound_sets,
+            )?
+            .into_iter()
+            .map(|profile| CcdConditioningSubsetScore {
+                pair: profile.pair,
+                confounds: profile.confounds,
+                bic_like_score: profile.bic_like_score,
+                mean_rmse: profile.mean_rmse,
             })
             .collect())
     }
@@ -327,7 +322,17 @@ impl PureRustRunner {
         pair: [usize; 2],
         confound_sets: &[Vec<usize>],
     ) -> Result<Vec<CcdConditioningSubsetProfile>> {
-        let dataset = MatrixDataset::new(samples, channel_labels)?;
+        let dataset = checked_dataset(request, samples, channel_labels)?;
+        if let Some(channel) = pair
+            .iter()
+            .chain(confound_sets.iter().flatten())
+            .find(|&&channel| channel >= dataset.cols)
+        {
+            return Err(DDAError::InvalidParameter(format!(
+                "channel {channel} is out of range for {} channels",
+                dataset.cols
+            )));
+        }
         let model = ModelSpec::from_request(request)?;
         let bounds = AnalysisBounds::from_request(request, dataset.rows)?;
         let windows = prepare_analysis_windows(&dataset, &bounds, &model, &self.options)?;
@@ -363,25 +368,13 @@ impl PureRustRunner {
         channel_labels: Option<&[String]>,
         mut on_progress: Option<&mut dyn FnMut(&PureRustProgress)>,
     ) -> Result<DDAResult> {
-        let dataset = MatrixDataset::new(samples, channel_labels)?;
+        let dataset = checked_dataset(request, samples, channel_labels)?;
         let variant_mode = VariantMode::from_request(request);
         let model = ModelSpec::from_request(request)?;
         let bounds = AnalysisBounds::from_request(request, dataset.rows)?;
-        let st_channels = resolve_variant_selected_channels(
-            request,
-            dataset.cols,
-            &["ST", "st", "single_timeseries"],
-        );
-        let de_channels = resolve_variant_selected_channels(
-            request,
-            dataset.cols,
-            &["DE", "de", "dynamical_ergodicity"],
-        );
-        let sy_channels = resolve_variant_selected_channels(
-            request,
-            dataset.cols,
-            &["SY", "sy", "synchronization"],
-        );
+        let st_channels = resolve_variant_selected_channels(request, dataset.cols, "ST");
+        let de_channels = resolve_variant_selected_channels(request, dataset.cols, "DE");
+        let sy_channels = resolve_variant_selected_channels(request, dataset.cols, "SY");
         let ct_groups = resolve_ct_groups(request, dataset.cols);
         let de_groups = resolve_de_groups(request, dataset.cols, &de_channels);
         let cd_pairs = resolve_cd_pairs(request, dataset.cols);
@@ -653,27 +646,28 @@ impl PureRustRunner {
                         let partial_r2 = partial_r2_from_rmse(baseline.rmse, conditioned.rmse);
 
                         let significance = if enabled_ccdsig {
-                            let surrogate_shifts =
-                                ccd_surrogate_shifts.clone().unwrap_or_else(|| {
-                                    default_surrogate_shifts(prepared.shifted.len())
-                                });
-                            let surrogate_inputs = confounds
-                                .iter()
-                                .map(|channel| extract_shifted_channel_series(prepared, *channel))
-                                .collect::<Vec<_>>();
+                            let default_shifts;
+                            let surrogate_shifts = match &ccd_surrogate_shifts {
+                                Some(shifts) => shifts,
+                                None => {
+                                    default_shifts =
+                                        default_surrogate_shifts(prepared.shifted.len());
+                                    &default_shifts
+                                }
+                            };
                             let source_series = extract_shifted_channel_series(prepared, pair[1]);
                             let null_scores = surrogate_shifts
-                                .into_iter()
-                                .filter(|shift| *shift > 0)
-                                .map(|shift| {
+                                .iter()
+                                .filter(|&&shift| shift > 0)
+                                .map(|&shift| {
+                                    // The confounds are read from the window as they are; only the source is shifted.
                                     let shifted_source =
                                         circular_shift_series(&source_series, shift);
-                                    let mut conditioned_surrogates = surrogate_inputs.clone();
-                                    conditioned_surrogates.push(shifted_source);
                                     let surrogate_block = solve_channel_with_surrogate_inputs(
                                         prepared,
                                         pair[0],
-                                        &conditioned_surrogates,
+                                        confounds,
+                                        &shifted_source,
                                         &model,
                                         self.options.svd_backend,
                                     );
@@ -1004,9 +998,10 @@ impl PureRustRunner {
             }
         }
 
+        let mut stability_notes = Vec::new();
         if enabled_ccdstab {
             if let Some(base_ccd) = ccd_matrix.as_ref() {
-                let stability = self.compute_ccd_stability_matrix(
+                let (stability, failures) = self.compute_ccd_stability_matrix(
                     request,
                     samples,
                     channel_labels,
@@ -1014,6 +1009,7 @@ impl PureRustRunner {
                     &ccd_pairs,
                     base_ccd,
                 )?;
+                stability_notes = failures;
                 if let Some(matrix) = ccdstab_matrix.as_mut() {
                     for (pair_idx, row) in stability.into_iter().enumerate() {
                         report(
@@ -1134,7 +1130,7 @@ impl PureRustRunner {
             .map(|variant| variant.q_matrix.clone())
             .unwrap_or_default();
 
-        let mut engine_notes = Vec::new();
+        let mut engine_notes = stability_notes;
         if self.options.compute_device.is_gpu() {
             let cpu_only = [
                 (enabled_ccd, "CCD"),
@@ -1191,12 +1187,23 @@ impl PureRustRunner {
         base_markers: &[f64],
         ccd_pairs: &[[usize; 2]],
         base_ccd: &[Vec<f64>],
-    ) -> Result<Vec<Vec<f64>>> {
+    ) -> Result<(Vec<Vec<f64>>, Vec<String>)> {
         let perturbed_requests = build_ccd_stability_requests(request);
         let mut runs = Vec::new();
-        for perturbed in perturbed_requests {
-            if let Ok(result) =
-                self.run_on_matrix_internal(&perturbed, samples, channel_labels, None)
+        // A perturbed run that fails leaves CCDSTAB with fewer runs to compare, which the result's notes say.
+        let mut failures = Vec::new();
+        for (index, perturbed) in perturbed_requests.into_iter().enumerate() {
+            let result =
+                match self.run_on_matrix_internal(&perturbed, samples, channel_labels, None) {
+                    Ok(result) => result,
+                    Err(error) => {
+                        failures.push(format!(
+                            "CCDSTAB perturbed run {} failed: {error}",
+                            index + 1
+                        ));
+                        continue;
+                    }
+                };
             {
                 if let Some(variant) = result.variant_results.as_ref().and_then(|variants| {
                     variants.iter().find(|variant| variant.variant_id == "CCD")
@@ -1213,7 +1220,7 @@ impl PureRustRunner {
 
         let mut stability = vec![vec![f64::NAN; base_markers.len()]; ccd_pairs.len()];
         if runs.is_empty() {
-            return Ok(stability);
+            return Ok((stability, failures));
         }
 
         for (pair_idx, stability_row) in stability.iter_mut().enumerate() {
@@ -1244,7 +1251,7 @@ impl PureRustRunner {
             }
         }
 
-        Ok(stability)
+        Ok((stability, failures))
     }
 }
 
@@ -1431,8 +1438,9 @@ fn compute_ccd_pair_conditioning_sets(
             let Some(windows) = prepared_windows else {
                 return all_selected_conditioning_sets(ccd_pairs, candidate_channels);
             };
+            // Pairs in parallel: each runs its own selection, cap x candidates x windows regressions.
             ccd_pairs
-                .iter()
+                .par_iter()
                 .map(|pair| {
                     auto_select_conditioning_channels_for_pair(
                         windows,
@@ -1748,16 +1756,17 @@ fn conditioned_baseline_window_metrics(
     svd_backend: SvdBackend,
 ) -> (Vec<f64>, Vec<f64>) {
     let parameter_count = model.primary_terms.len() + confounds.len() * model.secondary_terms.len();
-    let mut window_scores = Vec::with_capacity(prepared_windows.len());
-    let mut window_rmses = Vec::with_capacity(prepared_windows.len());
-    for prepared in prepared_windows {
-        let block = solve_channel_with_inputs(prepared, target, confounds, model, svd_backend);
-        let rmse = block.rmse;
-        let score = bic_like_score(rmse, model.window_length, parameter_count);
-        window_scores.push(score);
-        window_rmses.push(rmse);
-    }
-    (window_scores, window_rmses)
+    prepared_windows
+        .par_iter()
+        .map(|prepared| {
+            let rmse =
+                solve_channel_with_inputs(prepared, target, confounds, model, svd_backend).rmse;
+            (
+                bic_like_score(rmse, model.window_length, parameter_count),
+                rmse,
+            )
+        })
+        .unzip()
 }
 
 fn finite_mean(values: &[f64]) -> Option<f64> {
@@ -1969,17 +1978,22 @@ fn nearest_aligned_value(
     target_marker: f64,
 ) -> Option<f64> {
     let row = matrix.get(row_idx)?;
-    let nearest_index = markers
-        .iter()
-        .enumerate()
-        .min_by(|(_, left), (_, right)| {
-            (*left - target_marker)
-                .abs()
-                .partial_cmp(&(*right - target_marker).abs())
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })
-        .map(|(index, _)| index)?;
-    row.get(nearest_index).copied()
+    row.get(nearest_marker(markers, target_marker)?).copied()
+}
+
+/// The index of the marker nearest `target`, the earlier one on a tie. Markers ascend (window positions), so a
+/// binary search finds the two neighbours in O(log W) instead of a scan per window.
+fn nearest_marker(markers: &[f64], target: f64) -> Option<usize> {
+    let after = markers.partition_point(|&m| m < target);
+    let candidates = [
+        after.checked_sub(1),
+        (after < markers.len()).then_some(after),
+    ];
+    candidates.into_iter().flatten().min_by(|&a, &b| {
+        (markers[a] - target)
+            .abs()
+            .total_cmp(&(markers[b] - target).abs())
+    })
 }
 
 fn same_sign(left: f64, right: f64) -> bool {

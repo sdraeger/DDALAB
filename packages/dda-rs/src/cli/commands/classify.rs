@@ -97,6 +97,10 @@ fn tsv(path: &str) -> Result<Vec<BTreeMap<String, String>>, String> {
 
 /// `[start, end)` cut into whole segments of `length` seconds, at most `max` of them, evenly spaced.
 fn cuts(start: f64, end: f64, length: f64, max: usize) -> Vec<f64> {
+    // The parsers refuse such lengths; without this a zero length would make usize::MAX segments.
+    if !(length.is_finite() && length > 0.0) {
+        return Vec::new();
+    }
     let n = ((end - start) / length).floor().max(0.0) as usize;
     if n <= max || max == 0 {
         return (0..n.min(if max == 0 { n } else { max }))

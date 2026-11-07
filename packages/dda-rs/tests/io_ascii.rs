@@ -2,8 +2,7 @@
 //!
 //! - delimiter: `.csv` splits on commas, other files on whitespace. This reader also detects tab, semicolon and
 //!   comma from the first line (`comma_with_header`, `tab_headerless`, `whitespace_headerless`, `semicolon_with_header`)
-//! - blank lines, `#` lines (as `input_io` skips them), a byte order mark and CRLF are dropped
-//!   (`bom_crlf_and_blank_lines`, `headerless_matches_input_io`)
+//! - blank lines, `#` lines, a byte order mark and CRLF are dropped (`bom_crlf_and_blank_lines`)
 //! - the first line is a header when a cell is not a number (`comma_with_header`; `empty_cell_in_first_row_is_data`
 //!   differs from Python, which reads an empty cell as text)
 //! - a header with fewer labels than columns gives default names (`short_header_gives_default_names`);
@@ -16,7 +15,6 @@
 //!   wins (`argument_rate_wins_over_time_column`, `no_rate_warns`)
 //! - an empty file, no numeric line, or no channel besides time is an error (`bad_input_is_refused`)
 
-use dda_rs::input_io::load_ascii_matrix_from_path;
 use dda_rs::io::{open_ascii, ByteSource, ChannelKind, FileSet, MemorySource, RawType, Reader};
 use std::sync::Arc;
 
@@ -171,18 +169,6 @@ fn no_rate_warns() {
     assert_eq!(info.duration_s, 3.0);
     assert_eq!(info.warnings.len(), 1);
     assert!(info.warnings[0].contains("sample rate"));
-}
-
-#[test]
-fn headerless_matches_input_io() {
-    let text = "# recorded 2026\n0.5 -1.5 1e-3\n 2.5 3 4.25\n\n  # gap\n7 100 -8\n";
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("a.txt");
-    std::fs::write(&path, text).unwrap();
-    assert_eq!(
-        all_rows(&*open("a.txt", text, Some(100.0))),
-        load_ascii_matrix_from_path(&path).unwrap()
-    );
 }
 
 #[test]

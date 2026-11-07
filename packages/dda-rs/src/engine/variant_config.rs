@@ -2,40 +2,41 @@ use std::collections::BTreeSet;
 
 use crate::types::{CcdConditioningStrategy, DDARequest};
 
-const CCD_CONFIG_KEYS: &[&str] = &[
-    "CCD",
-    "ccd",
-    "conditional_cross_dynamical",
-    "conditional-cross-dynamical",
-    "ccdlog",
-    "conditional_cross_dynamical_log_mse_ratio",
-    "ccdpr2",
-    "conditional_cross_dynamical_partial_r2",
-    "conditional_cross_dynamical_significance",
-    "conditional_cross_dynamical_stability",
-    "temporally_regularized_conditional_cross_dynamical",
-    "multivariate_conditional_cross_dynamical",
-];
+/// The variant a name means: its abbreviation or its full name, in any case, with `_`, `-` or spaces between words.
+/// Every place that reads a variant name (`enabled_variants`, `variant_configs` keys, the command line) uses this one
+/// table, so their aliases cannot drift apart.
+pub fn canonical_variant(name: &str) -> Option<&'static str> {
+    let key: String = name
+        .trim()
+        .chars()
+        .map(|c| {
+            if c == '-' || c == ' ' {
+                '_'
+            } else {
+                c.to_ascii_uppercase()
+            }
+        })
+        .collect();
+    Some(match key.as_str() {
+        "ST" | "SINGLE_TIMESERIES" => "ST",
+        "CT" | "CROSS_TIMESERIES" => "CT",
+        "CD" | "CROSS_DYNAMICAL" => "CD",
+        "DE" | "DYNAMICAL_ERGODICITY" | "DELAY_EMBEDDING" => "DE",
+        "SY" | "SYNCHRONIZATION" | "SYNCHRONISATION" | "SYNCHRONY" => "SY",
+        "CCD" | "CONDITIONAL_CROSS_DYNAMICAL" => "CCD",
+        "CCDLOG" | "CONDITIONAL_CROSS_DYNAMICAL_LOG_MSE_RATIO" => "CCDLOG",
+        "CCDPR2" | "CONDITIONAL_CROSS_DYNAMICAL_PARTIAL_R2" => "CCDPR2",
+        "CCDSIG" | "CONDITIONAL_CROSS_DYNAMICAL_SIGNIFICANCE" => "CCDSIG",
+        "CCDSTAB" | "CONDITIONAL_CROSS_DYNAMICAL_STABILITY" => "CCDSTAB",
+        "TRCCD" | "TEMPORALLY_REGULARIZED_CONDITIONAL_CROSS_DYNAMICAL" => "TRCCD",
+        "MVCCD" | "MULTIVARIATE_CONDITIONAL_CROSS_DYNAMICAL" => "MVCCD",
+        _ => return None,
+    })
+}
 
-const CCD_SIGNIFICANCE_CONFIG_KEYS: &[&str] = &[
-    "conditional_cross_dynamical_significance",
-    "CCD",
-    "ccd",
-    "conditional_cross_dynamical",
-];
-
-const TRCCD_CONFIG_KEYS: &[&str] = &[
-    "temporally_regularized_conditional_cross_dynamical",
-    "CCD",
-    "ccd",
-    "conditional_cross_dynamical",
-];
-
-const MVCCD_CONFIG_KEYS: &[&str] = &[
-    "multivariate_conditional_cross_dynamical",
-    "CCD",
-    "ccd",
-    "conditional_cross_dynamical",
+/// The configs the CCD family reads, in order: the CCD config first, which every member shares.
+const CCD_CONFIG_IDS: &[&str] = &[
+    "CCD", "CCDLOG", "CCDPR2", "CCDSIG", "CCDSTAB", "TRCCD", "MVCCD",
 ];
 
 #[derive(Debug, Clone, Copy)]
@@ -56,11 +57,11 @@ pub(crate) struct VariantMode {
 
 impl VariantMode {
     pub(crate) fn from_request(request: &DDARequest) -> Self {
-        let enabled: BTreeSet<String> = request
+        let enabled: BTreeSet<&str> = request
             .algorithm_selection
             .enabled_variants
             .iter()
-            .map(|token| token.trim().to_ascii_uppercase())
+            .filter_map(|token| canonical_variant(token))
             .collect();
 
         let select_mask = request
@@ -75,77 +76,13 @@ impl VariantMode {
                 (bits.len() == 6).then_some(bits)
             });
 
-        let ccdlog_enabled = contains_any(
-            &enabled,
-            &[
-                "CCDLOG",
-                "CONDITIONAL_CROSS_DYNAMICAL_LOG_MSE_RATIO",
-                "CONDITIONAL-CROSS-DYNAMICAL-LOG-MSE-RATIO",
-                "CONDITIONAL CROSS DYNAMICAL LOG MSE RATIO",
-            ],
-        );
-        let ccdpr2_enabled = contains_any(
-            &enabled,
-            &[
-                "CCDPR2",
-                "CONDITIONAL_CROSS_DYNAMICAL_PARTIAL_R2",
-                "CONDITIONAL-CROSS-DYNAMICAL-PARTIAL-R2",
-                "CONDITIONAL CROSS DYNAMICAL PARTIAL R2",
-            ],
-        );
-        let ccdsig_enabled = contains_any(
-            &enabled,
-            &[
-                "CCDSIG",
-                "CONDITIONAL_CROSS_DYNAMICAL_SIGNIFICANCE",
-                "CONDITIONAL-CROSS-DYNAMICAL-SIGNIFICANCE",
-                "CONDITIONAL CROSS DYNAMICAL SIGNIFICANCE",
-            ],
-        );
-        let ccdstab_enabled = contains_any(
-            &enabled,
-            &[
-                "CCDSTAB",
-                "CONDITIONAL_CROSS_DYNAMICAL_STABILITY",
-                "CONDITIONAL-CROSS-DYNAMICAL-STABILITY",
-                "CONDITIONAL CROSS DYNAMICAL STABILITY",
-            ],
-        );
-        let trccd_enabled = contains_any(
-            &enabled,
-            &[
-                "TRCCD",
-                "TEMPORALLY_REGULARIZED_CONDITIONAL_CROSS_DYNAMICAL",
-                "TEMPORALLY-REGULARIZED-CONDITIONAL-CROSS-DYNAMICAL",
-                "TEMPORALLY REGULARIZED CONDITIONAL CROSS DYNAMICAL",
-            ],
-        );
-        let mvccd_enabled = contains_any(
-            &enabled,
-            &[
-                "MVCCD",
-                "MULTIVARIATE_CONDITIONAL_CROSS_DYNAMICAL",
-                "MULTIVARIATE-CONDITIONAL-CROSS-DYNAMICAL",
-                "MULTIVARIATE CONDITIONAL CROSS DYNAMICAL",
-            ],
-        );
-        let ccd_enabled = contains_any(
-            &enabled,
-            &[
-                "CCD",
-                "CONDITIONAL_CROSS_DYNAMICAL",
-                "CONDITIONAL-CROSS-DYNAMICAL",
-                "CONDITIONAL CROSS DYNAMICAL",
-                "CCDSIG",
-                "CONDITIONAL_CROSS_DYNAMICAL_SIGNIFICANCE",
-                "CCDSTAB",
-                "CONDITIONAL_CROSS_DYNAMICAL_STABILITY",
-                "TRCCD",
-                "TEMPORALLY_REGULARIZED_CONDITIONAL_CROSS_DYNAMICAL",
-                "MVCCD",
-                "MULTIVARIATE_CONDITIONAL_CROSS_DYNAMICAL",
-            ],
-        );
+        let on = |id: &str| enabled.contains(id);
+        let (ccdlog_enabled, ccdpr2_enabled) = (on("CCDLOG"), on("CCDPR2"));
+        let (ccdsig_enabled, ccdstab_enabled) = (on("CCDSIG"), on("CCDSTAB"));
+        let (trccd_enabled, mvccd_enabled) = (on("TRCCD"), on("MVCCD"));
+        // These variants are computed from CCD's scores, so they run CCD too.
+        let ccd_enabled =
+            on("CCD") || ccdsig_enabled || ccdstab_enabled || trccd_enabled || mvccd_enabled;
 
         let (st_enabled, ct_enabled, cd_enabled, de_enabled, sy_mode) =
             if let Some(bits) = select_mask {
@@ -157,16 +94,7 @@ impl VariantMode {
                     bits[5].min(2),
                 )
             } else {
-                (
-                    contains_any(&enabled, &["ST", "SINGLE_TIMESERIES"]),
-                    contains_any(&enabled, &["CT", "CROSS_TIMESERIES"]),
-                    contains_any(&enabled, &["CD", "CROSS_DYNAMICAL"]),
-                    contains_any(&enabled, &["DE", "DYNAMICAL_ERGODICITY", "DELAY_EMBEDDING"]),
-                    u8::from(contains_any(
-                        &enabled,
-                        &["SY", "SYNCHRONIZATION", "SYNCHRONY"],
-                    )),
-                )
+                (on("ST"), on("CT"), on("CD"), on("DE"), u8::from(on("SY")))
             };
 
         Self {
@@ -186,16 +114,18 @@ impl VariantMode {
     }
 }
 
-fn contains_any(enabled: &BTreeSet<String>, aliases: &[&str]) -> bool {
-    aliases.iter().any(|alias| enabled.contains(*alias))
-}
-
+/// The first config, in the order of `ids`, whose key names one of those variants under any spelling.
 fn find_variant_config<'a>(
     request: &'a DDARequest,
-    config_keys: &[&str],
+    ids: &[&str],
 ) -> Option<&'a crate::types::VariantChannelConfig> {
     let configs = request.variant_configs.as_ref()?;
-    config_keys.iter().find_map(|key| configs.get(*key))
+    ids.iter().find_map(|&id| {
+        configs
+            .iter()
+            .find(|(key, _)| canonical_variant(key) == Some(id))
+            .map(|(_, config)| config)
+    })
 }
 
 fn requested_channels_or_all(request: &DDARequest, total_channels: usize) -> Vec<usize> {
@@ -238,23 +168,15 @@ fn sliding_channel_groups(
     groups
 }
 
+/// The channels variant `id` analyzes: its config's selection, else the request's channels, else all of them.
 pub(crate) fn resolve_variant_selected_channels(
     request: &DDARequest,
     total_channels: usize,
-    config_keys: &[&str],
+    id: &str,
 ) -> Vec<usize> {
-    request
-        .variant_configs
-        .as_ref()
-        .and_then(|configs| {
-            config_keys.iter().find_map(|key| {
-                configs
-                    .get(*key)?
-                    .selected_channels
-                    .as_ref()
-                    .filter(|channels| !channels.is_empty())
-            })
-        })
+    find_variant_config(request, &[id])
+        .and_then(|config| config.selected_channels.as_ref())
+        .filter(|channels| !channels.is_empty())
         .or(request
             .channels
             .as_ref()
@@ -273,7 +195,7 @@ pub(crate) fn resolve_ct_groups(request: &DDARequest, total_channels: usize) -> 
     }
 
     let mut channels = requested_channels_or_all(request, total_channels);
-    if let Some(config) = find_variant_config(request, &["CT", "ct", "cross_timeseries"]) {
+    if let Some(config) = find_variant_config(request, &["CT"]) {
         if let Some(groups) = config
             .ct_channel_pairs
             .as_ref()
@@ -339,7 +261,7 @@ pub(crate) fn resolve_cd_pairs(request: &DDARequest, total_channels: usize) -> V
     }
 
     let mut channels = requested_channels_or_all(request, total_channels);
-    if let Some(config) = find_variant_config(request, &["CD", "cd", "cross_dynamical"]) {
+    if let Some(config) = find_variant_config(request, &["CD"]) {
         if let Some(pairs) = config
             .cd_channel_pairs
             .as_ref()
@@ -361,7 +283,7 @@ pub(crate) fn resolve_cd_pairs(request: &DDARequest, total_channels: usize) -> V
 
 pub(crate) fn resolve_ccd_pairs(request: &DDARequest, total_channels: usize) -> Vec<[usize; 2]> {
     let mut channels = requested_channels_or_all(request, total_channels);
-    if let Some(config) = find_variant_config(request, CCD_CONFIG_KEYS) {
+    if let Some(config) = find_variant_config(request, CCD_CONFIG_IDS) {
         if let Some(pairs) = config
             .cd_channel_pairs
             .as_ref()
@@ -390,7 +312,7 @@ pub(crate) fn resolve_ccd_pairs(request: &DDARequest, total_channels: usize) -> 
 }
 
 pub(crate) fn resolve_ccd_conditioning_strategy(request: &DDARequest) -> CcdConditioningStrategy {
-    find_variant_config(request, CCD_CONFIG_KEYS)
+    find_variant_config(request, CCD_CONFIG_IDS)
         .and_then(|config| config.conditioning_strategy)
         .unwrap_or(CcdConditioningStrategy::AllSelected)
 }
@@ -399,7 +321,7 @@ pub(crate) fn resolve_ccd_candidate_channels(
     request: &DDARequest,
     total_channels: usize,
 ) -> Vec<usize> {
-    if let Some(config) = find_variant_config(request, CCD_CONFIG_KEYS) {
+    if let Some(config) = find_variant_config(request, CCD_CONFIG_IDS) {
         if let Some(channels) = config
             .conditioning_channels
             .as_ref()
@@ -420,19 +342,19 @@ pub(crate) fn resolve_ccd_candidate_channels(
 }
 
 pub(crate) fn resolve_ccd_surrogate_shifts(request: &DDARequest) -> Option<Vec<usize>> {
-    find_variant_config(request, CCD_SIGNIFICANCE_CONFIG_KEYS)
+    find_variant_config(request, &["CCDSIG", "CCD"])
         .and_then(|config| config.surrogate_shifts.clone())
         .filter(|shifts| !shifts.is_empty())
 }
 
 pub(crate) fn resolve_ccd_temporal_lambda(request: &DDARequest) -> Option<f64> {
-    find_variant_config(request, TRCCD_CONFIG_KEYS)
+    find_variant_config(request, &["TRCCD", "CCD"])
         .and_then(|config| config.temporal_lambda)
         .filter(|value| value.is_finite() && *value >= 0.0)
 }
 
 pub(crate) fn resolve_ccd_max_active_sources(request: &DDARequest) -> Option<usize> {
-    find_variant_config(request, MVCCD_CONFIG_KEYS)
+    find_variant_config(request, &["MVCCD", "CCD"])
         .and_then(|config| config.max_active_sources)
         .filter(|value| *value > 0)
 }

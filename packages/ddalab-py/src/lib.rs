@@ -50,14 +50,20 @@ fn read<'py>(
         let channels = info.analysis_channels();
         let rows = reader.read_rows(&channels, 0, info.sample_count as usize)?;
         let (annotations, _) = reader.scan_annotations()?;
-        Ok::<_, dda_rs::DDAError>((info.clone(), channels.len(), rows, annotations))
+        // Channel-major for numpy, transposed here while the GIL is released.
+        let by_channel: Vec<f64> = (0..channels.len())
+            .flat_map(|c| rows.iter().map(move |row| row[c]))
+            .collect();
+        Ok::<_, dda_rs::DDAError>((
+            info.clone(),
+            channels.len(),
+            rows.len(),
+            by_channel,
+            annotations,
+        ))
     });
-    let (info, width, rows, annotations) =
+    let (info, width, samples, by_channel, annotations) =
         opened.map_err(|e| PyValueError::new_err(format!("{path}: {e}")))?;
-    let samples = rows.len();
-    let by_channel: Vec<f64> = (0..width)
-        .flat_map(|c| rows.iter().map(move |row| row[c]))
-        .collect();
     let data = PyArray1::from_vec(py, by_channel).reshape([width, samples])?;
     let info = serde_json::to_string(&info).expect("recording info serializes");
     let annotations = serde_json::to_string(&annotations).expect("annotations serialize");
@@ -160,9 +166,9 @@ fn run(
                 labels.unwrap_or_else(|| (1..=channels).map(|c| format!("Channel {c}")).collect());
             let rate = sample_rate_hz
                 .ok_or_else(|| PyValueError::new_err("an array needs its sample rate"))?;
-            let values: Vec<f64> = (0..samples)
-                .flat_map(|s| array.column(s).to_vec())
-                .collect();
+            // Row-major, one pass over the transposed view and one allocation, with the GIL released.
+            let values: Vec<f64> = py.detach(|| array.t().iter().copied().collect());
+            debug_assert_eq!(values.len(), channels * samples);
             let no_files = FileSet {
                 primary: args.file.clone(),
                 files: BTreeMap::new(),
@@ -176,24 +182,18 @@ fn run(
         None => None,
     };
     let analysis = py.detach(|| {
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .map_err(|e| (exit_codes::EXECUTION_ERROR, e.to_string()))?;
-        runtime.block_on(async {
-            let job = job_of(&args, request);
-            match &matrix {
-                // An array has no input files to hash.
-                Some(reader) => {
-                    let files = FileSet {
-                        primary: args.file.clone(),
-                        files: BTreeMap::new(),
-                    };
-                    analyze_open(job, &files, reader.as_ref()).await
-                }
-                None => analyze(job).await,
+        let job = job_of(&args, request);
+        match &matrix {
+            // An array has no input files to hash.
+            Some(reader) => {
+                let files = FileSet {
+                    primary: args.file.clone(),
+                    files: BTreeMap::new(),
+                };
+                analyze_open(job, &files, reader.as_ref())
             }
-        })
+            None => analyze(job),
+        }
     });
     let analysis = analysis.map_err(error_of)?;
     Ok(Analysis {

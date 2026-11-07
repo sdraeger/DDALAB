@@ -6,6 +6,7 @@
 use super::reference_of;
 use crate::classify::ClassifierModel;
 use crate::cli::args::{parse_pairs, StreamArgs};
+use crate::cli::dda_params::{normalize_variants, validate_params};
 use crate::cli::exit_codes;
 use crate::engine::run_request_on_matrix;
 use crate::io::{open_matrix, with_reference, FileSet, Reference};
@@ -74,7 +75,7 @@ fn request(args: &StreamArgs, channels: usize, rows: usize) -> Result<DDARequest
             lowpass: None,
         },
         algorithm_selection: AlgorithmSelection {
-            enabled_variants: args.variants.clone(),
+            enabled_variants: normalize_variants(&args.variants)?,
             select_mask: None,
         },
         window_parameters: WindowParameters {
@@ -122,16 +123,36 @@ const HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5)
 /// How long one message may wait on a client before the client is dropped (`Clients::send`).
 const SEND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
 
-/// The web app's connections, which every message goes to; a client that fails is dropped.
+/// Messages a client may fall behind before it is dropped.
+const CLIENT_BACKLOG: usize = 64;
+/// Handshakes in progress at once; further connections are closed until one finishes.
+const MAX_HANDSHAKES: usize = 16;
+
+/// The web app's connections, which every message goes to. Each client has a writer thread fed by a bounded
+/// channel, so a slow client never holds up the stream or the others: one that falls `CLIENT_BACKLOG` messages
+/// behind, or whose socket fails, is dropped.
 #[derive(Clone, Default)]
-struct Clients(Arc<Mutex<Vec<WebSocket<TcpStream>>>>);
+struct Clients(Arc<Mutex<Vec<std::sync::mpsc::SyncSender<Message>>>>);
 
 impl Clients {
     fn send(&self, message: Message) {
         self.0
             .lock()
             .unwrap()
-            .retain_mut(|socket| socket.send(message.clone()).is_ok());
+            .retain(|client| client.try_send(message.clone()).is_ok());
+    }
+
+    /// Starts the writer of `socket` and adds it.
+    fn add(&self, mut socket: WebSocket<TcpStream>) {
+        let (sender, receiver) = std::sync::mpsc::sync_channel::<Message>(CLIENT_BACKLOG);
+        std::thread::spawn(move || {
+            for message in receiver {
+                if socket.send(message).is_err() {
+                    break;
+                }
+            }
+        });
+        self.0.lock().unwrap().push(sender);
     }
 
     /// Accepts on 127.0.0.1:`port` the clients whose address carries `token`, each greeted with `header`.
@@ -141,12 +162,20 @@ impl Clients {
         let listener =
             TcpListener::bind(("127.0.0.1", port)).map_err(|e| format!("127.0.0.1:{port}: {e}"))?;
         let clients = self.clone();
+        let handshakes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         std::thread::spawn(move || {
             for stream in listener.incoming().flatten() {
                 // Each handshake on a thread of its own, with deadlines: a connection that never completes one, or a
                 // client that stops reading, is dropped without stalling the others or the stream.
+                use std::sync::atomic::Ordering::Relaxed;
+                if handshakes.fetch_add(1, Relaxed) >= MAX_HANDSHAKES {
+                    handshakes.fetch_sub(1, Relaxed);
+                    continue;
+                }
                 let (clients, token, header) = (clients.clone(), token.clone(), header.clone());
+                let handshakes = handshakes.clone();
                 std::thread::spawn(move || {
+                    let _done = Finished(&handshakes);
                     let timeouts = stream
                         .set_read_timeout(Some(HANDSHAKE_TIMEOUT))
                         .and(stream.set_write_timeout(Some(SEND_TIMEOUT)));
@@ -171,13 +200,22 @@ impl Clients {
                     };
                     if let Ok(mut socket) = tungstenite::accept_hdr(stream, checked) {
                         if socket.send(Message::text(header.to_string())).is_ok() {
-                            clients.0.lock().unwrap().push(socket);
+                            clients.add(socket);
                         }
                     }
                 });
             }
         });
         Ok(())
+    }
+}
+
+/// Counts a handshake as finished when dropped, on every path out of its thread.
+struct Finished<'a>(&'a std::sync::atomic::AtomicUsize);
+
+impl Drop for Finished<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -192,6 +230,16 @@ pub fn execute(args: StreamArgs) -> i32 {
 }
 
 fn stream(args: &StreamArgs) -> Result<(), String> {
+    // The checks `run` makes, before waiting for a stream.
+    let pairs = |p: &Option<Vec<String>>| p.as_deref().map(parse_pairs).transpose();
+    validate_params(
+        &args.variants,
+        &args.delays,
+        args.wl,
+        args.ws,
+        &pairs(&args.ct_pairs)?,
+        &pairs(&args.cd_pairs)?,
+    )?;
     let reference = reference_of(&args.reference)?;
     let model = args
         .classify
@@ -251,10 +299,13 @@ fn stream(args: &StreamArgs) -> Result<(), String> {
         .iter()
         .flatten()
         .map(|v| {
-            (
-                v.variant_id.clone(),
-                v.channel_labels.clone().unwrap_or_default(),
-            )
+            // One outlet channel per row: rows without labels are numbered, so the outlet stays numeric.
+            let rows = v
+                .channel_labels
+                .clone()
+                .filter(|labels| labels.len() == v.q_matrix.len())
+                .unwrap_or_else(|| (1..=v.q_matrix.len()).map(|r| format!("row {r}")).collect());
+            (v.variant_id.clone(), rows)
         })
         .collect();
     let outlets: BTreeMap<String, Outlet> = if args.outlet {

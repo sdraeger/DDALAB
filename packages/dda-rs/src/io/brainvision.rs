@@ -61,10 +61,10 @@ impl Binary {
 }
 
 /// `(section, key, value)` of one `key=value` line.
-type Entry = (String, String, String);
+pub(super) type Entry = (String, String, String);
 
 /// The entries of an INI file in UTF-8, or Latin-1 when the bytes are not valid UTF-8; `;` lines are comments.
-fn parse_ini(bytes: &[u8]) -> Vec<Entry> {
+pub(super) fn parse_ini(bytes: &[u8]) -> Vec<Entry> {
     let text = std::str::from_utf8(bytes)
         .map(str::to_string)
         .unwrap_or_else(|_| bytes.iter().map(|&b| b as char).collect());
@@ -91,14 +91,14 @@ fn parse_ini(bytes: &[u8]) -> Vec<Entry> {
     entries
 }
 
-fn get<'a>(ini: &'a [Entry], section: &str, key: &str) -> Option<&'a str> {
+pub(super) fn get<'a>(ini: &'a [Entry], section: &str, key: &str) -> Option<&'a str> {
     ini.iter()
         .find(|(s, k, _)| s.eq_ignore_ascii_case(section) && k.eq_ignore_ascii_case(key))
         .map(|(_, _, value)| value.as_str())
 }
 
 /// The file name without any directory the header gives. This keeps a header from pointing outside its file set.
-fn base_name(path: &str) -> &str {
+pub(super) fn base_name(path: &str) -> &str {
     path.rsplit(['/', '\\']).next().unwrap_or(path)
 }
 
@@ -144,7 +144,7 @@ fn marker(value: &str, rate: f64) -> Option<Annotation> {
     let position: i64 = fields.next()?.trim().parse().ok()?;
     let points: i64 = fields.next()?.trim().parse().ok()?;
     Some(Annotation {
-        onset_s: (position - 1).max(0) as f64 / rate,
+        onset_s: position.saturating_sub(1).max(0) as f64 / rate,
         duration_s: points as f64 / rate,
         label: name(if description.is_empty() {
             kind
@@ -641,7 +641,7 @@ pub(super) fn write_headers(
          [Marker Infos]\n"
     );
     for (i, a) in annotations.iter().enumerate() {
-        let position = (a.onset_s * rate).round() as i64 + 1;
+        let position = ((a.onset_s * rate).round() as i64).saturating_add(1);
         let points = ((a.duration_s * rate).round() as i64).max(1);
         vmrk.push_str(&format!(
             "Mk{}=Comment,{},{position},{points},0\n",

@@ -1,4 +1,4 @@
-use dda_rs::io::{BlockCache, BlockPool, ByteSource, FileSet, MemorySource, MmapSource};
+use dda_rs::io::{BlockCache, BlockPool, ByteSource, FileSet, FileSource, MemorySource};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -128,12 +128,12 @@ fn caches_in_one_pool_share_its_capacity() {
 }
 
 #[test]
-fn mmap_source_matches_file() {
+fn file_source_matches_file() {
     let data = random_bytes(5000, 4);
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("data.bin");
     std::fs::write(&path, &data).unwrap();
-    let src = MmapSource::open(&path).unwrap();
+    let src = FileSource::open(&path).unwrap();
     assert_eq!(src.len(), 5000);
     assert_eq!(read(&src, 123, 4000), &data[123..4123]);
     let err = src.read_at(4990, &mut [0u8; 11]).unwrap_err().to_string();
@@ -141,8 +141,8 @@ fn mmap_source_matches_file() {
 
     let empty = dir.path().join("empty.bin");
     std::fs::write(&empty, b"").unwrap();
-    assert_eq!(MmapSource::open(&empty).unwrap().len(), 0);
-    assert!(MmapSource::open(&dir.path().join("missing.bin")).is_err());
+    assert_eq!(FileSource::open(&empty).unwrap().len(), 0);
+    assert!(FileSource::open(&dir.path().join("missing.bin")).is_err());
 }
 
 #[test]
@@ -224,4 +224,41 @@ fn sidecar_names_follow_the_bids_naming_rule() {
     );
     // no `_` in the stem: no prefix or modality
     assert_eq!(FileSet::sidecar_names("plain.edf"), None);
+}
+
+/// A file truncated while open (a recording still being written, a sync client replacing it) gives an error for
+/// the bytes it no longer has, instead of the SIGBUS a memory map raises.
+#[test]
+fn a_file_truncated_while_open_errors() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("growing.bin");
+    std::fs::write(&path, vec![7u8; 1 << 16]).unwrap();
+    let src = FileSource::open(&path).unwrap();
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_len(0)
+        .unwrap();
+    let mut buf = [0u8; 16];
+    assert!(src.read_at(4096, &mut buf).is_err());
+}
+
+/// A Latin-1 header names its data file as the BrainVision reader decodes it, so the file joins the set.
+#[test]
+fn a_latin1_vhdr_names_its_data_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut header =
+        b"Brain Vision Data Exchange Header File Version 1.0\n[Common Infos]\nDataFile=M".to_vec();
+    header.extend([0xFC]);
+    header.extend(b"ller.eeg\nMarkerFile=x.vmrk\n");
+    let path = dir.path().join("rec.vhdr");
+    std::fs::write(&path, &header).unwrap();
+    std::fs::write(dir.path().join("M\u{fc}ller.eeg"), [0u8; 8]).unwrap();
+    let set = dda_rs::io::FileSet::from_path(&path).unwrap();
+    assert!(
+        set.files.contains_key("M\u{fc}ller.eeg"),
+        "{:?}",
+        set.files.keys().collect::<Vec<_>>()
+    );
 }

@@ -16,7 +16,7 @@ const MAX_SMALL: u64 = 1 << 24;
 const MAX_DEPTH: usize = 32;
 
 fn malformed(what: &str) -> DDAError {
-    DDAError::UnsupportedFileType(format!("malformed MAT-file: {what}"))
+    DDAError::MalformedFile(format!("MAT-file: {what}"))
 }
 
 /// How a numeric array stores its values (MAT data types 1 to 13).
@@ -264,21 +264,30 @@ pub fn read_mat(source: &Arc<dyn ByteSource>) -> Result<Vec<(String, Mat)>> {
     }
     let mut elements = Elements::new(source, 128, source.len() - 128);
     let mut variables = Vec::new();
+    // One budget for the whole file: every inflated variable stays in memory, and zlib reaches about 1000:1, so a
+    // per-variable limit alone would let a few MB of file claim many GB.
+    let mut budget = MAX_INFLATED;
     while !elements.done() {
         let element = elements.next()?;
         match element.data_type {
             14 => variables.push(matrix(source, &element, 0)?),
             15 => {
-                if element.len > MAX_INFLATED as u64 {
-                    return Err(malformed("a compressed variable is too large"));
+                if element.len > budget as u64 {
+                    return Err(malformed("its compressed variables exceed 2 GiB"));
                 }
                 let mut compressed = vec![0u8; element.len as usize];
                 source.read_at(element.start, &mut compressed)?;
-                let inflated = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(
-                    &compressed,
-                    MAX_INFLATED,
-                )
-                .map_err(|_| malformed("a compressed variable does not inflate"))?;
+                let inflated =
+                    miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&compressed, budget)
+                        .map_err(|e| match e.status {
+                            miniz_oxide::inflate::TINFLStatus::HasMoreOutput => {
+                                malformed("its variables inflate to more than 2 GiB")
+                            }
+                            status => malformed(&format!(
+                                "a compressed variable does not inflate ({status:?})"
+                            )),
+                        })?;
+                budget -= inflated.len();
                 drop(compressed);
                 let memory: Arc<dyn ByteSource> = Arc::new(MemorySource(inflated));
                 let mut inner = Elements::new(&memory, 0, memory.len());
@@ -420,7 +429,12 @@ fn char_text(units: &[u32], dims: &[usize], utf8: bool) -> String {
         let bytes: Vec<u8> = units.iter().map(|&u| u as u8).collect();
         return String::from_utf8_lossy(&bytes).into_owned();
     }
-    let rows = dims.first().copied().unwrap_or(1).max(1);
+    // A header may claim more rows than the array stores; each stored character fills at most one row.
+    let rows = dims
+        .first()
+        .copied()
+        .unwrap_or(1)
+        .clamp(1, units.len().max(1));
     if rows == 1 {
         return units.iter().filter_map(|&u| char::from_u32(u)).collect();
     }
@@ -440,6 +454,13 @@ fn char_text(units: &[u32], dims: &[usize], utf8: bool) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// A row count beyond the stored characters, as a corrupt or crafted header gives, yields the stored rows
+    /// instead of reserving a string per claimed row (2^31 rows would reserve some 50 GB).
+    #[test]
+    fn a_char_array_claims_no_more_rows_than_it_stores() {
+        assert_eq!(char_text(&[65, 66], &[1_000_000, 1], false), "A\nB");
+    }
+
     use super::*;
 
     fn source(bytes: Vec<u8>) -> Arc<dyn ByteSource> {

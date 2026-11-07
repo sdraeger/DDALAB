@@ -132,9 +132,9 @@ fn plan(request: &DDARequest, info: &RecordingInfo) -> Vec<Plan> {
     let rows = |pairs: Vec<[usize; 2]>| -> Vec<Vec<usize>> {
         pairs.iter().map(|pair| pair.to_vec()).collect()
     };
-    let st = resolve_variant_selected_channels(request, n, &["ST", "st", "single_timeseries"]);
-    let de = resolve_variant_selected_channels(request, n, &["DE", "de", "dynamical_ergodicity"]);
-    let sy = resolve_variant_selected_channels(request, n, &["SY", "sy", "synchronization"]);
+    let st = resolve_variant_selected_channels(request, n, "ST");
+    let de = resolve_variant_selected_channels(request, n, "DE");
+    let sy = resolve_variant_selected_channels(request, n, "SY");
     let sy = resolve_sy_pairs(&sy);
     let (sy_rows, sy_joiner) = if mode.sy_mode == 2 {
         let both = sy.iter().flat_map(|&[a, b]| [[a, b], [b, a]]);
@@ -392,28 +392,30 @@ fn skeleton(
     }
 }
 
-/// (min, max, per-row mean of |x|, per-row peak |x|) over the finite values of `matrix`.
+/// (min, max, per-row mean of |x|, per-row peak |x|) over the finite values of `matrix`, in one pass without copies.
 fn summarize(matrix: &[Vec<f64>]) -> (Option<f64>, Option<f64>, Vec<f64>, Vec<f64>) {
-    let finite = |row: &[f64]| row.iter().copied().filter(|v| v.is_finite()).collect();
-    let rows: Vec<Vec<f64>> = matrix.iter().map(|row| finite(row)).collect();
-    let all = || rows.iter().flatten().copied();
-    let mean = |row: &Vec<f64>| match row.len() {
-        0 => 0.0,
-        n => row.iter().fold(0.0, |sum, v| sum + v.abs()) / n as f64,
-    };
-    let peak = |row: &Vec<f64>| row.iter().fold(0.0_f64, |peak, v| peak.max(v.abs()));
-    (
-        all().reduce(f64::min),
-        all().reduce(f64::max),
-        rows.iter().map(mean).collect(),
-        rows.iter().map(peak).collect(),
-    )
+    let (mut min, mut max) = (None::<f64>, None::<f64>);
+    let mut means = Vec::with_capacity(matrix.len());
+    let mut peaks = Vec::with_capacity(matrix.len());
+    for row in matrix {
+        let (mut sum, mut peak, mut count) = (0.0, 0.0_f64, 0usize);
+        for &v in row.iter().filter(|v| v.is_finite()) {
+            min = Some(min.map_or(v, |m| m.min(v)));
+            max = Some(max.map_or(v, |m| m.max(v)));
+            sum += v.abs();
+            peak = peak.max(v.abs());
+            count += 1;
+        }
+        means.push(if count == 0 { 0.0 } else { sum / count as f64 });
+        peaks.push(peak);
+    }
+    (min, max, means, peaks)
 }
 
 /// The document of a finished run, with the matrices and their summaries inline. Its diagnostics are the
 /// recording's warnings, then the engine's notes.
 pub fn build_document(
-    result: &DDAResult,
+    result: DDAResult,
     info: &RecordingInfo,
     request: &DDARequest,
     input_sha256: BTreeMap<String, String>,
@@ -422,28 +424,33 @@ pub fn build_document(
 ) -> ResultDocument {
     let plan = plan(request, info);
     let labels = analysis_labels(info);
-    let variants: Vec<VariantDocument> = result
-        .variant_results
-        .iter()
+    // The result is consumed: its matrices move into the document instead of being copied.
+    let DDAResult {
+        variant_results,
+        engine_notes,
+        ..
+    } = result;
+    let variants: Vec<VariantDocument> = variant_results
+        .into_iter()
         .flatten()
-        .map(|variant| {
+        .map(|mut variant| {
             let (min_value, max_value, row_mean_absolute, row_peak_absolute) =
                 summarize(&variant.q_matrix);
             let row_labels = match plan.iter().find(|p| p.id == variant.variant_id) {
                 Some(p) => p.row_labels(&labels),
-                None => variant.channel_labels.clone().unwrap_or_default(),
+                None => variant.channel_labels.take().unwrap_or_default(),
             };
             VariantDocument {
-                id: variant.variant_id.clone(),
-                label: variant.variant_name.clone(),
+                id: variant.variant_id,
+                label: variant.variant_name,
                 row_labels,
-                matrix: variant.q_matrix.clone(),
+                matrix: variant.q_matrix,
                 min_value,
                 max_value,
                 row_mean_absolute: Some(row_mean_absolute),
                 row_peak_absolute: Some(row_peak_absolute),
-                coefficient_matrices: variant.coefficient_matrices.clone(),
-                fit_error_matrix: variant.fit_error_matrix.clone(),
+                coefficient_matrices: variant.coefficient_matrices,
+                fit_error_matrix: variant.fit_error_matrix,
                 arrays: None,
             }
         })
@@ -454,7 +461,7 @@ pub fn build_document(
         .max()
         .unwrap_or(0);
     let mut diagnostics = warnings(info);
-    diagnostics.extend(result.engine_notes.iter().cloned());
+    diagnostics.extend(engine_notes);
     ResultDocument {
         diagnostics,
         variants,

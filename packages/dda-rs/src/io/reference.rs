@@ -15,7 +15,7 @@ use super::recording::*;
 use super::FileSet;
 use crate::error::{DDAError, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 const DEFAULT_NEIGHBORS: usize = 4;
 
@@ -302,7 +302,9 @@ fn bipolar(labels: &[&str]) -> Result<Vec<Derived>> {
 
 /// The rows of a TSV with a header, as maps from column to value; `#` lines and blank lines are skipped.
 fn tsv(text: &str) -> Vec<BTreeMap<String, String>> {
+    // A spreadsheet's byte-order mark would otherwise become part of the first column name.
     let mut lines = text
+        .trim_start_matches('\u{feff}')
         .lines()
         .map(|l| l.trim_end_matches('\r'))
         .filter(|l| !l.trim().is_empty() && !l.starts_with('#'));
@@ -487,11 +489,103 @@ impl Referenced {
         Ok((needed, data))
     }
 
-    fn combine(terms: &[(usize, f64)], needed: &[usize], row: &[f64]) -> f64 {
-        terms
+    /// How the derived columns among `channels` combine the rows of `needed`: per source the weight most derived
+    /// columns give it, summed once per row, and per column only its deviations from those weights. An average
+    /// reference gives every source -1/n in all but one column, so a row costs O(n) instead of O(n^2).
+    fn plan(&self, channels: &[usize], needed: &[usize]) -> Plan {
+        let derived: Vec<&Vec<(usize, f64)>> = channels
             .iter()
-            .map(|&(s, w)| w * row[needed.binary_search(&s).expect("needed holds every source")])
-            .sum()
+            .filter_map(|&c| match &self.columns[c] {
+                Column::Derived(terms) => Some(terms),
+                Column::Pass(_) => None,
+            })
+            .collect();
+        let position = |s: usize| needed.binary_search(&s).expect("needed holds every source");
+        let dense = |terms: &Vec<(usize, f64)>| {
+            let mut weights = vec![0.0; needed.len()];
+            for &(s, w) in terms {
+                weights[position(s)] += w;
+            }
+            weights
+        };
+        let weights: Vec<Vec<f64>> = derived.iter().map(|terms| dense(terms)).collect();
+        let common: Vec<f64> = (0..needed.len())
+            .map(|j| {
+                let mut counts: HashMap<u64, usize> = HashMap::new();
+                for column in &weights {
+                    *counts.entry(column[j].to_bits()).or_default() += 1;
+                }
+                counts
+                    .into_iter()
+                    .max_by_key(|&(bits, count)| (count, bits == 0))
+                    .map_or(0.0, |(bits, _)| f64::from_bits(bits))
+            })
+            .collect();
+        let plain = Plan {
+            shared: Vec::new(),
+            columns: channels
+                .iter()
+                .map(|&c| match &self.columns[c] {
+                    Column::Derived(terms) => {
+                        Some(terms.iter().map(|&(s, w)| (position(s), w)).collect())
+                    }
+                    Column::Pass(_) => None,
+                })
+                .collect(),
+        };
+        let mut columns = weights.iter();
+        let split = Plan {
+            shared: (0..needed.len())
+                .filter(|&j| common[j] != 0.0)
+                .map(|j| (j, common[j]))
+                .collect(),
+            columns: channels
+                .iter()
+                .map(|&c| match self.columns[c] {
+                    Column::Derived(_) => {
+                        let column = columns
+                            .next()
+                            .expect("one weight vector per derived column");
+                        Some(
+                            (0..needed.len())
+                                .filter(|&j| column[j] != common[j])
+                                .map(|j| (j, column[j] - common[j]))
+                                .collect(),
+                        )
+                    }
+                    Column::Pass(_) => None,
+                })
+                .collect(),
+        };
+        // Split only where it at least halves the work; otherwise each column keeps its terms in their own order,
+        // and its values stay bit for bit what they were.
+        if 2 * split.terms() <= plain.terms() {
+            split
+        } else {
+            plain
+        }
+    }
+}
+
+/// The derived columns of one read: weights by position in the rows read (see `Referenced::plan`).
+struct Plan {
+    shared: Vec<(usize, f64)>,
+    /// Per requested channel: the deviations of a derived one, `None` for one passed through.
+    columns: Vec<Option<Vec<(usize, f64)>>>,
+}
+
+impl Plan {
+    /// Multiplications per row.
+    fn terms(&self) -> usize {
+        self.shared.len() + self.columns.iter().flatten().map(Vec::len).sum::<usize>()
+    }
+
+    fn shared(&self, row: &[f64]) -> f64 {
+        self.shared.iter().map(|&(j, w)| w * row[j]).sum()
+    }
+
+    fn value(deviations: &[(usize, f64)], shared: f64, row: &[f64]) -> f64 {
+        shared + deviations.iter().map(|&(j, w)| w * row[j]).sum::<f64>()
     }
 }
 
@@ -519,14 +613,20 @@ impl Reader for Referenced {
         } else {
             self.reader.read_rows(&passed, row0, rows)?
         };
+        let plan = self.plan(channels, &needed);
         Ok((0..rows)
             .map(|r| {
+                let shared = if needed.is_empty() {
+                    0.0
+                } else {
+                    plan.shared(&data[r])
+                };
                 let mut p = 0;
-                channels
+                plan.columns
                     .iter()
-                    .map(|&c| match &self.columns[c] {
-                        Column::Derived(terms) => Self::combine(terms, &needed, &data[r]),
-                        Column::Pass(_) => {
+                    .map(|column| match column {
+                        Some(deviations) => Plan::value(deviations, shared, &data[r]),
+                        None => {
                             p += 1;
                             pass_data[r][p - 1]
                         }
@@ -545,13 +645,22 @@ impl Reader for Referenced {
         out: &mut [f32],
     ) -> Result<()> {
         self.info.check_read(channels, row0, rows)?;
-        let (needed, data) = self.sources(channels, row0, rows)?;
         let width = channels.len();
+        if out.len() < rows * width {
+            return Err(invalid(format!(
+                "a buffer of {} values for {rows} rows of {width} channels",
+                out.len()
+            )));
+        }
+        let (needed, data) = self.sources(channels, row0, rows)?;
+        let plan = self.plan(channels, &needed);
+        let shared: Vec<f64> = data.iter().map(|row| plan.shared(row)).collect();
         for (k, &c) in channels.iter().enumerate() {
             match &self.columns[c] {
-                Column::Derived(terms) => {
+                Column::Derived(_) => {
+                    let deviations = plan.columns[k].as_deref().unwrap_or_default();
                     for r in 0..rows {
-                        out[r * width + k] = Self::combine(terms, &needed, &data[r]) as f32;
+                        out[r * width + k] = Plan::value(deviations, shared[r], &data[r]) as f32;
                     }
                 }
                 Column::Pass(s) => {
@@ -569,6 +678,13 @@ impl Reader for Referenced {
 
 #[cfg(test)]
 mod tests {
+    /// A spreadsheet's byte-order mark before the first column name does not hide the column.
+    #[test]
+    fn a_tsv_header_with_a_byte_order_mark_keeps_its_first_column() {
+        let rows = tsv("\u{feff}name\tx\nCz\t1\n");
+        assert_eq!(rows[0].get("name").map(String::as_str), Some("Cz"));
+    }
+
     use super::*;
     use crate::io::open_matrix;
 
@@ -624,6 +740,29 @@ mod tests {
                 weight: 1.0 - 1.0 / 3.0
             }
         );
+    }
+
+    /// 32 channels: the average reads as one mean per row plus each channel, and gives the direct sum's values.
+    #[test]
+    fn a_wide_average_sums_the_mean_once_per_row() {
+        let labels: Vec<String> = (0..32).map(|c| format!("C{c}")).collect();
+        let rows: Vec<Vec<f64>> = (0..5)
+            .map(|r| (0..32).map(|c| ((r * 32 + c) as f64 * 0.7).sin()).collect())
+            .collect();
+        let data = rows.iter().flatten().copied().collect();
+        let r = with_reference(
+            open_matrix(labels, 100.0, data).unwrap(),
+            &Reference::Average,
+            &empty(),
+        )
+        .unwrap();
+        let (_, referenced) = read(&*r);
+        for (row, raw) in referenced.iter().zip(&rows) {
+            let mean = raw.iter().sum::<f64>() / 32.0;
+            for (value, x) in row.iter().zip(raw) {
+                assert!((value - (x - mean)).abs() < 1e-12);
+            }
+        }
     }
 
     /// `reader` with BIDS `status` and `type` set on the channels they name.

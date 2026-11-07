@@ -4,11 +4,45 @@ use crate::cli::dda_params;
 use crate::cli::exit_codes;
 use crate::cli::output;
 use crate::io::discover_bids_recordings;
-use serde_json::{json, Value};
+use serde::Serialize;
+use serde_json::json;
+use serde_json::value::RawValue;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-pub async fn execute(args: BatchArgs) -> i32 {
+/// A finished recording: its warnings, its output file under --output-dir, and its result or counts.
+type Done = (Vec<String>, Option<String>, Box<RawValue>);
+
+/// One recording's line of the manifest. Fields in alphabetical order of their names, as the manifest has always
+/// been written and as the web app writes it (its batch export is compared with this text).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Entry {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+    input_path: String,
+    output_path: Option<String>,
+    resolved_dataset_path: String,
+    /// The result document, or its row and window counts when it went to --output-dir.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    result: Option<Box<RawValue>>,
+    status: &'static str,
+    warnings: Vec<String>,
+}
+
+/// What `batch` prints, fields in alphabetical order (see `Entry`).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Manifest {
+    failed: usize,
+    matched_files: usize,
+    processed_files: usize,
+    results: Vec<Entry>,
+    succeeded: usize,
+    with_warnings: usize,
+}
+
+pub fn execute(args: BatchArgs) -> i32 {
     let selection = match dda_params::prepare_selection(
         args.channels.clone(),
         &args.variants,
@@ -29,6 +63,19 @@ pub async fn execute(args: BatchArgs) -> i32 {
         cd_pairs: effective_cd_pairs,
         variant_configs,
     } = selection;
+
+    // Validate shared params, before a dry run lists the files; an empty channel selection means each recording's good channels.
+    if let Err(msg) = dda_params::validate_params(
+        &normalized_variants,
+        &args.delays,
+        args.wl,
+        args.ws,
+        &effective_ct_pairs,
+        &effective_cd_pairs,
+    ) {
+        eprintln!("Error: {}", msg);
+        return exit_codes::INPUT_ERROR;
+    }
 
     // Resolve file list
     let files = match resolve_files(&args) {
@@ -55,19 +102,6 @@ pub async fn execute(args: BatchArgs) -> i32 {
         return exit_codes::SUCCESS;
     }
 
-    // Validate shared params; an empty channel selection means each recording's good channels.
-    if let Err(msg) = dda_params::validate_params(
-        &normalized_variants,
-        &args.delays,
-        args.wl,
-        args.ws,
-        &effective_ct_pairs,
-        &effective_cd_pairs,
-    ) {
-        eprintln!("Error: {}", msg);
-        return exit_codes::INPUT_ERROR;
-    }
-
     // Create output directory if specified
     if let Some(ref dir) = args.output_dir {
         if let Err(e) = std::fs::create_dir_all(dir) {
@@ -90,7 +124,7 @@ pub async fn execute(args: BatchArgs) -> i32 {
         _ => path.to_string(),
     };
     let total = files.len();
-    let mut results: Vec<Value> = Vec::new();
+    let mut results: Vec<Entry> = Vec::new();
     let mut succeeded = 0usize;
     let mut failed = 0usize;
     let start_time = Instant::now();
@@ -100,7 +134,7 @@ pub async fn execute(args: BatchArgs) -> i32 {
             eprintln!("[{}/{}] {}...", i + 1, total, file_path);
         }
 
-        let outcome: Result<(Vec<String>, Option<String>, Value), String> = async {
+        let outcome = (|| -> Result<Done, String> {
             let request = dda_params::build_dda_request(dda_params::RequestConfig {
                 file_path,
                 channels: &effective_channels,
@@ -138,7 +172,6 @@ pub async fn execute(args: BatchArgs) -> i32 {
                 bundle: None,
                 progress: false,
             })
-            .await
             .map_err(|(_, message)| message)?;
             if !args.quiet {
                 eprintln!("  Backend: pure-rust ({})", args.device);
@@ -147,25 +180,29 @@ pub async fn execute(args: BatchArgs) -> i32 {
             // With --output-dir the document is in its file and the manifest keeps the row and window counts.
             let document = &analysis.document;
             let Some(dir) = &args.output_dir else {
-                let inline = serde_json::to_value(document).map_err(|e| e.to_string())?;
+                // Kept as JSON text until the manifest prints: a parsed tree costs some 32 bytes per number.
+                let inline =
+                    serde_json::value::to_raw_value(document).map_err(|e| e.to_string())?;
                 return Ok((analysis.warnings, None, inline));
             };
             let path = Path::new(dir).join(output_name(file_path));
             output::write_json(document, args.compact, path.to_str())
                 .map_err(|error| format!("Error writing output: {}", error))?;
-            let rows: serde_json::Map<String, Value> = document
+            let rows: serde_json::Map<String, serde_json::Value> = document
                 .variants
                 .iter()
                 .map(|v| (v.id.clone(), json!(v.row_labels.len())))
                 .collect();
-            let counts = json!({"rows": rows, "windows": document.window_centers_seconds.len()});
+            let counts = serde_json::value::to_raw_value(
+                &json!({"rows": rows, "windows": document.window_centers_seconds.len()}),
+            )
+            .map_err(|e| e.to_string())?;
             Ok((
                 analysis.warnings,
                 Some(path.to_string_lossy().into_owned()),
                 counts,
             ))
-        }
-        .await;
+        })();
 
         let input_path = in_dataset(file_path);
         let resolved = match root {
@@ -175,26 +212,28 @@ pub async fn execute(args: BatchArgs) -> i32 {
         match outcome {
             Ok((warnings, output_path, result)) => {
                 succeeded += 1;
-                results.push(json!({
-                    "inputPath": input_path,
-                    "resolvedDatasetPath": resolved,
-                    "status": "ok",
-                    "warnings": warnings,
-                    "outputPath": output_path,
-                    "result": result,
-                }));
+                results.push(Entry {
+                    input_path,
+                    resolved_dataset_path: resolved,
+                    status: "ok",
+                    warnings,
+                    error: None,
+                    output_path,
+                    result: Some(result),
+                });
             }
             Err(error) => {
                 eprintln!("  {}", error);
                 failed += 1;
-                results.push(json!({
-                    "inputPath": input_path,
-                    "resolvedDatasetPath": resolved,
-                    "status": "error",
-                    "warnings": [],
-                    "error": error,
-                    "outputPath": null,
-                }));
+                results.push(Entry {
+                    input_path,
+                    resolved_dataset_path: resolved,
+                    status: "error",
+                    warnings: Vec::new(),
+                    error: Some(error),
+                    output_path: None,
+                    result: None,
+                });
                 if !args.continue_on_error {
                     break;
                 }
@@ -215,18 +254,14 @@ pub async fn execute(args: BatchArgs) -> i32 {
         );
     }
 
-    let with_warnings = results
-        .iter()
-        .filter(|r| r["warnings"].as_array().is_some_and(|w| !w.is_empty()))
-        .count();
-    let manifest = json!({
-        "matchedFiles": total,
-        "processedFiles": results.len(),
-        "succeeded": succeeded,
-        "failed": failed,
-        "withWarnings": with_warnings,
-        "results": results,
-    });
+    let manifest = Manifest {
+        matched_files: total,
+        processed_files: results.len(),
+        succeeded,
+        failed,
+        with_warnings: results.iter().filter(|r| !r.warnings.is_empty()).count(),
+        results,
+    };
     if let Err(error) = output::write_json(&manifest, args.compact, None) {
         eprintln!("Error: {}", error);
         return exit_codes::EXECUTION_ERROR;

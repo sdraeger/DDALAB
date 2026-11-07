@@ -216,17 +216,6 @@ pub fn generate_select_mask(variants: &[&str]) -> [u8; SELECT_MASK_SIZE] {
     mask
 }
 
-/// Parse a SELECT mask back to variant abbreviations
-pub fn parse_select_mask(mask: &[u8]) -> Vec<&'static str> {
-    mask.iter()
-        .enumerate()
-        .filter(|(_, &bit)| bit == 1)
-        .filter_map(|(pos, _)| VariantMetadata::from_position(pos as u8))
-        .filter(|v| !v.reserved)
-        .map(|v| v.abbreviation)
-        .collect()
-}
-
 /// Format SELECT mask as space-separated string for CLI
 pub fn format_select_mask(mask: &[u8; SELECT_MASK_SIZE]) -> String {
     mask.iter()
@@ -252,35 +241,6 @@ pub mod select_mask_positions {
     pub const DE: usize = 4;
     /// Position of SY in SELECT mask
     pub const SY: usize = 5;
-}
-
-// =============================================================================
-// FILE TYPES
-// =============================================================================
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum FileType {
-    EDF,
-    ASCII,
-}
-
-impl FileType {
-    pub fn flag(&self) -> &'static str {
-        match self {
-            Self::EDF => "-EDF",
-            Self::ASCII => "-ASCII",
-        }
-    }
-
-    pub fn from_extension(ext: &str) -> Option<Self> {
-        match ext.to_lowercase().as_str() {
-            "edf" => Some(Self::EDF),
-            "ascii" => Some(Self::ASCII),
-            "txt" => Some(Self::ASCII),
-            "csv" => Some(Self::ASCII),
-            _ => None,
-        }
-    }
 }
 
 // =============================================================================
@@ -321,31 +281,6 @@ mod tests {
         assert_eq!(mask[select_mask_positions::ST], 1);
         assert_eq!(mask[select_mask_positions::SY], 1);
         assert_eq!(mask[select_mask_positions::CT], 0);
-    }
-
-    #[test]
-    fn test_select_mask_parsing() {
-        let mask = [1, 1, 0, 0, 1, 0];
-        let variants = parse_select_mask(&mask);
-        assert!(variants.contains(&"ST"));
-        assert!(variants.contains(&"CT"));
-        assert!(variants.contains(&"DE"));
-        assert!(!variants.contains(&"CD"));
-    }
-
-    #[test]
-    fn test_file_type_flags() {
-        assert_eq!(FileType::EDF.flag(), "-EDF");
-        assert_eq!(FileType::ASCII.flag(), "-ASCII");
-    }
-
-    #[test]
-    fn test_file_type_detection() {
-        assert_eq!(FileType::from_extension("edf"), Some(FileType::EDF));
-        assert_eq!(FileType::from_extension("ascii"), Some(FileType::ASCII));
-        assert_eq!(FileType::from_extension("txt"), Some(FileType::ASCII));
-        assert_eq!(FileType::from_extension("csv"), Some(FileType::ASCII));
-        assert!(FileType::from_extension("unknown").is_none());
     }
 
     #[test]

@@ -109,7 +109,8 @@ pub struct Report {
     pub best: Structure,
     /// Balanced accuracy of the best structure in the search's own folds: optimistic.
     pub search_score: f64,
-    /// Balanced accuracy of the whole search, nested in outer folds; `None` when `nested` was off.
+    /// Balanced accuracy of the whole search, nested in outer folds; `None` when `nested` was off or an outer fold
+    /// would leave fewer than two groups to search on.
     pub nested_score: Option<f64>,
     /// `confusion[true][predicted]`, counts of the out-of-fold predictions behind `nested_score` (or `search_score`).
     pub confusion: Vec<Vec<usize>>,
@@ -561,7 +562,10 @@ pub fn select(
 
     // The nested score: each outer fold searches on the others and predicts itself with the structure it chose.
     let outer_folds = config.folds.min(group_total);
-    let (nested_score, predicted) = if config.nested && group_total >= 3 {
+    // Round robin gives an outer fold at most ceil(groups / folds) groups; its training set then needs two groups
+    // left for the inner cross-validation of the search.
+    let searchable = group_total - group_total.div_ceil(outer_folds) >= 2;
+    let (nested_score, predicted) = if config.nested && searchable {
         let fold = fold_of(&all, &groups, outer_folds);
         let mut predicted = vec![0; segments.len()];
         for f in 0..outer_folds {
@@ -787,6 +791,35 @@ mod tests {
         assert_eq!(report.ranking.len(), 5);
         let (class, _) = report.model.classify(&sine(20.0, 4, &mut rng)).unwrap();
         assert_eq!(class, "fast");
+    }
+
+    /// Two folds over three groups leave one outer fold training on a single group, which has no inner folds:
+    /// the nested score is skipped there instead of fitting on an empty training set.
+    #[test]
+    fn nested_scoring_skips_outer_folds_too_small_to_search() {
+        let mut rng = ChaCha8Rng::seed_from_u64(3);
+        let segments: Vec<Segment> = (0..6)
+            .map(|i| Segment {
+                label: ["slow", "fast"][i % 2].into(),
+                group: format!("g{}", i / 2),
+                source: format!("seg {i}"),
+                samples: sine([4.0, 20.0][i % 2], 4, &mut rng),
+            })
+            .collect();
+        let config = SearchConfig {
+            wl: 256,
+            ws: 128,
+            dm: 4,
+            order: 2,
+            n_terms: 2,
+            delays: vec![7, 10],
+            delay_range: [1, 4],
+            folds: 2,
+            shrinkage: 0.1,
+            nested: true,
+        };
+        let report = select(&segments, vec!["A".into(), "B".into()], config, 2).unwrap();
+        assert!(report.nested_score.is_none(), "{report:?}");
     }
 
     #[test]
