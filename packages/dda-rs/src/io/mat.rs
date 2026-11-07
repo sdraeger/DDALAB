@@ -16,7 +16,7 @@ const MAX_SMALL: u64 = 1 << 24;
 const MAX_DEPTH: usize = 32;
 
 fn malformed(what: &str) -> DDAError {
-    DDAError::UnsupportedFileType(format!("malformed MAT-file: {what}"))
+    DDAError::MalformedFile(format!("MAT-file: {what}"))
 }
 
 /// How a numeric array stores its values (MAT data types 1 to 13).

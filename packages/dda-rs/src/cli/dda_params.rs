@@ -2,12 +2,11 @@ use crate::blocks::validate_request;
 use crate::cli::args as cli;
 use crate::{
     format_select_mask, generate_select_mask, AlgorithmSelection, ComputeDevice, DDARequest,
-    DDAResult, DelayParameters, FileType, ModelParameters, PreprocessingOptions, PureRustOptions,
+    DDAResult, DelayParameters, ModelParameters, PreprocessingOptions, PureRustOptions,
     PureRustProgress, PureRustRunner, TimeRange, VariantChannelConfig, WindowParameters,
 };
 use serde::Deserialize;
 use std::collections::{BTreeSet, HashMap};
-use std::path::Path;
 
 fn pure_rust_common_support_reason(request: &DDARequest) -> Result<(), String> {
     if request
@@ -444,15 +443,6 @@ pub fn build_dda_request(config: RequestConfig<'_>) -> Result<DDARequest, String
         variant_configs: config.variant_configs.filter(|cfg| !cfg.is_empty()),
         sampling_rate: config.sampling_rate,
     })
-}
-
-/// Check if a file extension is supported for DDA analysis.
-#[allow(dead_code)]
-pub fn is_supported_extension(path: &Path) -> bool {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .map(|ext| FileType::from_extension(ext).is_some())
-        .unwrap_or(false)
 }
 
 #[cfg(test)]

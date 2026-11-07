@@ -46,6 +46,10 @@ fn unsupported(message: String) -> DDAError {
     DDAError::UnsupportedFileType(message)
 }
 
+fn malformed(message: String) -> DDAError {
+    DDAError::MalformedFile(message)
+}
+
 /// Header text without its padding: UTF-8, or Latin-1 when the bytes are not valid UTF-8.
 fn text(raw: &[u8]) -> String {
     let text = std::str::from_utf8(raw)
@@ -56,7 +60,7 @@ fn text(raw: &[u8]) -> String {
 
 fn int(what: &str, raw: &[u8]) -> Result<i64> {
     text(raw).parse().map_err(|_| {
-        unsupported(format!(
+        malformed(format!(
             "header field '{what}' is malformed: '{}'",
             text(raw)
         ))
@@ -69,7 +73,7 @@ fn float(what: &str, raw: &[u8]) -> Result<f64> {
         .ok()
         .filter(|v| v.is_finite())
         .ok_or_else(|| {
-            unsupported(format!(
+            malformed(format!(
                 "header field '{what}' is malformed: '{}'",
                 text(raw)
             ))
@@ -258,7 +262,7 @@ pub fn open_edf(files: &FileSet, name: &str) -> Result<Box<dyn Reader>> {
             .checked_mul(bytes_per_sample)
             .and_then(|bytes| record_bytes.checked_add(bytes))
             .ok_or_else(|| {
-                unsupported("a data record is larger than this platform can address".to_string())
+                malformed("a data record is larger than this platform can address".to_string())
             })?;
     }
     if record_bytes == 0 {

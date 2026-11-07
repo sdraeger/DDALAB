@@ -1,15 +1,17 @@
 use thiserror::Error;
 
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum DDAError {
-    #[error("DDA binary not found at: {0}")]
-    BinaryNotFound(String),
-
     #[error("Input file not found: {0}")]
     FileNotFound(String),
 
     #[error("Unsupported file type: {0}")]
     UnsupportedFileType(String),
+
+    /// A file of a supported type whose content does not parse: a truncated or corrupt header.
+    #[error("Malformed file: {0}")]
+    MalformedFile(String),
 
     #[error("DDA execution failed: {0}")]
     ExecutionFailed(String),

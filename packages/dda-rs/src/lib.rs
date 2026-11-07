@@ -10,7 +10,6 @@ pub mod error;
 pub mod io;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod lsl;
-pub mod network_motifs;
 pub mod profiling;
 pub mod tiles;
 pub mod types;
@@ -32,6 +31,5 @@ pub use error::{DDAError, Result};
 #[cfg(not(target_arch = "wasm32"))]
 pub use io::FileSource;
 pub use io::{BlockCache, ByteSource, FileSet, MemorySource};
-pub use network_motifs::*;
 pub use types::*;
 pub use variants::*;
