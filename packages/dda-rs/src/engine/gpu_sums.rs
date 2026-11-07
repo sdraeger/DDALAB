@@ -402,6 +402,13 @@ impl GpuSumsSolver {
     ) -> Result<Vec<WindowSolutions>> {
         let terms = &model.primary_terms;
         let layout = Layout::new(jobs, terms.len());
+        // Only CCD-family variants: no basic problem, so nothing for the GPU (empty buffers would fail validation).
+        if layout.pairs.is_empty() {
+            return Ok(windows
+                .iter()
+                .map(|window| solve_window_on_cpu(window, jobs, model, svd_backend))
+                .collect());
+        }
         let rows = model.window_length;
         // Per window, the scaled vectors of every used channel and their scales; `None` when a used channel misses
         // a sample, which the CPU handles.
@@ -435,7 +442,8 @@ impl GpuSumsSolver {
                 Some((data, scales))
             })
             .collect();
-        let per_window = (layout.vectors() * rows * 8).max(1) as u64;
+        // Each window binds its vectors and receives 80 bytes per sum: the larger bounds the batch.
+        let per_window = (layout.vectors() * rows * 8).max(layout.pairs.len() * 80) as u64;
         let batch = (self.max_binding / per_window).max(1) as usize;
         let gpu: Vec<usize> = (0..windows.len())
             .filter(|&w| vectors[w].is_some())
@@ -709,6 +717,37 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// A run with only CCD-family variants leaves the basic jobs empty: no GPU work, and no panic.
+    #[test]
+    fn empty_jobs_solve_without_gpu_work() {
+        let Some(mut solver) = solver() else { return };
+        let model = ModelSpec {
+            dm: 4,
+            window_length: 200,
+            window_step: 100,
+            max_delay: 10,
+            primary_terms: vec![vec![7], vec![10]],
+            secondary_terms: vec![vec![7], vec![10]],
+        };
+        let rows = model.window_length + model.max_delay + 2 * model.dm;
+        let raw: Vec<Vec<f64>> = (0..rows)
+            .map(|t| vec![(t as f64 * 0.3).sin(), (t as f64 * 0.7).cos()])
+            .collect();
+        let window = PreparedWindow::from_raw(&raw, &model, &PureRustOptions::default()).unwrap();
+        let jobs = BasicJobs {
+            channel_count: 2,
+            st_channels: &[],
+            ct_groups: &[],
+            de_groups: &[],
+            cd_pairs: &[],
+            sy_pairs: &[],
+        };
+        let solved = solver
+            .solve_windows(&[window], &jobs, &model, SvdBackend::RobustSvd)
+            .unwrap();
+        assert_eq!(solved.len(), 1);
     }
 
     /// Every basic flavor's solutions from the GPU equal the CPU's (`solve_window_on_cpu`) to 1e-6, the accuracy of
