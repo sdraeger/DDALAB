@@ -327,6 +327,11 @@ pub(crate) fn solve_regression_window(
     )
 }
 
+/// Least squares over consecutive windows with a penalty `lambda` on the change of every coefficient between
+/// neighbours: minimizes sum_w |y_w - X_w b_w|^2 + lambda sum_w |b_{w+1} - b_w|^2. Its normal equations are block
+/// tridiagonal (blocks X_w'X_w plus lambda times each window's neighbour count, coupled by -lambda I), solved by
+/// block Cholesky in O(W p^3) time and O(W p^2) memory; a system that is not positive definite (a coefficient no
+/// window determines) falls back to the SVD of the assembled matrix, which gives the minimum-norm solution.
 pub(crate) fn solve_temporally_regularized_windows(
     windows: &[RegressionWindow],
     lambda: f64,
@@ -339,55 +344,183 @@ pub(crate) fn solve_temporally_regularized_windows(
     if cols == 0 {
         return vec![SolvedBlock::nan(cols); windows.len()];
     }
-
     let count = windows.len();
-    let total_cols = count * cols;
-    let mut normal = DMatrix::<f64>::zeros(total_cols, total_cols);
-    let mut rhs = DVector::<f64>::zeros(total_cols);
-
-    for (window_idx, window) in windows.iter().enumerate() {
-        if window.rows > 0 {
+    let (mut diagonal, rhs): (Vec<DMatrix<f64>>, Vec<DVector<f64>>) = windows
+        .iter()
+        .map(|window| {
+            if window.rows == 0 {
+                return (DMatrix::zeros(cols, cols), DVector::zeros(cols));
+            }
             let a = DMatrix::from_row_slice(window.rows, cols, &window.flat_design);
             let y = DVector::from_column_slice(&window.fit_target);
-            let xtx = a.transpose() * &a;
-            let xty = a.transpose() * &y;
-            for row in 0..cols {
-                rhs[window_idx * cols + row] += xty[row];
-                for col in 0..cols {
-                    normal[(window_idx * cols + row, window_idx * cols + col)] += xtx[(row, col)];
-                }
-            }
-        }
-        if lambda > 0.0 && window_idx + 1 < count {
-            for diag in 0..cols {
-                let current = window_idx * cols + diag;
-                let next = (window_idx + 1) * cols + diag;
-                normal[(current, current)] += lambda;
-                normal[(next, next)] += lambda;
-                normal[(current, next)] -= lambda;
-                normal[(next, current)] -= lambda;
+            (a.transpose() * &a, a.transpose() * &y)
+        })
+        .unzip();
+    if lambda > 0.0 {
+        for (window_idx, block) in diagonal.iter_mut().enumerate() {
+            let neighbours = usize::from(window_idx > 0) + usize::from(window_idx + 1 < count);
+            for d in 0..cols {
+                block[(d, d)] += lambda * neighbours as f64;
             }
         }
     }
-
-    let coefficients = solve_matrix_with_backend(&normal, &rhs, svd_backend);
+    let coefficients = block_tridiagonal_solve(&diagonal, &rhs, lambda)
+        .unwrap_or_else(|| dense_regularized_solve(&diagonal, &rhs, lambda, svd_backend));
 
     windows
         .iter()
-        .enumerate()
-        .map(|(window_idx, window)| {
+        .zip(coefficients)
+        .map(|(window, coefficients)| {
             if window.rows == 0 {
                 return SolvedBlock::nan(cols);
             }
-            let coeff_slice = coefficients.rows(window_idx * cols, cols).clone_owned();
             let a = DMatrix::from_row_slice(window.rows, cols, &window.flat_design);
-            let prediction = &a * &coeff_slice;
+            let prediction = &a * &coefficients;
             SolvedBlock {
-                coefficients: coeff_slice.iter().copied().collect(),
+                coefficients: coefficients.iter().copied().collect(),
                 rmse: residual_rmse(&window.residual_target, &prediction),
             }
         })
         .collect()
+}
+
+/// The solution of the block tridiagonal system with diagonal blocks `diagonal` and off-diagonal blocks -lambda I,
+/// by block Cholesky: S_0 = D_0, S_w = D_w - lambda^2 S_{w-1}^-1, forward r_w = b_w + lambda S_{w-1}^-1 r_{w-1}, back
+/// x_w = S_w^-1 (r_w + lambda x_{w+1}). `None` when a Schur complement S_w is not positive definite.
+fn block_tridiagonal_solve(
+    diagonal: &[DMatrix<f64>],
+    rhs: &[DVector<f64>],
+    lambda: f64,
+) -> Option<Vec<DVector<f64>>> {
+    let mut factors: Vec<nalgebra::Cholesky<f64, nalgebra::Dyn>> =
+        Vec::with_capacity(diagonal.len());
+    let mut reduced: Vec<DVector<f64>> = Vec::with_capacity(diagonal.len());
+    for (block, b) in diagonal.iter().zip(rhs) {
+        let (schur, r) = match factors.last() {
+            None => (block.clone(), b.clone()),
+            Some(previous) => {
+                let inverse = previous.inverse();
+                let carried = previous.solve(reduced.last()?);
+                (block - &inverse * (lambda * lambda), b + carried * lambda)
+            }
+        };
+        let factor = schur.cholesky()?;
+        // A near-singular block (a coefficient no window pins down) passes Cholesky with huge, meaningless values;
+        // the spread of L's diagonal squared bounds its condition, and past 1e12 the SVD's minimum-norm answer is
+        // the one to give.
+        let (low, high) = factor
+            .l_dirty()
+            .diagonal()
+            .iter()
+            .fold((f64::INFINITY, 0.0_f64), |(lo, hi), &v| {
+                (lo.min(v), hi.max(v))
+            });
+        if !(low > 0.0) || (high / low).powi(2) > 1e12 {
+            return None;
+        }
+        factors.push(factor);
+        reduced.push(r);
+    }
+    let mut solution: Vec<DVector<f64>> = vec![DVector::zeros(0); diagonal.len()];
+    for w in (0..diagonal.len()).rev() {
+        let r = match solution.get(w + 1) {
+            Some(next) if w + 1 < diagonal.len() => &reduced[w] + next * lambda,
+            _ => reduced[w].clone(),
+        };
+        solution[w] = factors[w].solve(&r);
+    }
+    solution
+        .iter()
+        .flatten()
+        .all(|v| v.is_finite())
+        .then_some(solution)
+}
+
+/// The same system assembled whole and solved by SVD: the fallback for a singular one.
+fn dense_regularized_solve(
+    diagonal: &[DMatrix<f64>],
+    rhs: &[DVector<f64>],
+    lambda: f64,
+    svd_backend: SvdBackend,
+) -> Vec<DVector<f64>> {
+    let cols = rhs[0].len();
+    let total = diagonal.len() * cols;
+    let mut normal = DMatrix::<f64>::zeros(total, total);
+    let mut stacked = DVector::<f64>::zeros(total);
+    for (w, (block, b)) in diagonal.iter().zip(rhs).enumerate() {
+        normal
+            .view_mut((w * cols, w * cols), (cols, cols))
+            .copy_from(block);
+        stacked.rows_mut(w * cols, cols).copy_from(b);
+        if w + 1 < diagonal.len() {
+            for d in 0..cols {
+                normal[(w * cols + d, (w + 1) * cols + d)] = -lambda;
+                normal[((w + 1) * cols + d, w * cols + d)] = -lambda;
+            }
+        }
+    }
+    let solution = solve_matrix_with_backend(&normal, &stacked, svd_backend);
+    (0..diagonal.len())
+        .map(|w| solution.rows(w * cols, cols).clone_owned())
+        .collect()
+}
+
+#[cfg(test)]
+mod temporal_tests {
+    use super::*;
+
+    fn system(
+        cols: usize,
+        lambda: f64,
+        column: impl Fn(usize, usize, usize) -> f64,
+    ) -> (Vec<DMatrix<f64>>, Vec<DVector<f64>>) {
+        let diagonal = (0..40)
+            .map(|w| {
+                let a = DMatrix::from_fn(50, cols, |r, c| column(r, c, w));
+                let mut block = a.transpose() * &a;
+                let neighbours = usize::from(w > 0) + usize::from(w + 1 < 40);
+                for d in 0..cols {
+                    block[(d, d)] += lambda * neighbours as f64;
+                }
+                block
+            })
+            .collect();
+        let rhs = (0..40)
+            .map(|w| DVector::from_fn(cols, |r, _| ((r + w) as f64 * 0.91).cos()))
+            .collect();
+        (diagonal, rhs)
+    }
+
+    fn assert_close(left: &[DVector<f64>], right: &[DVector<f64>]) {
+        for (x, y) in left.iter().zip(right) {
+            assert!((x - y).norm() <= 1e-9 * y.norm().max(1.0), "{x} vs {y}");
+        }
+    }
+
+    /// The block solver and the dense SVD agree on a well-posed system of 40 windows.
+    #[test]
+    fn block_tridiagonal_solve_equals_the_dense_solution() {
+        let lambda = 2.5;
+        let (diagonal, rhs) = system(3, lambda, |r, c, w| {
+            ((r * (c + 2) + w) as f64 * 0.37 * (c + 1) as f64).sin()
+        });
+        let block = block_tridiagonal_solve(&diagonal, &rhs, lambda).expect("well conditioned");
+        assert_close(
+            &block,
+            &dense_regularized_solve(&diagonal, &rhs, lambda, SvdBackend::RobustSvd),
+        );
+    }
+
+    /// Three columns in a two-dimensional span leave a direction no window determines: the block solver declines
+    /// and the minimum-norm SVD answers.
+    #[test]
+    fn a_singular_system_falls_back_to_the_svd() {
+        let lambda = 2.5;
+        let (diagonal, rhs) = system(3, lambda, |r, c, w| {
+            ((r * 7 + c * 13 + w * 3) as f64 * 0.37).sin()
+        });
+        assert!(block_tridiagonal_solve(&diagonal, &rhs, lambda).is_none());
+    }
 }
 
 fn solve_least_squares_from_flat(
