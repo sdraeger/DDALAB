@@ -421,7 +421,11 @@ fn char_text(units: &[u32], dims: &[usize], utf8: bool) -> String {
         return String::from_utf8_lossy(&bytes).into_owned();
     }
     // A header may claim more rows than the array stores; each stored character fills at most one row.
-    let rows = dims.first().copied().unwrap_or(1).clamp(1, units.len().max(1));
+    let rows = dims
+        .first()
+        .copied()
+        .unwrap_or(1)
+        .clamp(1, units.len().max(1));
     if rows == 1 {
         return units.iter().filter_map(|&u| char::from_u32(u)).collect();
     }

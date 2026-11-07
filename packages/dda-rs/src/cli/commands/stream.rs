@@ -251,10 +251,13 @@ fn stream(args: &StreamArgs) -> Result<(), String> {
         .iter()
         .flatten()
         .map(|v| {
-            (
-                v.variant_id.clone(),
-                v.channel_labels.clone().unwrap_or_default(),
-            )
+            // One outlet channel per row: rows without labels are numbered, so the outlet stays numeric.
+            let rows = v
+                .channel_labels
+                .clone()
+                .filter(|labels| labels.len() == v.q_matrix.len())
+                .unwrap_or_else(|| (1..=v.q_matrix.len()).map(|r| format!("row {r}")).collect());
+            (v.variant_id.clone(), rows)
         })
         .collect();
     let outlets: BTreeMap<String, Outlet> = if args.outlet {
