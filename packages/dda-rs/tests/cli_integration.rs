@@ -1208,3 +1208,31 @@ fn a_zero_second_segment_is_refused() {
         .code(2)
         .stderr(predicate::str::contains("positive"));
 }
+
+/// A window step of zero is refused when parsed: `stream` would otherwise run DDA on every sample.
+#[test]
+fn a_zero_window_step_is_refused() {
+    ddalab()
+        .args(["stream", "--stream", "eeg", "--ws", "0"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("--ws"));
+}
+
+/// `stream` checks its variants before it waits for a stream, as `run` does.
+#[test]
+fn stream_refuses_an_unknown_variant_before_waiting() {
+    ddalab()
+        .args([
+            "stream",
+            "--stream",
+            "no-such-stream",
+            "--timeout",
+            "0.1",
+            "--variants",
+            "XX",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Unknown variant"));
+}

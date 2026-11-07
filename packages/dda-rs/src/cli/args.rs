@@ -73,11 +73,11 @@ pub struct StreamArgs {
     pub cd_pairs: Option<Vec<String>>,
 
     /// Window length in samples
-    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_LENGTH)]
+    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_LENGTH, value_parser = clap::value_parser!(u32).range(1..))]
     pub wl: u32,
 
     /// Samples between windows: a result every ws samples
-    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_STEP)]
+    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_STEP, value_parser = clap::value_parser!(u32).range(1..))]
     pub ws: u32,
 
     /// Delay values
@@ -169,11 +169,11 @@ pub struct ClassifyArgs {
     pub reference: ReferenceArgs,
 
     /// Window length in samples
-    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_LENGTH)]
+    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_LENGTH, value_parser = clap::value_parser!(u32).range(1..))]
     pub wl: u32,
 
     /// Window step in samples
-    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_STEP)]
+    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_STEP, value_parser = clap::value_parser!(u32).range(1..))]
     pub ws: u32,
 
     /// Embedding dimension
@@ -289,11 +289,11 @@ pub struct RunArgs {
     pub variants: Vec<String>,
 
     /// Window length in samples
-    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_LENGTH)]
+    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_LENGTH, value_parser = clap::value_parser!(u32).range(1..))]
     pub wl: u32,
 
     /// Window step in samples
-    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_STEP)]
+    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_STEP, value_parser = clap::value_parser!(u32).range(1..))]
     pub ws: u32,
 
     /// Channels per CT and DE group when no pairs are given (default: every selected channel)
@@ -509,11 +509,11 @@ pub struct BatchArgs {
     pub variants: Vec<String>,
 
     /// Window length in samples
-    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_LENGTH)]
+    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_LENGTH, value_parser = clap::value_parser!(u32).range(1..))]
     pub wl: u32,
 
     /// Window step in samples
-    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_STEP)]
+    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_STEP, value_parser = clap::value_parser!(u32).range(1..))]
     pub ws: u32,
 
     /// Channels per CT and DE group when no pairs are given (default: every selected channel)
