@@ -7,7 +7,7 @@ import { expect, test } from "vitest";
 import { load } from "../../../ddalab-wasm/node/host.mjs";
 import { decodeReply, type HostRead, instantiateCore, unframe } from "./abi";
 import golden from "./golden/inspect-fixture-edf.json";
-import type { DDARequest, OpenRequest, Progress } from "./types";
+import type { DDARequest, OpenRequest } from "./types";
 
 const FIXTURES = new URL("../../../dda-rs/tests/fixtures/", import.meta.url);
 const wasm = new WebAssembly.Module(readFileSync(new URL("./ddalab.wasm", import.meta.url)));
@@ -28,8 +28,7 @@ function recording(...names: string[]): OpenRequest {
   return { primary: names[0], files };
 }
 
-const progress: Progress[] = [];
-const core = await instantiateCore(wasm, read, (p) => progress.push(p));
+const core = await instantiateCore(wasm, read);
 const reference = await load(new URL("./ddalab.wasm", import.meta.url).pathname);
 const fixturePath = (name: string) => new URL(name, FIXTURES).pathname;
 
@@ -79,16 +78,10 @@ test("errors_throw_and_the_instance_survives", () => {
 
 test("host_imports_never_throw", async () => {
   let failing = true;
-  const flaky = await instantiateCore(
-    wasm,
-    (fileId, offset, dst) => {
-      if (failing) throw new Error("NotReadableError");
-      read(fileId, offset, dst);
-    },
-    () => {
-      throw new Error("progress listener failed");
-    },
-  );
+  const flaky = await instantiateCore(wasm, (fileId, offset, dst) => {
+    if (failing) throw new Error("NotReadableError");
+    read(fileId, offset, dst);
+  });
   const input = recording("fixture.edf");
   expect(() => flaky.open(input)).toThrow(/host read failed for fixture\.edf at offset 0/);
   failing = false;
@@ -171,14 +164,12 @@ test("blocks_and_manifest_match_reference", () => {
   const plan = core.plan(handle, req, 0);
   expect(plan.blocks.length).toBe(plan.windows);
   expect(JSON.parse(JSON.stringify(plan))).toEqual(reference.plan(ref, req, 0));
-  progress.length = 0;
   for (const block of plan.blocks) {
     const chunks = core
       .runBlock(handle, req, block)
       .chunks.map((c) => ({ ...c, bytes: new Uint8Array(c.bytes) }));
     expect(chunks).toEqual(reference.runBlock(ref, req, block.w0, block.w1));
   }
-  expect(progress.length).toBeGreaterThan(0);
   const extras = {
     id: "run",
     created_at_iso: "2026-10-25T00:00:00Z",

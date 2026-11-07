@@ -73,7 +73,7 @@ export interface OverviewScene {
 }
 
 /** Top band of the strip that holds the tick labels, in CSS px. */
-export const TICK_BAND = 16;
+const TICK_BAND = 16;
 
 export function drawOverview(ctx: CanvasRenderingContext2D, scene: OverviewScene) {
   const { width: W, height: H, dpr, rows, rate, level, tiles, colors } = scene;

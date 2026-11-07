@@ -11,15 +11,7 @@ import Moon from "lucide-react/dist/esm/icons/moon.mjs";
 import PanelLeft from "lucide-react/dist/esm/icons/panel-left.mjs";
 import PanelRight from "lucide-react/dist/esm/icons/panel-right.mjs";
 import Ruler from "lucide-react/dist/esm/icons/ruler.mjs";
-import {
-  Activity,
-  type ButtonHTMLAttributes,
-  lazy,
-  type ReactElement,
-  Suspense,
-  useEffect,
-  useSyncExternalStore,
-} from "react";
+import { Activity, type ButtonHTMLAttributes, lazy, type ReactElement, Suspense, useEffect } from "react";
 import { RunButton } from "../features/analysis/RunBar";
 import { useAnnotationKeys } from "../features/annotations/Annotate";
 import { ResultBoundary } from "../features/history/ResultBoundary";
@@ -42,9 +34,9 @@ import {
 } from "../store/store";
 import { shortNames } from "../store/tabs";
 import controls from "../styles/controls.module.css";
+import { useMedia, usePhone } from "../styles/media";
 import menu from "./AppMenu.module.css";
 import { Logo } from "./Logo";
-import { usePhone } from "./phone";
 import styles from "./Shell.module.css";
 import { UpdateNotice } from "./UpdateNotice";
 import { lazyPart } from "./viewerChunk";
@@ -378,17 +370,10 @@ function PanelButton(props: {
   );
 }
 
-const darkQuery = () => matchMedia("(prefers-color-scheme: dark)");
-const subscribeToScheme = (onChange: () => void) => {
-  const query = darkQuery();
-  query.addEventListener("change", onChange);
-  return () => query.removeEventListener("change", onChange);
-};
-
 /** Follows the system until pressed; the pick is remembered (theme.ts). The page crossfades to the new theme. */
 function ThemeToggle() {
   const picked = useStore((s) => s.theme);
-  const systemDark = useSyncExternalStore(subscribeToScheme, () => darkQuery().matches);
+  const systemDark = useMedia("(prefers-color-scheme: dark)");
   const dark = (picked ?? (systemDark ? "dark" : "light")) === "dark";
   return (
     <IconButton

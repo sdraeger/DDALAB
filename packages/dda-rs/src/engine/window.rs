@@ -2,7 +2,10 @@ use crate::error::{DDAError, Result};
 use rayon::prelude::*;
 
 use super::model::ModelSpec;
-use super::{NormalizationMode, PureRustOptions, PARALLEL_BATCH_MIN_LEN};
+use super::PARALLEL_BATCH_MIN_LEN;
+
+/// Runs of this many equal samples in a window are missing.
+pub(crate) const NR_EXCLUDE: usize = 10;
 
 #[derive(Debug, Clone)]
 pub(crate) struct PreparedWindow {
@@ -12,11 +15,7 @@ pub(crate) struct PreparedWindow {
 }
 
 impl PreparedWindow {
-    pub(crate) fn from_raw(
-        raw_window: &[Vec<f64>],
-        model: &ModelSpec,
-        options: &PureRustOptions,
-    ) -> Result<Self> {
+    pub(crate) fn from_raw(raw_window: &[Vec<f64>], model: &ModelSpec) -> Result<Self> {
         if raw_window.is_empty() {
             return Err(DDAError::InvalidParameter(
                 "Raw DDA window is empty".to_string(),
@@ -29,15 +28,9 @@ impl PreparedWindow {
                 *value = f64::NAN;
             }
         }
-        apply_nan_runs(&mut data, options.nr_exclude);
-        let derivative = deriv_all_2d(&data, model.dm, options.derivative_step)?;
-        normalize_window(
-            &data,
-            &derivative,
-            model.dm,
-            model.max_delay,
-            options.normalization_mode,
-        )
+        apply_nan_runs(&mut data, NR_EXCLUDE);
+        let derivative = deriv_all_2d(&data, model.dm)?;
+        normalize_window(&data, &derivative, model.dm, model.max_delay)
     }
 }
 
@@ -79,7 +72,7 @@ fn apply_nan_runs(data: &mut [Vec<f64>], nr_exclude: usize) {
     }
 }
 
-fn deriv_all_2d(data: &[Vec<f64>], dm: usize, step: usize) -> Result<Vec<Vec<f64>>> {
+fn deriv_all_2d(data: &[Vec<f64>], dm: usize) -> Result<Vec<Vec<f64>>> {
     if data.is_empty() {
         return Err(DDAError::InvalidParameter(
             "Cannot derive an empty DDA window".to_string(),
@@ -94,13 +87,11 @@ fn deriv_all_2d(data: &[Vec<f64>], dm: usize, step: usize) -> Result<Vec<Vec<f64
             rows
         )));
     }
-    let step = step.max(1);
-    let stencil_count = dm / step;
+    let stencil_count = dm;
     if stencil_count == 0 {
-        return Err(DDAError::InvalidParameter(format!(
-            "Invalid derivative_step={} for dm={}",
-            step, dm
-        )));
+        return Err(DDAError::InvalidParameter(
+            "the derivative needs dm of at least 1".to_string(),
+        ));
     }
 
     let effective_rows = rows - 2 * dm;
@@ -110,7 +101,7 @@ fn deriv_all_2d(data: &[Vec<f64>], dm: usize, step: usize) -> Result<Vec<Vec<f64
             let mut valid = !data[center][col].is_nan();
             let mut value = 0.0;
             for stencil in 1..=stencil_count {
-                let offset = stencil * step;
+                let offset = stencil;
                 let plus = data[center + offset][col];
                 let minus = data[center - offset][col];
                 if plus.is_nan() || minus.is_nan() {
@@ -140,7 +131,6 @@ fn normalize_window(
     derivative: &[Vec<f64>],
     dm: usize,
     max_delay: usize,
-    mode: NormalizationMode,
 ) -> Result<PreparedWindow> {
     let rows = raw.len();
     let cols = raw[0].len();
@@ -154,70 +144,42 @@ fn normalize_window(
     let trimmed = |col: usize| &derivative[col][max_delay..max_delay + window_length];
 
     // Column statistics accumulate row by row because samples are stored row-major
-    let (center, scale) = match mode {
-        NormalizationMode::Raw => {
-            let deriv = (0..cols).map(|col| trimmed(col).to_vec()).collect();
-            return Ok(PreparedWindow {
-                shifted,
-                deriv,
-                max_delay,
-            });
-        }
-        NormalizationMode::MinMax => {
-            let mut min_values = vec![f64::INFINITY; cols];
-            let mut max_values = vec![f64::NEG_INFINITY; cols];
-            for row in &shifted {
-                for (col, &value) in row.iter().enumerate() {
-                    if !value.is_nan() {
-                        min_values[col] = min_values[col].min(value);
-                        max_values[col] = max_values[col].max(value);
-                    }
+    let (center, scale) = {
+        let mut sums = vec![0.0; cols];
+        let mut counts = vec![0usize; cols];
+        for row in &shifted {
+            for (col, &value) in row.iter().enumerate() {
+                if !value.is_nan() {
+                    sums[col] += value;
+                    counts[col] += 1;
                 }
             }
-            let ranges = max_values
-                .iter()
-                .zip(&min_values)
-                .map(|(max_value, min_value)| max_value - min_value)
-                .collect::<Vec<_>>();
-            (min_values, ranges)
         }
-        NormalizationMode::ZScore => {
-            let mut sums = vec![0.0; cols];
-            let mut counts = vec![0usize; cols];
-            for row in &shifted {
-                for (col, &value) in row.iter().enumerate() {
-                    if !value.is_nan() {
-                        sums[col] += value;
-                        counts[col] += 1;
-                    }
+        let means = sums
+            .iter()
+            .zip(&counts)
+            .map(|(sum, &count)| sum / (count as f64))
+            .collect::<Vec<_>>();
+        let mut squares = vec![0.0; cols];
+        for row in &shifted {
+            for (col, &value) in row.iter().enumerate() {
+                if !value.is_nan() {
+                    squares[col] += (value - means[col]).powi(2);
                 }
             }
-            let means = sums
-                .iter()
-                .zip(&counts)
-                .map(|(sum, &count)| sum / (count as f64))
-                .collect::<Vec<_>>();
-            let mut squares = vec![0.0; cols];
-            for row in &shifted {
-                for (col, &value) in row.iter().enumerate() {
-                    if !value.is_nan() {
-                        squares[col] += (value - means[col]).powi(2);
-                    }
-                }
-            }
-            let deviations = squares
-                .iter()
-                .zip(&counts)
-                .map(|(square, &count)| {
-                    if count < 2 {
-                        f64::NAN
-                    } else {
-                        (square / ((count - 1) as f64)).sqrt()
-                    }
-                })
-                .collect::<Vec<_>>();
-            (means, deviations)
         }
+        let deviations = squares
+            .iter()
+            .zip(&counts)
+            .map(|(square, &count)| {
+                if count < 2 {
+                    f64::NAN
+                } else {
+                    (square / ((count - 1) as f64)).sqrt()
+                }
+            })
+            .collect::<Vec<_>>();
+        (means, deviations)
     };
     let usable = |col: usize| scale[col].is_finite() && scale[col] != 0.0;
 

@@ -9,6 +9,7 @@ import { openRequestOf, type Part, partsOf, readSource } from "../core/sources";
 import { CACHE_MB } from "../core/tileCache";
 import type { Block, DDARequest } from "../core/types";
 import { stSums } from "../core/webgpu";
+import { messageOf } from "../core/words";
 
 /** The files of the recording: file id `n` is `parts[n - 1]`. */
 let parts: Part[] = [];
@@ -45,7 +46,7 @@ self.addEventListener("message", async ({ data }: MessageEvent<DdaRequest>) => {
   } catch (error) {
     stopped ||= error instanceof WebAssembly.RuntimeError;
     self.postMessage({
-      error: error instanceof Error ? error.message : String(error),
+      error: messageOf(error),
       trapped: error instanceof WebAssembly.RuntimeError,
     } satisfies DdaReply);
   }

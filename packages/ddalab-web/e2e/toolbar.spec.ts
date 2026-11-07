@@ -242,7 +242,7 @@ test("storage_clears_cached_tiles_but_an_open_recordings", async ({ page }) => {
   const clear = storage.getByRole("button", { name: "Clear cached tiles" });
   await page.getByRole("button", { name: "Local: data stays on this device" }).click();
   await expect(storage).toContainText(
-    /This site uses .+ of the .+ the browser allows it\. Cached tiles take \d+ kB\./,
+    /This site uses .+ of the .+ the browser allows it\. Cached tiles take [\d.,]+ kB\./,
   );
   await clear.click();
   await expect(storage).toContainText("Results stay, and so do the tiles of open recordings.");

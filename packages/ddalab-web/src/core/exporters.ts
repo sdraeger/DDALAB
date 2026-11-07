@@ -8,7 +8,7 @@ import { resultManifest, resultsDirectory } from "./resultStore";
 import type { VariantDocument } from "./types";
 
 /** Above this estimated size a text export is refused: the bundle holds the same arrays at a fraction of it. */
-export const TEXT_LIMIT = 512 * 2 ** 20;
+const TEXT_LIMIT = 512 * 2 ** 20;
 /**
  * Bytes of text per value. In the CSV, as `-0.17573526565987174,` takes. In the document's pretty layout, a value of a
  * matrix also takes its line and its indent: measured, 33.8 over the 6.4 million values of exporters.test.ts

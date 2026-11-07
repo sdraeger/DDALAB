@@ -26,7 +26,7 @@ export function ticks(
 }
 
 /** The unlabeled grid between ticks of `step`: the finest tick step that splits it into at most five parts. */
-export function minorStep(step: number): number {
+function minorStep(step: number): number {
   const parts = (m: number) => step / m;
   return (
     STEPS.find((m) => m < step && parts(m) <= 5 && Math.abs(parts(m) - Math.round(parts(m))) < 1e-6) ?? step

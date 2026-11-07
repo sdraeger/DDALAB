@@ -1,7 +1,6 @@
-use super::open_reader;
+use super::open;
 use crate::cli::args::InspectArgs;
-use crate::cli::exit_codes;
-use crate::cli::output;
+use crate::cli::{execution_error, input_error, output, Failure};
 use crate::io::RecordingInfo;
 use serde::Serialize;
 
@@ -13,18 +12,12 @@ struct Inspection {
     analysis_channels: Vec<usize>,
 }
 
-pub fn execute(args: InspectArgs) -> i32 {
-    let reader = match open_reader(&args.file, args.sr, &args.reference) {
-        Ok(reader) => reader,
-        Err(code) => return code,
-    };
-    let (annotations, scan_warnings) = match reader.scan_annotations() {
-        Ok(scan) => scan,
-        Err(error) => {
-            eprintln!("Error: {}: {error}", args.file);
-            return exit_codes::EXECUTION_ERROR;
-        }
-    };
+pub fn execute(args: InspectArgs) -> Result<(), Failure> {
+    let reference = args.reference.parse().map_err(input_error)?;
+    let (_, reader) = open(&args.file, args.sr, reference.as_ref()).map_err(input_error)?;
+    let (annotations, scan_warnings) = reader
+        .scan_annotations()
+        .map_err(|error| execution_error(format!("{}: {error}", args.file)))?;
     let mut info = reader.info().clone();
     info.annotations = annotations;
     info.warnings.extend(scan_warnings);
@@ -34,14 +27,10 @@ pub fn execute(args: InspectArgs) -> i32 {
     };
 
     if args.json {
-        if let Err(error) = output::write_json(&inspection, false, None) {
-            eprintln!("Error: {error}");
-            return exit_codes::EXECUTION_ERROR;
-        }
-    } else {
-        print_table(&inspection);
+        return output::write_json(&inspection, false, None).map_err(execution_error);
     }
-    exit_codes::SUCCESS
+    print_table(&inspection);
+    Ok(())
 }
 
 fn print_table(inspection: &Inspection) {

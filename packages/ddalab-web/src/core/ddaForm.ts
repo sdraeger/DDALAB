@@ -1,7 +1,7 @@
 // The DDA settings form as a request. Only what the form itself decides is checked here: its fields, the standard
 // mode's fixed model and the run interval in samples. The core checks the request (channel indices, variants) when it
 // plans the run, and its message is shown as it is.
-import type { DDARequest, RecordingInfo, VariantInfo } from "../../core/types";
+import type { DDARequest, RecordingInfo, VariantInfo } from "./types";
 
 /** What the form holds, as typed. Expert values stay here in standard mode, which does not send them. */
 export interface DdaForm {
@@ -53,30 +53,31 @@ function wholeNumbers(text: string, min: number): number[] | undefined {
   return ok ? parts.map(Number) : undefined;
 }
 
-export function validateRequest(
-  draft: DdaDraft,
-  info: RecordingInfo,
-): { request?: DDARequest; errors: Record<string, string> } {
+/**
+ * The settings of `form` with `variants` chosen, as numbers, and why the ones that are not valid are not: the window,
+ * the step, the variants and, in expert mode, the model. What a run adds (channels, interval) `validateRequest` checks.
+ */
+export function readSettings(form: Omit<DdaForm, "variants">, variants: VariantInfo[]) {
   const errors: Record<string, string> = {};
   const positive = (field: "windowLength" | "windowStep" | "dm" | "order" | "nrTau", name: string) => {
-    const text = draft[field].trim();
+    const text = form[field].trim();
     if (/^\d+$/.test(text) && Number(text) >= 1) return Number(text);
     errors[field] = `${name} must be a whole number above 0`;
     return 0;
   };
 
-  if (draft.variants.length === 0) errors.variants = "Choose at least one variant";
+  if (variants.length === 0) errors.variants = "Choose at least one variant";
   const windowLength = positive("windowLength", "The window");
   const windowStep = positive("windowStep", "The step");
 
   let model = STANDARD;
-  if (draft.expert) {
+  if (form.expert) {
     const nrTau = positive("nrTau", "The delays used");
-    const delays = wholeNumbers(draft.delays, 0);
+    const delays = wholeNumbers(form.delays, 0);
     if (!delays) errors.delays = "Delays must be non-negative whole numbers";
     else if (delays.length < nrTau)
       errors.delays = `Give at least ${nrTau} delays, as many as the delays used`;
-    const modelTerms = wholeNumbers(draft.modelTerms, 1);
+    const modelTerms = wholeNumbers(form.modelTerms, 1);
     if (!modelTerms) errors.modelTerms = "Terms must be whole numbers above 0";
     model = {
       delays: delays ?? [],
@@ -86,7 +87,14 @@ export function validateRequest(
       nrTau,
     };
   }
+  return { errors, windowLength, windowStep, model };
+}
 
+export function validateRequest(
+  draft: DdaDraft,
+  info: RecordingInfo,
+): { request?: DDARequest; errors: Record<string, string> } {
+  const { errors, windowLength, windowStep, model } = readSettings(draft, draft.variants);
   const { channels } = draft;
   const pairwise = draft.variants.filter((v) => v.channel_format !== "individual");
   if (channels.length === 0) errors.channels = "Choose at least one channel";

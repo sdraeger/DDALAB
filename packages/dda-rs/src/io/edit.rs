@@ -4,7 +4,7 @@
 //! EEGLAB dataset becomes a BrainVision copy of its float32 samples. A BIDS `_channels.tsv` beside the recording comes
 //! along with the edited names and units.
 
-use super::{ascii, brainvision, edf, open_eeglab, FileSet};
+use super::{ascii, brainvision, edf, open_eeglab, FileSet, Format};
 use crate::error::{DDAError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -88,21 +88,14 @@ pub(super) fn copy_name(name: &str) -> String {
     }
 }
 
-fn extension(name: &str) -> String {
-    name.rsplit_once('.')
-        .map_or("", |(_, ext)| ext)
-        .to_ascii_lowercase()
-}
-
 /// The editable metadata of the recording `files.primary` names.
 pub fn metadata(files: &FileSet) -> Result<Metadata> {
     let name = files.primary.as_str();
-    match extension(name).as_str() {
-        "edf" | "bdf" => edf::metadata(files, name),
-        "vhdr" => brainvision::metadata(files, name),
-        "set" => eeglab_metadata(files, name),
-        "txt" | "csv" | "tsv" | "ascii" | "dat" => ascii::metadata(files, name),
-        _ => Err(DDAError::UnsupportedFileType(name.to_string())),
+    match Format::require(name)? {
+        Format::Edf => edf::metadata(files, name),
+        Format::BrainVision => brainvision::metadata(files, name),
+        Format::Eeglab => eeglab_metadata(files, name),
+        Format::Text => ascii::metadata(files, name),
     }
 }
 
@@ -111,11 +104,11 @@ pub fn edit(files: &FileSet, edited: &Metadata) -> Result<Vec<OutFile>> {
     let original = metadata(files)?;
     check(&original, edited)?;
     let name = files.primary.as_str();
-    let mut out = match extension(name).as_str() {
-        "edf" | "bdf" => edf::edited(files, name, edited)?,
-        "vhdr" => brainvision::edited(files, name, edited)?,
-        "set" => eeglab_edited(files, name, edited)?,
-        _ => ascii::edited(files, name, edited)?,
+    let mut out = match Format::require(name)? {
+        Format::Edf => edf::edited(files, name, edited)?,
+        Format::BrainVision => brainvision::edited(files, name, edited)?,
+        Format::Eeglab => eeglab_edited(files, name, edited)?,
+        Format::Text => ascii::edited(files, name, edited)?,
     };
     out.extend(channels_tsv(files, &original, edited));
     Ok(out)

@@ -1,10 +1,7 @@
 use crate::cli::args::ValidateArgs;
-use crate::cli::exit_codes;
-use crate::cli::output;
-use crate::io::{open_recording, FileSet};
-use crate::DDAError;
+use crate::cli::{exit_codes, output, Failure};
+use crate::io::{open_recording, FileSet, Format};
 use serde::Serialize;
-use std::collections::BTreeMap;
 use std::path::Path;
 
 #[derive(Serialize)]
@@ -18,32 +15,15 @@ struct ValidateOutput {
     error: Option<String>,
 }
 
-/// Whether `open_recording` reads files named like `name`: it refuses an unknown extension before it looks at any file.
-fn supported(name: &str) -> bool {
-    let files = FileSet {
-        primary: name.to_string(),
-        files: BTreeMap::new(),
-    };
-    !matches!(
-        open_recording(&files, None),
-        Err(DDAError::UnsupportedFileType(_))
-    )
-}
-
-pub fn execute(args: ValidateArgs) -> i32 {
+pub fn execute(args: ValidateArgs) -> Result<(), Failure> {
     let path = Path::new(&args.file);
 
     let exists = path.exists();
     let readable = path.is_file() && std::fs::File::open(path).is_ok();
-
-    let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    let supported = supported(&args.file);
-
-    let size_bytes = if readable {
-        std::fs::metadata(path).ok().map(|m| m.len())
-    } else {
-        None
-    };
+    let supported = Format::of(&args.file).is_some();
+    let size_bytes = readable
+        .then(|| std::fs::metadata(path).ok().map(|m| m.len()))
+        .flatten();
 
     // The file must open: its header parses and the sidecars that belong to it are found.
     let opened = (readable && supported).then(|| {
@@ -62,9 +42,11 @@ pub fn execute(args: ValidateArgs) -> i32 {
     } else if !readable {
         Some(format!("File is not readable: {}", args.file))
     } else if !supported {
+        let extensions: Vec<&str> = Format::EXTENSIONS.iter().map(|(e, _)| *e).collect();
         Some(format!(
-            "Unsupported file extension '{}'. Supported: edf, bdf, vhdr, set, txt, csv, tsv, ascii, dat",
-            extension
+            "Unsupported file extension '{}'. Supported: {}",
+            path.extension().and_then(|e| e.to_str()).unwrap_or(""),
+            extensions.join(", ")
         ))
     } else {
         open_error.map(|error| format!("Could not open {}: {}", args.file, error))
@@ -81,24 +63,23 @@ pub fn execute(args: ValidateArgs) -> i32 {
     };
 
     if args.json {
-        if let Err(error) = output::write_json(&result, false, None) {
-            eprintln!("Error: {}", error);
-            return exit_codes::EXECUTION_ERROR;
-        }
-    } else if let Some(err) = &result.error {
-        eprintln!("Error: {}", err);
-    } else {
-        println!(
-            "File '{}' is valid ({}, {} bytes)",
-            result.file,
-            result.file_type.as_deref().unwrap_or_default(),
-            size_bytes.unwrap_or(0)
-        );
+        output::write_json(&result, false, None).map_err(crate::cli::execution_error)?;
+        // The JSON holds the error, so it is not printed again.
+        return match result.error {
+            Some(_) => Err((exit_codes::INPUT_ERROR, String::new())),
+            None => Ok(()),
+        };
     }
-
-    if result.error.is_some() {
-        exit_codes::INPUT_ERROR
-    } else {
-        exit_codes::SUCCESS
+    match result.error {
+        Some(error) => Err((exit_codes::INPUT_ERROR, error)),
+        None => {
+            println!(
+                "File '{}' is valid ({}, {} bytes)",
+                result.file,
+                result.file_type.as_deref().unwrap_or_default(),
+                size_bytes.unwrap_or(0)
+            );
+            Ok(())
+        }
     }
 }

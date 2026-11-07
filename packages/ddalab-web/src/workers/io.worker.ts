@@ -14,10 +14,8 @@ import {
   levelCount,
   loadTile,
   saveTiles,
-  tileBudget,
   tileCount,
   tileRows,
-  tileSlot,
   tilesLock,
   touchTiles,
 } from "../core/opfs";
@@ -37,6 +35,7 @@ import { blockBudgetMb, MAX_BLOCK_MB } from "../core/scheduler";
 import { isScanned, openRequestOf, partsOf, readSource, type Source } from "../core/sources";
 import { CACHE_MB } from "../core/tileCache";
 import type { Metadata, OpenRequest, RecordingInfo, Reference } from "../core/types";
+import { messageOf } from "../core/words";
 import { BESIDE } from "./beside";
 import { scan, yieldToLoop } from "./scan";
 
@@ -127,10 +126,7 @@ function startScan(id: string, input: RecordingInput, rec: Recording) {
     )
     .then(
       // The tiles stay within their share of the storage: the least recently used recordings' go first.
-      () =>
-        tileBudget()
-          .then(evictTiles)
-          .catch(() => {}),
+      () => evictTiles().catch(() => {}),
       () => {
         stopped = true; // a trap: the next request tells the engine to replace this worker
       },
@@ -296,7 +292,6 @@ async function tile(id: string, level: number, index: number): Promise<IoResults
   if (level >= levelCount(rows) || index >= tileCount(rows, level)) {
     throw new Error(`tile ${index} of level ${level} does not exist for ${rows} rows`);
   }
-  const slot = tileSlot(rec.channels, rawType);
   const stored = await loadTile(rec.tiles, { level, index, channels: rec.channels, rawType }).catch(
     () => null,
   );
@@ -304,7 +299,7 @@ async function tile(id: string, level: number, index: number): Promise<IoResults
   // The tiles of the region on screen come this way while the scan, which can only start at row 0, works its way up.
   if ((Math.min(tileRows(level), rows) * rec.fileBytes) / rows > ON_DEMAND_BYTES) return null;
   const bytes = (await core).rawTile(rec.handle, level, index);
-  await saveTiles(rec.tiles, slot, [bytes]).catch(() => {}); // a full or missing storage only costs the reuse
+  await saveTiles(rec.tiles, [bytes]).catch(() => {}); // a full or missing storage only costs the reuse
   return { level, index, bytes };
 }
 
@@ -418,7 +413,7 @@ async function answer(data: IoRequest & { n: number }) {
     stopped ||= error instanceof WebAssembly.RuntimeError;
     const reply: IoReply = {
       n,
-      error: error instanceof Error ? error.message : String(error),
+      error: messageOf(error),
       trapped: error instanceof WebAssembly.RuntimeError,
     };
     self.postMessage(reply);

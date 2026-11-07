@@ -219,9 +219,7 @@ fn ct_exposes_all_coefficients_and_fit_errors() {
         sampling_rate: None,
     };
 
-    let result = PureRustRunner::default()
-        .run_on_matrix(&request, &samples, None)
-        .expect("CT run");
+    let result = super::run_request_on_matrix(&request, &samples, None).expect("CT run");
     let ct = result
         .variant_results
         .as_ref()
@@ -376,7 +374,7 @@ fn cuda_inventory_is_empty_without_cuda_support() {
 fn cuda_request_without_feature_has_a_clear_error() {
     use super::regression_batch::BasicSolver;
 
-    let Err(error) = BasicSolver::new(ComputeDevice::Cuda(0), SvdBackend::RobustSvd) else {
+    let Err(error) = BasicSolver::new(ComputeDevice::Cuda(0)) else {
         panic!("CUDA solver created without CUDA support");
     };
     assert!(error
@@ -427,15 +425,14 @@ fn cuda_matches_cpu_for_supported_dda_flavors_when_available() {
         sampling_rate: None,
     };
     let samples = synthetic_samples();
-    let expected = PureRustRunner::default()
-        .run_on_matrix(&request, &samples, None)
-        .expect("CPU result");
-    let actual = match PureRustRunner::new(PureRustOptions {
-        compute_device: ComputeDevice::Cuda(0),
-        ..PureRustOptions::default()
-    })
-    .run_on_matrix(&request, &samples, None)
-    {
+    let expected = super::run_request_on_matrix(&request, &samples, None).expect("CPU result");
+    let actual = match super::run_request_on_device(
+        &request,
+        &samples,
+        None,
+        ComputeDevice::Cuda(0),
+        None,
+    ) {
         Ok(result) => result,
         Err(error) if std::env::var_os("DDA_RS_REQUIRE_CUDA_TEST").is_none() => {
             eprintln!("CUDA device not available; skipping engine parity check: {error}");
@@ -511,9 +508,9 @@ fn temporal_regularization_smooths_and_recovers_slowly_varying_coefficients() {
 
     let independent = windows
         .iter()
-        .map(|window| solve_regression_window(window, SvdBackend::RobustSvd))
+        .map(solve_regression_window)
         .collect::<Vec<_>>();
-    let regularized = solve_temporally_regularized_windows(&windows, 6.0, SvdBackend::RobustSvd);
+    let regularized = solve_temporally_regularized_windows(&windows, 6.0);
 
     let coefficient_tv = |blocks: &[super::solver::SolvedBlock]| -> f64 {
         blocks
@@ -575,19 +572,11 @@ fn auto_shared_parents_selects_the_common_driver_channel() {
     let model = super::model::ModelSpec::from_request(&request).expect("model");
     let bounds =
         super::dataset::AnalysisBounds::from_request(&request, dataset.rows).expect("bounds");
-    let num_windows = 1
-        + (bounds.len - (model.window_length + model.max_delay + 2 * model.dm - 1))
-            / model.window_step;
+    let num_windows = 1 + (bounds.len - (model.span() - 1)) / model.window_step;
     let windows = (0..num_windows)
         .map(|window_idx| {
-            super::prepare_window_for_analysis(
-                &dataset,
-                &bounds,
-                &model,
-                window_idx,
-                &PureRustOptions::default(),
-            )
-            .expect("prepared window")
+            super::prepare_window_for_analysis(&dataset, &bounds, &model, window_idx)
+                .expect("prepared window")
         })
         .collect::<Vec<_>>();
     let selected = super::compute_ccd_pair_conditioning_sets(
@@ -597,7 +586,6 @@ fn auto_shared_parents_selects_the_common_driver_channel() {
         CcdConditioningStrategy::AutoSharedParents,
         &model,
         3,
-        SvdBackend::RobustSvd,
     );
     assert_eq!(selected, vec![vec![2]]);
 }
@@ -614,19 +602,11 @@ fn auto_target_sparse_keeps_the_common_driver_even_with_a_nuisance_channel() {
     let model = super::model::ModelSpec::from_request(&request).expect("model");
     let bounds =
         super::dataset::AnalysisBounds::from_request(&request, dataset.rows).expect("bounds");
-    let num_windows = 1
-        + (bounds.len - (model.window_length + model.max_delay + 2 * model.dm - 1))
-            / model.window_step;
+    let num_windows = 1 + (bounds.len - (model.span() - 1)) / model.window_step;
     let windows = (0..num_windows)
         .map(|window_idx| {
-            super::prepare_window_for_analysis(
-                &dataset,
-                &bounds,
-                &model,
-                window_idx,
-                &PureRustOptions::default(),
-            )
-            .expect("prepared window")
+            super::prepare_window_for_analysis(&dataset, &bounds, &model, window_idx)
+                .expect("prepared window")
         })
         .collect::<Vec<_>>();
     let selected = super::compute_ccd_pair_conditioning_sets(
@@ -636,7 +616,6 @@ fn auto_target_sparse_keeps_the_common_driver_even_with_a_nuisance_channel() {
         CcdConditioningStrategy::AutoTargetSparse,
         &model,
         3,
-        SvdBackend::RobustSvd,
     );
     assert!(
         selected.len() == 1 && selected[0].contains(&2),
@@ -655,19 +634,11 @@ fn auto_group_omp_recovers_single_planted_confound_exactly() {
     let model = super::model::ModelSpec::from_request(&request).expect("model");
     let bounds =
         super::dataset::AnalysisBounds::from_request(&request, dataset.rows).expect("bounds");
-    let num_windows = 1
-        + (bounds.len - (model.window_length + model.max_delay + 2 * model.dm - 1))
-            / model.window_step;
+    let num_windows = 1 + (bounds.len - (model.span() - 1)) / model.window_step;
     let windows = (0..num_windows)
         .map(|window_idx| {
-            super::prepare_window_for_analysis(
-                &dataset,
-                &bounds,
-                &model,
-                window_idx,
-                &PureRustOptions::default(),
-            )
-            .expect("prepared window")
+            super::prepare_window_for_analysis(&dataset, &bounds, &model, window_idx)
+                .expect("prepared window")
         })
         .collect::<Vec<_>>();
     let selected = super::compute_ccd_pair_conditioning_sets(
@@ -677,7 +648,6 @@ fn auto_group_omp_recovers_single_planted_confound_exactly() {
         CcdConditioningStrategy::AutoGroupOmp,
         &model,
         1,
-        SvdBackend::RobustSvd,
     );
     assert_eq!(
         selected,
@@ -697,19 +667,11 @@ fn auto_group_omp_overbudget_stays_within_one_membership_error() {
     let model = super::model::ModelSpec::from_request(&request).expect("model");
     let bounds =
         super::dataset::AnalysisBounds::from_request(&request, dataset.rows).expect("bounds");
-    let num_windows = 1
-        + (bounds.len - (model.window_length + model.max_delay + 2 * model.dm - 1))
-            / model.window_step;
+    let num_windows = 1 + (bounds.len - (model.span() - 1)) / model.window_step;
     let windows = (0..num_windows)
         .map(|window_idx| {
-            super::prepare_window_for_analysis(
-                &dataset,
-                &bounds,
-                &model,
-                window_idx,
-                &PureRustOptions::default(),
-            )
-            .expect("prepared window")
+            super::prepare_window_for_analysis(&dataset, &bounds, &model, window_idx)
+                .expect("prepared window")
         })
         .collect::<Vec<_>>();
     let selected = super::compute_ccd_pair_conditioning_sets(
@@ -719,7 +681,6 @@ fn auto_group_omp_overbudget_stays_within_one_membership_error() {
         CcdConditioningStrategy::AutoGroupOmp,
         &model,
         4,
-        SvdBackend::RobustSvd,
     );
     let chosen = selected[0]
         .iter()
@@ -783,14 +744,8 @@ fn de_on_the_ct_groups_adds_no_regressions_to_a_window() {
     let model = super::model::ModelSpec::from_request(&request).expect("model");
     let bounds =
         super::dataset::AnalysisBounds::from_request(&request, dataset.rows).expect("bounds");
-    let window = super::prepare_window_for_analysis(
-        &dataset,
-        &bounds,
-        &model,
-        0,
-        &PureRustOptions::default(),
-    )
-    .expect("prepared window");
+    let window =
+        super::prepare_window_for_analysis(&dataset, &bounds, &model, 0).expect("prepared window");
     let groups = vec![vec![0, 1, 2]];
     let jobs = super::regression_batch::BasicJobs {
         channel_count: 3,
@@ -847,9 +802,7 @@ fn an_out_of_range_channel_is_an_error() {
         variant_configs: None,
         sampling_rate: None,
     };
-    let error = PureRustRunner::default()
-        .run_on_matrix(&request, &samples, None)
-        .unwrap_err();
+    let error = super::run_request_on_matrix(&request, &samples, None).unwrap_err();
     assert!(error.to_string().contains("99"), "{error}");
 }
 

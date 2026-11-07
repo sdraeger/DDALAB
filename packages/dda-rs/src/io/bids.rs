@@ -7,6 +7,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 #[cfg(not(target_arch = "wasm32"))]
 use {
+    super::Format,
     crate::error::Result,
     std::path::{Path, PathBuf},
 };
@@ -188,9 +189,8 @@ pub fn discover_bids_recordings(root: &Path) -> Result<Vec<PathBuf>> {
 #[cfg(not(target_arch = "wasm32"))]
 fn is_recording(path: &Path) -> bool {
     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-    let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let name = path.to_str().unwrap_or("");
+    // A BIDS recording is in one of the binary formats; a text file there is a sidecar.
     (stem.ends_with("_ieeg") || stem.ends_with("_eeg"))
-        && ["edf", "bdf", "vhdr", "set"]
-            .iter()
-            .any(|e| extension.eq_ignore_ascii_case(e))
+        && Format::of(name).is_some_and(|format| format != Format::Text)
 }

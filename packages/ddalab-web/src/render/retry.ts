@@ -2,6 +2,7 @@
 // is asked again at once and says nothing the first time; any other failure waits a pause that doubles from 0.5 s up to
 // 30 s and shows its reason.
 import { EngineStopped } from "../core/engine";
+import { messageOf } from "../core/words";
 
 export interface Failure {
   retryAt: number;
@@ -17,6 +18,6 @@ export function nextFailure(previous: Failure | undefined, error: unknown): Fail
   const attempts = (previous?.attempts ?? 0) + 1;
   const quiet = error instanceof EngineStopped && attempts === 1;
   const pause = quiet ? 0 : Math.min(30_000, 500 * 2 ** (attempts - 1));
-  const reason = quiet ? null : error instanceof Error ? error.message : String(error);
+  const reason = quiet ? null : messageOf(error);
   return { retryAt: performance.now() + pause, attempts, reason, pause };
 }

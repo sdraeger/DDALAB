@@ -270,12 +270,9 @@ pub struct ReferenceArgs {
 /// Default `--block-mb`.
 pub const DEFAULT_BLOCK_MB: u64 = 512;
 
-#[derive(Args)]
-pub struct RunArgs {
-    /// Input data file path (EDF, BDF, BrainVision .vhdr, ASCII/TXT/CSV)
-    #[arg(long)]
-    pub file: String,
-
+/// The DDA request `run` and `batch` make: `DdaArgs::request` turns these into a `DDARequest`.
+#[derive(Args, Clone)]
+pub struct DdaArgs {
     /// 0-based indices into the analysis channels (`ddalab inspect` shows the list).
     /// Defaults to every analysis channel BIDS channels.tsv does not mark bad.
     #[arg(long, num_args = 1..)]
@@ -345,14 +342,17 @@ pub struct RunArgs {
     #[arg(long)]
     pub variant_configs: Option<String>,
 
-    /// Optional high-pass preprocessing cutoff (Hz)
+    /// Sampling rate in Hz
     #[arg(long)]
-    pub highpass: Option<f64>,
+    pub sr: Option<f64>,
 
-    /// Optional low-pass preprocessing cutoff (Hz)
-    #[arg(long)]
-    pub lowpass: Option<f64>,
+    #[command(flatten)]
+    pub reference: ReferenceArgs,
+}
 
+/// The stretch of the recording `run` analyzes: seconds, or samples, which win. Default: all of it.
+#[derive(Args, Clone, Default)]
+pub struct RangeArgs {
     /// Start time in seconds
     #[arg(long)]
     pub start: Option<f64>,
@@ -368,17 +368,19 @@ pub struct RunArgs {
     /// End sample index (alternative to --end)
     #[arg(long)]
     pub end_sample: Option<u64>,
+}
 
-    /// Sampling rate in Hz
+#[derive(Args)]
+pub struct RunArgs {
+    /// Input data file path (EDF, BDF, BrainVision .vhdr, ASCII/TXT/CSV)
     #[arg(long)]
-    pub sr: Option<f64>,
+    pub file: String,
 
     #[command(flatten)]
-    pub reference: ReferenceArgs,
+    pub dda: DdaArgs,
 
-    /// Legacy native DDA binary path (ignored; native backend disabled)
-    #[arg(long, env = "DDA_BINARY_PATH")]
-    pub binary: Option<String>,
+    #[command(flatten)]
+    pub range: RangeArgs,
 
     /// Result document file (default: stdout)
     #[arg(short, long, conflicts_with = "bundle")]
@@ -407,10 +409,6 @@ pub struct RunArgs {
 
 #[derive(Args)]
 pub struct InfoArgs {
-    /// Legacy native DDA binary path (ignored; native backend disabled)
-    #[arg(long, env = "DDA_BINARY_PATH")]
-    pub binary: Option<String>,
-
     /// Output as JSON
     #[arg(long, default_value_t = false)]
     pub json: bool,
@@ -496,89 +494,8 @@ pub struct BatchArgs {
     #[arg(long, group = "input")]
     pub bids_dir: Option<String>,
 
-    /// 0-based indices into the analysis channels (`ddalab inspect` shows the list).
-    /// Defaults to every analysis channel BIDS channels.tsv does not mark bad.
-    #[arg(long, num_args = 1..)]
-    pub channels: Option<Vec<usize>>,
-
-    /// Variants to run.
-    /// Accepts abbreviations (ST, CT, CD, DE, SY) and app IDs
-    /// (single_timeseries, cross_timeseries, cross_dynamical,
-    ///  dynamical_ergodicity, synchronization).
-    #[arg(long, default_values_t = vec!["ST".to_string()], num_args = 1..)]
-    pub variants: Vec<String>,
-
-    /// Window length in samples
-    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_LENGTH, value_parser = clap::value_parser!(u32).range(1..))]
-    pub wl: u32,
-
-    /// Window step in samples
-    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_STEP, value_parser = clap::value_parser!(u32).range(1..))]
-    pub ws: u32,
-
-    /// Channels per CT and DE group when no pairs are given (default: every selected channel)
-    #[arg(long)]
-    pub ct_wl: Option<u32>,
-
-    /// Channel stride between CT and DE groups (default: --ct-wl)
-    #[arg(long)]
-    pub ct_ws: Option<u32>,
-
-    /// Delay values (tau)
-    #[arg(
-        long,
-        default_values_t = vec![crate::DEFAULT_DELAYS[0], crate::DEFAULT_DELAYS[1]],
-        num_args = 1..
-    )]
-    pub delays: Vec<i32>,
-
-    /// Model term indices (for -MODEL), e.g. 1 2 10
-    /// Defaults to backend defaults when omitted.
-    #[arg(long, num_args = 1..)]
-    pub model: Option<Vec<i32>>,
-
-    /// Model dimension
-    #[arg(long, default_value_t = crate::DEFAULT_MODEL_DIMENSION)]
-    pub dm: u32,
-
-    /// Polynomial order
-    #[arg(long, default_value_t = crate::DEFAULT_POLYNOMIAL_ORDER)]
-    pub order: u32,
-
-    /// Number of tau values
-    #[arg(long, default_value_t = crate::DEFAULT_NUM_TAU)]
-    pub nr_tau: u32,
-
-    /// CT channel pairs as "i,j" (e.g., "0,1" "0,2")
-    #[arg(long, num_args = 1..)]
-    pub ct_pairs: Option<Vec<String>>,
-
-    /// CD directed channel pairs as "i,j" (e.g., "0,1" "1,0")
-    #[arg(long, num_args = 1..)]
-    pub cd_pairs: Option<Vec<String>>,
-
-    /// Path to variant config JSON (app-compatible shape)
-    #[arg(long)]
-    pub variant_configs: Option<String>,
-
-    /// Optional high-pass preprocessing cutoff (Hz)
-    #[arg(long)]
-    pub highpass: Option<f64>,
-
-    /// Optional low-pass preprocessing cutoff (Hz)
-    #[arg(long)]
-    pub lowpass: Option<f64>,
-
-    /// Sampling rate in Hz
-    #[arg(long)]
-    pub sr: Option<f64>,
-
     #[command(flatten)]
-    pub reference: ReferenceArgs,
-
-    /// Legacy native DDA binary path (ignored; native backend disabled)
-    #[arg(long, env = "DDA_BINARY_PATH")]
-    pub binary: Option<String>,
+    pub dda: DdaArgs,
 
     /// Output directory for the result documents `<stem>.<sha8>.dda.json`
     /// (default: each document is inlined in the manifest on stdout)

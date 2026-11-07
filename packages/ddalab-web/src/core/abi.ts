@@ -12,7 +12,6 @@ import type {
   Opened,
   OpenRequest,
   Plan,
-  Progress,
   ResultDocument,
   StGpuPlan,
 } from "./types";
@@ -132,11 +131,7 @@ export function decodeReply(reply: bigint): [ptr: number, len: number] {
   return [Number(bits >> 32n), Number(bits & 0xffffffffn)];
 }
 
-export async function instantiateCore(
-  wasm: WebAssembly.Module,
-  read: HostRead,
-  onProgress?: (p: Progress) => void,
-): Promise<Core> {
+export async function instantiateCore(wasm: WebAssembly.Module, read: HostRead): Promise<Core> {
   let abi: Exports;
   // The view must be taken after any call into the module, which may grow its memory.
   const memory = () => new Uint8Array(abi.memory.buffer);
@@ -150,14 +145,8 @@ export async function instantiateCore(
         return 3;
       }
     },
-    host_progress(ptr: number, len: number) {
-      try {
-        const start = ptr >>> 0;
-        onProgress?.(JSON.parse(decoder.decode(memory().subarray(start, start + (len >>> 0)))));
-      } catch {
-        // Progress is advisory.
-      }
-    },
+    // The app shows progress by blocks, so the engine's reports within one are dropped.
+    host_progress() {},
   };
   abi = (await WebAssembly.instantiate(wasm, { host })).exports as unknown as Exports;
 

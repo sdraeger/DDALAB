@@ -4,10 +4,10 @@ import { CSPProvider } from "@base-ui/react/csp-provider";
 import { StrictMode } from "react";
 import { preconnect } from "react-dom";
 import { createRoot } from "react-dom/client";
-import { App } from "./app/App";
 import { refreshAnalyses, sweepAnalyses } from "./app/analyses";
 import { sweepSpool } from "./app/download";
 import { engine, openInput, openSynthetic, refreshRecent } from "./app/recordings";
+import { Shell } from "./app/Shell";
 import { flushTabs, restoreTabs } from "./app/tabs";
 import { registerWorker } from "./app/update";
 import { loadViewer } from "./app/viewerChunk";
@@ -67,7 +67,7 @@ if (import.meta.env.DEV) void import("./dev/DataToggle").then(({ mount }) => mou
 createRoot(root).render(
   <StrictMode>
     <CSPProvider disableStyleElements>
-      <App />
+      <Shell />
     </CSPProvider>
   </StrictMode>,
 );

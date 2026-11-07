@@ -2,33 +2,17 @@
 // CSV, each a plain row, named after the recording as the CLI names its bundle. The IO worker builds the document and
 // the CSV.
 import { Popover } from "@base-ui/react/popover";
-import { useState } from "react";
-import { download, type Saveable } from "../../app/download";
+import { useDownload } from "../../app/download";
 import { engine } from "../../app/recordings";
 import { bundleZip } from "../../core/exporters";
 import type { AnalysisRecord } from "../../core/history";
 import styles from "./History.module.css";
 
 export default function ExportDialog({ record }: { record: AnalysisRecord }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { save, busy, error } = useDownload();
   const stem = record.fileName.replace(/\.[^.]*$/, "");
   const variants = record.manifest?.variants.map((v) => v.id) ?? [];
 
-  // The save dialog opens first (download.ts): busy starts when the file is made.
-  async function save(name: string, make: () => Promise<Saveable>) {
-    setError(null);
-    try {
-      await download(name, () => {
-        setBusy(true);
-        return make();
-      });
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
-    } finally {
-      setBusy(false);
-    }
-  }
   const zip = () => bundleZip(record.id);
 
   return (
@@ -38,7 +22,7 @@ export default function ExportDialog({ record }: { record: AnalysisRecord }) {
         type="button"
         className={styles.option}
         disabled={busy}
-        onClick={() => save(`${stem}.dda.zip`, zip)}
+        onClick={() => save({ name: `${stem}.dda.zip`, make: zip })}
       >
         <b>Bundle</b>
         <span>
@@ -50,7 +34,7 @@ export default function ExportDialog({ record }: { record: AnalysisRecord }) {
         type="button"
         className={styles.option}
         disabled={busy}
-        onClick={() => save(`${stem}.dda.json`, () => engine.exportDocument(record.id))}
+        onClick={() => save({ name: `${stem}.dda.json`, make: () => engine.exportDocument(record.id) })}
       >
         <b>Document</b>
         <span>
@@ -64,7 +48,9 @@ export default function ExportDialog({ record }: { record: AnalysisRecord }) {
           type="button"
           className={styles.option}
           disabled={busy}
-          onClick={() => save(`${stem}.${variant}.csv`, () => engine.exportCsv(record.id, variant))}
+          onClick={() =>
+            save({ name: `${stem}.${variant}.csv`, make: () => engine.exportCsv(record.id, variant) })
+          }
         >
           <b>CSV of {variant}</b>
           <span>The Q values of {variant}, a window per line</span>

@@ -2,6 +2,7 @@
 // of the lazy ResultPanel chunk: the shell, the history, a run and the session start them before the chunk has loaded.
 import { engine } from "../../app/recordings";
 import type { ResultDocument } from "../../core/types";
+import { messageOf } from "../../core/words";
 import type { ResultTile } from "../../render/resultPyramid";
 import { type ShownResult, useStore } from "../../store/store";
 
@@ -19,7 +20,7 @@ export function load<T>(key: string, make: () => Promise<T>): Promise<Loaded<T>>
   if (!found) {
     const made = make().then(
       (ok): Loaded<T> => ({ ok }),
-      (error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }),
+      (error: unknown) => ({ error: messageOf(error) }),
     );
     void made.then((value) => Object.assign(made, { status: "fulfilled", value }));
     found = made;

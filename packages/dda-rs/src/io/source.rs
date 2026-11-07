@@ -292,19 +292,14 @@ impl FileSet {
             .into_owned();
         let mut names = vec![primary.clone()];
         names.extend(Self::sidecar_names(&primary).into_iter().flatten());
-        if path
-            .extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("vhdr"))
-        {
+        let format = super::Format::of(&primary);
+        if format == Some(super::Format::BrainVision) {
             names.extend(vhdr_files(
                 &std::fs::read(path).map_err(|e| in_path(path, e))?,
             ));
         }
         // An EEGLAB dataset's samples are in the .fdt of its stem, as pop_saveset names it.
-        if path
-            .extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("set"))
-        {
+        if format == Some(super::Format::Eeglab) {
             names.extend(
                 path.with_extension("fdt")
                     .file_name()

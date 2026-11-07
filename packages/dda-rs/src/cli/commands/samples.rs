@@ -1,6 +1,6 @@
-use super::open_reader;
+use super::open;
 use crate::cli::args::SamplesArgs;
-use crate::cli::exit_codes;
+use crate::cli::{execution_error, input_error, Failure};
 use crate::document::npy_header;
 use crate::io::Reader;
 use std::io::Write;
@@ -8,11 +8,9 @@ use std::io::Write;
 /// Bytes of samples read at a time.
 const CHUNK_BYTES: usize = 8 << 20;
 
-pub fn execute(args: SamplesArgs) -> i32 {
-    let reader = match open_reader(&args.file, args.sr, &args.reference) {
-        Ok(reader) => reader,
-        Err(code) => return code,
-    };
+pub fn execute(args: SamplesArgs) -> Result<(), Failure> {
+    let reference = args.reference.parse().map_err(input_error)?;
+    let (_, reader) = open(&args.file, args.sr, reference.as_ref()).map_err(input_error)?;
     let info = reader.info();
     let analysis = info.analysis_channels();
     let mut channels = Vec::new();
@@ -20,38 +18,29 @@ pub fn execute(args: SamplesArgs) -> i32 {
         match analysis.get(index) {
             Some(&channel) => channels.push(channel),
             None => {
-                eprintln!(
-                    "Error: channel {index} is out of range: {} has {} analysis channels",
+                return Err(input_error(format!(
+                    "channel {index} is out of range: {} has {} analysis channels",
                     args.file,
                     analysis.len()
-                );
-                return exit_codes::INPUT_ERROR;
+                )));
             }
         }
     }
     let end = args.start_sample.checked_add(args.count as u64);
     if !end.is_some_and(|end| end <= info.sample_count) {
-        eprintln!(
-            "Error: {} samples from sample {} exceeds the {} samples of {}",
+        return Err(input_error(format!(
+            "{} samples from sample {} exceeds the {} samples of {}",
             args.count, args.start_sample, info.sample_count, args.file
-        );
-        return exit_codes::INPUT_ERROR;
+        )));
     }
 
     // A failure removes the output only once this command has created it.
-    let file = match std::fs::File::create(&args.output) {
-        Ok(file) => file,
-        Err(error) => {
-            eprintln!("Error: {}: {error}", args.output);
-            return exit_codes::EXECUTION_ERROR;
-        }
-    };
-    if let Err(error) = write_npy(file, &*reader, &channels, &args) {
-        eprintln!("Error: {}: {error}", args.output);
+    let file = std::fs::File::create(&args.output)
+        .map_err(|error| execution_error(format!("{}: {error}", args.output)))?;
+    write_npy(file, &*reader, &channels, &args).map_err(|error| {
         let _ = std::fs::remove_file(&args.output);
-        return exit_codes::EXECUTION_ERROR;
-    }
-    exit_codes::SUCCESS
+        execution_error(format!("{}: {error}", args.output))
+    })
 }
 
 /// `args.count` rows from `args.start_sample` of `channels` (indices into the reader's channels) as an `(count, channels)` array.

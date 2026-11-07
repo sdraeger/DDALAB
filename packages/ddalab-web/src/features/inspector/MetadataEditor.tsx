@@ -4,7 +4,7 @@
 import { Dialog } from "@base-ui/react/dialog";
 import { makeZip } from "client-zip";
 import { useEffect, useState } from "react";
-import { download } from "../../app/download";
+import { useDownload } from "../../app/download";
 import { engine } from "../../app/recordings";
 import type { Metadata, MetadataField } from "../../core/types";
 import controls from "../../styles/controls.module.css";
@@ -48,8 +48,7 @@ export default function MetadataEditor(props: { recordingId: string; fileName: s
 function Editor(props: { recordingId: string; fileName: string; sidecar: boolean; onDone(): void }) {
   const [original, setOriginal] = useState<Metadata | null>(null);
   const [draft, setDraft] = useState<Metadata | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { save: download, busy, error, setError } = useDownload();
   useEffect(() => {
     engine.metadata(props.recordingId).then(
       (metadata) => {
@@ -58,7 +57,7 @@ function Editor(props: { recordingId: string; fileName: string; sidecar: boolean
       },
       (failure: Error) => setError(failure.message),
     );
-  }, [props.recordingId]);
+  }, [props.recordingId, setError]);
 
   const name = props.fileName.split(/[/\\]/).at(-1) ?? props.fileName;
   if (!original || !draft) {
@@ -99,26 +98,18 @@ function Editor(props: { recordingId: string; fileName: string; sidecar: boolean
 
   const oneFile = ONE_FILE.has(draft.writes_as) && !props.sidecar;
   const target = oneFile ? copyName(props.fileName) : copyName(props.fileName, "zip");
+  // The copy is made once the Save dialog has a file for it; a dialog closed unanswered leaves the editor open.
   async function save() {
-    setError(null);
-    // A Save dialog closed unanswered makes nothing (download.ts) and leaves the editor open.
-    let made = false;
-    try {
-      // The Save dialog opens first; the copy is made once a file is chosen.
-      await download(target, async () => {
-        made = true;
-        setBusy(true);
+    const made = await download({
+      name: target,
+      make: async () => {
         const files = await engine.editCopy(props.recordingId, draft as Metadata);
         return files.length === 1 && oneFile
           ? files[0].blob
           : makeZip(files.map((f) => ({ name: f.name, input: f.blob, lastModified: new Date() })));
-      });
-      if (made) props.onDone();
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
-    } finally {
-      setBusy(false);
-    }
+      },
+    });
+    if (made) props.onDone();
   }
 
   return (

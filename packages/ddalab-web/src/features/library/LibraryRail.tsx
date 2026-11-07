@@ -19,21 +19,13 @@ import {
 import { useShallow } from "zustand/react/shallow";
 import { engineVersion } from "../../app/analyses";
 import { beside } from "../../app/handles";
-import { consumeLaunches, grantedRoots, launchQueue, openLaunched } from "../../app/launch";
-import {
-  canPickFiles,
-  type FileHandles,
-  forget,
-  type Outcome,
-  openFiles,
-  pickFiles,
-  reopen,
-} from "../../app/recordings";
+import { type Attempt, consumeLaunches, grantedRoots, launchQueue, openLaunched } from "../../app/launch";
+import { canPickFiles, forget, type Outcome, openFiles, pickFiles, reopen } from "../../app/recordings";
 import { CHECK_TEXT, checkForUpdate } from "../../app/update";
-import type { FolderSource } from "../../core/folder";
 import { droppedFiles, isProject } from "../../core/sources";
+import { messageOf } from "../../core/words";
 import type { RecentEntry } from "../../store/recent";
-import { useStore } from "../../store/store";
+import { showFolder, useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
 import styles from "./LibraryRail.module.css";
 
@@ -81,36 +73,21 @@ const version = engineVersion.then(
  * Opens the project `file`, one of the attempt's files, with its handle where the browser gives one. The project code
  * loads with the first.
  */
-async function openProjectIn(file: File, { files, handle, handles }: Attempt): Promise<Outcome> {
-  const own = handles?.files?.[files.indexOf(file)] ?? (handle?.kind === "file" ? handle : undefined);
+async function openProjectIn(file: File, { files, handles }: Attempt): Promise<Outcome> {
+  const own = handles?.files?.[files.indexOf(file)];
   try {
     const { openProject } = await import("../../app/project");
-    return await openProject(file, own as FileSystemFileHandle | undefined);
+    return await openProject(file, own);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = messageOf(error);
     return { kind: "error", message: `${file.name} could not be opened: ${message}`, folder: false };
   }
-}
-
-/** The files of one attempt to open, kept for when the user chooses among several recordings. */
-interface Attempt {
-  files: File[];
-  handle?: FileSystemHandle;
-  /** The handles of `files` (Chromium), which let their tab reattach on the next visit. */
-  handles?: FileHandles;
-  expect?: string;
 }
 
 export const LibraryRail = memo(function LibraryRail() {
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [opening, setOpening] = useState(false);
-  // `resume`: the batch the history resumes on this folder once it is read.
-  const [folder, setFolder] = useState<{ source: FolderSource; key: number; resume?: string } | null>(null);
-  const showFolder = (source: FolderSource, resume?: string) => {
-    // Another folder drops the last batch's outcome and marks; a batch still running keeps its progress.
-    if (useStore.getState().batch?.status !== "running") useStore.setState({ batch: null });
-    setFolder((shown) => ({ source, key: (shown?.key ?? 0) + 1, resume }));
-  };
+  const folder = useStore((s) => s.folder);
   const recent = useStore((s) => s.recent);
   // The hint is for a first open: it goes once a recording has a tab.
   const untouched = useStore((s) => s.tabs.length === 0);
@@ -291,14 +268,7 @@ export const LibraryRail = memo(function LibraryRail() {
       <Recent entries={recent} onOpen={open} />
       {folder && (
         <Suspense fallback={null}>
-          <FolderTree
-            key={folder.key}
-            source={folder.source}
-            resume={folder.resume}
-            // The tree shows how its own opens went, beside its rows.
-            onOpen={(recording, handles) => openFiles(recording.files, { choice: recording.path, handles })}
-            onClose={() => setFolder(null)}
-          />
+          <FolderTree key={folder.key} source={folder.source} resume={folder.resume} />
         </Suspense>
       )}
       <Suspense>
@@ -308,7 +278,7 @@ export const LibraryRail = memo(function LibraryRail() {
         <LivePanel />
       </Suspense>
       <Suspense fallback={null}>
-        <HistoryRail onResume={showFolder} />
+        <HistoryRail />
       </Suspense>
       <p className={styles.footer}>
         Engine{" "}

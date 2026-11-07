@@ -27,11 +27,13 @@ export function consumeLaunches(
   });
 }
 
-/** The files of one attempt to open, as LibraryRail keeps them for a choice among several recordings. */
+/** The files of one attempt to open, kept for when the user chooses among several recordings (LibraryRail). */
 export interface Attempt {
   files: File[];
-  handle?: FileSystemHandle;
-  handles: FileHandles;
+  /** The handles of `files` (Chromium), which let their tab reattach on the next visit. */
+  handles?: FileHandles;
+  /** The fingerprint of the recording the user is locating again. */
+  expect?: string;
 }
 
 /**
@@ -46,7 +48,6 @@ export async function openLaunched(
 ): Promise<{ attempt: Attempt; outcome: Outcome }> {
   const attempt: Attempt = {
     files: await Promise.all(handles.map((handle) => handle.getFile())),
-    handle: handles.length === 1 ? handles[0] : undefined,
     handles: { files: handles },
   };
   const outcome = await deps.open(attempt.files, attempt);

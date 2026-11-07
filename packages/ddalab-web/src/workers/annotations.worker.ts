@@ -8,6 +8,7 @@ import wasmUrl from "../core/ddalab.wasm?url";
 import type { AnnotationsReply, AnnotationsRequest, MemoryReply, MemoryRequest } from "../core/protocol";
 import { openRequestOf, type Part, partsOf, readSource } from "../core/sources";
 import { CACHE_MB } from "../core/tileCache";
+import { messageOf } from "../core/words";
 
 /** The files of the recording being read: file id `n` is `parts[n - 1]`. A request sets it and uses it at once. */
 let parts: Part[] = [];
@@ -47,7 +48,7 @@ self.addEventListener("message", async ({ data }: MessageEvent<AnnotationsReques
     stopped ||= error instanceof WebAssembly.RuntimeError;
     self.postMessage({
       n,
-      error: error instanceof Error ? error.message : String(error),
+      error: messageOf(error),
       trapped: error instanceof WebAssembly.RuntimeError,
     } satisfies AnnotationsReply);
   }

@@ -8,6 +8,7 @@
 // whose levels the first view writes beside the array (`<array>.L<level>.f32`, `<array>.pyramid.json`); an export
 // of the bundle leaves them out.
 import { buildPyramid, FANOUT, type ResultTile, resultLevels, TILE_CELLS } from "../render/resultPyramid";
+import { count, readNpyHeader } from "./npy";
 import { put, STORAGE_UNAVAILABLE } from "./opfs";
 import type { ResultArray } from "./protocol";
 import type { BlockChunks, BundleLayout, ResultDocument } from "./types";
@@ -32,8 +33,7 @@ export async function resultsDirectory() {
   return root.getDirectoryHandle("results", { create: true });
 }
 
-const arrayBytes = ({ header, shape }: BundleLayout["arrays"][number]) =>
-  header.length + 8 * shape.reduce((n, d) => n * d, 1);
+const arrayBytes = ({ header, shape }: BundleLayout["arrays"][number]) => header.length + 8 * count(shape);
 
 const lockOf = (resultId: string) => `ddalab-result:${resultId}`;
 
@@ -222,10 +222,9 @@ export async function resultManifest(resultId: string): Promise<ResultDocument> 
 
 /** An array file of a complete result: its windows, its rows and a reader of windows `w0..w1` as f64. */
 async function npy(file: File, path: string) {
-  const start = 10 + new DataView(await file.slice(0, 10).arrayBuffer()).getUint16(8, true); // npy format 1.0
-  const shape = /'shape': \((\d+), (\d+)\)/.exec(await file.slice(10, start).text());
-  if (!shape) throw new Error(`${path} does not hold windows of rows`);
-  const [windows, rows] = [Number(shape[1]), Number(shape[2])];
+  const { headerBytes: start, shape } = await readNpyHeader(file, path);
+  if (shape.length !== 2) throw new Error(`${path} does not hold windows of rows`);
+  const [windows, rows] = shape;
   const read = async (w0: number, w1: number) =>
     new Float64Array(await file.slice(start + w0 * rows * 8, start + w1 * rows * 8).arrayBuffer());
   return { windows, rows, read };

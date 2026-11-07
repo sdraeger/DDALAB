@@ -9,6 +9,7 @@ import {
 } from "../core/history";
 import type { AnalysisHandle } from "../core/scheduler";
 import type { DDARequest, VariantInfo } from "../core/types";
+import { messageOf } from "../core/words";
 import { loads, manifestKey, manifestOf, preloadPanel } from "../features/results/loads";
 import { openResult, type RunState, showResult, useStore } from "../store/store";
 import { engine } from "./recordings";
@@ -30,7 +31,6 @@ let cancelling = false;
 
 const setRun = (change: Partial<RunState>) =>
   useStore.setState((s) => ({ run: s.run && { ...s.run, ...change } }));
-const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 // The history is a convenience: without IndexedDB (some private windows) runs still work and it stays empty.
 export async function refreshAnalyses() {

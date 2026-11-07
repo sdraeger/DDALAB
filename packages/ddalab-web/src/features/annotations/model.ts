@@ -11,6 +11,7 @@ import {
   storeChanges,
   type UserAnnotation,
 } from "../../core/userAnnotations";
+import { messageOf } from "../../core/words";
 import { activeRecording, setAnnotations, setView, useStore } from "../../store/store";
 
 type State = ReturnType<typeof useStore.getState>;
@@ -50,7 +51,7 @@ const listOf = (fingerprint: string) => useStore.getState().annotations[fingerpr
 
 /** Tells the user, on the recording, that a change was not stored. */
 function warn(fingerprint: string, error: unknown) {
-  const reason = error instanceof Error ? error.message : String(error);
+  const reason = messageOf(error);
   const warning = `Your annotations could not be stored in this browser (${reason}). Export them to keep them.`;
   for (const [id, recording] of Object.entries(useStore.getState().recordings)) {
     if (recording.fingerprint === fingerprint) {

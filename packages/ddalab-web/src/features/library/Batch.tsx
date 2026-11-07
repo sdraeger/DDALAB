@@ -10,15 +10,11 @@ import { variants } from "../../app/analyses";
 import { cancelBatch, startBatch } from "../../app/batch";
 import type { BatchInput, BatchRecord } from "../../core/batch";
 import { batchOutcome } from "../../core/batch";
-import type { RecordingInfo } from "../../core/types";
+import { readSettings, STANDARD } from "../../core/ddaForm";
 import { activeRecording, type State, togglePanel, useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
-import { STANDARD, validateRequest } from "../analysis/validate";
 import styles from "./Batch.module.css";
 import { recordingOf, useRunPercent } from "./BatchStatus";
-
-/** A recording of two samples at 1 Hz: too short for any model, so only the settings' own errors count on it. */
-const PROBE = { sample_rate_hz: 1, sample_count: 2, input_files: [""] } as RecordingInfo;
 
 /** The labels of the active recording's chosen channels. */
 const selectedLabels = (s: State) => {
@@ -91,9 +87,7 @@ function BatchPanel(props: {
   const [range, setRange] = useState({ start: "0", end: "10" });
 
   const chosen = metadata.filter((v) => form.variants.includes(v.abbreviation));
-  const probe = { ...form, variants: chosen, channels: [0, 1], startS: 0, endS: 1 };
-  const { range: _, ...settingsErrors } = validateRequest(probe, PROBE).errors;
-  const formError = Object.values(settingsErrors)[0];
+  const formError = Object.values(readSettings(form, chosen).errors)[0];
   const [startS, endS] = [Number(range.start), Number(range.end)];
   const typed = range.start.trim() !== "" && range.end.trim() !== "";
   const rangeError =

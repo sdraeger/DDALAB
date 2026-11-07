@@ -18,7 +18,7 @@ const LOCK = "ddalab-window:";
 const ID = "ddalab.window";
 
 /** This window's id; `claimWindow` sets it before the first render. */
-export let windowId = "";
+let windowId = "";
 export const windowKey = () => PREFIX + windowId;
 export const sessionKey = (id = windowId) => `ddalab.session.${id}`;
 

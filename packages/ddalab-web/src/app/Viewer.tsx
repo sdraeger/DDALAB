@@ -1,9 +1,6 @@
 // The viewer of the active recording: the paging and scale controls of the command bar, the overview and the
 // waveform. Loaded lazily (viewerChunk.ts): the start screen shows none of it.
 import { Popover } from "@base-ui/react/popover";
-import { Select } from "@base-ui/react/select";
-import Check from "lucide-react/dist/esm/icons/check.mjs";
-import ChevronDown from "lucide-react/dist/esm/icons/chevron-down.mjs";
 import ChevronFirst from "lucide-react/dist/esm/icons/chevron-first.mjs";
 import ChevronLast from "lucide-react/dist/esm/icons/chevron-last.mjs";
 import ChevronLeft from "lucide-react/dist/esm/icons/chevron-left.mjs";
@@ -33,6 +30,7 @@ import {
   voltage,
 } from "../store/store";
 import controls from "../styles/controls.module.css";
+import { SelectField } from "./SelectField";
 import { IconButton } from "./Shell";
 import styles from "./Shell.module.css";
 
@@ -192,43 +190,17 @@ function Choice(props: {
   const chars = Math.max(props.chars ?? 0, ...values.map((v) => String(show(v)[0]).length));
   const units = [...new Set(values.map((v) => show(v)[1]))];
   return (
-    <Select.Root
+    <SelectField
+      label={props.label}
       value={props.value}
       items={values.map((value) => ({ value, label: show(value).join(" ") }))}
-      onValueChange={(value) => value !== null && props.onChange(value as number)}
-    >
-      <div className={controls.field}>
-        <Select.Label className={controls.label}>{props.label}</Select.Label>
-        <Select.Trigger className={controls.trigger}>
-          <Select.Value>
-            {(value: number) => (
-              <>
-                <Digits value={show(value)[0]} chars={chars} />{" "}
-                {units.length > 1 ? <Units units={units}>{show(value)[1]}</Units> : show(value)[1]}
-              </>
-            )}
-          </Select.Value>
-          <Select.Icon>
-            <ChevronDown aria-hidden />
-          </Select.Icon>
-        </Select.Trigger>
-      </div>
-      <Select.Portal>
-        <Select.Positioner sideOffset={4} alignItemWithTrigger={false}>
-          <Select.Popup className={controls.popup}>
-            <Select.List className={controls.list}>
-              {values.map((value) => (
-                <Select.Item key={value} value={value} className={controls.item}>
-                  <Select.ItemIndicator>
-                    <Check aria-hidden />
-                  </Select.ItemIndicator>
-                  <Select.ItemText className={controls.itemText}>{show(value).join(" ")}</Select.ItemText>
-                </Select.Item>
-              ))}
-            </Select.List>
-          </Select.Popup>
-        </Select.Positioner>
-      </Select.Portal>
-    </Select.Root>
+      shown={(value) => (
+        <>
+          <Digits value={show(value)[0]} chars={chars} />{" "}
+          {units.length > 1 ? <Units units={units}>{show(value)[1]}</Units> : show(value)[1]}
+        </>
+      )}
+      onChange={props.onChange}
+    />
   );
 }

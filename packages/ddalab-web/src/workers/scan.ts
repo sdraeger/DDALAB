@@ -8,7 +8,6 @@ import {
   readJson,
   STORAGE_UNAVAILABLE,
   saveTiles,
-  tileSlot,
   writeJson,
 } from "../core/opfs";
 import type { ScanState } from "../core/protocol";
@@ -56,14 +55,13 @@ export async function scan(job: ScanJob): Promise<void> {
     if (JSON.stringify(await readJson(fingerprint, "scan.json")) === JSON.stringify(layout)) {
       return emit({ scannedRows: rows, totalRows: rows });
     }
-    const slot = tileSlot(channels, rawType);
     const perSlice = Math.max(1, Math.floor((SLICE_BYTES * rows) / fileBytes));
     const pyramid = core.pyramid(handle);
     try {
       let reported = 0;
       for (let row = 0; row < rows; row += perSlice) {
         const n = Math.min(perSlice, rows - row);
-        await saveTiles(fingerprint, slot, pyramid.push(row, n));
+        await saveTiles(fingerprint, pyramid.push(row, n));
         scannedRows = row + n;
         if (Date.now() - reported > REPORT_MS) {
           reported = Date.now();
@@ -72,7 +70,7 @@ export async function scan(job: ScanJob): Promise<void> {
         await yieldToLoop();
         if (closed()) return;
       }
-      await saveTiles(fingerprint, slot, pyramid.finish());
+      await saveTiles(fingerprint, pyramid.finish());
       await writeJson(fingerprint, "scan.json", layout);
     } catch (error) {
       pyramid.drop();

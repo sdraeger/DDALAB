@@ -1,11 +1,11 @@
 //! `ddalab classify` and `ddalab predict`: labeled segments from a table, annotations or a participants column, the
 //! structure search and classifier of `crate::classify`, and the classes of new recordings.
 
-use super::reference_of;
+use super::open;
 use crate::classify::{select, ClassifierModel, Report, SearchConfig, Segment};
 use crate::cli::args::{ClassifyArgs, PredictArgs};
-use crate::cli::{exit_codes, output};
-use crate::io::{open_referenced, FileSet, Reader, Reference};
+use crate::cli::{execution_error, input_error, output, Failure};
+use crate::io::{Reader, Reference};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -14,16 +14,6 @@ use std::path::Path;
 struct Opened {
     reader: Box<dyn Reader>,
     channels: Vec<usize>,
-}
-
-fn open(
-    file: &str,
-    sr: Option<f64>,
-    reference: Option<&Reference>,
-) -> Result<Box<dyn Reader>, String> {
-    FileSet::from_path(Path::new(file))
-        .and_then(|files| open_referenced(&files, sr, reference))
-        .map_err(|e| format!("{file}: {e}"))
 }
 
 /// The indices of `labels` among the analysis channels of `reader`; an error names the ones it lacks.
@@ -266,7 +256,7 @@ fn segments(
     let mut labels = args.channels.clone();
     let mut out = Vec::new();
     for (file, group, stretches) in plan {
-        let reader = open(&file, args.sr, reference)?;
+        let (_, reader) = open(&file, args.sr, reference)?;
         let chosen = labels.get_or_insert_with(|| {
             let info = reader.info();
             info.analysis_channels()
@@ -318,7 +308,7 @@ fn segments(
 
 /// The report of `ddalab classify` for `args`, its model reading recordings with the reference `args` name.
 pub fn train(args: &ClassifyArgs) -> Result<Report, String> {
-    let reference = reference_of(&args.reference)?;
+    let reference = args.reference.parse()?;
     let (segments, channels) = segments(args, reference.as_ref(), !args.quiet)?;
     let config = SearchConfig {
         wl: args.wl,
@@ -359,7 +349,7 @@ pub fn predictions(args: &PredictArgs) -> Result<Value, String> {
     let mut files = Vec::new();
     for file in &args.files {
         let opened = find_channels(
-            open(file, args.sr, model.reference.as_ref())?,
+            open(file, args.sr, model.reference.as_ref())?.1,
             &model.channels,
             file,
         )?;
@@ -392,25 +382,18 @@ fn load_model(path: &str) -> Result<ClassifierModel, String> {
 }
 
 /// Writes `value` to `path` (stdout without one): 0, or the exit code of the failure, its message on stderr.
-fn finish<T: serde::Serialize>(value: Result<T, String>, path: Option<&str>) -> i32 {
-    let fail = |error: String, code| {
-        eprintln!("Error: {error}");
-        code
-    };
-    match value {
-        Ok(value) => match output::write_json(&value, false, path) {
-            Ok(()) => exit_codes::SUCCESS,
-            Err(e) => fail(e, exit_codes::EXECUTION_ERROR),
-        },
-        Err(e) => fail(e, exit_codes::INPUT_ERROR),
-    }
+fn finish<T: serde::Serialize>(
+    value: Result<T, String>,
+    path: Option<&str>,
+) -> Result<(), Failure> {
+    output::write_json(&value.map_err(input_error)?, false, path).map_err(execution_error)
 }
 
-pub fn execute(args: ClassifyArgs) -> i32 {
+pub fn execute(args: ClassifyArgs) -> Result<(), Failure> {
     finish(train(&args), Some(&args.output))
 }
 
-pub fn predict(args: PredictArgs) -> i32 {
+pub fn predict(args: PredictArgs) -> Result<(), Failure> {
     finish(predictions(&args), args.output.as_deref())
 }
 

@@ -1,13 +1,14 @@
 // The one store. Sample, tile and result arrays never enter it; they live in workers.
 import { create } from "zustand";
 import type { BatchProgress, BatchRecord } from "../core/batch";
+import { type DdaForm, DEFAULT_FORM } from "../core/ddaForm";
 import { type Filter, saveFilter, storedFilter } from "../core/filter";
+import type { FolderSource } from "../core/folder";
 import type { AnalysisRecord } from "../core/history";
 import type { ScanState } from "../core/protocol";
 import type { RunProgress } from "../core/scheduler";
 import type { Annotation, RecordingInfo, Reference } from "../core/types";
 import type { UserAnnotation } from "../core/userAnnotations";
-import { type DdaForm, DEFAULT_FORM } from "../features/analysis/validate";
 import type { MapName } from "../render/colormaps";
 import { saveTheme, storedTheme, type Theme } from "../styles/theme";
 import type { RecentEntry } from "./recent";
@@ -117,6 +118,8 @@ export interface State {
   /** The batch runs, newest first, and the one of this page as it goes (core/batch.ts). */
   batches: BatchRecord[];
   batch: BatchProgress | null;
+  /** The folder the library shows as a tree, a new `key` each time one is shown, and the batch to resume on it. */
+  folder: { source: FolderSource; key: number; resume?: string } | null;
   /** The result the provenance and the result views show; it need not belong to an open recording. */
   activeResultId: string | null;
   /** The side panels: open or collapsed. */
@@ -185,6 +188,7 @@ export const useStore = create<State>()(() => ({
   analyses: [],
   batches: [],
   batch: null,
+  folder: null,
   activeResultId: null,
   panels: { library: true, inspector: true },
   resultHeight: null,
@@ -577,6 +581,15 @@ export const showResult = (record: AnalysisRecord, interval = intervalOf(record)
       ),
     };
   });
+
+/** Shows `source` as the library's folder tree, to resume the batch `resume` on. Another folder drops the last batch's
+ * outcome and marks; a batch still running keeps its progress. */
+export const showFolder = (source: FolderSource, resume?: string) =>
+  useStore.setState((s) => ({
+    folder: { source, key: (s.folder?.key ?? 0) + 1, resume },
+    ...(s.batch?.status !== "running" && { batch: null }),
+  }));
+export const closeFolder = () => useStore.setState({ folder: null });
 
 export const setShownResult = (change: Partial<ShownResult>) =>
   useStore.setState((s) => ({ shownResult: s.shownResult && { ...s.shownResult, ...change } }));

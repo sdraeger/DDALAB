@@ -3,13 +3,12 @@
 
 export interface VariantInfo {
   abbreviation: string;
+  /** The name variant configs use, as `cross_dynamical`. */
+  app_id: string;
   name: string;
+  /** The variant's bit in the SELECT mask "ST CT CD RESERVED DE SY". */
   position: number;
-  output_suffix: string;
-  stride: number;
-  reserved: boolean;
   channel_format: "individual" | "pairs" | "directed_pairs";
-  output_columns: { coefficients: number; has_error: boolean };
   documentation: string;
 }
 
@@ -257,18 +256,4 @@ export interface ManifestExtras {
   windows: number;
   /** Where the run computed, when not the CPU alone: "webgpu-f32". */
   compute_device?: string;
-}
-
-/** A progress report of the engine, within one block. */
-export interface Progress {
-  stage_id: string;
-  stage_label: string;
-  step_index: number;
-  total_steps: number;
-  window_index: number;
-  total_windows: number;
-  item_index: number;
-  total_items: number;
-  item_kind: string;
-  item_label: string;
 }

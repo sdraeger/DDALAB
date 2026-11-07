@@ -8,13 +8,16 @@ import ChevronRight from "lucide-react/dist/esm/icons/chevron-right.mjs";
 import Download from "lucide-react/dist/esm/icons/download.mjs";
 import { type ChangeEvent, type ReactNode, useId, useRef, useState } from "react";
 import { exportBatch, reattach, resumeBatch } from "../../app/batch";
+import { useDownload } from "../../app/download";
 import { MiddleText } from "../../app/MiddleText";
 import { type BatchRecord, batchOutcome, settingsLine } from "../../core/batch";
 import type { FolderSource } from "../../core/folder";
-import { useStore } from "../../store/store";
+import { messageOf } from "../../core/words";
+import { showFolder, useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
 import rail from "../library/LibraryRail.module.css";
 import styles from "./History.module.css";
+import { Time } from "./Time";
 
 type DirectoryPicker = (options: { mode: "read" }) => Promise<FileSystemDirectoryHandle>;
 
@@ -24,16 +27,15 @@ export function BatchEntry(props: {
   batch: BatchRecord;
   /** The rows of its results. */
   children: ReactNode;
-  when: ReactNode;
-  onResume(source: FolderSource, batch: string): void;
 }) {
   const { batch } = props;
   const id = useId();
   const [open, setOpen] = useState(false);
   const [choose, setChoose] = useState(false);
-  // Why the export or the resume did not go through.
+  // Why the resume did not go through.
   const [error, setError] = useState<string>();
-  const [exporting, setExporting] = useState(false);
+  const download = useDownload();
+  const exporting = download.busy;
   const [walking, setWalking] = useState(false);
   const busy = useStore((s) => s.batch?.status === "running" || s.run?.status === "running");
   const folderInput = useRef<HTMLInputElement>(null);
@@ -43,26 +45,20 @@ export function BatchEntry(props: {
   const resumable = batch.status === "interrupted" || batch.status === "cancelled";
   const name = `${batch.form.variants.join(" ")} on ${batch.root || "a folder"}`;
 
-  // As the export dialog does: busy from when the file is made (after a Save dialog) until it is saved.
-  async function save() {
+  function save() {
     if (exporting) return;
     setError(undefined);
-    try {
-      await exportBatch(batch, () => setExporting(true));
-    } catch (failure) {
-      setError(`The export failed: ${failure instanceof Error ? failure.message : failure}`);
-    } finally {
-      setExporting(false);
-    }
+    void download.save(exportBatch(batch));
   }
   // The button goes once the batch runs again.
   const resumeOn = (source: FolderSource) => {
     setChoose(false);
     head.current?.focus();
-    props.onResume(source, batch.id);
+    showFolder(source, batch.id);
   };
   async function resume() {
     setError(undefined);
+    download.setError(null);
     if (batch.remote) return resumeRemote(batch.remote);
     const handle = await reattach(batch);
     if (handle) resumeOn({ kind: "handle", handle });
@@ -78,7 +74,7 @@ export function BatchEntry(props: {
       head.current?.focus();
       void resumeBatch(batch.id, found);
     } catch (failure) {
-      setError(`${batch.root} could not be listed: ${failure instanceof Error ? failure.message : failure}`);
+      setError(`${batch.root} could not be listed: ${messageOf(failure)}`);
     } finally {
       setWalking(false);
     }
@@ -118,7 +114,7 @@ export function BatchEntry(props: {
         <span className={`${rail.entryMeta} ${styles.indent}`}>
           <span className={failures.length > 0 ? styles.failed : undefined}>{batchOutcome(batch)}</span>
           <span className={rail.thin} aria-hidden />
-          {props.when}
+          <Time at={batch.createdAt} />
         </span>
         <span className={styles.settingsLine}>Batch of {settingsLine(batch)}</span>
       </button>
@@ -172,9 +168,9 @@ export function BatchEntry(props: {
             Preparing the file
           </p>
         )}
-        {error && (
+        {(error ?? download.error) && (
           <p role="alert" className={styles.error}>
-            {error}
+            {error ?? `The export failed: ${download.error}`}
           </p>
         )}
         <input

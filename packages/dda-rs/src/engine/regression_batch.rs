@@ -10,7 +10,7 @@ use super::{
         SolvedBlock,
     },
     window::PreparedWindow,
-    ComputeDevice, SvdBackend,
+    ComputeDevice,
 };
 
 const MAX_PROBLEMS_PER_BATCH: usize = 2048;
@@ -53,14 +53,9 @@ pub(crate) enum BasicSolver {
 }
 
 impl BasicSolver {
-    pub(crate) fn new(device: ComputeDevice, svd_backend: SvdBackend) -> Result<Self> {
+    pub(crate) fn new(device: ComputeDevice) -> Result<Self> {
         if device == ComputeDevice::Cpu {
             return Ok(Self::Cpu);
-        }
-        if svd_backend != SvdBackend::RobustSvd {
-            return Err(DDAError::InvalidParameter(
-                "GPU acceleration requires SvdBackend::RobustSvd".to_string(),
-            ));
         }
         if let ComputeDevice::Gpu(device_index) = device {
             #[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
@@ -98,17 +93,13 @@ impl BasicSolver {
         }
     }
 
-    fn solve(
-        &mut self,
-        problems: &[RegressionWindow],
-        svd_backend: SvdBackend,
-    ) -> Result<Vec<SolvedBlock>> {
+    fn solve(&mut self, problems: &[RegressionWindow]) -> Result<Vec<SolvedBlock>> {
         match self {
             Self::Cpu => Ok(solve_channels_parallel(problems, |problem| {
-                solve_regression_window(problem, svd_backend)
+                solve_regression_window(problem)
             })),
             #[cfg(all(feature = "cuda", target_os = "linux"))]
-            Self::Cuda(solver) => solver.solve(problems, svd_backend),
+            Self::Cuda(solver) => solver.solve(problems),
             #[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
             Self::Gpu(_) => unreachable!("the GPU solves whole windows (solve_basic_windows)"),
         }
@@ -128,19 +119,18 @@ pub(crate) fn solve_basic_windows(
     prepared_windows: &[PreparedWindow],
     jobs: &BasicJobs<'_>,
     model: &ModelSpec,
-    svd_backend: SvdBackend,
     solver: &mut BasicSolver,
 ) -> Result<Vec<WindowSolutions>> {
     if matches!(solver, BasicSolver::Cpu) {
         // Solving each problem as it is built keeps one design matrix per thread in memory
         return Ok(prepared_windows
             .par_iter()
-            .map(|prepared| solve_window_on_cpu(prepared, jobs, model, svd_backend))
+            .map(|prepared| solve_window_on_cpu(prepared, jobs, model))
             .collect());
     }
     #[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
     if let BasicSolver::Gpu(solver) = solver {
-        return solver.solve_windows(prepared_windows, jobs, model, svd_backend);
+        return solver.solve_windows(prepared_windows, jobs, model);
     }
 
     let jobs_per_window = jobs.st_channels.len()
@@ -162,7 +152,7 @@ pub(crate) fn solve_basic_windows(
             .iter()
             .map(|prepared| build_window_references(&mut problems, prepared, jobs, model))
             .collect::<Vec<_>>();
-        let solutions = solver.solve(&problems, svd_backend)?;
+        let solutions = solver.solve(&problems)?;
         output.extend(
             references
                 .iter()
@@ -177,22 +167,19 @@ pub(crate) fn solve_window_on_cpu(
     prepared: &PreparedWindow,
     jobs: &BasicJobs<'_>,
     model: &ModelSpec,
-    svd_backend: SvdBackend,
 ) -> WindowSolutions {
     let solve_groups = |groups: &[Vec<usize>]| {
-        solve_channels_parallel(groups, |group| {
-            solve_group_block(prepared, group, model, svd_backend)
-        })
+        solve_channels_parallel(groups, |group| solve_group_block(prepared, group, model))
     };
     let solve_pairs = |pairs: &[[usize; 2]], response_is_source: bool| {
         solve_channels_parallel(pairs, |&[target, source]| {
             let response = if response_is_source { source } else { target };
-            solve_directed_pair(prepared, target, source, response, model, svd_backend)
+            solve_directed_pair(prepared, target, source, response, model)
         })
     };
     let mut st = vec![None; jobs.channel_count];
     let st_blocks = solve_channels_parallel(jobs.st_channels, |&channel| {
-        solve_group_block(prepared, &[channel], model, svd_backend)
+        solve_group_block(prepared, &[channel], model)
     });
     for (&channel, block) in jobs.st_channels.iter().zip(st_blocks) {
         st[channel] = Some(block);

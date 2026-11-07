@@ -17,7 +17,7 @@
 //! best terms. The search score is optimistic, since the same folds chose the structure; the nested score repeats the
 //! whole search inside each outer fold and predicts the held-out fold with the structure that search chose.
 
-use crate::engine::{model_term_count, run_request_on_matrix};
+use crate::engine::{model::nr_multicombinations as model_term_count, run_request_on_matrix};
 use crate::error::{DDAError, Result};
 use crate::types::*;
 use nalgebra::{DMatrix, DVector};

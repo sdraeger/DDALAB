@@ -7,7 +7,6 @@
 // folder's parent with
 //   ddalab batch --bids-dir fixtures --continue-on-error --output-dir dda --model 1 2 10 --quiet > batch-manifest.json
 import { expect, test } from "vitest";
-import { DEFAULT_FORM } from "../features/analysis/validate";
 import {
   asBundle,
   type BatchRecord,
@@ -20,6 +19,7 @@ import {
   outputNames,
   settingsLine,
 } from "./batch";
+import { DEFAULT_FORM } from "./ddaForm";
 import golden from "./golden/batch-manifest.json";
 import type { AnalysisRecord } from "./history";
 import type { ChannelInfo, RecordingInfo } from "./types";

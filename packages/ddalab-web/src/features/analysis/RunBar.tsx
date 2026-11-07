@@ -8,12 +8,12 @@ import { use, useCallback, useEffect, useId, useMemo, useRef, useState } from "r
 import { useShallow } from "zustand/react/shallow";
 import { cancelRun, startRun, variants } from "../../app/analyses";
 import { engine } from "../../app/recordings";
+import { validateRequest } from "../../core/ddaForm";
 import type { DDARequest } from "../../core/types";
 import { count } from "../../core/words";
 import { type RunState, setSelection, useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
 import styles from "./Analysis.module.css";
-import { validateRequest } from "./validate";
 
 type Interval = { t0: number; t1: number };
 

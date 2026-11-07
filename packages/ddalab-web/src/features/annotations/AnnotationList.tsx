@@ -7,7 +7,7 @@
 import { Popover } from "@base-ui/react/popover";
 import Download from "lucide-react/dist/esm/icons/download.mjs";
 import { type KeyboardEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { download, type Saveable } from "../../app/download";
+import { useDownload } from "../../app/download";
 import { MiddleText } from "../../app/MiddleText";
 import type { UserAnnotation } from "../../core/userAnnotations";
 import { count } from "../../core/words";
@@ -30,7 +30,7 @@ export default function AnnotationList({ recordingId }: { recordingId: string })
   const user = useStore((s) => s.annotations[fingerprint] ?? EMPTY);
   const picked = useStore((s) => s.pickedAnnotation);
   const [showFile, setShowFile] = useState(true);
-  const [exportError, setExportError] = useState<string | null>(null);
+  const { save, error: exportError } = useDownload();
   const [query, setQuery] = useState("");
   const filter = useDeferredValue(query);
   const all = useMemo(() => listed(files ?? [], names ?? [], user), [files, names, user]);
@@ -53,13 +53,6 @@ export default function AnnotationList({ recordingId }: { recordingId: string })
     }
   }, [picked]);
   const stem = (names?.[0] ?? "recording").replace(/\.[^.]*$/, "").replace(/_(eeg|ieeg|meg)$/, "");
-  /** Saves an export as ExportDialog does: a failure shows in the panel. */
-  const save = (name: string, make: () => Saveable) => {
-    setExportError(null);
-    download(name, make).catch((failure) =>
-      setExportError(failure instanceof Error ? failure.message : String(failure)),
-    );
-  };
 
   const onKey = (event: KeyboardEvent<HTMLUListElement>) => {
     const list = event.currentTarget;
@@ -184,10 +177,10 @@ export default function AnnotationList({ recordingId }: { recordingId: string })
                   type="button"
                   className={history.option}
                   onClick={() =>
-                    save(
-                      `${stem}_events.tsv`,
-                      () => new Blob([eventsTsv(shown)], { type: "text/tab-separated-values" }),
-                    )
+                    save({
+                      name: `${stem}_events.tsv`,
+                      make: () => new Blob([eventsTsv(shown)], { type: "text/tab-separated-values" }),
+                    })
                   }
                 >
                   <b>BIDS events.tsv</b>
@@ -197,10 +190,10 @@ export default function AnnotationList({ recordingId }: { recordingId: string })
                   type="button"
                   className={history.option}
                   onClick={() =>
-                    save(
-                      `${stem}_annotations.json`,
-                      () => new Blob([eventsJson(shown)], { type: "application/json" }),
-                    )
+                    save({
+                      name: `${stem}_annotations.json`,
+                      make: () => new Blob([eventsJson(shown)], { type: "application/json" }),
+                    })
                   }
                 >
                   <b>JSON</b>

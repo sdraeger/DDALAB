@@ -3,14 +3,12 @@
 
 import { Popover } from "@base-ui/react/popover";
 import { useEffect, useState } from "react";
+import { useDownload } from "../../app/download";
 import { type Contents, exportProject, projectContents } from "../../app/project";
 import { mebibytes, PROJECT_RECORDS_LIMIT, RECORD_LIMIT } from "../../core/imports";
-import { count } from "../../core/words";
+import { bytes, count, messageOf } from "../../core/words";
 import controls from "../../styles/controls.module.css";
 import styles from "../history/History.module.css";
-import { size } from "../settings/LocalData";
-
-const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /** Why the results cannot go in the project, and the two ways forward. */
 function tooMuch({ bytes, refused }: Contents["budget"]) {
@@ -23,10 +21,8 @@ function tooMuch({ bytes, refused }: Contents["budget"]) {
 
 export default function ProjectExport() {
   const [contents, setContents] = useState<Contents | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  /** What the save is doing, or did: "Writing the project", then "The project is saved". */
-  const [status, setStatus] = useState("");
+  const { save, busy, error, setError } = useDownload();
+  const [saved, setSaved] = useState(false);
   useEffect(() => {
     let live = true;
     projectContents().then(
@@ -36,31 +32,12 @@ export default function ProjectExport() {
     return () => {
       live = false;
     };
-  }, []);
+  }, [setError]);
 
-  // The save dialog opens first (download.ts): busy starts when the file is made, and a closed dialog makes none.
-  async function save(ready: Contents, withResults: boolean) {
-    setError(null);
-    setStatus("");
-    let made = false;
-    try {
-      await exportProject(
-        ready,
-        () => {
-          made = true;
-          setBusy(true);
-          setStatus("Writing the project");
-        },
-        withResults,
-      );
-      if (made) setStatus("The project is saved");
-    } catch (failure) {
-      setStatus("");
-      setError(messageOf(failure));
-    } finally {
-      setBusy(false);
-    }
-  }
+  const saveProject = async (ready: Contents, withResults: boolean) => {
+    setSaved(false);
+    setSaved(await save(exportProject(ready, withResults)));
+  };
 
   const ready = contents && contents.problems.length === 0 && contents.members.length > 0 ? contents : null;
   // Results a DDALAB opening the project would refuse never go in: then the project goes without them.
@@ -78,7 +55,7 @@ export default function ProjectExport() {
         and views, and their results. It opens in DDALAB on any device, and any zip tool unpacks it.
       </p>
       <p aria-live="polite">
-        {contents ? `${holds?.join(", ")}: ${size(contents.bytes)}` : error ? "" : "Measuring…"}
+        {contents ? `${holds?.join(", ")}: ${bytes(contents.bytes)}` : error ? "" : "Measuring…"}
       </p>
       {contents && contents.problems.length > 0 && (
         <ul className={styles.diagnostics} aria-label="Tabs to fix first">
@@ -94,13 +71,13 @@ export default function ProjectExport() {
         type="button"
         className={`${controls.primary} ${styles.save}`}
         disabled={!ready || busy}
-        onClick={() => ready && save(ready, whole)}
+        onClick={() => ready && saveProject(ready, whole)}
       >
         {whole ? "Save project" : "Export without results"}
       </button>
       {/* One region from the start: a region mounted with its text is often not read. */}
       <p className={styles.note} aria-live="polite">
-        {status}
+        {busy ? "Writing the project" : saved ? "The project is saved" : ""}
       </p>
       {error && (
         <p role="alert" className={styles.error}>
