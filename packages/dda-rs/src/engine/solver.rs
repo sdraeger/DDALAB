@@ -465,64 +465,6 @@ fn dense_regularized_solve(
         .collect()
 }
 
-#[cfg(test)]
-mod temporal_tests {
-    use super::*;
-
-    fn system(
-        cols: usize,
-        lambda: f64,
-        column: impl Fn(usize, usize, usize) -> f64,
-    ) -> (Vec<DMatrix<f64>>, Vec<DVector<f64>>) {
-        let diagonal = (0..40)
-            .map(|w| {
-                let a = DMatrix::from_fn(50, cols, |r, c| column(r, c, w));
-                let mut block = a.transpose() * &a;
-                let neighbours = usize::from(w > 0) + usize::from(w + 1 < 40);
-                for d in 0..cols {
-                    block[(d, d)] += lambda * neighbours as f64;
-                }
-                block
-            })
-            .collect();
-        let rhs = (0..40)
-            .map(|w| DVector::from_fn(cols, |r, _| ((r + w) as f64 * 0.91).cos()))
-            .collect();
-        (diagonal, rhs)
-    }
-
-    fn assert_close(left: &[DVector<f64>], right: &[DVector<f64>]) {
-        for (x, y) in left.iter().zip(right) {
-            assert!((x - y).norm() <= 1e-9 * y.norm().max(1.0), "{x} vs {y}");
-        }
-    }
-
-    /// The block solver and the dense SVD agree on a well-posed system of 40 windows.
-    #[test]
-    fn block_tridiagonal_solve_equals_the_dense_solution() {
-        let lambda = 2.5;
-        let (diagonal, rhs) = system(3, lambda, |r, c, w| {
-            ((r * (c + 2) + w) as f64 * 0.37 * (c + 1) as f64).sin()
-        });
-        let block = block_tridiagonal_solve(&diagonal, &rhs, lambda).expect("well conditioned");
-        assert_close(
-            &block,
-            &dense_regularized_solve(&diagonal, &rhs, lambda, SvdBackend::RobustSvd),
-        );
-    }
-
-    /// Three columns in a two-dimensional span leave a direction no window determines: the block solver declines
-    /// and the minimum-norm SVD answers.
-    #[test]
-    fn a_singular_system_falls_back_to_the_svd() {
-        let lambda = 2.5;
-        let (diagonal, rhs) = system(3, lambda, |r, c, w| {
-            ((r * 7 + c * 13 + w * 3) as f64 * 0.37).sin()
-        });
-        assert!(block_tridiagonal_solve(&diagonal, &rhs, lambda).is_none());
-    }
-}
-
 fn solve_least_squares_from_flat(
     flat_design: &[f64],
     rows: usize,
@@ -1131,5 +1073,63 @@ pub(crate) fn synchronization_value(mode: u8, forward_rmse: f64, reverse_rmse: f
             }
         }
         _ => f64::NAN,
+    }
+}
+
+#[cfg(test)]
+mod temporal_tests {
+    use super::*;
+
+    fn system(
+        cols: usize,
+        lambda: f64,
+        column: impl Fn(usize, usize, usize) -> f64,
+    ) -> (Vec<DMatrix<f64>>, Vec<DVector<f64>>) {
+        let diagonal = (0..40)
+            .map(|w| {
+                let a = DMatrix::from_fn(50, cols, |r, c| column(r, c, w));
+                let mut block = a.transpose() * &a;
+                let neighbours = usize::from(w > 0) + usize::from(w + 1 < 40);
+                for d in 0..cols {
+                    block[(d, d)] += lambda * neighbours as f64;
+                }
+                block
+            })
+            .collect();
+        let rhs = (0..40)
+            .map(|w| DVector::from_fn(cols, |r, _| ((r + w) as f64 * 0.91).cos()))
+            .collect();
+        (diagonal, rhs)
+    }
+
+    fn assert_close(left: &[DVector<f64>], right: &[DVector<f64>]) {
+        for (x, y) in left.iter().zip(right) {
+            assert!((x - y).norm() <= 1e-9 * y.norm().max(1.0), "{x} vs {y}");
+        }
+    }
+
+    /// The block solver and the dense SVD agree on a well-posed system of 40 windows.
+    #[test]
+    fn block_tridiagonal_solve_equals_the_dense_solution() {
+        let lambda = 2.5;
+        let (diagonal, rhs) = system(3, lambda, |r, c, w| {
+            ((r * (c + 2) + w) as f64 * 0.37 * (c + 1) as f64).sin()
+        });
+        let block = block_tridiagonal_solve(&diagonal, &rhs, lambda).expect("well conditioned");
+        assert_close(
+            &block,
+            &dense_regularized_solve(&diagonal, &rhs, lambda, SvdBackend::RobustSvd),
+        );
+    }
+
+    /// Three columns in a two-dimensional span leave a direction no window determines: the block solver declines
+    /// and the minimum-norm SVD answers.
+    #[test]
+    fn a_singular_system_falls_back_to_the_svd() {
+        let lambda = 2.5;
+        let (diagonal, rhs) = system(3, lambda, |r, c, w| {
+            ((r * 7 + c * 13 + w * 3) as f64 * 0.37).sin()
+        });
+        assert!(block_tridiagonal_solve(&diagonal, &rhs, lambda).is_none());
     }
 }
