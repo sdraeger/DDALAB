@@ -1450,8 +1450,9 @@ fn compute_ccd_pair_conditioning_sets(
             let Some(windows) = prepared_windows else {
                 return all_selected_conditioning_sets(ccd_pairs, candidate_channels);
             };
+            // Pairs in parallel: each runs its own selection, cap x candidates x windows regressions.
             ccd_pairs
-                .iter()
+                .par_iter()
                 .map(|pair| {
                     auto_select_conditioning_channels_for_pair(
                         windows,
@@ -1767,16 +1768,17 @@ fn conditioned_baseline_window_metrics(
     svd_backend: SvdBackend,
 ) -> (Vec<f64>, Vec<f64>) {
     let parameter_count = model.primary_terms.len() + confounds.len() * model.secondary_terms.len();
-    let mut window_scores = Vec::with_capacity(prepared_windows.len());
-    let mut window_rmses = Vec::with_capacity(prepared_windows.len());
-    for prepared in prepared_windows {
-        let block = solve_channel_with_inputs(prepared, target, confounds, model, svd_backend);
-        let rmse = block.rmse;
-        let score = bic_like_score(rmse, model.window_length, parameter_count);
-        window_scores.push(score);
-        window_rmses.push(rmse);
-    }
-    (window_scores, window_rmses)
+    prepared_windows
+        .par_iter()
+        .map(|prepared| {
+            let rmse =
+                solve_channel_with_inputs(prepared, target, confounds, model, svd_backend).rmse;
+            (
+                bic_like_score(rmse, model.window_length, parameter_count),
+                rmse,
+            )
+        })
+        .unzip()
 }
 
 fn finite_mean(values: &[f64]) -> Option<f64> {
