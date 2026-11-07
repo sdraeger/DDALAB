@@ -43,40 +43,68 @@ impl ByteSource for MemorySource {
     }
 }
 
-/// A read-only memory map; the file must not change while it is open (see `mmap_file`).
+/// A file read with positioned reads. Unlike a memory map, a file truncated or replaced while open (a recording
+/// still being written, a sync client rewriting it) gives an I/O error instead of killing the process with SIGBUS;
+/// every reader copies the bytes it needs anyway.
 #[cfg(not(target_arch = "wasm32"))]
-pub struct MmapSource {
-    map: Option<memmap2::Mmap>,
+pub struct FileSource {
+    file: std::fs::File,
+    len: u64,
     name: String,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl MmapSource {
+impl FileSource {
     pub fn open(path: &Path) -> Result<Self> {
-        // An empty file cannot be mapped.
-        let map = match std::fs::metadata(path)?.len() {
-            0 => None,
-            _ => Some(crate::mmap_utils::mmap_file(path)?),
+        let in_path = |e: std::io::Error| {
+            DDAError::IoError(std::io::Error::new(
+                e.kind(),
+                format!("{}: {e}", path.display()),
+            ))
         };
+        let file = std::fs::File::open(path).map_err(in_path)?;
+        let len = file.metadata().map_err(in_path)?.len();
         Ok(Self {
-            map,
+            file,
+            len,
             name: path.display().to_string(),
         })
     }
+}
 
-    fn bytes(&self) -> &[u8] {
-        self.map.as_deref().unwrap_or_default()
+#[cfg(unix)]
+fn read_exact_at(file: &std::fs::File, buf: &mut [u8], offset: u64) -> std::io::Result<()> {
+    std::os::unix::fs::FileExt::read_exact_at(file, buf, offset)
+}
+
+#[cfg(windows)]
+fn read_exact_at(file: &std::fs::File, mut buf: &mut [u8], mut offset: u64) -> std::io::Result<()> {
+    use std::os::windows::fs::FileExt;
+    while !buf.is_empty() {
+        match file.seek_read(buf, offset) {
+            Ok(0) => return Err(std::io::ErrorKind::UnexpectedEof.into()),
+            Ok(n) => {
+                buf = &mut buf[n..];
+                offset += n as u64;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
     }
+    Ok(())
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl ByteSource for MmapSource {
+impl ByteSource for FileSource {
     fn len(&self) -> u64 {
-        self.bytes().len() as u64
+        self.len
     }
 
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<()> {
-        read_slice(&self.name, self.bytes(), offset, buf)
+        checked_range(&self.name, offset, buf.len(), self.len)?;
+        read_exact_at(&self.file, buf, offset).map_err(|e| {
+            DDAError::IoError(std::io::Error::new(e.kind(), format!("{}: {e}", self.name)))
+        })
     }
 }
 
@@ -302,7 +330,7 @@ impl FileSet {
             if name == primary || sibling.is_file() {
                 files.insert(
                     name,
-                    Arc::new(MmapSource::open(&sibling)?) as Arc<dyn ByteSource>,
+                    Arc::new(FileSource::open(&sibling)?) as Arc<dyn ByteSource>,
                 );
             }
         }
