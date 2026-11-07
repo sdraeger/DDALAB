@@ -103,6 +103,18 @@ pub fn available_cuda_devices() -> Vec<CudaDeviceInfo> {
     }
 }
 
+/// The matrix of `samples`, with every channel index of `request` checked against its columns, so that a bad index
+/// is an error here instead of a panic in a worker.
+fn checked_dataset<'a>(
+    request: &DDARequest,
+    samples: &'a [Vec<f64>],
+    channel_labels: Option<&[String]>,
+) -> Result<MatrixDataset<'a>> {
+    let dataset = MatrixDataset::new(samples, channel_labels)?;
+    crate::blocks::validate_request(request, dataset.cols)?;
+    Ok(dataset)
+}
+
 impl ComputeDevice {
     fn is_gpu(self) -> bool {
         matches!(self, Self::Cuda(_) | Self::Gpu(_))
@@ -247,7 +259,7 @@ impl PureRustRunner {
         samples: &[Vec<f64>],
         channel_labels: Option<&[String]>,
     ) -> Result<CcdConditioningInspection> {
-        let dataset = MatrixDataset::new(samples, channel_labels)?;
+        let dataset = checked_dataset(request, samples, channel_labels)?;
         let model = ModelSpec::from_request(request)?;
         let bounds = AnalysisBounds::from_request(request, dataset.rows)?;
         let ccd_pairs = resolve_ccd_pairs(request, dataset.cols);
@@ -255,28 +267,18 @@ impl PureRustRunner {
         let candidate_channels = resolve_ccd_candidate_channels(request, dataset.cols);
         let needs_prepared_windows = !matches!(strategy, CcdConditioningStrategy::AllSelected);
 
-        let conditioning_sets = if needs_prepared_windows {
-            let windows = prepare_analysis_windows(&dataset, &bounds, &model, &self.options)?;
-            compute_ccd_pair_conditioning_sets(
-                Some(&windows),
-                &ccd_pairs,
-                &candidate_channels,
-                strategy,
-                &model,
-                resolve_ccd_max_active_sources(request).unwrap_or(3),
-                self.options.svd_backend,
-            )
-        } else {
-            compute_ccd_pair_conditioning_sets(
-                None,
-                &ccd_pairs,
-                &candidate_channels,
-                strategy,
-                &model,
-                resolve_ccd_max_active_sources(request).unwrap_or(3),
-                self.options.svd_backend,
-            )
-        };
+        let windows = needs_prepared_windows
+            .then(|| prepare_analysis_windows(&dataset, &bounds, &model, &self.options))
+            .transpose()?;
+        let conditioning_sets = compute_ccd_pair_conditioning_sets(
+            windows.as_deref(),
+            &ccd_pairs,
+            &candidate_channels,
+            strategy,
+            &model,
+            resolve_ccd_max_active_sources(request).unwrap_or(3),
+            self.options.svd_backend,
+        );
 
         Ok(CcdConditioningInspection {
             pairs: ccd_pairs,
@@ -294,27 +296,20 @@ impl PureRustRunner {
         pair: [usize; 2],
         confound_sets: &[Vec<usize>],
     ) -> Result<Vec<CcdConditioningSubsetScore>> {
-        let dataset = MatrixDataset::new(samples, channel_labels)?;
-        let model = ModelSpec::from_request(request)?;
-        let bounds = AnalysisBounds::from_request(request, dataset.rows)?;
-        let windows = prepare_analysis_windows(&dataset, &bounds, &model, &self.options)?;
-
-        Ok(confound_sets
-            .iter()
-            .map(|confounds| {
-                let (bic_like_score, mean_rmse) = average_conditioned_baseline_metrics(
-                    &windows,
-                    pair[0],
-                    confounds,
-                    &model,
-                    self.options.svd_backend,
-                );
-                CcdConditioningSubsetScore {
-                    pair,
-                    confounds: confounds.clone(),
-                    bic_like_score,
-                    mean_rmse,
-                }
+        Ok(self
+            .profile_ccd_conditioning_subsets_on_matrix(
+                request,
+                samples,
+                channel_labels,
+                pair,
+                confound_sets,
+            )?
+            .into_iter()
+            .map(|profile| CcdConditioningSubsetScore {
+                pair: profile.pair,
+                confounds: profile.confounds,
+                bic_like_score: profile.bic_like_score,
+                mean_rmse: profile.mean_rmse,
             })
             .collect())
     }
@@ -327,7 +322,17 @@ impl PureRustRunner {
         pair: [usize; 2],
         confound_sets: &[Vec<usize>],
     ) -> Result<Vec<CcdConditioningSubsetProfile>> {
-        let dataset = MatrixDataset::new(samples, channel_labels)?;
+        let dataset = checked_dataset(request, samples, channel_labels)?;
+        if let Some(channel) = pair
+            .iter()
+            .chain(confound_sets.iter().flatten())
+            .find(|&&channel| channel >= dataset.cols)
+        {
+            return Err(DDAError::InvalidParameter(format!(
+                "channel {channel} is out of range for {} channels",
+                dataset.cols
+            )));
+        }
         let model = ModelSpec::from_request(request)?;
         let bounds = AnalysisBounds::from_request(request, dataset.rows)?;
         let windows = prepare_analysis_windows(&dataset, &bounds, &model, &self.options)?;
@@ -363,7 +368,7 @@ impl PureRustRunner {
         channel_labels: Option<&[String]>,
         mut on_progress: Option<&mut dyn FnMut(&PureRustProgress)>,
     ) -> Result<DDAResult> {
-        let dataset = MatrixDataset::new(samples, channel_labels)?;
+        let dataset = checked_dataset(request, samples, channel_labels)?;
         let variant_mode = VariantMode::from_request(request);
         let model = ModelSpec::from_request(request)?;
         let bounds = AnalysisBounds::from_request(request, dataset.rows)?;

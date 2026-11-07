@@ -804,3 +804,51 @@ fn de_on_the_ct_groups_adds_no_regressions_to_a_window() {
     super::regression_batch::build_window_references(&mut problems, &window, &jobs, &model);
     assert_eq!(problems.len(), 1);
 }
+
+/// A channel index beyond the matrix is an error from the library entry point, not a panic in a worker.
+#[test]
+fn an_out_of_range_channel_is_an_error() {
+    let samples = (0..240)
+        .map(|index| {
+            let t = index as f64 * 0.05;
+            vec![t.sin(), (t + 0.4).sin()]
+        })
+        .collect::<Vec<_>>();
+    let request = DDARequest {
+        file_path: "synthetic".to_string(),
+        channels: Some(vec![0, 99]),
+        time_range: TimeRange {
+            start: 0.0,
+            end: 239.0,
+        },
+        preprocessing_options: PreprocessingOptions {
+            highpass: None,
+            lowpass: None,
+        },
+        algorithm_selection: AlgorithmSelection {
+            enabled_variants: vec!["ST".to_string()],
+            select_mask: None,
+        },
+        window_parameters: WindowParameters {
+            window_length: 96,
+            window_step: 48,
+            ct_window_length: None,
+            ct_window_step: None,
+        },
+        delay_parameters: DelayParameters { delays: vec![1, 2] },
+        ct_channel_pairs: None,
+        cd_channel_pairs: None,
+        model_parameters: Some(ModelParameters {
+            dm: 4,
+            order: 4,
+            nr_tau: 2,
+        }),
+        model_terms: Some(vec![1, 2, 10]),
+        variant_configs: None,
+        sampling_rate: None,
+    };
+    let error = PureRustRunner::default()
+        .run_on_matrix(&request, &samples, None)
+        .unwrap_err();
+    assert!(error.to_string().contains("99"), "{error}");
+}
