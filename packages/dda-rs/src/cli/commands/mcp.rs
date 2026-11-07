@@ -20,9 +20,33 @@ const MAX_ROWS: usize = 64;
 /// The most values one `read_samples` call returns.
 const MAX_SAMPLES: usize = 10_000;
 
-/// Where `run_dda` saves a result that names no output, as `<id>.json`.
+/// Where `run_dda` saves a result that names no output, as `<id>.json`: the user's cache directory, since a
+/// shared temporary directory would let other users of a node read the results or plant files `read_result` reads.
 fn results_dir() -> PathBuf {
-    std::env::temp_dir().join("ddalab-mcp")
+    dirs::cache_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("ddalab-mcp")
+}
+
+/// `results_dir`, created readable by its owner only.
+fn private_results_dir() -> Result<PathBuf, String> {
+    let dir = results_dir();
+    let failed = |e: std::io::Error| format!("{}: {e}", dir.display());
+    std::fs::create_dir_all(&dir).map_err(failed)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&dir)
+            .map_err(failed)?
+            .permissions()
+            .mode();
+        if mode & 0o077 != 0 {
+            // Fails unless this user owns the directory, which is the refusal a planted one gets.
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+                .map_err(failed)?;
+        }
+    }
+    Ok(dir)
 }
 
 pub fn execute(args: McpArgs) -> i32 {
@@ -159,7 +183,7 @@ fn tools(hipaa: bool) -> Vec<Value> {
                 "electrodes": electrodes,
                 "output": {"type": "string", "description": "Where to save the result JSON; default: a file in the system's temporary folder"},
             }, "required": ["file"]},
-            "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false},
+            "annotations": {"readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": false},
         }),
         json!({
             "name": "read_result",
@@ -206,7 +230,7 @@ fn tools(hipaa: bool) -> Vec<Value> {
                 "sr": sr,
                 "output": {"type": "string", "description": "Report path; default a file in the temporary directory"},
             }},
-            "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false},
+            "annotations": {"readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false},
         }),
         json!({
             "name": "predict",
@@ -460,8 +484,7 @@ async fn run(args: RunTool) -> Result<Value, String> {
     let path = match args.output {
         Some(output) => PathBuf::from(output),
         None => {
-            let dir = results_dir();
-            std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+            let dir = private_results_dir()?;
             dir.join(format!("{}.json", document.id))
         }
     };
@@ -692,8 +715,7 @@ fn classify(args: ClassifyTool, hipaa: bool) -> Result<Value, String> {
     let path = match args.output {
         Some(output) => PathBuf::from(output),
         None => {
-            let dir = results_dir();
-            std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+            let dir = private_results_dir()?;
             dir.join(format!("classify-{}.json", uuid::Uuid::new_v4()))
         }
     };
