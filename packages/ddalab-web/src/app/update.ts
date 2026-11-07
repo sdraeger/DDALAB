@@ -70,8 +70,9 @@ export function registerWorker() {
   if (!serviceWorker) return;
   // Whether a worker has controlled this page: the first install claims it, which is no update.
   let controlled = Boolean(serviceWorker.controller);
-  const check = (registration: ServiceWorkerRegistration) => {
-    if (registration.waiting && serviceWorker.controller) offer(registration.waiting);
+  // Under load WebKit reports the first install as waiting once it already controls the page: that is no new version.
+  const check = ({ waiting }: ServiceWorkerRegistration) => {
+    if (waiting && serviceWorker.controller && waiting !== serviceWorker.controller) offer(waiting);
   };
   serviceWorker.register("./sw.js", { scope: "./" }).then(
     (registered) => {
