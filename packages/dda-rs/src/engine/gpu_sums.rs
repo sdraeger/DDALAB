@@ -119,7 +119,8 @@ fn sum_of(words: &[u32]) -> f64 {
 struct Layout {
     terms: usize,
     channels: Vec<usize>,
-    slot: HashMap<usize, usize>,
+    /// Slot of each channel, by channel index.
+    slot: Vec<usize>,
     own: Vec<usize>,
     cross: HashMap<(usize, usize), usize>,
     pairs: Vec<[u32; 2]>,
@@ -138,8 +139,10 @@ impl Layout {
             .collect();
         channels.sort_unstable();
         channels.dedup();
-        let slot: HashMap<usize, usize> =
-            channels.iter().enumerate().map(|(i, &c)| (c, i)).collect();
+        let mut slot = vec![usize::MAX; channels.last().map_or(0, |&c| c + 1)];
+        for (i, &c) in channels.iter().enumerate() {
+            slot[c] = i;
+        }
         let vector = |slot: usize, k: usize| (slot * (terms + 1) + k) as u32;
         let mut pairs = Vec::new();
         let mut own = Vec::new();
@@ -155,7 +158,7 @@ impl Layout {
         }
         let mut cross = HashMap::new();
         for &[x, y] in jobs.cd_pairs.iter().chain(jobs.sy_pairs) {
-            let (a, b) = (slot[&x.min(y)], slot[&x.max(y)]);
+            let (a, b) = (slot[x.min(y)], slot[x.max(y)]);
             if a == b || cross.contains_key(&(a, b)) {
                 continue;
             }
@@ -198,23 +201,32 @@ impl Layout {
         s[self.own[c] + n * (n + 1) / 2 + n]
     }
 
-    /// T_a[k]'T_b[l] for slots a != b.
-    fn cross_tt(&self, s: &[f64], a: usize, b: usize, k: usize, l: usize) -> f64 {
-        let n = self.terms;
+    /// Where the cross sums of slots a != b start, and whether (a, b) is the stored pair reversed.
+    fn cross_of(&self, a: usize, b: usize) -> (usize, bool) {
         if a < b {
-            s[self.cross[&(a, b)] + k * n + l]
+            (self.cross[&(a, b)], false)
         } else {
-            s[self.cross[&(b, a)] + l * n + k]
+            (self.cross[&(b, a)], true)
         }
     }
 
-    /// T_a[k]'d_b for slots a != b.
-    fn cross_td(&self, s: &[f64], a: usize, b: usize, k: usize) -> f64 {
+    /// T_a[k]'T_b[l] for the pair `cross_of(a, b)`.
+    fn cross_tt(&self, s: &[f64], (base, flipped): (usize, bool), k: usize, l: usize) -> f64 {
         let n = self.terms;
-        if a < b {
-            s[self.cross[&(a, b)] + n * n + k]
+        if flipped {
+            s[base + l * n + k]
         } else {
-            s[self.cross[&(b, a)] + n * n + n + k]
+            s[base + k * n + l]
+        }
+    }
+
+    /// T_a[k]'d_b for the pair `cross_of(a, b)`.
+    fn cross_td(&self, s: &[f64], (base, flipped): (usize, bool), k: usize) -> f64 {
+        let n = self.terms;
+        if flipped {
+            s[base + n * n + n + k]
+        } else {
+            s[base + n * n + k]
         }
     }
 
@@ -223,7 +235,7 @@ impl Layout {
         let n = self.terms;
         let mut normal = Normal::zeros(n, rows * channels.len());
         for &channel in channels {
-            let c = self.slot[&channel];
+            let c = self.slot[channel];
             for k in 0..n {
                 for l in 0..n {
                     normal.gram[(k, l)] += self.tt(s, c, k, l);
@@ -247,16 +259,19 @@ impl Layout {
         rows: usize,
     ) -> Normal {
         let n = self.terms;
-        let (f, src, r) = (self.slot[&fit], self.slot[&source], self.slot[&response]);
+        let (f, src, r) = (self.slot[fit], self.slot[source], self.slot[response]);
+        // One lookup per problem: (source, fit) for T_s'T_f and T_s'd_f, reversed for T_f'd_s.
+        let pair = self.cross_of(src, f);
+        let reversed = (pair.0, !pair.1);
         let mut normal = Normal::zeros(2 * n, rows);
         for k in 0..n {
             for l in 0..n {
                 normal.gram[(k, l)] = self.tt(s, src, k, l);
                 normal.gram[(n + k, n + l)] = self.tt(s, f, k, l);
-                normal.gram[(k, n + l)] = self.cross_tt(s, src, f, k, l);
+                normal.gram[(k, n + l)] = self.cross_tt(s, pair, k, l);
                 normal.gram[(n + l, k)] = normal.gram[(k, n + l)];
             }
-            normal.xy[k] = self.cross_td(s, src, f, k);
+            normal.xy[k] = self.cross_td(s, pair, k);
             normal.xy[n + k] = self.td(s, f, k);
             normal.xr[k] = if r == src {
                 self.td(s, src, k)
@@ -266,7 +281,7 @@ impl Layout {
             normal.xr[n + k] = if r == f {
                 normal.xy[n + k]
             } else {
-                self.cross_td(s, f, r, k)
+                self.cross_td(s, reversed, k)
             };
         }
         normal.rr = self.dd(s, r);
