@@ -10,7 +10,7 @@ use rayon::prelude::*;
 use crate::error::{DDAError, Result};
 
 use super::solver::{solve_regression_window, RegressionWindow, SolvedBlock};
-use super::{CudaDeviceInfo, SvdBackend};
+use super::CudaDeviceInfo;
 
 const CUDA_BATCH_SIZE: usize = 512;
 

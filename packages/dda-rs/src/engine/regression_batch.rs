@@ -1,6 +1,6 @@
 use rayon::prelude::*;
 
-use crate::error::{DDAError, Result};
+use crate::error::Result;
 
 use super::{
     model::ModelSpec,
@@ -61,7 +61,7 @@ impl BasicSolver {
             #[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
             return super::gpu_sums::GpuSumsSolver::new(device_index).map(Self::Gpu);
             #[cfg(not(all(feature = "gpu", not(target_arch = "wasm32"))))]
-            return Err(DDAError::ExecutionFailed(format!(
+            return Err(crate::error::DDAError::ExecutionFailed(format!(
                 "GPU support is not compiled in: build with --features gpu (gpu:{device_index})"
             )));
         }
@@ -75,7 +75,7 @@ impl BasicSolver {
         #[cfg(not(all(feature = "cuda", target_os = "linux")))]
         {
             let _ = device_index;
-            Err(DDAError::ExecutionFailed(
+            Err(crate::error::DDAError::ExecutionFailed(
                 "CUDA support is not compiled in: CUDA runs in Linux builds with --features cuda"
                     .to_string(),
             ))
