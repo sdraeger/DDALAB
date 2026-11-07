@@ -61,10 +61,10 @@ impl Binary {
 }
 
 /// `(section, key, value)` of one `key=value` line.
-type Entry = (String, String, String);
+pub(super) type Entry = (String, String, String);
 
 /// The entries of an INI file in UTF-8, or Latin-1 when the bytes are not valid UTF-8; `;` lines are comments.
-fn parse_ini(bytes: &[u8]) -> Vec<Entry> {
+pub(super) fn parse_ini(bytes: &[u8]) -> Vec<Entry> {
     let text = std::str::from_utf8(bytes)
         .map(str::to_string)
         .unwrap_or_else(|_| bytes.iter().map(|&b| b as char).collect());
@@ -91,14 +91,14 @@ fn parse_ini(bytes: &[u8]) -> Vec<Entry> {
     entries
 }
 
-fn get<'a>(ini: &'a [Entry], section: &str, key: &str) -> Option<&'a str> {
+pub(super) fn get<'a>(ini: &'a [Entry], section: &str, key: &str) -> Option<&'a str> {
     ini.iter()
         .find(|(s, k, _)| s.eq_ignore_ascii_case(section) && k.eq_ignore_ascii_case(key))
         .map(|(_, _, value)| value.as_str())
 }
 
 /// The file name without any directory the header gives. This keeps a header from pointing outside its file set.
-fn base_name(path: &str) -> &str {
+pub(super) fn base_name(path: &str) -> &str {
     path.rsplit(['/', '\\']).next().unwrap_or(path)
 }
 

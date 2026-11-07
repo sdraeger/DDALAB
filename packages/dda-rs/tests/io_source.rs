@@ -243,3 +243,22 @@ fn a_file_truncated_while_open_errors() {
     let mut buf = [0u8; 16];
     assert!(src.read_at(4096, &mut buf).is_err());
 }
+
+/// A Latin-1 header names its data file as the BrainVision reader decodes it, so the file joins the set.
+#[test]
+fn a_latin1_vhdr_names_its_data_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut header =
+        b"Brain Vision Data Exchange Header File Version 1.0\n[Common Infos]\nDataFile=M".to_vec();
+    header.extend([0xFC]);
+    header.extend(b"ller.eeg\nMarkerFile=x.vmrk\n");
+    let path = dir.path().join("rec.vhdr");
+    std::fs::write(&path, &header).unwrap();
+    std::fs::write(dir.path().join("M\u{fc}ller.eeg"), [0u8; 8]).unwrap();
+    let set = dda_rs::io::FileSet::from_path(&path).unwrap();
+    assert!(
+        set.files.contains_key("M\u{fc}ller.eeg"),
+        "{:?}",
+        set.files.keys().collect::<Vec<_>>()
+    );
+}

@@ -302,7 +302,9 @@ fn bipolar(labels: &[&str]) -> Result<Vec<Derived>> {
 
 /// The rows of a TSV with a header, as maps from column to value; `#` lines and blank lines are skipped.
 fn tsv(text: &str) -> Vec<BTreeMap<String, String>> {
+    // A spreadsheet's byte-order mark would otherwise become part of the first column name.
     let mut lines = text
+        .trim_start_matches('\u{feff}')
         .lines()
         .map(|l| l.trim_end_matches('\r'))
         .filter(|l| !l.trim().is_empty() && !l.starts_with('#'));
@@ -676,6 +678,13 @@ impl Reader for Referenced {
 
 #[cfg(test)]
 mod tests {
+    /// A spreadsheet's byte-order mark before the first column name does not hide the column.
+    #[test]
+    fn a_tsv_header_with_a_byte_order_mark_keeps_its_first_column() {
+        let rows = tsv("\u{feff}name\tx\nCz\t1\n");
+        assert_eq!(rows[0].get("name").map(String::as_str), Some("Cz"));
+    }
+
     use super::*;
     use crate::io::open_matrix;
 

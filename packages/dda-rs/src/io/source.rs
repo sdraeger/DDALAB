@@ -293,7 +293,7 @@ impl FileSet {
             .extension()
             .is_some_and(|ext| ext.eq_ignore_ascii_case("vhdr"))
         {
-            names.extend(vhdr_files(&String::from_utf8_lossy(&std::fs::read(path)?)));
+            names.extend(vhdr_files(&std::fs::read(path)?));
         }
         // An EEGLAB dataset's samples are in the .fdt of its stem, as pop_saveset names it.
         if path
@@ -340,26 +340,13 @@ impl FileSet {
 
 /// Base names of the `DataFile` and `MarkerFile` entries in the `[Common Infos]` section of a `.vhdr`.
 #[cfg(not(target_arch = "wasm32"))]
-fn vhdr_files(text: &str) -> Vec<String> {
-    let mut in_common = false;
-    let mut names = Vec::new();
-    for line in text
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.starts_with(';'))
-    {
-        if let Some(section) = line
-            .strip_prefix('[')
-            .and_then(|rest| rest.strip_suffix(']'))
-        {
-            in_common = section.trim().eq_ignore_ascii_case("Common Infos");
-        } else if let Some((key, value)) = line.split_once('=').filter(|_| in_common) {
-            let key = key.trim();
-            if key.eq_ignore_ascii_case("DataFile") || key.eq_ignore_ascii_case("MarkerFile") {
-                // Keep the base name so a header cannot point outside its directory.
-                names.extend(value.trim().rsplit(['/', '\\']).next().map(str::to_string));
-            }
-        }
-    }
-    names
+fn vhdr_files(bytes: &[u8]) -> Vec<String> {
+    // Parsed as the BrainVision reader parses it (UTF-8, else Latin-1), so both see the same file names; the base
+    // name keeps a header from pointing outside its directory.
+    let ini = super::brainvision::parse_ini(bytes);
+    ["DataFile", "MarkerFile"]
+        .iter()
+        .filter_map(|key| super::brainvision::get(&ini, "Common Infos", key))
+        .map(|value| super::brainvision::base_name(value).to_string())
+        .collect()
 }
