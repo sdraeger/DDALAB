@@ -56,7 +56,7 @@ Firefox has no desktop install; bookmark the address instead. To remove the app,
 
 ## Command line and Python
 
-`ddalab` is the same engine as a native program. It adds NVIDIA GPUs (`--device cuda` on Linux) and the CCD variants. It needs Python 3.9 or later:
+`ddalab` is the same engine as a native program. It adds graphics cards (`--device gpu` on AMD, Apple, Intel, and NVIDIA; `--device cuda` on Linux) and the CCD variants. It needs Python 3.9 or later:
 
 ```sh
 uv tool install ddalab      # or: pipx install ddalab, or: pip install ddalab

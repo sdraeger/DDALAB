@@ -400,7 +400,7 @@ pub struct RunArgs {
     #[arg(long, default_value_t = false)]
     pub quiet: bool,
 
-    /// Compute device: cpu, cuda, or cuda:N (a non-cpu device runs the recording whole)
+    /// Compute device: cpu, gpu or gpu:N (any graphics card), cuda or cuda:N (a non-cpu device runs the recording whole)
     #[arg(long, default_value = "cpu")]
     pub device: crate::ComputeDevice,
 }
@@ -605,7 +605,7 @@ pub struct BatchArgs {
     #[arg(long, default_value_t = false)]
     pub quiet: bool,
 
-    /// Compute device: cpu, cuda, or cuda:N (a non-cpu device runs the recording whole)
+    /// Compute device: cpu, gpu or gpu:N (any graphics card), cuda or cuda:N (a non-cpu device runs the recording whole)
     #[arg(long, default_value = "cpu")]
     pub device: crate::ComputeDevice,
 }

@@ -24,6 +24,8 @@ include = [
 [features]
 default = []
 cuda = ["dep:cudarc"]
+# Any graphics card through wgpu (Vulkan, Metal, DX12), in emulated f64 (src/engine/gpu_sums.rs).
+gpu = ["dep:wgpu", "dep:pollster"]
 
 [[bin]]
 name = "ddalab"
@@ -55,6 +57,8 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 # `ddalab stream`: liblsl, loaded at run time, and the WebSocket that feeds the web app.
 libloading = "0.9"
 tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
+wgpu = { version = "30", optional = true, default-features = false, features = ["std", "parking_lot", "dx12", "metal", "vulkan", "wgsl"] }
+pollster = { version = "0.4", optional = true }
 
 # CUDA builds are Linux builds: elsewhere the `cuda` feature compiles nothing, so one feature list serves every target.
 [target.'cfg(target_os = "linux")'.dependencies]

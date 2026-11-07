@@ -43,23 +43,36 @@ impl BasicJobs<'_> {
     }
 }
 
-/// Solves the basic regressions; CUDA state is created once per run.
+/// Solves the basic regressions; GPU state is created once per run.
 pub(crate) enum BasicSolver {
     Cpu,
     #[cfg(all(feature = "cuda", target_os = "linux"))]
     Cuda(super::gpu::CudaSolver),
+    #[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
+    Gpu(super::gpu_sums::GpuSumsSolver),
 }
 
 impl BasicSolver {
     pub(crate) fn new(device: ComputeDevice, svd_backend: SvdBackend) -> Result<Self> {
-        let ComputeDevice::Cuda(device_index) = device else {
+        if device == ComputeDevice::Cpu {
             return Ok(Self::Cpu);
-        };
+        }
         if svd_backend != SvdBackend::RobustSvd {
             return Err(DDAError::InvalidParameter(
-                "CUDA acceleration requires SvdBackend::RobustSvd".to_string(),
+                "GPU acceleration requires SvdBackend::RobustSvd".to_string(),
             ));
         }
+        if let ComputeDevice::Gpu(device_index) = device {
+            #[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
+            return super::gpu_sums::GpuSumsSolver::new(device_index).map(Self::Gpu);
+            #[cfg(not(all(feature = "gpu", not(target_arch = "wasm32"))))]
+            return Err(DDAError::ExecutionFailed(format!(
+                "GPU support is not compiled in: build with --features gpu (gpu:{device_index})"
+            )));
+        }
+        let ComputeDevice::Cuda(device_index) = device else {
+            unreachable!("cpu and gpu returned above");
+        };
         #[cfg(all(feature = "cuda", target_os = "linux"))]
         {
             super::gpu::CudaSolver::new(device_index).map(Self::Cuda)
@@ -74,12 +87,14 @@ impl BasicSolver {
         }
     }
 
-    /// How many of the regressions sent to CUDA were solved on the CPU instead, and the total.
+    /// How many of the regressions sent to the GPU were solved on the CPU instead, and the total.
     pub(crate) fn cpu_fallbacks(&self) -> (usize, usize) {
         match self {
             Self::Cpu => (0, 0),
             #[cfg(all(feature = "cuda", target_os = "linux"))]
             Self::Cuda(solver) => (solver.cpu_fallbacks, solver.problems),
+            #[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
+            Self::Gpu(solver) => (solver.cpu_fallbacks, solver.problems),
         }
     }
 
@@ -94,6 +109,8 @@ impl BasicSolver {
             })),
             #[cfg(all(feature = "cuda", target_os = "linux"))]
             Self::Cuda(solver) => solver.solve(problems, svd_backend),
+            #[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
+            Self::Gpu(_) => unreachable!("the GPU solves whole windows (solve_basic_windows)"),
         }
     }
 }
@@ -120,6 +137,10 @@ pub(crate) fn solve_basic_windows(
             .par_iter()
             .map(|prepared| solve_window_on_cpu(prepared, jobs, model, svd_backend))
             .collect());
+    }
+    #[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
+    if let BasicSolver::Gpu(solver) = solver {
+        return solver.solve_windows(prepared_windows, jobs, model, svd_backend);
     }
 
     let jobs_per_window = jobs.st_channels.len()
@@ -152,7 +173,7 @@ pub(crate) fn solve_basic_windows(
     Ok(output)
 }
 
-fn solve_window_on_cpu(
+pub(crate) fn solve_window_on_cpu(
     prepared: &PreparedWindow,
     jobs: &BasicJobs<'_>,
     model: &ModelSpec,

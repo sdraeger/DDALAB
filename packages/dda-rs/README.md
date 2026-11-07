@@ -97,6 +97,16 @@ The Rust engine exposes two SVD backends through `PureRustOptions::svd_backend`:
   - uses the native-compatible SVD kernel ported into Rust
   - useful when comparing against historical native-binary behavior
 
+## Any graphics card
+
+The `gpu` feature runs ST, CT, CD, DE, and SY on any graphics card wgpu reaches: Vulkan (AMD, NVIDIA, Intel), Metal (Apple), and DX12. Select it with `--device gpu`, or `gpu:N` for card `N`:
+
+```bash
+cargo run --release --features gpu -- run --file data.csv --channels 0 1 --device gpu
+```
+
+Each window uploads every used channel's model terms and derivative once. The GPU computes their dot products exactly in integers, and the CPU assembles and solves each flavor's normal equations in f64. A window with missing samples, and a problem whose sums cannot reproduce the CPU's solution to about 1e-9 (ill-conditioned, near-perfect, or truncated by the CPU's SVD), runs on the CPU, and the result's diagnostics count them.
+
 ## CUDA
 
 CPU execution remains the default. CUDA runs in Linux builds; elsewhere the `cuda` feature compiles nothing. Build the optional CUDA backend and select a device with:

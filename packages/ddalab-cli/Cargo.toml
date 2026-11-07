@@ -16,14 +16,16 @@ path = "src/main.rs"
 
 [features]
 cuda = ["dda-rs/cuda"]
+gpu = ["dda-rs/gpu"]
 
 [dependencies]
 dda-rs = { path = "../dda-rs" }
 
-# cargo-dist builds every target with the `cuda` feature; it compiles to nothing outside Linux.
+# cargo-dist builds every target with `cuda` (Linux only; it compiles to nothing elsewhere) and `gpu` (any graphics
+# card through Vulkan, Metal or DX12).
 [package.metadata.dist]
 dist = true
-features = ["cuda"]
+features = ["cuda", "gpu"]
 
 [profile.dist]
 inherits = "release"

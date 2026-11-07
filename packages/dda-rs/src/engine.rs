@@ -1,6 +1,8 @@
 pub(crate) mod dataset;
 #[cfg(all(feature = "cuda", target_os = "linux"))]
 mod gpu;
+#[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
+mod gpu_sums;
 pub(crate) mod model;
 mod regression_batch;
 mod solver;
@@ -61,12 +63,33 @@ pub enum ComputeDevice {
     #[default]
     Cpu,
     Cuda(usize),
+    /// Any graphics card through wgpu, by its index in `available_gpu_devices`.
+    Gpu(usize),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CudaDeviceInfo {
     pub index: usize,
     pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GpuDeviceInfo {
+    pub index: usize,
+    pub name: String,
+    pub backend: String,
+}
+
+/// The graphics cards `ComputeDevice::Gpu` reaches, in index order; empty without the `gpu` feature.
+pub fn available_gpu_devices() -> Vec<GpuDeviceInfo> {
+    #[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
+    {
+        gpu_sums::available_devices()
+    }
+    #[cfg(not(all(feature = "gpu", not(target_arch = "wasm32"))))]
+    {
+        Vec::new()
+    }
 }
 
 pub fn available_cuda_devices() -> Vec<CudaDeviceInfo> {
@@ -81,8 +104,8 @@ pub fn available_cuda_devices() -> Vec<CudaDeviceInfo> {
 }
 
 impl ComputeDevice {
-    fn is_cuda(self) -> bool {
-        matches!(self, Self::Cuda(_))
+    fn is_gpu(self) -> bool {
+        matches!(self, Self::Cuda(_) | Self::Gpu(_))
     }
 }
 
@@ -94,17 +117,15 @@ impl FromStr for ComputeDevice {
         if value == "cpu" {
             return Ok(Self::Cpu);
         }
-        if value == "cuda" {
-            return Ok(Self::Cuda(0));
+        let expected =
+            || format!("Unsupported device '{value}'; expected cpu, gpu, gpu:N, cuda, or cuda:N");
+        match value.split_once(':') {
+            None if value == "cuda" => Ok(Self::Cuda(0)),
+            None if value == "gpu" => Ok(Self::Gpu(0)),
+            Some(("cuda", index)) => index.parse().map(Self::Cuda).map_err(|_| expected()),
+            Some(("gpu", index)) => index.parse().map(Self::Gpu).map_err(|_| expected()),
+            _ => Err(expected()),
         }
-        if let Some(index) = value.strip_prefix("cuda:") {
-            return index.parse::<usize>().map(Self::Cuda).map_err(|_| {
-                format!("Unsupported device '{value}'; expected cpu, cuda, or cuda:N")
-            });
-        }
-        Err(format!(
-            "Unsupported device '{value}'; expected cpu, cuda, or cuda:N"
-        ))
     }
 }
 
@@ -114,6 +135,8 @@ impl fmt::Display for ComputeDevice {
             Self::Cpu => formatter.write_str("cpu"),
             Self::Cuda(0) => formatter.write_str("cuda"),
             Self::Cuda(index) => write!(formatter, "cuda:{index}"),
+            Self::Gpu(0) => formatter.write_str("gpu"),
+            Self::Gpu(index) => write!(formatter, "gpu:{index}"),
         }
     }
 }
@@ -581,8 +604,8 @@ impl PureRustRunner {
             BasicSolver::new(self.options.compute_device, self.options.svd_backend)?;
 
         // Windows are prepared and solved in parallel a chunk at a time to bound memory,
-        // then filled and reported in window order. A CUDA chunk spans a full GPU batch.
-        let min_chunk_len = if self.options.compute_device.is_cuda() {
+        // then filled and reported in window order. A GPU chunk spans a full GPU batch.
+        let min_chunk_len = if self.options.compute_device.is_gpu() {
             MAX_WINDOWS_PER_BATCH
         } else {
             8
@@ -1112,7 +1135,7 @@ impl PureRustRunner {
             .unwrap_or_default();
 
         let mut engine_notes = Vec::new();
-        if self.options.compute_device.is_cuda() {
+        if self.options.compute_device.is_gpu() {
             let cpu_only = [
                 (enabled_ccd, "CCD"),
                 (enabled_ccdlog, "CCDLOG"),
@@ -1135,7 +1158,7 @@ impl PureRustRunner {
         let (cpu_fallbacks, gpu_problems) = basic_solver.cpu_fallbacks();
         if cpu_fallbacks > 0 {
             engine_notes.push(format!(
-                "{cpu_fallbacks} of {gpu_problems} CUDA regressions were solved on the CPU (rank-deficient or non-finite on the GPU)"
+                "{cpu_fallbacks} of {gpu_problems} GPU regressions were solved on the CPU (rank-deficient, ill-conditioned or non-finite on the GPU)"
             ));
         }
 
