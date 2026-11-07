@@ -394,7 +394,7 @@ fn document_matches_reference_keys() {
     let request = request(&["ST"]);
     let result = run_request_on_matrix(&request, &recording.matrix(), None).unwrap();
     let document = build_document(
-        &result,
+        result,
         &recording.info,
         &request,
         sha(),
@@ -438,7 +438,7 @@ fn summaries_use_finite_values_only() {
         error_values: None,
     }]);
     let document = build_document(
-        &result,
+        result,
         &recording.info,
         &request,
         sha(),

@@ -271,8 +271,7 @@ pub fn analyze_open(
         }
         None => {
             let result = merge_blocks(sink.parts).map_err(execution)?;
-            let mut document =
-                build_document(&result, info, &request, input_sha256, id, created_at);
+            let mut document = build_document(result, info, &request, input_sha256, id, created_at);
             decorate(&mut document);
             document
         }
