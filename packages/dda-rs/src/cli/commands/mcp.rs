@@ -11,8 +11,11 @@ use clap::Parser;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::collections::HashSet;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 
 const PROTOCOL_VERSIONS: [&str; 4] = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 /// The rows `read_result` returns when none are named, and the row labels `run_dda` lists.
@@ -49,27 +52,65 @@ fn private_results_dir() -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+/// Serves stdin until it closes. Tool calls run in order on a worker thread, so a call may use the result of the one
+/// before it, while this loop keeps answering `ping` and reading `notifications/cancelled` (a call can take minutes).
+/// A call cancelled before it starts is skipped, and the reply of one cancelled while it runs is dropped, as the
+/// protocol asks. At the end of input the server finishes the calls it has, then exits.
 pub fn execute(args: McpArgs) -> i32 {
-    let mut stdout = std::io::stdout().lock();
-    for line in std::io::stdin().lock().lines() {
-        let Ok(line) = line else { break };
-        if line.trim().is_empty() {
-            continue;
+    let out = Mutex::new(std::io::stdout());
+    let failed = AtomicBool::new(false);
+    let cancelled: Mutex<HashSet<String>> = Mutex::new(HashSet::new());
+    let write = |reply: Value| {
+        let mut out = out.lock().unwrap();
+        if writeln!(out, "{reply}").and_then(|_| out.flush()).is_err() {
+            failed.store(true, Ordering::Relaxed);
         }
-        let reply = match serde_json::from_str::<Value>(&line) {
-            Ok(message) => handle(&message, args.hipaa),
-            Err(_) => Some(error(Value::Null, -32700, "Parse error")),
-        };
-        if let Some(reply) = reply {
-            if writeln!(stdout, "{reply}")
-                .and_then(|_| stdout.flush())
-                .is_err()
-            {
-                return exit_codes::EXECUTION_ERROR;
+    };
+    let hipaa = args.hipaa;
+    std::thread::scope(|scope| {
+        let (calls, queued) = std::sync::mpsc::channel::<Value>();
+        let (write_call, cancelled_call) = (&write, &cancelled);
+        scope.spawn(move || {
+            for message in queued {
+                let id = message["id"].to_string();
+                if cancelled_call.lock().unwrap().remove(&id) {
+                    continue;
+                }
+                let reply = handle(&message, hipaa);
+                if !cancelled_call.lock().unwrap().remove(&id) {
+                    reply.into_iter().for_each(write_call);
+                }
+            }
+        });
+        for line in std::io::stdin().lock().lines() {
+            let Ok(line) = line else { break };
+            if line.trim().is_empty() {
+                continue;
+            }
+            let Ok(message) = serde_json::from_str::<Value>(&line) else {
+                write(error(Value::Null, -32700, "Parse error"));
+                continue;
+            };
+            if message["method"] == "notifications/cancelled" {
+                if let Some(id) = message["params"].get("requestId") {
+                    cancelled.lock().unwrap().insert(id.to_string());
+                }
+            } else if message["method"] == "tools/call" && message.get("id").is_some() {
+                // The worker outlives this loop within the scope; a send fails only if it panicked.
+                if calls.send(message).is_err() {
+                    break;
+                }
+            } else {
+                handle(&message, hipaa).into_iter().for_each(&write);
             }
         }
+        drop(calls);
+    });
+    if failed.load(Ordering::Relaxed) {
+        exit_codes::EXECUTION_ERROR
+    } else {
+        exit_codes::SUCCESS
     }
-    exit_codes::SUCCESS
 }
 
 fn error(id: Value, code: i64, message: &str) -> Value {
