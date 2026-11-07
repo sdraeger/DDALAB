@@ -194,7 +194,7 @@ fn tools(hipaa: bool) -> Vec<Value> {
                 "rest": {"type": "string", "description": "A class for stretches no annotation covers"},
                 "participants": {"type": "string", "description": "Path of a BIDS participants.tsv"},
                 "column": {"type": "string", "description": "Its column holding the class"},
-                "segment": {"type": "number", "description": "Seconds per segment, default 10"},
+                "segment": {"type": "number", "exclusiveMinimum": 0, "description": "Seconds per segment, default 10"},
                 "channels": {"type": "array", "items": {"type": "string"}, "description": "Channel labels; default every analysis channel"},
                 "reference": reference,
                 "electrodes": electrodes,
@@ -215,7 +215,7 @@ fn tools(hipaa: bool) -> Vec<Value> {
             "inputSchema": {"type": "object", "properties": {
                 "model": {"type": "string", "description": "Path of a classify report"},
                 "files": {"type": "array", "items": {"type": "string"}},
-                "segment": {"type": "number", "description": "Seconds per segment, default 10"},
+                "segment": {"type": "number", "exclusiveMinimum": 0, "description": "Seconds per segment, default 10"},
                 "sr": sr,
             }, "required": ["model", "files"]},
             "annotations": read_only,
@@ -761,6 +761,12 @@ struct PredictTool {
 }
 
 fn predict(args: PredictTool) -> Result<Value, String> {
+    if args
+        .segment
+        .is_some_and(|seconds| !(seconds.is_finite() && seconds > 0.0))
+    {
+        return Err("segment must be a positive number of seconds".into());
+    }
     super::classify::predictions(&PredictArgs {
         model: args.model,
         files: args.files,

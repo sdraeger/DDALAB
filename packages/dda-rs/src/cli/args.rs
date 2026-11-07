@@ -54,7 +54,7 @@ pub struct StreamArgs {
     pub by: String,
 
     /// Seconds to wait for the stream
-    #[arg(long, default_value_t = 10.0)]
+    #[arg(long, default_value_t = 10.0, value_parser = positive_seconds)]
     pub timeout: f64,
 
     #[command(flatten)]
@@ -93,11 +93,11 @@ pub struct StreamArgs {
     pub classify: Option<String>,
 
     /// Seconds per classified segment, as `ddalab classify --segment` trained it
-    #[arg(long, default_value_t = 10.0, requires = "classify")]
+    #[arg(long, default_value_t = 10.0, requires = "classify", value_parser = positive_seconds)]
     pub segment: f64,
 
     /// Seconds between classifications
-    #[arg(long, default_value_t = 1.0, requires = "classify")]
+    #[arg(long, default_value_t = 1.0, requires = "classify", value_parser = positive_seconds)]
     pub every: f64,
 
     /// Publish the results as LSL streams: <stream>-<variant> with a value per row, and <stream>-class markers
@@ -149,7 +149,7 @@ pub struct ClassifyArgs {
     pub column: Option<String>,
 
     /// Seconds per segment: labeled stretches are cut into segments this long, and shorter events are lengthened
-    #[arg(long, default_value_t = 10.0)]
+    #[arg(long, default_value_t = 10.0, value_parser = positive_seconds)]
     pub segment: f64,
 
     /// Most segments of one labeled stretch, evenly spaced
@@ -233,7 +233,7 @@ pub struct PredictArgs {
     pub files: Vec<String>,
 
     /// Seconds per segment
-    #[arg(long, default_value_t = 10.0)]
+    #[arg(long, default_value_t = 10.0, value_parser = positive_seconds)]
     pub segment: f64,
 
     /// Sampling rate in Hz for text files, which store none
@@ -663,5 +663,13 @@ mod tests {
         let pairs = vec!["0,1".to_string(), "2,3".to_string()];
         let result = parse_pairs(&pairs).unwrap();
         assert_eq!(result, vec![[0, 1], [2, 3]]);
+    }
+}
+
+/// A duration in seconds above zero: a zero or negative segment would cut a stretch into infinitely many.
+fn positive_seconds(text: &str) -> Result<f64, String> {
+    match text.parse::<f64>() {
+        Ok(seconds) if seconds.is_finite() && seconds > 0.0 => Ok(seconds),
+        _ => Err(format!("{text} is not a positive number of seconds")),
     }
 }

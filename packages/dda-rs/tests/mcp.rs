@@ -343,10 +343,17 @@ fn argument_values_cannot_inject_flags() {
         &[],
         &[
             initialize(),
-            call(1, "classify", json!({"files": [EDF, "--classes", "seizure"]})),
+            call(
+                1,
+                "classify",
+                json!({"files": [EDF, "--classes", "seizure"]}),
+            ),
         ],
     );
     let (text, is_error) = content(&replies[1]);
     assert!(is_error, "{text}");
-    assert!(text.as_str().unwrap_or_default().contains("--classes"), "{text}");
+    assert!(
+        text.as_str().unwrap_or_default().contains("--classes"),
+        "{text}"
+    );
 }

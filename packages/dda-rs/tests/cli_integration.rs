@@ -1190,3 +1190,21 @@ fn batch_reports_failures_and_exits_partial() {
         "ddalab.result/2"
     );
 }
+
+/// A segment of zero seconds is refused by the parser instead of overflowing the segment count.
+#[test]
+fn a_zero_second_segment_is_refused() {
+    ddalab()
+        .args([
+            "predict",
+            "--model",
+            "model.json",
+            "--files",
+            "a.edf",
+            "--segment",
+            "0",
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("positive"));
+}
