@@ -13,32 +13,33 @@ use std::time::Instant;
 /// A finished recording: its warnings, its output file under --output-dir, and its result or counts.
 type Done = (Vec<String>, Option<String>, Box<RawValue>);
 
-/// One recording's line of the manifest.
+/// One recording's line of the manifest. Fields in alphabetical order of their names, as the manifest has always
+/// been written and as the web app writes it (its batch export is compared with this text).
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Entry {
-    input_path: String,
-    resolved_dataset_path: String,
-    status: &'static str,
-    warnings: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    input_path: String,
     output_path: Option<String>,
+    resolved_dataset_path: String,
     /// The result document, or its row and window counts when it went to --output-dir.
     #[serde(skip_serializing_if = "Option::is_none")]
     result: Option<Box<RawValue>>,
+    status: &'static str,
+    warnings: Vec<String>,
 }
 
-/// What `batch` prints.
+/// What `batch` prints, fields in alphabetical order (see `Entry`).
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Manifest {
+    failed: usize,
     matched_files: usize,
     processed_files: usize,
-    succeeded: usize,
-    failed: usize,
-    with_warnings: usize,
     results: Vec<Entry>,
+    succeeded: usize,
+    with_warnings: usize,
 }
 
 pub fn execute(args: BatchArgs) -> i32 {

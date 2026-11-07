@@ -1247,3 +1247,48 @@ fn a_dry_run_batch_refuses_invalid_parameters() {
         .failure()
         .stderr(predicate::str::contains("ct-pairs"));
 }
+
+/// The manifest's keys stay in alphabetical order, the order the web app's batch export writes and compares as text.
+#[test]
+fn the_batch_manifest_keys_are_alphabetical() {
+    let edf = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/fixture.edf");
+    let dir = tempfile::tempdir().unwrap();
+    let output = ddalab()
+        .args([
+            "batch",
+            "--files",
+            edf,
+            "--quiet",
+            "--compact",
+            "--output-dir",
+        ])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    let text = String::from_utf8(output.stdout).unwrap();
+    let at = |key: &str| text.find(&format!("\"{key}\"")).unwrap_or(usize::MAX);
+    for keys in [
+        &[
+            "failed",
+            "matchedFiles",
+            "processedFiles",
+            "results",
+            "succeeded",
+            "withWarnings",
+        ][..],
+        &[
+            "inputPath",
+            "outputPath",
+            "resolvedDatasetPath",
+            "result",
+            "status",
+            "warnings",
+        ][..],
+    ] {
+        let positions: Vec<usize> = keys.iter().map(|k| at(k)).collect();
+        assert!(
+            positions.windows(2).all(|p| p[0] < p[1]),
+            "{keys:?} in {text}"
+        );
+    }
+}
