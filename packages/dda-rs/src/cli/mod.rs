@@ -45,23 +45,13 @@ where
         .format_timestamp(None)
         .try_init();
 
-    let runtime = match tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
     {
-        Ok(runtime) => runtime,
-        Err(error) => {
-            eprintln!("Error: cannot start the async runtime: {error}");
-            return exit_codes::EXECUTION_ERROR;
-        }
-    };
-    runtime.block_on(async {
         match cli.command {
-            Command::Run(args) => commands::run::execute(args).await,
+            Command::Run(args) => commands::run::execute(args),
             Command::Info(args) => commands::info::execute(args),
             Command::Variants(args) => commands::variants::execute(args),
             Command::Validate(args) => commands::validate::execute(args),
-            Command::Batch(args) => commands::batch::execute(args).await,
+            Command::Batch(args) => commands::batch::execute(args),
             Command::Inspect(args) => commands::inspect::execute(args),
             Command::Samples(args) => commands::samples::execute(args),
             Command::Mcp(args) => commands::mcp::execute(args),
@@ -69,7 +59,7 @@ where
             Command::Predict(args) => commands::classify::predict(args),
             Command::Stream(args) => commands::stream::execute(args),
         }
-    })
+    }
 }
 
 fn configure_rayon_pool() {

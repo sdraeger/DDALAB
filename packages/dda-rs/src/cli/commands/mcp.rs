@@ -267,22 +267,16 @@ fn tools(hipaa: bool) -> Vec<Value> {
 
 /// `call` on a thread of its own: a panic in the engine fails the call and leaves the server running.
 fn call_caught(name: &str, arguments: Value, hipaa: bool) -> Result<Value, String> {
-    let handle = tokio::runtime::Handle::current();
-    std::thread::scope(|scope| {
-        scope
-            .spawn(|| handle.block_on(call(name, arguments, hipaa)))
-            .join()
-    })
-    .unwrap_or_else(|_| {
-        Err("DDALAB failed with an internal error (details on the server's stderr)".into())
-    })
+    std::thread::scope(|scope| scope.spawn(|| call(name, arguments, hipaa)).join()).unwrap_or_else(
+        |_| Err("DDALAB failed with an internal error (details on the server's stderr)".into()),
+    )
 }
 
-async fn call(name: &str, arguments: Value, hipaa: bool) -> Result<Value, String> {
+fn call(name: &str, arguments: Value, hipaa: bool) -> Result<Value, String> {
     match name {
         "ddalab_info" => Ok(info()),
         "inspect_recording" => inspect(parse(arguments)?, hipaa),
-        "run_dda" => run(parse(arguments)?).await,
+        "run_dda" => run(parse(arguments)?),
         "read_result" => read_result(parse(arguments)?),
         "read_samples" => samples(parse(arguments)?),
         "classify" => classify(parse(arguments)?, hipaa),
@@ -415,7 +409,7 @@ struct RunTool {
 }
 
 /// Runs the request `ddalab run` makes of the same flags, so the defaults and checks are the command line's.
-async fn run(args: RunTool) -> Result<Value, String> {
+fn run(args: RunTool) -> Result<Value, String> {
     // The command line's own message names its flags (--ct-pairs), which this tool does not have.
     let variants = dda_params::normalize_variants(args.variants.as_deref().unwrap_or_default())?;
     for (variant, argument, pairs, example) in [
@@ -477,7 +471,6 @@ async fn run(args: RunTool) -> Result<Value, String> {
     };
     let (request, _) = request_of(&run_args)?;
     let document = analyze(job_of(&run_args, request))
-        .await
         .map_err(|(_, message)| message)?
         .document;
 

@@ -112,7 +112,7 @@ impl Sink {
 /// the CPU, otherwise over the whole recording in memory. A recording that fails to open or a selection that does not fit it
 /// is an input error; a failed run or write an execution error. A failure after the file opened ends with the recording's
 /// warnings, each after a space, as the Python batch words it (a truncated file explains a short one).
-pub async fn analyze(job: Job<'_>) -> Result<Analysis, Failure> {
+pub fn analyze(job: Job<'_>) -> Result<Analysis, Failure> {
     let file = job.file;
     if !Path::new(file).exists() {
         return Err(input(format!("Input file not found: {file}")));
@@ -122,18 +122,16 @@ pub async fn analyze(job: Job<'_>) -> Result<Analysis, Failure> {
     let reader = open_referenced(&files, job.sample_rate_hz, reference.as_ref())
         .map_err(|e| input(format!("{file}: {e}")))?;
     let warnings = reader.info().warnings.clone();
-    analyze_open(job, &files, &*reader)
-        .await
-        .map_err(|(code, message)| {
-            let message = warnings
-                .iter()
-                .fold(message, |text, w| format!("{text} {w}"));
-            (code, message)
-        })
+    analyze_open(job, &files, &*reader).map_err(|(code, message)| {
+        let message = warnings
+            .iter()
+            .fold(message, |text, w| format!("{text} {w}"));
+        (code, message)
+    })
 }
 
 /// `analyze` on a recording already open: `files` holds the bytes its input files are hashed from.
-pub async fn analyze_open(
+pub fn analyze_open(
     job: Job<'_>,
     files: &FileSet,
     reader: &dyn Reader,
@@ -229,7 +227,6 @@ pub async fn analyze_open(
             job.device,
             |p| report(p.window_index, p.total_windows),
         )
-        .await
         .map_err(execution)?;
         windows = result
             .variant_results
@@ -357,7 +354,7 @@ pub fn job_of(args: &RunArgs, request: DDARequest) -> Job<'_> {
     }
 }
 
-pub async fn execute(args: RunArgs) -> i32 {
+pub fn execute(args: RunArgs) -> i32 {
     let (request, normalized_variants) = match request_of(&args) {
         Ok(prepared) => prepared,
         Err(msg) => {
@@ -378,7 +375,7 @@ pub async fn execute(args: RunArgs) -> i32 {
         }
     }
 
-    let analysis = match analyze(job_of(&args, request)).await {
+    let analysis = match analyze(job_of(&args, request)) {
         Ok(analysis) => analysis,
         Err((code, message)) => {
             eprintln!("Error: {message}");

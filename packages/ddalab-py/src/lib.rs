@@ -182,24 +182,18 @@ fn run(
         None => None,
     };
     let analysis = py.detach(|| {
-        // One thread: the futures never wait on I/O, and the engine runs its windows on rayon's pool.
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .map_err(|e| (exit_codes::EXECUTION_ERROR, e.to_string()))?;
-        runtime.block_on(async {
-            let job = job_of(&args, request);
-            match &matrix {
-                // An array has no input files to hash.
-                Some(reader) => {
-                    let files = FileSet {
-                        primary: args.file.clone(),
-                        files: BTreeMap::new(),
-                    };
-                    analyze_open(job, &files, reader.as_ref()).await
-                }
-                None => analyze(job).await,
+        let job = job_of(&args, request);
+        match &matrix {
+            // An array has no input files to hash.
+            Some(reader) => {
+                let files = FileSet {
+                    primary: args.file.clone(),
+                    files: BTreeMap::new(),
+                };
+                analyze_open(job, &files, reader.as_ref())
             }
-        })
+            None => analyze(job),
+        }
     });
     let analysis = analysis.map_err(error_of)?;
     Ok(Analysis {

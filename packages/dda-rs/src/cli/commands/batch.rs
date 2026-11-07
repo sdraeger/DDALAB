@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-pub async fn execute(args: BatchArgs) -> i32 {
+pub fn execute(args: BatchArgs) -> i32 {
     let selection = match dda_params::prepare_selection(
         args.channels.clone(),
         &args.variants,
@@ -100,7 +100,7 @@ pub async fn execute(args: BatchArgs) -> i32 {
             eprintln!("[{}/{}] {}...", i + 1, total, file_path);
         }
 
-        let outcome: Result<(Vec<String>, Option<String>, Value), String> = async {
+        let outcome = (|| -> Result<(Vec<String>, Option<String>, Value), String> {
             let request = dda_params::build_dda_request(dda_params::RequestConfig {
                 file_path,
                 channels: &effective_channels,
@@ -138,7 +138,6 @@ pub async fn execute(args: BatchArgs) -> i32 {
                 bundle: None,
                 progress: false,
             })
-            .await
             .map_err(|(_, message)| message)?;
             if !args.quiet {
                 eprintln!("  Backend: pure-rust ({})", args.device);
@@ -164,8 +163,7 @@ pub async fn execute(args: BatchArgs) -> i32 {
                 Some(path.to_string_lossy().into_owned()),
                 counts,
             ))
-        }
-        .await;
+        })();
 
         let input_path = in_dataset(file_path);
         let resolved = match root {

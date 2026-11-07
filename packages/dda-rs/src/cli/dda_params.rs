@@ -39,7 +39,7 @@ pub fn pure_rust_matrix_support_reason(request: &DDARequest) -> Result<(), Strin
     pure_rust_common_support_reason(request)
 }
 
-pub async fn execute_request_on_matrix_with_progress_on_device<F>(
+pub fn execute_request_on_matrix_with_progress_on_device<F>(
     request: &DDARequest,
     samples: &[Vec<f64>],
     channel_labels: Option<&[String]>,
@@ -594,8 +594,8 @@ mod tests {
         assert_eq!(request.ct_channel_pairs.unwrap(), vec![[0, 1]]);
     }
 
-    #[tokio::test]
-    async fn test_execute_request_on_matrix_accepts_non_ascii_source_path() {
+    #[test]
+    fn test_execute_request_on_matrix_accepts_non_ascii_source_path() {
         let variants = ["ST".to_string()];
         let mut config = test_request_config("/tmp/test.edf", &[0, 1], &variants, 32, 16, &[1, 2]);
         config.start = Some(0.0);
@@ -617,13 +617,12 @@ mod tests {
             ComputeDevice::Cpu,
             |_| {},
         )
-        .await
         .unwrap();
         assert_eq!(result.file_path, "/tmp/test.edf");
     }
 
-    #[tokio::test]
-    async fn test_execute_request_on_matrix_refuses_out_of_range_variant_configs() {
+    #[test]
+    fn test_execute_request_on_matrix_refuses_out_of_range_variant_configs() {
         let variants = ["CCD".to_string()];
         let mut config = test_request_config("/tmp/test.edf", &[], &variants, 32, 16, &[1, 2]);
         config.end = Some(63.0);
@@ -652,7 +651,6 @@ mod tests {
             ComputeDevice::Cpu,
             |_| {},
         )
-        .await
         .unwrap_err();
         assert!(error.contains("channel 9 is out of range"), "{error}");
     }
