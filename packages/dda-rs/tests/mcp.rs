@@ -334,3 +334,19 @@ fn hipaa_mode_refuses_annotation_classes_so_classify_is_no_text_oracle() {
     let (miss, _) = probe(&["--no-hipaa"], "q=zzzz");
     assert_ne!(hit, miss);
 }
+
+/// A value of a tool argument stays a value: "--classes" among `files` names a file, so HIPAA mode cannot be
+/// bypassed by smuggling a flag into an array the server hands to the command line parser.
+#[test]
+fn argument_values_cannot_inject_flags() {
+    let replies = session(
+        &[],
+        &[
+            initialize(),
+            call(1, "classify", json!({"files": [EDF, "--classes", "seizure"]})),
+        ],
+    );
+    let (text, is_error) = content(&replies[1]);
+    assert!(is_error, "{text}");
+    assert!(text.as_str().unwrap_or_default().contains("--classes"), "{text}");
+}

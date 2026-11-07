@@ -408,14 +408,11 @@ async fn run(args: RunTool) -> Result<Value, String> {
         "ddalab".to_string(),
         "run".into(),
         "--quiet".into(),
-        "--file".into(),
-        args.file.clone(),
+        format!("--file={}", args.file),
     ];
+    // Each value attached to its flag: a value that starts with "--" stays a value instead of becoming a flag.
     let mut flag = |name: &str, values: Vec<String>| {
-        if !values.is_empty() {
-            argv.push(format!("--{name}"));
-            argv.extend(values);
-        }
+        argv.extend(values.iter().map(|value| format!("--{name}={value}")));
     };
     let text = |values: Option<Vec<String>>| values.unwrap_or_default();
     let all =
@@ -704,14 +701,11 @@ fn classify(args: ClassifyTool, hipaa: bool) -> Result<Value, String> {
         "ddalab".to_string(),
         "classify".into(),
         "--quiet".into(),
-        "-o".into(),
-        path.display().to_string(),
+        format!("--output={}", path.display()),
     ];
+    // Each value attached to its flag: a value that starts with "--" stays a value instead of becoming a flag.
     let mut flag = |name: &str, values: Vec<String>| {
-        if !values.is_empty() {
-            argv.push(format!("--{name}"));
-            argv.extend(values);
-        }
+        argv.extend(values.iter().map(|value| format!("--{name}={value}")));
     };
     let one = |v: Option<String>| v.into_iter().collect::<Vec<_>>();
     let number = |v: Option<f64>| v.map(|v| v.to_string()).into_iter().collect::<Vec<_>>();
@@ -729,14 +723,12 @@ fn classify(args: ClassifyTool, hipaa: bool) -> Result<Value, String> {
     flag("wl", int(args.wl));
     flag("ws", int(args.ws));
     flag("terms", int(args.terms));
-    flag(
-        "delay-range",
-        args.delay_range
-            .map(|r| r.iter().map(u32::to_string).collect())
-            .unwrap_or_default(),
-    );
     flag("folds", int(args.folds));
     flag("sr", number(args.sr));
+    // Two numbers to one flag, which `--name=value` cannot carry; numbers cannot pose as flags.
+    if let Some([low, high]) = args.delay_range {
+        argv.extend(["--delay-range".into(), low.to_string(), high.to_string()]);
+    }
     let Command::Classify(classify_args) = Cli::try_parse_from(&argv)
         .map_err(|e| e.render().to_string())?
         .command
