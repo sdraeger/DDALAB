@@ -228,7 +228,7 @@ fn tools(hipaa: bool) -> Vec<Value> {
                 "delay_range": {"type": "array", "items": {"type": "integer", "minimum": 1}, "minItems": 2, "maxItems": 2, "description": "Smallest and largest delay searched, default [1, 20]"},
                 "folds": {"type": "integer", "minimum": 2},
                 "sr": sr,
-                "output": {"type": "string", "description": "Report path; default a file in the temporary directory"},
+                "output": {"type": "string", "description": "Report path; default a file in the user's cache directory"},
             }},
             "annotations": {"readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false},
         }),
