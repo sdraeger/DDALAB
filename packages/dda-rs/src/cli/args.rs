@@ -639,6 +639,14 @@ pub fn parse_pairs(pairs: &[String]) -> Result<Vec<[usize; 2]>, String> {
     pairs.iter().map(|s| parse_pair(s)).collect()
 }
 
+/// A duration in seconds above zero: a zero or negative segment would cut a stretch into infinitely many.
+fn positive_seconds(text: &str) -> Result<f64, String> {
+    match text.parse::<f64>() {
+        Ok(seconds) if seconds.is_finite() && seconds > 0.0 => Ok(seconds),
+        _ => Err(format!("{text} is not a positive number of seconds")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -663,13 +671,5 @@ mod tests {
         let pairs = vec!["0,1".to_string(), "2,3".to_string()];
         let result = parse_pairs(&pairs).unwrap();
         assert_eq!(result, vec![[0, 1], [2, 3]]);
-    }
-}
-
-/// A duration in seconds above zero: a zero or negative segment would cut a stretch into infinitely many.
-fn positive_seconds(text: &str) -> Result<f64, String> {
-    match text.parse::<f64>() {
-        Ok(seconds) if seconds.is_finite() && seconds > 0.0 => Ok(seconds),
-        _ => Err(format!("{text} is not a positive number of seconds")),
     }
 }

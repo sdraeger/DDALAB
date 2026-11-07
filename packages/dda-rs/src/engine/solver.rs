@@ -415,7 +415,7 @@ fn block_tridiagonal_solve(
             .fold((f64::INFINITY, 0.0_f64), |(lo, hi), &v| {
                 (lo.min(v), hi.max(v))
             });
-        if !(low > 0.0) || (high / low).powi(2) > 1e12 {
+        if low.is_nan() || low <= 0.0 || (high / low).powi(2) > 1e12 {
             return None;
         }
         factors.push(factor);
