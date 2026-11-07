@@ -276,16 +276,19 @@ pub(crate) fn solve_channel_with_inputs(
     solve_regression_window(&window, svd_backend)
 }
 
+/// `target_channel`'s fit with the `confounds` channels and a surrogate `source` series as inputs, in that order.
 pub(crate) fn solve_channel_with_surrogate_inputs(
     prepared: &PreparedWindow,
     target_channel: usize,
-    surrogate_inputs: &[Vec<f64>],
+    confounds: &[usize],
+    source: &[f64],
     model: &ModelSpec,
     svd_backend: SvdBackend,
 ) -> SolvedBlock {
-    let input_sources = surrogate_inputs
+    let input_sources = confounds
         .iter()
-        .map(|series| InputSource::Series(series.as_slice()))
+        .map(|&channel| InputSource::Channel(channel))
+        .chain([InputSource::Series(source)])
         .collect::<Vec<_>>();
     let window = build_channel_regression_window(
         prepared,

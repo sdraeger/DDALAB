@@ -658,27 +658,28 @@ impl PureRustRunner {
                         let partial_r2 = partial_r2_from_rmse(baseline.rmse, conditioned.rmse);
 
                         let significance = if enabled_ccdsig {
-                            let surrogate_shifts =
-                                ccd_surrogate_shifts.clone().unwrap_or_else(|| {
-                                    default_surrogate_shifts(prepared.shifted.len())
-                                });
-                            let surrogate_inputs = confounds
-                                .iter()
-                                .map(|channel| extract_shifted_channel_series(prepared, *channel))
-                                .collect::<Vec<_>>();
+                            let default_shifts;
+                            let surrogate_shifts = match &ccd_surrogate_shifts {
+                                Some(shifts) => shifts,
+                                None => {
+                                    default_shifts =
+                                        default_surrogate_shifts(prepared.shifted.len());
+                                    &default_shifts
+                                }
+                            };
                             let source_series = extract_shifted_channel_series(prepared, pair[1]);
                             let null_scores = surrogate_shifts
-                                .into_iter()
-                                .filter(|shift| *shift > 0)
-                                .map(|shift| {
+                                .iter()
+                                .filter(|&&shift| shift > 0)
+                                .map(|&shift| {
+                                    // The confounds are read from the window as they are; only the source is shifted.
                                     let shifted_source =
                                         circular_shift_series(&source_series, shift);
-                                    let mut conditioned_surrogates = surrogate_inputs.clone();
-                                    conditioned_surrogates.push(shifted_source);
                                     let surrogate_block = solve_channel_with_surrogate_inputs(
                                         prepared,
                                         pair[0],
-                                        &conditioned_surrogates,
+                                        confounds,
+                                        &shifted_source,
                                         &model,
                                         self.options.svd_backend,
                                     );
