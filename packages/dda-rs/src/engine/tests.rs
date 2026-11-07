@@ -870,3 +870,65 @@ fn nearest_marker_matches_a_linear_scan() {
     }
     assert_eq!(super::nearest_marker(&[], 1.0), None);
 }
+
+fn request_with(variants: &[&str], configs: &[(&str, Vec<usize>)]) -> DDARequest {
+    DDARequest {
+        file_path: "synthetic".to_string(),
+        channels: None,
+        time_range: TimeRange {
+            start: 0.0,
+            end: 99.0,
+        },
+        preprocessing_options: PreprocessingOptions {
+            highpass: None,
+            lowpass: None,
+        },
+        algorithm_selection: AlgorithmSelection {
+            enabled_variants: variants.iter().map(|v| v.to_string()).collect(),
+            select_mask: None,
+        },
+        window_parameters: WindowParameters {
+            window_length: 50,
+            window_step: 50,
+            ct_window_length: None,
+            ct_window_step: None,
+        },
+        delay_parameters: DelayParameters { delays: vec![1, 2] },
+        ct_channel_pairs: None,
+        cd_channel_pairs: None,
+        model_parameters: None,
+        model_terms: None,
+        variant_configs: Some(
+            configs
+                .iter()
+                .map(|(key, channels)| {
+                    (
+                        key.to_string(),
+                        VariantChannelConfig {
+                            selected_channels: Some(channels.clone()),
+                            ..Default::default()
+                        },
+                    )
+                })
+                .collect(),
+        ),
+        sampling_rate: None,
+    }
+}
+
+/// A variant config is found under any spelling that enables the variant: "delay_embedding" names DE as
+/// `enabled_variants` does, in any case.
+#[test]
+fn variant_configs_match_every_spelling_of_their_variant() {
+    let request = request_with(&["delay_embedding"], &[("Delay-Embedding", vec![1])]);
+    assert!(VariantMode::from_request(&request).de_enabled);
+    assert_eq!(resolve_variant_selected_channels(&request, 3, "DE"), [1]);
+}
+
+/// The hyphenated and spaced full names enable what their abbreviations enable.
+#[test]
+fn hyphenated_variant_names_enable_their_variants() {
+    let request = request_with(&["conditional-cross-dynamical-stability"], &[]);
+    let mode = VariantMode::from_request(&request);
+    assert!(mode.ccdstab_enabled && mode.ccd_enabled);
+}

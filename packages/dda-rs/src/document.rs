@@ -132,9 +132,9 @@ fn plan(request: &DDARequest, info: &RecordingInfo) -> Vec<Plan> {
     let rows = |pairs: Vec<[usize; 2]>| -> Vec<Vec<usize>> {
         pairs.iter().map(|pair| pair.to_vec()).collect()
     };
-    let st = resolve_variant_selected_channels(request, n, &["ST", "st", "single_timeseries"]);
-    let de = resolve_variant_selected_channels(request, n, &["DE", "de", "dynamical_ergodicity"]);
-    let sy = resolve_variant_selected_channels(request, n, &["SY", "sy", "synchronization"]);
+    let st = resolve_variant_selected_channels(request, n, "ST");
+    let de = resolve_variant_selected_channels(request, n, "DE");
+    let sy = resolve_variant_selected_channels(request, n, "SY");
     let sy = resolve_sy_pairs(&sy);
     let (sy_rows, sy_joiner) = if mode.sy_mode == 2 {
         let both = sy.iter().flat_map(|&[a, b]| [[a, b], [b, a]]);

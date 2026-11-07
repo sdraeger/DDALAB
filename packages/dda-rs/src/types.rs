@@ -100,7 +100,7 @@ pub enum CcdStatistic {
 }
 
 /// Per-variant channel configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct VariantChannelConfig {
     /// Selected channel indices for single-channel variants (ST, DE, SY)
     #[serde(skip_serializing_if = "Option::is_none")]

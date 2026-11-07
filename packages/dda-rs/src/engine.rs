@@ -372,21 +372,9 @@ impl PureRustRunner {
         let variant_mode = VariantMode::from_request(request);
         let model = ModelSpec::from_request(request)?;
         let bounds = AnalysisBounds::from_request(request, dataset.rows)?;
-        let st_channels = resolve_variant_selected_channels(
-            request,
-            dataset.cols,
-            &["ST", "st", "single_timeseries"],
-        );
-        let de_channels = resolve_variant_selected_channels(
-            request,
-            dataset.cols,
-            &["DE", "de", "dynamical_ergodicity"],
-        );
-        let sy_channels = resolve_variant_selected_channels(
-            request,
-            dataset.cols,
-            &["SY", "sy", "synchronization"],
-        );
+        let st_channels = resolve_variant_selected_channels(request, dataset.cols, "ST");
+        let de_channels = resolve_variant_selected_channels(request, dataset.cols, "DE");
+        let sy_channels = resolve_variant_selected_channels(request, dataset.cols, "SY");
         let ct_groups = resolve_ct_groups(request, dataset.cols);
         let de_groups = resolve_de_groups(request, dataset.cols, &de_channels);
         let cd_pairs = resolve_cd_pairs(request, dataset.cols);

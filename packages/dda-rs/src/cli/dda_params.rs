@@ -103,44 +103,7 @@ pub fn app_variant_ids() -> impl Iterator<Item = &'static str> {
 /// Normalize variant IDs to canonical abbreviations used by dda-rs.
 /// Accepts both app IDs and CLI abbreviations.
 pub fn normalize_variant_id(input: &str) -> Option<&'static str> {
-    match input.trim().to_lowercase().as_str() {
-        "st" | "single_timeseries" | "single-timeseries" | "single timeseries" => Some("ST"),
-        "ct" | "cross_timeseries" | "cross-timeseries" | "cross timeseries" => Some("CT"),
-        "cd" | "cross_dynamical" | "cross-dynamical" | "cross dynamical" => Some("CD"),
-        "ccd"
-        | "conditional_cross_dynamical"
-        | "conditional-cross-dynamical"
-        | "conditional cross dynamical" => Some("CCD"),
-        "ccdlog"
-        | "conditional_cross_dynamical_log_mse_ratio"
-        | "conditional-cross-dynamical-log-mse-ratio"
-        | "conditional cross dynamical log mse ratio" => Some("CCDLOG"),
-        "ccdpr2"
-        | "conditional_cross_dynamical_partial_r2"
-        | "conditional-cross-dynamical-partial-r2"
-        | "conditional cross dynamical partial r2" => Some("CCDPR2"),
-        "ccdsig"
-        | "conditional_cross_dynamical_significance"
-        | "conditional-cross-dynamical-significance"
-        | "conditional cross dynamical significance" => Some("CCDSIG"),
-        "ccdstab"
-        | "conditional_cross_dynamical_stability"
-        | "conditional-cross-dynamical-stability"
-        | "conditional cross dynamical stability" => Some("CCDSTAB"),
-        "trccd"
-        | "temporally_regularized_conditional_cross_dynamical"
-        | "temporally-regularized-conditional-cross-dynamical"
-        | "temporally regularized conditional cross dynamical" => Some("TRCCD"),
-        "mvccd"
-        | "multivariate_conditional_cross_dynamical"
-        | "multivariate-conditional-cross-dynamical"
-        | "multivariate conditional cross dynamical" => Some("MVCCD"),
-        "de" | "dynamical_ergodicity" | "dynamical-ergodicity" | "dynamical ergodicity" => {
-            Some("DE")
-        }
-        "sy" | "synchronization" | "synchronisation" => Some("SY"),
-        _ => None,
-    }
+    crate::engine::variant_config::canonical_variant(input)
 }
 
 pub fn variant_app_id(abbrev: &str) -> Option<&'static str> {
