@@ -1009,9 +1009,10 @@ impl PureRustRunner {
             }
         }
 
+        let mut stability_notes = Vec::new();
         if enabled_ccdstab {
             if let Some(base_ccd) = ccd_matrix.as_ref() {
-                let stability = self.compute_ccd_stability_matrix(
+                let (stability, failures) = self.compute_ccd_stability_matrix(
                     request,
                     samples,
                     channel_labels,
@@ -1019,6 +1020,7 @@ impl PureRustRunner {
                     &ccd_pairs,
                     base_ccd,
                 )?;
+                stability_notes = failures;
                 if let Some(matrix) = ccdstab_matrix.as_mut() {
                     for (pair_idx, row) in stability.into_iter().enumerate() {
                         report(
@@ -1139,7 +1141,7 @@ impl PureRustRunner {
             .map(|variant| variant.q_matrix.clone())
             .unwrap_or_default();
 
-        let mut engine_notes = Vec::new();
+        let mut engine_notes = stability_notes;
         if self.options.compute_device.is_gpu() {
             let cpu_only = [
                 (enabled_ccd, "CCD"),
@@ -1196,12 +1198,23 @@ impl PureRustRunner {
         base_markers: &[f64],
         ccd_pairs: &[[usize; 2]],
         base_ccd: &[Vec<f64>],
-    ) -> Result<Vec<Vec<f64>>> {
+    ) -> Result<(Vec<Vec<f64>>, Vec<String>)> {
         let perturbed_requests = build_ccd_stability_requests(request);
         let mut runs = Vec::new();
-        for perturbed in perturbed_requests {
-            if let Ok(result) =
-                self.run_on_matrix_internal(&perturbed, samples, channel_labels, None)
+        // A perturbed run that fails leaves CCDSTAB with fewer runs to compare, which the result's notes say.
+        let mut failures = Vec::new();
+        for (index, perturbed) in perturbed_requests.into_iter().enumerate() {
+            let result =
+                match self.run_on_matrix_internal(&perturbed, samples, channel_labels, None) {
+                    Ok(result) => result,
+                    Err(error) => {
+                        failures.push(format!(
+                            "CCDSTAB perturbed run {} failed: {error}",
+                            index + 1
+                        ));
+                        continue;
+                    }
+                };
             {
                 if let Some(variant) = result.variant_results.as_ref().and_then(|variants| {
                     variants.iter().find(|variant| variant.variant_id == "CCD")
@@ -1218,7 +1231,7 @@ impl PureRustRunner {
 
         let mut stability = vec![vec![f64::NAN; base_markers.len()]; ccd_pairs.len()];
         if runs.is_empty() {
-            return Ok(stability);
+            return Ok((stability, failures));
         }
 
         for (pair_idx, stability_row) in stability.iter_mut().enumerate() {
@@ -1249,7 +1262,7 @@ impl PureRustRunner {
             }
         }
 
-        Ok(stability)
+        Ok((stability, failures))
     }
 }
 
@@ -1974,17 +1987,22 @@ fn nearest_aligned_value(
     target_marker: f64,
 ) -> Option<f64> {
     let row = matrix.get(row_idx)?;
-    let nearest_index = markers
-        .iter()
-        .enumerate()
-        .min_by(|(_, left), (_, right)| {
-            (*left - target_marker)
-                .abs()
-                .partial_cmp(&(*right - target_marker).abs())
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })
-        .map(|(index, _)| index)?;
-    row.get(nearest_index).copied()
+    row.get(nearest_marker(markers, target_marker)?).copied()
+}
+
+/// The index of the marker nearest `target`, the earlier one on a tie. Markers ascend (window positions), so a
+/// binary search finds the two neighbours in O(log W) instead of a scan per window.
+fn nearest_marker(markers: &[f64], target: f64) -> Option<usize> {
+    let after = markers.partition_point(|&m| m < target);
+    let candidates = [
+        after.checked_sub(1),
+        (after < markers.len()).then_some(after),
+    ];
+    candidates.into_iter().flatten().min_by(|&a, &b| {
+        (markers[a] - target)
+            .abs()
+            .total_cmp(&(markers[b] - target).abs())
+    })
 }
 
 fn same_sign(left: f64, right: f64) -> bool {

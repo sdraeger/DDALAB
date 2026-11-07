@@ -852,3 +852,21 @@ fn an_out_of_range_channel_is_an_error() {
         .unwrap_err();
     assert!(error.to_string().contains("99"), "{error}");
 }
+
+/// The binary search finds the marker a linear scan finds, ties going to the earlier one.
+#[test]
+fn nearest_marker_matches_a_linear_scan() {
+    let markers: Vec<f64> = (0..50)
+        .map(|i| i as f64 * 1.5 + (i % 3) as f64 * 0.1)
+        .collect();
+    for k in -10..90 {
+        let target = k as f64 * 0.9;
+        let linear = markers
+            .iter()
+            .enumerate()
+            .min_by(|(_, a), (_, b)| (*a - target).abs().total_cmp(&(*b - target).abs()))
+            .map(|(i, _)| i);
+        assert_eq!(super::nearest_marker(&markers, target), linear, "{target}");
+    }
+    assert_eq!(super::nearest_marker(&[], 1.0), None);
+}
