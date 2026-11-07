@@ -253,7 +253,13 @@ pub fn open_edf(files: &FileSet, name: &str) -> Result<Box<dyn Reader>> {
             byte_offset: record_bytes,
             samples,
         });
-        record_bytes += samples * bytes_per_sample;
+        // Checked: on wasm32 a crafted header's sizes would wrap a usize and misplace every signal.
+        record_bytes = samples
+            .checked_mul(bytes_per_sample)
+            .and_then(|bytes| record_bytes.checked_add(bytes))
+            .ok_or_else(|| {
+                unsupported("a data record is larger than this platform can address".to_string())
+            })?;
     }
     if record_bytes == 0 {
         return Err(unsupported(
