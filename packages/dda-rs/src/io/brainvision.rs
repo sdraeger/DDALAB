@@ -144,7 +144,7 @@ fn marker(value: &str, rate: f64) -> Option<Annotation> {
     let position: i64 = fields.next()?.trim().parse().ok()?;
     let points: i64 = fields.next()?.trim().parse().ok()?;
     Some(Annotation {
-        onset_s: (position - 1).max(0) as f64 / rate,
+        onset_s: position.saturating_sub(1).max(0) as f64 / rate,
         duration_s: points as f64 / rate,
         label: name(if description.is_empty() {
             kind
@@ -641,7 +641,7 @@ pub(super) fn write_headers(
          [Marker Infos]\n"
     );
     for (i, a) in annotations.iter().enumerate() {
-        let position = (a.onset_s * rate).round() as i64 + 1;
+        let position = ((a.onset_s * rate).round() as i64).saturating_add(1);
         let points = ((a.duration_s * rate).round() as i64).max(1);
         vmrk.push_str(&format!(
             "Mk{}=Comment,{},{position},{points},0\n",

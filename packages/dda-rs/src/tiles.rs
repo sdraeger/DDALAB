@@ -282,7 +282,7 @@ pub fn decode_tile(bytes: &[u8]) -> Result<Tile> {
     if size != Some(bytes.len()) {
         return Err(bad("length does not match channels and buckets"));
     }
-    let values: Vec<f32> = bytes[HEADER..]
+    let mut min: Vec<f32> = bytes[HEADER..]
         .chunks_exact(width(raw_type))
         .map(|b| match raw_type {
             RawType::I16 => i16::from_le_bytes([b[0], b[1]]) as f32,
@@ -290,14 +290,14 @@ pub fn decode_tile(bytes: &[u8]) -> Result<Tile> {
             RawType::F32 | RawType::F64 => f32::from_le_bytes(b.try_into().unwrap()),
         })
         .collect();
-    let (min, max) = values.split_at(count.unwrap());
+    let max = min.split_off(count.unwrap());
     Ok(Tile {
         level: u32_at(4),
         index: u64::from_le_bytes(bytes[8..16].try_into().unwrap()),
         channels,
         buckets,
-        min: min.to_vec(),
-        max: max.to_vec(),
+        min,
+        max,
     })
 }
 
