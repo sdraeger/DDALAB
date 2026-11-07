@@ -119,7 +119,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 `;
 
 /** Values per window and channel the sums hold (dda_rs::blocks::st_sum_width). */
-export const sumWidth = (terms: number) => 1 + (terms * (terms + 1)) / 2 + terms + 1;
+const sumWidth = (terms: number) => 1 + (terms * (terms + 1)) / 2 + terms + 1;
 
 type Gpu = { device: GPUDevice; pipeline: GPUComputePipeline };
 let gpu: Promise<Gpu | null> | undefined;

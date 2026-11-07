@@ -3,11 +3,10 @@
 //! lines, to LSL outlets, and to the web app over a WebSocket on 127.0.0.1 that only a client knowing the printed
 //! token may open.
 
-use super::reference_of;
 use crate::classify::ClassifierModel;
 use crate::cli::args::{parse_pairs, StreamArgs};
-use crate::cli::dda_params::{normalize_variants, validate_params};
-use crate::cli::exit_codes;
+use crate::cli::dda_params::{check_request, normalize_variants};
+use crate::cli::{input_error, Failure};
 use crate::engine::run_request_on_matrix;
 use crate::io::{open_matrix, with_reference, FileSet, Reference};
 use crate::lsl::{Inlet, Outlet};
@@ -219,28 +218,20 @@ impl Drop for Finished<'_> {
     }
 }
 
-pub fn execute(args: StreamArgs) -> i32 {
-    match stream(&args) {
-        Ok(()) => exit_codes::SUCCESS,
-        Err(error) => {
-            eprintln!("Error: {error}");
-            exit_codes::INPUT_ERROR
-        }
-    }
+pub fn execute(args: StreamArgs) -> Result<(), Failure> {
+    stream(&args).map_err(input_error)
 }
 
 fn stream(args: &StreamArgs) -> Result<(), String> {
     // The checks `run` makes, before waiting for a stream.
-    let pairs = |p: &Option<Vec<String>>| p.as_deref().map(parse_pairs).transpose();
-    validate_params(
-        &args.variants,
-        &args.delays,
-        args.wl,
-        args.ws,
-        &pairs(&args.ct_pairs)?,
-        &pairs(&args.cd_pairs)?,
-    )?;
-    let reference = reference_of(&args.reference)?;
+    check_request(&request(args, 1, args.wl as usize)?)?;
+    if args.ws > args.wl {
+        return Err(format!(
+            "Window step ({}) must not exceed window length ({})",
+            args.ws, args.wl
+        ));
+    }
+    let reference = args.reference.parse()?;
     let model = args
         .classify
         .as_deref()

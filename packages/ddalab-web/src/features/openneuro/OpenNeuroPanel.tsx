@@ -3,14 +3,12 @@
 // the recordings of a folder and below. It also opens the recording a deep link names (see deepLink.ts). The rail
 // loads it lazily.
 
-import { Select } from "@base-ui/react/select";
-import Check from "lucide-react/dist/esm/icons/check.mjs";
-import ChevronDown from "lucide-react/dist/esm/icons/chevron-down.mjs";
 import Folder from "lucide-react/dist/esm/icons/folder.mjs";
 import { type FormEvent, type MouseEvent, useEffect, useRef, useState } from "react";
 import { openInput } from "../../app/recordings";
+import { SelectField } from "../../app/SelectField";
 import type { BatchRecord } from "../../core/batch";
-import { count as plural } from "../../core/words";
+import { bytes, messageOf, count as plural } from "../../core/words";
 import { useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
 import { BatchAction, BatchProgressView } from "../library/Batch";
@@ -39,7 +37,7 @@ type Status = { kind: "idle" } | { kind: "busy"; text: string } | { kind: "error
 const IDLE: Status = { kind: "idle" };
 const failed = (error: unknown): Status => ({
   kind: "error",
-  text: error instanceof Error ? error.message : String(error),
+  text: messageOf(error),
 });
 
 const link = parseDeepLink(location.search);
@@ -56,12 +54,6 @@ const linked = link
       )
   : undefined;
 const opening = (target: DeepLink) => `Opening ${target.path.split("/").at(-1)}`;
-
-const megabytes = new Intl.NumberFormat("en-US", {
-  style: "unit",
-  unit: "megabyte",
-  maximumSignificantDigits: 3,
-});
 
 /** The modalities a search may ask for: those DDALAB reads, by OpenNeuro's names. */
 const MODALITIES = [
@@ -216,13 +208,13 @@ export function OpenNeuroPanel() {
           />
         </form>
         <div className={styles.filters}>
-          <Pick
+          <SelectField
             label="Modality"
             value={filters.modality}
             items={MODALITIES}
             onChange={(modality) => filter({ modality })}
           />
-          <Pick
+          <SelectField
             label="Order"
             value={filters.sort}
             items={SORTS}
@@ -257,48 +249,6 @@ export function OpenNeuroPanel() {
         )
       )}
     </section>
-  );
-}
-
-/** A labeled choice of the search, in the house select. */
-function Pick(props: {
-  label: string;
-  value: string;
-  items: { value: string; label: string }[];
-  onChange(value: string): void;
-}) {
-  return (
-    <Select.Root
-      value={props.value}
-      items={props.items}
-      onValueChange={(value) => value !== null && props.onChange(value as string)}
-    >
-      <div className={controls.field}>
-        <Select.Label className={controls.label}>{props.label}</Select.Label>
-        <Select.Trigger className={controls.trigger}>
-          <Select.Value />
-          <Select.Icon>
-            <ChevronDown aria-hidden />
-          </Select.Icon>
-        </Select.Trigger>
-      </div>
-      <Select.Portal>
-        <Select.Positioner sideOffset={4} alignItemWithTrigger={false}>
-          <Select.Popup className={controls.popup}>
-            <Select.List className={controls.list}>
-              {props.items.map((item) => (
-                <Select.Item key={item.value} value={item.value} className={controls.item}>
-                  <Select.ItemIndicator>
-                    <Check aria-hidden />
-                  </Select.ItemIndicator>
-                  <Select.ItemText className={controls.itemText}>{item.label}</Select.ItemText>
-                </Select.Item>
-              ))}
-            </Select.List>
-          </Select.Popup>
-        </Select.Positioner>
-      </Select.Portal>
-    </Select.Root>
   );
 }
 
@@ -430,9 +380,7 @@ function FolderView(props: {
             <button type="button" className={rail.entry} onClick={() => props.onOpen(file.filename)}>
               <span className={styles.name}>{file.filename}</span>
               <span className={rail.entryMeta}>
-                {megabytes.format(
-                  recordingFiles(files, file.filename).reduce((sum, f) => sum + f.size, 0) / 1e6,
-                )}
+                {bytes(recordingFiles(files, file.filename).reduce((sum, f) => sum + f.size, 0))}
               </span>
             </button>
           </li>
@@ -470,7 +418,7 @@ function About(props: { dataset: DatasetHit; info: DatasetInfo | undefined; onVe
   return (
     <section className={styles.about} aria-label="Dataset" data-appear>
       <p className={styles.title}>{info?.name ?? dataset.name}</p>
-      <Pick
+      <SelectField
         label="Version"
         value={dataset.tag}
         items={tags.map((tag) => ({ value: tag, label: tag === tags[0] ? `${tag}, latest` : tag }))}

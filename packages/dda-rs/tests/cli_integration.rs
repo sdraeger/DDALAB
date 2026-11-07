@@ -101,7 +101,7 @@ fn test_variants_json() {
     let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     assert!(parsed.is_array());
     let arr = parsed.as_array().unwrap();
-    assert_eq!(arr.len(), 5); // 5 active variants (no RESERVED)
+    assert_eq!(arr.len(), 5); // the SELECT-mask variants; the CCD family is not offered
 }
 
 // =============================================================================
@@ -128,12 +128,7 @@ fn test_info_json() {
     assert!(parsed.get("cli_version").is_some());
     assert!(parsed.get("platform").is_some());
     assert!(parsed.get("arch").is_some());
-    assert_eq!(
-        parsed
-            .get("native_binary_enabled")
-            .and_then(|value| value.as_bool()),
-        Some(false)
-    );
+    assert_eq!(parsed["supported_variants"][0], "ST");
 }
 
 // =============================================================================
@@ -333,7 +328,6 @@ fn test_run_ascii_uses_pure_rust_backend() {
     let ascii = write_ascii_fixture();
 
     let output = ddalab()
-        .env_remove("DDA_BINARY_PATH")
         .arg("run")
         .arg("--file")
         .arg(ascii.path().to_str().unwrap())

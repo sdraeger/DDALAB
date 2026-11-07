@@ -7,6 +7,7 @@ import { compileWasm } from "../core/compileWasm";
 import wasmUrl from "../core/ddalab.wasm?url";
 import type { HashReply, HashRequest, MemoryReply } from "../core/protocol";
 import { type Part, partsOf, readSource } from "../core/sources";
+import { messageOf } from "../core/words";
 import { yieldToLoop } from "./scan";
 
 const SLICE_BYTES = 4 * 2 ** 20;
@@ -61,6 +62,6 @@ self.addEventListener("message", async ({ data }: MessageEvent<HashRequest>) => 
       reply({ id, name, sha256 });
     }
   } catch (error) {
-    reply({ id, error: error instanceof Error ? error.message : String(error) });
+    reply({ id, error: messageOf(error) });
   }
 });

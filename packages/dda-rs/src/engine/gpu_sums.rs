@@ -29,7 +29,7 @@ use super::solver::{
     SolvedBlock,
 };
 use super::window::PreparedWindow;
-use super::{GpuDeviceInfo, SvdBackend};
+use super::GpuDeviceInfo;
 
 /// The largest buffer one batch binds; the adapter's own limit when that is lower.
 const MAX_BINDING: u64 = 256 << 20;
@@ -413,7 +413,6 @@ impl GpuSumsSolver {
         windows: &[PreparedWindow],
         jobs: &BasicJobs<'_>,
         model: &ModelSpec,
-        svd_backend: SvdBackend,
     ) -> Result<Vec<WindowSolutions>> {
         let terms = &model.primary_terms;
         let layout = Layout::new(jobs, terms.len());
@@ -421,7 +420,7 @@ impl GpuSumsSolver {
         if layout.pairs.is_empty() {
             return Ok(windows
                 .iter()
-                .map(|window| solve_window_on_cpu(window, jobs, model, svd_backend))
+                .map(|window| solve_window_on_cpu(window, jobs, model))
                 .collect());
         }
         let rows = model.window_length;
@@ -485,9 +484,9 @@ impl GpuSumsSolver {
             .par_iter()
             .zip(&sums)
             .map(|(window, sums)| match sums {
-                Some(sums) => solve_from_sums(window, sums, &layout, jobs, model, svd_backend),
+                Some(sums) => solve_from_sums(window, sums, &layout, jobs, model),
                 None => {
-                    let solutions = solve_window_on_cpu(window, jobs, model, svd_backend);
+                    let solutions = solve_window_on_cpu(window, jobs, model);
                     let problems = count_problems(jobs);
                     (solutions, problems, problems)
                 }
@@ -624,14 +623,13 @@ fn solve_from_sums(
     layout: &Layout,
     jobs: &BasicJobs<'_>,
     model: &ModelSpec,
-    svd_backend: SvdBackend,
 ) -> (WindowSolutions, usize, usize) {
     let rows = model.window_length;
     let fallbacks = std::cell::Cell::new(0);
     let or_cpu = |normal: Normal, build: &dyn Fn() -> super::solver::RegressionWindow| {
         normal.solve().unwrap_or_else(|| {
             fallbacks.set(fallbacks.get() + 1);
-            solve_regression_window(&build(), svd_backend)
+            solve_regression_window(&build())
         })
     };
     let group = |channels: &[usize]| {
@@ -643,7 +641,7 @@ fn solve_from_sums(
         if fit == source {
             fallbacks.set(fallbacks.get() + 1);
             let problem = build_directed_regression_window(window, fit, source, response, model);
-            return solve_regression_window(&problem, svd_backend);
+            return solve_regression_window(&problem);
         }
         or_cpu(layout.directed(sums, fit, source, response, rows), &|| {
             build_directed_regression_window(window, fit, source, response, model)
@@ -689,7 +687,6 @@ fn gpu_error(context: &str, error: impl std::fmt::Display) -> DDAError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::PureRustOptions;
 
     fn solver() -> Option<GpuSumsSolver> {
         match GpuSumsSolver::new(0) {
@@ -744,13 +741,12 @@ mod tests {
             window_step: 100,
             max_delay: 10,
             primary_terms: vec![vec![7], vec![10]],
-            secondary_terms: vec![vec![7], vec![10]],
         };
-        let rows = model.window_length + model.max_delay + 2 * model.dm;
+        let rows = model.span();
         let raw: Vec<Vec<f64>> = (0..rows)
             .map(|t| vec![(t as f64 * 0.3).sin(), (t as f64 * 0.7).cos()])
             .collect();
-        let window = PreparedWindow::from_raw(&raw, &model, &PureRustOptions::default()).unwrap();
+        let window = PreparedWindow::from_raw(&raw, &model).unwrap();
         let jobs = BasicJobs {
             channel_count: 2,
             st_channels: &[],
@@ -759,9 +755,7 @@ mod tests {
             cd_pairs: &[],
             sy_pairs: &[],
         };
-        let solved = solver
-            .solve_windows(&[window], &jobs, &model, SvdBackend::RobustSvd)
-            .unwrap();
+        let solved = solver.solve_windows(&[window], &jobs, &model).unwrap();
         assert_eq!(solved.len(), 1);
     }
 
@@ -777,9 +771,8 @@ mod tests {
             window_step: 500,
             max_delay: 10,
             primary_terms: vec![vec![7], vec![10], vec![7, 7, 7, 7]],
-            secondary_terms: vec![vec![7], vec![10], vec![7, 7, 7, 7]],
         };
-        let raw_rows = model.window_length + model.max_delay + 2 * model.dm;
+        let raw_rows = model.span();
         let channels = 5;
         let mut state = [0.31, 0.47, 0.62, 0.15, 0.83];
         let samples: Vec<Vec<f64>> = (0..raw_rows * 3)
@@ -794,15 +787,10 @@ mod tests {
                     .collect()
             })
             .collect();
-        let options = PureRustOptions::default();
         let windows: Vec<PreparedWindow> = (0..3)
             .map(|w| {
-                PreparedWindow::from_raw(
-                    &samples[w * raw_rows..(w + 1) * raw_rows],
-                    &model,
-                    &options,
-                )
-                .unwrap()
+                PreparedWindow::from_raw(&samples[w * raw_rows..(w + 1) * raw_rows], &model)
+                    .unwrap()
             })
             .collect();
         let st = [0, 1, 2, 3, 4];
@@ -817,9 +805,7 @@ mod tests {
             cd_pairs: &cd,
             sy_pairs: &sy,
         };
-        let gpu = solver
-            .solve_windows(&windows, &jobs, &model, SvdBackend::RobustSvd)
-            .unwrap();
+        let gpu = solver.solve_windows(&windows, &jobs, &model).unwrap();
         let close = |cpu: &SolvedBlock, gpu: &SolvedBlock| {
             let largest = cpu.coefficients.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
             for (c, g) in cpu.coefficients.iter().zip(&gpu.coefficients) {
@@ -833,7 +819,7 @@ mod tests {
             );
         };
         for (window, gpu) in windows.iter().zip(&gpu) {
-            let cpu = solve_window_on_cpu(window, &jobs, &model, SvdBackend::RobustSvd);
+            let cpu = solve_window_on_cpu(window, &jobs, &model);
             for (c, g) in cpu.st.iter().flatten().zip(gpu.st.iter().flatten()) {
                 close(c, g);
             }

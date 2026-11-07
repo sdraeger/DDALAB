@@ -28,7 +28,7 @@ const referenceWords = (reference: Reference | undefined) => {
  * never makes, needs `--variant-configs` added by hand.
  */
 export function cliCommand(request: DDARequest, fileName: string, reference?: Reference): string {
-  const { window_parameters: window, model_parameters: model, preprocessing_options: filters } = request;
+  const { window_parameters: window, model_parameters: model } = request;
   const pairs = (list: [number, number][] | undefined) => list?.map(([a, b]) => `${a},${b}`);
   const words = [
     ...named("--file", fileName),
@@ -46,8 +46,6 @@ export function cliCommand(request: DDARequest, fileName: string, reference?: Re
     ...flag("--dm", [model?.dm]),
     ...flag("--order", [model?.order]),
     ...flag("--nr-tau", [model?.nr_tau]),
-    ...flag("--highpass", [filters.highpass]),
-    ...flag("--lowpass", [filters.lowpass]),
     ...flag("--sr", [request.sampling_rate]),
     ...flag("--start-sample", [request.time_range.start]),
     ...flag("--end-sample", [request.time_range.end]),

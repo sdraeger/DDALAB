@@ -29,7 +29,7 @@ import {
 } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { resumeBatch } from "../../app/batch";
-import type { FileHandles, Outcome } from "../../app/recordings";
+import { type Outcome, openFiles } from "../../app/recordings";
 import { discovered, type Mark } from "../../core/batch";
 import {
   classifyFolder,
@@ -42,10 +42,10 @@ import {
   walk,
 } from "../../core/folder";
 import { pathOf } from "../../core/sources";
-import { count } from "../../core/words";
-import { useStore } from "../../store/store";
+import { bytes, count } from "../../core/words";
+import { closeFolder, useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
-import { useHit } from "../../styles/hit";
+import { useHit } from "../../styles/media";
 import { BatchAction, BatchProgressView } from "./Batch";
 import styles from "./FolderTree.module.css";
 import rail from "./LibraryRail.module.css";
@@ -55,23 +55,13 @@ const VIRTUAL_FROM = 200;
 /** Rows rendered past each edge of the view. */
 const OVERSCAN = 10;
 const SEARCH_FROM = 6;
-const UNITS = ["kilobyte", "megabyte", "gigabyte", "terabyte"].map(
-  (unit) => new Intl.NumberFormat("en-US", { style: "unit", unit, maximumSignificantDigits: 3 }),
-);
-/** Bytes in decimal units from kB up: 24 kB, 6.71 MB. */
-const sizeOf = (bytes: number) => {
-  const power = Math.min(UNITS.length, Math.max(1, Math.floor(Math.log10(Math.max(bytes, 1)) / 3)));
-  return UNITS[power - 1].format(bytes / 1000 ** power);
-};
 
 export default function FolderTree(props: {
   source: FolderSource;
-  onOpen(recording: FolderRecording, handles: FileHandles): Promise<Outcome>;
-  onClose(): void;
   /** The batch to resume on the recordings of this folder. */
   resume?: string;
 }) {
-  const { source, onOpen, resume } = props;
+  const { source, resume } = props;
   const [count, setCount] = useState(0);
   // `bids`: the opened folder is a BIDS dataset's root, which a batch reads as `ddalab batch --bids-dir` does.
   const [result, setResult] = useState<{ walked: Walked; recordings: FolderRecording[]; bids: boolean }>();
@@ -102,9 +92,13 @@ export default function FolderTree(props: {
       const { handles, root } = result?.walked ?? {};
       const own = recording.files.map((file) => handles?.get(file));
       const all = own.every((handle): handle is FileSystemFileHandle => handle !== undefined);
-      return onOpen(recording, { files: all ? own : undefined, root });
+      // The tree shows how its own opens went, beside its rows.
+      return openFiles(recording.files, {
+        choice: recording.path,
+        handles: { files: all ? own : undefined, root },
+      });
     },
-    [result, onOpen],
+    [result],
   );
 
   return (
@@ -132,7 +126,7 @@ export default function FolderTree(props: {
               {count.toLocaleString("en-US")} {count === 1 ? "file" : "files"}
             </span>
           </p>
-          <button type="button" className={controls.quiet} onClick={props.onClose}>
+          <button type="button" className={controls.quiet} onClick={closeFolder}>
             Cancel
           </button>
         </div>
@@ -531,7 +525,7 @@ function Row(props: {
           {recording.missing ? (
             <span className={styles.missing}>{recording.missing}</span>
           ) : (
-            sizeOf(recording.size)
+            bytes(recording.size)
           )}
         </span>
         {(props.open || props.mark) && (

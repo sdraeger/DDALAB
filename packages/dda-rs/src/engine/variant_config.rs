@@ -2,36 +2,9 @@ use std::collections::BTreeSet;
 
 use crate::types::{CcdConditioningStrategy, DDARequest};
 
-/// The variant a name means: its abbreviation or its full name, in any case, with `_`, `-` or spaces between words.
-/// Every place that reads a variant name (`enabled_variants`, `variant_configs` keys, the command line) uses this one
-/// table, so their aliases cannot drift apart.
-pub fn canonical_variant(name: &str) -> Option<&'static str> {
-    let key: String = name
-        .trim()
-        .chars()
-        .map(|c| {
-            if c == '-' || c == ' ' {
-                '_'
-            } else {
-                c.to_ascii_uppercase()
-            }
-        })
-        .collect();
-    Some(match key.as_str() {
-        "ST" | "SINGLE_TIMESERIES" => "ST",
-        "CT" | "CROSS_TIMESERIES" => "CT",
-        "CD" | "CROSS_DYNAMICAL" => "CD",
-        "DE" | "DYNAMICAL_ERGODICITY" | "DELAY_EMBEDDING" => "DE",
-        "SY" | "SYNCHRONIZATION" | "SYNCHRONISATION" | "SYNCHRONY" => "SY",
-        "CCD" | "CONDITIONAL_CROSS_DYNAMICAL" => "CCD",
-        "CCDLOG" | "CONDITIONAL_CROSS_DYNAMICAL_LOG_MSE_RATIO" => "CCDLOG",
-        "CCDPR2" | "CONDITIONAL_CROSS_DYNAMICAL_PARTIAL_R2" => "CCDPR2",
-        "CCDSIG" | "CONDITIONAL_CROSS_DYNAMICAL_SIGNIFICANCE" => "CCDSIG",
-        "CCDSTAB" | "CONDITIONAL_CROSS_DYNAMICAL_STABILITY" => "CCDSTAB",
-        "TRCCD" | "TEMPORALLY_REGULARIZED_CONDITIONAL_CROSS_DYNAMICAL" => "TRCCD",
-        "MVCCD" | "MULTIVARIATE_CONDITIONAL_CROSS_DYNAMICAL" => "MVCCD",
-        _ => return None,
-    })
+/// The abbreviation of the variant `name` means (`Variant::find`).
+fn canonical_variant(name: &str) -> Option<&'static str> {
+    crate::variants::Variant::find(name).map(|v| v.abbreviation)
 }
 
 /// The configs the CCD family reads, in order: the CCD config first, which every member shares.
@@ -457,8 +430,4 @@ pub(crate) fn labels_for_sy(all_labels: &[String], pairs: &[[usize; 2]], mode: u
     } else {
         labels_for_pairs(all_labels, pairs, " <-> ")
     }
-}
-
-pub(crate) fn flip_pairs(pairs: &[[usize; 2]]) -> Vec<[usize; 2]> {
-    pairs.iter().map(|pair| [pair[1], pair[0]]).collect()
 }

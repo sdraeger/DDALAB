@@ -5,7 +5,9 @@ use crate::document::bundle_layout;
 use crate::engine::dataset::AnalysisBounds;
 use crate::engine::model::ModelSpec;
 use crate::engine::variant_config::{resolve_ccd_conditioning_strategy, VariantMode};
-use crate::engine::{analysis_window_count, run_request_on_matrix_with_progress, PureRustProgress};
+use crate::engine::{
+    analysis_window_count, run_request_on_device, ComputeDevice, PureRustProgress,
+};
 use crate::error::{DDAError, Result};
 use crate::io::{Reader, RecordingInfo};
 use crate::types::{CcdConditioningStrategy, DDARequest, DDAResult, TimeRange};
@@ -37,7 +39,7 @@ impl Grid {
         Ok(Self {
             start,
             step: model.window_step as u64,
-            marker: (model.window_length + model.max_delay + 2 * model.dm) as u64,
+            marker: (model.span()) as u64,
             windows: analysis_window_count(&bounds, &model)?,
             rows_total,
         })
@@ -242,12 +244,13 @@ pub fn run_block(
         start,
         end: start + ((block.w1 - block.w0 - 1) as u64 * grid.step + grid.marker - 2) as f64,
     };
-    let mut progress = progress;
-    let mut result = run_request_on_matrix_with_progress(&local, &rows, Some(&used_labels), |p| {
-        if let Some(callback) = progress.as_deref_mut() {
-            callback(p);
-        }
-    })?;
+    let mut result = run_request_on_device(
+        &local,
+        &rows,
+        Some(&used_labels),
+        ComputeDevice::Cpu,
+        progress,
+    )?;
     result.channels = labels;
     let shift = |values: &mut Option<Vec<f64>>| {
         values
@@ -335,7 +338,7 @@ pub struct StGpuPlan {
     /// The delays of each model term, `factors` per term, padded with `u32::MAX`.
     pub terms: Vec<u32>,
     pub factors: u32,
-    /// Runs of this many equal samples are missing (`PureRustOptions::nr_exclude`).
+    /// Runs of this many equal samples are missing (`NR_EXCLUDE`).
     pub nr_exclude: u32,
 }
 
@@ -365,7 +368,7 @@ pub fn st_gpu_inputs(
     let info = reader.info();
     let grid = Grid::new(request, info.sample_count)?;
     let model = ModelSpec::from_request(request)?;
-    let raw_len = model.window_length + model.max_delay + 2 * model.dm;
+    let raw_len = model.span();
     let analysis = info.analysis_channels();
     let (used, _) = localize(request, analysis.len());
     let columns: Vec<usize> = used.iter().map(|&i| analysis[i]).collect();
@@ -396,7 +399,7 @@ pub fn st_gpu_inputs(
         window_length: model.window_length as u32,
         terms,
         factors: factors as u32,
-        nr_exclude: crate::engine::PureRustOptions::default().nr_exclude as u32,
+        nr_exclude: crate::engine::NR_EXCLUDE as u32,
     };
     // Each channel less its block mean, in f64: f32 then keeps the signal of a DC-coupled recording (microvolts on
     // tens of millivolts). The z-scores and derivatives of the windows are the same; equal samples stay equal.

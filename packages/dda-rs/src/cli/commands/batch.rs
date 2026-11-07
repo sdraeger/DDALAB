@@ -1,9 +1,8 @@
 use super::run::{analyze, Job};
 use crate::cli::args::BatchArgs;
-use crate::cli::dda_params;
-use crate::cli::exit_codes;
-use crate::cli::output;
+use crate::cli::{execution_error, exit_codes, input_error, output, Failure};
 use crate::io::discover_bids_recordings;
+use crate::DDARequest;
 use serde::Serialize;
 use serde_json::json;
 use serde_json::value::RawValue;
@@ -42,53 +41,13 @@ struct Manifest {
     with_warnings: usize,
 }
 
-pub fn execute(args: BatchArgs) -> i32 {
-    let selection = match dda_params::prepare_selection(
-        args.channels.clone(),
-        &args.variants,
-        args.ct_pairs.as_deref(),
-        args.cd_pairs.as_deref(),
-        args.variant_configs.as_deref(),
-    ) {
-        Ok(selection) => selection,
-        Err(msg) => {
-            eprintln!("Error: {}", msg);
-            return exit_codes::INPUT_ERROR;
-        }
-    };
-    let dda_params::PreparedSelection {
-        variants: normalized_variants,
-        channels: effective_channels,
-        ct_pairs: effective_ct_pairs,
-        cd_pairs: effective_cd_pairs,
-        variant_configs,
-    } = selection;
-
-    // Validate shared params, before a dry run lists the files; an empty channel selection means each recording's good channels.
-    if let Err(msg) = dda_params::validate_params(
-        &normalized_variants,
-        &args.delays,
-        args.wl,
-        args.ws,
-        &effective_ct_pairs,
-        &effective_cd_pairs,
-    ) {
-        eprintln!("Error: {}", msg);
-        return exit_codes::INPUT_ERROR;
-    }
-
-    // Resolve file list
-    let files = match resolve_files(&args) {
-        Ok(f) => f,
-        Err(msg) => {
-            eprintln!("Error: {}", msg);
-            return exit_codes::INPUT_ERROR;
-        }
-    };
-
+pub fn execute(args: BatchArgs) -> Result<(), Failure> {
+    // The request and reference every recording shares, checked before a dry run lists the files.
+    let shared = args.dda.request("").map_err(input_error)?;
+    let reference = args.dda.reference.parse().map_err(input_error)?;
+    let files = resolve_files(&args).map_err(input_error)?;
     if files.is_empty() {
-        eprintln!("Error: No matching files found");
-        return exit_codes::INPUT_ERROR;
+        return Err(input_error("No matching files found"));
     }
 
     // Dry-run mode: print file list and exit
@@ -99,15 +58,13 @@ pub fn execute(args: BatchArgs) -> i32 {
         if !args.quiet {
             eprintln!("Found {} file(s)", files.len());
         }
-        return exit_codes::SUCCESS;
+        return Ok(());
     }
 
-    // Create output directory if specified
-    if let Some(ref dir) = args.output_dir {
-        if let Err(e) = std::fs::create_dir_all(dir) {
-            eprintln!("Error: Failed to create output directory '{}': {}", dir, e);
-            return exit_codes::EXECUTION_ERROR;
-        }
+    if let Some(dir) = &args.output_dir {
+        std::fs::create_dir_all(dir).map_err(|e| {
+            execution_error(format!("Failed to create output directory '{dir}': {e}"))
+        })?;
     }
 
     // Recording paths in the manifest start with the BIDS directory's own name, as `ds003029/sub-01/...`.
@@ -135,38 +92,13 @@ pub fn execute(args: BatchArgs) -> i32 {
         }
 
         let outcome = (|| -> Result<Done, String> {
-            let request = dda_params::build_dda_request(dda_params::RequestConfig {
-                file_path,
-                channels: &effective_channels,
-                variants: &normalized_variants,
-                window_length: args.wl,
-                window_step: args.ws,
-                delays: &args.delays,
-                model_terms: args.model.clone(),
-                dm: args.dm,
-                order: args.order,
-                nr_tau: args.nr_tau,
-                ct_window_length: args.ct_wl,
-                ct_window_step: args.ct_ws,
-                ct_channel_pairs: effective_ct_pairs.clone(),
-                cd_channel_pairs: effective_cd_pairs.clone(),
-                sampling_rate: args.sr,
-                start: None,
-                end: None,
-                highpass: args.highpass,
-                lowpass: args.lowpass,
-                variant_configs: variant_configs.clone(),
-            })
-            .map_err(|error| format!("Error building request: {}", error))?;
             let analysis = analyze(Job {
-                file: file_path,
-                sample_rate_hz: args.sr,
-                reference: &args.reference,
-                request,
-                start: None,
-                end: None,
-                start_sample: None,
-                end_sample: None,
+                request: DDARequest {
+                    file_path: file_path.clone(),
+                    ..shared.clone()
+                },
+                range: Default::default(),
+                reference: reference.clone(),
                 device: args.device,
                 block_mb: args.block_mb,
                 bundle: None,
@@ -262,17 +194,12 @@ pub fn execute(args: BatchArgs) -> i32 {
         with_warnings: results.iter().filter(|r| !r.warnings.is_empty()).count(),
         results,
     };
-    if let Err(error) = output::write_json(&manifest, args.compact, None) {
-        eprintln!("Error: {}", error);
-        return exit_codes::EXECUTION_ERROR;
-    }
-
-    if failed == 0 {
-        exit_codes::SUCCESS
-    } else if succeeded > 0 {
-        exit_codes::PARTIAL_FAILURE
-    } else {
-        exit_codes::EXECUTION_ERROR
+    output::write_json(&manifest, args.compact, None).map_err(execution_error)?;
+    // Each failure is in the manifest and was printed as it happened.
+    match (failed, succeeded) {
+        (0, _) => Ok(()),
+        (_, 0) => Err((exit_codes::EXECUTION_ERROR, String::new())),
+        _ => Err((exit_codes::PARTIAL_FAILURE, String::new())),
     }
 }
 
@@ -404,36 +331,11 @@ mod tests {
     use std::fs;
 
     fn make_batch_args() -> BatchArgs {
-        BatchArgs {
-            glob: None,
-            reference: Default::default(),
-            files: None,
-            bids_dir: None,
-            channels: Some(vec![0, 1, 2]),
-            variants: vec!["ST".to_string()],
-            wl: 200,
-            ws: 100,
-            ct_wl: None,
-            ct_ws: None,
-            delays: vec![7, 10],
-            model: None,
-            dm: 4,
-            order: 4,
-            nr_tau: 2,
-            ct_pairs: None,
-            cd_pairs: None,
-            variant_configs: None,
-            highpass: None,
-            lowpass: None,
-            sr: None,
-            binary: None,
-            output_dir: None,
-            block_mb: crate::cli::args::DEFAULT_BLOCK_MB,
-            continue_on_error: false,
-            dry_run: false,
-            compact: false,
-            quiet: false,
-            device: crate::ComputeDevice::Cpu,
+        use crate::cli::args::{Cli, Command};
+        use clap::Parser;
+        match Cli::try_parse_from(["ddalab", "batch"]).unwrap().command {
+            Command::Batch(args) => args,
+            _ => unreachable!(),
         }
     }
 

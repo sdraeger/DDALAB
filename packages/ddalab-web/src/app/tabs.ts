@@ -3,6 +3,8 @@
 // Reattach acts on one tab: it asks for read access to one of its handles (Chromium), retries its URL, or opens a
 // picker, whose files reattach every detached tab they match by name and size. Files of another date are hashed
 // against the tab's SHA-256 before they attach; the others attach at once and the hash worker confirms them after.
+
+import { messageOf } from "../core/words";
 import { removeRecording, type State, useStore } from "../store/store";
 import {
   forgetTab,
@@ -23,8 +25,6 @@ import {
 } from "../store/tabs";
 import { ask, fileAt, permitted } from "./handles";
 import { closeRecording, engine, type FileHandles, openFiles, openInput } from "./recordings";
-
-const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /** The tabs whose recording is not open. */
 export function detachedTabs(s: State = useStore.getState()): Tab[] {
@@ -73,7 +73,7 @@ async function attempt(
 }
 
 /** Stops the tab's attempt under way, if any: it neither attaches nor reports. */
-export function stopCheck(fingerprint: string) {
+function stopCheck(fingerprint: string) {
   attempts.get(fingerprint)?.controller.abort();
   updateTab(fingerprint, { verifying: false });
 }

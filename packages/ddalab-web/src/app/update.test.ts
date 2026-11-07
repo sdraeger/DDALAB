@@ -43,6 +43,22 @@ test("a_new_version_with_a_recording_open_waits_for_reload", async () => {
   expect(posted).toEqual([]);
 });
 
+// WebKit under load reports the first install as waiting after it already controls the page: no new version.
+test("the_first_worker_waiting_and_controlling_at_once_is_no_update", async () => {
+  const { posted, reload } = page(true);
+  const sw = navigator.serviceWorker as unknown as {
+    controller: unknown;
+    register(): Promise<{ waiting: unknown }>;
+  };
+  sw.controller = (await sw.register()).waiting;
+  const { registerWorker, useStore } = await load();
+  registerWorker();
+  await new Promise((r) => setTimeout(r));
+  expect(reload).not.toHaveBeenCalled();
+  expect(posted).toEqual([]);
+  expect(useStore.getState().updateReady).toBe(false);
+});
+
 test("a_check_reports_whether_a_new_version_was_found", async () => {
   page(false, {});
   const { registerWorker, checkForUpdate, useStore } = await load();

@@ -335,11 +335,11 @@ test('progress_every_percent', () => {
   progress.length = 0;
   abi.runBlock(handle, req, 0, abi.plan(handle, req, 64).windows);
   abi.close(handle);
-  const total = progress[0].total_steps;
+  const total = progress[0].total_windows;
   const every = Math.max(Math.floor(total / 100), 1);
-  assert.ok(total >= 1000, `${total} steps`);
+  assert.ok(total >= 100, `${total} windows`);
   assert.equal(progress.length, Math.floor(total / every));
-  assert.ok(progress.every((p) => p.step_index % every === 0));
+  assert.ok(progress.every((p) => p.window_index % every === 0));
 });
 
 test('run_blocks_match_native_bundle', (t) => {

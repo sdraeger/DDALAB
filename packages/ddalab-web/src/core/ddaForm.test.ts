@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
-import type { RecordingInfo, VariantInfo } from "../../core/types";
-import { type DdaDraft, DEFAULT_FORM, validateRequest } from "./validate";
+import { type DdaDraft, DEFAULT_FORM, readSettings, validateRequest } from "./ddaForm";
+import type { RecordingInfo, VariantInfo } from "./types";
 
 const variant = (abbreviation: string, position: number, channel_format: VariantInfo["channel_format"]) =>
   ({ abbreviation, position, channel_format }) as VariantInfo;
@@ -98,4 +98,13 @@ test("pair_variants_name_their_need_in_agreement", () => {
     validateRequest(draft({ variants, channels: [1] }), info).errors.channels;
   expect(one([CT])).toBe("CT needs at least two channels");
   expect(one([CT, CD])).toBe("CT and CD need at least two channels");
+});
+
+// The batch panel checks the settings before any recording is open: only the form's own fields count.
+test("settings_are_checked_without_a_recording", () => {
+  expect(readSettings(DEFAULT_FORM, [ST]).errors).toEqual({});
+  expect(readSettings({ ...DEFAULT_FORM, windowStep: "0" }, [ST]).errors).toEqual({
+    windowStep: "The step must be a whole number above 0",
+  });
+  expect(readSettings(DEFAULT_FORM, []).errors.variants).toBe("Choose at least one variant");
 });

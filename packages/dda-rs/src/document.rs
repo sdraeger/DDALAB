@@ -17,6 +17,7 @@ use crate::types::{
     DDARequest, DDAResult, DEFAULT_DELAYS, DEFAULT_MODEL_DIMENSION, DEFAULT_MODEL_TERMS,
     DEFAULT_NUM_TAU, DEFAULT_POLYNOMIAL_ORDER,
 };
+use crate::variants::Variant;
 
 const SCHEMA: &str = "ddalab.result/2";
 
@@ -105,7 +106,6 @@ fn sorted_keys<S: serde::Serializer>(
 /// A variant the engine returns for a request, in the engine's order.
 struct Plan {
     id: &'static str,
-    name: &'static str,
     /// The analysis channels of each row: one for ST, a group for CT and DE, `[target, source]` for the rest.
     rows: Vec<Vec<usize>>,
     joiner: &'static str,
@@ -144,62 +144,26 @@ fn plan(request: &DDARequest, info: &RecordingInfo) -> Vec<Plan> {
     };
     let ccd = rows(resolve_ccd_pairs(request, n));
     let ccd_family = [
-        (
-            mode.ccd_enabled,
-            "CCD",
-            "Conditional Cross-Dynamical legacy RMSE gain (CCD)",
-        ),
-        (
-            mode.ccdlog_enabled,
-            "CCDLOG",
-            "Conditional Cross-Dynamical log-MSE ratio (CCDLOG)",
-        ),
-        (
-            mode.ccdpr2_enabled,
-            "CCDPR2",
-            "Conditional Cross-Dynamical partial R2 (CCDPR2)",
-        ),
-        (
-            mode.ccdsig_enabled,
-            "CCDSIG",
-            "Conditional Cross-Dynamical Significance (CCDSIG)",
-        ),
-        (
-            mode.ccdstab_enabled,
-            "CCDSTAB",
-            "Conditional Cross-Dynamical Stability (CCDSTAB)",
-        ),
-        (
-            mode.trccd_enabled,
-            "TRCCD",
-            "Temporally Regularized Conditional Cross-Dynamical (TRCCD)",
-        ),
-        (
-            mode.mvccd_enabled,
-            "MVCCD",
-            "Sparse Multivariate Conditional Cross-Dynamical (MVCCD)",
-        ),
+        (mode.ccd_enabled, "CCD"),
+        (mode.ccdlog_enabled, "CCDLOG"),
+        (mode.ccdpr2_enabled, "CCDPR2"),
+        (mode.ccdsig_enabled, "CCDSIG"),
+        (mode.ccdstab_enabled, "CCDSTAB"),
+        (mode.trccd_enabled, "TRCCD"),
+        (mode.mvccd_enabled, "MVCCD"),
     ]
-    .map(|(on, id, name)| (on && !ccd.is_empty(), id, name, ccd.clone(), " <- "));
+    .map(|(on, id)| (on && !ccd.is_empty(), id, ccd.clone(), " <- "));
     let before = [
         (
             mode.st_enabled,
             "ST",
-            "Single Timeseries (ST)",
             st.iter().map(|&c| vec![c]).collect(),
             "",
         ),
-        (
-            mode.ct_enabled,
-            "CT",
-            "Cross-Timeseries (CT)",
-            resolve_ct_groups(request, n),
-            " & ",
-        ),
+        (mode.ct_enabled, "CT", resolve_ct_groups(request, n), " & "),
         (
             mode.cd_enabled,
             "CD",
-            "Cross-Dynamical (CD)",
             rows(resolve_cd_pairs(request, n)),
             " <- ",
         ),
@@ -208,14 +172,12 @@ fn plan(request: &DDARequest, info: &RecordingInfo) -> Vec<Plan> {
         (
             mode.de_enabled,
             "DE",
-            "Dynamical Ergodicity (DE)",
             resolve_de_groups(request, n, &de),
             " & ",
         ),
         (
             mode.sy_mode > 0 && !sy_rows.is_empty(),
             "SY",
-            "Synchronization (SY)",
             sy_rows,
             sy_joiner,
         ),
@@ -225,12 +187,7 @@ fn plan(request: &DDARequest, info: &RecordingInfo) -> Vec<Plan> {
         .chain(ccd_family)
         .chain(after)
         .filter(|entry| entry.0)
-        .map(|(_, id, name, rows, joiner)| Plan {
-            id,
-            name,
-            rows,
-            joiner,
-        })
+        .map(|(_, id, rows, joiner)| Plan { id, rows, joiner })
         .collect()
 }
 
@@ -275,6 +232,7 @@ fn reproduction(
     info: &RecordingInfo,
     plan: &[Plan],
     input_sha256: BTreeMap<String, String>,
+    compute_device: String,
 ) -> Reproduction {
     let labels = analysis_labels(info);
     let unique = |channels: Vec<usize>| {
@@ -317,7 +275,7 @@ fn reproduction(
                     DEFAULT_POLYNOMIAL_ORDER,
                     DEFAULT_NUM_TAU,
                 ),
-        compute_device: "cpu".to_string(),
+        compute_device,
         variant_ids: plan.iter().map(|p| p.id.to_string()).collect(),
         selected_channel_names: names(&selected),
         selected_channel_indices: selected,
@@ -366,15 +324,30 @@ fn warnings(info: &RecordingInfo) -> Vec<String> {
 }
 
 /// The document without variants; its diagnostics are the recording's warnings.
+/// Who made a result document, when, from which input bytes and where it computed.
+#[derive(Debug, Clone)]
+pub struct Provenance {
+    pub id: String,
+    pub created_at_iso: String,
+    /// The SHA-256 of each input file, hex, by name.
+    pub input_sha256: BTreeMap<String, String>,
+    /// "cpu", "gpu", "cuda:1", "webgpu-f32".
+    pub compute_device: String,
+}
+
 fn skeleton(
     request: &DDARequest,
     info: &RecordingInfo,
     plan: &[Plan],
     windows: usize,
-    input_sha256: BTreeMap<String, String>,
-    id: String,
-    created_at_iso: String,
+    provenance: Provenance,
 ) -> ResultDocument {
+    let Provenance {
+        id,
+        created_at_iso,
+        input_sha256,
+        compute_device,
+    } = provenance;
     let path = Path::new(&request.file_path);
     ResultDocument {
         schema: SCHEMA.to_string(),
@@ -388,7 +361,7 @@ fn skeleton(
         diagnostics: warnings(info),
         window_centers_seconds: window_centers(info, request, windows),
         variants: Vec::new(),
-        reproduction: reproduction(request, info, plan, input_sha256),
+        reproduction: reproduction(request, info, plan, input_sha256, compute_device),
     }
 }
 
@@ -418,9 +391,7 @@ pub fn build_document(
     result: DDAResult,
     info: &RecordingInfo,
     request: &DDARequest,
-    input_sha256: BTreeMap<String, String>,
-    id: String,
-    created_at_iso: String,
+    provenance: Provenance,
 ) -> ResultDocument {
     let plan = plan(request, info);
     let labels = analysis_labels(info);
@@ -465,29 +436,19 @@ pub fn build_document(
     ResultDocument {
         diagnostics,
         variants,
-        ..skeleton(
-            request,
-            info,
-            &plan,
-            windows,
-            input_sha256,
-            id,
-            created_at_iso,
-        )
+        ..skeleton(request, info, &plan, windows, provenance)
     }
 }
 
-/// The document of a bundle: no matrices or summaries, and the bundle files of each variant in `arrays`. Its
-/// diagnostics are the recording's warnings.
+/// The document of a bundle of `windows` windows: no matrices or summaries, and the bundle files of each variant
+/// (`bundle_layout`) in `arrays`. Its diagnostics are the recording's warnings.
 pub fn build_manifest(
     info: &RecordingInfo,
     request: &DDARequest,
-    layout: &BundleLayout,
     windows: usize,
-    input_sha256: BTreeMap<String, String>,
-    id: String,
-    created_at_iso: String,
-) -> ResultDocument {
+    provenance: Provenance,
+) -> Result<ResultDocument> {
+    let layout = bundle_layout(request, info, windows)?;
     let plan = plan(request, info);
     let labels = analysis_labels(info);
     let variants = plan
@@ -497,7 +458,7 @@ pub fn build_manifest(
             let arrays = layout.arrays.iter().filter(|a| a.path.starts_with(&prefix));
             VariantDocument {
                 id: p.id.to_string(),
-                label: p.name.to_string(),
+                label: Variant::label_of(p.id),
                 row_labels: p.row_labels(&labels),
                 matrix: Vec::new(),
                 min_value: None,
@@ -510,18 +471,10 @@ pub fn build_manifest(
             }
         })
         .collect();
-    ResultDocument {
+    Ok(ResultDocument {
         variants,
-        ..skeleton(
-            request,
-            info,
-            &plan,
-            windows,
-            input_sha256,
-            id,
-            created_at_iso,
-        )
-    }
+        ..skeleton(request, info, &plan, windows, provenance)
+    })
 }
 
 /// The `.npy` files of a bundle.

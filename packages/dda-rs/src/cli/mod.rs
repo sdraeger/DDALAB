@@ -2,6 +2,7 @@
 use clap::Parser;
 use rayon::ThreadPoolBuilder;
 use std::ffi::OsString;
+use std::fmt::Display;
 
 pub mod args;
 pub mod commands;
@@ -10,6 +11,19 @@ pub mod exit_codes;
 pub mod output;
 
 use args::{Cli, Command};
+
+/// Why a command failed: its exit code and the message `main_with_args` prints after "Error: " (none when empty).
+pub type Failure = (i32, String);
+
+/// A refused input or request.
+pub fn input_error(error: impl Display) -> Failure {
+    (exit_codes::INPUT_ERROR, error.to_string())
+}
+
+/// A failed run or write.
+pub fn execution_error(error: impl Display) -> Failure {
+    (exit_codes::EXECUTION_ERROR, error.to_string())
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RayonMode {
@@ -45,19 +59,26 @@ where
         .format_timestamp(None)
         .try_init();
 
-    {
-        match cli.command {
-            Command::Run(args) => commands::run::execute(args),
-            Command::Info(args) => commands::info::execute(args),
-            Command::Variants(args) => commands::variants::execute(args),
-            Command::Validate(args) => commands::validate::execute(args),
-            Command::Batch(args) => commands::batch::execute(args),
-            Command::Inspect(args) => commands::inspect::execute(args),
-            Command::Samples(args) => commands::samples::execute(args),
-            Command::Mcp(args) => commands::mcp::execute(args),
-            Command::Classify(args) => commands::classify::execute(args),
-            Command::Predict(args) => commands::classify::predict(args),
-            Command::Stream(args) => commands::stream::execute(args),
+    let outcome = match cli.command {
+        Command::Run(args) => commands::run::execute(args),
+        Command::Info(args) => commands::info::execute(args),
+        Command::Variants(args) => commands::variants::execute(args),
+        Command::Validate(args) => commands::validate::execute(args),
+        Command::Batch(args) => commands::batch::execute(args),
+        Command::Inspect(args) => commands::inspect::execute(args),
+        Command::Samples(args) => commands::samples::execute(args),
+        Command::Mcp(args) => commands::mcp::execute(args),
+        Command::Classify(args) => commands::classify::execute(args),
+        Command::Predict(args) => commands::classify::predict(args),
+        Command::Stream(args) => commands::stream::execute(args),
+    };
+    match outcome {
+        Ok(()) => exit_codes::SUCCESS,
+        Err((code, message)) => {
+            if !message.is_empty() {
+                eprintln!("Error: {message}");
+            }
+            code
         }
     }
 }

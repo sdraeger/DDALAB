@@ -31,6 +31,7 @@ import {
 } from "../core/project";
 import { isScanned, pathOf } from "../core/sources";
 import { loadAnnotations } from "../core/userAnnotations";
+import { messageOf } from "../core/words";
 import { addAnnotations } from "../features/annotations/model";
 import { database } from "../store/recent";
 import { useStore } from "../store/store";
@@ -45,11 +46,9 @@ import {
   tabOf,
 } from "../store/tabs";
 import { engineVersion, refreshAnalyses } from "./analyses";
-import { download } from "./download";
+import type { Export } from "./download";
 import { engine, type OpenOptions, type Outcome, openFiles } from "./recordings";
 import { attachChecked, reattachFrom } from "./tabs";
-
-const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /** A recording of an export: its tab, its open recording, and each file it read with where its bytes come from. */
 interface Member {
@@ -221,20 +220,19 @@ const dayOf = (date: Date) =>
   [date.getFullYear(), date.getMonth() + 1, date.getDate()].map((n) => String(n).padStart(2, "0")).join("-");
 
 /**
- * Saves `contents` as a project named for the day: project.json first in the making, as it waits for every recording's
+ * `contents` as a project named for the day: project.json first in the making, as it waits for every recording's
  * SHA-256 and a recording that cannot be hashed fails the export before anything is written; then the archive streams,
- * every recording's files, every result's bundle, and project.json last. Call it first thing in a click: the Save
- * dialog needs the click (download.ts). `onMake` hears when the making starts, after the dialog.
+ * every recording's files, every result's bundle, and project.json last. Saved through a component's
+ * `useDownload`.
  */
-export function exportProject(all: Contents, onMake: () => void, withResults = true) {
+export function exportProject(all: Contents, withResults: boolean): Export {
   // Without its results, a project keeps its recordings, annotations, channel choices and views.
   const contents = withResults ? all : { ...all, results: [], batches: [] };
-  // Never a project that a DDALAB opening it would refuse the results of.
-  if (withResults && !all.budget.fits)
-    throw new Error("The project's results are more than a project may carry");
   const created = new Date();
-  return download(`project-${dayOf(created)}.ddalab`, async () => {
-    onMake();
+  const make = async () => {
+    // Never a project that a DDALAB opening it would refuse the results of.
+    if (withResults && !all.budget.fits)
+      throw new Error("The project's results are more than a project may carry");
     const json = `${JSON.stringify(await projectJson(contents, created), null, 2)}\n`;
     async function* files() {
       for (const [k, { files }] of contents.members.entries()) {
@@ -247,7 +245,8 @@ export function exportProject(all: Contents, onMake: () => void, withResults = t
       yield { name: "project.json", input: json };
     }
     return makeZip(files());
-  });
+  };
+  return { name: `project-${dayOf(created)}.ddalab`, make };
 }
 
 /** The projects read so far, by File: the tabs of one project reattach from one read of its directory. */

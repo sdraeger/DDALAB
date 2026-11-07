@@ -1,5 +1,7 @@
 use crate::error::{DDAError, Result};
-use crate::types::DDARequest;
+use crate::types::{
+    DDARequest, DEFAULT_MODEL_DIMENSION, DEFAULT_NUM_TAU, DEFAULT_POLYNOMIAL_ORDER,
+};
 
 #[derive(Debug, Clone)]
 pub(crate) struct ModelSpec {
@@ -7,16 +9,22 @@ pub(crate) struct ModelSpec {
     pub(crate) window_length: usize,
     pub(crate) window_step: usize,
     pub(crate) max_delay: usize,
+    /// The delays of each model term; an input channel enters a conditioned fit with the same terms.
     pub(crate) primary_terms: Vec<Vec<usize>>,
-    pub(crate) secondary_terms: Vec<Vec<usize>>,
 }
 
 impl ModelSpec {
     pub(crate) fn from_request(request: &DDARequest) -> Result<Self> {
         let model = request.model_parameters.as_ref();
-        let dm = model.map(|m| m.dm as usize).unwrap_or(4);
-        let nr_tau = model.map(|m| m.nr_tau as usize).unwrap_or(2);
-        let order = model.map(|m| m.order as usize).unwrap_or(4);
+        let dm = model
+            .map(|m| m.dm as usize)
+            .unwrap_or(DEFAULT_MODEL_DIMENSION as usize);
+        let nr_tau = model
+            .map(|m| m.nr_tau as usize)
+            .unwrap_or(DEFAULT_NUM_TAU as usize);
+        let order = model
+            .map(|m| m.order as usize)
+            .unwrap_or(DEFAULT_POLYNOMIAL_ORDER as usize);
         if dm == 0 {
             return Err(DDAError::InvalidParameter(
                 "Recovered DDA engine does not support dm=0".to_string(),
@@ -35,7 +43,6 @@ impl ModelSpec {
             .unwrap_or_else(|| crate::types::DEFAULT_MODEL_TERMS.to_vec());
         let monomials = monomial_list(nr_tau, order);
         let primary_terms = select_model_terms(&monomials, &model_terms, &delays)?;
-        let secondary_terms = primary_terms.clone();
 
         Ok(Self {
             dm,
@@ -43,8 +50,13 @@ impl ModelSpec {
             window_step: request.window_parameters.window_step as usize,
             max_delay,
             primary_terms,
-            secondary_terms,
         })
+    }
+
+    /// The rows one window reads: its fitted samples, the delays' lead-in, and `dm` rows on each side for the
+    /// derivative.
+    pub(crate) fn span(&self) -> usize {
+        self.window_length + self.max_delay + 2 * self.dm
     }
 }
 

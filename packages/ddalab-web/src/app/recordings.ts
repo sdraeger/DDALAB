@@ -5,6 +5,7 @@ import type { Annotations } from "../core/protocol";
 import { buildFileSet } from "../core/sources";
 import type { SyntheticSpec } from "../core/synthetic";
 import type { RecordingInfo, Reference } from "../core/types";
+import { messageOf } from "../core/words";
 import { restoreAnnotations } from "../features/annotations/model";
 import { database, forgetRecent, listRecent, type RecentEntry, rememberRecent } from "../store/recent";
 import {
@@ -17,6 +18,7 @@ import {
   useStore,
 } from "../store/store";
 import { filesSource, forgetTab, type TabSource, tabOpened } from "../store/tabs";
+import { ask, permitted } from "./handles";
 import { loadViewer, viewerLoaded } from "./viewerChunk";
 
 export const engine = createEngine();
@@ -91,13 +93,34 @@ function unexpected(
  * Closes the engine recording of `opened` at most once, and only when this open made it and nothing shows it: the id
  * of an open of the same content that came first (`duplicate`), or one the store holds, belongs to someone else.
  */
-function releaser(opened: { id: string; duplicate?: boolean }) {
+export function releaser(opened: { id: string; duplicate?: boolean }) {
   let released = false;
   return () => {
     if (released || opened.duplicate || useStore.getState().recordings[opened.id]) return;
     released = true;
     engine.close(opened.id);
   };
+}
+
+/**
+ * Opens `input` alongside the viewer's code, refusing (and closing again) another recording than the one of
+ * fingerprint `expect`, named `name` in the message, and an open `signal` stopped meanwhile. The release closes it
+ * unless someone else holds it (`releaser`).
+ */
+async function openChecked(
+  input: RecordingInput,
+  name: string,
+  { expect, signal }: { expect?: string; signal?: AbortSignal },
+) {
+  const [opened] = await Promise.all([engine.open(input), viewerReady()]);
+  const release = releaser(opened);
+  const refused = unexpected(opened, name, expect, release);
+  if (refused) throw new Error(refused);
+  if (signal?.aborted) {
+    release();
+    throw new Error("The check was stopped");
+  }
+  return { opened, release };
 }
 
 /**
@@ -113,15 +136,8 @@ export async function openInput(
   const copy = input.kind === "url" ? await keptFiles(input) : undefined;
   const read: RecordingInput =
     copy && input.kind === "url" ? { kind: "files", files: copy, primary: input.primary } : input;
-  const [opened] = await Promise.all([engine.open(read), viewerReady()]);
-  const release = releaser(opened);
   const name = "primary" in input ? input.primary : "The recording";
-  const refused = unexpected(opened, name, options.expect, release);
-  if (refused) throw new Error(refused);
-  if (options.signal?.aborted) {
-    release();
-    throw new Error("The check was stopped");
-  }
+  const { opened } = await openChecked(read, name, options);
   adopt(opened, read.kind, input.kind === "url" ? { kind: "url", input } : null, options.activate);
   return opened.id;
 }
@@ -149,7 +165,6 @@ export interface OpenOptions {
   exact?: boolean;
   verify?: Record<string, string>;
   signal?: AbortSignal;
-  handle?: FileSystemHandle;
   handles?: FileHandles;
   activate?: boolean;
   origin?: TabSource;
@@ -158,10 +173,6 @@ export interface OpenOptions {
 // The core's reply to a header whose data file is not in the set.
 const MISSING_COMPANION = /names .+, which is not among the opened files/;
 
-type FileHandle = FileSystemFileHandle & {
-  queryPermission(options: { mode: "read" }): Promise<PermissionState>;
-  requestPermission(options: { mode: "read" }): Promise<PermissionState>;
-};
 const PROJECT_TYPE = {
   description: "DDALAB project",
   accept: { "application/x-ddalab-project": [".ddalab"] },
@@ -172,7 +183,7 @@ const picker = () =>
       showOpenFilePicker?: (options: {
         multiple: boolean;
         types?: [typeof PROJECT_TYPE];
-      }) => Promise<FileHandle[]>;
+      }) => Promise<FileSystemFileHandle[]>;
     }
   ).showOpenFilePicker;
 
@@ -220,9 +231,8 @@ async function verified(
  * Opens the recording in `files`. `choice` picks among several (see `buildFileSet`). `expect` is the fingerprint of
  * the recording the user is locating again; another file opens, with a warning, or with `exact` is refused. `verify`
  * holds the SHA-256 its files must have: they are hashed before the recording shows, other content is refused, and
- * `signal` stops the check. `handle` lets the recent list reopen a single-file recording without a picker. `handles`
- * (from a folder walk or the browser's file picker) keeps the files' and the folder's handles in its tab, which then
- * reattaches on the next visit (tabs.ts). `activate` false opens it beside the active recording. `origin` is where its
+ * `signal` stops the check. `handles` (from a folder walk or the browser's file picker) keeps the files' and the folder's handles in its tab, which then
+ * reattaches on the next visit (tabs.ts), and a single file's handle lets the recent list reopen it without a picker. `activate` false opens it beside the active recording. `origin` is where its
  * tab reads it again in place of the files (a project's recording), and it stays out of the recent list, whose entries
  * reopen loose files.
  */
@@ -232,14 +242,11 @@ export async function openFiles(files: File[], options: OpenOptions = {}): Promi
   if ("candidates" in set) return { kind: "choose", candidates: set.candidates };
   try {
     const input = { kind: "files", files: set.files, primary: set.primary } as const;
-    const [opened] = await Promise.all([engine.open(input), viewerReady()]);
-    const release = releaser(opened);
-    const refused = options.exact && unexpected(opened, set.primary, options.expect, release);
-    if (refused) return { kind: "error", message: refused, folder: false };
-    if (options.signal?.aborted) {
-      release();
-      return { kind: "error", message: "The check was stopped", folder: false };
-    }
+    // Without `exact` another recording opens, with a warning (below).
+    const { opened, release } = await openChecked(input, set.primary, {
+      expect: options.exact ? options.expect : undefined,
+      signal: options.signal,
+    });
     if (options.verify && !useStore.getState().recordings[opened.id]) {
       const refusal = await verified(opened, options.verify, release, options.signal);
       if (refusal) {
@@ -248,22 +255,18 @@ export async function openFiles(files: File[], options: OpenOptions = {}): Promi
       }
     }
     const { info, fingerprint } = opened;
-    // Each file's handle, from `handles` in the order of `files`, or the one `handle` of a single file.
+    // Each file's handle, from `handles` in the order of `files`.
     const byFile = new Map<File, FileSystemFileHandle>();
     for (const [i, file] of files.entries()) {
       const own = options.handles?.files?.[i];
       if (own) byFile.set(file, own);
-    }
-    if (options.handle?.kind === "file" && files.length === 1) {
-      byFile.set(files[0], options.handle as FileSystemFileHandle);
     }
     const used = [set.primary, ...info.input_files.filter((name) => name !== set.primary)];
     const source =
       options.origin ?? filesSource(set.files, used, { files: byFile, root: options.handles?.root });
     adopt(opened, "files", source, options.activate);
     const primary = set.files.find((file) => file.name === set.primary);
-    const handle =
-      info.input_files.length === 1 ? (options.handle ?? (primary && byFile.get(primary))) : undefined;
+    const handle = info.input_files.length === 1 && primary ? byFile.get(primary) : undefined;
     if (!options.origin) {
       await rememberRecent({ fingerprint, primary: set.primary, names: info.input_files, handle }).catch(
         () => {},
@@ -277,7 +280,7 @@ export async function openFiles(files: File[], options: OpenOptions = {}): Promi
       warning: differs ? "This file differs from the recording you opened before" : undefined,
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = messageOf(error);
     return { kind: "error", message, folder: MISSING_COMPANION.test(message) };
   }
 }
@@ -288,28 +291,29 @@ export async function openFiles(files: File[], options: OpenOptions = {}): Promi
  */
 export async function pickFiles(
   project = false,
-): Promise<{ files: File[]; handle?: FileSystemHandle; handles: FileHandles } | undefined> {
+): Promise<{ files: File[]; handles: FileHandles } | undefined> {
   const show = picker();
   if (!show) return undefined;
   const handles = await show({ multiple: true, ...(project && { types: [PROJECT_TYPE] }) });
   return {
     files: await Promise.all(handles.map((h) => h.getFile())),
-    handle: handles.length === 1 ? handles[0] : undefined,
     handles: { files: handles },
   };
 }
 
 /** Reopens a recent single-file recording through its handle, asking for read access if it lapsed. */
 export async function reopen(entry: RecentEntry & { handle: FileSystemHandle }): Promise<Outcome> {
-  const handle = entry.handle as FileHandle;
+  const handle = entry.handle as FileSystemFileHandle;
   try {
-    const granted = (await handle.queryPermission({ mode: "read" })) === "granted";
-    if (!granted && (await handle.requestPermission({ mode: "read" })) !== "granted") {
+    if (!(await permitted(handle)) && (await ask(handle)) !== "granted") {
       return { kind: "error", message: `Read access to ${entry.primary} was not granted`, folder: false };
     }
-    return await openFiles([await handle.getFile()], { expect: entry.fingerprint, handle });
+    return await openFiles([await handle.getFile()], {
+      expect: entry.fingerprint,
+      handles: { files: [handle] },
+    });
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
+    const reason = messageOf(error);
     return { kind: "error", message: `${entry.primary} could not be read: ${reason}`, folder: false };
   }
 }

@@ -21,11 +21,9 @@ pub const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub use ccd_stats::*;
 pub use engine::{
     available_cuda_devices, available_gpu_devices, inspect_ccd_conditioning_sets_on_matrix,
-    profile_ccd_conditioning_subsets_on_matrix, run_request_on_matrix,
-    run_request_on_matrix_with_progress, score_ccd_conditioning_subsets_on_matrix,
-    CcdConditioningInspection, CcdConditioningSubsetProfile, CcdConditioningSubsetScore,
-    ComputeDevice, CudaDeviceInfo, GpuDeviceInfo, NormalizationMode, PureRustOptions,
-    PureRustProgress, PureRustRunner, SvdBackend,
+    profile_ccd_conditioning_subsets_on_matrix, run_request_on_device, run_request_on_matrix,
+    CcdConditioningInspection, CcdConditioningSubsetProfile, ComputeDevice, CudaDeviceInfo,
+    GpuDeviceInfo, PureRustProgress,
 };
 pub use error::{DDAError, Result};
 #[cfg(not(target_arch = "wasm32"))]

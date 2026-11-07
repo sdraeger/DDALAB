@@ -1,12 +1,11 @@
 // `ddalab mcp`: DDALAB as a Model Context Protocol server, one JSON-RPC message per line on stdin and stdout.
 // Everything a tool returns goes to the agent's model provider. No tool returns a recording's header identity fields
 // (`RecordingInfo` holds none); HIPAA mode, the default, also keeps annotation text and samples from the model.
-use super::run::{analyze, job_of, request_of};
+use super::run::{analyze, Job};
 use crate::cli::args::{Cli, Command, McpArgs, PredictArgs, ReferenceArgs};
-use crate::cli::output;
-use crate::cli::{dda_params, exit_codes};
-use crate::io::{open_referenced, FileSet, Reader};
-use crate::VariantMetadata;
+use crate::cli::{dda_params, exit_codes, output, Failure};
+use crate::io::Reader;
+use crate::VARIANTS;
 use clap::Parser;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
@@ -56,7 +55,7 @@ fn private_results_dir() -> Result<PathBuf, String> {
 /// before it, while this loop keeps answering `ping` and reading `notifications/cancelled` (a call can take minutes).
 /// A call cancelled before it starts is skipped, and the reply of one cancelled while it runs is dropped, as the
 /// protocol asks. At the end of input the server finishes the calls it has, then exits.
-pub fn execute(args: McpArgs) -> i32 {
+pub fn execute(args: McpArgs) -> Result<(), Failure> {
     let out = Mutex::new(std::io::stdout());
     let failed = AtomicBool::new(false);
     let cancelled: Mutex<HashSet<String>> = Mutex::new(HashSet::new());
@@ -106,10 +105,10 @@ pub fn execute(args: McpArgs) -> i32 {
         }
         drop(calls);
     });
-    if failed.load(Ordering::Relaxed) {
-        exit_codes::EXECUTION_ERROR
-    } else {
-        exit_codes::SUCCESS
+    match failed.load(Ordering::Relaxed) {
+        // stdout is gone, so there is no one to tell.
+        true => Err((exit_codes::EXECUTION_ERROR, String::new())),
+        false => Ok(()),
     }
 }
 
@@ -336,13 +335,12 @@ fn open(
     reference: Option<String>,
     electrodes: Option<String>,
 ) -> Result<Box<dyn Reader>, String> {
-    let reference = super::reference_of(&ReferenceArgs {
+    let reference = ReferenceArgs {
         reference,
         electrodes,
-    })?;
-    FileSet::from_path(Path::new(file))
-        .and_then(|files| open_referenced(&files, sr, reference.as_ref()))
-        .map_err(|e| format!("{file}: {e}"))
+    }
+    .parse()?;
+    Ok(super::open(file, sr, reference.as_ref())?.1)
 }
 
 /// `x` to `digits` significant digits; null when not finite.
@@ -358,7 +356,7 @@ fn round(x: f64, digits: i32) -> Value {
 }
 
 fn info() -> Value {
-    let variants: Vec<Value> = VariantMetadata::active_variants()
+    let variants: Vec<Value> = crate::offered_variants()
         .map(|v| json!({"id": v.abbreviation, "name": v.name, "channels": format!("{:?}", v.channel_format), "documentation": v.documentation}))
         .collect();
     json!({
@@ -373,7 +371,7 @@ fn info() -> Value {
             "model_dimension": crate::DEFAULT_MODEL_DIMENSION,
             "polynomial_order": crate::DEFAULT_POLYNOMIAL_ORDER,
         },
-        "accepted_variant_ids": dda_params::app_variant_ids().collect::<Vec<_>>(),
+        "accepted_variant_ids": VARIANTS.iter().map(|v| v.app_id).collect::<Vec<_>>(),
     })
 }
 
@@ -510,8 +508,7 @@ fn run(args: RunTool) -> Result<Value, String> {
         Command::Run(run_args) => run_args,
         _ => unreachable!("argv names the run command"),
     };
-    let (request, _) = request_of(&run_args)?;
-    let document = analyze(job_of(&run_args, request))
+    let document = analyze(Job::of(&run_args)?)
         .map_err(|(_, message)| message)?
         .document;
 

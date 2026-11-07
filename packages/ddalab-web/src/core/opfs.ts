@@ -148,8 +148,8 @@ export function writeTile(file: FileSystemSyncAccessHandle, slot: number, index:
   put(file, tile.subarray(0, HEADER), at);
 }
 
-/** Stores encoded tiles, each in the file of its level. */
-export function saveTiles(fingerprint: string, slot: number, tiles: ArrayBuffer[]) {
+/** Stores encoded tiles, each in the file of its level at the slot its header (index, channels, type) gives. */
+export function saveTiles(fingerprint: string, tiles: ArrayBuffer[]) {
   const levels = new Map<number, ArrayBuffer[]>();
   for (const tile of tiles) {
     const level = new DataView(tile).getUint32(4, true);
@@ -160,7 +160,9 @@ export function saveTiles(fingerprint: string, slot: number, tiles: ArrayBuffer[
       const file = await tileFile(fingerprint, level);
       try {
         for (const tile of group) {
-          writeTile(file, slot, Number(new DataView(tile).getBigUint64(8, true)), new Uint8Array(tile));
+          const head = new DataView(tile);
+          const slot = tileSlot(head.getUint32(16, true), RAW_TYPES[head.getUint8(24)]);
+          writeTile(file, slot, Number(head.getBigUint64(8, true)), new Uint8Array(tile));
         }
         file.flush();
       } finally {
@@ -216,7 +218,7 @@ export const hasTiles = (fingerprint: string) =>
     );
 
 /** The tiles' share of the browser's storage: the smaller of 2 GiB and a third of this origin's quota. */
-export async function tileBudget() {
+async function tileBudget() {
   const quota =
     (await navigator.storage.estimate().catch(() => undefined))?.quota ?? Number.POSITIVE_INFINITY;
   return Math.min(2 * 2 ** 30, quota / 3);
@@ -225,8 +227,10 @@ export async function tileBudget() {
 /**
  * Deletes the tiles of the least recently used recordings until all tiles take at most `budget` bytes; the tiles of a
  * recording open in any tab (its lock held) stay. Results are elsewhere and never go. The bytes the tiles take after.
+ * The budget defaults to the tiles' share of the storage (`tileBudget`).
  */
-export async function evictTiles(budget: number): Promise<number> {
+export async function evictTiles(budget?: number): Promise<number> {
+  budget ??= await tileBudget();
   const tiles = await (await navigator.storage.getDirectory()).getDirectoryHandle("tiles", { create: true });
   const found: { fingerprint: string; bytes: number; used: number }[] = [];
   for await (const [fingerprint, folder] of tiles.entries()) {

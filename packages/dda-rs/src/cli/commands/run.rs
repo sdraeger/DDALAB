@@ -1,52 +1,51 @@
+use super::open;
 use crate::blocks::{
     check_block_support, merge_blocks, plan_blocks, run_block, validate_request, Block,
 };
-use crate::cli::args::{ReferenceArgs, RunArgs};
-use crate::cli::dda_params;
-use crate::cli::exit_codes;
-use crate::cli::output;
+use crate::cli::args::{RangeArgs, RunArgs};
+use crate::cli::{execution_error as execution, input_error as input, output, Failure};
 use crate::document::{
     build_document, build_manifest, bundle_layout, encode_block, BundleLayout, BundleWriter,
-    ResultDocument,
+    Provenance, ResultDocument,
 };
-use crate::io::{open_referenced, ByteSource, FileSet, Reader, RecordingInfo};
+use crate::io::{ByteSource, FileSet, Reader, RecordingInfo, Reference};
 use crate::tiles::Sha256Stream;
-use crate::{ComputeDevice, DDARequest, DDAResult, PureRustProgress, TimeRange};
+use crate::{
+    run_request_on_device, ComputeDevice, DDARequest, DDAResult, PureRustProgress, TimeRange,
+};
 use std::collections::BTreeMap;
-use std::fmt::Display;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Bytes of a file hashed at a time.
 const HASH_SLICE: usize = 4 << 20;
 
-/// An exit code and the message to print.
-pub type Failure = (i32, String);
-
-fn input(error: impl Display) -> Failure {
-    (exit_codes::INPUT_ERROR, error.to_string())
-}
-
-fn execution(error: impl Display) -> Failure {
-    (exit_codes::EXECUTION_ERROR, error.to_string())
-}
-
-/// One analysis of one file. `request` holds everything but the time range, which `analyze` sets from
-/// `start` and `end` in seconds or `start_sample` and `end_sample` (samples win), and the channels when it names none.
-pub struct Job<'a> {
-    pub file: &'a str,
-    pub sample_rate_hz: Option<f64>,
-    /// The reference the recording opens with (`--reference`).
-    pub reference: &'a ReferenceArgs,
+/// One analysis of one recording: `request.file_path` read at `request.sampling_rate` (for text files). `analyze`
+/// sets the request's time range from `range` and, when it names none, its channels.
+pub struct Job {
     pub request: DDARequest,
-    pub start: Option<f64>,
-    pub end: Option<f64>,
-    pub start_sample: Option<u64>,
-    pub end_sample: Option<u64>,
+    pub range: RangeArgs,
+    /// The reference the recording opens with (`--reference`).
+    pub reference: Option<Reference>,
     pub device: ComputeDevice,
     pub block_mb: u64,
     /// A directory to stream the result into as a bundle; the document returned is its manifest.
-    pub bundle: Option<&'a Path>,
+    pub bundle: Option<PathBuf>,
     pub progress: bool,
+}
+
+impl Job {
+    /// The job `ddalab run` runs for `args`; a refusal is the message to print.
+    pub fn of(args: &RunArgs) -> Result<Job, String> {
+        Ok(Job {
+            request: args.dda.request(&args.file)?,
+            range: args.range.clone(),
+            reference: args.dda.reference.parse()?,
+            device: args.device,
+            block_mb: args.block_mb,
+            bundle: args.bundle.as_ref().map(PathBuf::from),
+            progress: !args.quiet,
+        })
+    }
 }
 
 pub struct Analysis {
@@ -108,19 +107,42 @@ impl Sink {
     }
 }
 
-/// Opens `job.file` and runs the request on it: block by block when `check_block_support` allows and the device is
-/// the CPU, otherwise over the whole recording in memory. A recording that fails to open or a selection that does not fit it
-/// is an input error; a failed run or write an execution error. A failure after the file opened ends with the recording's
-/// warnings, each after a space, as the Python batch words it (a truncated file explains a short one).
-pub fn analyze(job: Job<'_>) -> Result<Analysis, Failure> {
-    let file = job.file;
-    if !Path::new(file).exists() {
+impl RangeArgs {
+    /// The first and last sample of this range on `info`'s recording `file`: samples win over seconds, which become
+    /// samples as `_start_sample` of the Python readers does; the end defaults to the last sample.
+    fn samples(&self, info: &RecordingInfo, file: &str) -> Result<(u64, u64), String> {
+        let total = info.sample_count;
+        let sample = |seconds: Option<f64>, samples: Option<u64>| {
+            samples.or(seconds.map(|s| (s * info.sample_rate_hz + 1e-6).floor().max(0.0) as u64))
+        };
+        let first = sample(self.start, self.start_sample).unwrap_or(0);
+        let last = sample(self.end, self.end_sample)
+            .unwrap_or(u64::MAX)
+            .min(total.saturating_sub(1));
+        if first >= total {
+            return Err(format!(
+                "start sample {first} is not inside the {total} samples of {file}"
+            ));
+        }
+        if last < first {
+            return Err(format!("end sample {last} is before start sample {first}"));
+        }
+        Ok((first, last))
+    }
+}
+
+/// Opens the job's recording and runs the request on it: block by block when `check_block_support` allows and the
+/// device is the CPU, otherwise over the whole recording in memory. A recording that fails to open or a selection that
+/// does not fit it is an input error; a failed run or write an execution error. A failure after the file opened ends
+/// with the recording's warnings, each after a space, as the Python batch words it (a truncated file explains a short
+/// one).
+pub fn analyze(job: Job) -> Result<Analysis, Failure> {
+    let file = job.request.file_path.clone();
+    if !Path::new(&file).exists() {
         return Err(input(format!("Input file not found: {file}")));
     }
-    let reference = super::reference_of(job.reference).map_err(input)?;
-    let files = FileSet::from_path(Path::new(file)).map_err(|e| input(format!("{file}: {e}")))?;
-    let reader = open_referenced(&files, job.sample_rate_hz, reference.as_ref())
-        .map_err(|e| input(format!("{file}: {e}")))?;
+    let (files, reader) =
+        open(&file, job.request.sampling_rate, job.reference.as_ref()).map_err(input)?;
     let warnings = reader.info().warnings.clone();
     analyze_open(job, &files, &*reader).map_err(|(code, message)| {
         let message = warnings
@@ -131,15 +153,11 @@ pub fn analyze(job: Job<'_>) -> Result<Analysis, Failure> {
 }
 
 /// `analyze` on a recording already open: `files` holds the bytes its input files are hashed from.
-pub fn analyze_open(
-    job: Job<'_>,
-    files: &FileSet,
-    reader: &dyn Reader,
-) -> Result<Analysis, Failure> {
-    let file = job.file;
+pub fn analyze_open(job: Job, files: &FileSet, reader: &dyn Reader) -> Result<Analysis, Failure> {
+    let mut request = job.request;
+    let file = request.file_path.clone();
     let info = reader.info();
     let analysis = info.analysis_channels();
-    let mut request = job.request;
 
     // The channels count the analysis channels; the default is every one BIDS does not mark bad.
     let channels = match request.channels.take().filter(|c| !c.is_empty()) {
@@ -153,35 +171,11 @@ pub fn analyze_open(
     }
     request.channels = Some(channels);
     validate_request(&request, analysis.len()).map_err(|e| input(format!("{file}: {e}")))?;
-
-    // Seconds become samples as `_start_sample` of the Python readers does.
-    let total = info.sample_count;
-    let sample = |seconds: Option<f64>, samples: Option<u64>| {
-        samples.or(seconds.map(|s| (s * info.sample_rate_hz + 1e-6).floor().max(0.0) as u64))
-    };
-    let first = sample(job.start, job.start_sample).unwrap_or(0);
-    let last = sample(job.end, job.end_sample)
-        .unwrap_or(u64::MAX)
-        .min(total.saturating_sub(1));
-    if first >= total {
-        return Err(input(format!(
-            "start sample {first} is not inside the {total} samples of {file}"
-        )));
-    }
-    if last < first {
-        return Err(input(format!(
-            "end sample {last} is before start sample {first}"
-        )));
-    }
+    let (first, last) = job.range.samples(info, &file).map_err(input)?;
     request.time_range = TimeRange {
         start: first as f64,
         end: last as f64,
     };
-    dda_params::pure_rust_matrix_support_reason(&request).map_err(|reason| {
-        execution(format!(
-            "Pure Rust DDA cannot execute this request: {reason}"
-        ))
-    })?;
 
     let mut input_sha256 = BTreeMap::new();
     for name in &info.input_files {
@@ -196,13 +190,14 @@ pub fn analyze_open(
             eprint!("\r  window {done}/{of}");
         }
     };
+    let bundle = job.bundle.as_deref();
     let mut sink;
     let windows;
     if job.device == ComputeDevice::Cpu && check_block_support(&request).is_ok() {
         let budget = usize::try_from(job.block_mb.saturating_mul(1 << 20)).unwrap_or(usize::MAX);
         let blocks = plan_blocks(&request, info, budget).map_err(execution)?;
         windows = blocks.last().map_or(0, |block| block.w1);
-        sink = Sink::new(job.bundle, &request, info, windows)?;
+        sink = Sink::new(bundle, &request, info, windows)?;
         for block in &blocks {
             let mut on_progress = |p: &PureRustProgress| report(block.w0 + p.window_index, windows);
             let part =
@@ -212,7 +207,7 @@ pub fn analyze_open(
     } else {
         // A window may read the row after `last`, a real one when the file has it, as `run_block` reads it.
         // shortcut: reads from row 0, which costs memory for the rows before a late start; upgrade if whole runs of long recordings need it.
-        let end = (last + 2).min(total);
+        let end = (last + 2).min(info.sample_count);
         let rows = reader
             .read_rows(&analysis, 0, end as usize)
             .map_err(execution)?;
@@ -220,14 +215,15 @@ pub fn analyze_open(
             .iter()
             .map(|&c| info.channels[c].label.clone())
             .collect();
-        let result = dda_params::execute_request_on_matrix_with_progress_on_device(
+        let mut on_progress = |p: &PureRustProgress| report(p.window_index, p.total_windows);
+        let result = run_request_on_device(
             &request,
             &rows,
             Some(&labels),
             job.device,
-            |p| report(p.window_index, p.total_windows),
+            Some(&mut on_progress),
         )
-        .map_err(execution)?;
+        .map_err(|e| execution(format!("Pure Rust DDA failed: {e}")))?;
         windows = result
             .variant_results
             .iter()
@@ -236,7 +232,7 @@ pub fn analyze_open(
             .map(Vec::len)
             .max()
             .unwrap_or(0);
-        sink = Sink::new(job.bundle, &request, info, windows)?;
+        sink = Sink::new(bundle, &request, info, windows)?;
         let whole = Block {
             w0: 0,
             w1: windows,
@@ -249,31 +245,22 @@ pub fn analyze_open(
         eprintln!();
     }
 
-    let id = uuid::Uuid::new_v4().to_string();
-    let created_at = chrono::Utc::now().to_rfc3339();
-    let decorate = |document: &mut ResultDocument| {
-        document.reproduction.compute_device = job.device.to_string();
+    let provenance = Provenance {
+        id: uuid::Uuid::new_v4().to_string(),
+        created_at_iso: chrono::Utc::now().to_rfc3339(),
+        input_sha256,
+        compute_device: job.device.to_string(),
     };
     let document = match sink.bundle {
-        Some((writer, layout)) => {
-            let mut manifest = build_manifest(
-                info,
-                &request,
-                &layout,
-                windows,
-                input_sha256,
-                id,
-                created_at,
-            );
-            decorate(&mut manifest);
+        Some((writer, _)) => {
+            let manifest =
+                build_manifest(info, &request, windows, provenance).map_err(execution)?;
             writer.finish(&manifest).map_err(execution)?;
             manifest
         }
         None => {
             let result = merge_blocks(sink.parts).map_err(execution)?;
-            let mut document = build_document(result, info, &request, input_sha256, id, created_at);
-            decorate(&mut document);
-            document
+            build_document(result, info, &request, provenance)
         }
     };
     Ok(Analysis {
@@ -282,105 +269,15 @@ pub fn analyze_open(
     })
 }
 
-/// The request `ddalab run` makes of `args`, and the normalized variant names; a refusal is the message to print.
-/// `analyze` sets the time range and, when the request names none, the channels.
-pub fn request_of(args: &RunArgs) -> Result<(DDARequest, Vec<String>), String> {
-    let dda_params::PreparedSelection {
-        variants: normalized_variants,
-        channels: effective_channels,
-        ct_pairs: effective_ct_pairs,
-        cd_pairs: effective_cd_pairs,
-        variant_configs,
-    } = dda_params::prepare_selection(
-        args.channels.clone(),
-        &args.variants,
-        args.ct_pairs.as_deref(),
-        args.cd_pairs.as_deref(),
-        args.variant_configs.as_deref(),
-    )?;
-
-    // Validate shared params; an empty channel selection means the recording's good channels.
-    dda_params::validate_params(
-        &normalized_variants,
-        &args.delays,
-        args.wl,
-        args.ws,
-        &effective_ct_pairs,
-        &effective_cd_pairs,
-    )?;
-
-    // Build DDARequest; `analyze` sets the time range
-    let request = dda_params::build_dda_request(dda_params::RequestConfig {
-        file_path: &args.file,
-        channels: &effective_channels,
-        variants: &normalized_variants,
-        window_length: args.wl,
-        window_step: args.ws,
-        delays: &args.delays,
-        model_terms: args.model.clone(),
-        dm: args.dm,
-        order: args.order,
-        nr_tau: args.nr_tau,
-        ct_window_length: args.ct_wl,
-        ct_window_step: args.ct_ws,
-        ct_channel_pairs: effective_ct_pairs,
-        cd_channel_pairs: effective_cd_pairs,
-        sampling_rate: args.sr,
-        start: None,
-        end: None,
-        highpass: args.highpass,
-        lowpass: args.lowpass,
-        variant_configs,
-    })?;
-    Ok((request, normalized_variants))
-}
-
-/// The job `ddalab run` runs for `args` and its `request`.
-pub fn job_of(args: &RunArgs, request: DDARequest) -> Job<'_> {
-    Job {
-        file: &args.file,
-        sample_rate_hz: args.sr,
-        reference: &args.reference,
-        request,
-        start: args.start,
-        end: args.end,
-        start_sample: args.start_sample,
-        end_sample: args.end_sample,
-        device: args.device,
-        block_mb: args.block_mb,
-        bundle: args.bundle.as_deref().map(Path::new),
-        progress: !args.quiet,
-    }
-}
-
-pub fn execute(args: RunArgs) -> i32 {
-    let (request, normalized_variants) = match request_of(&args) {
-        Ok(prepared) => prepared,
-        Err(msg) => {
-            eprintln!("Error: {}", msg);
-            return exit_codes::INPUT_ERROR;
-        }
-    };
-
+pub fn execute(args: RunArgs) -> Result<(), Failure> {
+    let job = Job::of(&args).map_err(input)?;
     if !args.quiet {
         eprintln!("Running DDA analysis on {}...", args.file);
-        eprintln!("  Variants: {}", normalized_variants.join(", "));
-        eprintln!("  Window: length={}, step={}", args.wl, args.ws);
-        if args.highpass.is_some() || args.lowpass.is_some() {
-            eprintln!(
-                "  Preprocessing: highpass={:?}, lowpass={:?}",
-                args.highpass, args.lowpass
-            );
-        }
+        let variants = &job.request.algorithm_selection.enabled_variants;
+        eprintln!("  Variants: {}", variants.join(", "));
+        eprintln!("  Window: length={}, step={}", args.dda.wl, args.dda.ws);
     }
-
-    let analysis = match analyze(job_of(&args, request)) {
-        Ok(analysis) => analysis,
-        Err((code, message)) => {
-            eprintln!("Error: {message}");
-            return code;
-        }
-    };
+    let analysis = analyze(job)?;
     if !args.quiet {
         eprintln!("  Backend: pure-rust ({})", args.device);
     }
@@ -391,195 +288,12 @@ pub fn execute(args: RunArgs) -> i32 {
             }
         }
         None => {
-            if let Err(error) =
-                output::write_json(&analysis.document, args.compact, args.output.as_deref())
-            {
-                eprintln!("Error: {}", error);
-                return exit_codes::EXECUTION_ERROR;
-            }
+            output::write_json(&analysis.document, args.compact, args.output.as_deref())
+                .map_err(execution)?;
             if let (false, Some(path)) = (args.quiet, &args.output) {
                 eprintln!("Results written to {}", path);
             }
         }
     }
-    exit_codes::SUCCESS
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::cli::args::RunArgs;
-    use crate::cli::dda_params;
-    use crate::{format_select_mask, generate_select_mask};
-
-    fn make_test_args() -> RunArgs {
-        RunArgs {
-            file: "/tmp/test.edf".to_string(),
-            reference: Default::default(),
-            channels: Some(vec![0, 1, 2]),
-            variants: vec!["ST".to_string()],
-            wl: 200,
-            ws: 100,
-            ct_wl: None,
-            ct_ws: None,
-            delays: vec![7, 10],
-            model: None,
-            dm: 4,
-            order: 4,
-            nr_tau: 2,
-            ct_pairs: None,
-            cd_pairs: None,
-            variant_configs: None,
-            highpass: None,
-            lowpass: None,
-            start: None,
-            end: None,
-            start_sample: None,
-            end_sample: None,
-            sr: None,
-            binary: None,
-            output: None,
-            bundle: None,
-            block_mb: crate::cli::args::DEFAULT_BLOCK_MB,
-            compact: false,
-            quiet: false,
-            device: crate::ComputeDevice::Cpu,
-        }
-    }
-
-    fn build_test_request(args: &RunArgs, file_path: &str) -> crate::DDARequest {
-        let ct_channel_pairs = args
-            .ct_pairs
-            .as_ref()
-            .map(|pairs| crate::cli::args::parse_pairs(pairs))
-            .transpose()
-            .unwrap();
-        let cd_channel_pairs = args
-            .cd_pairs
-            .as_ref()
-            .map(|pairs| crate::cli::args::parse_pairs(pairs))
-            .transpose()
-            .unwrap();
-        dda_params::build_dda_request(dda_params::RequestConfig {
-            file_path,
-            channels: args.channels.as_deref().unwrap_or_default(),
-            variants: &args.variants,
-            window_length: args.wl,
-            window_step: args.ws,
-            delays: &args.delays,
-            model_terms: args.model.clone(),
-            dm: args.dm,
-            order: args.order,
-            nr_tau: args.nr_tau,
-            ct_window_length: args.ct_wl,
-            ct_window_step: args.ct_ws,
-            ct_channel_pairs,
-            cd_channel_pairs,
-            sampling_rate: args.sr,
-            start: args.start,
-            end: args.end,
-            highpass: args.highpass,
-            lowpass: args.lowpass,
-            variant_configs: None,
-        })
-        .unwrap()
-    }
-
-    #[test]
-    fn test_build_request_defaults() {
-        let tmp = tempfile::Builder::new().suffix(".edf").tempfile().unwrap();
-        let args = make_test_args();
-
-        let request = build_test_request(&args, tmp.path().to_str().unwrap());
-        assert_eq!(request.window_parameters.window_length, 200);
-        assert_eq!(request.window_parameters.window_step, 100);
-        assert_eq!(request.delay_parameters.delays, vec![7, 10]);
-        assert!(request.model_parameters.is_some());
-        let model = request.model_parameters.unwrap();
-        assert_eq!(model.dm, 4);
-        assert_eq!(model.order, 4);
-        assert_eq!(model.nr_tau, 2);
-    }
-
-    #[test]
-    fn test_build_request_with_ct_pairs() {
-        let tmp = tempfile::Builder::new().suffix(".edf").tempfile().unwrap();
-        let mut args = make_test_args();
-        args.variants = vec!["CT".to_string()];
-        args.ct_pairs = Some(vec!["0,1".to_string(), "0,2".to_string()]);
-
-        let request = build_test_request(&args, tmp.path().to_str().unwrap());
-        let pairs = request.ct_channel_pairs.unwrap();
-        assert_eq!(pairs, vec![[0, 1], [0, 2]]);
-        assert_eq!(request.window_parameters.ct_window_length, None);
-        assert_eq!(request.window_parameters.ct_window_step, None);
-    }
-
-    #[test]
-    fn test_validate_invalid_variant() {
-        let tmp = tempfile::Builder::new().suffix(".edf").tempfile().unwrap();
-        let args = make_test_args();
-
-        let result = dda_params::validate_params(
-            &["INVALID".to_string()],
-            &args.delays,
-            args.wl,
-            args.ws,
-            &None,
-            &None,
-        );
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Unknown variant"));
-
-        // Also test file validation separately
-        let _ = tmp; // keep tempfile alive
-    }
-
-    #[test]
-    fn test_validate_ct_without_pairs() {
-        let result =
-            dda_params::validate_params(&["CT".to_string()], &[7, 10], 200, 100, &None, &None);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("--ct-pairs"));
-    }
-
-    #[test]
-    fn test_validate_cd_without_pairs() {
-        let result =
-            dda_params::validate_params(&["CD".to_string()], &[7, 10], 200, 100, &None, &None);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("--cd-pairs"));
-    }
-
-    #[test]
-    fn test_validate_delay_out_of_range() {
-        let result =
-            dda_params::validate_params(&["ST".to_string()], &[1, 200], 200, 100, &None, &None);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("out of range"));
-    }
-
-    #[test]
-    fn test_validate_negative_delay() {
-        let result =
-            dda_params::validate_params(&["ST".to_string()], &[-1, 10], 200, 100, &None, &None);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("non-negative"));
-    }
-
-    #[test]
-    fn test_validate_ws_greater_than_wl() {
-        let result =
-            dda_params::validate_params(&["ST".to_string()], &[7, 10], 100, 200, &None, &None);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("must not exceed"));
-    }
-
-    #[test]
-    fn test_select_mask_generation() {
-        let variants = ["ST".to_string(), "CD".to_string()];
-        let variant_refs: Vec<&str> = variants.iter().map(|s| s.as_str()).collect();
-        let mask = generate_select_mask(&variant_refs);
-        let mask_str = format_select_mask(&mask);
-        assert_eq!(mask_str, "1 0 1 0 0 0");
-    }
+    Ok(())
 }

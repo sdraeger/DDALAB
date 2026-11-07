@@ -3,8 +3,9 @@
 // ordinary analysis record that names its batch. The combined export is what `ddalab batch --bids-dir <folder>
 // --output-dir dda` writes: its stdout as `batch_manifest.json` and each result document as `dda/<stem>.<sha8>.dda.json`.
 // In a BIDS dataset the batch takes the recordings the CLI finds there (`discover_bids_recordings`).
-import type { DdaForm } from "../features/analysis/validate";
+
 import { changed, database } from "../store/recent";
+import type { DdaForm } from "./ddaForm";
 import type { RecordingInput } from "./engine";
 import type { AnalysisRecord } from "./history";
 import type { RecordingInfo } from "./types";
@@ -131,7 +132,7 @@ function stemOf(path: string) {
 /** Rust's order of paths: component by component. */
 // shortcut: compares UTF-16 units where Rust compares bytes, which differ only between an astral character and U+E000
 // to U+FFFF in one component; compare UTF-8 bytes if a dataset ever names files so.
-export const byComponents = (a: string, b: string) => {
+const byComponents = (a: string, b: string) => {
   const [x, y] = [a.split("/"), b.split("/")];
   for (let i = 0; i < Math.min(x.length, y.length); i++) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1;
   return x.length - y.length;

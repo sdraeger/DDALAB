@@ -1,16 +1,15 @@
 // ddalab._core: the dda-rs engine and the `ddalab` command line for the Python package in `python/ddalab`.
 use clap::Parser;
 use dda_rs::cli::args::{Cli, Command, ReferenceArgs};
-use dda_rs::cli::commands::reference_of;
-use dda_rs::cli::commands::run::{analyze, analyze_open, job_of, request_of, Failure};
-use dda_rs::cli::{exit_codes, output};
+use dda_rs::cli::commands::open;
+use dda_rs::cli::commands::run::{analyze, analyze_open, Job};
+use dda_rs::cli::{exit_codes, output, Failure};
 use dda_rs::document::ResultDocument;
-use dda_rs::io::{open_matrix, open_referenced, with_reference, FileSet};
+use dda_rs::io::{open_matrix, with_reference, FileSet};
 use numpy::{PyArray1, PyArray2, PyArray3, PyArrayMethods, PyReadonlyArray2};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use std::collections::BTreeMap;
-use std::path::Path;
 
 /// A refusal of the request or its input is a ValueError; a failed run a RuntimeError.
 fn error_of((code, message): Failure) -> PyErr {
@@ -38,23 +37,26 @@ fn read<'py>(
     reference: Option<String>,
     electrodes: Option<String>,
 ) -> PyResult<(String, Bound<'py, PyArray2<f64>>, String)> {
-    let reference = reference_of(&ReferenceArgs {
+    let reference = ReferenceArgs {
         reference,
         electrodes,
-    })
+    }
+    .parse()
     .map_err(PyValueError::new_err)?;
     let opened = py.detach(|| {
-        let files = FileSet::from_path(Path::new(path))?;
-        let reader = open_referenced(&files, sample_rate_hz, reference.as_ref())?;
+        let (_, reader) = open(path, sample_rate_hz, reference.as_ref())?;
         let info = reader.info();
         let channels = info.analysis_channels();
-        let rows = reader.read_rows(&channels, 0, info.sample_count as usize)?;
-        let (annotations, _) = reader.scan_annotations()?;
+        let failed = |e: dda_rs::DDAError| format!("{path}: {e}");
+        let rows = reader
+            .read_rows(&channels, 0, info.sample_count as usize)
+            .map_err(failed)?;
+        let (annotations, _) = reader.scan_annotations().map_err(failed)?;
         // Channel-major for numpy, transposed here while the GIL is released.
         let by_channel: Vec<f64> = (0..channels.len())
             .flat_map(|c| rows.iter().map(move |row| row[c]))
             .collect();
-        Ok::<_, dda_rs::DDAError>((
+        Ok::<_, String>((
             info.clone(),
             channels.len(),
             rows.len(),
@@ -63,7 +65,7 @@ fn read<'py>(
         ))
     });
     let (info, width, samples, by_channel, annotations) =
-        opened.map_err(|e| PyValueError::new_err(format!("{path}: {e}")))?;
+        opened.map_err(PyValueError::new_err)?;
     let data = PyArray1::from_vec(py, by_channel).reshape([width, samples])?;
     let info = serde_json::to_string(&info).expect("recording info serializes");
     let annotations = serde_json::to_string(&annotations).expect("annotations serialize");
@@ -155,8 +157,12 @@ fn run(
             "run takes the arguments of `ddalab run`",
         ));
     };
-    let (request, _) = request_of(&args).map_err(PyValueError::new_err)?;
-    let reference = reference_of(&args.reference).map_err(PyValueError::new_err)?;
+    let job = Job::of(&args).map_err(PyValueError::new_err)?;
+    // An array has no input files to hash.
+    let no_files = FileSet {
+        primary: args.file.clone(),
+        files: BTreeMap::new(),
+    };
     // Row-major samples, as a recording reads them.
     let matrix = match data {
         Some(data) => {
@@ -169,11 +175,7 @@ fn run(
             // Row-major, one pass over the transposed view and one allocation, with the GIL released.
             let values: Vec<f64> = py.detach(|| array.t().iter().copied().collect());
             debug_assert_eq!(values.len(), channels * samples);
-            let no_files = FileSet {
-                primary: args.file.clone(),
-                files: BTreeMap::new(),
-            };
-            let reader = open_matrix(labels, rate, values).and_then(|reader| match &reference {
+            let reader = open_matrix(labels, rate, values).and_then(|reader| match &job.reference {
                 Some(reference) => with_reference(reader, reference, &no_files),
                 None => Ok(reader),
             });
@@ -181,19 +183,9 @@ fn run(
         }
         None => None,
     };
-    let analysis = py.detach(|| {
-        let job = job_of(&args, request);
-        match &matrix {
-            // An array has no input files to hash.
-            Some(reader) => {
-                let files = FileSet {
-                    primary: args.file.clone(),
-                    files: BTreeMap::new(),
-                };
-                analyze_open(job, &files, reader.as_ref())
-            }
-            None => analyze(job),
-        }
+    let analysis = py.detach(|| match &matrix {
+        Some(reader) => analyze_open(job, &no_files, reader.as_ref()),
+        None => analyze(job),
     });
     let analysis = analysis.map_err(error_of)?;
     Ok(Analysis {

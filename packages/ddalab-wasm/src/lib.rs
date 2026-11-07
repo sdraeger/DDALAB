@@ -14,11 +14,11 @@ use dda_rs::blocks::{
     block_of, plan_blocks, run_block, st_from_sums, st_gpu_inputs, st_sums_reference,
     validate_request,
 };
-use dda_rs::document::{build_manifest, bundle_layout, encode_block};
+use dda_rs::document::{build_manifest, bundle_layout, encode_block, Provenance};
 use dda_rs::io::edit::{edit, metadata, Metadata};
 use dda_rs::io::{open_referenced, BlockCache, BlockPool, ByteSource, FileSet, Reader, Reference};
 use dda_rs::tiles::{encode_tile, raw_tile, PyramidBuilder, Sha256Stream, Tile};
-use dda_rs::{DDAError, DDARequest, PureRustProgress, Result, VariantMetadata, ENGINE_VERSION};
+use dda_rs::{DDAError, DDARequest, PureRustProgress, Result, ENGINE_VERSION};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -242,7 +242,7 @@ pub extern "C" fn ddalab_version() -> u64 {
     json_reply(Ok(json!({
         "engine_version": ENGINE_VERSION,
         "git_commit": option_env!("DDALAB_GIT_COMMIT"),
-        "variants": VariantMetadata::active_variants().collect::<Vec<_>>(),
+        "variants": dda_rs::offered_variants().collect::<Vec<_>>(),
     })))
 }
 
@@ -413,26 +413,18 @@ pub unsafe extern "C" fn ddalab_plan(
     json_reply(plan(handle, input(req_ptr, req_len), budget_mb))
 }
 
-/// Calls `host_progress` on every `max(total_steps / 100, 1)`th step.
+/// Calls `host_progress` on every `max(total_windows / 100, 1)`th window: wasm32 has no clock to throttle by.
 fn report_progress(p: &PureRustProgress) {
-    if p.step_index.is_multiple_of((p.total_steps / 100).max(1)) {
+    if p.window_index.is_multiple_of((p.total_windows / 100).max(1)) {
         let json = serde_json::to_vec(p).unwrap_or_default();
         unsafe { host_progress(json.as_ptr() as u32, json.len() as u32) };
     }
 }
 
 fn run(handle: u32, request_json: &[u8], w0: u32, w1: u32) -> Result<Vec<u8>> {
-    let reader = recording(handle)?;
-    let info = reader.info();
-    let n = info.analysis_channels().len();
-    let request = request(request_json, n)?;
-    // The last block of any plan ends at the request's window count.
-    let windows = plan_blocks(&request, info, usize::MAX)?
-        .last()
-        .map_or(0, |block| block.w1);
-    let block = block_of(&request, info.sample_count, w0 as usize, w1 as usize)?;
+    let (reader, request, block, windows) = block_job(handle, request_json, w0, w1)?;
     let result = run_block(&*reader, &request, &block, Some(&mut report_progress))?;
-    framed(&bundle_layout(&request, info, windows)?, &block, &result)
+    framed(&bundle_layout(&request, reader.info(), windows)?, &block, &result)
 }
 
 /// The block's chunks as `ddalab_run_block` frames them.
@@ -487,19 +479,13 @@ fn manifest(handle: u32, request_json: &[u8], extras: &[u8]) -> Result<Value> {
     let info = reader.info();
     let request = request(request_json, info.analysis_channels().len())?;
     let extras: Extras = parse(extras, "extras")?;
-    let layout = bundle_layout(&request, info, extras.windows)?;
-    let mut document = build_manifest(
-        info,
-        &request,
-        &layout,
-        extras.windows,
-        extras.input_sha256,
-        extras.id,
-        extras.created_at_iso,
-    );
-    if let Some(device) = extras.compute_device {
-        document.reproduction.compute_device = device;
-    }
+    let provenance = Provenance {
+        id: extras.id,
+        created_at_iso: extras.created_at_iso,
+        input_sha256: extras.input_sha256,
+        compute_device: extras.compute_device.unwrap_or_else(|| "cpu".to_string()),
+    };
+    let document = build_manifest(info, &request, extras.windows, provenance)?;
     serde_json::to_value(document).map_err(|e| invalid(e.to_string()))
 }
 
@@ -631,7 +617,7 @@ pub extern "C" fn ddalab_pyramid_finish(id: u32) -> u64 {
 }
 
 /// The request's block `w0..w1` and the window count of the whole request, checked against `handle`'s recording.
-fn st_block(
+fn block_job(
     handle: u32,
     request_json: &[u8],
     w0: u32,
@@ -645,6 +631,7 @@ fn st_block(
     let reader = recording(handle)?;
     let info = reader.info();
     let request = request(request_json, info.analysis_channels().len())?;
+    // The last block of any plan ends at the request's window count.
     let windows = plan_blocks(&request, info, usize::MAX)?
         .last()
         .map_or(0, |block| block.w1);
@@ -666,7 +653,7 @@ pub unsafe extern "C" fn ddalab_st_inputs(
     w1: u32,
 ) -> u64 {
     binary_reply((|| {
-        let (reader, request, block, _) = st_block(handle, input(req_ptr, req_len), w0, w1)?;
+        let (reader, request, block, _) = block_job(handle, input(req_ptr, req_len), w0, w1)?;
         let inputs = st_gpu_inputs(&*reader, &request, &block)?;
         let header = serde_json::to_string(&inputs.as_ref().map(|(plan, _)| plan))
             .map_err(|e| invalid(e.to_string()))?;
@@ -695,7 +682,7 @@ pub unsafe extern "C" fn ddalab_st_finish(
     sums_len: u32,
 ) -> u64 {
     binary_reply((|| {
-        let (reader, request, block, windows) = st_block(handle, input(req_ptr, req_len), w0, w1)?;
+        let (reader, request, block, windows) = block_job(handle, input(req_ptr, req_len), w0, w1)?;
         let sums: Vec<f32> = input(sums_ptr, sums_len)
             .as_chunks::<4>()
             .0
@@ -724,7 +711,7 @@ pub unsafe extern "C" fn ddalab_st_reference(
     w1: u32,
 ) -> u64 {
     binary_reply((|| {
-        let (reader, request, block, _) = st_block(handle, input(req_ptr, req_len), w0, w1)?;
+        let (reader, request, block, _) = block_job(handle, input(req_ptr, req_len), w0, w1)?;
         let (plan, rows) = st_gpu_inputs(&*reader, &request, &block)?
             .ok_or_else(|| invalid("this block runs on the CPU".to_string()))?;
         Ok(le_bytes(&st_sums_reference(&plan, &rows)))

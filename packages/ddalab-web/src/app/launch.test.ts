@@ -51,17 +51,15 @@ test("one_launched_file_opens_with_its_handle_for_the_tab_and_the_recent_list", 
   expect(outcome).toBe(opened);
   expect(open).toHaveBeenCalledExactlyOnceWith(attempt.files, attempt);
   expect(attempt.files.map((f) => f.name)).toEqual(["a.edf"]);
-  expect(attempt.handle).toBe(handle);
   expect(attempt.handles).toEqual({ files: [handle] });
   expect(roots).not.toHaveBeenCalled();
 });
 
-test("several_launched_files_open_together_without_a_single_handle", async () => {
+test("several_launched_files_open_together", async () => {
   const handles = ["fixture.vhdr", "fixture.eeg", "fixture.vmrk"].map((name) => fileHandle(name));
   const open = vi.fn(async () => opened);
   const { attempt } = await openLaunched(handles, { open, roots: async () => [] });
-  expect(attempt.handle).toBeUndefined();
-  expect(attempt.handles.files).toEqual(handles);
+  expect(attempt.handles?.files).toEqual(handles);
 });
 
 test("a_header_alone_is_looked_for_in_the_granted_folders", async () => {
@@ -93,7 +91,7 @@ test("a_header_alone_stays_a_message_when_no_granted_folder_holds_it", async () 
   });
   expect(outcome).toBe(missing);
   expect(open).toHaveBeenCalledTimes(1);
-  expect(attempt.handles.files).toEqual([vhdr]);
+  expect(attempt.handles?.files).toEqual([vhdr]);
 });
 
 test("a_folder_that_cannot_be_asked_is_skipped", async () => {

@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { create } from "zustand";
 import type { RecordingInput } from "../../core/engine";
 import { canKeep, dropCopy, keepCopy, keptFiles } from "../../core/offline";
+import { bytes, messageOf } from "../../core/words";
 import { useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
 import styles from "./Streamed.module.css";
@@ -42,18 +43,10 @@ function keep(fingerprint: string, input: UrlInput) {
     (error: unknown) =>
       set(
         fingerprint,
-        controller.signal.aborted
-          ? { kind: "none" }
-          : { kind: "failed", reason: error instanceof Error ? error.message : String(error) },
+        controller.signal.aborted ? { kind: "none" } : { kind: "failed", reason: messageOf(error) },
       ),
   );
 }
-
-const megabytes = new Intl.NumberFormat("en-US", {
-  style: "unit",
-  unit: "megabyte",
-  maximumSignificantDigits: 3,
-});
 
 export function Streamed({ fingerprint }: { fingerprint: string }) {
   const input = useStore((s) => {
@@ -71,7 +64,7 @@ export function Streamed({ fingerprint }: { fingerprint: string }) {
   }, [fingerprint, input]);
   if (!input) return null;
   const { dataset } = input;
-  const size = megabytes.format(input.files.reduce((sum, f) => sum + f.size, 0) / 1e6);
+  const size = bytes(input.files.reduce((sum, f) => sum + f.size, 0));
   return (
     <div className={styles.streamed}>
       <p className={styles.note}>

@@ -1,8 +1,6 @@
 // The display filter in the scale band: its settings under the traces, and a popover that sets them (core/filter.ts).
 import { Popover } from "@base-ui/react/popover";
-import { Select } from "@base-ui/react/select";
-import Check from "lucide-react/dist/esm/icons/check.mjs";
-import ChevronDown from "lucide-react/dist/esm/icons/chevron-down.mjs";
+import { SelectField } from "../../app/SelectField";
 import { type Filter, filterLabel, MAX_FRACTION, NO_FILTER } from "../../core/filter";
 import { activeRecording, setFilter, useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
@@ -102,44 +100,17 @@ function Hz(props: {
   usable(hz: number): boolean;
   onChange(hz: number | null): void;
 }) {
-  const show = (hz: number) => (hz ? `${hz} Hz` : "Off");
-  const values = [0, ...props.values];
+  const label = (hz: number) => (hz ? `${hz} Hz` : "Off");
   return (
-    <Select.Root
+    <SelectField
+      label={props.label}
       value={props.value ?? 0}
-      items={values.map((value) => ({ value, label: show(value) }))}
-      onValueChange={(value) => props.onChange((value as number) || null)}
-    >
-      <div className={controls.field}>
-        <Select.Label className={controls.label}>{props.label}</Select.Label>
-        <Select.Trigger className={controls.trigger}>
-          <Select.Value>{(value: number) => show(value)}</Select.Value>
-          <Select.Icon>
-            <ChevronDown aria-hidden />
-          </Select.Icon>
-        </Select.Trigger>
-      </div>
-      <Select.Portal>
-        <Select.Positioner sideOffset={4} alignItemWithTrigger={false}>
-          <Select.Popup className={controls.popup}>
-            <Select.List className={controls.list}>
-              {values.map((value) => (
-                <Select.Item
-                  key={value}
-                  value={value}
-                  disabled={value !== 0 && !props.usable(value)}
-                  className={controls.item}
-                >
-                  <Select.ItemIndicator>
-                    <Check aria-hidden />
-                  </Select.ItemIndicator>
-                  <Select.ItemText className={controls.itemText}>{show(value)}</Select.ItemText>
-                </Select.Item>
-              ))}
-            </Select.List>
-          </Select.Popup>
-        </Select.Positioner>
-      </Select.Portal>
-    </Select.Root>
+      items={[0, ...props.values].map((value) => ({
+        value,
+        label: label(value),
+        disabled: value !== 0 && !props.usable(value),
+      }))}
+      onChange={(value) => props.onChange(value || null)}
+    />
   );
 }

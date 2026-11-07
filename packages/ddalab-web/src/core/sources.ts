@@ -94,7 +94,6 @@ type HandleItem = DataTransferItem & { getAsFileSystemHandle?: () => Promise<Fil
  */
 export async function droppedFiles(data: DataTransfer): Promise<{
   files: File[];
-  handle?: FileSystemHandle;
   handles: { files?: FileSystemFileHandle[] };
 }> {
   // The item list empties when the event ends: ask for everything before the first await.
@@ -110,8 +109,7 @@ export async function droppedFiles(data: DataTransfer): Promise<{
   const found = await Promise.all(pending);
   // Folders are walked by the folder tree (LibraryRail): a drop of files alone keeps their handles.
   const own = found.every((h) => h?.kind === "file") ? (found as FileSystemFileHandle[]) : undefined;
-  const handle = found.length === 1 && found[0]?.kind === "file" ? found[0] : undefined;
-  return { files: files.flat(), handle, handles: { files: own } };
+  return { files: files.flat(), handles: { files: own } };
 }
 
 /** Fills `dst` from `offset` of `file`; throws when the file is shorter, which means it changed after opening. */

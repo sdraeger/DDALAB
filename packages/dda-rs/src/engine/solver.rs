@@ -1,7 +1,7 @@
 use nalgebra::{DMatrix, DVector};
 use rayon::prelude::*;
 
-use super::{model::ModelSpec, window::PreparedWindow, SvdBackend, PARALLEL_BATCH_MIN_LEN};
+use super::{model::ModelSpec, window::PreparedWindow, PARALLEL_BATCH_MIN_LEN};
 
 #[derive(Debug, Clone)]
 pub(crate) struct SolvedBlock {
@@ -80,10 +80,9 @@ pub(crate) fn solve_group_block(
     prepared: &PreparedWindow,
     channels: &[usize],
     model: &ModelSpec,
-    svd_backend: SvdBackend,
 ) -> SolvedBlock {
     let window = build_group_regression_window(prepared, channels, model);
-    solve_regression_window(&window, svd_backend)
+    solve_regression_window(&window)
 }
 
 pub(crate) fn build_group_regression_window(
@@ -149,7 +148,7 @@ fn build_channel_regression_window(
     model: &ModelSpec,
 ) -> RegressionWindow {
     let primary_terms = &model.primary_terms;
-    let secondary_terms = &model.secondary_terms;
+    let secondary_terms = &model.primary_terms;
     let window_length = model.window_length;
     let feature_count = primary_terms.len() + input_sources.len() * secondary_terms.len();
     let mut flat_design = Vec::with_capacity(window_length * feature_count);
@@ -246,7 +245,6 @@ pub(crate) fn solve_directed_pair(
     secondary_channel: usize,
     response_channel: usize,
     model: &ModelSpec,
-    svd_backend: SvdBackend,
 ) -> SolvedBlock {
     let window = build_directed_regression_window(
         prepared,
@@ -255,7 +253,7 @@ pub(crate) fn solve_directed_pair(
         response_channel,
         model,
     );
-    solve_regression_window(&window, svd_backend)
+    solve_regression_window(&window)
 }
 
 pub(crate) fn solve_channel_with_inputs(
@@ -263,7 +261,6 @@ pub(crate) fn solve_channel_with_inputs(
     target_channel: usize,
     input_channels: &[usize],
     model: &ModelSpec,
-    svd_backend: SvdBackend,
 ) -> SolvedBlock {
     let input_sources = channel_input_sources(input_channels);
     let window = build_channel_regression_window(
@@ -273,7 +270,7 @@ pub(crate) fn solve_channel_with_inputs(
         &input_sources,
         model,
     );
-    solve_regression_window(&window, svd_backend)
+    solve_regression_window(&window)
 }
 
 /// `target_channel`'s fit with the `confounds` channels and a surrogate `source` series as inputs, in that order.
@@ -283,7 +280,6 @@ pub(crate) fn solve_channel_with_surrogate_inputs(
     confounds: &[usize],
     source: &[f64],
     model: &ModelSpec,
-    svd_backend: SvdBackend,
 ) -> SolvedBlock {
     let input_sources = confounds
         .iter()
@@ -297,7 +293,7 @@ pub(crate) fn solve_channel_with_surrogate_inputs(
         &input_sources,
         model,
     );
-    solve_regression_window(&window, svd_backend)
+    solve_regression_window(&window)
 }
 
 pub(crate) fn build_channel_regression_window_with_inputs(
@@ -316,17 +312,13 @@ pub(crate) fn build_channel_regression_window_with_inputs(
     )
 }
 
-pub(crate) fn solve_regression_window(
-    window: &RegressionWindow,
-    svd_backend: SvdBackend,
-) -> SolvedBlock {
+pub(crate) fn solve_regression_window(window: &RegressionWindow) -> SolvedBlock {
     solve_least_squares_from_flat(
         &window.flat_design,
         window.rows,
         window.cols,
         &window.fit_target,
         &window.residual_target,
-        svd_backend,
     )
 }
 
@@ -338,7 +330,6 @@ pub(crate) fn solve_regression_window(
 pub(crate) fn solve_temporally_regularized_windows(
     windows: &[RegressionWindow],
     lambda: f64,
-    svd_backend: SvdBackend,
 ) -> Vec<SolvedBlock> {
     if windows.is_empty() {
         return Vec::new();
@@ -368,7 +359,7 @@ pub(crate) fn solve_temporally_regularized_windows(
         }
     }
     let coefficients = block_tridiagonal_solve(&diagonal, &rhs, lambda)
-        .unwrap_or_else(|| dense_regularized_solve(&diagonal, &rhs, lambda, svd_backend));
+        .unwrap_or_else(|| dense_regularized_solve(&diagonal, &rhs, lambda));
 
     windows
         .iter()
@@ -444,7 +435,6 @@ fn dense_regularized_solve(
     diagonal: &[DMatrix<f64>],
     rhs: &[DVector<f64>],
     lambda: f64,
-    svd_backend: SvdBackend,
 ) -> Vec<DVector<f64>> {
     let cols = rhs[0].len();
     let total = diagonal.len() * cols;
@@ -462,7 +452,7 @@ fn dense_regularized_solve(
             }
         }
     }
-    let solution = solve_matrix_with_backend(&normal, &stacked, svd_backend);
+    let solution = svd_solve(&normal, &stacked);
     (0..diagonal.len())
         .map(|w| solution.rows(w * cols, cols).clone_owned())
         .collect()
@@ -474,14 +464,13 @@ fn solve_least_squares_from_flat(
     cols: usize,
     fit_target: &[f64],
     residual_target: &[f64],
-    svd_backend: SvdBackend,
 ) -> SolvedBlock {
     if rows == 0 || cols == 0 {
         return SolvedBlock::nan(cols);
     }
     let a = DMatrix::from_row_slice(rows, cols, flat_design);
     let y = DVector::from_column_slice(fit_target);
-    let coefficients = solve_matrix_with_backend(&a, &y, svd_backend);
+    let coefficients = svd_solve(&a, &y);
     let prediction = &a * &coefficients;
     SolvedBlock {
         coefficients: coefficients.iter().copied().collect(),
@@ -501,18 +490,7 @@ fn residual_rmse(target: &[f64], prediction: &DVector<f64>) -> f64 {
     (residual_sum / target.len() as f64).sqrt()
 }
 
-fn solve_matrix_with_backend(
-    matrix: &DMatrix<f64>,
-    rhs: &DVector<f64>,
-    svd_backend: SvdBackend,
-) -> DVector<f64> {
-    match svd_backend {
-        SvdBackend::RobustSvd => solve_matrix_with_robust_svd(matrix, rhs),
-        SvdBackend::NativeCompatSvd => solve_matrix_with_native_compat_svd(matrix, rhs),
-    }
-}
-
-fn solve_matrix_with_robust_svd(matrix: &DMatrix<f64>, rhs: &DVector<f64>) -> DVector<f64> {
+fn svd_solve(matrix: &DMatrix<f64>, rhs: &DVector<f64>) -> DVector<f64> {
     // svd() iterates without limit; same tolerance (5 eps) but a window that doesn't
     // converge becomes NaN
     let Some(svd) = matrix
@@ -525,331 +503,6 @@ fn solve_matrix_with_robust_svd(matrix: &DMatrix<f64>, rhs: &DVector<f64>) -> DV
     let tolerance = (matrix.nrows().max(matrix.ncols()) as f64) * f64::EPSILON * sigma_max.max(1.0);
     svd.solve(rhs, tolerance)
         .unwrap_or_else(|_| DVector::from_element(matrix.ncols(), f64::NAN))
-}
-
-fn solve_matrix_with_native_compat_svd(matrix: &DMatrix<f64>, rhs: &DVector<f64>) -> DVector<f64> {
-    if matrix.nrows() == 0 || matrix.ncols() == 0 || rhs.len() != matrix.nrows() {
-        return DVector::from_element(matrix.ncols(), f64::NAN);
-    }
-
-    let rows = matrix.nrows();
-    let cols = matrix.ncols();
-    let mut compact_x = vec![vec![0.0; rows]; cols];
-    for row in 0..rows {
-        for col in 0..cols {
-            compact_x[col][row] = matrix[(row, col)];
-        }
-    }
-    let compact_y = rhs.iter().copied().collect::<Vec<_>>();
-    let coefficients = solve_compact_with_native_compat_svd(&compact_x, &compact_y);
-    DVector::from_column_slice(&coefficients)
-}
-
-fn solve_compact_with_native_compat_svd(compact_x: &[Vec<f64>], compact_y: &[f64]) -> Vec<f64> {
-    let feature_count = compact_x.len();
-    let valid_count = compact_y.len();
-    if feature_count == 0 || valid_count == 0 {
-        return vec![f64::NAN; feature_count];
-    }
-
-    let (u, w, mut v) = dsvdcmp_native_compat(compact_x, valid_count, feature_count);
-    let mut projected_rhs = vec![0.0; feature_count];
-    for sample in 0..valid_count {
-        for feature in 0..feature_count {
-            projected_rhs[feature] += compact_y[sample] * u[feature][sample];
-        }
-    }
-    for (row, values) in v.iter_mut().enumerate() {
-        let scale = projected_rhs[row] / w[row];
-        for value in values {
-            *value *= scale;
-        }
-    }
-    let mut coefficients = vec![0.0; feature_count];
-    for (col, coefficient) in coefficients.iter_mut().enumerate() {
-        for values in &v {
-            *coefficient += values[col];
-        }
-    }
-    coefficients
-}
-
-fn dpythag_native_compat(a: f64, b: f64) -> f64 {
-    let absa = a.abs();
-    let absb = b.abs();
-    if absa > absb {
-        absa * (1.0 + (absb / absa).powi(2)).sqrt()
-    } else if absb == 0.0 {
-        0.0
-    } else {
-        absb * (1.0 + (absa / absb).powi(2)).sqrt()
-    }
-}
-
-// This is an exact index-oriented translation of the native solver. Iterator
-// rewrites obscure the matrix algorithm and risk changing compatibility.
-#[allow(clippy::needless_range_loop)]
-fn dsvdcmp_native_compat(
-    a_in: &[Vec<f64>],
-    m: usize,
-    n: usize,
-) -> (Vec<Vec<f64>>, Vec<f64>, Vec<Vec<f64>>) {
-    let mut u = a_in.to_vec();
-    let mut w = vec![0.0; n];
-    let mut v = vec![vec![0.0; n]; n];
-    let mut rv1 = vec![0.0; n];
-    let mut anorm = 0.0_f64;
-    let mut g = 0.0_f64;
-    let mut scale = 0.0_f64;
-
-    for i in 0..n {
-        let l = i + 1;
-        rv1[i] = scale * g;
-        g = 0.0;
-        let mut s = 0.0;
-        scale = 0.0;
-        if i < m {
-            for k in i..m {
-                scale += u[i][k].abs();
-            }
-            if scale != 0.0 {
-                for k in i..m {
-                    u[i][k] /= scale;
-                    s += u[i][k] * u[i][k];
-                }
-                let f = u[i][i];
-                g = if f < 0.0 {
-                    s.sqrt().abs()
-                } else {
-                    -s.sqrt().abs()
-                };
-                let h = f * g - s;
-                u[i][i] = f - g;
-                for j in l..n {
-                    s = 0.0;
-                    for k in i..m {
-                        s += u[j][k] * u[i][k];
-                    }
-                    let f = s / h;
-                    for k in i..m {
-                        u[j][k] += f * u[i][k];
-                    }
-                }
-                for k in i..m {
-                    u[i][k] *= scale;
-                }
-            }
-        }
-        w[i] = scale * g;
-        g = 0.0;
-        s = 0.0;
-        scale = 0.0;
-        if i < m && i + 1 != n {
-            for k in l..n {
-                scale += u[k][i].abs();
-            }
-            if scale != 0.0 {
-                for k in l..n {
-                    u[k][i] /= scale;
-                    s += u[k][i] * u[k][i];
-                }
-                let f = u[l][i];
-                g = if f < 0.0 {
-                    s.sqrt().abs()
-                } else {
-                    -s.sqrt().abs()
-                };
-                let h = f * g - s;
-                u[l][i] = f - g;
-                for k in l..n {
-                    rv1[k] = u[k][i] / h;
-                }
-                for j in l..m {
-                    s = 0.0;
-                    for k in l..n {
-                        s += u[k][i] * u[k][j];
-                    }
-                    for k in l..n {
-                        u[k][j] += rv1[k] * s;
-                    }
-                }
-                for k in l..n {
-                    u[k][i] *= scale;
-                }
-            }
-        }
-        anorm = anorm.max(rv1[i].abs() + w[i].abs());
-    }
-
-    for i_rev in (0..n).rev() {
-        let l = i_rev + 1;
-        if i_rev < n - 1 {
-            if g != 0.0 {
-                for j in l..n {
-                    v[i_rev][j] = (u[j][i_rev] / u[l][i_rev]) / g;
-                }
-                for j in l..n {
-                    let mut s = 0.0;
-                    for k in l..n {
-                        s += v[j][k] * u[k][i_rev];
-                    }
-                    for k in l..n {
-                        v[j][k] += v[i_rev][k] * s;
-                    }
-                }
-            }
-            for j in l..n {
-                v[i_rev][j] = 0.0;
-                v[j][i_rev] = 0.0;
-            }
-        }
-        v[i_rev][i_rev] = 1.0;
-        g = rv1[i_rev];
-    }
-
-    let min_dim = m.min(n);
-    for i_rev in (0..min_dim).rev() {
-        let l = i_rev + 1;
-        let g_here = w[i_rev];
-        for j in l..n {
-            u[j][i_rev] = 0.0;
-        }
-        if g_here == 0.0 {
-            for j in i_rev..m {
-                u[i_rev][j] = 0.0;
-            }
-        } else {
-            let inv_g = 1.0 / g_here;
-            for j in l..n {
-                let mut s = 0.0;
-                for k in l..m {
-                    s += u[j][k] * u[i_rev][k];
-                }
-                let f = (s / u[i_rev][i_rev]) * inv_g;
-                for k in i_rev..m {
-                    u[j][k] += f * u[i_rev][k];
-                }
-            }
-            for j in i_rev..m {
-                u[i_rev][j] *= inv_g;
-            }
-        }
-        u[i_rev][i_rev] += 1.0;
-    }
-
-    let mut k = n;
-    while k > 0 {
-        let k_idx = k - 1;
-        for its in 0..30 {
-            let mut flag = true;
-            let mut l = 0usize;
-            for l_rev in (0..=k_idx).rev() {
-                l = l_rev;
-                if rv1[l].abs() + anorm == anorm {
-                    flag = false;
-                    break;
-                }
-                if l == 0 || w[l - 1].abs() + anorm == anorm {
-                    break;
-                }
-            }
-            if flag {
-                let mut c = 0.0;
-                let mut s = 1.0;
-                for i in l..=k_idx {
-                    let f = s * rv1[i];
-                    rv1[i] *= c;
-                    if f.abs() + anorm == anorm {
-                        break;
-                    }
-                    let g_local = w[i];
-                    let h = dpythag_native_compat(f, g_local);
-                    w[i] = h;
-                    let inv_h = 1.0 / h;
-                    c = g_local * inv_h;
-                    s = -f * inv_h;
-                    if i > 0 {
-                        for j in 0..m {
-                            let y = u[l - 1][j];
-                            let z = u[i][j];
-                            u[l - 1][j] = z * s + y * c;
-                            u[i][j] = z * c - y * s;
-                        }
-                    }
-                }
-            }
-
-            let z = w[k_idx];
-            if l == k_idx {
-                if z < 0.0 {
-                    w[k_idx] = -z;
-                    for j in 0..n {
-                        v[k_idx][j] = -v[k_idx][j];
-                    }
-                }
-                break;
-            }
-            if its == 29 {
-                log::warn!("native-compatible SVD did not converge in 30 iterations");
-            }
-            let mut x = w[l];
-            let nm = k_idx - 1;
-            let y = w[nm];
-            let g_local = rv1[nm];
-            let h = rv1[k_idx];
-            let mut f = ((y - z) * (y + z) + (g_local - h) * (g_local + h)) / ((h + h) * y);
-            let mut g2 = dpythag_native_compat(f, 1.0);
-            if f < 0.0 {
-                g2 = -g2.abs();
-            } else {
-                g2 = g2.abs();
-            }
-            f = ((x - z) * (x + z) + h * (y / (f + g2) - h)) / x;
-            let mut c = 1.0;
-            let mut s = 1.0;
-            for j in l..=nm {
-                let i = j + 1;
-                let mut g_local = rv1[i];
-                let y = w[i];
-                let mut h = s * g_local;
-                g_local *= c;
-                let mut z = dpythag_native_compat(f, h);
-                rv1[j] = z;
-                c = f / z;
-                s = h / z;
-                f = x * c + g_local * s;
-                g_local = g_local * c - x * s;
-                h = y * s;
-                let y2 = y * c;
-                for jj in 0..n {
-                    let x_v = v[j][jj];
-                    let z_v = v[i][jj];
-                    v[j][jj] = z_v * s + x_v * c;
-                    v[i][jj] = z_v * c - x_v * s;
-                }
-                z = dpythag_native_compat(f, h);
-                w[j] = z;
-                if z != 0.0 {
-                    c = f / z;
-                    s = h / z;
-                }
-                f = c * g_local + s * y2;
-                x = c * y2 - s * g_local;
-                for jj in 0..m {
-                    let y_u = u[j][jj];
-                    let z_u = u[i][jj];
-                    u[j][jj] = z_u * s + y_u * c;
-                    u[i][jj] = z_u * c - y_u * s;
-                }
-            }
-            rv1[l] = 0.0;
-            rv1[k_idx] = f;
-            w[k_idx] = x;
-        }
-        k -= 1;
-    }
-
-    (u, w, v)
 }
 
 fn evaluate_term(
@@ -960,7 +613,6 @@ pub(crate) fn greedy_sparse_unique_improvements(
     fixed_inputs: &[usize],
     model: &ModelSpec,
     max_active_sources: usize,
-    svd_backend: SvdBackend,
 ) -> Vec<(usize, f64)> {
     let fixed_inputs = fixed_inputs
         .iter()
@@ -983,11 +635,11 @@ pub(crate) fn greedy_sparse_unique_improvements(
     let mut selected_sources = Vec::new();
     let mut remaining = candidates.clone();
     let mut current_block =
-        solve_channel_with_inputs(prepared, target_channel, &active_inputs, model, svd_backend);
+        solve_channel_with_inputs(prepared, target_channel, &active_inputs, model);
     let mut current_bic = bic_like_score(
         current_block.rmse,
         model.window_length,
-        model.primary_terms.len() + active_inputs.len() * model.secondary_terms.len(),
+        model.primary_terms.len() + active_inputs.len() * model.primary_terms.len(),
     );
 
     for _ in 0..max_active_sources.min(candidates.len()) {
@@ -995,17 +647,12 @@ pub(crate) fn greedy_sparse_unique_improvements(
         for &source in &remaining {
             let mut trial_inputs = active_inputs.clone();
             trial_inputs.push(source);
-            let trial_block = solve_channel_with_inputs(
-                prepared,
-                target_channel,
-                &trial_inputs,
-                model,
-                svd_backend,
-            );
+            let trial_block =
+                solve_channel_with_inputs(prepared, target_channel, &trial_inputs, model);
             let trial_bic = bic_like_score(
                 trial_block.rmse,
                 model.window_length,
-                model.primary_terms.len() + trial_inputs.len() * model.secondary_terms.len(),
+                model.primary_terms.len() + trial_inputs.len() * model.primary_terms.len(),
             );
             if trial_bic + 1e-12 < current_bic {
                 match best_choice {
@@ -1038,13 +685,8 @@ pub(crate) fn greedy_sparse_unique_improvements(
                 .copied()
                 .filter(|channel| *channel != source)
                 .collect::<Vec<_>>();
-            let without_block = solve_channel_with_inputs(
-                prepared,
-                target_channel,
-                &without_source,
-                model,
-                svd_backend,
-            );
+            let without_block =
+                solve_channel_with_inputs(prepared, target_channel, &without_source, model);
             (
                 source,
                 crate::ccd_stats::legacy_rmse_gain_from_rmse(without_block.rmse, full_rmse),
@@ -1119,10 +761,7 @@ mod temporal_tests {
             ((r * (c + 2) + w) as f64 * 0.37 * (c + 1) as f64).sin()
         });
         let block = block_tridiagonal_solve(&diagonal, &rhs, lambda).expect("well conditioned");
-        assert_close(
-            &block,
-            &dense_regularized_solve(&diagonal, &rhs, lambda, SvdBackend::RobustSvd),
-        );
+        assert_close(&block, &dense_regularized_solve(&diagonal, &rhs, lambda));
     }
 
     /// Three columns in a two-dimensional span leave a direction no window determines: the block solver declines

@@ -8,6 +8,7 @@ import { engine } from "../../app/recordings";
 import { inTransition } from "../../app/viewTransition";
 import { persistStorage } from "../../core/history";
 import { droppedFiles } from "../../core/sources";
+import { messageOf } from "../../core/words";
 import { openResult, useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
 import rail from "../library/LibraryRail.module.css";
@@ -36,7 +37,7 @@ export default function ImportDrop() {
       await refreshAnalyses();
       inTransition(() => openResult(id));
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
+      setError(messageOf(failure));
     } finally {
       setBusy(false);
     }

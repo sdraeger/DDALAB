@@ -9,7 +9,7 @@ import { decimal } from "../../core/words";
 import { activeRecording, selectChannels, showChosenOnly, useStore } from "../../store/store";
 import { tabOf, updateTab } from "../../store/tabs";
 import controls from "../../styles/controls.module.css";
-import { useHit } from "../../styles/hit";
+import { useHit } from "../../styles/media";
 import { DdaSettings } from "../analysis/DdaSettings";
 import { RunBar } from "../analysis/RunBar";
 import { Streamed } from "../openneuro/Streamed";

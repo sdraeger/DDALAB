@@ -20,16 +20,18 @@ import {
   outputNames,
   saveBatch,
 } from "../core/batch";
+import { validateRequest } from "../core/ddaForm";
 import type { RecordingInput } from "../core/engine";
 import { bundleFiles } from "../core/exporters";
 import { type AnalysisRecord, persistStorage, recordedManifest, saveAnalysis } from "../core/history";
 import type { AnalysisHandle } from "../core/scheduler";
 import { buildFileSet } from "../core/sources";
-import { validateRequest } from "../features/analysis/validate";
+import { messageOf } from "../core/words";
 import { useStore } from "../store/store";
 import { leaving, variants } from "./analyses";
-import { download } from "./download";
-import { engine } from "./recordings";
+import type { Export } from "./download";
+import { ask, permitted } from "./handles";
+import { engine, releaser } from "./recordings";
 
 /** The run of the batch in progress, and whether Cancel was pressed. */
 let current: AnalysisHandle | undefined;
@@ -37,7 +39,6 @@ let cancelled = false;
 let running = false;
 
 const lockOf = (id: string) => `ddalab-batch:${id}`;
-const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const aborted = (error: unknown) => error instanceof DOMException && error.name === "AbortError";
 
 async function keep(batch: BatchRecord) {
@@ -253,7 +254,7 @@ async function runOne(batch: BatchRecord, recording: BatchInput): Promise<BatchR
     return failOpened(messageOf(error));
   } finally {
     // A recording a tab holds (opened before, or since) stays open.
-    if (!opened.duplicate && !useStore.getState().recordings[opened.id]) engine.close(opened.id);
+    releaser(opened)();
   }
 }
 
@@ -261,14 +262,13 @@ async function runOne(batch: BatchRecord, recording: BatchInput): Promise<BatchR
 const TOO_LARGE = /^The JSON document would be about/;
 
 /**
- * Saves the combined export of `batch` as one zip, streamed: what `ddalab batch --bids-dir <folder> --output-dir dda`
+ * The combined export of `batch` as one zip, streamed: what `ddalab batch --bids-dir <folder> --output-dir dda`
  * writes, its manifest as `batch_manifest.json` and each result document at its `outputPath`. A result whose document
- * the export refuses as too large goes in as its bundle, at that path without `.json`, with a warning. Call it first
- * thing in a click: the Save dialog needs the click (download.ts). `onMake` hears when the zip starts, after the dialog.
+ * the export refuses as too large goes in as its bundle, at that path without `.json`, with a warning. Saved through
+ * a component's `useDownload`.
  */
-export function exportBatch(batch: BatchRecord, onMake: () => void) {
-  return download(`${batch.root || "batch"}.batch.zip`, async () => {
-    onMake();
+export function exportBatch(batch: BatchRecord): Export {
+  const make = async () => {
     const manifest = batchManifest(batch, useStore.getState().analyses, await outputNames(batch.paths));
     async function* files() {
       for (const result of manifest.results) {
@@ -286,22 +286,13 @@ export function exportBatch(batch: BatchRecord, onMake: () => void) {
       yield { name: "batch_manifest.json", input: `${JSON.stringify(manifest, null, 2)}\n` };
     }
     return makeZip(files());
-  });
+  };
+  return { name: `${batch.root || "batch"}.batch.zip`, make };
 }
 
 /** Read access to the folder of `batch` through its handle, asked for if it lapsed; `undefined` without. */
 export async function reattach(batch: BatchRecord): Promise<FileSystemDirectoryHandle | undefined> {
-  const handle = batch.handle as
-    | (FileSystemDirectoryHandle & {
-        queryPermission(options: { mode: "read" }): Promise<PermissionState>;
-        requestPermission(options: { mode: "read" }): Promise<PermissionState>;
-      })
-    | undefined;
+  const handle = batch.handle as FileSystemDirectoryHandle | undefined;
   if (!handle) return undefined;
-  try {
-    const granted = (await handle.queryPermission({ mode: "read" })) === "granted";
-    return granted || (await handle.requestPermission({ mode: "read" })) === "granted" ? handle : undefined;
-  } catch {
-    return undefined;
-  }
+  return (await permitted(handle)) || (await ask(handle)) === "granted" ? handle : undefined;
 }

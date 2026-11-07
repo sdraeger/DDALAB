@@ -5,7 +5,6 @@ import { useMemo, useState, useTransition } from "react";
 import { MiddleText } from "../../app/MiddleText";
 import { inTransition } from "../../app/viewTransition";
 import type { BatchRecord } from "../../core/batch";
-import type { FolderSource } from "../../core/folder";
 import { type AnalysisRecord, resultName } from "../../core/history";
 import { count } from "../../core/words";
 import { openResult, useStore } from "../../store/store";
@@ -27,12 +26,10 @@ const STATUS: Record<AnalysisRecord["status"], string> = {
 /** From this many results on the history offers a search. */
 const SEARCH_FROM = 6;
 
-type Resume = (source: FolderSource, batch: string) => void;
-
-export default function HistoryRail({ onResume }: { onResume: Resume }) {
+export default function HistoryRail() {
   return (
     <ResultBoundary what="The history">
-      <Results onResume={onResume} />
+      <Results />
     </ResultBoundary>
   );
 }
@@ -42,7 +39,7 @@ type Entry =
   | { at: number; record: AnalysisRecord }
   | { at: number; batch: BatchRecord; records: AnalysisRecord[] };
 
-function Results({ onResume }: { onResume: Resume }) {
+function Results() {
   const analyses = useStore((s) => s.analyses);
   const batches = useStore((s) => s.batches);
   const active = useStore((s) => s.activeResultId);
@@ -123,12 +120,7 @@ function Results({ onResume }: { onResume: Resume }) {
             "record" in entry ? (
               row(entry.record)
             ) : (
-              <BatchEntry
-                key={entry.batch.id}
-                batch={entry.batch}
-                when={<Time at={entry.batch.createdAt} />}
-                onResume={onResume}
-              >
+              <BatchEntry key={entry.batch.id} batch={entry.batch}>
                 {entry.records.map(row)}
               </BatchEntry>
             ),

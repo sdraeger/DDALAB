@@ -3,12 +3,12 @@
 
 import { use, useEffect, useId, useState } from "react";
 import { variants } from "../../app/analyses";
+import { STANDARD } from "../../core/ddaForm";
 import { gpuAvailable } from "../../core/webgpu";
 import { decimal } from "../../core/words";
 import { setDdaForm, setGpu, useStore } from "../../store/store";
 import styles from "./Analysis.module.css";
 import { useRunRequest } from "./RunBar";
-import { STANDARD } from "./validate";
 
 type TextField = "windowLength" | "windowStep" | "delays" | "modelTerms" | "dm" | "order" | "nrTau";
 

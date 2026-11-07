@@ -13,7 +13,7 @@ import { inTransition } from "../../app/viewTransition";
 import { cliCommand } from "../../core/cliCommand";
 import type { DatasetSource } from "../../core/engine";
 import { type AnalysisRecord, resultName } from "../../core/history";
-import { count } from "../../core/words";
+import { count, messageOf } from "../../core/words";
 import { openResult, useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
 import { shownLabel } from "../inspector/groups";
@@ -164,8 +164,7 @@ function Actions({ record }: { record: AnalysisRecord }) {
   const remove = () =>
     deleteResult(record.id).then(
       () => focusHistory(record.id),
-      (failure: unknown) =>
-        setError(`The result could not be deleted: ${failure instanceof Error ? failure.message : failure}`),
+      (failure: unknown) => setError(`The result could not be deleted: ${messageOf(failure)}`),
     );
   if (confirming) {
     return (

@@ -15,7 +15,7 @@ const NAMES: Record<Ref["kind"], string> = {
   custom: "Montage",
 };
 
-export const referenceLabel = (reference: Ref | undefined) =>
+const referenceLabel = (reference: Ref | undefined) =>
   !reference ? "Recorded" : reference.kind === "custom" ? reference.name : NAMES[reference.kind];
 
 export function Reference() {

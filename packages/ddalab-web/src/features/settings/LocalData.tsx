@@ -9,16 +9,9 @@ import { useEffect, useId, useState } from "react";
 import { clearSpool, spoolBytes } from "../../app/download";
 import { ddaWorkers } from "../../core/engine";
 import { evictTiles } from "../../core/opfs";
-import { count } from "../../core/words";
+import { bytes, count } from "../../core/words";
 import controls from "../../styles/controls.module.css";
 import styles from "./LocalData.module.css";
-
-export const size = (bytes: number) =>
-  bytes >= 1e9
-    ? `${(bytes / 1e9).toLocaleString("en", { maximumFractionDigits: 1 })} GB`
-    : bytes >= 1e6
-      ? `${Math.round(bytes / 1e6).toLocaleString("en")} MB`
-      : `${Math.ceil(bytes / 1e3).toLocaleString("en")} kB`;
 
 type Usage = { used: number; quota: number; tiles: number; spool: number };
 
@@ -66,7 +59,7 @@ function Storage() {
           ? "Measuring…"
           : usage === "none"
             ? "Browser storage is not available in this window."
-            : `This site uses ${size(usage.used)} of the ${size(usage.quota)} the browser allows it. Cached tiles take ${size(usage.tiles)}.${usage.spool > 0 ? ` The copy of the last export takes ${size(usage.spool)}.` : ""}`}
+            : `This site uses ${bytes(usage.used)} of the ${bytes(usage.quota)} the browser allows it. Cached tiles take ${bytes(usage.tiles)}.${usage.spool > 0 ? ` The copy of the last export takes ${bytes(usage.spool)}.` : ""}`}
       </p>
       <div className={styles.actions}>
         <button

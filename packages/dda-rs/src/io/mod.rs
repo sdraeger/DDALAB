@@ -71,18 +71,55 @@ pub fn open_referenced(
     }
 }
 
-/// Opens the recording `files.primary` names with the reader its extension selects (`.edf` `.bdf`, `.vhdr`, `.set`,
-/// `.txt` `.csv` `.tsv` `.ascii` `.dat`) and applies the BIDS sidecars in `files`.
-/// `sample_rate_hz` only reaches the text formats, which store no rate.
+/// A recording format, as the extension of its primary file names it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Format {
+    /// EDF and BDF.
+    Edf,
+    BrainVision,
+    Eeglab,
+    /// Delimited text, one row per sample.
+    Text,
+}
+
+impl Format {
+    /// Every extension a recording's primary file may have, lower case, and its format.
+    pub const EXTENSIONS: &[(&str, Format)] = &[
+        ("edf", Format::Edf),
+        ("bdf", Format::Edf),
+        ("vhdr", Format::BrainVision),
+        ("set", Format::Eeglab),
+        ("txt", Format::Text),
+        ("csv", Format::Text),
+        ("tsv", Format::Text),
+        ("ascii", Format::Text),
+        ("dat", Format::Text),
+    ];
+
+    /// The format of the file `name`, by its extension in any case; `None` for a file no reader opens.
+    pub fn of(name: &str) -> Option<Format> {
+        let (_, extension) = name.rsplit_once('.')?;
+        Self::EXTENSIONS
+            .iter()
+            .find(|(e, _)| e.eq_ignore_ascii_case(extension))
+            .map(|&(_, format)| format)
+    }
+
+    /// `Format::of(name)`, or the error refusing the file.
+    pub(crate) fn require(name: &str) -> Result<Format> {
+        Self::of(name).ok_or_else(|| DDAError::UnsupportedFileType(name.to_string()))
+    }
+}
+
+/// Opens the recording `files.primary` names with the reader of its `Format` and applies the BIDS sidecars in
+/// `files`. `sample_rate_hz` only reaches the text formats, which store no rate.
 pub fn open_recording(files: &FileSet, sample_rate_hz: Option<f64>) -> Result<Box<dyn Reader>> {
     let name = files.primary.as_str();
-    let extension = name.rsplit_once('.').map_or("", |(_, ext)| ext);
-    let reader = match extension.to_ascii_lowercase().as_str() {
-        "edf" | "bdf" => open_edf(files, name)?,
-        "vhdr" => open_brainvision(files, name)?,
-        "set" => open_eeglab(files, name)?,
-        "txt" | "csv" | "tsv" | "ascii" | "dat" => open_ascii(files, name, sample_rate_hz)?,
-        _ => return Err(DDAError::UnsupportedFileType(name.to_string())),
+    let reader = match Format::require(name)? {
+        Format::Edf => open_edf(files, name)?,
+        Format::BrainVision => open_brainvision(files, name)?,
+        Format::Eeglab => open_eeglab(files, name)?,
+        Format::Text => open_ascii(files, name, sample_rate_hz)?,
     };
     let mut info = reader.info().clone();
     apply_bids_sidecars(&mut info, files);

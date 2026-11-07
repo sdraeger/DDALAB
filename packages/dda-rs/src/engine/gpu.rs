@@ -10,7 +10,7 @@ use rayon::prelude::*;
 use crate::error::{DDAError, Result};
 
 use super::solver::{solve_regression_window, RegressionWindow, SolvedBlock};
-use super::{CudaDeviceInfo, SvdBackend};
+use super::CudaDeviceInfo;
 
 const CUDA_BATCH_SIZE: usize = 512;
 
@@ -57,19 +57,11 @@ impl CudaSolver {
         })
     }
 
-    pub(super) fn solve(
-        &mut self,
-        windows: &[RegressionWindow],
-        svd_backend: SvdBackend,
-    ) -> Result<Vec<SolvedBlock>> {
-        catch_cuda_panic(|| self.solve_inner(windows, svd_backend))
+    pub(super) fn solve(&mut self, windows: &[RegressionWindow]) -> Result<Vec<SolvedBlock>> {
+        catch_cuda_panic(|| self.solve_inner(windows))
     }
 
-    fn solve_inner(
-        &mut self,
-        windows: &[RegressionWindow],
-        svd_backend: SvdBackend,
-    ) -> Result<Vec<SolvedBlock>> {
+    fn solve_inner(&mut self, windows: &[RegressionWindow]) -> Result<Vec<SolvedBlock>> {
         let mut solutions = windows
             .iter()
             .map(|window| SolvedBlock::nan(window.cols))
@@ -82,7 +74,7 @@ impl CudaSolver {
             }
             self.problems += 1;
             if window.rows < window.cols {
-                solutions[index] = solve_regression_window(window, svd_backend);
+                solutions[index] = solve_regression_window(window);
                 self.cpu_fallbacks += 1;
             } else {
                 groups
@@ -102,7 +94,6 @@ impl CudaSolver {
                     cols,
                     &self.stream,
                     &self.blas,
-                    svd_backend,
                 )?;
             }
         }
@@ -128,7 +119,6 @@ fn solve_batch(
     cols: usize,
     stream: &Arc<CudaStream>,
     blas: &CudaBlas,
-    svd_backend: SvdBackend,
 ) -> Result<usize> {
     let batch_size = indices.len();
     let matrix_stride = rows * cols;
@@ -345,7 +335,7 @@ fn solve_batch(
             SolvedBlock { coefficients, rmse }
         } else {
             cpu_fallbacks += 1;
-            solve_regression_window(&windows[window_index], svd_backend)
+            solve_regression_window(&windows[window_index])
         };
     }
     Ok(cpu_fallbacks)
@@ -404,11 +394,9 @@ mod tests {
             .collect::<Vec<_>>();
         let expected = windows
             .iter()
-            .map(|window| solve_regression_window(window, SvdBackend::RobustSvd))
+            .map(solve_regression_window)
             .collect::<Vec<_>>();
-        let actual = match CudaSolver::new(0)
-            .and_then(|mut solver| solver.solve(&windows, SvdBackend::RobustSvd))
-        {
+        let actual = match CudaSolver::new(0).and_then(|mut solver| solver.solve(&windows)) {
             Ok(actual) => actual,
             Err(error) if std::env::var_os("DDA_RS_REQUIRE_CUDA_TEST").is_none() => {
                 eprintln!("CUDA device not available; skipping runtime parity check: {error}");

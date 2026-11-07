@@ -20,11 +20,8 @@ It reads EDF, BDF, BrainVision and delimited text. `ddalab --help` lists the oth
 
 - Pure Rust execution for DDA variants and CCD extensions
 - Typed request/response API with `serde`
-- Built-in variant metadata and SELECT-mask helpers
-- Configurable solver backend:
-  - `RobustSvd` for the default numerically stable path
-  - `NativeCompatSvd` for the native-compatible SVD path
-- Optional batched CUDA acceleration for ST, CT, CD, DE, and SY
+- One variant table (`VARIANTS`) for every name a variant goes by, and SELECT masks
+- Optional acceleration of ST, CT, CD, DE, and SY on any graphics card (`gpu`) or through CUDA (`cuda`)
 
 ## Rust library
 
@@ -85,18 +82,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-## Solver Backends
-
-The Rust engine exposes two SVD backends through `PureRustOptions::svd_backend`:
-
-- `SvdBackend::RobustSvd`
-  - default
-  - uses nalgebra SVD
-  - preferred for real analysis
-- `SvdBackend::NativeCompatSvd`
-  - uses the native-compatible SVD kernel ported into Rust
-  - useful when comparing against historical native-binary behavior
-
 ## Any graphics card
 
 The `gpu` feature runs ST, CT, CD, DE, and SY on any graphics card wgpu reaches: Vulkan (AMD, NVIDIA, Intel), Metal (Apple), and DX12. Select it with `--device gpu`, or `gpu:N` for card `N`:
@@ -117,24 +102,22 @@ cargo run --release --features cuda -- run --file data.csv --channels 0 1 --devi
 
 `--device cuda:N` selects device `N`. The CUDA build dynamically loads the NVIDIA driver and cuBLAS. Compilation does not require a local CUDA toolkit; execution requires a working NVIDIA CUDA installation. The implementation batches same-shaped `f64` regressions and computes predictions and residual norms on the GPU. Rank-deficient regressions fall back to the CPU SVD solver. Rust-only CCD extensions continue to use their existing CPU implementations.
 
-Library users configure the same backend through `PureRustOptions`:
+Library users pick the device, and may follow progress, with `run_request_on_device`:
 
 ```rust
-use dda_rs::{ComputeDevice, PureRustOptions, PureRustRunner};
+use dda_rs::{run_request_on_device, ComputeDevice};
 
-let runner = PureRustRunner::new(PureRustOptions {
-    compute_device: ComputeDevice::Cuda(0),
-    ..PureRustOptions::default()
-});
+let result = run_request_on_device(&request, &samples, None, ComputeDevice::Cuda(0), None)?;
 ```
 
 ## Modules
 
 - `engine`: core DDA and CCD execution
 - `types`: request/response structures
-- `variants`: variant metadata and SELECT-mask utilities
-- `network_motifs`: motif analysis helpers
-- `profiling`: profiling helpers
+- `variants`: the variant table and SELECT masks
+- `blocks`: block-wise runs and their merge
+- `document`: result documents and bundles
+- `io`: recording readers and references
 - `error`: error types
 
 ## License

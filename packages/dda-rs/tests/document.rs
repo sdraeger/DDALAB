@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use dda_rs::blocks::{merge_blocks, plan_blocks, run_block, Block};
 use dda_rs::document::{
     build_document, build_manifest, bundle_layout, encode_block, npy_header, window_centers,
-    ArraySpec, BundleLayout, BundleWriter,
+    ArraySpec, BundleLayout, BundleWriter, Provenance,
 };
 use dda_rs::io::{ChannelInfo, ChannelKind, RawType, Reader, RecordingInfo};
 use dda_rs::{
@@ -146,8 +146,14 @@ fn windows(request: &DDARequest, rows: usize) -> usize {
     1 + (rows - (wl + 10 + 8 - 1)) / step
 }
 
-fn sha() -> BTreeMap<String, String> {
-    BTreeMap::from([("rec.edf".to_string(), "00".repeat(32))])
+/// The provenance of a CPU run of `rec.edf` at `created_at_iso`.
+fn provenance(created_at_iso: &str) -> Provenance {
+    Provenance {
+        id: "id".into(),
+        created_at_iso: created_at_iso.into(),
+        input_sha256: BTreeMap::from([("rec.edf".to_string(), "00".repeat(32))]),
+        compute_device: "cpu".into(),
+    }
 }
 
 fn close(a: f64, b: f64) -> bool {
@@ -184,8 +190,7 @@ fn reproduction_times_match_request() {
     let info = Recording::new(1000.0, 200_000).info;
     let mut request = request(&["ST"]);
     let times = |request: &DDARequest| {
-        let layout = bundle_layout(request, &info, 1).unwrap();
-        let manifest = build_manifest(&info, request, &layout, 1, sha(), "id".into(), "t".into());
+        let manifest = build_manifest(&info, request, 1, provenance("t")).unwrap();
         (
             manifest.reproduction.start_time_seconds,
             manifest.reproduction.end_time_seconds,
@@ -223,16 +228,7 @@ fn reproduction_records_the_request() {
         },
     )]));
     let w = windows(&request, ROWS);
-    let layout = bundle_layout(&request, &recording.info, w).unwrap();
-    let manifest = build_manifest(
-        &recording.info,
-        &request,
-        &layout,
-        w,
-        sha(),
-        "id".into(),
-        "t".into(),
-    );
+    let manifest = build_manifest(&recording.info, &request, w, provenance("t")).unwrap();
     let json = serde_json::to_value(&manifest).unwrap();
     let rerun: DDARequest =
         serde_json::from_value(json["reproduction"]["request"].clone()).unwrap();
@@ -269,16 +265,7 @@ fn request_serializes_deterministically() {
         }
         let mut request = request(&["ST", "DE", "SY"]);
         request.variant_configs = Some(configs);
-        let layout = bundle_layout(&request, &recording.info, 1).unwrap();
-        let manifest = build_manifest(
-            &recording.info,
-            &request,
-            &layout,
-            1,
-            sha(),
-            "id".into(),
-            "t".into(),
-        );
+        let manifest = build_manifest(&recording.info, &request, 1, provenance("t")).unwrap();
         serde_json::to_vec(&manifest).unwrap()
     };
     let first = bytes(0);
@@ -297,16 +284,7 @@ fn row_labels_for_pairs() {
     request.ct_channel_pairs = Some(vec![[0, 2]]);
     request.cd_channel_pairs = Some(vec![[2, 0]]);
     let w = windows(&request, ROWS);
-    let layout = bundle_layout(&request, &recording.info, w).unwrap();
-    let manifest = build_manifest(
-        &recording.info,
-        &request,
-        &layout,
-        w,
-        sha(),
-        "id".into(),
-        "t".into(),
-    );
+    let manifest = build_manifest(&recording.info, &request, w, provenance("t")).unwrap();
     let labels: Vec<(&str, Vec<&str>)> = manifest
         .variants
         .iter()
@@ -397,9 +375,7 @@ fn document_matches_reference_keys() {
         result,
         &recording.info,
         &request,
-        sha(),
-        "id".into(),
-        "2026-10-24T00:00:00+00:00".into(),
+        provenance("2026-10-24T00:00:00+00:00"),
     );
     let mut actual = BTreeSet::new();
     key_paths(&serde_json::to_value(&document).unwrap(), "", &mut actual);
@@ -437,14 +413,7 @@ fn summaries_use_finite_values_only() {
         channel_labels: None,
         error_values: None,
     }]);
-    let document = build_document(
-        result,
-        &recording.info,
-        &request,
-        sha(),
-        "id".into(),
-        "t".into(),
-    );
+    let document = build_document(result, &recording.info, &request, provenance("t"));
     let variant = &document.variants[0];
     assert_eq!(variant.row_labels, ["A", "B"]);
     assert_eq!(
@@ -484,15 +453,7 @@ fn layout_matches_engine_variants() {
         let result = run_request_on_matrix(&request, &matrix, None).unwrap();
         let w = windows(&request, rows);
         let layout = bundle_layout(&request, &recording.info, w).unwrap();
-        let manifest = build_manifest(
-            &recording.info,
-            &request,
-            &layout,
-            w,
-            sha(),
-            "id".into(),
-            "t".into(),
-        );
+        let manifest = build_manifest(&recording.info, &request, w, provenance("t")).unwrap();
         let engine: Vec<_> = result.variant_results.iter().flatten().collect();
         let name = format!("{:?}", request.algorithm_selection.enabled_variants);
         assert_eq!(manifest.variants.len(), engine.len(), "{name}");
@@ -568,15 +529,7 @@ fn bundle_bytes_equal_merged_result() {
         writer.write(encode_block(&layout, block, &part)).unwrap();
         parts.push(part);
     }
-    let manifest = build_manifest(
-        &recording.info,
-        &request,
-        &layout,
-        w,
-        sha(),
-        "id".into(),
-        "t".into(),
-    );
+    let manifest = build_manifest(&recording.info, &request, w, provenance("t")).unwrap();
     writer.finish(&manifest).unwrap();
     let merged = merge_blocks(parts).unwrap();
 
@@ -643,15 +596,7 @@ fn finish_reports_manifest_write_errors() {
     let recording = Recording::new(100.0, ROWS);
     let request = request(&["ST"]);
     let layout = bundle_layout(&request, &recording.info, 2).unwrap();
-    let manifest = build_manifest(
-        &recording.info,
-        &request,
-        &layout,
-        2,
-        sha(),
-        "id".into(),
-        "t".into(),
-    );
+    let manifest = build_manifest(&recording.info, &request, 2, provenance("t")).unwrap();
     let dir = tempfile::tempdir().unwrap();
     let writer = BundleWriter::create(dir.path(), &layout).unwrap();
     // A directory where the temporary manifest goes makes writing it fail.

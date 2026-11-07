@@ -3,8 +3,17 @@
 // the origin's private storage (`exports/`) first; the window that spooled one holds the Web Lock `ddalab-exports`,
 // shared, for the rest of its life, and a page that starts while no window holds it deletes the spool.
 
+import { useCallback, useState } from "react";
+import { messageOf } from "../core/words";
+
 /** What an export makes: a Blob (kept on disk by the browser when it is large) or a stream of its bytes. */
 export type Saveable = Blob | ReadableStream<Uint8Array>;
+
+/** A file to save: its name, and what makes it once the Save dialog has a place for it. */
+export interface Export {
+  name: string;
+  make(): Saveable | Promise<Saveable>;
+}
 
 type SavePicker = (options: {
   suggestedName: string;
@@ -57,6 +66,34 @@ export async function download(name: string, make: () => Saveable | Promise<Save
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(link.href), 60_000);
+}
+
+/**
+ * `download` for a component: `busy` from when the file is made (after a Save dialog) until it is saved, and the
+ * failure's message in `error`. `save` resolves true once a file was made, false when the dialog closed unanswered
+ * or the export failed. Call it first thing in a click: the Save dialog needs the click.
+ */
+export function useDownload() {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const save = useCallback(async ({ name, make }: Export) => {
+    setError(null);
+    let made = false;
+    try {
+      await download(name, () => {
+        made = true;
+        setBusy(true);
+        return make();
+      });
+      return made;
+    } catch (failure) {
+      setError(messageOf(failure));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+  return { save, busy, error, setError };
 }
 
 const SPOOL = "exports";

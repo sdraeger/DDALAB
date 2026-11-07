@@ -91,8 +91,8 @@ import { availableParallelism, cpus, loadavg, platform, release, tmpdir, totalme
 import { basename, dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cliCommand } from "../src/core/cliCommand";
+import { validateRequest } from "../src/core/ddaForm";
 import type { DDARequest, RecordingInfo, ResultDocument, VariantInfo } from "../src/core/types";
-import { validateRequest } from "../src/features/analysis/validate";
 import { CLI } from "./global-setup";
 import {
   DAY,

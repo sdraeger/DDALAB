@@ -1,14 +1,11 @@
-//! DDA Variant definitions — DDA Specification v1.0.0
+//! The DDA variants: every name a variant goes by, and what it computes.
 
 use serde::{Deserialize, Serialize};
 
-/// Size of the SELECT mask (6 bits)
+/// Size of the SELECT mask (6 bits): ST CT CD RESERVED DE SY.
 pub const SELECT_MASK_SIZE: usize = 6;
 
-/// Supported platforms
-pub const SUPPORTED_PLATFORMS: &[&str] = &["linux", "macos", "windows"];
-
-/// Channel format for variant input
+/// What a variant's rows are made of.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChannelFormat {
@@ -17,278 +14,221 @@ pub enum ChannelFormat {
     DirectedPairs,
 }
 
-impl ChannelFormat {
-    // Retain the established Option-returning API instead of changing callers
-    // to the `FromStr` trait's Result contract.
-    #[allow(clippy::should_implement_trait)]
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s {
-            "individual" => Some(Self::Individual),
-            "pairs" => Some(Self::Pairs),
-            "directed_pairs" => Some(Self::DirectedPairs),
-            _ => None,
-        }
-    }
-}
-
-/// Output column specification for a variant
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct OutputColumns {
-    pub coefficients: u8,
-    pub has_error: bool,
-}
-
-/// Complete variant metadata
-/// Note: Only Serialize is derived since static references can't be deserialized
-#[derive(Debug, Clone, Serialize)]
-pub struct VariantMetadata {
+/// One DDA variant. `VARIANTS` lists them in the order the engine returns them.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct Variant {
     pub abbreviation: &'static str,
+    /// The name the web app and variant config files use, as `cross_dynamical`.
+    pub app_id: &'static str,
     pub name: &'static str,
-    pub position: u8,
-    pub output_suffix: &'static str,
-    pub stride: u8,
-    pub reserved: bool,
+    /// Further names `find` accepts besides the abbreviation and the app id.
     #[serde(skip)]
-    pub required_params: &'static [&'static str],
+    aliases: &'static [&'static str],
+    /// The variant's bit in the SELECT mask; the CCD family has none.
+    #[serde(rename = "position", skip_serializing_if = "Option::is_none")]
+    mask_position: Option<usize>,
     pub channel_format: ChannelFormat,
-    pub output_columns: OutputColumns,
     pub documentation: &'static str,
 }
 
-impl VariantMetadata {
-    /// Look up variant by abbreviation
-    pub fn from_abbrev(abbrev: &str) -> Option<&'static VariantMetadata> {
-        VARIANT_REGISTRY.iter().find(|v| v.abbreviation == abbrev)
-    }
-
-    /// Look up variant by output suffix
-    pub fn from_suffix(suffix: &str) -> Option<&'static VariantMetadata> {
-        VARIANT_REGISTRY.iter().find(|v| v.output_suffix == suffix)
-    }
-
-    /// Look up variant by position
-    pub fn from_position(pos: u8) -> Option<&'static VariantMetadata> {
-        VARIANT_REGISTRY.iter().find(|v| v.position == pos)
-    }
-
-    /// Get all non-reserved variants
-    pub fn active_variants() -> impl Iterator<Item = &'static VariantMetadata> {
-        VARIANT_REGISTRY.iter().filter(|v| !v.reserved)
+const fn variant(
+    abbreviation: &'static str,
+    app_id: &'static str,
+    name: &'static str,
+    mask_position: Option<usize>,
+    channel_format: ChannelFormat,
+    documentation: &'static str,
+) -> Variant {
+    Variant {
+        abbreviation,
+        app_id,
+        name,
+        aliases: &[],
+        mask_position,
+        channel_format,
+        documentation,
     }
 }
 
-// =============================================================================
-// VARIANT DEFINITIONS
-// =============================================================================
+const CCD_DOCUMENTATION: &str =
+    "Directed pairs conditioned on further channels, a pure-Rust extension of CD.";
 
-/// Single Timeseries (ST) - Position 0
-///
-/// Analyzes individual channels independently. Most basic variant. One result row per channel.
-pub const ST: VariantMetadata = VariantMetadata {
-    abbreviation: "ST",
-    name: "Single Timeseries",
-    position: 0,
-    output_suffix: "_ST",
-    stride: 4,
-    reserved: false,
-    required_params: &[],
-    channel_format: ChannelFormat::Individual,
-    output_columns: OutputColumns {
-        coefficients: 3,
-        has_error: true,
+pub const VARIANTS: &[Variant] = &[
+    variant(
+        "ST",
+        "single_timeseries",
+        "Single Timeseries",
+        Some(0),
+        ChannelFormat::Individual,
+        "Analyzes individual channels independently. Most basic variant. One result row per channel.",
+    ),
+    variant(
+        "CT",
+        "cross_timeseries",
+        "Cross-Timeseries",
+        Some(1),
+        ChannelFormat::Pairs,
+        "Analyzes relationships between channel pairs. Symmetric: pair (1,2) equals (2,1).",
+    ),
+    variant(
+        "CD",
+        "cross_dynamical",
+        "Cross-Dynamical",
+        Some(2),
+        ChannelFormat::DirectedPairs,
+        "Analyzes directed causal relationships. Asymmetric: (1->2) differs from (2->1).",
+    ),
+    variant(
+        "CCD",
+        "conditional_cross_dynamical",
+        "Conditional Cross-Dynamical legacy RMSE gain",
+        None,
+        ChannelFormat::DirectedPairs,
+        CCD_DOCUMENTATION,
+    ),
+    variant(
+        "CCDLOG",
+        "conditional_cross_dynamical_log_mse_ratio",
+        "Conditional Cross-Dynamical log-MSE ratio",
+        None,
+        ChannelFormat::DirectedPairs,
+        CCD_DOCUMENTATION,
+    ),
+    variant(
+        "CCDPR2",
+        "conditional_cross_dynamical_partial_r2",
+        "Conditional Cross-Dynamical partial R2",
+        None,
+        ChannelFormat::DirectedPairs,
+        CCD_DOCUMENTATION,
+    ),
+    variant(
+        "CCDSIG",
+        "conditional_cross_dynamical_significance",
+        "Conditional Cross-Dynamical Significance",
+        None,
+        ChannelFormat::DirectedPairs,
+        CCD_DOCUMENTATION,
+    ),
+    variant(
+        "CCDSTAB",
+        "conditional_cross_dynamical_stability",
+        "Conditional Cross-Dynamical Stability",
+        None,
+        ChannelFormat::DirectedPairs,
+        CCD_DOCUMENTATION,
+    ),
+    variant(
+        "TRCCD",
+        "temporally_regularized_conditional_cross_dynamical",
+        "Temporally Regularized Conditional Cross-Dynamical",
+        None,
+        ChannelFormat::DirectedPairs,
+        CCD_DOCUMENTATION,
+    ),
+    variant(
+        "MVCCD",
+        "multivariate_conditional_cross_dynamical",
+        "Sparse Multivariate Conditional Cross-Dynamical",
+        None,
+        ChannelFormat::DirectedPairs,
+        CCD_DOCUMENTATION,
+    ),
+    Variant {
+        aliases: &["DELAY_EMBEDDING"],
+        ..variant(
+            "DE",
+            "dynamical_ergodicity",
+            "Dynamical Ergodicity",
+            Some(4),
+            ChannelFormat::Individual,
+            "Tests for ergodic behavior in dynamical systems. One aggregate measure per channel group and window.",
+        )
     },
-    documentation: "Analyzes individual channels independently. Most basic variant. One result row per channel.",
-};
-
-/// Cross-Timeseries (CT) - Position 1
-///
-/// Analyzes relationships between channel pairs. Symmetric: pair (1,2) equals (2,1). When enabled with ST, wrapper must run CT pairs separately.
-pub const CT: VariantMetadata = VariantMetadata {
-    abbreviation: "CT",
-    name: "Cross-Timeseries",
-    position: 1,
-    output_suffix: "_CT",
-    stride: 4,
-    reserved: false,
-    required_params: &["-WL_CT", "-WS_CT"],
-    channel_format: ChannelFormat::Pairs,
-    output_columns: OutputColumns {
-        coefficients: 3,
-        has_error: true,
+    Variant {
+        aliases: &["SYNCHRONISATION", "SYNCHRONY"],
+        ..variant(
+            "SY",
+            "synchronization",
+            "Synchronization",
+            Some(5),
+            ChannelFormat::Individual,
+            "Detects synchronized behavior between signals. One value per channel pair and window.",
+        )
     },
-    documentation: "Analyzes relationships between channel pairs. Symmetric: pair (1,2) equals (2,1). When enabled with ST, wrapper must run CT pairs separately.",
-};
+];
 
-/// Cross-Dynamical (CD) - Position 2
-///
-/// Analyzes directed causal relationships. Asymmetric: (1->2) differs from (2->1). CD is independent (no longer requires ST+CT).
-pub const CD: VariantMetadata = VariantMetadata {
-    abbreviation: "CD",
-    name: "Cross-Dynamical",
-    position: 2,
-    output_suffix: "_CD_DDA_ST",
-    stride: 2,
-    reserved: false,
-    required_params: &["-WL_CT", "-WS_CT"],
-    channel_format: ChannelFormat::DirectedPairs,
-    output_columns: OutputColumns {
-        coefficients: 1,
-        has_error: true,
-    },
-    documentation: "Analyzes directed causal relationships. Asymmetric: (1->2) differs from (2->1). CD is independent (no longer requires ST+CT).",
-};
+impl Variant {
+    /// How results name the variant: "Cross-Dynamical (CD)".
+    pub fn label(&self) -> String {
+        format!("{} ({})", self.name, self.abbreviation)
+    }
 
-/// Reserved (RESERVED) - Position 3
-///
-/// Internal development function. Should always be set to 0 in production.
-pub const RESERVED: VariantMetadata = VariantMetadata {
-    abbreviation: "RESERVED",
-    name: "Reserved",
-    position: 3,
-    output_suffix: "_RESERVED",
-    stride: 1,
-    reserved: true,
-    required_params: &[],
-    channel_format: ChannelFormat::Individual,
-    output_columns: OutputColumns {
-        coefficients: 0,
-        has_error: false,
-    },
-    documentation: "Internal development function. Should always be set to 0 in production.",
-};
+    /// The label (`label`) of the variant `abbreviation` names.
+    pub(crate) fn label_of(abbreviation: &str) -> String {
+        Self::find(abbreviation).map_or_else(|| abbreviation.to_string(), Self::label)
+    }
 
-/// Delay Embedding (DE) - Position 4
-///
-/// Tests for ergodic behavior in dynamical systems. Produces single aggregate measure per time window (not per-channel).
-pub const DE: VariantMetadata = VariantMetadata {
-    abbreviation: "DE",
-    name: "Delay Embedding",
-    position: 4,
-    output_suffix: "_DE",
-    stride: 1,
-    reserved: false,
-    required_params: &["-WL_CT", "-WS_CT"],
-    channel_format: ChannelFormat::Individual,
-    output_columns: OutputColumns {
-        coefficients: 0,
-        has_error: false,
-    },
-    documentation: "Tests for ergodic behavior in dynamical systems. Produces single aggregate measure per time window (not per-channel).",
-};
+    /// The variant `name` means: its abbreviation, app id or an alias, in any case, with `_`, `-` or spaces between
+    /// words. Every place that reads a variant name (`enabled_variants`, `variant_configs` keys, the command line)
+    /// looks it up here.
+    pub fn find(name: &str) -> Option<&'static Variant> {
+        let key: String = name
+            .trim()
+            .chars()
+            .map(|c| match c {
+                '-' | ' ' => '_',
+                c => c.to_ascii_uppercase(),
+            })
+            .collect();
+        VARIANTS.iter().find(|v| {
+            v.abbreviation == key
+                || v.app_id.eq_ignore_ascii_case(&key)
+                || v.aliases.contains(&key.as_str())
+        })
+    }
+}
 
-/// Synchronization (SY) - Position 5
-///
-/// Detects synchronized behavior between signals. Produces one value per channel/measure per time window.
-pub const SY: VariantMetadata = VariantMetadata {
-    abbreviation: "SY",
-    name: "Synchronization",
-    position: 5,
-    output_suffix: "_SY",
-    stride: 1,
-    reserved: false,
-    required_params: &[],
-    channel_format: ChannelFormat::Individual,
-    output_columns: OutputColumns {
-        coefficients: 0,
-        has_error: false,
-    },
-    documentation: "Detects synchronized behavior between signals. Produces one value per channel/measure per time window.",
-};
+/// The variants of the SELECT mask (ST, CT, CD, DE, SY), which the web app, agents and `ddalab variants` offer; the CCD
+/// family runs when named but is not offered.
+pub fn offered_variants() -> impl Iterator<Item = &'static Variant> {
+    VARIANTS.iter().filter(|v| v.mask_position.is_some())
+}
 
-/// All variants in SELECT mask order
-pub const VARIANT_REGISTRY: &[VariantMetadata] = &[ST, CT, CD, RESERVED, DE, SY];
-
-/// Variant abbreviations in SELECT mask order
-pub const VARIANT_ORDER: &[&str] = &["ST", "CT", "CD", "RESERVED", "DE", "SY"];
-
-// =============================================================================
-// SELECT MASK UTILITIES
-// =============================================================================
-
-/// Generate a SELECT mask from variant abbreviations
-pub fn generate_select_mask(variants: &[&str]) -> [u8; SELECT_MASK_SIZE] {
+/// The SELECT mask of `variants` (abbreviations), space-separated as requests store it.
+pub fn select_mask(variants: &[String]) -> String {
     let mut mask = [0u8; SELECT_MASK_SIZE];
-    for abbrev in variants {
-        if let Some(variant) = VariantMetadata::from_abbrev(abbrev) {
-            mask[variant.position as usize] = 1;
+    for v in variants.iter().filter_map(|v| Variant::find(v)) {
+        if let Some(position) = v.mask_position {
+            mask[position] = 1;
         }
     }
-    mask
+    mask.map(|b| b.to_string()).join(" ")
 }
-
-/// Format SELECT mask as space-separated string for CLI
-pub fn format_select_mask(mask: &[u8; SELECT_MASK_SIZE]) -> String {
-    mask.iter()
-        .map(|b| b.to_string())
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-// =============================================================================
-// SELECT MASK POSITION CONSTANTS
-// =============================================================================
-
-pub mod select_mask_positions {
-    /// Position of ST in SELECT mask
-    pub const ST: usize = 0;
-    /// Position of CT in SELECT mask
-    pub const CT: usize = 1;
-    /// Position of CD in SELECT mask
-    pub const CD: usize = 2;
-    /// Position of RESERVED in SELECT mask
-    pub const RESERVED: usize = 3;
-    /// Position of DE in SELECT mask
-    pub const DE: usize = 4;
-    /// Position of SY in SELECT mask
-    pub const SY: usize = 5;
-}
-
-// =============================================================================
-// TESTS
-// =============================================================================
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_variant_registry_size() {
-        assert_eq!(VARIANT_REGISTRY.len(), 6);
+    fn find_accepts_abbreviations_app_ids_and_aliases() {
+        for (name, id) in [
+            ("st", "ST"),
+            ("cross-dynamical", "CD"),
+            ("Conditional Cross Dynamical", "CCD"),
+            ("delay_embedding", "DE"),
+            ("synchronisation", "SY"),
+        ] {
+            assert_eq!(Variant::find(name).map(|v| v.abbreviation), Some(id));
+        }
+        assert!(Variant::find("INVALID").is_none());
     }
 
     #[test]
-    fn test_variant_lookup_by_abbrev() {
-        assert!(VariantMetadata::from_abbrev("ST").is_some());
-        assert!(VariantMetadata::from_abbrev("CT").is_some());
-        assert!(VariantMetadata::from_abbrev("CD").is_some());
-        assert!(VariantMetadata::from_abbrev("DE").is_some());
-        assert!(VariantMetadata::from_abbrev("SY").is_some());
-        assert!(VariantMetadata::from_abbrev("INVALID").is_none());
-    }
-
-    #[test]
-    fn test_variant_lookup_by_suffix() {
-        assert!(VariantMetadata::from_suffix("_ST").is_some());
-        assert!(VariantMetadata::from_suffix("_CT").is_some());
-        assert!(VariantMetadata::from_suffix("_CD_DDA_ST").is_some());
-        assert!(VariantMetadata::from_suffix("_DE").is_some());
-        assert!(VariantMetadata::from_suffix("_SY").is_some());
-    }
-
-    #[test]
-    fn test_select_mask_generation() {
-        let mask = generate_select_mask(&["ST", "SY"]);
-        assert_eq!(mask[select_mask_positions::ST], 1);
-        assert_eq!(mask[select_mask_positions::SY], 1);
-        assert_eq!(mask[select_mask_positions::CT], 0);
-    }
-
-    #[test]
-    fn test_stride_values() {
-        assert_eq!(ST.stride, 4);
-        assert_eq!(CT.stride, 4);
-        assert_eq!(CD.stride, 2);
-        assert_eq!(DE.stride, 1);
-        assert_eq!(SY.stride, 1);
+    fn select_mask_sets_the_variants_bits() {
+        assert_eq!(
+            select_mask(&["ST".into(), "SY".into(), "CCD".into()]),
+            "1 0 0 0 0 1"
+        );
     }
 }
