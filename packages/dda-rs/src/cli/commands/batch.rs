@@ -30,6 +30,19 @@ pub async fn execute(args: BatchArgs) -> i32 {
         variant_configs,
     } = selection;
 
+    // Validate shared params, before a dry run lists the files; an empty channel selection means each recording's good channels.
+    if let Err(msg) = dda_params::validate_params(
+        &normalized_variants,
+        &args.delays,
+        args.wl,
+        args.ws,
+        &effective_ct_pairs,
+        &effective_cd_pairs,
+    ) {
+        eprintln!("Error: {}", msg);
+        return exit_codes::INPUT_ERROR;
+    }
+
     // Resolve file list
     let files = match resolve_files(&args) {
         Ok(f) => f,
@@ -53,19 +66,6 @@ pub async fn execute(args: BatchArgs) -> i32 {
             eprintln!("Found {} file(s)", files.len());
         }
         return exit_codes::SUCCESS;
-    }
-
-    // Validate shared params; an empty channel selection means each recording's good channels.
-    if let Err(msg) = dda_params::validate_params(
-        &normalized_variants,
-        &args.delays,
-        args.wl,
-        args.ws,
-        &effective_ct_pairs,
-        &effective_cd_pairs,
-    ) {
-        eprintln!("Error: {}", msg);
-        return exit_codes::INPUT_ERROR;
     }
 
     // Create output directory if specified

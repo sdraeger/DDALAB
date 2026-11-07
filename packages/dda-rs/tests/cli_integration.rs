@@ -1236,3 +1236,14 @@ fn stream_refuses_an_unknown_variant_before_waiting() {
         .failure()
         .stderr(predicate::str::contains("Unknown variant"));
 }
+
+/// `batch --dry-run` validates the parameters as a real batch would, before listing the files.
+#[test]
+fn a_dry_run_batch_refuses_invalid_parameters() {
+    let edf = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/fixture.edf");
+    ddalab()
+        .args(["batch", "--files", edf, "--variants", "CT", "--dry-run"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("ct-pairs"));
+}
