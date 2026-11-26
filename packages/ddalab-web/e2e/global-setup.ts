@@ -8,8 +8,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readSynthetic, syntheticEdfSize } from "../src/core/synthetic";
 
+const REPO_ROOT = fileURLToPath(new URL("../../..", import.meta.url));
 const DDA_RS = fileURLToPath(new URL("../../dda-rs", import.meta.url));
-export const CLI = join(DDA_RS, "target/release/ddalab");
+export const CLI = join(REPO_ROOT, "target/release/ddalab");
 const VHDR = join(DDA_RS, "tests/fixtures/fixture.vhdr");
 
 /** 64 channels: all of them over 0 to 30 s plan five blocks at the browser's 1 MiB floor with eight workers. */
@@ -30,7 +31,10 @@ export function bundleDir(name: Bundle) {
 }
 
 export default function globalSetup() {
-  execFileSync("cargo", ["build", "--release"], { cwd: DDA_RS, stdio: "inherit" });
+  execFileSync("cargo", ["build", "--release", "-p", "dda-rs", "--bin", "ddalab"], {
+    cwd: REPO_ROOT,
+    stdio: "inherit",
+  });
   const root = mkdtempSync(join(tmpdir(), "ddalab-e2e-"));
   process.env.DDALAB_E2E_BUNDLES = root; // the test workers inherit it
   const wide = join(root, "wide.edf");

@@ -136,6 +136,38 @@ struct EdfReader {
 }
 
 pub fn open_edf(files: &FileSet, name: &str) -> Result<Box<dyn Reader>> {
+    let mut reader = open_edf_single(files, name)?;
+    if !reader.info.analysis_channels().is_empty() {
+        // Merge annotations from any companion annotation-only EDF+ file (e.g. Sleep-EDF Hypnogram)
+        // present in the same FileSet.
+        for other in files.files.keys() {
+            if other == name {
+                continue;
+            }
+            let is_edf_like = other
+                .rsplit_once('.')
+                .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("edf") || ext.eq_ignore_ascii_case("bdf"));
+            if !is_edf_like {
+                continue;
+            }
+            if let Ok(companion) = open_edf_single(files, other) {
+                if companion.info.analysis_channels().is_empty() {
+                    if let Ok((anns, ann_warnings)) = companion.scan_annotations() {
+                        for mut ann in anns {
+                            ann.source = other.clone();
+                            reader.info.annotations.push(ann);
+                        }
+                        reader.info.warnings.extend(ann_warnings);
+                        reader.info.input_files.push(other.clone());
+                    }
+                }
+            }
+        }
+    }
+    Ok(Box::new(reader))
+}
+
+fn open_edf_single(files: &FileSet, name: &str) -> Result<EdfReader> {
     let source = files
         .source(name)
         .ok_or_else(|| DDAError::FileNotFound(name.to_string()))?
@@ -187,12 +219,14 @@ pub fn open_edf(files: &FileSet, name: &str) -> Result<Box<dyn Reader>> {
         &signal_header[start..start + WIDTHS[column]]
     };
     // Checked before the record duration: a hypnogram often stores 0 there.
-    if (0..signals).all(|i| annotation_label(&text(cell(LABEL, i)))) {
-        return Err(unsupported(
-            "annotation-only EDF+ files (no signal channels) are not supported yet".to_string(),
-        ));
-    }
-    if record_duration_s <= 0.0 {
+    let annotation_only = (0..signals).all(|i| annotation_label(&text(cell(LABEL, i))));
+    if annotation_only {
+        if record_duration_s < 0.0 {
+            return Err(unsupported(format!(
+                "header field 'data record duration' is {record_duration_s}"
+            )));
+        }
+    } else if record_duration_s <= 0.0 {
         return Err(unsupported(format!(
             "header field 'data record duration' is {record_duration_s}"
         )));
@@ -246,7 +280,11 @@ pub fn open_edf(files: &FileSet, name: &str) -> Result<Box<dyn Reader>> {
         channels.push(ChannelInfo {
             label,
             unit,
-            sample_rate_hz: samples as f64 / record_duration_s,
+            sample_rate_hz: if record_duration_s > 0.0 {
+                samples as f64 / record_duration_s
+            } else {
+                0.0
+            },
             gain,
             offset,
             kind,
@@ -306,6 +344,10 @@ pub fn open_edf(files: &FileSet, name: &str) -> Result<Box<dyn Reader>> {
         ));
     }
 
+    if annotation_only {
+        warnings.push("Annotation-only EDF+ file (no signal channels).".to_string());
+    }
+
     let prefix = if bdf { "BDF" } else { "EDF" };
     let info = RecordingInfo {
         reference: None,
@@ -315,9 +357,21 @@ pub fn open_edf(files: &FileSet, name: &str) -> Result<Box<dyn Reader>> {
             prefix.to_string()
         },
         channels,
-        sample_rate_hz: dominant_samples as f64 / record_duration_s,
-        sample_count: records * dominant_samples as u64,
-        duration_s: records as f64 * record_duration_s,
+        sample_rate_hz: if annotation_only || record_duration_s <= 0.0 {
+            0.0
+        } else {
+            dominant_samples as f64 / record_duration_s
+        },
+        sample_count: if annotation_only {
+            0
+        } else {
+            records * dominant_samples as u64
+        },
+        duration_s: if annotation_only {
+            records as f64 * record_duration_s.max(0.0)
+        } else {
+            records as f64 * record_duration_s
+        },
         raw_type: if bdf { RawType::I24 } else { RawType::I16 },
         annotations: Vec::new(),
         warnings,
@@ -333,10 +387,10 @@ pub fn open_edf(files: &FileSet, name: &str) -> Result<Box<dyn Reader>> {
         bytes_per_sample,
         slots,
     };
-    if plus_d {
+    if plus_d && !annotation_only {
         reader.check_contiguous()?;
     }
-    Ok(Box::new(reader))
+    Ok(reader)
 }
 
 impl EdfReader {

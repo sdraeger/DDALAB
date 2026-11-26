@@ -13,12 +13,13 @@
     "index.mjs",
     "index.d.ts",
     "node/host.mjs",
-    "target/wasm32-unknown-unknown/release/ddalab_wasm.wasm"
+    "dist/ddalab_wasm.wasm"
   ],
   "engines": {
     "node": ">=20"
   },
   "scripts": {
+    "build": "node scripts/build.mjs",
     "test": "node --test node/index.test.mjs"
   },
   "keywords": ["dda", "delay-differential-analysis", "eeg", "ieeg", "wasm", "time-series"],

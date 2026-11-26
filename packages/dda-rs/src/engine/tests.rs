@@ -732,20 +732,9 @@ fn all_selected_ccd_reuses_the_full_model_when_every_source_is_a_candidate() {
     ));
 }
 
-// DE on the same channel groups as CT reads CT's solutions: a window's batched problems hold those regressions once.
+// DE on the same channel groups as CT reads CT's solutions: a window's normal-equations jobs hold those regressions once.
 #[test]
 fn de_on_the_ct_groups_adds_no_regressions_to_a_window() {
-    let samples = common_drive_samples();
-    let request = ccd_auto_request(
-        "common_drive".to_string(),
-        CcdConditioningStrategy::AllSelected,
-    );
-    let dataset = super::dataset::MatrixDataset::new(&samples, None).expect("dataset");
-    let model = super::model::ModelSpec::from_request(&request).expect("model");
-    let bounds =
-        super::dataset::AnalysisBounds::from_request(&request, dataset.rows).expect("bounds");
-    let window =
-        super::prepare_window_for_analysis(&dataset, &bounds, &model, 0).expect("prepared window");
     let groups = vec![vec![0, 1, 2]];
     let jobs = super::regression_batch::BasicJobs {
         channel_count: 3,
@@ -755,9 +744,7 @@ fn de_on_the_ct_groups_adds_no_regressions_to_a_window() {
         cd_pairs: &[],
         sy_pairs: &[],
     };
-    let mut problems = Vec::new();
-    super::regression_batch::build_window_references(&mut problems, &window, &jobs, &model);
-    assert_eq!(problems.len(), 1);
+    assert_eq!(super::normal_equations::count_problems(&jobs), 1);
 }
 
 /// A channel index beyond the matrix is an error from the library entry point, not a panic in a worker.

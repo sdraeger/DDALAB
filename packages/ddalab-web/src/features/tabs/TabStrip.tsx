@@ -5,6 +5,7 @@
 // visit, shows a note in the canvas with Reattach (app/tabs.ts).
 import { Tooltip } from "@base-ui/react/tooltip";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down.mjs";
+import Columns2 from "lucide-react/dist/esm/icons/columns-2.mjs";
 import Link2 from "lucide-react/dist/esm/icons/link-2.mjs";
 import Link2Off from "lucide-react/dist/esm/icons/link-2-off.mjs";
 import X from "lucide-react/dist/esm/icons/x.mjs";
@@ -33,7 +34,7 @@ import {
   reattachFrom,
   requestAccess,
 } from "../../app/tabs";
-import { useStore } from "../../store/store";
+import { closeSplitRecording, setPanelDrag, setSplitRecording, useStore } from "../../store/store";
 import { hasHandles, moveTab, selectTab, shortNames, type Tab } from "../../store/tabs";
 import controls from "../../styles/controls.module.css";
 import { ALT, KEYS, LINUX_NOTE } from "./keys";
@@ -110,6 +111,7 @@ export function useAttached() {
 export const TabStrip = memo(function TabStrip() {
   const tabs = useStore((s) => s.tabs);
   const active = useStore((s) => s.activeTab);
+  const split = useStore((s) => s.splitRecording);
   const { open, running } = useAttached();
   const [switching, setSwitching] = useState(false);
   const list = useRef<HTMLDivElement>(null);
@@ -180,7 +182,7 @@ export const TabStrip = memo(function TabStrip() {
               className={styles.tab}
               data-selected={selected || undefined}
               data-detached={!attached || undefined}
-              onPointerDown={(event) => startDrag(event, i)}
+              onPointerDown={(event) => startDrag(event, i, tab)}
               // A middle click closes; without this it would start the browser's autoscroll.
               onMouseDown={(event) => event.button === 1 && event.preventDefault()}
               onAuxClick={(event) => event.button === 1 && closeTab(fingerprint)}
@@ -226,6 +228,34 @@ export const TabStrip = memo(function TabStrip() {
         })}
       </div>
       <div className={styles.end}>
+        {open.length >= 2 && (
+          <Hint
+            label={
+              split
+                ? "Close split view"
+                : "Split view with another open recording (or drag a tab onto the canvas)"
+            }
+          >
+            <button
+              type="button"
+              aria-label={split ? "Close split view" : "Split view"}
+              aria-pressed={split !== null}
+              className={controls.iconButton}
+              onClick={() => {
+                if (split) {
+                  closeSplitRecording();
+                  return;
+                }
+                const other = tabs.find((t) => t.fingerprint !== active && open.includes(t.fingerprint));
+                if (other) {
+                  setSplitRecording({ fingerprint: other.fingerprint, direction: "horizontal", ratio: 0.5 });
+                }
+              }}
+            >
+              <Columns2 aria-hidden />
+            </button>
+          </Hint>
+        )}
         {next && (
           <button
             type="button"
@@ -454,19 +484,38 @@ function useTabKeys(onSwitcher: () => void) {
 }
 
 /** The drag in progress: the tab moved, where it started, the tabs' boxes then and the place it would drop at. */
-let drag: { from: number; x0: number; el: HTMLElement; boxes: DOMRect[]; to: number; moved: boolean } | null =
-  null;
+let drag: {
+  from: number;
+  x0: number;
+  y0: number;
+  el: HTMLElement;
+  boxes: DOMRect[];
+  to: number;
+  moved: boolean;
+  docking: boolean;
+  tab: Tab;
+} | null = null;
 
-function startDrag(event: PointerEvent<HTMLDivElement>, from: number) {
+function startDrag(event: PointerEvent<HTMLDivElement>, from: number, tab: Tab) {
   if (event.button !== 0 || (event.target as Element).closest("[data-close]")) return;
   const items = Array.from(event.currentTarget.parentElement?.children ?? []) as HTMLElement[];
   const boxes = items.map((item) => item.getBoundingClientRect());
-  drag = { from, x0: event.clientX, el: event.currentTarget, boxes, to: from, moved: false };
+  drag = {
+    from,
+    x0: event.clientX,
+    y0: event.clientY,
+    el: event.currentTarget,
+    boxes,
+    to: from,
+    moved: false,
+    docking: false,
+    tab,
+  };
 }
 
 /**
- * Reordering by drag: the dragged tab follows the pointer and the tabs it passes make room, both with transforms;
- * the order changes on release. Whether a drag is under way.
+ * Reordering by drag: dragging horizontally inside the strip reorders tabs; pulling downward past 28 px enters
+ * workspace dock/split drag mode (`panelDrag`) so the tab can snap into a side-by-side or stacked split pane.
  */
 function useReorder(list: RefObject<HTMLDivElement | null>) {
   const [dragging, setDragging] = useState(false);
@@ -475,11 +524,25 @@ function useReorder(list: RefObject<HTMLDivElement | null>) {
     const move = (event: globalThis.PointerEvent) => {
       if (!drag) return;
       const dx = event.clientX - drag.x0;
-      if (!drag.moved && Math.abs(dx) < 5) return;
+      const dy = event.clientY - drag.y0;
+      if (!drag.moved && Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
       if (!drag.moved) {
         drag.moved = true;
         drag.el.dataset.dragging = "";
         setDragging(true);
+      }
+      // Pulling a tab downward out of the strip hands off to the workspace's snap-dock overlay.
+      if (!drag.docking && dy > 28) {
+        drag.docking = true;
+        for (const item of items()) item.style.transform = "";
+        setPanelDrag({ kind: "tab", fingerprint: drag.tab.fingerprint, name: drag.tab.name });
+      } else if (drag.docking && dy <= 16) {
+        drag.docking = false;
+        setPanelDrag(null);
+      }
+      if (drag.docking) {
+        drag.el.style.transform = `translate(${dx}px, ${Math.min(dy, 24)}px)`;
+        return;
       }
       const { from, boxes } = drag;
       const width = boxes[from].width;
@@ -499,6 +562,7 @@ function useReorder(list: RefObject<HTMLDivElement | null>) {
       for (const item of items()) item.style.transform = "";
       delete done.el.dataset.dragging;
       setDragging(false);
+      if (done.docking) return;
       if (done.to !== done.from) moveTab(done.from, done.to);
     };
     window.addEventListener("pointermove", move);

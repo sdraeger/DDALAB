@@ -1,6 +1,7 @@
 // The messages between engine.ts (main thread) and the IO worker. Every request carries a serial `n` the reply echoes.
 import type { ResultTile } from "../render/resultPyramid";
 import type { RecordingInput } from "./engine";
+import type { Filter } from "./filter";
 import type { FolderFile, KeptRecord } from "./imports";
 import type {
   Annotation,
@@ -54,7 +55,7 @@ export type IoRequest =
   | { type: "close"; id: string }
   /** Opens recording `id` again under the same id, with the reference of `input` (none: its recorded channels). */
   | { type: "reference"; id: string; input: RecordingInput }
-  | { type: "raw"; id: string; row0: number; rows: number }
+  | { type: "raw"; id: string; row0: number; rows: number; filter?: Filter }
   | { type: "metadata"; id: string }
   /** The files of the copy of recording `id` with `metadata` (which `metadata` gave, edited). */
   | { type: "editCopy"; id: string; metadata: Metadata }
@@ -172,7 +173,7 @@ export type Annotations = { annotations: Annotation[]; warnings: string[]; skipp
 
 /** Asks a DDA worker, which opens `input` itself, for a block of a run or, with `extras`, for its manifest. */
 export type DdaRequest =
-  /** `gpu`: sum the block's ST windows on the GPU where it can (core/webgpu.ts). */
+  /** `gpu`: sum the block's basic-flavor windows on WebGPU where available (core/webgpu.ts). */
   | { input: RecordingInput; request: DDARequest; block: Block; gpu?: boolean }
   | { input: RecordingInput; request: DDARequest; extras: ManifestExtras };
 

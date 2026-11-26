@@ -331,7 +331,7 @@ pub struct Provenance {
     pub created_at_iso: String,
     /// The SHA-256 of each input file, hex, by name.
     pub input_sha256: BTreeMap<String, String>,
-    /// "cpu", "gpu", "cuda:1", "webgpu-f32".
+    /// "cpu", "gpu", "cuda:1", "webgpu".
     pub compute_device: String,
 }
 

@@ -46,8 +46,9 @@
   --vik-mid: #ece5e0;
   --vik-high: #590008;
 
-  /* Type: the system UI stack; two sizes in dense panes, then section and workspace titles. */
+  /* Type: the system UI stack and monospace stack; two sizes in dense panes, then section and workspace titles. */
   --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --text-small: 12px;
   --text-body: 13px;
   --text-section: 15px;
@@ -72,8 +73,10 @@
   --hit: 28px;
   --hit-two: 40px;
 
-  --radius-small: 3px;
-  --radius: 5px;
+  --radius-small: 6px;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
   --hairline-width: 1px;
 
   /* Motion: one duration and one strong ease-out for every transition in the app (scripts/check-motion.mjs holds

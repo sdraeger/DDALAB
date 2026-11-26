@@ -1,12 +1,12 @@
 [package]
 name = "ddalab"
-version = "2.9.0"
-edition = "2021"
-authors = ["DDALAB Contributors"]
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
 description = "Delay differential analysis of neurophysiological recordings: the ddalab command-line tool"
-license = "MIT"
-repository = "https://github.com/sdraeger/DDALAB"
-homepage = "https://ddalab.org/"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
 readme = "README.md"
 publish = false
 
@@ -26,6 +26,3 @@ dda-rs = { path = "../dda-rs" }
 [package.metadata.dist]
 dist = true
 features = ["cuda", "gpu"]
-
-[profile.dist]
-inherits = "release"

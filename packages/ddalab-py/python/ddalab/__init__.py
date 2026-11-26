@@ -63,6 +63,53 @@ class VariantResult:
     coefficients: Optional[np.ndarray]
     """(coefficients, rows, windows) when the engine fills them."""
 
+    def to_dataframe(self, window_centers: Any, *, metric: str = "q") -> Any:
+        """Returns this variant's matrix as a labeled `pandas.DataFrame` (index=`row_labels`, columns=`time_s`).
+
+        `metric` selects `"q"` (default) or `"fit_error"`. Requires optional `pandas`.
+        """
+        try:
+            import pandas as pd
+        except ImportError as exc:
+            raise ImportError("pandas is required for to_dataframe(); install it with `pip install pandas`") from exc
+
+        if metric == "q":
+            values = self.q
+        elif metric == "fit_error":
+            if self.fit_error is None:
+                raise ValueError(f"variant {self.id!r} has no fit_error array")
+            values = self.fit_error
+        else:
+            raise ValueError(f"unknown metric {metric!r}: expected 'q' or 'fit_error'")
+        return pd.DataFrame(
+            values,
+            index=pd.Index(self.row_labels, name="row"),
+            columns=pd.Index(window_centers, name="time_s"),
+        )
+
+    def to_xarray(self, window_centers: Any) -> Any:
+        """Returns this variant as a labeled `xarray.Dataset` indexed by `('row', 'time_s')`.
+
+        Includes `q`, plus `fit_error` and `coefficients` when present. Requires optional `xarray`.
+        """
+        try:
+            import xarray as xr
+        except ImportError as exc:
+            raise ImportError("xarray is required for to_xarray(); install it with `pip install xarray`") from exc
+
+        data_vars: dict[str, Any] = {"q": (("row", "time_s"), self.q)}
+        coords: dict[str, Any] = {"row": list(self.row_labels), "time_s": window_centers}
+        if self.fit_error is not None:
+            data_vars["fit_error"] = (("row", "time_s"), self.fit_error)
+        if self.coefficients is not None:
+            data_vars["coefficients"] = (("coefficient", "row", "time_s"), self.coefficients)
+            coords["coefficient"] = list(range(self.coefficients.shape[0]))
+        return xr.Dataset(
+            data_vars,
+            coords=coords,
+            attrs={"variant": self.id, "label": self.label},
+        )
+
 
 class Result:
     """A finished run: the arrays of each variant and the result document `ddalab run` writes."""
@@ -85,6 +132,25 @@ class Result:
         """Writes the result document as `ddalab run -o path` does."""
         self._analysis.save(os.fspath(path), compact)
 
+    def _resolve_variant(self, variant: Optional[str]) -> VariantResult:
+        if variant is not None:
+            if variant not in self.variants:
+                avail = ", ".join(self.variants)
+                raise KeyError(f"variant {variant!r} not in result (available: {avail})")
+            return self.variants[variant]
+        if len(self.variants) == 1:
+            return next(iter(self.variants.values()))
+        avail = ", ".join(self.variants)
+        raise ValueError(f"result has multiple variants ({avail}); specify variant=...")
+
+    def to_dataframe(self, variant: Optional[str] = None, *, metric: str = "q") -> Any:
+        """Returns a labeled `pandas.DataFrame` for `variant` (or the sole variant). Requires `pandas`."""
+        return self._resolve_variant(variant).to_dataframe(self.window_centers, metric=metric)
+
+    def to_xarray(self, variant: Optional[str] = None) -> Any:
+        """Returns a labeled `xarray.Dataset` for `variant` (or the sole variant). Requires `xarray`."""
+        return self._resolve_variant(variant).to_xarray(self.window_centers)
+
     def __repr__(self) -> str:
         shapes = ", ".join(f"{k} {v.q.shape}" for k, v in self.variants.items())
         return f"<ddalab.Result {shapes}>"
@@ -97,7 +163,7 @@ def read(
     reference: Optional[str] = None,
     electrodes: Optional[PathLike] = None,
 ) -> Recording:
-    """Opens the recording at `path` (EDF, BDF, BrainVision, EEGLAB, CSV or ASCII) with its BIDS sidecars.
+    """Opens the recording at `path` (EDF, BDF, BrainVision, EEGLAB, FIFF, NWB, CSV or ASCII) with its BIDS sidecars.
 
     `sfreq` is the sample rate of a text recording without a time column. `reference` re-references the analysis
     channels as `ddalab --reference` does: "average", "bipolar", "laplacian" (positions from `electrodes`, a TSV, or the
@@ -150,8 +216,11 @@ def run(
     *,
     variants: Optional[Sequence[str]] = None,
     wl: Optional[int] = None,
+    wl_s: Optional[float] = None,
     ws: Optional[int] = None,
+    ws_s: Optional[float] = None,
     delays: Optional[Sequence[int]] = None,
+    delays_ms: Optional[Sequence[float]] = None,
     model: Optional[Sequence[int]] = None,
     dm: Optional[int] = None,
     order: Optional[int] = None,
@@ -222,8 +291,11 @@ def run(
         flag("sr", sfreq)
     flag("variants", list(variants) if variants is not None else None)
     flag("wl", wl)
+    flag("wl-s", wl_s)
     flag("ws", ws)
+    flag("ws-s", ws_s)
     flag("delays", list(delays) if delays is not None else None)
+    flag("delays-ms", list(delays_ms) if delays_ms is not None else None)
     flag("model", list(model) if model is not None else None)
     flag("dm", dm)
     flag("order", order)

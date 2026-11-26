@@ -7,13 +7,13 @@ import type {
   CopyFile,
   DDARequest,
   EngineVersion,
+  GpuBlockPlan,
   ManifestExtras,
   Metadata,
   Opened,
   OpenRequest,
   Plan,
   ResultDocument,
-  StGpuPlan,
 } from "./types";
 
 /** Fills `dst`, a view of wasm memory, from `offset` of file `fileId`; throws on failure. */
@@ -37,16 +37,20 @@ export interface Core {
   readRaw(handle: number, row0: number, rows: number): Float32Array;
   plan(handle: number, request: DDARequest, budgetMb: number): Plan;
   runBlock(handle: number, request: DDARequest, block: Block): BlockChunks;
-  /** What the GPU sums for an ST block (dda_rs::blocks::st_gpu_inputs); `null` when the block runs on the CPU. */
-  stInputs(
+  /** The shared `gpu_sums.wgsl` shader source embedded in the wasm module. */
+  gpuShader(): string;
+  /** Prepares a block for `gpu_sums.wgsl` (`dda_rs::blocks::GpuBlockJob::prepare`); `null` when it runs on the CPU. */
+  gpuPrepare(
     handle: number,
     request: DDARequest,
     block: Block,
-  ): { plan: StGpuPlan; rows: Float32Array<ArrayBuffer> } | null;
-  /** The block's chunks from the GPU's sums, as `runBlock` gives them. */
-  stFinish(handle: number, request: DDARequest, block: Block, sums: Float32Array): BlockChunks;
-  /** The sums the CPU reference computes for the block: what the GPU's must equal. */
-  stReference(handle: number, request: DDARequest, block: Block): Float32Array;
+  ): { jobId: number; plan: GpuBlockPlan; data: Uint32Array<ArrayBuffer> } | null;
+  /** Finishes a prepared GPU job from its `gpu_sums.wgsl` u32 output words, consuming `jobId`. */
+  gpuFinish(jobId: number, words: Uint32Array): BlockChunks;
+  /** Drops a prepared GPU job when falling back to the CPU. */
+  gpuDrop(jobId: number): void;
+  /** CPU reference of `gpu_sums.wgsl` for the block's prepared inputs. */
+  gpuReference(handle: number, request: DDARequest, block: Block): Uint32Array;
   manifest(handle: number, request: DDARequest, extras: ManifestExtras): ResultDocument;
   /** A SHA-256 stream: `update` throws on an error reply and `hex` ends the stream. */
   sha256(): { update(bytes: Uint8Array): void; hex(): string };
@@ -75,17 +79,11 @@ interface Exports {
   ddalab_read_raw(handle: number, row0: number, rows: number): bigint;
   ddalab_plan(handle: number, ptr: number, len: number, budgetMb: number): bigint;
   ddalab_run_block(handle: number, ptr: number, len: number, w0: number, w1: number): bigint;
-  ddalab_st_inputs(handle: number, ptr: number, len: number, w0: number, w1: number): bigint;
-  ddalab_st_finish(
-    handle: number,
-    ptr: number,
-    len: number,
-    w0: number,
-    w1: number,
-    sumsPtr: number,
-    sumsLen: number,
-  ): bigint;
-  ddalab_st_reference(handle: number, ptr: number, len: number, w0: number, w1: number): bigint;
+  ddalab_gpu_shader(): bigint;
+  ddalab_gpu_prepare(handle: number, ptr: number, len: number, w0: number, w1: number): bigint;
+  ddalab_gpu_finish(jobId: number, wordsPtr: number, wordsLen: number): bigint;
+  ddalab_gpu_drop(jobId: number): void;
+  ddalab_gpu_reference(handle: number, ptr: number, len: number, w0: number, w1: number): bigint;
   ddalab_manifest(handle: number, ptr: number, len: number, extrasPtr: number, extrasLen: number): bigint;
   ddalab_sha256_new(): number;
   ddalab_sha256_update(id: number, ptr: number, len: number): bigint;
@@ -199,26 +197,35 @@ export async function instantiateCore(wasm: WebAssembly.Module, read: HostRead):
 
     runBlock: (handle, request, block) =>
       chunksOf(withJson(request, (p, n) => binary(abi.ddalab_run_block(handle, p, n, block.w0, block.w1)))),
-    stInputs(handle, request, block) {
+    gpuShader: () => json(abi.ddalab_gpu_shader()),
+    gpuPrepare(handle, request, block) {
       const bytes = withJson(request, (p, n) =>
-        binary(abi.ddalab_st_inputs(handle, p, n, block.w0, block.w1)),
+        binary(abi.ddalab_gpu_prepare(handle, p, n, block.w0, block.w1)),
       );
       const headerEnd = 4 + u32(bytes, 0);
-      const plan: StGpuPlan | null = JSON.parse(decoder.decode(bytes.subarray(4, headerEnd)));
-      return plan && { plan, rows: new Float32Array(bytes.slice(headerEnd).buffer) };
+      const header: { job_id: number; plan: GpuBlockPlan } | null = JSON.parse(
+        decoder.decode(bytes.subarray(4, headerEnd)),
+      );
+      return (
+        header && {
+          jobId: header.job_id,
+          plan: header.plan,
+          data: new Uint32Array(bytes.slice(headerEnd).buffer),
+        }
+      );
     },
-    stFinish: (handle, request, block, sums) =>
+    gpuFinish: (jobId, words) =>
       chunksOf(
-        withJson(request, (p, n) =>
-          withBytes(new Uint8Array(sums.buffer, sums.byteOffset, sums.byteLength), (q, m) =>
-            binary(abi.ddalab_st_finish(handle, p, n, block.w0, block.w1, q, m)),
-          ),
+        withBytes(new Uint8Array(words.buffer, words.byteOffset, words.byteLength), (q, m) =>
+          binary(abi.ddalab_gpu_finish(jobId, q, m)),
         ),
       ),
-    stReference: (handle, request, block) =>
-      new Float32Array(
-        withJson(request, (p, n) => binary(abi.ddalab_st_reference(handle, p, n, block.w0, block.w1))).slice()
-          .buffer,
+    gpuDrop: (jobId) => abi.ddalab_gpu_drop(jobId),
+    gpuReference: (handle, request, block) =>
+      new Uint32Array(
+        withJson(request, (p, n) =>
+          binary(abi.ddalab_gpu_reference(handle, p, n, block.w0, block.w1)),
+        ).slice().buffer,
       ),
     manifest: (handle, request, extras) =>
       withJson(request, (p, n) => withJson(extras, (q, m) => json(abi.ddalab_manifest(handle, p, n, q, m)))),

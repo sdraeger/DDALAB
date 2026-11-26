@@ -35,19 +35,13 @@ export type Reference =
   | { kind: "laplacian"; neighbors?: number; electrodes_tsv?: string; name?: string }
   | { kind: "custom"; montage_tsv: string; name: string };
 
-/** What the GPU sums for an ST block (dda_rs::blocks::StGpuPlan). */
-export interface StGpuPlan {
-  channels: number;
+/** Parameters for `gpu_sums.wgsl` on one block's basic-flavor windows (dda_rs::blocks::GpuBlockPlan). */
+export interface GpuBlockPlan {
   rows: number;
-  window_starts: number[];
-  raw_len: number;
-  dm: number;
-  max_delay: number;
-  window_length: number;
-  /** `factors` delays per model term, padded with 2^32 - 1. */
-  terms: number[];
-  factors: number;
-  nr_exclude: number;
+  vectors: number;
+  windows: number;
+  /** Flat `[p0, q0, p1, q1, ...]` dot-product vector index pairs for `gpu_sums.wgsl`. */
+  pairs: number[];
 }
 
 /** A derived channel's sources and weights, by label. */
@@ -254,6 +248,6 @@ export interface ManifestExtras {
   created_at_iso: string;
   input_sha256: Record<string, string>;
   windows: number;
-  /** Where the run computed, when not the CPU alone: "webgpu-f32". */
+  /** Where the run computed, when not the CPU alone: "webgpu". */
   compute_device?: string;
 }

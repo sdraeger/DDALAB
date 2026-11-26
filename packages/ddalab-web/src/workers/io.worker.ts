@@ -7,6 +7,7 @@ import { compileWasm } from "../core/compileWasm";
 import wasmUrl from "../core/ddalab.wasm?url";
 import type { RecordingInput } from "../core/engine";
 import { documentJson, variantCsv } from "../core/exporters";
+import { applyFilter, padRows } from "../core/filter";
 import { fingerprintOf, sha256Hex } from "../core/fingerprint";
 import { importResult, importResults } from "../core/imports";
 import {
@@ -313,8 +314,23 @@ async function handle(request: IoRequest): Promise<unknown> {
       return close(request.id);
     case "reference":
       return rereference(request.id, request.input);
-    case "raw":
-      return (await core).readRaw(recording(request.id).handle, request.row0, request.rows);
+    case "raw": {
+      const rec = recording(request.id);
+      const c = await core;
+      const filter = request.filter;
+      const rate = rec.info.sample_rate_hz;
+      const pad = filter ? padRows(filter, rate) : 0;
+      if (!filter || pad === 0) {
+        return c.readRaw(rec.handle, request.row0, request.rows);
+      }
+      const total = rec.info.sample_count;
+      const from = Math.max(0, request.row0 - pad);
+      const count = Math.min(total, request.row0 + request.rows + pad) - from;
+      const read = c.readRaw(rec.handle, from, count);
+      const filtered = applyFilter(read, rec.channels, rate, filter);
+      const start = (request.row0 - from) * rec.channels;
+      return filtered.slice(start, start + request.rows * rec.channels);
+    }
     case "metadata":
       return (await core).metadata(recording(request.id).request);
     case "editCopy":

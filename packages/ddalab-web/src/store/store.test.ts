@@ -1,17 +1,22 @@
 import { expect, test } from "vitest";
 import type { AnalysisRecord } from "../core/history";
 import {
+  clearSelectedChannels,
   type OpenRecording,
   openResult,
   pageOf,
   rowChannels,
   SENSITIVITIES,
+  selectAllChannels,
   selectChannels,
+  setSelectedChannels,
   setShownResult,
   setView,
+  setViewedChannels,
   showChosenOnly,
   showResult,
   stepSensitivity,
+  toggleViewedChannels,
   useStore,
   type View,
   voltage,
@@ -239,4 +244,46 @@ test("a_result_that_comes_to_show_alone_starts_on_its_interval", () => {
     t1: 30,
   });
   expect(useStore.getState().shownResult?.interval).toEqual({ t0: 20, t1: 30 });
+});
+
+test("bulk_dda_selection_and_viewed_channel_filtering", () => {
+  const rec = {
+    fingerprint: "fbulk",
+    info: { duration_s: 60, sample_rate_hz: 100 },
+    analysis_channels: [0, 1, 2, 3, 4, 5],
+    selectedChannels: [],
+    viewedChannels: null,
+  } as unknown as OpenRecording;
+  useStore.setState({ recordings: { R: rec }, activeRecordingId: "R", shownResult: null, view: view(0, 10) });
+
+  // Select all / none / setSelectedChannels deduping and clamping
+  selectAllChannels();
+  expect(useStore.getState().recordings.R.selectedChannels).toEqual([0, 1, 2, 3, 4, 5]);
+  clearSelectedChannels();
+  expect(useStore.getState().recordings.R.selectedChannels).toEqual([]);
+  setSelectedChannels([4, 1, 4, -1, 99, 2]);
+  expect(useStore.getState().recordings.R.selectedChannels).toEqual([1, 2, 4]);
+
+  // Custom viewedChannels operates independently of DDA selection
+  toggleViewedChannels([0, 5], false);
+  expect(useStore.getState().recordings.R.viewedChannels).toEqual([1, 2, 3, 4]);
+  expect(rowChannels(useStore.getState().view, useStore.getState().recordings.R)).toEqual([1, 2, 3, 4]);
+  expect(useStore.getState().recordings.R.selectedChannels).toEqual([1, 2, 4]);
+
+  // chosenOnly overrides custom viewedChannels while active; editing viewed turns chosenOnly off
+  showChosenOnly(true);
+  expect(rowChannels(useStore.getState().view, useStore.getState().recordings.R)).toEqual([1, 2, 4]);
+  toggleViewedChannels([3], true);
+  expect(useStore.getState().view.chosenOnly).toBe(false);
+  expect(useStore.getState().recordings.R.viewedChannels).toEqual([1, 2, 3, 4]);
+
+  // Empty viewedChannels clamps cleanly without NaN or negative firstChannel
+  setViewedChannels([]);
+  expect(rowChannels(useStore.getState().view, useStore.getState().recordings.R)).toEqual([]);
+  expect(useStore.getState().view.firstChannel).toBe(0);
+
+  // Restoring all channels normalizes viewedChannels back to null
+  setViewedChannels([0, 1, 2, 3, 4, 5]);
+  expect(useStore.getState().recordings.R.viewedChannels).toBeNull();
+  expect(rowChannels(useStore.getState().view, useStore.getState().recordings.R)).toEqual([0, 1, 2, 3, 4, 5]);
 });

@@ -4,9 +4,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const WASM = fileURLToPath(
-  new URL('../target/wasm32-unknown-unknown/release/ddalab_wasm.wasm', import.meta.url),
-);
+const WASM_CANDIDATES = [
+  '../dist/ddalab_wasm.wasm',
+  '../../../target/wasm32-unknown-unknown/wasm-release/ddalab_wasm.wasm',
+  '../../../target/wasm32-unknown-unknown/release/ddalab_wasm.wasm',
+].map((rel) => fileURLToPath(new URL(rel, import.meta.url)));
+
+export const WASM = WASM_CANDIDATES.find((p) => fs.existsSync(p)) ?? WASM_CANDIDATES[0];
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();

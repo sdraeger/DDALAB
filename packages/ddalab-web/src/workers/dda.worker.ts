@@ -8,7 +8,7 @@ import type { DdaReply, DdaRequest } from "../core/protocol";
 import { openRequestOf, type Part, partsOf, readSource } from "../core/sources";
 import { CACHE_MB } from "../core/tileCache";
 import type { Block, DDARequest } from "../core/types";
-import { stSums } from "../core/webgpu";
+import { gpuSums } from "../core/webgpu";
 import { messageOf } from "../core/words";
 
 /** The files of the recording: file id `n` is `parts[n - 1]`. */
@@ -18,6 +18,7 @@ const core = compileWasm(wasmUrl).then((module) =>
 );
 /** The recording of this worker's run, opened with its first request. */
 let handle: number | undefined;
+let cachedShader: string | undefined;
 
 // After a trap the instance is unusable; the engine fails the run and stops this worker.
 let stopped = false;
@@ -34,7 +35,7 @@ self.addEventListener("message", async ({ data }: MessageEvent<DdaRequest>) => {
     if ("extras" in data) {
       self.postMessage({ ok: engine.manifest(handle, request, data.extras) } satisfies DdaReply);
     } else {
-      const gpu = data.gpu ? await onGpu(await core, handle, request, data.block) : null;
+      const gpu = data.gpu ? await onGpu(engine, handle, request, data.block) : null;
       const ok = gpu ?? engine.runBlock(handle, request, data.block);
       // Dev and e2e builds report the instance's memory with each block (e2e/bench.spec.ts).
       const memory =
@@ -52,10 +53,18 @@ self.addEventListener("message", async ({ data }: MessageEvent<DdaRequest>) => {
   }
 });
 
-/** The block's chunks from sums on the GPU; `null` when it runs on the CPU (not ST alone, no GPU, or a GPU error). */
+/** The block's chunks from exact integer sums on WebGPU; `null` when it falls back to the CPU. */
 async function onGpu(engine: Awaited<typeof core>, handle: number, request: DDARequest, block: Block) {
-  const inputs = engine.stInputs(handle, request, block);
-  if (!inputs) return null;
-  const sums = await stSums(inputs.plan, inputs.rows).catch(() => null);
-  return sums && engine.stFinish(handle, request, block, sums);
+  const prepared = engine.gpuPrepare(handle, request, block);
+  if (!prepared) return null;
+  let finished = false;
+  try {
+    cachedShader ??= engine.gpuShader();
+    const words = await gpuSums(cachedShader, prepared.plan, prepared.data).catch(() => null);
+    if (!words) return null;
+    finished = true;
+    return engine.gpuFinish(prepared.jobId, words);
+  } finally {
+    if (!finished) engine.gpuDrop(prepared.jobId);
+  }
 }

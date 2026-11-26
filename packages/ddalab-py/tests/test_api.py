@@ -212,3 +212,38 @@ def test_a_recording_runs_with_the_reference_it_was_read_with():
     recording = ddalab.read(EDF, reference="average")
     result = ddalab.run(recording, wl=256, ws=256)
     assert result.variants["ST"].row_labels == ["Fp1-avg", "Fp2-avg"]
+
+
+def test_physical_time_parameters_reach_engine():
+    recording = ddalab.read(EDF)
+    # 0.5 s window and 14/20 ms delays converted against fixture.edf's sampling rate
+    expected_wl = round(0.5 * recording.sfreq)
+    expected_delays = [max(1, round(ms * 1e-3 * recording.sfreq)) for ms in (14.0, 20.0)]
+    result = ddalab.run(EDF, wl_s=0.5, delays_ms=[14.0, 20.0])
+    repro = result.document["reproduction"]
+    assert repro["window_length_samples"] == expected_wl
+    assert repro["delays"] == expected_delays
+
+
+def test_to_dataframe_and_to_xarray_when_installed():
+    result = ddalab.run(EDF, variants=["ST", "CT"], wl=100, ws=50, channels=[0, 1], ct_pairs=[(0, 1)])
+    with pytest.raises(ValueError, match="multiple variants"):
+        result.to_dataframe()
+    try:
+        import pandas as pd  # noqa: F401
+    except ImportError:
+        with pytest.raises(ImportError, match="pandas"):
+            result.to_dataframe("ST")
+    else:
+        df = result.to_dataframe("ST")
+        assert list(df.index) == result.variants["ST"].row_labels
+        assert df.shape == result.variants["ST"].q.shape
+    try:
+        import xarray as xr  # noqa: F401
+    except ImportError:
+        with pytest.raises(ImportError, match="xarray"):
+            result.to_xarray("ST")
+    else:
+        ds = result.to_xarray("ST")
+        assert ds["q"].shape == result.variants["ST"].q.shape
+        assert list(ds.coords["row"].values) == result.variants["ST"].row_labels

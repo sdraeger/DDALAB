@@ -1,44 +1,27 @@
 //! DDA on any graphics card through wgpu: Vulkan (AMD, NVIDIA, Intel), Metal (Apple) and DX12.
 //!
-//! Every basic flavor fits least squares on designs built from one window's channels: ST on one channel's model
-//! terms T_c and derivative d_c, CT and DE on the rows of a group's channels stacked, CD and SY on [T_s, T_f] against
-//! d_f. Their normal equations are therefore sums of a few dot products per window: each used channel's own (T_c'T_c,
-//! T_c'd_c, d_c'd_c) and, for the pairs CD and SY fit, the cross products (T_a'T_b, T_a'd_b, T_b'd_a). The host
-//! uploads each used channel's term vectors and derivative once per window, the GPU computes those dot products
-//! exactly in integers (gpu_sums.wgsl), and the host assembles and solves each problem's small system in f64. Apple
-//! GPUs have no f64, consumer cards run it slowly, and Metal compiles with fast math, which erases the rounding
-//! errors emulated f64 keeps; integers have no rounding to erase.
-//!
-//! A window with a missing sample in a used channel runs on the CPU, and so does a problem whose sums cannot give the
-//! CPU's solution to about 1e-9: an ill-conditioned system, a near-perfect fit, or one whose singular values the CPU's
-//! SVD would truncate.
+//! Each used channel's term vectors and derivative are uploaded once per window, `gpu_sums.wgsl` computes the normal
+//! equations' dot products exactly in 47-bit fixed-point integers, and the host assembles and solves each problem in
+//! `f64` (via `normal_equations`). Apple GPUs have no `f64`, consumer cards run it slowly, and Metal compiles with
+//! fast math, which erases the rounding errors emulated `f64` keeps; integers have no rounding to erase.
 
-use std::collections::HashMap;
 use std::sync::mpsc;
 
-use nalgebra::{DMatrix, DVector};
 use rayon::prelude::*;
 use wgpu::util::DeviceExt;
 
 use crate::error::{DDAError, Result};
 
 use super::model::ModelSpec;
-use super::regression_batch::{solve_window_on_cpu, BasicJobs, WindowSolutions};
-use super::solver::{
-    build_directed_regression_window, build_group_regression_window, solve_regression_window,
-    SolvedBlock,
+use super::normal_equations::{
+    count_problems, encode_window_fixed, solve_from_sums, sum_of, Layout,
 };
+use super::regression_batch::{solve_window_on_cpu, BasicJobs, WindowSolutions};
 use super::window::PreparedWindow;
 use super::GpuDeviceInfo;
 
 /// The largest buffer one batch binds; the adapter's own limit when that is lower.
 const MAX_BINDING: u64 = 256 << 20;
-/// Rounding the inputs to 2^-46 of each vector's largest value leaves the sums a relative error near 1e-13
-/// (`sums_match_f64`), which a system's condition multiplies into its coefficients and a fit's cancellation into its
-/// error: past these bounds the 1e-9 is lost and the CPU solves.
-const MAX_CONDITION: f64 = 1e4;
-const MIN_RESIDUAL_SHARE: f64 = 1e-4;
-const FRACTION_BITS: i32 = 46;
 
 /// The graphics cards wgpu reaches, discrete before integrated; software rasterizers are left out.
 fn adapters() -> Vec<wgpu::Adapter> {
@@ -78,277 +61,6 @@ pub(super) fn available_devices() -> Vec<GpuDeviceInfo> {
             }
         })
         .collect()
-}
-
-/// The power of two that brings the largest magnitude of `values` into [1, 2), where 47 bits hold them to 2^-46;
-/// scaling by it is exact.
-fn scale_of(values: &[f64]) -> f64 {
-    let largest = values.iter().fold(0.0_f64, |max, v| max.max(v.abs()));
-    if largest > 0.0 {
-        2.0_f64.powi(-(largest.log2().floor() as i32))
-    } else {
-        1.0
-    }
-}
-
-/// `x` (below 2 in magnitude) rounded to a multiple of 2^-46, as the shader reads it: limbs 0 and 1 of its magnitude
-/// in the first word, limb 2 and the sign (bit 31) in the second.
-fn fixed(x: f64) -> [u32; 2] {
-    let q = (x * 2.0_f64.powi(FRACTION_BITS)).round() as i64;
-    let m = q.unsigned_abs();
-    [
-        (m & 0xffff_ffff) as u32,
-        (m >> 32) as u32 | (u32::from(q < 0) << 31),
-    ]
-}
-
-/// A sum from the shader's 20 words: positive minus negative products, each the five limb positions' low words and
-/// carries at weights 2^(16 k), in units of 2^-92.
-fn sum_of(words: &[u32]) -> f64 {
-    let side = |words: &[u32]| -> i128 {
-        (0..5)
-            .map(|k| ((words[2 * k + 1] as i128) << 32 | words[2 * k] as i128) << (16 * k))
-            .sum()
-    };
-    (side(&words[..10]) - side(&words[10..])) as f64 * 2.0_f64.powi(-2 * FRACTION_BITS)
-}
-
-/// Which dot products one window needs and where each lands. Slot i holds a used channel: vectors i (K + 1) + k are
-/// its K model terms and vector i (K + 1) + K its derivative. Per slot come its own sums: the upper triangle of
-/// T'T by rows, T'd, d'd; per crossed pair (a < b) T_a'T_b by rows, T_a'd_b, T_b'd_a.
-struct Layout {
-    terms: usize,
-    channels: Vec<usize>,
-    /// Slot of each channel, by channel index.
-    slot: Vec<usize>,
-    own: Vec<usize>,
-    cross: HashMap<(usize, usize), usize>,
-    pairs: Vec<[u32; 2]>,
-}
-
-impl Layout {
-    fn new(jobs: &BasicJobs<'_>, terms: usize) -> Self {
-        let mut channels: Vec<usize> = jobs
-            .st_channels
-            .iter()
-            .chain(jobs.ct_groups.iter().flatten())
-            .chain(jobs.de_groups.iter().flatten())
-            .chain(jobs.cd_pairs.iter().flatten())
-            .chain(jobs.sy_pairs.iter().flatten())
-            .copied()
-            .collect();
-        channels.sort_unstable();
-        channels.dedup();
-        let mut slot = vec![usize::MAX; channels.last().map_or(0, |&c| c + 1)];
-        for (i, &c) in channels.iter().enumerate() {
-            slot[c] = i;
-        }
-        let vector = |slot: usize, k: usize| (slot * (terms + 1) + k) as u32;
-        let mut pairs = Vec::new();
-        let mut own = Vec::new();
-        for i in 0..channels.len() {
-            own.push(pairs.len());
-            for k in 0..terms {
-                for l in k..terms {
-                    pairs.push([vector(i, k), vector(i, l)]);
-                }
-            }
-            pairs.extend((0..terms).map(|k| [vector(i, k), vector(i, terms)]));
-            pairs.push([vector(i, terms), vector(i, terms)]);
-        }
-        let mut cross = HashMap::new();
-        for &[x, y] in jobs.cd_pairs.iter().chain(jobs.sy_pairs) {
-            let (a, b) = (slot[x.min(y)], slot[x.max(y)]);
-            if a == b || cross.contains_key(&(a, b)) {
-                continue;
-            }
-            cross.insert((a, b), pairs.len());
-            for k in 0..terms {
-                pairs.extend((0..terms).map(|l| [vector(a, k), vector(b, l)]));
-            }
-            pairs.extend((0..terms).map(|k| [vector(a, k), vector(b, terms)]));
-            pairs.extend((0..terms).map(|k| [vector(b, k), vector(a, terms)]));
-        }
-        Self {
-            terms,
-            channels,
-            slot,
-            own,
-            cross,
-            pairs,
-        }
-    }
-
-    fn vectors(&self) -> usize {
-        self.channels.len() * (self.terms + 1)
-    }
-
-    /// T_c[k]'T_c[l].
-    fn tt(&self, s: &[f64], c: usize, k: usize, l: usize) -> f64 {
-        let (k, l) = (k.min(l), k.max(l));
-        let n = self.terms;
-        s[self.own[c] + k * n - k * (k + 1) / 2 + l]
-    }
-
-    /// T_c[k]'d_c.
-    fn td(&self, s: &[f64], c: usize, k: usize) -> f64 {
-        let n = self.terms;
-        s[self.own[c] + n * (n + 1) / 2 + k]
-    }
-
-    fn dd(&self, s: &[f64], c: usize) -> f64 {
-        let n = self.terms;
-        s[self.own[c] + n * (n + 1) / 2 + n]
-    }
-
-    /// Where the cross sums of slots a != b start, and whether (a, b) is the stored pair reversed.
-    fn cross_of(&self, a: usize, b: usize) -> (usize, bool) {
-        if a < b {
-            (self.cross[&(a, b)], false)
-        } else {
-            (self.cross[&(b, a)], true)
-        }
-    }
-
-    /// T_a[k]'T_b[l] for the pair `cross_of(a, b)`.
-    fn cross_tt(&self, s: &[f64], (base, flipped): (usize, bool), k: usize, l: usize) -> f64 {
-        let n = self.terms;
-        if flipped {
-            s[base + l * n + k]
-        } else {
-            s[base + k * n + l]
-        }
-    }
-
-    /// T_a[k]'d_b for the pair `cross_of(a, b)`.
-    fn cross_td(&self, s: &[f64], (base, flipped): (usize, bool), k: usize) -> f64 {
-        let n = self.terms;
-        if flipped {
-            s[base + n * n + n + k]
-        } else {
-            s[base + n * n + k]
-        }
-    }
-
-    /// The normal equations of a group's stacked rows: X'X, X'y, X'r, r'r and the row count.
-    fn group(&self, s: &[f64], channels: &[usize], rows: usize) -> Normal {
-        let n = self.terms;
-        let mut normal = Normal::zeros(n, rows * channels.len());
-        for &channel in channels {
-            let c = self.slot[channel];
-            for k in 0..n {
-                for l in 0..n {
-                    normal.gram[(k, l)] += self.tt(s, c, k, l);
-                }
-                normal.xy[k] += self.td(s, c, k);
-            }
-            normal.rr += self.dd(s, c);
-        }
-        normal.xr = normal.xy.clone();
-        normal
-    }
-
-    /// The normal equations of the fit of `fit`'s derivative on [T_source, T_fit] and its residual on `response`'s
-    /// derivative, `build_directed_regression_window`'s columns.
-    fn directed(
-        &self,
-        s: &[f64],
-        fit: usize,
-        source: usize,
-        response: usize,
-        rows: usize,
-    ) -> Normal {
-        let n = self.terms;
-        let (f, src, r) = (self.slot[fit], self.slot[source], self.slot[response]);
-        // One lookup per problem: (source, fit) for T_s'T_f and T_s'd_f, reversed for T_f'd_s.
-        let pair = self.cross_of(src, f);
-        let reversed = (pair.0, !pair.1);
-        let mut normal = Normal::zeros(2 * n, rows);
-        for k in 0..n {
-            for l in 0..n {
-                normal.gram[(k, l)] = self.tt(s, src, k, l);
-                normal.gram[(n + k, n + l)] = self.tt(s, f, k, l);
-                normal.gram[(k, n + l)] = self.cross_tt(s, pair, k, l);
-                normal.gram[(n + l, k)] = normal.gram[(k, n + l)];
-            }
-            normal.xy[k] = self.cross_td(s, pair, k);
-            normal.xy[n + k] = self.td(s, f, k);
-            normal.xr[k] = if r == src {
-                self.td(s, src, k)
-            } else {
-                normal.xy[k]
-            };
-            normal.xr[n + k] = if r == f {
-                normal.xy[n + k]
-            } else {
-                self.cross_td(s, reversed, k)
-            };
-        }
-        normal.rr = self.dd(s, r);
-        normal
-    }
-}
-
-/// X'X, X'y, X'r and r'r of one least-squares problem with `rows` rows: y the fit target, r the residual target.
-struct Normal {
-    gram: DMatrix<f64>,
-    xy: DVector<f64>,
-    xr: DVector<f64>,
-    rr: f64,
-    rows: usize,
-}
-
-impl Normal {
-    fn zeros(cols: usize, rows: usize) -> Self {
-        Self {
-            gram: DMatrix::zeros(cols, cols),
-            xy: DVector::zeros(cols),
-            xr: DVector::zeros(cols),
-            rr: 0.0,
-            rows,
-        }
-    }
-
-    /// The coefficients and fit error, `None` when the sums cannot give the CPU's to about 1e-9.
-    fn solve(&self) -> Option<SolvedBlock> {
-        let cols = self.xy.len();
-        // Columns equilibrated to unit norm: X_s = X D with D = diag(1 / |x_j|).
-        let norms: Vec<f64> = (0..cols).map(|j| self.gram[(j, j)].sqrt()).collect();
-        if norms.iter().any(|&v| !(v.is_finite() && v > 0.0)) {
-            return None;
-        }
-        let scaled = DMatrix::from_fn(cols, cols, |i, j| self.gram[(i, j)] / (norms[i] * norms[j]));
-        let eigenvalues = scaled.clone().symmetric_eigen().eigenvalues;
-        let (low, high) = eigenvalues
-            .iter()
-            .fold((f64::INFINITY, 0.0_f64), |(lo, hi), &v| {
-                (lo.min(v), hi.max(v))
-            });
-        if low.is_nan() || low <= 0.0 || high / low > MAX_CONDITION {
-            return None;
-        }
-        // The CPU's SVD drops singular values of X below max(rows, cols) eps max(sigma_max, 1) (solver.rs), an
-        // absolute floor that small-amplitude columns fall under. With X = X_s D^-1, X's singular values lie within
-        // those of X_s times the column norms' extremes; a problem the CPU might truncate is left to it.
-        let (n_min, n_max) = norms.iter().fold((f64::INFINITY, 0.0_f64), |(lo, hi), &v| {
-            (lo.min(v), hi.max(v))
-        });
-        let truncation = self.rows.max(cols) as f64 * f64::EPSILON * (high.sqrt() * n_max).max(1.0);
-        if low.sqrt() * n_min <= 2.0 * truncation {
-            return None;
-        }
-        let rhs = DVector::from_fn(cols, |i, _| self.xy[i] / norms[i]);
-        let beta_s = scaled.cholesky()?.solve(&rhs);
-        let beta = DVector::from_fn(cols, |i, _| beta_s[i] / norms[i]);
-        let rss = self.rr - 2.0 * beta.dot(&self.xr) + beta.dot(&(&self.gram * &beta));
-        if rss < MIN_RESIDUAL_SHARE * self.rr {
-            return None;
-        }
-        let rmse = (rss / self.rows as f64).sqrt();
-        let coefficients: Vec<f64> = beta.iter().copied().collect();
-        (coefficients.iter().all(|v| v.is_finite()) && rmse.is_finite())
-            .then_some(SolvedBlock { coefficients, rmse })
-    }
 }
 
 /// One window's vectors as the shader reads them, and the power of two each was scaled by.
@@ -428,33 +140,7 @@ impl GpuSumsSolver {
         // a sample, which the CPU handles.
         let vectors: Vec<Option<Scaled>> = windows
             .par_iter()
-            .map(|window| {
-                let mut data = Vec::with_capacity(layout.vectors() * rows);
-                let mut scales = Vec::with_capacity(layout.vectors());
-                for &channel in &layout.channels {
-                    let derivative = window.deriv[channel].get(..rows)?;
-                    let columns = terms.iter().map(|term| {
-                        (0..rows)
-                            .map(|sample| {
-                                term.iter()
-                                    .map(|&delay| {
-                                        window.shifted[sample + window.max_delay - delay][channel]
-                                    })
-                                    .product::<f64>()
-                            })
-                            .collect::<Vec<f64>>()
-                    });
-                    for column in columns.chain([derivative.to_vec()]) {
-                        if column.iter().any(|v| !v.is_finite()) {
-                            return None;
-                        }
-                        let scale = scale_of(&column);
-                        data.extend(column.iter().map(|&v| fixed(v * scale)));
-                        scales.push(scale);
-                    }
-                }
-                Some((data, scales))
-            })
+            .map(|window| encode_window_fixed(window, &layout, model))
             .collect();
         // Each window binds its vectors and receives 80 bytes per sum: the larger bounds the batch.
         let per_window = (layout.vectors() * rows * 8).max(layout.pairs.len() * 80) as u64;
@@ -608,78 +294,6 @@ impl GpuSumsSolver {
     }
 }
 
-fn count_problems(jobs: &BasicJobs<'_>) -> usize {
-    jobs.st_channels.len()
-        + jobs.ct_groups.len()
-        + jobs.de_groups.len()
-        + jobs.cd_pairs.len()
-        + 2 * jobs.sy_pairs.len()
-}
-
-/// One window's solutions from its sums, the problems it held and how many of them the CPU solved.
-fn solve_from_sums(
-    window: &PreparedWindow,
-    sums: &[f64],
-    layout: &Layout,
-    jobs: &BasicJobs<'_>,
-    model: &ModelSpec,
-) -> (WindowSolutions, usize, usize) {
-    let rows = model.window_length;
-    let fallbacks = std::cell::Cell::new(0);
-    let or_cpu = |normal: Normal, build: &dyn Fn() -> super::solver::RegressionWindow| {
-        normal.solve().unwrap_or_else(|| {
-            fallbacks.set(fallbacks.get() + 1);
-            solve_regression_window(&build())
-        })
-    };
-    let group = |channels: &[usize]| {
-        or_cpu(layout.group(sums, channels, rows), &|| {
-            build_group_regression_window(window, channels, model)
-        })
-    };
-    let directed = |fit: usize, source: usize, response: usize| {
-        if fit == source {
-            fallbacks.set(fallbacks.get() + 1);
-            let problem = build_directed_regression_window(window, fit, source, response, model);
-            return solve_regression_window(&problem);
-        }
-        or_cpu(layout.directed(sums, fit, source, response, rows), &|| {
-            build_directed_regression_window(window, fit, source, response, model)
-        })
-    };
-    let mut st = vec![None; jobs.channel_count];
-    for &channel in jobs.st_channels {
-        st[channel] = Some(group(&[channel]));
-    }
-    let ct: Vec<SolvedBlock> = jobs.ct_groups.iter().map(|g| group(g)).collect();
-    let de = if jobs.de_groups == jobs.ct_groups {
-        ct.clone()
-    } else {
-        jobs.de_groups.iter().map(|g| group(g)).collect()
-    };
-    let solutions = WindowSolutions {
-        st,
-        ct,
-        de,
-        cd: jobs
-            .cd_pairs
-            .iter()
-            .map(|&[target, source]| directed(target, source, target))
-            .collect(),
-        sy_forward: jobs
-            .sy_pairs
-            .iter()
-            .map(|&[target, source]| directed(target, source, source))
-            .collect(),
-        sy_reverse: jobs
-            .sy_pairs
-            .iter()
-            .map(|&[left, right]| directed(right, left, left))
-            .collect(),
-    };
-    (solutions, count_problems(jobs), fallbacks.get())
-}
-
 fn gpu_error(context: &str, error: impl std::fmt::Display) -> DDAError {
     DDAError::ExecutionFailed(format!("GPU {context} failed: {error}"))
 }
@@ -687,6 +301,8 @@ fn gpu_error(context: &str, error: impl std::fmt::Display) -> DDAError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::normal_equations::fixed;
+    use crate::engine::solver::SolvedBlock;
 
     fn solver() -> Option<GpuSumsSolver> {
         match GpuSumsSolver::new(0) {

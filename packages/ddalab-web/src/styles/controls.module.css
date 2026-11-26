@@ -42,9 +42,7 @@
 
 .button {
   display: inline-flex;
-  flex-wrap: wrap;
-  align-content: center;
-  align-items: baseline;
+  align-items: center;
   gap: var(--space-2);
   height: var(--hit);
   padding: 0 var(--space-3);
@@ -53,6 +51,7 @@
   background: var(--ground);
   color: var(--ink);
   font-weight: var(--weight-medium);
+  line-height: 1;
   cursor: pointer;
   transition-property: background-color, color, border-color, opacity, transform;
   transition-duration: var(--motion-duration);
@@ -60,9 +59,10 @@
 }
 
 .button svg {
-  block-size: 1cap;
-  inline-size: auto;
-  stroke-width: 2;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.85;
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -146,6 +146,7 @@
   border-radius: var(--radius);
   background: var(--ground);
   color: var(--ink);
+  line-height: 1;
   cursor: pointer;
   user-select: none;
   transition-property: border-color, color, transform;
@@ -172,12 +173,12 @@
 
 .popup {
   min-width: var(--anchor-width);
-  padding: var(--space-1) 0;
+  padding: var(--space-1);
   border: var(--hairline-width) solid var(--hairline);
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   background: var(--ground);
   color: var(--ink);
-  box-shadow: 0 6px 20px rgb(15 25 35 / 0.14);
+  box-shadow: 0 10px 28px rgb(10 18 28 / 0.18);
 }
 
 /* Popups grow out of their trigger (Base UI sets --transform-origin there) and shrink back into it. */
@@ -207,7 +208,8 @@
   grid-template-columns: 14px 1fr;
   align-items: center;
   gap: var(--space-1);
-  padding: 3px var(--space-3) 3px var(--space-2);
+  padding: 4px var(--space-3) 4px var(--space-2);
+  border-radius: var(--radius-small);
   cursor: default;
   user-select: none;
   outline: 0;

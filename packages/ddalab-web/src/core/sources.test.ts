@@ -49,8 +49,10 @@ test("several_primaries_ask", () => {
 });
 
 test("unsupported_formats_say_why", () => {
-  const FORMATS = "DDALAB reads EDF, BDF, BrainVision, EEGLAB and delimited text";
-  expect(buildFileSet(files("scan.fif"))).toEqual({ error: `FIFF files are not supported yet; ${FORMATS}` });
+  const FORMATS = "DDALAB reads EDF, BDF, BrainVision, EEGLAB, FIFF, NWB and delimited text";
+  expect(buildFileSet(files("scan.fif"))).toMatchObject({ primary: "scan.fif" });
+  expect(buildFileSet(files("scan.nwb"))).toMatchObject({ primary: "scan.nwb" });
+  expect(buildFileSet(files("scan.xdf"))).toEqual({ error: `XDF files are not supported yet; ${FORMATS}` });
   expect(buildFileSet(files("notes.pdf"))).toEqual({
     error: `notes.pdf is not a format DDALAB reads; ${FORMATS}`,
   });

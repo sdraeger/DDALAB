@@ -114,7 +114,7 @@ Or download the archive for your system from the [release page](https://github.c
 
 Every archive, installer, wheel and web bundle of a release carries a build provenance attestation: `gh attestation verify <file> --repo sdraeger/DDALAB` shows that GitHub Actions built it from this repository at the release tag.
 
-To update an archive install, download the new archive; run the installer again, or `brew upgrade ddalab`, `scoop update ddalab`. To build from source, run `cargo build --release --locked` in `packages/ddalab-cli`; the program is `target/release/ddalab`.
+To update an archive install, download the new archive; run the installer again, or `brew upgrade ddalab`, `scoop update ddalab`. To build from source, run `cargo build --release --locked -p ddalab` at the repository root; the program is `target/release/ddalab`.
 
 ## Python
 

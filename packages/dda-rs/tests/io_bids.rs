@@ -274,6 +274,8 @@ fn discover_finds_ieeg_and_eeg_only() {
         "sub-01/eeg/sub-01_task-b_eeg.vhdr",
         "sub-02/eeg/sub-02_task-b_eeg.bdf",
         "sub-02/eeg/sub-02_task-c_eeg.EDF",
+        "sub-03/eeg/sub-03_task-c_eeg.fif",
+        "sub-03/ieeg/sub-03_task-c_ieeg.nwb",
     ];
     let skipped = [
         "sub-02/meg/sub-02_task-b_meg.fif",
@@ -282,7 +284,7 @@ fn discover_finds_ieeg_and_eeg_only() {
         "sub-02/eeg/sub-02_task-b_eeg.vmrk",
         "sub-02/eeg/sub-02_task-b_channels.tsv",
         "sub-03/emg/sub-03_task-c_emg.edf",
-        "sub-03/eeg/sub-03_task-c_eeg.fif",
+        "sub-03/eeg/sub-03_task-c_eeg.xdf",
         "sub-03/eeg/noeeg.edf",
         "sub-03/eeg/task_ieeg.edf.bak",
     ];

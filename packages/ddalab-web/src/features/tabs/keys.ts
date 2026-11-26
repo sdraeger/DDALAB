@@ -63,3 +63,14 @@ export const MENU_KEYS: [keys: string, action: string][] = Object.values(SHORTCU
   printed(s),
   s.does,
 ]);
+
+/** Viewer and heatmap shortcuts. */
+export const VIEWER_KEYS: readonly [keys: string, action: string][] = [
+  ["← / →", "Page backward / forward"],
+  ["Home / End", "Jump to start / end of recording"],
+  ["+ / −", "Zoom in / out around cursor"],
+  ["[ / ]", "Decrease / increase sensitivity"],
+  ["↑ / ↓", "Scroll channel rows"],
+  ["Shift + Click", "Overlay up to 4 heatmap rows in line plot"],
+  ["?", "Show or hide keyboard shortcuts"],
+];

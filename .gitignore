@@ -119,6 +119,8 @@ DDA_Intro
 /packages/archive/
 
 # External package repositories kept as local checkouts only.
+/target/
+/packages/ddalab/
 /packages/dda-py/
 /packages/DelayDifferentialAnalysis.jl/
 /packages/dda-rs/examples/*

@@ -4,6 +4,7 @@
 // that never get a reply (the worker script does not load) stop after a few, with the engine unavailable.
 // A DDA run gets a pool of workers of its own, which end with it: a trap or a failed worker fails the run.
 import type { ResultTile } from "../render/resultPyramid";
+import type { Filter } from "./filter";
 import type { FolderFile, KeptRecord } from "./imports";
 import type {
   Annotations,
@@ -98,8 +99,8 @@ export interface Engine {
    * would take too long. The bytes are shared with the tile cache: copy them to transfer them.
    */
   tile(id: string, level: number, index: number): Promise<Tile | null>;
-  /** All display channels, row-major. */
-  raw(id: string, row0: number, rows: number): Promise<Float32Array>;
+  /** All display channels, row-major; when `filter` is given, IIR filtering runs in the IO worker. */
+  raw(id: string, row0: number, rows: number, filter?: Filter): Promise<Float32Array>;
   /** The editable metadata of recording `id`. */
   metadata(id: string): Promise<Metadata>;
   /** The files of the copy of recording `id` with `metadata` (which `metadata` gave, edited); the originals stay. */
@@ -659,7 +660,7 @@ export function createEngine(): Engine {
       requested.set(key, inFlight);
       return inFlight;
     },
-    raw: (id, row0, rows) => call({ type: "raw", id, row0, rows }),
+    raw: (id, row0, rows, filter) => call({ type: "raw", id, row0, rows, ...(filter && { filter }) }),
     metadata: (id) => call({ type: "metadata", id }),
     editCopy: (id, metadata) => call({ type: "editCopy", id, metadata }),
     annotations(id) {
@@ -727,7 +728,7 @@ export function createEngine(): Engine {
             created_at_iso: new Date().toISOString(),
             input_sha256: await inputHashes(id, cancelling.signal),
             windows: plan.windows,
-            ...(pool.usedGpu() ? { compute_device: "webgpu-f32" } : {}),
+            ...(pool.usedGpu() ? { compute_device: "webgpu" } : {}),
           };
           await call({ type: "finishResult", resultId, manifest: await pool.manifest(extras) });
           return { resultId };

@@ -21,11 +21,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # cudarc loads the CUDA driver at run time and the Linux build needs no CUDA toolkit.
-          - { name: linux-x64, runner: ubuntu-22.04, features: "--features cuda", macos_target: "" }
-          - { name: windows-x64, runner: windows-2022, features: "", macos_target: "" }
-          - { name: macos-x64, runner: macos-15-intel, features: "", macos_target: "11.0" }
-          - { name: macos-arm64, runner: macos-15, features: "", macos_target: "11.0" }
+          # cudarc and wgpu load CUDA / Vulkan / Metal / DX12 dynamically at run time (no SDK needed at build time).
+          - { name: linux-x64, runner: ubuntu-22.04, features: "--features cuda,gpu", macos_target: "" }
+          - { name: windows-x64, runner: windows-2022, features: "--features gpu", macos_target: "" }
+          - { name: macos-x64, runner: macos-15-intel, features: "--features gpu", macos_target: "11.0" }
+          - { name: macos-arm64, runner: macos-15, features: "--features gpu", macos_target: "11.0" }
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     env:

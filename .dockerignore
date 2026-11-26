@@ -1,6 +1,10 @@
-# The container (packaging/container/Dockerfile) needs only the engine, the binary and the entrypoint.
+# The container (packaging/container/Dockerfile) needs the workspace manifest, lockfile, Rust crates, and entrypoint.
 *
+!Cargo.toml
+!Cargo.lock
 !packages/dda-rs
 !packages/ddalab-cli
+!packages/ddalab-py
+!packages/ddalab-wasm
 !packaging/container
 **/target

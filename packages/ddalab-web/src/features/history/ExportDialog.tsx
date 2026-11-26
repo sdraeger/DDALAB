@@ -5,6 +5,7 @@ import { Popover } from "@base-ui/react/popover";
 import { useDownload } from "../../app/download";
 import { engine } from "../../app/recordings";
 import { bundleZip } from "../../core/exporters";
+import { exportFigurePng, exportFigureSvg } from "../../core/figureExport";
 import type { AnalysisRecord } from "../../core/history";
 import styles from "./History.module.css";
 
@@ -56,6 +57,24 @@ export default function ExportDialog({ record }: { record: AnalysisRecord }) {
           <span>The Q values of {variant}, a window per line</span>
         </button>
       ))}
+      <button
+        type="button"
+        className={styles.option}
+        disabled={busy}
+        onClick={() => save({ name: `${stem}.figure.png`, make: () => exportFigurePng(record) })}
+      >
+        <b>Figure (PNG)</b>
+        <span>Publication-ready 2× DPI heatmap with axes, annotations, and color bar</span>
+      </button>
+      <button
+        type="button"
+        className={styles.option}
+        disabled={busy}
+        onClick={() => save({ name: `${stem}.figure.svg`, make: () => exportFigureSvg(record) })}
+      >
+        <b>Figure (SVG)</b>
+        <span>Scalable vector labels, ticks, and color bar for paper editing</span>
+      </button>
       {busy && (
         <p className={styles.note} aria-live="polite">
           Preparing the file

@@ -6,7 +6,9 @@ mod brainvision;
 mod edf;
 pub mod edit;
 mod eeglab;
+mod fiff;
 mod mat;
+mod nwb;
 mod recording;
 mod reference;
 mod source;
@@ -18,6 +20,8 @@ pub use bids::discover_bids_recordings;
 pub use brainvision::open_brainvision;
 pub use edf::open_edf;
 pub use eeglab::open_eeglab;
+pub use fiff::open_fiff;
+pub use nwb::open_nwb;
 pub use recording::*;
 pub use reference::*;
 pub use source::*;
@@ -78,6 +82,10 @@ pub enum Format {
     Edf,
     BrainVision,
     Eeglab,
+    /// Neuromag / Elekta / MEGIN / MNE FIFF.
+    Fiff,
+    /// Neurodata Without Borders (NWB 2.x / HDF5).
+    Nwb,
     /// Delimited text, one row per sample.
     Text,
 }
@@ -89,6 +97,8 @@ impl Format {
         ("bdf", Format::Edf),
         ("vhdr", Format::BrainVision),
         ("set", Format::Eeglab),
+        ("fif", Format::Fiff),
+        ("nwb", Format::Nwb),
         ("txt", Format::Text),
         ("csv", Format::Text),
         ("tsv", Format::Text),
@@ -119,6 +129,8 @@ pub fn open_recording(files: &FileSet, sample_rate_hz: Option<f64>) -> Result<Bo
         Format::Edf => open_edf(files, name)?,
         Format::BrainVision => open_brainvision(files, name)?,
         Format::Eeglab => open_eeglab(files, name)?,
+        Format::Fiff => open_fiff(files, name)?,
+        Format::Nwb => open_nwb(files, name)?,
         Format::Text => open_ascii(files, name, sample_rate_hz)?,
     };
     let mut info = reader.info().clone();

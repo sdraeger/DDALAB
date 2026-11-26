@@ -96,6 +96,9 @@ pub fn metadata(files: &FileSet) -> Result<Metadata> {
         Format::BrainVision => brainvision::metadata(files, name),
         Format::Eeglab => eeglab_metadata(files, name),
         Format::Text => ascii::metadata(files, name),
+        Format::Fiff | Format::Nwb => Err(DDAError::UnsupportedFileType(format!(
+            "metadata editing for {name} is not supported yet"
+        ))),
     }
 }
 
@@ -109,6 +112,11 @@ pub fn edit(files: &FileSet, edited: &Metadata) -> Result<Vec<OutFile>> {
         Format::BrainVision => brainvision::edited(files, name, edited)?,
         Format::Eeglab => eeglab_edited(files, name, edited)?,
         Format::Text => ascii::edited(files, name, edited)?,
+        Format::Fiff | Format::Nwb => {
+            return Err(DDAError::UnsupportedFileType(format!(
+                "metadata editing for {name} is not supported yet"
+            )));
+        }
     };
     out.extend(channels_tsv(files, &original, edited));
     Ok(out)

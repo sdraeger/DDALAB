@@ -10,7 +10,7 @@ import { Logo } from "../../app/Logo";
 import { CHECK_TEXT, checkForUpdate } from "../../app/update";
 import { useStore } from "../../store/store";
 import controls from "../../styles/controls.module.css";
-import { LINUX_NOTE, MENU_KEYS, TAB_KEYS } from "../tabs/keys";
+import { LINUX_NOTE, MENU_KEYS, TAB_KEYS, VIEWER_KEYS } from "../tabs/keys";
 import styles from "./About.module.css";
 
 const engineFacts = engineVersion.then(
@@ -83,12 +83,12 @@ function UpdateButton() {
   );
 }
 
-/** Every shortcut beside what it does, set as labeled fields: the application menu's, then the tabs'. */
+/** Every shortcut beside what it does, set as labeled fields: the application menu's, the tabs', and the viewer's. */
 function KeyList() {
   return (
     <>
       <dl className={styles.keys}>
-        {[...MENU_KEYS, ...TAB_KEYS].map(([keys, action]) => (
+        {[...MENU_KEYS, ...TAB_KEYS, ...VIEWER_KEYS].map(([keys, action]) => (
           <div key={keys}>
             <dt>
               <kbd>{keys}</kbd>

@@ -1,12 +1,12 @@
 [package]
 name = "dda-rs"
-version = "2.9.0"
-edition = "2021"
-authors = ["DDALAB Contributors"]
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
 description = "Pure Rust Delay Differential Analysis engine"
-license = "MIT"
-repository = "https://github.com/sdraeger/DDALAB"
-homepage = "https://ddalab.org/"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
 documentation = "https://docs.rs/dda-rs"
 keywords = ["dda", "delay-differential", "analysis", "eeg", "time-series"]
 categories = ["science", "api-bindings"]
@@ -69,3 +69,7 @@ chrono = { version = "0.4", default-features = false, features = ["serde", "std"
 assert_cmd = "2"
 predicates = "3"
 tempfile = "3"
+
+# The distributed CLI binary comes from packages/ddalab-cli.
+[package.metadata.dist]
+dist = false

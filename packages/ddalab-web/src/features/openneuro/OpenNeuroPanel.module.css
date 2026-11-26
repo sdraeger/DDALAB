@@ -94,12 +94,25 @@
   stroke-width: 2;
 }
 
-/* The search's modality and order, under its field. */
+/* The search's modality and order, paired side-by-side under its field with labels stacked above each select. */
 .filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2) var(--space-4);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: var(--space-2);
   margin-top: var(--space-2);
+}
+
+.filters > * {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.filters button {
+  width: 100%;
+  min-width: 0;
 }
 
 /* The snapshot's description over its folder, its facts as the batch panel sets them. */

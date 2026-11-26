@@ -10,7 +10,7 @@ import { lazy, Suspense, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { deleteResult } from "../../app/analyses";
 import { inTransition } from "../../app/viewTransition";
-import { cliCommand } from "../../core/cliCommand";
+import { cliCommand, pythonSnippet } from "../../core/cliCommand";
 import type { DatasetSource } from "../../core/engine";
 import { type AnalysisRecord, resultName } from "../../core/history";
 import { count, messageOf } from "../../core/words";
@@ -66,6 +66,8 @@ export default function Provenance() {
 
 function Details() {
   const record = useStore((s) => s.analyses.find((a) => a.id === s.activeResultId));
+  const hasRecording = useStore((s) => s.activeRecordingId !== null);
+  const [collapsed, setCollapsed] = useState(false);
   if (!record) return null;
   const { request, manifest, plan } = record;
   const reproduction = manifest?.reproduction;
@@ -78,87 +80,106 @@ function Details() {
     <section aria-label="Provenance" className={styles.provenance} data-appear>
       <header className={styles.header}>
         <h2 className={styles.title}>{resultName(record)}</h2>
-        <Actions record={record} />
+        <Actions
+          record={record}
+          collapsible={hasRecording}
+          collapsed={collapsed}
+          onToggleCollapse={() => setCollapsed((c) => !c)}
+        />
       </header>
-      {record.status !== "complete" && (
-        <p
-          key={record.status}
-          role={record.status === "failed" ? "alert" : undefined}
-          className={record.status === "failed" ? styles.error : styles.note}
-          data-appear
-        >
-          {STATUS[record.status]}
-          {record.error && `: ${record.error}`}
-        </p>
-      )}
-      <dl className={styles.fields}>
-        <dt>Channels</dt>
-        <dd>
-          {/* Semicolons: a label can hold a comma (C3,C4). */}
-          {reproduction?.selected_channel_names
-            .map((name, k) => shownLabel(name, request.channels?.[k] ?? k))
-            .join("; ") ?? request.channels?.join(", ")}
-        </dd>
-        <dt>Interval</dt>
-        <dd>
-          {reproduction &&
-            `${seconds(reproduction.start_time_seconds)} to ${seconds(reproduction.end_time_seconds)}, `}
-          samples {request.time_range.start} to {request.time_range.end}
-        </dd>
-        <dt>Window</dt>
-        <dd>
-          {count(request.window_parameters.window_length, "sample")}, step{" "}
-          {request.window_parameters.window_step}
-        </dd>
-        <dt>Delays</dt>
-        <dd>{request.delay_parameters.delays.join(", ")}</dd>
-        <dt>Model</dt>
-        <dd>
-          {listed([
-            request.model_terms && `terms ${request.model_terms.join(" ")}`,
-            model && `dimension ${model.dm}`,
-            model && `order ${model.order}`,
-            model && `${model.nr_tau} delays used`,
-          ])}
-        </dd>
-        <EngineFields record={record} />
-        {plan && (
-          <>
-            <dt>Plan</dt>
+      {!collapsed && (
+        <>
+          {record.status !== "complete" && (
+            <p
+              key={record.status}
+              role={record.status === "failed" ? "alert" : undefined}
+              className={record.status === "failed" ? styles.error : styles.note}
+              data-appear
+            >
+              {STATUS[record.status]}
+              {record.error && `: ${record.error}`}
+            </p>
+          )}
+          <dl className={styles.fields}>
+            <dt>Channels</dt>
+            <dd>
+              {/* Semicolons: a label can hold a comma (C3,C4). */}
+              {reproduction?.selected_channel_names
+                .map((name, k) => shownLabel(name, request.channels?.[k] ?? k))
+                .join("; ") ?? request.channels?.join(", ")}
+            </dd>
+            <dt>Interval</dt>
+            <dd>
+              {reproduction &&
+                `${seconds(reproduction.start_time_seconds)} to ${seconds(reproduction.end_time_seconds)}, `}
+              samples {request.time_range.start} to {request.time_range.end}
+            </dd>
+            <dt>Window</dt>
+            <dd>
+              {count(request.window_parameters.window_length, "sample")}, step{" "}
+              {request.window_parameters.window_step}
+            </dd>
+            <dt>Delays</dt>
+            <dd>{request.delay_parameters.delays.join(", ")}</dd>
+            <dt>Model</dt>
             <dd>
               {listed([
-                count(plan.windows, "window"),
-                plan.blocks !== undefined && count(plan.blocks, "block"),
-                plan.workers !== undefined && count(plan.workers, "worker"),
+                request.model_terms && `terms ${request.model_terms.join(" ")}`,
+                model && `dimension ${model.dm}`,
+                model && `order ${model.order}`,
+                model && `${model.nr_tau} delays used`,
               ])}
             </dd>
-          </>
-        )}
-        <dt>Run</dt>
-        <dd>
-          {when(started)}
-          {record.finishedAt && `, took ${seconds((record.finishedAt - record.createdAt) / 1000)}`}
-          {imported && " by the CLI, imported"}
-        </dd>
-      </dl>
-      {record.dataset && <Dataset source={record.dataset} />}
-      <h3 className={styles.subheading}>Input files</h3>
-      <InputFiles record={record} />
-      {manifest && manifest.diagnostics.length > 0 && (
-        <ul aria-label="Diagnostics" className={styles.diagnostics}>
-          {manifest.diagnostics.map((line) => (
-            <li key={line}>{line}</li>
-          ))}
-        </ul>
+            <EngineFields record={record} />
+            {plan && (
+              <>
+                <dt>Plan</dt>
+                <dd>
+                  {listed([
+                    count(plan.windows, "window"),
+                    plan.blocks !== undefined && count(plan.blocks, "block"),
+                    plan.workers !== undefined && count(plan.workers, "worker"),
+                  ])}
+                </dd>
+              </>
+            )}
+            <dt>Run</dt>
+            <dd>
+              {when(started)}
+              {record.finishedAt && `, took ${seconds((record.finishedAt - record.createdAt) / 1000)}`}
+              {imported && " by the CLI, imported"}
+            </dd>
+          </dl>
+          {record.dataset && <Dataset source={record.dataset} />}
+          <h3 className={styles.subheading}>Input files</h3>
+          <InputFiles record={record} />
+          {manifest && manifest.diagnostics.length > 0 && (
+            <ul aria-label="Diagnostics" className={styles.diagnostics}>
+              {manifest.diagnostics.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          )}
+          <h3 className={styles.subheading}>CLI command</h3>
+          <Command record={record} />
+        </>
       )}
-      <h3 className={styles.subheading}>CLI command</h3>
-      <Command record={record} />
     </section>
   );
 }
 
 /** Export and close, then delete (once confirmed) at the far end; a running result can only be closed. */
-function Actions({ record }: { record: AnalysisRecord }) {
+function Actions({
+  record,
+  collapsible,
+  collapsed,
+  onToggleCollapse,
+}: {
+  record: AnalysisRecord;
+  collapsible: boolean;
+  collapsed: boolean;
+  onToggleCollapse(): void;
+}) {
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const remove = () =>
@@ -205,6 +226,16 @@ function Actions({ record }: { record: AnalysisRecord }) {
           </Popover.Positioner>
         </Popover.Portal>
       </Popover.Root>
+      {collapsible && (
+        <button
+          type="button"
+          className={controls.quiet}
+          aria-expanded={!collapsed}
+          onClick={onToggleCollapse}
+        >
+          {collapsed ? "Details" : "Hide"}
+        </button>
+      )}
       <button
         type="button"
         className={controls.quiet}
@@ -325,30 +356,46 @@ function Dataset({ source }: { source: DatasetSource }) {
 }
 
 function Command({ record }: { record: AnalysisRecord }) {
-  const command = cliCommand(
+  const reference = record.manifest?.reproduction.reference?.reference;
+  const reproduction = record.manifest?.reproduction;
+  const command = cliCommand(record.request, record.fileName, reference);
+  const python = pythonSnippet(
     record.request,
     record.fileName,
-    record.manifest?.reproduction.reference?.reference,
+    reference,
+    reproduction
+      ? { startS: reproduction.start_time_seconds, endS: reproduction.end_time_seconds }
+      : undefined,
   );
-  const [copied, setCopied] = useState<boolean | null>(null);
-  const copy = () =>
+  const [copied, setCopied] = useState<"cli" | "python" | "error" | null>(null);
+  const copyText = (text: string, kind: "cli" | "python") =>
     Promise.resolve()
-      .then(() => navigator.clipboard.writeText(command))
+      .then(() => navigator.clipboard.writeText(text))
       .then(
-        () => setCopied(true),
-        () => setCopied(false),
+        () => setCopied(kind),
+        () => setCopied("error"),
       );
   return (
     <>
       <pre className={styles.command}>{command}</pre>
       <div className={styles.copy}>
-        <button type="button" className={controls.button} onClick={copy}>
+        <button type="button" className={controls.button} onClick={() => copyText(command, "cli")}>
           <Copy aria-hidden />
           Copy command
         </button>
+        <button
+          type="button"
+          className={controls.quiet}
+          title={python}
+          onClick={() => copyText(python, "python")}
+        >
+          <Copy aria-hidden />
+          Copy Python
+        </button>
         <span className={styles.note} aria-live="polite">
-          {copied === true && "Copied"}
-          {copied === false && "The browser did not allow copying; select the command instead."}
+          {copied === "cli" && "Copied"}
+          {copied === "python" && "Copied Python snippet"}
+          {copied === "error" && "The browser did not allow copying; select the command instead."}
         </span>
       </div>
       <p className={styles.note}>Run it in the folder that holds {record.fileName}.</p>

@@ -3,17 +3,24 @@
 # when it names a tag) equals v<version>. Prints the version. Run from the repository root.
 set -euo pipefail
 cargo_version() { sed -n 's/^version = "\(.*\)"/\1/p' "$1" | head -n 1 | tr -d '\r'; }
-version="$(cargo_version packages/dda-rs/Cargo.toml)"
+version="$(cargo_version Cargo.toml)"
 # Bash 3 (macOS runners) has no associative arrays: one line per package.
 check() {
   if [[ "$2" != "$version" ]]; then
-    echo "Versions differ: dda-rs $version, $1 $2" >&2
+    echo "Versions differ: workspace $version, $1 $2" >&2
     exit 1
   fi
 }
-check ddalab "$(cargo_version packages/ddalab-cli/Cargo.toml)"
-check ddalab-py "$(cargo_version packages/ddalab-py/Cargo.toml)"
-check ddalab-wasm "$(cargo_version packages/ddalab-wasm/Cargo.toml)"
+check_crate() {
+  if grep -q '^version\.workspace = true' "$2"; then
+    return 0
+  fi
+  check "$1" "$(cargo_version "$2")"
+}
+check_crate dda-rs packages/dda-rs/Cargo.toml
+check_crate ddalab packages/ddalab-cli/Cargo.toml
+check_crate ddalab-py packages/ddalab-py/Cargo.toml
+check_crate ddalab-wasm packages/ddalab-wasm/Cargo.toml
 check ddalab-wasm/package.json "$(sed -n 's/^  "version": "\(.*\)",/\1/p' packages/ddalab-wasm/package.json | head -n 1 | tr -d '\r')"
 check ddalab-web "$(sed -n 's/^  "version": "\(.*\)",/\1/p' packages/ddalab-web/package.json | head -n 1 | tr -d '\r')"
 check CITATION.cff "$(sed -n 's/^version: //p' CITATION.cff | tr -d '\r')"

@@ -48,7 +48,7 @@ jobs:
       - name: Build and test the package
         working-directory: packages/ddalab-wasm
         run: |
-          cargo build --release --locked --target wasm32-unknown-unknown
+          npm run build
           npm test
           npm pack
 

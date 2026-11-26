@@ -77,7 +77,107 @@ fn load_variant_configs(path: &str) -> Result<HashMap<String, VariantChannelConf
         .collect()
 }
 
+/// Physical-time overrides (`--wl-s`, `--ws-s`, `--delays-ms`) resolved per recording once its sampling rate is known.
+#[derive(Debug, Clone, Default)]
+pub struct PhysicalTiming {
+    pub wl_s: Option<f64>,
+    pub ws_s: Option<f64>,
+    pub delays_ms: Option<Vec<f64>>,
+    pub ws_explicit: bool,
+}
+
+impl PhysicalTiming {
+    pub fn is_empty(&self) -> bool {
+        self.wl_s.is_none() && self.ws_s.is_none() && self.delays_ms.is_none()
+    }
+
+    /// Resolves any physical-time flags into integer samples on `request` for a recording sampled at `sample_rate_hz`.
+    pub fn resolve(&self, request: &mut DDARequest, sample_rate_hz: f64) -> Result<(), String> {
+        if self.is_empty() {
+            return Ok(());
+        }
+        if !sample_rate_hz.is_finite() || sample_rate_hz <= 0.0 {
+            return Err(format!(
+                "Cannot convert physical-time parameters without a positive sampling rate (got {sample_rate_hz})"
+            ));
+        }
+        if let Some(wl_s) = self.wl_s {
+            let wl = seconds_to_samples(wl_s, sample_rate_hz, "--wl-s")?;
+            request.window_parameters.window_length = wl;
+            if self.ws_s.is_none() && !self.ws_explicit {
+                request.window_parameters.window_step = (wl / 2).max(1);
+            }
+        }
+        if let Some(ws_s) = self.ws_s {
+            request.window_parameters.window_step =
+                seconds_to_samples(ws_s, sample_rate_hz, "--ws-s")?;
+        }
+        let wl = request.window_parameters.window_length;
+        let ws = request.window_parameters.window_step;
+        if ws > wl {
+            return Err(format!(
+                "Window step ({ws} samples) must not exceed window length ({wl} samples) at {sample_rate_hz} Hz"
+            ));
+        }
+        if let Some(ref delays_ms) = self.delays_ms {
+            let mut delays = Vec::with_capacity(delays_ms.len());
+            for &ms in delays_ms {
+                if !ms.is_finite() || ms < 0.0 {
+                    return Err(format!(
+                        "Delay value {ms} ms is invalid: delays must be non-negative"
+                    ));
+                }
+                let raw = ms * 1e-3 * sample_rate_hz;
+                if !raw.is_finite() || raw > i32::MAX as f64 {
+                    return Err(format!(
+                        "Delay value {ms} ms overflows sample count at {sample_rate_hz} Hz"
+                    ));
+                }
+                let samples = if ms == 0.0 {
+                    0
+                } else {
+                    raw.round().max(1.0) as i32
+                };
+                delays.push(samples);
+            }
+            request.delay_parameters.delays = delays;
+        }
+        check_request(request)?;
+        Ok(())
+    }
+}
+
+fn seconds_to_samples(seconds: f64, sample_rate_hz: f64, flag: &str) -> Result<u32, String> {
+    let raw = seconds * sample_rate_hz;
+    if !raw.is_finite() || raw <= 0.0 || raw > u32::MAX as f64 {
+        return Err(format!(
+            "{flag} {seconds} s cannot be converted to a sample count at {sample_rate_hz} Hz"
+        ));
+    }
+    Ok(raw.round().max(1.0) as u32)
+}
+
 impl DdaArgs {
+    /// Physical-time overrides to resolve once each recording's sampling rate is known.
+    pub fn physical_timing(&self) -> PhysicalTiming {
+        PhysicalTiming {
+            wl_s: self.wl_s,
+            ws_s: self.ws_s,
+            delays_ms: self.delays_ms.clone(),
+            ws_explicit: self.ws.is_some(),
+        }
+    }
+
+    /// Sample-domain window length (or default when `--wl` is omitted).
+    pub fn wl_samples(&self) -> u32 {
+        self.wl.unwrap_or(crate::DEFAULT_WINDOW_LENGTH)
+    }
+
+    /// Sample-domain window step (or default when `--ws` is omitted).
+    pub fn ws_samples(&self) -> u32 {
+        self.ws.unwrap_or(crate::DEFAULT_WINDOW_STEP)
+    }
+
     /// The request these flags make of `file`, or the message refusing them. A variant config's CT and CD pairs
     /// replace `--ct-pairs` and `--cd-pairs`, and the ST, DE and SY configs' channels replace `--channels`. The time
     /// range is the whole recording and no channels mean its good ones: `analyze` settles both once it is open.
@@ -115,12 +215,24 @@ impl DdaArgs {
             }
         }
 
-        if self.ws > self.wl {
+        let wl = self.wl_samples();
+        let ws = self.ws_samples();
+        if self.wl_s.is_none() && self.ws_s.is_none() && ws > wl {
             return Err(format!(
-                "Window step ({}) must not exceed window length ({})",
-                self.ws, self.wl
+                "Window step ({ws}) must not exceed window length ({wl})"
             ));
         }
+        if let (Some(wl_s), Some(ws_s)) = (self.wl_s, self.ws_s) {
+            if ws_s > wl_s {
+                return Err(format!(
+                    "Window step ({ws_s} s) must not exceed window length ({wl_s} s)"
+                ));
+            }
+        }
+        let delays = self
+            .delays
+            .clone()
+            .unwrap_or_else(|| crate::DEFAULT_DELAYS.to_vec());
 
         let request = DDARequest {
             file_path: file.to_string(),
@@ -138,15 +250,13 @@ impl DdaArgs {
                 enabled_variants: variants,
             },
             window_parameters: WindowParameters {
-                window_length: self.wl,
-                window_step: self.ws,
+                window_length: wl,
+                window_step: ws,
                 // The CT and DE channel-group size and stride; the engine groups every channel when absent.
                 ct_window_length: self.ct_wl,
                 ct_window_step: self.ct_ws,
             },
-            delay_parameters: DelayParameters {
-                delays: self.delays.clone(),
-            },
+            delay_parameters: DelayParameters { delays },
             ct_channel_pairs: ct_pairs,
             cd_channel_pairs: cd_pairs,
             model_parameters: Some(ModelParameters {
@@ -306,5 +416,29 @@ mod tests {
         );
         assert_eq!(request.channels, Some(vec![0, 2]));
         assert_eq!(request.ct_channel_pairs, Some(vec![[0, 1]]));
+    }
+
+    #[test]
+    fn physical_timing_resolves_against_sampling_rate() {
+        let dda = args(&["--wl-s", "0.5", "--delays-ms", "14", "20"]);
+        let mut req = dda.request("f.edf").unwrap();
+        dda.physical_timing().resolve(&mut req, 500.0).unwrap();
+        assert_eq!(req.window_parameters.window_length, 250);
+        // Default 50% overlap when --wl-s is used without --ws or --ws-s.
+        assert_eq!(req.window_parameters.window_step, 125);
+        assert_eq!(req.delay_parameters.delays, vec![7, 10]);
+
+        // At 1000 Hz, the same physical delays double in samples.
+        let mut req_1k = dda.request("f.edf").unwrap();
+        dda.physical_timing().resolve(&mut req_1k, 1000.0).unwrap();
+        assert_eq!(req_1k.window_parameters.window_length, 500);
+        assert_eq!(req_1k.window_parameters.window_step, 250);
+        assert_eq!(req_1k.delay_parameters.delays, vec![14, 20]);
+    }
+
+    #[test]
+    fn physical_timing_rejects_conflicting_flags() {
+        assert!(Cli::try_parse_from(["ddalab", "run", "--file", "f.edf", "--wl", "200", "--wl-s", "0.5"]).is_err());
+        assert!(Cli::try_parse_from(["ddalab", "run", "--file", "f.edf", "--delays", "7", "--delays-ms", "14"]).is_err());
     }
 }

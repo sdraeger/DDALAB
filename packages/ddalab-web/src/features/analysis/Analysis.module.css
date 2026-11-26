@@ -4,12 +4,38 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-4) var(--space-4);
+  padding: var(--space-4);
   border-top: var(--hairline-width) solid var(--hairline);
+}
+
+.headingRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
 }
 
 .heading {
   font-size: var(--text-body);
+  font-weight: var(--weight-strong);
+}
+
+.unitToggle {
+  display: inline-flex;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.unitToggle button {
+  padding-inline: var(--space-2);
+  font-size: var(--text-small);
+}
+
+.unitToggle button[aria-pressed="true"] {
+  background: var(--primary-wash);
+  color: var(--primary);
   font-weight: var(--weight-strong);
 }
 
@@ -243,10 +269,10 @@
 
 .progress progress {
   width: 100%;
-  height: 4px;
+  height: 5px;
   appearance: none;
   border: 0;
-  border-radius: 2px;
+  border-radius: var(--radius-pill);
   background: var(--hairline);
   overflow: hidden;
 }

@@ -285,13 +285,21 @@ pub struct DdaArgs {
     #[arg(long, default_values_t = vec!["ST".to_string()], num_args = 1..)]
     pub variants: Vec<String>,
 
-    /// Window length in samples
-    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_LENGTH, value_parser = clap::value_parser!(u32).range(1..))]
-    pub wl: u32,
+    /// Window length in samples (default: 2000; mutually exclusive with --wl-s)
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+    pub wl: Option<u32>,
 
-    /// Window step in samples
-    #[arg(long, default_value_t = crate::DEFAULT_WINDOW_STEP, value_parser = clap::value_parser!(u32).range(1..))]
-    pub ws: u32,
+    /// Window length in seconds, converted to samples from each recording's sampling rate
+    #[arg(long, conflicts_with = "wl", value_parser = positive_seconds)]
+    pub wl_s: Option<f64>,
+
+    /// Window step in samples (default: 1000, or half of --wl-s when --wl-s is used; mutually exclusive with --ws-s)
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+    pub ws: Option<u32>,
+
+    /// Window step in seconds, converted to samples from each recording's sampling rate
+    #[arg(long, conflicts_with = "ws", value_parser = positive_seconds)]
+    pub ws_s: Option<f64>,
 
     /// Channels per CT and DE group when no pairs are given (default: every selected channel)
     #[arg(long)]
@@ -301,13 +309,13 @@ pub struct DdaArgs {
     #[arg(long)]
     pub ct_ws: Option<u32>,
 
-    /// Delay values (tau)
-    #[arg(
-        long,
-        default_values_t = vec![crate::DEFAULT_DELAYS[0], crate::DEFAULT_DELAYS[1]],
-        num_args = 1..
-    )]
-    pub delays: Vec<i32>,
+    /// Delay values (tau) in samples (default: 7 10; mutually exclusive with --delays-ms)
+    #[arg(long, num_args = 1..)]
+    pub delays: Option<Vec<i32>>,
+
+    /// Delay values (tau) in milliseconds, converted to samples from each recording's sampling rate
+    #[arg(long, num_args = 1.., conflicts_with = "delays", value_parser = non_negative_ms)]
+    pub delays_ms: Option<Vec<f64>>,
 
     /// Model term indices (for -MODEL), e.g. 1 2 10
     /// Defaults to backend defaults when omitted.
@@ -372,7 +380,7 @@ pub struct RangeArgs {
 
 #[derive(Args)]
 pub struct RunArgs {
-    /// Input data file path (EDF, BDF, BrainVision .vhdr, ASCII/TXT/CSV)
+    /// Input data file path (EDF, BDF, BrainVision .vhdr, EEGLAB .set, FIFF .fif, NWB .nwb, ASCII/TXT/CSV)
     #[arg(long)]
     pub file: String,
 
@@ -561,6 +569,14 @@ fn positive_seconds(text: &str) -> Result<f64, String> {
     match text.parse::<f64>() {
         Ok(seconds) if seconds.is_finite() && seconds > 0.0 => Ok(seconds),
         _ => Err(format!("{text} is not a positive number of seconds")),
+    }
+}
+
+/// A non-negative delay in milliseconds.
+fn non_negative_ms(text: &str) -> Result<f64, String> {
+    match text.parse::<f64>() {
+        Ok(ms) if ms.is_finite() && ms >= 0.0 => Ok(ms),
+        _ => Err(format!("{text} is not a non-negative number of milliseconds")),
     }
 }
 

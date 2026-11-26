@@ -11,14 +11,13 @@
 //! read returns a nonzero status. Ids are never reused: a closed or finished id names nothing.
 
 use dda_rs::blocks::{
-    block_of, plan_blocks, run_block, st_from_sums, st_gpu_inputs, st_sums_reference,
-    validate_request,
+    block_of, gpu_sums_reference, plan_blocks, run_block, validate_request, GpuBlockJob,
 };
-use dda_rs::document::{build_manifest, bundle_layout, encode_block, Provenance};
+use dda_rs::document::{build_manifest, bundle_layout, encode_block, BundleLayout, Provenance};
 use dda_rs::io::edit::{edit, metadata, Metadata};
 use dda_rs::io::{open_referenced, BlockCache, BlockPool, ByteSource, FileSet, Reader, Reference};
 use dda_rs::tiles::{encode_tile, raw_tile, PyramidBuilder, Sha256Stream, Tile};
-use dda_rs::{DDAError, DDARequest, PureRustProgress, Result, ENGINE_VERSION};
+use dda_rs::{DDAError, DDARequest, PureRustProgress, Result, ENGINE_VERSION, GPU_SUMS_WGSL};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -70,9 +69,15 @@ struct Pyramid {
     next_row: u64,
 }
 
+struct WasmGpuJob {
+    job: GpuBlockJob,
+    layout: BundleLayout,
+}
+
 static RECORDINGS: Mutex<Table<Arc<dyn Reader>>> = Mutex::new(Table::new());
 static PYRAMIDS: Mutex<Table<Pyramid>> = Mutex::new(Table::new());
 static HASHES: Mutex<Table<Sha256Stream>> = Mutex::new(Table::new());
+static GPU_JOBS: Mutex<Table<WasmGpuJob>> = Mutex::new(Table::new());
 
 fn invalid(message: String) -> DDAError {
     DDAError::InvalidParameter(message)
@@ -124,6 +129,26 @@ fn le_bytes(values: &[f32]) -> Vec<u8> {
     {
         // SAFETY: an f32 has no padding and every byte of it is initialized, u8 has alignment 1, and the length is
         // the slice's size in bytes, so the bytes of `values` are read in place.
+        unsafe {
+            std::slice::from_raw_parts(values.as_ptr().cast::<u8>(), std::mem::size_of_val(values))
+        }
+        .to_vec()
+    }
+    #[cfg(not(target_endian = "little"))]
+    {
+        let mut out = Vec::with_capacity(std::mem::size_of_val(values));
+        for v in values {
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+        out
+    }
+}
+
+/// `values` as little-endian bytes, in one allocation of the exact size.
+fn u32_le_bytes(values: &[u32]) -> Vec<u8> {
+    #[cfg(target_endian = "little")]
+    {
+        // SAFETY: a u32 has no padding and every byte is initialized, u8 has alignment 1.
         unsafe {
             std::slice::from_raw_parts(values.as_ptr().cast::<u8>(), std::mem::size_of_val(values))
         }
@@ -469,7 +494,7 @@ struct Extras {
     created_at_iso: String,
     input_sha256: BTreeMap<String, String>,
     windows: usize,
-    /// Where the run computed, when not the CPU alone ("webgpu-f32").
+    /// Where the run computed, when not the CPU alone ("webgpu").
     #[serde(default)]
     compute_device: Option<String>,
 }
@@ -639,13 +664,19 @@ fn block_job(
     Ok((reader, request, block, windows))
 }
 
-/// `[u32 header_len][header JSON: the GPU plan, or null when the block runs on the CPU][f32 rows]`
-/// (`dda_rs::blocks::st_gpu_inputs`).
+/// Returns the shared `gpu_sums.wgsl` source as `{"ok":"..."}`.
+#[no_mangle]
+pub extern "C" fn ddalab_gpu_shader() -> u64 {
+    json_reply(Ok(GPU_SUMS_WGSL.into()))
+}
+
+/// `[u32 header_len][header JSON: {"job_id": u32, "plan": GpuBlockPlan} or null][u32 data words]`
+/// (`dda_rs::blocks::GpuBlockJob::prepare`).
 ///
 /// # Safety
 /// `req_ptr` and `req_len` name a buffer the host wrote.
 #[no_mangle]
-pub unsafe extern "C" fn ddalab_st_inputs(
+pub unsafe extern "C" fn ddalab_gpu_prepare(
     handle: u32,
     req_ptr: u32,
     req_len: u32,
@@ -653,57 +684,65 @@ pub unsafe extern "C" fn ddalab_st_inputs(
     w1: u32,
 ) -> u64 {
     binary_reply((|| {
-        let (reader, request, block, _) = block_job(handle, input(req_ptr, req_len), w0, w1)?;
-        let inputs = st_gpu_inputs(&*reader, &request, &block)?;
-        let header = serde_json::to_string(&inputs.as_ref().map(|(plan, _)| plan))
+        let (reader, request, block, windows) = block_job(handle, input(req_ptr, req_len), w0, w1)?;
+        let Some((job, plan, data_words)) = GpuBlockJob::prepare(&*reader, &request, &block)?
+        else {
+            let header = b"null";
+            let mut out = (header.len() as u32).to_le_bytes().to_vec();
+            out.extend_from_slice(header);
+            return Ok(out);
+        };
+        let layout = bundle_layout(&request, reader.info(), windows)?;
+        let job_id = GPU_JOBS
+            .lock()
+            .unwrap()
+            .insert(WasmGpuJob { job, layout });
+        let header = serde_json::to_string(&json!({ "job_id": job_id, "plan": plan }))
             .map_err(|e| invalid(e.to_string()))?;
         let mut out = (header.len() as u32).to_le_bytes().to_vec();
         out.extend(header.into_bytes());
-        if let Some((_, rows)) = inputs {
-            out.extend_from_slice(&le_bytes(&rows));
-        }
+        out.extend_from_slice(&u32_le_bytes(&data_words));
         Ok(out)
     })())
 }
 
-/// The block's chunks, framed as `ddalab_run_block` frames them, from the GPU's sums (f32, `st_sum_width` per window
-/// and channel).
+/// Finishes `job_id` from the `gpu_sums.wgsl` output (`u32` words, 20 per window-pair), returning
+/// framed chunks identical to `ddalab_run_block`. Consumes `job_id`.
 ///
 /// # Safety
-/// Both `(ptr, len)` pairs name buffers the host wrote.
+/// `words_ptr` and `words_len` name a buffer the host wrote.
 #[no_mangle]
-pub unsafe extern "C" fn ddalab_st_finish(
-    handle: u32,
-    req_ptr: u32,
-    req_len: u32,
-    w0: u32,
-    w1: u32,
-    sums_ptr: u32,
-    sums_len: u32,
-) -> u64 {
+pub unsafe extern "C" fn ddalab_gpu_finish(job_id: u32, words_ptr: u32, words_len: u32) -> u64 {
     binary_reply((|| {
-        let (reader, request, block, windows) = block_job(handle, input(req_ptr, req_len), w0, w1)?;
-        let sums: Vec<f32> = input(sums_ptr, sums_len)
+        let wasm_job = GPU_JOBS
+            .lock()
+            .unwrap()
+            .take(job_id)
+            .ok_or_else(|| invalid(format!("no GPU job {job_id}")))?;
+        let words: Vec<u32> = input(words_ptr, words_len)
             .as_chunks::<4>()
             .0
             .iter()
-            .map(|b| f32::from_le_bytes(*b))
+            .map(|b| u32::from_le_bytes(*b))
             .collect();
-        let result = st_from_sums(&*reader, &request, &block, &sums)?;
-        framed(
-            &bundle_layout(&request, reader.info(), windows)?,
-            &block,
-            &result,
-        )
+        let block = wasm_job.job.block().clone();
+        let result = wasm_job.job.finish(&words)?;
+        framed(&wasm_job.layout, &block, &result)
     })())
 }
 
-/// The sums of `ddalab_st_inputs` as the reference on the CPU computes them (f32): what the GPU's must equal.
+/// Drops a prepared GPU job when the host falls back to the CPU without calling `ddalab_gpu_finish`.
+#[no_mangle]
+pub extern "C" fn ddalab_gpu_drop(job_id: u32) {
+    GPU_JOBS.lock().unwrap().take(job_id);
+}
+
+/// CPU reference of `gpu_sums.wgsl` on `ddalab_gpu_prepare`'s inputs (packed `u32` words).
 ///
 /// # Safety
 /// `req_ptr` and `req_len` name a buffer the host wrote.
 #[no_mangle]
-pub unsafe extern "C" fn ddalab_st_reference(
+pub unsafe extern "C" fn ddalab_gpu_reference(
     handle: u32,
     req_ptr: u32,
     req_len: u32,
@@ -712,8 +751,8 @@ pub unsafe extern "C" fn ddalab_st_reference(
 ) -> u64 {
     binary_reply((|| {
         let (reader, request, block, _) = block_job(handle, input(req_ptr, req_len), w0, w1)?;
-        let (plan, rows) = st_gpu_inputs(&*reader, &request, &block)?
+        let (_, plan, data_words) = GpuBlockJob::prepare(&*reader, &request, &block)?
             .ok_or_else(|| invalid("this block runs on the CPU".to_string()))?;
-        Ok(le_bytes(&st_sums_reference(&plan, &rows)))
+        Ok(u32_le_bytes(&gpu_sums_reference(&plan, &data_words)))
     })())
 }

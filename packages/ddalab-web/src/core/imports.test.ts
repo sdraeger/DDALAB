@@ -12,7 +12,7 @@ import { deleteAnalysis, listAnalyses } from "./history";
 import { type FolderFile, importResult, importResults } from "./imports";
 import { memoryOpfs, type Tree } from "./memoryOpfs";
 
-const CLI = fileURLToPath(new URL("../../../dda-rs/target/release/ddalab", import.meta.url));
+const CLI = fileURLToPath(new URL("../../../../target/release/ddalab", import.meta.url));
 const FIXTURES = fileURLToPath(new URL("../../../dda-rs/tests/fixtures/", import.meta.url));
 /** Skipped without the native binary, except in CI, which builds it first and must not skip. */
 const noCli = !existsSync(CLI) && !process.env.CI;

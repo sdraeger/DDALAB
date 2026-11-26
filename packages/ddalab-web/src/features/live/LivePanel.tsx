@@ -27,30 +27,35 @@ export function LivePanel() {
   };
   return (
     <section className={rail.section} aria-label="Live stream">
-      <h2 className={rail.heading}>Live stream</h2>
-      <form className={styles.form} onSubmit={connect}>
-        <input
-          className={styles.field}
-          value={address}
-          onChange={(e) => setAddress(e.target.value)}
-          placeholder="ws://127.0.0.1:8765/?token=…"
-          aria-label="Live stream address"
-          spellCheck={false}
-        />
-        <button type="submit" className={controls.button} disabled={!address.trim()}>
-          Connect
-        </button>
-      </form>
-      {error ? (
-        <p className={rail.error} role="alert">
-          {error}
-        </p>
-      ) : (
-        <p className={rail.hint}>
-          Run <code>ddalab stream --stream NAME --serve 8765</code> on this computer and paste the address it
-          prints.
-        </p>
-      )}
+      <details className={styles.disclosure} open={connected !== null || error !== undefined}>
+        <summary className={styles.summary}>
+          <h2 className={rail.heading}>Live stream</h2>
+        </summary>
+        <div className={styles.body}>
+          <form className={styles.form} onSubmit={connect}>
+            <input
+              className={styles.field}
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder="ws://127.0.0.1:8765/?token=…"
+              aria-label="Live stream address"
+              spellCheck={false}
+            />
+            <button type="submit" className={controls.button} disabled={!address.trim()}>
+              Connect
+            </button>
+          </form>
+          {error ? (
+            <p className={rail.error} role="alert">
+              {error}
+            </p>
+          ) : (
+            <p className={rail.hint}>
+              Run <code>ddalab stream --stream NAME --serve 8765</code> and paste its address.
+            </p>
+          )}
+        </div>
+      </details>
       <Dialog.Root open={connected !== null} onOpenChange={(open) => !open && setConnected(null)}>
         <Dialog.Portal>
           <Dialog.Backdrop className={editor.backdrop} />

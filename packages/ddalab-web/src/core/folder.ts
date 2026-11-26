@@ -8,7 +8,7 @@ export type FolderSource =
   | { kind: "entries"; entries: FileSystemEntry[] }
   | { kind: "files"; files: File[] };
 
-export type Format = "EDF" | "BDF" | "BrainVision" | "EEGLAB" | "Text";
+export type Format = "EDF" | "BDF" | "BrainVision" | "EEGLAB" | "FIFF" | "NWB" | "Text";
 
 export interface FolderRecording {
   /** The primary file's path from the opened folder's parent, as `webkitRelativePath` gives it. */
@@ -29,7 +29,14 @@ export interface FolderRecording {
 const skipped = (name: string) => name.startsWith(".") || name === "node_modules";
 /** Names of BIDS tables and sidecars, inside a dataset or outside one. */
 const BIDS_TABLE = /(^participants|_(channels|events|electrodes|scans|sessions))\.tsv$/i;
-const FORMATS: Record<string, Format> = { vhdr: "BrainVision", set: "EEGLAB", edf: "EDF", bdf: "BDF" };
+const FORMATS: Record<string, Format> = {
+  vhdr: "BrainVision",
+  set: "EEGLAB",
+  edf: "EDF",
+  bdf: "BDF",
+  fif: "FIFF",
+  nwb: "NWB",
+};
 // [Common Infos] opens a header; a large file named .vhdr is not read whole.
 const HEADER_BYTES = 64 * 1024;
 

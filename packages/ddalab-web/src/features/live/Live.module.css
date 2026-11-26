@@ -1,4 +1,39 @@
-/* The live stream: its address in the rail, and the dialog with the newest samples and results. */
+/* The live stream: collapsible in the rail until needed, and a dialog with the newest samples and results. */
+.disclosure {
+  display: flex;
+  flex-direction: column;
+}
+
+.summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  list-style: none;
+  cursor: pointer;
+}
+
+.summary::-webkit-details-marker {
+  display: none;
+}
+
+.summary::after {
+  content: "▸";
+  color: var(--muted);
+  font-size: 11px;
+  transition: transform var(--motion-duration) var(--motion-ease);
+}
+
+.disclosure[open] .summary::after {
+  transform: rotate(90deg);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
 .form {
   display: flex;
   gap: var(--space-2);

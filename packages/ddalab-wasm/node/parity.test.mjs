@@ -24,8 +24,8 @@ import { decodeReply, load, unframe } from './host.mjs';
 
 const here = (p) => fileURLToPath(new URL(p, import.meta.url));
 const FIXTURES = here('../../dda-rs/tests/fixtures/');
-const CLI = process.env.DDALAB_CLI ?? here('../../dda-rs/target/release/ddalab');
-const DUMP_TILES = here('../../dda-rs/target/release/examples/dump_tiles');
+const CLI = process.env.DDALAB_CLI ?? here('../../../target/release/ddalab');
+const DUMP_TILES = here('../../../target/release/examples/dump_tiles');
 const PARITY_CSV = here('../results/parity.csv');
 
 const RECORDINGS = [

@@ -2,6 +2,7 @@
 // size, the sensitivity, the timebase, the view interval and the display filter (Filters.tsx). Updated from the frame loop, outside React.
 import { type ReactNode, type Ref, useImperativeHandle, useRef } from "react";
 import { CSS_PX_PER_MM, timebaseOf, type View, voltage } from "../../store/store";
+import { ChannelsMenu } from "./ChannelsMenu";
 import { Filters } from "./Filters";
 import { Reference } from "./Reference";
 import styles from "./Viewer.module.css";
@@ -76,6 +77,7 @@ export function Readouts({ ref }: { ref: Ref<ReadoutsHandle> }) {
           <dt>View</dt>
           <dd ref={interval} />
         </div>
+        <ChannelsMenu />
         <Reference />
         <Filters />
       </dl>

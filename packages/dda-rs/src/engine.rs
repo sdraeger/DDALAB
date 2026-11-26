@@ -4,10 +4,11 @@ mod gpu;
 #[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
 mod gpu_sums;
 pub(crate) mod model;
-mod regression_batch;
+pub(crate) mod normal_equations;
+pub(crate) mod regression_batch;
 mod solver;
 pub(crate) mod variant_config;
-mod window;
+pub(crate) mod window;
 
 #[cfg(test)]
 mod tests;
@@ -41,7 +42,6 @@ use variant_config::{
     resolve_sy_pairs, resolve_variant_selected_channels, VariantMode,
 };
 use window::PreparedWindow;
-pub(crate) use window::NR_EXCLUDE;
 
 pub(crate) const PARALLEL_BATCH_MIN_LEN: usize = 4;
 const CCD_NORMALIZED_EPSILON: f64 = 1e-12;
@@ -176,6 +176,74 @@ pub fn run_request_on_matrix(
     run_request_on_device(request, samples, channel_labels, ComputeDevice::Cpu, None)
 }
 
+/// Precomputed basic-flavor solutions (e.g. from browser WebGPU via `blocks::GpuBlockJob`).
+pub(crate) struct ExternalGpuBasic {
+    pub(crate) solutions: Vec<regression_batch::WindowSolutions>,
+    pub(crate) problems: usize,
+    pub(crate) cpu_fallbacks: usize,
+}
+
+/// Owned basic-flavor job specification resolved identically to `Runner::run`.
+pub(crate) struct ResolvedBasicPlan {
+    pub(crate) channel_count: usize,
+    pub(crate) st_channels: Vec<usize>,
+    pub(crate) ct_groups: Vec<Vec<usize>>,
+    pub(crate) de_groups: Vec<Vec<usize>>,
+    pub(crate) cd_pairs: Vec<[usize; 2]>,
+    pub(crate) sy_pairs: Vec<[usize; 2]>,
+}
+
+impl ResolvedBasicPlan {
+    pub(crate) fn as_jobs(&self) -> BasicJobs<'_> {
+        BasicJobs {
+            channel_count: self.channel_count,
+            st_channels: &self.st_channels,
+            ct_groups: &self.ct_groups,
+            de_groups: &self.de_groups,
+            cd_pairs: &self.cd_pairs,
+            sy_pairs: &self.sy_pairs,
+        }
+    }
+}
+
+pub(crate) fn resolve_basic_plan(request: &DDARequest, cols: usize) -> ResolvedBasicPlan {
+    let variant_mode = VariantMode::from_request(request);
+    let st_channels = resolve_variant_selected_channels(request, cols, "ST");
+    let de_channels = resolve_variant_selected_channels(request, cols, "DE");
+    let sy_channels = resolve_variant_selected_channels(request, cols, "SY");
+    let ct_groups = resolve_ct_groups(request, cols);
+    let de_groups = resolve_de_groups(request, cols, &de_channels);
+    let cd_pairs = resolve_cd_pairs(request, cols);
+    let ccd_pairs = resolve_ccd_pairs(request, cols);
+    let ccd_candidate_channels = resolve_ccd_candidate_channels(request, cols);
+    let sy_pairs = resolve_sy_pairs(&sy_channels);
+    let analysis_channels = collect_analysis_channels(
+        &st_channels,
+        &ct_groups,
+        &de_groups,
+        &cd_pairs,
+        &ccd_pairs,
+        &ccd_candidate_channels,
+    );
+    let enabled_st = variant_mode.st_enabled;
+    let enabled_ct = variant_mode.ct_enabled;
+    let enabled_cd = variant_mode.cd_enabled;
+    let enabled_de = variant_mode.de_enabled;
+    let enabled_sy = variant_mode.sy_mode > 0 && !sy_pairs.is_empty();
+    ResolvedBasicPlan {
+        channel_count: cols,
+        st_channels: if enabled_st || enabled_cd || enabled_de {
+            analysis_channels
+        } else {
+            Vec::new()
+        },
+        ct_groups: if enabled_ct { ct_groups } else { Vec::new() },
+        de_groups: if enabled_de { de_groups } else { Vec::new() },
+        cd_pairs: if enabled_cd { cd_pairs } else { Vec::new() },
+        sy_pairs: if enabled_sy { sy_pairs } else { Vec::new() },
+    }
+}
+
 /// `run_request_on_matrix` on `device`, telling `on_progress` how many windows are done.
 pub fn run_request_on_device(
     request: &DDARequest,
@@ -184,7 +252,20 @@ pub fn run_request_on_device(
     device: ComputeDevice,
     on_progress: Option<&mut dyn FnMut(&PureRustProgress)>,
 ) -> Result<DDAResult> {
-    Runner { device }.run(request, samples, channel_labels, on_progress)
+    Runner { device }.run(request, samples, channel_labels, on_progress, None)
+}
+
+/// Runs `request` on `samples` using already-solved basic-flavor windows (used by `blocks::GpuBlockJob::finish`).
+pub(crate) fn run_request_with_precomputed_basic(
+    request: &DDARequest,
+    samples: &[Vec<f64>],
+    channel_labels: Option<&[String]>,
+    precomputed: ExternalGpuBasic,
+) -> Result<DDAResult> {
+    Runner {
+        device: ComputeDevice::Cpu,
+    }
+    .run(request, samples, channel_labels, None, Some(precomputed))
 }
 
 /// The conditioning set the request's CCD strategy picks for each of its CCD pairs.
@@ -274,6 +355,7 @@ impl Runner {
         samples: &[Vec<f64>],
         channel_labels: Option<&[String]>,
         mut on_progress: Option<&mut dyn FnMut(&PureRustProgress)>,
+        precomputed: Option<ExternalGpuBasic>,
     ) -> Result<DDAResult> {
         let dataset = checked_dataset(request, samples, channel_labels)?;
         let variant_mode = VariantMode::from_request(request);
@@ -440,11 +522,20 @@ impl Runner {
             cd_pairs: if enabled_cd { &cd_pairs } else { &[] },
             sy_pairs: if enabled_sy { &sy_pairs } else { &[] },
         };
-        let mut basic_solver = BasicSolver::new(self.device)?;
+        let is_precomputed = precomputed.is_some();
+        let mut basic_solver = match precomputed {
+            Some(ext) => BasicSolver::Precomputed {
+                solutions: ext.solutions,
+                cursor: 0,
+                problems: ext.problems,
+                cpu_fallbacks: ext.cpu_fallbacks,
+            },
+            None => BasicSolver::new(self.device)?,
+        };
 
         // Windows are prepared and solved in parallel a chunk at a time to bound memory,
         // then filled and reported in window order. A GPU chunk spans a full GPU batch.
-        let min_chunk_len = if self.device.is_gpu() {
+        let min_chunk_len = if self.device.is_gpu() || is_precomputed {
             MAX_WINDOWS_PER_BATCH
         } else {
             8
@@ -541,22 +632,35 @@ impl Runner {
             let chunk_offset = window_idx % chunk_len;
             if chunk_offset == 0 {
                 let chunk = window_idx..num_windows.min(window_idx + chunk_len);
-                if prepared_windows.is_none() {
-                    prepared_chunk = chunk
-                        .clone()
-                        .into_par_iter()
-                        .map(|window_idx| {
-                            prepare_window_for_analysis(&dataset, &bounds, &model, window_idx)
-                        })
-                        .collect::<Result<Vec<_>>>()?;
-                }
-                let windows = prepared_windows
-                    .as_deref()
-                    .map_or(&prepared_chunk[..], |windows| &windows[chunk]);
-                solved_chunk =
-                    solve_basic_windows(windows, &basic_jobs, &model, &mut basic_solver)?;
-                if enabled_ccd_core {
-                    ccd_chunk = windows.par_iter().map(ccd_window).collect::<Vec<_>>();
+                let chunk_count = chunk.len();
+                if is_precomputed && !enabled_ccd_core {
+                    let BasicSolver::Precomputed {
+                        solutions, cursor, ..
+                    } = &mut basic_solver
+                    else {
+                        unreachable!();
+                    };
+                    let end = (*cursor + chunk_count).min(solutions.len());
+                    solved_chunk = solutions[*cursor..end].to_vec();
+                    *cursor = end;
+                } else {
+                    if prepared_windows.is_none() {
+                        prepared_chunk = chunk
+                            .clone()
+                            .into_par_iter()
+                            .map(|window_idx| {
+                                prepare_window_for_analysis(&dataset, &bounds, &model, window_idx)
+                            })
+                            .collect::<Result<Vec<_>>>()?;
+                    }
+                    let windows = prepared_windows
+                        .as_deref()
+                        .map_or(&prepared_chunk[..], |windows| &windows[chunk]);
+                    solved_chunk =
+                        solve_basic_windows(windows, &basic_jobs, &model, &mut basic_solver)?;
+                    if enabled_ccd_core {
+                        ccd_chunk = windows.par_iter().map(ccd_window).collect::<Vec<_>>();
+                    }
                 }
             }
             let solved = &solved_chunk[chunk_offset];
@@ -848,7 +952,7 @@ impl Runner {
         // A perturbed run that fails leaves CCDSTAB with fewer runs to compare, which the result's notes say.
         let mut failures = Vec::new();
         for (index, perturbed) in perturbed_requests.into_iter().enumerate() {
-            let result = match self.run(&perturbed, samples, channel_labels, None) {
+            let result = match self.run(&perturbed, samples, channel_labels, None, None) {
                 Ok(result) => result,
                 Err(error) => {
                     failures.push(format!(
@@ -1026,7 +1130,7 @@ pub(crate) fn analysis_window_count(bounds: &AnalysisBounds, model: &ModelSpec) 
     Ok(1 + (bounds.len - required_rows) / model.window_step)
 }
 
-fn prepare_analysis_windows(
+pub(crate) fn prepare_analysis_windows(
     dataset: &MatrixDataset<'_>,
     bounds: &AnalysisBounds,
     model: &ModelSpec,

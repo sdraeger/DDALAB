@@ -38,6 +38,8 @@ export interface TabView {
   view: Omit<View, "mmPerCssMm">;
   selection: { t0: number; t1: number } | null;
   selectedChannels: number[];
+  /** Custom viewed channels in the waveform (`null`/omitted: all display channels). */
+  viewedChannels?: number[] | null;
   shownResult: ShownResult | null;
   activeResultId: string | null;
 }

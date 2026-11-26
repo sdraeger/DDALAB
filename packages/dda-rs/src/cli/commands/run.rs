@@ -3,6 +3,7 @@ use crate::blocks::{
     check_block_support, merge_blocks, plan_blocks, run_block, validate_request, Block,
 };
 use crate::cli::args::{RangeArgs, RunArgs};
+use crate::cli::dda_params::PhysicalTiming;
 use crate::cli::{execution_error as execution, input_error as input, output, Failure};
 use crate::document::{
     build_document, build_manifest, bundle_layout, encode_block, BundleLayout, BundleWriter,
@@ -23,6 +24,7 @@ const HASH_SLICE: usize = 4 << 20;
 /// sets the request's time range from `range` and, when it names none, its channels.
 pub struct Job {
     pub request: DDARequest,
+    pub timing: PhysicalTiming,
     pub range: RangeArgs,
     /// The reference the recording opens with (`--reference`).
     pub reference: Option<Reference>,
@@ -38,6 +40,7 @@ impl Job {
     pub fn of(args: &RunArgs) -> Result<Job, String> {
         Ok(Job {
             request: args.dda.request(&args.file)?,
+            timing: args.dda.physical_timing(),
             range: args.range.clone(),
             reference: args.dda.reference.parse()?,
             device: args.device,
@@ -52,6 +55,8 @@ pub struct Analysis {
     pub document: ResultDocument,
     /// The recording's warnings, also in the document's diagnostics.
     pub warnings: Vec<String>,
+    /// The recording's sampling rate in Hz.
+    pub sample_rate_hz: f64,
 }
 
 /// The SHA-256 of `source`, hex.
@@ -170,6 +175,9 @@ pub fn analyze_open(job: Job, files: &FileSet, reader: &dyn Reader) -> Result<An
         return Err(input(format!("{file} has no analysis channel to run on")));
     }
     request.channels = Some(channels);
+    job.timing
+        .resolve(&mut request, info.sample_rate_hz)
+        .map_err(|e| input(format!("{file}: {e}")))?;
     validate_request(&request, analysis.len()).map_err(|e| input(format!("{file}: {e}")))?;
     let (first, last) = job.range.samples(info, &file).map_err(input)?;
     request.time_range = TimeRange {
@@ -266,6 +274,7 @@ pub fn analyze_open(job: Job, files: &FileSet, reader: &dyn Reader) -> Result<An
     Ok(Analysis {
         document,
         warnings: info.warnings.clone(),
+        sample_rate_hz: info.sample_rate_hz,
     })
 }
 
@@ -275,7 +284,18 @@ pub fn execute(args: RunArgs) -> Result<(), Failure> {
         eprintln!("Running DDA analysis on {}...", args.file);
         let variants = &job.request.algorithm_selection.enabled_variants;
         eprintln!("  Variants: {}", variants.join(", "));
-        eprintln!("  Window: length={}, step={}", args.dda.wl, args.dda.ws);
+        if let Some(wl_s) = args.dda.wl_s {
+            match args.dda.ws_s {
+                Some(ws_s) => eprintln!("  Window: length={wl_s}s, step={ws_s}s"),
+                None => eprintln!("  Window: length={wl_s}s"),
+            }
+        } else {
+            eprintln!(
+                "  Window: length={}, step={}",
+                args.dda.wl_samples(),
+                args.dda.ws_samples()
+            );
+        }
     }
     let analysis = analyze(job)?;
     if !args.quiet {

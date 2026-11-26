@@ -30,6 +30,106 @@ export interface DdaDraft extends Omit<DdaForm, "variants"> {
 /** What standard mode always sends (the CLI's defaults). */
 export const STANDARD = { delays: [7, 10], modelTerms: [1, 2, 10], dm: 4, order: 4, nrTau: 2 };
 
+export interface DdaPreset {
+  id: string;
+  name: string;
+  citation: string;
+  variants: string[];
+  /** Physical window length and step in seconds (scaled by recording rate when known). */
+  windowS: number;
+  stepS: number;
+  /** Reference sampling rate in Hz at which the preset's sample delays were characterized. */
+  referenceRateHz: number;
+  delays: number[];
+  modelTerms: number[];
+  dm: number;
+  order: number;
+  nrTau: number;
+  expert: boolean;
+}
+
+/** Literature-cited DDA starting configurations across common neurophysiology modalities. */
+export const DDA_PRESETS: readonly DdaPreset[] = [
+  {
+    id: "ieeg_canonical",
+    name: "iEEG / Seizure (canonical)",
+    citation: "Lainscsek et al., Chaos 2019 — standard ST model [1, 2, 10]",
+    variants: ["ST"],
+    windowS: 2.0,
+    stepS: 1.0,
+    referenceRateHz: 500,
+    delays: [7, 10],
+    modelTerms: [1, 2, 10],
+    dm: 4,
+    order: 4,
+    nrTau: 2,
+    expert: false,
+  },
+  {
+    id: "scalp_eeg",
+    name: "Scalp EEG (resting / sleep)",
+    citation: "Lainscsek & Sejnowski, Neural Comput. 2015 — ST [1, 2, 10]",
+    variants: ["ST"],
+    windowS: 2.0,
+    stepS: 1.0,
+    referenceRateHz: 250,
+    delays: [7, 10],
+    modelTerms: [1, 2, 10],
+    dm: 4,
+    order: 4,
+    nrTau: 2,
+    expert: false,
+  },
+  {
+    id: "coupled_cd_de",
+    name: "Coupled dynamics (ST + CT + CD + DE)",
+    citation: "Lainscsek et al., Chaos 2019 — cross-dynamical coupling [1, 2, 6]",
+    variants: ["ST", "CT", "CD", "DE"],
+    windowS: 2.0,
+    stepS: 1.0,
+    referenceRateHz: 500,
+    delays: [7, 10],
+    modelTerms: [1, 2, 6],
+    dm: 4,
+    order: 4,
+    nrTau: 2,
+    expert: true,
+  },
+  {
+    id: "ecg",
+    name: "ECG / Cardiac dynamics",
+    citation: "Lainscsek & Sejnowski, Chaos 2013 — ST [1, 2, 10], delays 5 & 10",
+    variants: ["ST"],
+    windowS: 4.0,
+    stepS: 1.0,
+    referenceRateHz: 250,
+    delays: [5, 10],
+    modelTerms: [1, 2, 10],
+    dm: 4,
+    order: 4,
+    nrTau: 2,
+    expert: true,
+  },
+];
+
+/** Converts `preset` into a `DdaForm` patch scaled to the recording's sampling rate `rateHz` (when known). */
+export function presetToForm(preset: DdaPreset, rateHz: number): DdaForm {
+  const rate = rateHz > 0 ? rateHz : preset.referenceRateHz;
+  const wl = Math.max(16, Math.round(preset.windowS * rate));
+  const ws = Math.max(1, Math.min(wl, Math.round(preset.stepS * rate)));
+  return {
+    expert: preset.expert,
+    variants: [...preset.variants],
+    windowLength: String(wl),
+    windowStep: String(ws),
+    delays: preset.delays.join(", "),
+    modelTerms: preset.modelTerms.join(" "),
+    dm: String(preset.dm),
+    order: String(preset.order),
+    nrTau: String(preset.nrTau),
+  };
+}
+
 /** The window defaults are the CLI's; ST is its default variant. */
 export const DEFAULT_FORM: DdaForm = {
   expert: false,

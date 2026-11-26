@@ -7,6 +7,8 @@ on:
     tags: ["v*"]
   pull_request:
     paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
       - "packaging/container/**"
       - "packages/dda-rs/**"
       - "packages/ddalab-cli/**"

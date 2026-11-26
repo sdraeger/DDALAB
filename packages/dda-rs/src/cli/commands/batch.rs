@@ -9,8 +9,8 @@ use serde_json::value::RawValue;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-/// A finished recording: its warnings, its output file under --output-dir, and its result or counts.
-type Done = (Vec<String>, Option<String>, Box<RawValue>);
+/// A finished recording: its warnings, sampling rate, output file under --output-dir, and result or counts.
+type Done = (Vec<String>, f64, Option<String>, Box<RawValue>);
 
 /// One recording's line of the manifest. Fields in alphabetical order of their names, as the manifest has always
 /// been written and as the web app writes it (its batch export is compared with this text).
@@ -38,12 +38,15 @@ struct Manifest {
     processed_files: usize,
     results: Vec<Entry>,
     succeeded: usize,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    warnings: Vec<String>,
     with_warnings: usize,
 }
 
 pub fn execute(args: BatchArgs) -> Result<(), Failure> {
     // The request and reference every recording shares, checked before a dry run lists the files.
     let shared = args.dda.request("").map_err(input_error)?;
+    let timing = args.dda.physical_timing();
     let reference = args.dda.reference.parse().map_err(input_error)?;
     let files = resolve_files(&args).map_err(input_error)?;
     if files.is_empty() {
@@ -82,6 +85,7 @@ pub fn execute(args: BatchArgs) -> Result<(), Failure> {
     };
     let total = files.len();
     let mut results: Vec<Entry> = Vec::new();
+    let mut observed_rates: Vec<f64> = Vec::new();
     let mut succeeded = 0usize;
     let mut failed = 0usize;
     let start_time = Instant::now();
@@ -97,6 +101,7 @@ pub fn execute(args: BatchArgs) -> Result<(), Failure> {
                     file_path: file_path.clone(),
                     ..shared.clone()
                 },
+                timing: timing.clone(),
                 range: Default::default(),
                 reference: reference.clone(),
                 device: args.device,
@@ -115,7 +120,7 @@ pub fn execute(args: BatchArgs) -> Result<(), Failure> {
                 // Kept as JSON text until the manifest prints: a parsed tree costs some 32 bytes per number.
                 let inline =
                     serde_json::value::to_raw_value(document).map_err(|e| e.to_string())?;
-                return Ok((analysis.warnings, None, inline));
+                return Ok((analysis.warnings, analysis.sample_rate_hz, None, inline));
             };
             let path = Path::new(dir).join(output_name(file_path));
             output::write_json(document, args.compact, path.to_str())
@@ -131,6 +136,7 @@ pub fn execute(args: BatchArgs) -> Result<(), Failure> {
             .map_err(|e| e.to_string())?;
             Ok((
                 analysis.warnings,
+                analysis.sample_rate_hz,
                 Some(path.to_string_lossy().into_owned()),
                 counts,
             ))
@@ -142,8 +148,11 @@ pub fn execute(args: BatchArgs) -> Result<(), Failure> {
             None => canonical(file_path),
         };
         match outcome {
-            Ok((warnings, output_path, result)) => {
+            Ok((warnings, sample_rate_hz, output_path, result)) => {
                 succeeded += 1;
+                if sample_rate_hz.is_finite() && sample_rate_hz > 0.0 {
+                    observed_rates.push(sample_rate_hz);
+                }
                 results.push(Entry {
                     input_path,
                     resolved_dataset_path: resolved,
@@ -173,6 +182,13 @@ pub fn execute(args: BatchArgs) -> Result<(), Failure> {
         }
     }
 
+    let batch_warnings = mixed_rate_warnings(&observed_rates, &shared, &timing);
+    for warning in &batch_warnings {
+        if !args.quiet {
+            eprintln!("Warning: {warning}");
+        }
+    }
+
     let elapsed = start_time.elapsed();
 
     if !args.quiet {
@@ -191,6 +207,7 @@ pub fn execute(args: BatchArgs) -> Result<(), Failure> {
         processed_files: results.len(),
         succeeded,
         failed,
+        warnings: batch_warnings,
         with_warnings: results.iter().filter(|r| !r.warnings.is_empty()).count(),
         results,
     };
@@ -201,6 +218,52 @@ pub fn execute(args: BatchArgs) -> Result<(), Failure> {
         (_, 0) => Err((exit_codes::EXECUTION_ERROR, String::new())),
         _ => Err((exit_codes::PARTIAL_FAILURE, String::new())),
     }
+}
+
+/// Warns when a batch mixes sampling rates while using sample-based delays or window sizes,
+/// since identical sample delays span different physical timescales across rates.
+fn mixed_rate_warnings(
+    rates: &[f64],
+    shared: &DDARequest,
+    timing: &crate::cli::dda_params::PhysicalTiming,
+) -> Vec<String> {
+    let mut min_rate = f64::INFINITY;
+    let mut max_rate = 0.0f64;
+    for &r in rates {
+        if r.is_finite() && r > 0.0 {
+            min_rate = min_rate.min(r);
+            max_rate = max_rate.max(r);
+        }
+    }
+    // Treat sampling rates within 0.1% as identical (floating-point rounding in headers).
+    if !min_rate.is_finite() || (max_rate - min_rate) <= 1e-3 * max_rate {
+        return Vec::new();
+    }
+    let mut warnings = Vec::new();
+    if timing.delays_ms.is_none() {
+        let delays = &shared.delay_parameters.delays;
+        let fmt_ms = |rate: f64| -> String {
+            delays
+                .iter()
+                .map(|&d| format!("{:.1}", (d as f64) * 1000.0 / rate))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        warnings.push(format!(
+            "Batch recordings span different sampling rates ({min_rate} Hz to {max_rate} Hz) while using sample-based delays {delays:?} ([{}] ms at {min_rate} Hz vs [{}] ms at {max_rate} Hz). Pass --delays-ms to hold physical delay timescales constant across recordings.",
+            fmt_ms(min_rate),
+            fmt_ms(max_rate),
+        ));
+    }
+    if timing.wl_s.is_none() {
+        let wl = shared.window_parameters.window_length;
+        warnings.push(format!(
+            "Batch recordings span different sampling rates ({min_rate} Hz to {max_rate} Hz) while using a sample-based window length ({wl} samples: {:.2} s at {min_rate} Hz vs {:.2} s at {max_rate} Hz). Pass --wl-s / --ws-s to hold physical window duration constant.",
+            wl as f64 / min_rate,
+            wl as f64 / max_rate,
+        ));
+    }
+    warnings
 }
 
 /// The absolute path with links resolved, as Python's `Path.resolve()`; `path` itself when it cannot be resolved.
@@ -440,5 +503,27 @@ mod tests {
         let pattern = format!("{}/*.edf", tmp.path().to_str().unwrap());
         let result = resolve_glob(&pattern).unwrap();
         assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn test_mixed_rate_warnings_triggered_for_sample_delays() {
+        let args = make_batch_args();
+        let req = args.dda.request("").unwrap();
+        let timing = args.dda.physical_timing();
+        assert!(mixed_rate_warnings(&[256.0, 256.0], &req, &timing).is_empty());
+        let warnings = mixed_rate_warnings(&[250.0, 1000.0], &req, &timing);
+        assert_eq!(warnings.len(), 2);
+        assert!(warnings[0].contains("--delays-ms"));
+        assert!(warnings[1].contains("--wl-s"));
+    }
+
+    #[test]
+    fn test_mixed_rate_warnings_silent_with_physical_timing() {
+        let mut args = make_batch_args();
+        args.dda.wl_s = Some(1.0);
+        args.dda.delays_ms = Some(vec![14.0, 20.0]);
+        let req = args.dda.request("").unwrap();
+        let timing = args.dda.physical_timing();
+        assert!(mixed_rate_warnings(&[250.0, 1000.0], &req, &timing).is_empty());
     }
 }

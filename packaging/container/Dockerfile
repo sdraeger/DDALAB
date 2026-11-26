@@ -12,9 +12,12 @@ FROM rust:1-bookworm AS build
 ARG DDALAB_GIT_COMMIT
 ENV DDALAB_GIT_COMMIT=${DDALAB_GIT_COMMIT}
 WORKDIR /src
+COPY Cargo.toml Cargo.lock ./
 COPY packages/dda-rs packages/dda-rs
 COPY packages/ddalab-cli packages/ddalab-cli
-RUN cargo build --release --locked --manifest-path packages/ddalab-cli/Cargo.toml
+COPY packages/ddalab-py packages/ddalab-py
+COPY packages/ddalab-wasm packages/ddalab-wasm
+RUN cargo build --release --locked -p ddalab
 # liblsl for `ddalab stream`: Debian does not package it; this is the upstream build for Ubuntu 22.04 (glibc 2.35).
 ARG LIBLSL=1.17.7
 ARG LIBLSL_SHA256=a73dfca12aaffe65d22599032fa6ba683e9a54e2f8e4212cfdb05d5854b86bec
@@ -30,7 +33,7 @@ LABEL org.opencontainers.image.title="DDALAB" \
       org.opencontainers.image.source="https://github.com/sdraeger/DDALAB" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.version="${VERSION}"
-COPY --from=build /src/packages/ddalab-cli/target/release/ddalab /usr/local/bin/ddalab
+COPY --from=build /src/target/release/ddalab /usr/local/bin/ddalab
 COPY --from=build /src/liblsl.so /usr/local/lib/liblsl.so
 ENV DDALAB_LIBLSL=/usr/local/lib/liblsl.so
 COPY packaging/container/run.sh /usr/local/bin/run.sh

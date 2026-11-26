@@ -1,9 +1,9 @@
 .rail {
   display: flex;
   flex-direction: column;
-  gap: var(--space-6);
+  gap: var(--space-4);
   min-height: 100%;
-  padding: var(--space-4) var(--space-3);
+  padding: var(--space-4);
 }
 
 .section {
@@ -12,11 +12,26 @@
   gap: var(--space-2);
 }
 
-/* Open files and Open folder, stacked, both as wide as the wider. */
+.rail > .section + .section,
+.rail > :not(.section) + .section {
+  padding-top: var(--space-4);
+  border-top: var(--hairline-width) solid var(--hairline);
+}
+
+/* Open files and Open folder (and Import result / folder), cleanly paired on one row and stacking only if very narrow. */
 .actions {
   display: grid;
-  grid-template-columns: max-content;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
   gap: var(--space-2);
+}
+
+.actions > button {
+  flex-wrap: nowrap;
+  justify-content: center;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: 0 var(--space-2);
+  white-space: nowrap;
 }
 
 /* A borderless button that starts a line: its text in the rail's text column, past its own padding. */

@@ -1,18 +1,33 @@
-use std::collections::BTreeMap;
+//! CUDA normal-equations solver using cuBLAS batched FP64 GEMM and persistent device scratch buffers.
+//!
+//! Each used channel's term vectors and derivative are built once per window in column-major `f64` and uploaded
+//! once per batch. One `cublasDgemmStridedBatched` call computes every channel's `(K + 1) x (K + 1)` Gram block
+//! `X_c' X_c`, and when CD/SY pairs are present one `cublasDgemmBatched` call computes the cross blocks `X_a' X_b`.
+//! The host downloads only those tiny Gram blocks and solves each problem via `normal_equations` (falling back to
+//! CPU SVD for ill-conditioned or near-zero-residual problems).
+
 use std::mem::size_of;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Arc;
 
 use cudarc::cublas::{sys, CudaBlas};
-use cudarc::driver::{CudaContext, CudaStream, DevicePtr, DevicePtrMut};
+use cudarc::driver::{
+    CudaContext, CudaSlice, CudaStream, DevicePtr, DevicePtrMut, DeviceRepr, ValidAsZeroBits,
+};
 use rayon::prelude::*;
 
 use crate::error::{DDAError, Result};
 
-use super::solver::{solve_regression_window, RegressionWindow, SolvedBlock};
+use super::model::ModelSpec;
+use super::normal_equations::{
+    count_problems, encode_window_f64, solve_from_sums, unpack_gram_to_sums, Layout,
+};
+use super::regression_batch::{solve_window_on_cpu, BasicJobs, WindowSolutions};
+use super::window::PreparedWindow;
 use super::CudaDeviceInfo;
 
-const CUDA_BATCH_SIZE: usize = 512;
+/// Upper bound on device memory used by one uploaded window batch.
+const MAX_CUDA_BATCH_BYTES: usize = 256 << 20;
 
 pub(super) fn available_devices() -> Vec<CudaDeviceInfo> {
     catch_unwind(AssertUnwindSafe(|| {
@@ -32,10 +47,22 @@ pub(super) fn available_devices() -> Vec<CudaDeviceInfo> {
     .unwrap_or_default()
 }
 
-/// A CUDA context and cuBLAS handle reused for every batch of one run.
+/// Device buffers reused across chunks and `solve_windows` calls, grown lazily when a larger batch arrives.
+#[derive(Default)]
+struct Scratch {
+    vectors: Option<CudaSlice<f64>>,
+    own_grams: Option<CudaSlice<f64>>,
+    cross_grams: Option<CudaSlice<f64>>,
+    a_ptrs: Option<CudaSlice<u64>>,
+    b_ptrs: Option<CudaSlice<u64>>,
+    c_ptrs: Option<CudaSlice<u64>>,
+}
+
+/// A CUDA context, cuBLAS handle, and persistent scratch buffers reused for every batch of one run.
 pub(crate) struct CudaSolver {
     stream: Arc<CudaStream>,
     blas: CudaBlas,
+    scratch: Scratch,
     pub(super) problems: usize,
     pub(super) cpu_fallbacks: usize,
 }
@@ -51,54 +78,292 @@ impl CudaSolver {
             Ok(Self {
                 stream,
                 blas,
+                scratch: Scratch::default(),
                 problems: 0,
                 cpu_fallbacks: 0,
             })
         })
     }
 
-    pub(super) fn solve(&mut self, windows: &[RegressionWindow]) -> Result<Vec<SolvedBlock>> {
-        catch_cuda_panic(|| self.solve_inner(windows))
+    pub(super) fn solve_windows(
+        &mut self,
+        windows: &[PreparedWindow],
+        jobs: &BasicJobs<'_>,
+        model: &ModelSpec,
+    ) -> Result<Vec<WindowSolutions>> {
+        catch_cuda_panic(|| self.solve_windows_inner(windows, jobs, model))
     }
 
-    fn solve_inner(&mut self, windows: &[RegressionWindow]) -> Result<Vec<SolvedBlock>> {
-        let mut solutions = windows
-            .iter()
-            .map(|window| SolvedBlock::nan(window.cols))
-            .collect::<Vec<_>>();
-        let mut groups = BTreeMap::<(usize, usize), Vec<usize>>::new();
+    fn solve_windows_inner(
+        &mut self,
+        windows: &[PreparedWindow],
+        jobs: &BasicJobs<'_>,
+        model: &ModelSpec,
+    ) -> Result<Vec<WindowSolutions>> {
+        let layout = Layout::new(jobs, model.primary_terms.len());
+        if layout.pairs.is_empty() {
+            return Ok(windows
+                .iter()
+                .map(|window| solve_window_on_cpu(window, jobs, model))
+                .collect());
+        }
 
-        for (index, window) in windows.iter().enumerate() {
-            if window.rows == 0 || window.cols == 0 {
-                continue;
+        let rows = model.window_length;
+        let cols = layout.terms + 1;
+        let channel_count = layout.channels.len();
+        let cross_count = layout.cross_pairs.len();
+
+        let encoded: Vec<Option<Vec<f64>>> = windows
+            .par_iter()
+            .map(|window| encode_window_f64(window, &layout, model))
+            .collect();
+
+        let vec_len_per_window = layout.vectors() * rows;
+        let own_len_per_window = channel_count * cols * cols;
+        let cross_len_per_window = cross_count * cols * cols;
+        let bytes_per_window = (vec_len_per_window + own_len_per_window + cross_len_per_window)
+            * size_of::<f64>();
+        let batch_limit = (MAX_CUDA_BATCH_BYTES / bytes_per_window.max(1)).max(1);
+
+        let gpu_indices: Vec<usize> = (0..windows.len())
+            .filter(|&w| encoded[w].is_some())
+            .collect();
+        let mut sums: Vec<Option<Vec<f64>>> = vec![None; windows.len()];
+
+        for chunk in gpu_indices.chunks(batch_limit) {
+            let mut host_vectors = Vec::with_capacity(chunk.len() * vec_len_per_window);
+            for &w in chunk {
+                host_vectors.extend_from_slice(encoded[w].as_ref().unwrap());
             }
-            self.problems += 1;
-            if window.rows < window.cols {
-                solutions[index] = solve_regression_window(window);
-                self.cpu_fallbacks += 1;
-            } else {
-                groups
-                    .entry((window.rows, window.cols))
-                    .or_default()
-                    .push(index);
+            let (own_grams, cross_grams) =
+                self.compute_grams(rows, cols, chunk.len(), &layout, &host_vectors)?;
+            for (local_w, &w) in chunk.iter().enumerate() {
+                let own_slice = &own_grams
+                    [local_w * own_len_per_window..(local_w + 1) * own_len_per_window];
+                let cross_slice = if cross_len_per_window > 0 {
+                    &cross_grams
+                        [local_w * cross_len_per_window..(local_w + 1) * cross_len_per_window]
+                } else {
+                    &[]
+                };
+                sums[w] = Some(unpack_gram_to_sums(own_slice, cross_slice, &layout));
             }
         }
 
-        for ((rows, cols), indices) in groups {
-            for batch in indices.chunks(CUDA_BATCH_SIZE) {
-                self.cpu_fallbacks += solve_batch(
-                    &mut solutions,
-                    windows,
-                    batch,
-                    rows,
-                    cols,
-                    &self.stream,
-                    &self.blas,
-                )?;
+        let solved: Vec<(WindowSolutions, usize, usize)> = windows
+            .par_iter()
+            .zip(&sums)
+            .map(|(window, sums)| match sums {
+                Some(sums) => solve_from_sums(window, sums, &layout, jobs, model),
+                None => {
+                    let solutions = solve_window_on_cpu(window, jobs, model);
+                    let problems = count_problems(jobs);
+                    (solutions, problems, problems)
+                }
+            })
+            .collect();
+
+        Ok(solved
+            .into_iter()
+            .map(|(solutions, problems, fallbacks)| {
+                self.problems += problems;
+                self.cpu_fallbacks += fallbacks;
+                solutions
+            })
+            .collect())
+    }
+
+    /// Computes all per-channel `(cols x cols)` own Gram blocks and (when present) cross-channel blocks on CUDA
+    /// for `window_count` windows whose column-major vectors are packed in `host_vectors`.
+    fn compute_grams(
+        &mut self,
+        rows: usize,
+        cols: usize,
+        window_count: usize,
+        layout: &Layout,
+        host_vectors: &[f64],
+    ) -> Result<(Vec<f64>, Vec<f64>)> {
+        let channel_count = layout.channels.len();
+        let cross_count = layout.cross_pairs.len();
+        let channel_stride = rows * cols;
+        let gram_stride = cols * cols;
+        let own_batch = window_count * channel_count;
+        let own_len = own_batch * gram_stride;
+        let cross_batch = window_count * cross_count;
+        let cross_len = cross_batch * gram_stride;
+
+        ensure_buffer(&self.stream, &mut self.scratch.vectors, host_vectors.len(), "vector allocation")?;
+        ensure_buffer(&self.stream, &mut self.scratch.own_grams, own_len, "own Gram allocation")?;
+        if cross_batch > 0 {
+            ensure_buffer(&self.stream, &mut self.scratch.cross_grams, cross_len, "cross Gram allocation")?;
+            ensure_buffer(&self.stream, &mut self.scratch.a_ptrs, cross_batch, "pointer A allocation")?;
+            ensure_buffer(&self.stream, &mut self.scratch.b_ptrs, cross_batch, "pointer B allocation")?;
+            ensure_buffer(&self.stream, &mut self.scratch.c_ptrs, cross_batch, "pointer C allocation")?;
+        }
+
+        let vec_buf = self.scratch.vectors.as_mut().unwrap();
+        let mut vec_view = vec_buf.slice_mut(..host_vectors.len());
+        self.stream
+            .memcpy_htod(host_vectors, &mut vec_view)
+            .map_err(|error| cuda_error("vector upload", error))?;
+
+        let rows_i32 = as_i32(rows, "row count")?;
+        let cols_i32 = as_i32(cols, "column count")?;
+        let own_batch_i32 = as_i32(own_batch, "own Gram batch size")?;
+        let one = 1.0_f64;
+        let zero = 0.0_f64;
+        let handle = *self.blas.handle();
+
+        {
+            let vec_buf = self.scratch.vectors.as_ref().unwrap();
+            let own_buf = self.scratch.own_grams.as_mut().unwrap();
+            let (vec_ptr, _vec_guard) = vec_buf.device_ptr(&self.stream);
+            let (own_ptr, _own_guard) = own_buf.device_ptr_mut(&self.stream);
+
+            // One strided batched GEMM computes X_c' X_c for every window and channel simultaneously.
+            unsafe {
+                sys::cublasDgemmStridedBatched(
+                    handle,
+                    sys::cublasOperation_t::CUBLAS_OP_T,
+                    sys::cublasOperation_t::CUBLAS_OP_N,
+                    cols_i32,
+                    cols_i32,
+                    rows_i32,
+                    &one,
+                    vec_ptr as usize as *const f64,
+                    rows_i32,
+                    channel_stride as i64,
+                    vec_ptr as usize as *const f64,
+                    rows_i32,
+                    channel_stride as i64,
+                    &zero,
+                    own_ptr as usize as *mut f64,
+                    cols_i32,
+                    gram_stride as i64,
+                    own_batch_i32,
+                )
+                .result()
+                .map_err(|error| cuda_error("batched own Gram GEMM", error))?;
             }
         }
-        Ok(solutions)
+
+        if cross_batch > 0 {
+            let cross_batch_i32 = as_i32(cross_batch, "cross Gram batch size")?;
+            let mut host_a = Vec::with_capacity(cross_batch);
+            let mut host_b = Vec::with_capacity(cross_batch);
+            let mut host_c = Vec::with_capacity(cross_batch);
+            {
+                let vec_buf = self.scratch.vectors.as_ref().unwrap();
+                let cross_buf = self.scratch.cross_grams.as_ref().unwrap();
+                let (vec_ptr, _vec_guard) = vec_buf.device_ptr(&self.stream);
+                let (cross_ptr, _cross_guard) = cross_buf.device_ptr(&self.stream);
+                for w in 0..window_count {
+                    for (p, &(a, b)) in layout.cross_pairs.iter().enumerate() {
+                        host_a.push(byte_offset::<f64>(
+                            vec_ptr,
+                            (w * channel_count + a) * channel_stride,
+                        ));
+                        host_b.push(byte_offset::<f64>(
+                            vec_ptr,
+                            (w * channel_count + b) * channel_stride,
+                        ));
+                        host_c.push(byte_offset::<f64>(
+                            cross_ptr,
+                            (w * cross_count + p) * gram_stride,
+                        ));
+                    }
+                }
+            }
+            {
+                let a_buf = self.scratch.a_ptrs.as_mut().unwrap();
+                let mut a_view = a_buf.slice_mut(..cross_batch);
+                self.stream
+                    .memcpy_htod(&host_a, &mut a_view)
+                    .map_err(|error| cuda_error("pointer A upload", error))?;
+            }
+            {
+                let b_buf = self.scratch.b_ptrs.as_mut().unwrap();
+                let mut b_view = b_buf.slice_mut(..cross_batch);
+                self.stream
+                    .memcpy_htod(&host_b, &mut b_view)
+                    .map_err(|error| cuda_error("pointer B upload", error))?;
+            }
+            {
+                let c_buf = self.scratch.c_ptrs.as_mut().unwrap();
+                let mut c_view = c_buf.slice_mut(..cross_batch);
+                self.stream
+                    .memcpy_htod(&host_c, &mut c_view)
+                    .map_err(|error| cuda_error("pointer C upload", error))?;
+            }
+            let vec_buf = self.scratch.vectors.as_ref().unwrap();
+            let cross_buf = self.scratch.cross_grams.as_mut().unwrap();
+            let a_buf = self.scratch.a_ptrs.as_ref().unwrap();
+            let b_buf = self.scratch.b_ptrs.as_ref().unwrap();
+            let c_buf = self.scratch.c_ptrs.as_ref().unwrap();
+            let (_vec_ptr, _vec_guard) = vec_buf.device_ptr(&self.stream);
+            let (_cross_ptr, _cross_guard) = cross_buf.device_ptr_mut(&self.stream);
+            let (a_arr_ptr, _a_guard) = a_buf.device_ptr(&self.stream);
+            let (b_arr_ptr, _b_guard) = b_buf.device_ptr(&self.stream);
+            let (c_arr_ptr, _c_guard) = c_buf.device_ptr(&self.stream);
+            unsafe {
+                sys::cublasDgemmBatched(
+                    handle,
+                    sys::cublasOperation_t::CUBLAS_OP_T,
+                    sys::cublasOperation_t::CUBLAS_OP_N,
+                    cols_i32,
+                    cols_i32,
+                    rows_i32,
+                    &one,
+                    a_arr_ptr as usize as *const *const f64,
+                    rows_i32,
+                    b_arr_ptr as usize as *const *const f64,
+                    rows_i32,
+                    &zero,
+                    c_arr_ptr as usize as *const *mut f64,
+                    cols_i32,
+                    cross_batch_i32,
+                )
+                .result()
+                .map_err(|error| cuda_error("batched cross Gram GEMM", error))?;
+            }
+        }
+
+        let mut host_own = vec![0.0_f64; own_len];
+        {
+            let own_buf = self.scratch.own_grams.as_ref().unwrap();
+            let own_view = own_buf.slice(..own_len);
+            self.stream
+                .memcpy_dtoh(&own_view, &mut host_own)
+                .map_err(|error| cuda_error("own Gram download", error))?;
+        }
+
+        let mut host_cross = vec![0.0_f64; cross_len];
+        if cross_len > 0 {
+            let cross_buf = self.scratch.cross_grams.as_ref().unwrap();
+            let cross_view = cross_buf.slice(..cross_len);
+            self.stream
+                .memcpy_dtoh(&cross_view, &mut host_cross)
+                .map_err(|error| cuda_error("cross Gram download", error))?;
+        }
+
+        Ok((host_own, host_cross))
     }
+}
+
+fn ensure_buffer<T: DeviceRepr + ValidAsZeroBits>(
+    stream: &Arc<CudaStream>,
+    slot: &mut Option<CudaSlice<T>>,
+    min_len: usize,
+    context: &str,
+) -> Result<()> {
+    if slot.as_ref().is_none_or(|buf| buf.len() < min_len) {
+        *slot = Some(
+            stream
+                .alloc_zeros::<T>(min_len)
+                .map_err(|error| cuda_error(context, error))?,
+        );
+    }
+    Ok(())
 }
 
 fn catch_cuda_panic<T>(run: impl FnOnce() -> Result<T>) -> Result<T> {
@@ -108,237 +373,6 @@ fn catch_cuda_panic<T>(run: impl FnOnce() -> Result<T>) -> Result<T> {
             panic_message(panic)
         ))
     })?
-}
-
-#[allow(clippy::too_many_arguments)]
-fn solve_batch(
-    solutions: &mut [SolvedBlock],
-    windows: &[RegressionWindow],
-    indices: &[usize],
-    rows: usize,
-    cols: usize,
-    stream: &Arc<CudaStream>,
-    blas: &CudaBlas,
-) -> Result<usize> {
-    let batch_size = indices.len();
-    let matrix_stride = rows * cols;
-    let mut designs = vec![0.0; matrix_stride * batch_size];
-    let mut fit_targets = Vec::with_capacity(rows * batch_size);
-    let mut residual_targets = Vec::with_capacity(rows * batch_size);
-
-    // cuBLAS expects column-major designs; transpose the batch in parallel
-    designs
-        .par_chunks_mut(matrix_stride)
-        .zip(indices.par_iter())
-        .for_each(|(design, &index)| {
-            let source = &windows[index].flat_design;
-            for col in 0..cols {
-                for row in 0..rows {
-                    design[col * rows + row] = source[row * cols + col];
-                }
-            }
-        });
-    for &index in indices {
-        fit_targets.extend_from_slice(&windows[index].fit_target);
-        residual_targets.extend_from_slice(&windows[index].residual_target);
-    }
-
-    let original_designs = stream
-        .clone_htod(&designs)
-        .map_err(|error| cuda_error("design upload", error))?;
-    let mut solve_designs = stream
-        .clone_htod(&designs)
-        .map_err(|error| cuda_error("design upload", error))?;
-    let mut solve_targets = stream
-        .clone_htod(&fit_targets)
-        .map_err(|error| cuda_error("target upload", error))?;
-    let mut residuals = stream
-        .clone_htod(&residual_targets)
-        .map_err(|error| cuda_error("residual upload", error))?;
-    let mut predictions = stream
-        .alloc_zeros::<f64>(rows * batch_size)
-        .map_err(|error| cuda_error("prediction allocation", error))?;
-    let mut device_info = stream
-        .alloc_zeros::<i32>(batch_size)
-        .map_err(|error| cuda_error("status allocation", error))?;
-    let mut device_norms = stream
-        .alloc_zeros::<f64>(batch_size)
-        .map_err(|error| cuda_error("norm allocation", error))?;
-    let mut device_diagonals = stream
-        .alloc_zeros::<f64>(cols * batch_size)
-        .map_err(|error| cuda_error("diagonal allocation", error))?;
-
-    let (solve_design_ptr, solve_design_guard) = solve_designs.device_ptr_mut(stream);
-    let (solve_target_ptr, solve_target_guard) = solve_targets.device_ptr_mut(stream);
-    let matrix_pointers = (0..batch_size)
-        .map(|index| byte_offset::<f64>(solve_design_ptr, index * matrix_stride))
-        .collect::<Vec<_>>();
-    let target_pointers = (0..batch_size)
-        .map(|index| byte_offset::<f64>(solve_target_ptr, index * rows))
-        .collect::<Vec<_>>();
-    let device_matrix_pointers = stream
-        .clone_htod(&matrix_pointers)
-        .map_err(|error| cuda_error("matrix pointer upload", error))?;
-    let device_target_pointers = stream
-        .clone_htod(&target_pointers)
-        .map_err(|error| cuda_error("target pointer upload", error))?;
-    let (matrix_array_ptr, matrix_array_guard) = device_matrix_pointers.device_ptr(stream);
-    let (target_array_ptr, target_array_guard) = device_target_pointers.device_ptr(stream);
-    let (device_info_ptr, device_info_guard) = device_info.device_ptr_mut(stream);
-    let (original_design_ptr, original_design_guard) = original_designs.device_ptr(stream);
-    let (prediction_ptr, prediction_guard) = predictions.device_ptr_mut(stream);
-    let (residual_ptr, residual_guard) = residuals.device_ptr_mut(stream);
-    let (norm_ptr, norm_guard) = device_norms.device_ptr_mut(stream);
-    let (diagonal_ptr, diagonal_guard) = device_diagonals.device_ptr_mut(stream);
-
-    let rows_i32 = as_i32(rows, "row count")?;
-    let cols_i32 = as_i32(cols, "feature count")?;
-    let diagonal_stride_i32 = as_i32(rows + 1, "row count")?;
-    let batch_i32 = as_i32(batch_size, "batch size")?;
-    let total_values_i32 = as_i32(rows * batch_size, "batch row count")?;
-    let mut parameter_info = 0_i32;
-    let one = 1.0_f64;
-    let zero = 0.0_f64;
-    let minus_one = -1.0_f64;
-    let handle = *blas.handle();
-
-    // All pointers refer to non-overlapping CUDA allocations with the dimensions
-    // passed below. The guards keep those allocations synchronized for the calls.
-    unsafe {
-        sys::cublasDgelsBatched(
-            handle,
-            sys::cublasOperation_t::CUBLAS_OP_N,
-            rows_i32,
-            cols_i32,
-            1,
-            matrix_array_ptr as usize as *const *mut f64,
-            rows_i32,
-            target_array_ptr as usize as *const *mut f64,
-            rows_i32,
-            &mut parameter_info,
-            device_info_ptr as usize as *mut i32,
-            batch_i32,
-        )
-        .result()
-        .map_err(|error| cuda_error("batched least-squares solve", error))?;
-        if parameter_info != 0 {
-            return Err(DDAError::ExecutionFailed(format!(
-                "CUDA batched least-squares rejected parameter {}",
-                -parameter_info
-            )));
-        }
-        sys::cublasDgemmStridedBatched(
-            handle,
-            sys::cublasOperation_t::CUBLAS_OP_N,
-            sys::cublasOperation_t::CUBLAS_OP_N,
-            rows_i32,
-            1,
-            cols_i32,
-            &one,
-            original_design_ptr as usize as *const f64,
-            rows_i32,
-            matrix_stride as i64,
-            solve_target_ptr as usize as *const f64,
-            cols_i32,
-            rows as i64,
-            &zero,
-            prediction_ptr as usize as *mut f64,
-            rows_i32,
-            rows as i64,
-            batch_i32,
-        )
-        .result()
-        .map_err(|error| cuda_error("batched prediction", error))?;
-        sys::cublasDaxpy_v2(
-            handle,
-            total_values_i32,
-            &minus_one,
-            prediction_ptr as usize as *const f64,
-            1,
-            residual_ptr as usize as *mut f64,
-            1,
-        )
-        .result()
-        .map_err(|error| cuda_error("residual computation", error))?;
-    }
-
-    blas.set_pointer_mode(sys::cublasPointerMode_t::CUBLAS_POINTER_MODE_DEVICE)
-        .map_err(|error| cuda_error("cuBLAS pointer mode", error))?;
-    for batch_index in 0..batch_size {
-        unsafe {
-            sys::cublasDnrm2_v2(
-                handle,
-                rows_i32,
-                byte_offset::<f64>(residual_ptr, batch_index * rows) as usize as *const f64,
-                1,
-                byte_offset::<f64>(norm_ptr, batch_index) as usize as *mut f64,
-            )
-            .result()
-            .map_err(|error| cuda_error("residual norm", error))?;
-            // The diagonal of R, left in the factored design by the QR solve
-            sys::cublasDcopy_v2(
-                handle,
-                cols_i32,
-                byte_offset::<f64>(solve_design_ptr, batch_index * matrix_stride) as usize
-                    as *const f64,
-                diagonal_stride_i32,
-                byte_offset::<f64>(diagonal_ptr, batch_index * cols) as usize as *mut f64,
-                1,
-            )
-            .result()
-            .map_err(|error| cuda_error("R diagonal copy", error))?;
-        }
-    }
-    blas.set_pointer_mode(sys::cublasPointerMode_t::CUBLAS_POINTER_MODE_HOST)
-        .map_err(|error| cuda_error("cuBLAS pointer mode", error))?;
-
-    drop(diagonal_guard);
-    drop(norm_guard);
-    drop(residual_guard);
-    drop(prediction_guard);
-    drop(original_design_guard);
-    drop(device_info_guard);
-    drop(target_array_guard);
-    drop(matrix_array_guard);
-    drop(solve_target_guard);
-    drop(solve_design_guard);
-
-    let host_targets = stream
-        .clone_dtoh(&solve_targets)
-        .map_err(|error| cuda_error("coefficient download", error))?;
-    let host_info = stream
-        .clone_dtoh(&device_info)
-        .map_err(|error| cuda_error("status download", error))?;
-    let host_norms = stream
-        .clone_dtoh(&device_norms)
-        .map_err(|error| cuda_error("norm download", error))?;
-    let host_diagonals = stream
-        .clone_dtoh(&device_diagonals)
-        .map_err(|error| cuda_error("diagonal download", error))?;
-
-    let mut cpu_fallbacks = 0;
-    for (batch_index, &window_index) in indices.iter().enumerate() {
-        let coefficients = host_targets[batch_index * rows..batch_index * rows + cols].to_vec();
-        let rmse = host_norms[batch_index] / (rows as f64).sqrt();
-        // QR without pivoting returns huge finite coefficients for rank-deficient
-        // designs; apply the CPU SVD's truncation tolerance to |R_ii| instead
-        let diagonal = &host_diagonals[batch_index * cols..(batch_index + 1) * cols];
-        let largest = diagonal
-            .iter()
-            .fold(0.0_f64, |max, value| max.max(value.abs()));
-        let tolerance = (rows.max(cols) as f64) * f64::EPSILON * largest.max(1.0);
-        solutions[window_index] = if host_info[batch_index] == 0
-            && diagonal.iter().all(|value| value.abs() > tolerance)
-            && coefficients.iter().all(|value| value.is_finite())
-            && rmse.is_finite()
-        {
-            SolvedBlock { coefficients, rmse }
-        } else {
-            cpu_fallbacks += 1;
-            solve_regression_window(&windows[window_index])
-        };
-    }
-    Ok(cpu_fallbacks)
 }
 
 fn byte_offset<T>(pointer: u64, elements: usize) -> u64 {
@@ -367,36 +401,54 @@ fn panic_message(panic: Box<dyn std::any::Any + Send>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::solver::SolvedBlock;
 
     #[test]
-    fn cuda_matches_cpu_for_full_rank_regressions_when_available() {
-        let windows = (0..6)
-            .map(|window_index| {
-                let mut design = Vec::new();
-                let mut target = Vec::new();
-                for row in 0..96 {
-                    let x = row as f64 / 17.0;
-                    let values = [1.0, x.sin(), (0.7 * x).cos()];
-                    design.extend_from_slice(&values);
-                    target.push(
-                        0.5 * values[0] - 1.2 * values[1]
-                            + (0.8 + window_index as f64 * 0.01) * values[2],
-                    );
+    fn cuda_matches_cpu_for_all_basic_flavors_when_available() {
+        let model = ModelSpec {
+            dm: 4,
+            window_length: 1500,
+            window_step: 500,
+            max_delay: 10,
+            primary_terms: vec![vec![7], vec![10], vec![7, 7, 7, 7]],
+        };
+        let raw_rows = model.span();
+        let channels = 5;
+        let mut state = [0.31, 0.47, 0.62, 0.15, 0.83];
+        let samples: Vec<Vec<f64>> = (0..raw_rows * 3)
+            .map(|t| {
+                let previous = state;
+                for c in 0..channels {
+                    let drive = 0.2 * previous[(c + 1) % channels];
+                    state[c] = 3.8 * previous[c] * (1.0 - previous[c]) * 0.8 + drive * 0.25;
                 }
-                RegressionWindow {
-                    rows: 96,
-                    cols: 3,
-                    flat_design: design,
-                    fit_target: target.clone(),
-                    residual_target: target,
-                }
+                (0..channels)
+                    .map(|c| state[c] + 0.01 * ((t * (c + 3)) as f64).sin())
+                    .collect()
             })
-            .collect::<Vec<_>>();
-        let expected = windows
-            .iter()
-            .map(solve_regression_window)
-            .collect::<Vec<_>>();
-        let actual = match CudaSolver::new(0).and_then(|mut solver| solver.solve(&windows)) {
+            .collect();
+        let windows: Vec<PreparedWindow> = (0..3)
+            .map(|w| {
+                PreparedWindow::from_raw(&samples[w * raw_rows..(w + 1) * raw_rows], &model)
+                    .unwrap()
+            })
+            .collect();
+        let st = [0, 1, 2, 3, 4];
+        let ct = [vec![0, 1], vec![2, 3, 4]];
+        let cd = [[0, 1], [1, 0], [3, 2]];
+        let sy = [[1, 4], [2, 0]];
+        let jobs = BasicJobs {
+            channel_count: channels,
+            st_channels: &st,
+            ct_groups: &ct,
+            de_groups: &ct,
+            cd_pairs: &cd,
+            sy_pairs: &sy,
+        };
+
+        let actual = match CudaSolver::new(0)
+            .and_then(|mut solver| solver.solve_windows(&windows, &jobs, &model))
+        {
             Ok(actual) => actual,
             Err(error) if std::env::var_os("DDA_RS_REQUIRE_CUDA_TEST").is_none() => {
                 eprintln!("CUDA device not available; skipping runtime parity check: {error}");
@@ -405,11 +457,33 @@ mod tests {
             Err(error) => panic!("CUDA runtime parity test failed: {error}"),
         };
 
-        for (cpu, gpu) in expected.iter().zip(actual.iter()) {
-            for (left, right) in cpu.coefficients.iter().zip(&gpu.coefficients) {
-                assert!((left - right).abs() <= 1e-8);
+        let close = |cpu: &SolvedBlock, gpu: &SolvedBlock| {
+            let largest = cpu.coefficients.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
+            for (c, g) in cpu.coefficients.iter().zip(&gpu.coefficients) {
+                assert!((c - g).abs() <= 1e-12 * largest.max(1.0), "{c} vs {g}");
             }
-            assert!((cpu.rmse - gpu.rmse).abs() <= 1e-10);
+            assert!(
+                (cpu.rmse - gpu.rmse).abs() <= 1e-12 * cpu.rmse.max(1.0),
+                "{} vs {}",
+                cpu.rmse,
+                gpu.rmse
+            );
+        };
+        for (window, gpu) in windows.iter().zip(&actual) {
+            let cpu = solve_window_on_cpu(window, &jobs, &model);
+            for (c, g) in cpu.st.iter().flatten().zip(gpu.st.iter().flatten()) {
+                close(c, g);
+            }
+            for (c, g) in [
+                (&cpu.ct, &gpu.ct),
+                (&cpu.de, &gpu.de),
+                (&cpu.cd, &gpu.cd),
+                (&cpu.sy_forward, &gpu.sy_forward),
+                (&cpu.sy_reverse, &gpu.sy_reverse),
+            ] {
+                assert_eq!(c.len(), g.len());
+                c.iter().zip(g).for_each(|(c, g)| close(c, g));
+            }
         }
     }
 }

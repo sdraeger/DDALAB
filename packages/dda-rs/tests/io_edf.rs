@@ -189,19 +189,58 @@ fn annotation_onsets_relative_to_first_record() {
 }
 
 #[test]
-fn annotation_only_edf_refused() {
-    let spec = EdfSpec {
+fn annotation_only_edf_opens_and_pairs_as_companion() {
+    use dda_rs::io::{open_recording, ByteSource, FileSet, MemorySource};
+    use std::sync::Arc;
+
+    let hypnogram = EdfSpec {
         labels: vec![],
         units: vec![],
         rates_per_record: vec![],
         record_duration_s: 0.0,
-        annotations: vec![(0.0, 30.0, "Sleep stage W".into())],
+        annotations: vec![
+            (0.0, 30.0, "Sleep stage W".into()),
+            (30.0, 30.0, "Sleep stage 1".into()),
+        ],
         ..EdfSpec::default()
     };
-    assert_eq!(
-        open_error(edf_bytes(&spec)),
-        "Unsupported file type: annotation-only EDF+ files (no signal channels) are not supported yet"
+    let hyp_bytes = edf_bytes(&hypnogram);
+    let reader = open_bytes(hyp_bytes.clone());
+    assert!(reader.info().analysis_channels().is_empty());
+    assert_eq!(reader.info().sample_count, 0);
+    let (anns, warnings) = reader.scan_annotations().unwrap();
+    assert!(warnings.is_empty());
+    let labels: Vec<&str> = anns.iter().map(|a| a.label.as_str()).collect();
+    assert_eq!(labels, ["Sleep stage W", "Sleep stage 1"]);
+
+    // Paired in a FileSet with a signal EDF: companion annotations are merged onto the signal recording.
+    let psg_bytes = edf_bytes(&EdfSpec::default());
+    let mut files = std::collections::BTreeMap::new();
+    files.insert(
+        "SC4001E0-PSG.edf".to_string(),
+        Arc::new(MemorySource(psg_bytes)) as Arc<dyn ByteSource>,
     );
+    files.insert(
+        "SC4001EC-Hypnogram.edf".to_string(),
+        Arc::new(MemorySource(hyp_bytes)) as Arc<dyn ByteSource>,
+    );
+    let set = FileSet {
+        primary: "SC4001E0-PSG.edf".to_string(),
+        files,
+    };
+    let paired = open_recording(&set, None).unwrap();
+    assert!(!paired.info().analysis_channels().is_empty());
+    assert!(paired
+        .info()
+        .input_files
+        .contains(&"SC4001EC-Hypnogram.edf".to_string()));
+    let (merged, _) = paired.scan_annotations().unwrap();
+    assert!(merged
+        .iter()
+        .any(|a| a.label == "Sleep stage W" && a.source == "SC4001EC-Hypnogram.edf"));
+    assert!(merged
+        .iter()
+        .any(|a| a.label == "Sleep stage 1" && a.onset_s == 30.0 && a.duration_s == 30.0));
 }
 
 #[test]

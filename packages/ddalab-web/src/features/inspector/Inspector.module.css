@@ -67,10 +67,10 @@
 
 .scan progress {
   flex: 1;
-  height: 4px;
+  height: 5px;
   appearance: none;
   border: 0;
-  border-radius: 2px;
+  border-radius: var(--radius-pill);
   background: var(--hairline);
   overflow: hidden;
 }
@@ -113,7 +113,7 @@
   flex: none;
   flex-direction: column;
   gap: var(--space-2);
-  padding: var(--space-3) var(--space-4) 0;
+  padding: var(--space-4) var(--space-4) var(--space-3);
   border-top: var(--hairline-width) solid var(--hairline);
 }
 
@@ -169,6 +169,12 @@
   flex-direction: column;
 }
 
+.groupItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
 .group,
 .channel {
   display: flex;
@@ -180,6 +186,41 @@
   cursor: pointer;
 }
 
+.eyeButton {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: calc(var(--hit) - 4px);
+  height: calc(var(--hit) - 4px);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition-property: background-color, color, opacity;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
+}
+
+.eyeButton svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.75;
+}
+
+.eyeButton[data-hidden] {
+  color: var(--event);
+  opacity: 0.85;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .eyeButton:hover {
+    background: var(--chrome-hover);
+    color: var(--ink);
+  }
+}
+
 .group input,
 .channel input {
   margin: 0;
@@ -189,7 +230,7 @@
   flex: none;
   width: 10px;
   height: 10px;
-  border-radius: 2px;
+  border-radius: 4px;
 }
 
 .acronym {
@@ -212,7 +253,7 @@
 }
 
 .scroller {
-  max-height: calc(6 * 28px);
+  max-height: calc(7 * var(--hit));
   overflow-y: auto;
   margin: 0 calc(-1 * var(--space-4));
   transition-property: opacity;
@@ -233,10 +274,10 @@
   inset: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-2);
   height: var(--hit);
   padding: 0 var(--space-4);
-  transition-property: background-color;
+  transition-property: background-color, opacity;
   transition-duration: var(--motion-duration);
   transition-timing-function: var(--motion-ease);
 }
@@ -258,10 +299,73 @@
   font-size: var(--text-small);
 }
 
+.row[data-hidden] .channel,
+.row[data-hidden] .kind {
+  opacity: 0.5;
+}
+
 .bad {
   color: var(--event);
   font-size: var(--text-small);
   font-weight: var(--weight-strong);
+}
+
+.quickBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px var(--space-1);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.quickLabel {
+  color: var(--muted);
+  font-size: var(--text-small);
+  font-weight: var(--weight-strong);
+  font-variant-caps: all-small-caps;
+  letter-spacing: 0.06em;
+  margin-right: var(--space-1);
+}
+
+.quickBar button {
+  height: calc(var(--hit) - 4px);
+  padding: 0 var(--space-1);
+  font-size: var(--text-small);
+  white-space: nowrap;
+}
+
+.channelActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-2);
+}
+
+.qualityButton {
+  padding: 0 var(--space-1);
+  font-size: var(--text-small);
+  white-space: nowrap;
+}
+
+.viewNote,
+.qualityNote {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-small);
+  line-height: var(--leading-small);
+}
+
+.viewNote button,
+.qualityNote button {
+  height: calc(var(--hit) - 6px);
+  font-size: var(--text-small);
 }
 
 .others {

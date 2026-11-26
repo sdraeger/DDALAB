@@ -5,16 +5,14 @@ use crate::error::Result;
 use super::{
     model::ModelSpec,
     solver::{
-        build_directed_regression_window, build_group_regression_window, solve_channels_parallel,
-        solve_directed_pair, solve_group_block, solve_regression_window, RegressionWindow,
-        SolvedBlock,
+        solve_channels_parallel, solve_directed_pair, solve_group_block, SolvedBlock,
     },
     window::PreparedWindow,
     ComputeDevice,
 };
 
-const MAX_PROBLEMS_PER_BATCH: usize = 2048;
-pub(crate) const MAX_WINDOWS_PER_BATCH: usize = 32;
+/// Minimum prepared-window chunk size fed to GPU solvers (`wgpu` and CUDA sub-batch internally by VRAM limit).
+pub(crate) const MAX_WINDOWS_PER_BATCH: usize = 128;
 
 #[derive(Clone)]
 pub(crate) struct WindowSolutions {
@@ -50,6 +48,13 @@ pub(crate) enum BasicSolver {
     Cuda(super::gpu::CudaSolver),
     #[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
     Gpu(super::gpu_sums::GpuSumsSolver),
+    /// Window solutions already computed externally (e.g. browser WebGPU via `blocks::GpuBlockJob`).
+    Precomputed {
+        solutions: Vec<WindowSolutions>,
+        cursor: usize,
+        problems: usize,
+        cpu_fallbacks: usize,
+    },
 }
 
 impl BasicSolver {
@@ -90,29 +95,13 @@ impl BasicSolver {
             Self::Cuda(solver) => (solver.cpu_fallbacks, solver.problems),
             #[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
             Self::Gpu(solver) => (solver.cpu_fallbacks, solver.problems),
+            Self::Precomputed {
+                problems,
+                cpu_fallbacks,
+                ..
+            } => (*cpu_fallbacks, *problems),
         }
     }
-
-    fn solve(&mut self, problems: &[RegressionWindow]) -> Result<Vec<SolvedBlock>> {
-        match self {
-            Self::Cpu => Ok(solve_channels_parallel(problems, |problem| {
-                solve_regression_window(problem)
-            })),
-            #[cfg(all(feature = "cuda", target_os = "linux"))]
-            Self::Cuda(solver) => solver.solve(problems),
-            #[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
-            Self::Gpu(_) => unreachable!("the GPU solves whole windows (solve_basic_windows)"),
-        }
-    }
-}
-
-pub(super) struct WindowReferences {
-    st: Vec<Option<usize>>,
-    ct: Vec<usize>,
-    de: Vec<usize>,
-    cd: Vec<usize>,
-    sy_forward: Vec<usize>,
-    sy_reverse: Vec<usize>,
 }
 
 pub(crate) fn solve_basic_windows(
@@ -121,46 +110,28 @@ pub(crate) fn solve_basic_windows(
     model: &ModelSpec,
     solver: &mut BasicSolver,
 ) -> Result<Vec<WindowSolutions>> {
-    if matches!(solver, BasicSolver::Cpu) {
-        // Solving each problem as it is built keeps one design matrix per thread in memory
-        return Ok(prepared_windows
-            .par_iter()
-            .map(|prepared| solve_window_on_cpu(prepared, jobs, model))
-            .collect());
-    }
-    #[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
-    if let BasicSolver::Gpu(solver) = solver {
-        return solver.solve_windows(prepared_windows, jobs, model);
-    }
-
-    let jobs_per_window = jobs.st_channels.len()
-        + jobs.ct_groups.len()
-        + if jobs.de_shares_ct() {
-            0
-        } else {
-            jobs.de_groups.len()
+    match solver {
+        BasicSolver::Cpu => {
+            // Solving each problem as it is built keeps one design matrix per thread in memory
+            Ok(prepared_windows
+                .par_iter()
+                .map(|prepared| solve_window_on_cpu(prepared, jobs, model))
+                .collect())
         }
-        + jobs.cd_pairs.len()
-        + 2 * jobs.sy_pairs.len();
-    let windows_per_batch =
-        (MAX_PROBLEMS_PER_BATCH / jobs_per_window.max(1)).clamp(1, MAX_WINDOWS_PER_BATCH);
-    let mut output = Vec::with_capacity(prepared_windows.len());
-
-    for window_batch in prepared_windows.chunks(windows_per_batch) {
-        let mut problems = Vec::with_capacity(window_batch.len() * jobs_per_window);
-        let references = window_batch
-            .iter()
-            .map(|prepared| build_window_references(&mut problems, prepared, jobs, model))
-            .collect::<Vec<_>>();
-        let solutions = solver.solve(&problems)?;
-        output.extend(
-            references
-                .iter()
-                .map(|refs| resolve_window_solutions(refs, &solutions)),
-        );
+        #[cfg(all(feature = "cuda", target_os = "linux"))]
+        BasicSolver::Cuda(solver) => solver.solve_windows(prepared_windows, jobs, model),
+        #[cfg(all(feature = "gpu", not(target_arch = "wasm32")))]
+        BasicSolver::Gpu(solver) => solver.solve_windows(prepared_windows, jobs, model),
+        BasicSolver::Precomputed {
+            solutions, cursor, ..
+        } => {
+            let len = prepared_windows.len();
+            let end = (*cursor + len).min(solutions.len());
+            let slice = solutions[*cursor..end].to_vec();
+            *cursor = end;
+            Ok(slice)
+        }
     }
-
-    Ok(output)
 }
 
 pub(crate) fn solve_window_on_cpu(
@@ -202,108 +173,5 @@ pub(crate) fn solve_window_on_cpu(
         cd: solve_pairs(jobs.cd_pairs, false),
         sy_forward: solve_pairs(jobs.sy_pairs, true),
         sy_reverse: solve_pairs(&reversed_sy_pairs, true),
-    }
-}
-
-pub(super) fn build_window_references(
-    problems: &mut Vec<RegressionWindow>,
-    prepared: &PreparedWindow,
-    jobs: &BasicJobs<'_>,
-    model: &ModelSpec,
-) -> WindowReferences {
-    let mut st = vec![None; jobs.channel_count];
-    let built = jobs
-        .st_channels
-        .par_iter()
-        .map(|&channel| build_group_regression_window(prepared, &[channel], model))
-        .collect();
-    for (&channel, index) in jobs.st_channels.iter().zip(push_all(problems, built)) {
-        st[channel] = Some(index);
-    }
-    let ct = push_group_problems(problems, prepared, jobs.ct_groups, model);
-    let de = if jobs.de_shares_ct() {
-        ct.clone()
-    } else {
-        push_group_problems(problems, prepared, jobs.de_groups, model)
-    };
-    let cd = push_pair_problems(problems, prepared, jobs.cd_pairs, model, false);
-    let sy_forward = push_pair_problems(problems, prepared, jobs.sy_pairs, model, true);
-    let built = jobs
-        .sy_pairs
-        .par_iter()
-        .map(|[left, right]| {
-            build_directed_regression_window(prepared, *right, *left, *left, model)
-        })
-        .collect();
-    let sy_reverse = push_all(problems, built);
-    WindowReferences {
-        st,
-        ct,
-        de,
-        cd,
-        sy_forward,
-        sy_reverse,
-    }
-}
-
-fn push_group_problems(
-    problems: &mut Vec<RegressionWindow>,
-    prepared: &PreparedWindow,
-    groups: &[Vec<usize>],
-    model: &ModelSpec,
-) -> Vec<usize> {
-    let built = groups
-        .par_iter()
-        .map(|group| build_group_regression_window(prepared, group, model))
-        .collect();
-    push_all(problems, built)
-}
-
-fn push_pair_problems(
-    problems: &mut Vec<RegressionWindow>,
-    prepared: &PreparedWindow,
-    pairs: &[[usize; 2]],
-    model: &ModelSpec,
-    response_is_source: bool,
-) -> Vec<usize> {
-    let built = pairs
-        .par_iter()
-        .map(|[target, source]| {
-            let response = if response_is_source { *source } else { *target };
-            build_directed_regression_window(prepared, *target, *source, response, model)
-        })
-        .collect();
-    push_all(problems, built)
-}
-
-/// Appends problems built in parallel and returns their indices; the CUDA path
-/// builds every design matrix on the host, which dominated its run time serially.
-fn push_all(problems: &mut Vec<RegressionWindow>, built: Vec<RegressionWindow>) -> Vec<usize> {
-    let start = problems.len();
-    problems.extend(built);
-    (start..problems.len()).collect()
-}
-
-fn resolve_window_solutions(
-    references: &WindowReferences,
-    solutions: &[SolvedBlock],
-) -> WindowSolutions {
-    let blocks = |indices: &[usize]| {
-        indices
-            .iter()
-            .map(|&index| solutions[index].clone())
-            .collect()
-    };
-    WindowSolutions {
-        st: references
-            .st
-            .iter()
-            .map(|index| index.map(|index| solutions[index].clone()))
-            .collect(),
-        ct: blocks(&references.ct),
-        de: blocks(&references.de),
-        cd: blocks(&references.cd),
-        sy_forward: blocks(&references.sy_forward),
-        sy_reverse: blocks(&references.sy_reverse),
     }
 }

@@ -1,17 +1,22 @@
-/* The tab strip over the central canvas: one tab per open recording, the strip's controls at its end. */
+/* The tab strip over the central canvas: one rounded pill-tab per open recording, the strip's controls at its end. */
 .strip {
   display: flex;
   flex: none;
-  height: calc(var(--hit) + 4px);
+  align-items: center;
+  gap: var(--space-1);
+  height: calc(var(--hit) + 10px);
+  padding: 4px 6px;
+  border-bottom: var(--hairline-width) solid var(--hairline);
   background: var(--chrome);
-  /* The hairline under the strip; the selected tab paints over it and joins the canvas. */
-  box-shadow: inset 0 calc(-1 * var(--hairline-width)) var(--hairline);
 }
 
 .tabs {
   display: flex;
   flex: 0 1 auto;
+  align-items: center;
+  gap: 4px;
   min-width: 0;
+  height: 100%;
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scrollbar-width: none;
@@ -26,54 +31,42 @@
   display: flex;
   flex: none;
   align-items: center;
-  max-width: 224px;
+  height: 100%;
+  max-width: 228px;
+  border: var(--hairline-width) solid transparent;
+  border-radius: var(--radius);
   user-select: none;
+  transition-property: background-color, border-color;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
 }
 
 .tab:hover:not([data-selected]) {
   background: var(--chrome-hover);
-  transition: background-color var(--motion-duration) var(--motion-ease);
-}
-
-/* A short hairline between two tabs, left out beside the selected one. */
-.tab + .tab::before {
-  content: "";
-  position: absolute;
-  top: 9px;
-  bottom: 9px;
-  left: 0;
-  width: var(--hairline-width);
-  background: var(--hairline);
-}
-
-.tab[data-selected]::before,
-.tab[data-selected] + .tab::before,
-.tab:hover::before,
-.tab:hover + .tab::before {
-  display: none;
 }
 
 .tab[data-selected] {
+  border-color: var(--hairline);
   background: var(--ground);
-  box-shadow:
-    inset 0 2px var(--primary),
-    inset var(--hairline-width) 0 var(--hairline),
-    inset calc(-1 * var(--hairline-width)) 0 var(--hairline);
+  box-shadow: 0 1px 3px rgb(10 18 28 / 0.1);
 }
 
-/* The rail's own hairline is the first tab's left edge. */
-.tab[data-selected]:first-child {
-  box-shadow:
-    inset 0 2px var(--primary),
-    inset calc(-1 * var(--hairline-width)) 0 var(--hairline);
+.tab[data-selected]::after {
+  content: "";
+  position: absolute;
+  right: 10px;
+  bottom: 0;
+  left: 10px;
+  height: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--primary);
 }
 
 .tab[data-dragging] {
-  z-index: 1;
+  z-index: 2;
+  border-color: var(--primary);
   background: var(--ground);
-  box-shadow:
-    inset 0 2px var(--primary),
-    0 2px 8px rgb(15 25 35 / 0.14);
+  box-shadow: 0 6px 18px rgb(10 18 28 / 0.22);
 }
 
 .tabs[data-dragging] .tab:not([data-dragging]) {
@@ -97,20 +90,21 @@
   color: var(--muted);
 }
 
-/* The name and its marks sit on one baseline. */
+/* The name and its marks sit vertically centered in the tab. */
 .row {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
   min-width: 0;
+  line-height: 1;
   white-space: nowrap;
 }
 
 .row svg {
   flex: none;
-  block-size: 1cap;
-  inline-size: auto;
-  stroke-width: 2;
+  width: 13px;
+  height: 13px;
+  stroke-width: 1.85;
 }
 
 .label {
@@ -145,13 +139,16 @@
   place-items: center;
   width: 18px;
   height: 18px;
-  margin-right: 6px;
+  margin-right: 5px;
   padding: 0;
   border: 0;
-  border-radius: var(--radius-small);
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--muted);
   opacity: 0;
+  transition-property: background-color, color, opacity;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
 }
 
 .close svg {
@@ -250,7 +247,14 @@
 
 .noteActions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: var(--space-2);
+}
+
+.noteActions button {
+  flex-wrap: nowrap;
+  white-space: nowrap;
 }
 
 /* The quick switcher: every tab, filtered as the user types. */
@@ -261,10 +265,10 @@
   padding: 0;
   overflow: hidden;
   border: var(--hairline-width) solid var(--hairline);
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   background: var(--ground);
   color: var(--ink);
-  box-shadow: 0 12px 32px rgb(15 25 35 / 0.2);
+  box-shadow: 0 16px 40px rgb(10 18 28 / 0.24);
 }
 
 .switcher[open] {
@@ -298,7 +302,7 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--space-1) 0;
+  padding: var(--space-1);
 }
 
 .option {
@@ -306,6 +310,7 @@
   align-items: center;
   gap: 2px;
   padding: 0 var(--space-1) 0 0;
+  border-radius: var(--radius-small);
 }
 
 .option:hover {

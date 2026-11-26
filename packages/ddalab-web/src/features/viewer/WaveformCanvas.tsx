@@ -4,14 +4,24 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { MiddleText } from "../../app/MiddleText";
 import { engine } from "../../app/recordings";
-import { applyFilter, padRows } from "../../core/filter";
+import { getChannelHighlight, setChannelHighlight, subscribeChannelHighlight } from "../../core/highlight";
 import { drawRuler, drawUnderlay, type Flag } from "../../render/axis";
 import { observeDevicePixels } from "../../render/devicePixels";
 import { paramsOf } from "../../render/display";
 import { webgl2 } from "../../render/gl";
 import { readColors, watchTheme } from "../../render/themeColors";
-import { createWaveformLayer, type Drawn, type Frame, type WaveformLayer } from "../../render/waveformLayer";
-import { CSS_PX_PER_MM, rowChannels, type State, setPlotWidth, setView, useStore } from "../../store/store";
+import { createWaveformLayer, type Drawn, type WaveformLayer } from "../../render/waveformLayer";
+import {
+  CSS_PX_PER_MM,
+  rowChannels,
+  type State,
+  selectChannels,
+  setPlotWidth,
+  setView,
+  setViewedChannels,
+  useStore,
+} from "../../store/store";
+import controls from "../../styles/controls.module.css";
 import { userOf } from "../annotations/model";
 import { useAnnotationGestures } from "../annotations/useAnnotationGestures";
 import { channelLabels } from "../inspector/groups";
@@ -39,12 +49,17 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
     [analysis, info],
   );
   const selected = useStore((s) => s.recordings[recordingId]?.selectedChannels);
+  const viewed = useStore((s) => s.recordings[recordingId]?.viewedChannels ?? null);
   const chosen = useMemo(() => new Set(selected), [selected]);
   const order = useMemo(
     () =>
-      rowChannels({ chosenOnly }, { analysis_channels: analysis ?? [], selectedChannels: selected ?? [] }),
-    [chosenOnly, analysis, selected],
+      rowChannels(
+        { chosenOnly },
+        { analysis_channels: analysis ?? [], selectedChannels: selected ?? [], viewedChannels: viewed },
+      ),
+    [chosenOnly, analysis, selected, viewed],
   );
+  const lastGutterClicked = useRef<number | null>(null);
   /** Why the traces cannot be drawn, when they cannot. */
   const [glProblem, setGlProblem] = useState<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -96,19 +111,11 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
       try {
         gl = webgl2(tracesEl);
         if (!gl) return setGlProblem(GL_MISSING);
-        // Raw rows are filtered with `pad` rows read either side, for the filters to settle before them.
+        // Display filtering runs off the main thread in the IO worker (with settling padding on each side).
         // shortcut: pyramid tiles (64 or more samples per pixel) stay unfiltered; filter them if wide views need it.
         const { filter } = useStore.getState();
-        const rate = opened.info.sample_rate_hz;
         const total = opened.info.sample_count;
-        const pad = padRows(filter, rate);
-        const raw = async (row0: number, rows: number) => {
-          if (pad === 0) return engine.raw(recordingId, row0, rows);
-          const from = Math.max(0, row0 - pad);
-          const read = await engine.raw(recordingId, from, Math.min(total, row0 + rows + pad) - from);
-          const start = (row0 - from) * channels;
-          return applyFilter(read, channels, rate, filter).subarray(start, start + rows * channels);
-        };
+        const raw = (row0: number, rows: number) => engine.raw(recordingId, row0, rows, filter);
         layer = createWaveformLayer(
           gl,
           { tile: (level, index) => engine.tile(recordingId, level, index), raw },
@@ -129,7 +136,10 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
       const order = recording ? rowChannels(state.view, recording) : [];
       return { order, rowCount: Math.min(state.view.rowCount, order.length) };
     };
-    const rowHeightCss = () => size.cssH / rowsOf(useStore.getState()).rowCount;
+    const rowHeightCss = () => {
+      const count = rowsOf(useStore.getState()).rowCount;
+      return count > 0 ? size.cssH / count : 0;
+    };
 
     const paint = () => {
       raf = 0;
@@ -146,23 +156,30 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
       const { order, rowCount } = rowsOf(state);
       const rate = recording.info.sample_rate_hz;
       const pxPerMm = (CSS_PX_PER_MM / view.mmPerCssMm) * dpr;
-      const frame: Frame = {
-        width: W,
-        height: H,
-        s0: view.t0 * rate,
-        spp: ((view.t1 - view.t0) * rate) / W,
-        order,
-        firstChannel: view.firstChannel,
-        rowCount,
-        rowHeight: H / rowCount,
-        pxPerUnit: pxPerMm / view.sensitivityUvPerMm,
-        pointSize: Math.max(3, Math.round(3 * dpr)),
-        ink: colors.trace,
-        aheadRows: view.epochS * rate,
-      };
-      const drawn: Drawn = layer
-        ? layer.draw(frame)
-        : { plan: { mode: "rawSpan" }, complete: false, gaps: [], error: null };
+      const drawn: Drawn =
+        layer && rowCount > 0
+          ? layer.draw({
+              width: W,
+              height: H,
+              s0: view.t0 * rate,
+              spp: ((view.t1 - view.t0) * rate) / W,
+              order,
+              firstChannel: view.firstChannel,
+              rowCount,
+              rowHeight: H / rowCount,
+              pxPerUnit: pxPerMm / view.sensitivityUvPerMm,
+              pointSize: Math.max(3, Math.round(3 * dpr)),
+              ink: colors.trace,
+              aheadRows: view.epochS * rate,
+            })
+          : (() => {
+              if (gl) {
+                gl.viewport(0, 0, W, H);
+                gl.clearColor(0, 0, 0, 0);
+                gl.clear(gl.COLOR_BUFFER_BIT);
+              }
+              return { plan: { mode: "rawSpan" as const }, complete: rowCount === 0, gaps: [], error: null };
+            })();
       const scan = recording.scan;
       const scanPercent =
         scan.scannedRows < scan.totalRows && !scan.notice
@@ -185,6 +202,25 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
         colors,
         scanPercent,
       });
+      // Bidirectional highlight: when the pointer hovers a heatmap row below, highlight its channel(s) here.
+      const hl = getChannelHighlight();
+      if (hl && hl.source === "heatmap" && hl.labels.length > 0 && rowCount > 0) {
+        const visible = order.slice(view.firstChannel, view.firstChannel + rowCount);
+        const visibleCount = Math.min(rowCount, order.length);
+        const { labels: chNames } = channelLabels(recording.info.channels, recording.analysis_channels);
+        const targetSet = new Set(hl.labels);
+        const barW = Math.max(3, Math.round(3 * dpr));
+        for (let i = 0; i < visible.length; i++) {
+          const chName = chNames[visible[i]];
+          if (!targetSet.has(chName)) continue;
+          const y0 = Math.round((i * H) / visibleCount);
+          const y1 = Math.round(((i + 1) * H) / visibleCount);
+          underCtx.fillStyle = colors.wash;
+          underCtx.fillRect(0, y0, W, y1 - y0);
+          underCtx.fillStyle = colors.primary;
+          underCtx.fillRect(0, y0, barW, y1 - y0);
+        }
+      }
       flags.current = drawRuler(rulerCtx, { W, H: rulerEl.height, dpr, view, ...events, colors });
       readouts.current?.update(view, cssW);
       const message = drawn.error && `The recording could not be read: ${drawn.error}. Trying again.`;
@@ -194,7 +230,7 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
         problemEl.hidden = message === null;
       }
       // The channel scroller follows the view; its position is read and written only when the rows move.
-      const rowH = size.cssH / rowCount;
+      const rowH = rowCount > 0 ? size.cssH / rowCount : 0;
       const count = order.length;
       if (view.firstChannel !== scrolledTo.first || rowH !== scrolledTo.rowH || count !== scrolledTo.count) {
         spacerEl.style.height = `${Math.max(0, count - rowCount) * rowH}px`;
@@ -266,6 +302,29 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
       colors = readColors(plotEl);
       schedule();
     });
+    const unhighlight = subscribeChannelHighlight(schedule);
+    const onPointerMove = (event: PointerEvent) => {
+      if (size.cssH <= 0) return;
+      const state = useStore.getState();
+      const rec = state.recordings[recordingId];
+      if (!rec) return;
+      const orderNow = rowChannels(state.view, rec);
+      const visibleCount = Math.min(state.view.rowCount, orderNow.length);
+      if (visibleCount <= 0) return;
+      const box = plotEl.getBoundingClientRect();
+      const y = event.clientY - box.top;
+      const row = Math.min(visibleCount - 1, Math.max(0, Math.floor((y / size.cssH) * visibleCount)));
+      const ch = orderNow[state.view.firstChannel + row];
+      if (ch === undefined) return;
+      const { labels: chNames } = channelLabels(rec.info.channels, rec.analysis_channels);
+      const label = chNames[ch];
+      if (label) setChannelHighlight({ labels: [label], source: "waveform" });
+    };
+    const onPointerLeave = () => {
+      if (getChannelHighlight()?.source === "waveform") setChannelHighlight(null);
+    };
+    plotEl.addEventListener("pointermove", onPointerMove);
+    plotEl.addEventListener("pointerleave", onPointerLeave);
 
     const lost = (event: Event) => {
       event.preventDefault();
@@ -304,6 +363,9 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
       unsubscribe();
       unfilter();
       unwatch();
+      unhighlight();
+      plotEl.removeEventListener("pointermove", onPointerMove);
+      plotEl.removeEventListener("pointerleave", onPointerLeave);
       tracesEl.removeEventListener("webglcontextlost", lost);
       tracesEl.removeEventListener("webglcontextrestored", restored);
       scrollerEl.removeEventListener("scroll", scrolled);
@@ -318,6 +380,22 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
   if (!info || !analysis) return null;
   const rowsOnScreen = Math.min(rowCount, order.length);
   const rows = order.slice(firstChannel, firstChannel + rowsOnScreen);
+  const toggleGutterChannel = (channel: number, shiftKey: boolean) => {
+    const nextOn = !chosen.has(channel);
+    if (shiftKey && lastGutterClicked.current !== null) {
+      const from = order.indexOf(lastGutterClicked.current);
+      const to = order.indexOf(channel);
+      if (from >= 0 && to >= 0) {
+        const lo = Math.min(from, to);
+        const hi = Math.max(from, to);
+        selectChannels(order.slice(lo, hi + 1), nextOn);
+        lastGutterClicked.current = channel;
+        return;
+      }
+    }
+    selectChannels([channel], nextOn);
+    lastGutterClicked.current = channel;
+  };
   return (
     // biome-ignore lint/a11y/noNoninteractiveTabindex: the pane takes focus so that paging keys reach the viewer
     <section className={styles.waveforms} aria-label="Waveforms" tabIndex={0} data-appear>
@@ -337,10 +415,17 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
                   height: `${100 / rowsOnScreen}%`,
                 }}
               >
-                <span className={styles.gutterLabel} data-chosen={chosen.has(channel) || undefined}>
+                <button
+                  type="button"
+                  className={styles.gutterLabel}
+                  data-chosen={chosen.has(channel) || undefined}
+                  aria-pressed={chosen.has(channel)}
+                  title={`${labels[channel]} — click to toggle for DDA (Shift-click for range)`}
+                  onClick={(event) => toggleGutterChannel(channel, event.shiftKey)}
+                >
                   <MiddleText text={labels[channel]} />
                   {chosen.has(channel) && <span className={styles.spoken}>, chosen</span>}
-                </span>
+                </button>
                 <span className={styles.tint} style={{ background: groups[groupOf[channel]]?.tint }} />
               </li>
             ))}
@@ -348,6 +433,14 @@ export function WaveformCanvas({ recordingId }: { recordingId: string }) {
           <div className={styles.plot} ref={plot}>
             <canvas ref={under} className={styles.layer} aria-hidden />
             <canvas ref={traces} className={styles.layer} aria-hidden data-traces />
+            {rowsOnScreen === 0 && !glProblem && (
+              <div className={styles.noChannels} data-appear>
+                <p>No channels are shown in the waveform.</p>
+                <button type="button" className={controls.button} onClick={() => setViewedChannels(null)}>
+                  Show all channels
+                </button>
+              </div>
+            )}
             {glProblem && (
               <p className={styles.glMissing} data-appear>
                 {glProblem}

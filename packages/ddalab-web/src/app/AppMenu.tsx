@@ -11,6 +11,7 @@ import ChevronRight from "lucide-react/dist/esm/icons/chevron-right.mjs";
 import { lazy, type ReactNode, Suspense, useEffect, useRef, useState } from "react";
 import { EXPORT_TRIGGER, exportPanel, railActions } from "../features/library/LibraryRail";
 import { ariaKeys, isShortcut, printed, SHORTCUTS, type Shortcut } from "../features/tabs/keys";
+import { OWN_KEYS } from "../features/viewer/useViewerKeys";
 import { setTheme, togglePanel, useStore } from "../store/store";
 import { openWindow, reopenable, type SavedWindow } from "../store/windows";
 import controls from "../styles/controls.module.css";
@@ -59,11 +60,22 @@ const COMMANDS = {
   newWindow: { label: "New window", shortcut: SHORTCUTS.newWindow, run: () => openWindow("new") },
 } satisfies Record<string, Command>;
 
-/** The menu's shortcuts, anywhere in the window. */
-function useMenuKeys() {
+/** The menu's shortcuts, anywhere in the window, plus `?` for the keyboard-shortcut sheet. */
+function useMenuKeys(toggleShortcuts: () => void) {
   useEffect(() => {
     const down = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
+      if (
+        event.key === "?" &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        !(event.target instanceof Element && event.target.closest(OWN_KEYS))
+      ) {
+        event.preventDefault();
+        toggleShortcuts();
+        return;
+      }
       const command = Object.values(COMMANDS).find(
         (c: Command) => c.shortcut && isShortcut(event, c.shortcut),
       );
@@ -73,7 +85,7 @@ function useMenuKeys() {
     };
     document.addEventListener("keydown", down);
     return () => document.removeEventListener("keydown", down);
-  }, []);
+  }, [toggleShortcuts]);
 }
 
 export default function AppMenu() {
@@ -84,7 +96,7 @@ export default function AppMenu() {
   const [saved, setSaved] = useState<[string, SavedWindow][]>([]);
   const [shortcuts, setShortcuts] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
-  useMenuKeys();
+  useMenuKeys(() => setShortcuts((open) => !open));
   // The saved windows are listed again each time the menu opens: other windows open and close meanwhile.
   const listWindows = (open: boolean) => {
     if (open) reopenable().then(setSaved, () => setSaved([]));

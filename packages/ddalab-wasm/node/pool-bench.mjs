@@ -33,7 +33,7 @@ import { load, WASM } from './host.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const here = (p) => fileURLToPath(new URL(p, import.meta.url));
-const CLI = here('../../dda-rs/target/release/ddalab');
+const CLI = here('../../../target/release/ddalab');
 const RESULTS = here('../results/');
 const KEYS = ['fixtures_dir', 'output_dir', 'spare_cores', 'max_case_seconds', 'window_length', 'delays', 'dm',
   'order', 'nr_tau', 'cases'];

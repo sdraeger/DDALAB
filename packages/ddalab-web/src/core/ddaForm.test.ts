@@ -108,3 +108,15 @@ test("settings_are_checked_without_a_recording", () => {
   });
   expect(readSettings(DEFAULT_FORM, []).errors.variants).toBe("Choose at least one variant");
 });
+
+test("presets_scale_window_duration_to_sampling_rate", async () => {
+  const { DDA_PRESETS, presetToForm } = await import("./ddaForm");
+  const coupled = DDA_PRESETS.find((p) => p.id === "coupled_cd_de");
+  if (!coupled) throw new Error("coupled_cd_de preset missing");
+  const form = presetToForm(coupled, 500);
+  expect(form.variants).toEqual(["ST", "CT", "CD", "DE"]);
+  expect(form.windowLength).toBe("1000");
+  expect(form.windowStep).toBe("500");
+  expect(form.expert).toBe(true);
+  expect(form.modelTerms).toBe("1 2 6");
+});

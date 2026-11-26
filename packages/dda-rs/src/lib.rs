@@ -18,6 +18,9 @@ pub mod variants;
 /// The dda-rs version, as result documents record it.
 pub const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// The WGSL shader shared by native `wgpu` (`--device gpu`) and browser WebGPU.
+pub const GPU_SUMS_WGSL: &str = include_str!("engine/gpu_sums.wgsl");
+
 pub use ccd_stats::*;
 pub use engine::{
     available_cuda_devices, available_gpu_devices, inspect_ccd_conditioning_sets_on_matrix,

@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { MENU_KEYS, TAB_KEYS } from "../src/features/tabs/keys";
+import { MENU_KEYS, TAB_KEYS, VIEWER_KEYS } from "../src/features/tabs/keys";
 import { expect, test } from "./test";
 
 test("page_shows_engine_version", async ({ page }) => {
@@ -21,7 +21,7 @@ test("about_names_the_authors_and_versions_and_credits_the_color_maps", async ({
     `${version}Check for updates`,
     engine.engine_version,
     engine.git_commit ?? "not recorded in this build",
-    ...[...MENU_KEYS, ...TAB_KEYS].map(([, action]) => action),
+    ...[...MENU_KEYS, ...TAB_KEYS, ...VIEWER_KEYS].map(([, action]) => action),
   ]);
   // A dev build has no service worker to update.
   await about.getByRole("button", { name: "Check for updates" }).click();

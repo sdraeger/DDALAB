@@ -86,7 +86,7 @@ export default function ImportDrop() {
         </button>
         <button
           type="button"
-          className={`${controls.quiet} ${rail.ghost}`}
+          className={controls.button}
           disabled={busy}
           onClick={() => folderInput.current?.click()}
         >

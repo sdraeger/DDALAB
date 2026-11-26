@@ -5,11 +5,45 @@ import { type DdaForm, DEFAULT_FORM } from "../core/ddaForm";
 import { type Filter, saveFilter, storedFilter } from "../core/filter";
 import type { FolderSource } from "../core/folder";
 import type { AnalysisRecord } from "../core/history";
+import {
+  type PanelDrag,
+  type ResultDock,
+  type RowPlotPosition,
+  type SplitRecording,
+  saveResultDock,
+  saveRowPlotHeight,
+  saveRowPlotPosition,
+  storedResultDock,
+  storedRowPlotHeight,
+  storedRowPlotPosition,
+} from "../core/layoutSnap";
 import type { ScanState } from "../core/protocol";
 import type { RunProgress } from "../core/scheduler";
 import type { Annotation, RecordingInfo, Reference } from "../core/types";
 import type { UserAnnotation } from "../core/userAnnotations";
 import type { MapName } from "../render/colormaps";
+
+export type ScaleMode = "full" | "robust" | "custom";
+export type RowSort = "channel" | "activity" | "group";
+
+export interface HeatmapOptions {
+  scaleMode: ScaleMode;
+  customMin: number | null;
+  customMax: number | null;
+  zScore: boolean;
+  sort: RowSort;
+  compareResultId: string | null;
+}
+
+export const DEFAULT_HEATMAP_OPTIONS: HeatmapOptions = {
+  scaleMode: "full",
+  customMin: null,
+  customMax: null,
+  zScore: false,
+  sort: "channel",
+  compareResultId: null,
+};
+
 import { saveTheme, storedTheme, type Theme } from "../styles/theme";
 import type { RecentEntry } from "./recent";
 import type { Tab, TabView } from "./tabs";
@@ -23,6 +57,11 @@ export interface OpenRecording {
   source: "files" | "url" | "synthetic";
   /** Display channels chosen for analysis, as indices into `analysis_channels`, ascending. */
   selectedChannels: number[];
+  /**
+   * Display channels shown in the waveform viewer (`null`/omitted: all display channels; `[]`: none hidden/empty).
+   * Ignored while `view.chosenOnly` is active (which shows `selectedChannels` directly).
+   */
+  viewedChannels?: number[] | null;
   /** The reference the display channels are derived with; none for the recorded channels. */
   reference?: Reference;
 }
@@ -79,8 +118,10 @@ export interface ShownResult {
   /** `null`: the result's first variant. */
   variant: string | null;
   array: "q" | "fit_error";
-  /** The row whose line plot is drawn. */
+  /** The primary row whose line plot is drawn. */
   row: number | null;
+  /** Up to 4 rows overlaid in the line plot (Shift-click adds/removes rows). */
+  pinnedRows?: number[];
   /** Its analysis interval in seconds, from its record's manifest: it bounds the view while the result shows alone. */
   interval?: { t0: number; t1: number };
 }
@@ -126,6 +167,18 @@ export interface State {
   panels: { library: boolean; inspector: boolean };
   /** The result heatmap's height in CSS pixels as the user set it; null: from its rows. */
   resultHeight: number | null;
+  /** The result panel's width in CSS pixels when docked left or right; null: 42% of workspace. */
+  resultWidth: number | null;
+  /** Where the DDA result panel is docked relative to the waveform pane. */
+  resultDock: ResultDock;
+  /** Height of the DDA line plot in CSS pixels (resizable with magnetic snap detents). */
+  rowPlotHeight: number;
+  /** Whether the DDA line plot sits below or above the heatmap. */
+  rowPlotPosition: RowPlotPosition;
+  /** Secondary open recording snapped into a split pane beside or below the primary recording. */
+  splitRecording: SplitRecording | null;
+  /** Live panel or tab drag state while dragging to dock or split on the workspace canvas. */
+  panelDrag: PanelDrag;
   /** On a phone (a window below 768 px): the one view shown, and whether the inspector covers it. */
   phone: { view: PhoneView; inspector: boolean };
   run: RunState | null;
@@ -143,7 +196,9 @@ export interface State {
   filter: Filter;
   /** The heatmap's color map the user picked, for every result; `null` picks one by the array (`mapOf`). */
   colormap: MapName | null;
-  /** Runs sum ST windows on the GPU (core/webgpu.ts) where the browser has one. */
+  /** Heatmap display options: scale mode (full/robust/custom), row z-score, row sort, and optional B-A diff result. */
+  heatmapOptions: HeatmapOptions;
+  /** Runs sum basic-flavor windows on WebGPU (core/webgpu.ts) where the browser has an adapter. */
   gpu: boolean;
   /** The open recordings as tabs, in order (tabs.ts). */
   tabs: Tab[];
@@ -192,6 +247,12 @@ export const useStore = create<State>()(() => ({
   activeResultId: null,
   panels: { library: true, inspector: true },
   resultHeight: null,
+  resultWidth: null,
+  resultDock: storedResultDock(),
+  rowPlotHeight: storedRowPlotHeight(),
+  rowPlotPosition: storedRowPlotPosition(),
+  splitRecording: null,
+  panelDrag: null,
   phone: { view: "library", inspector: false },
   run: null,
   shownResult: null,
@@ -212,6 +273,7 @@ export const useStore = create<State>()(() => ({
   theme: storedTheme(),
   filter: storedFilter(),
   colormap: storedColormap(),
+  heatmapOptions: DEFAULT_HEATMAP_OPTIONS,
   gpu: storedGpu(),
   tabs: [],
   activeTab: null,
@@ -227,14 +289,24 @@ export const useStore = create<State>()(() => ({
 export const activeRecording = (s: State) =>
   s.activeRecordingId ? s.recordings[s.activeRecordingId] : undefined;
 
-/** The display channels of the waveform's rows, top to bottom: the chosen ones while only those show, else all. */
+/**
+ * The display channels of the waveform's rows, top to bottom:
+ * - the DDA-chosen channels while `chosenOnly` is on (and at least one is chosen),
+ * - else the user's custom `viewedChannels` subset when set (which may be empty),
+ * - else every display channel.
+ */
 export const rowChannels = (
   { chosenOnly }: Pick<View, "chosenOnly">,
-  recording: Pick<OpenRecording, "analysis_channels" | "selectedChannels">,
-) =>
-  chosenOnly && recording.selectedChannels.length > 0
-    ? recording.selectedChannels
-    : recording.analysis_channels.map((_, i) => i);
+  recording: Pick<OpenRecording, "analysis_channels" | "selectedChannels"> & {
+    viewedChannels?: number[] | null;
+  },
+) => {
+  if (chosenOnly && recording.selectedChannels.length > 0) return recording.selectedChannels;
+  if (recording.viewedChannels !== undefined && recording.viewedChannels !== null) {
+    return recording.viewedChannels;
+  }
+  return recording.analysis_channels.map((_, i) => i);
+};
 
 /**
  * `view` moved inside the recording: whole span in range, at least 8 samples, rows within the channels they show
@@ -261,10 +333,8 @@ function clamp(
   const rowCount = Math.max(1, Math.min(recording.analysis_channels.length, Math.round(view.rowCount)));
   const chosenOnly = view.chosenOnly && recording.selectedChannels.length > 0;
   const shown = rowChannels({ chosenOnly }, recording).length;
-  const firstChannel = Math.max(
-    0,
-    Math.min(shown - Math.min(rowCount, shown), Math.round(view.firstChannel)),
-  );
+  const firstChannel =
+    shown === 0 ? 0 : Math.max(0, Math.min(shown - Math.min(rowCount, shown), Math.round(view.firstChannel)));
   return { ...view, t0, t1: t0 + span, rowCount, firstChannel, chosenOnly };
 }
 
@@ -300,7 +370,13 @@ export function tabViewOf(s: State, kept?: TabView): TabView {
   const { mmPerCssMm: _, ...view } = s.view;
   const result = { shownResult: s.shownResult, activeResultId: s.activeResultId };
   if (recording)
-    return { view, selection: s.selection, selectedChannels: recording.selectedChannels, ...result };
+    return {
+      view,
+      selection: s.selection,
+      selectedChannels: recording.selectedChannels,
+      viewedChannels: recording.viewedChannels,
+      ...result,
+    };
   const first = {
     ...view,
     t0: 0,
@@ -335,12 +411,26 @@ export function enter(
   const channels = recording?.analysis_channels.length ?? 0;
   const restored =
     recording && saved
-      ? { ...recording, selectedChannels: saved.selectedChannels.filter((c) => c < channels) }
+      ? {
+          ...recording,
+          selectedChannels: saved.selectedChannels.filter((c) => c < channels),
+          viewedChannels:
+            saved.viewedChannels !== undefined && saved.viewedChannels !== null
+              ? saved.viewedChannels.filter((c) => c < channels)
+              : null,
+        }
       : recording;
   const recordings = id !== null && restored && saved ? { ...all, [id]: restored } : all;
+  const splitRecording =
+    s.splitRecording &&
+    s.splitRecording.fingerprint !== fingerprint &&
+    tabs.some((t) => t.fingerprint === s.splitRecording?.fingerprint)
+      ? s.splitRecording
+      : null;
   return shownAlone(s, {
     tabs,
     recordings,
+    splitRecording,
     activeTab: fingerprint,
     activeRecordingId: id,
     // A view saved by 2.0.0 has no chosenOnly: it shows every channel.
@@ -365,11 +455,11 @@ export function enter(
 /** Adds a freshly opened recording, which nothing has scanned yet: the active one unless `activate` is false. */
 export function addRecording(
   id: string,
-  recording: Omit<OpenRecording, "scan" | "selectedChannels">,
+  recording: Omit<OpenRecording, "scan" | "selectedChannels" | "viewedChannels">,
   activate = true,
 ) {
   const scan: ScanState = { scannedRows: 0, totalRows: recording.info.sample_count };
-  const added: OpenRecording = { ...recording, scan, selectedChannels: [] };
+  const added: OpenRecording = { ...recording, scan, selectedChannels: [], viewedChannels: null };
   useStore.setState((s) => {
     const recordings = { ...s.recordings, [id]: added };
     return activate ? enter(s, added.fingerprint, { recordings }) : { recordings };
@@ -389,7 +479,7 @@ export function setReferenced(
     const recording = s.recordings[id];
     if (!recording) return s;
     const scan: ScanState = { scannedRows: 0, totalRows: opened.info.sample_count };
-    const updated = { ...recording, ...opened, reference, scan, selectedChannels: [] };
+    const updated = { ...recording, ...opened, reference, scan, selectedChannels: [], viewedChannels: null };
     return { recordings: { ...s.recordings, [id]: updated } };
   });
 }
@@ -432,6 +522,77 @@ export function setAnnotations(id: string, found: { annotations: Annotation[]; w
     const info = { ...recording.info, annotations: found.annotations, warnings };
     return { recordings: { ...s.recordings, [id]: { ...recording, info } } };
   });
+}
+
+/** Replaces the active recording's DDA channel choice with `channels` (deduped, bounded, ascending). */
+export function setSelectedChannels(channels: number[]) {
+  useStore.setState((s) => {
+    const recording = activeRecording(s);
+    if (!recording || !s.activeRecordingId) return s;
+    const limit = recording.analysis_channels.length;
+    const next = [...new Set(channels.filter((c) => c >= 0 && c < limit))].sort((a, b) => a - b);
+    const updated = { ...recording, selectedChannels: next };
+    const recordings = { ...s.recordings, [s.activeRecordingId]: updated };
+    if (!s.view.chosenOnly) return { recordings };
+    return {
+      recordings,
+      view: keepTop(rowChannels(s.view, recording), s.view.firstChannel, s.view, updated),
+    };
+  });
+}
+
+/** Selects every display channel of the active recording for DDA analysis. */
+export function selectAllChannels() {
+  const recording = activeRecording(useStore.getState());
+  if (!recording) return;
+  setSelectedChannels(recording.analysis_channels.map((_, i) => i));
+}
+
+/** Clears all channels selected for DDA analysis on the active recording. */
+export function clearSelectedChannels() {
+  setSelectedChannels([]);
+}
+
+/**
+ * Sets which display channels are shown in the waveform viewer (`null` or every channel shows all).
+ * Turns off `chosenOnly` so the explicit view change takes effect immediately.
+ */
+export function setViewedChannels(channels: number[] | null) {
+  useStore.setState((s) => {
+    const recording = activeRecording(s);
+    if (!recording || !s.activeRecordingId) return s;
+    const limit = recording.analysis_channels.length;
+    let next: number[] | null = null;
+    if (channels !== null) {
+      const sorted = [...new Set(channels.filter((c) => c >= 0 && c < limit))].sort((a, b) => a - b);
+      next = sorted.length === limit ? null : sorted;
+    }
+    const updated = { ...recording, viewedChannels: next };
+    const recordings = { ...s.recordings, [s.activeRecordingId]: updated };
+    const prevRows = rowChannels(s.view, recording);
+    return {
+      recordings,
+      view: keepTop(prevRows, s.view.firstChannel, { ...s.view, chosenOnly: false }, updated),
+    };
+  });
+}
+
+/** Shows (`on`) or hides display channels in the waveform viewer, independent of DDA selection. */
+export function toggleViewedChannels(channels: number[], on: boolean) {
+  const state = useStore.getState();
+  const recording = activeRecording(state);
+  if (!recording) return;
+  // When `chosenOnly` is active, start from the currently visible rows so hiding/showing feels continuous.
+  const base =
+    state.view.chosenOnly && recording.selectedChannels.length > 0
+      ? recording.selectedChannels
+      : (recording.viewedChannels ?? recording.analysis_channels.map((_, i) => i));
+  const next = new Set(base);
+  for (const c of channels) {
+    if (on) next.add(c);
+    else next.delete(c);
+  }
+  setViewedChannels([...next]);
 }
 
 /**
@@ -592,9 +753,84 @@ export const showFolder = (source: FolderSource, resume?: string) =>
 export const closeFolder = () => useStore.setState({ folder: null });
 
 export const setShownResult = (change: Partial<ShownResult>) =>
-  useStore.setState((s) => ({ shownResult: s.shownResult && { ...s.shownResult, ...change } }));
+  useStore.setState((s) => {
+    if (!s.shownResult) return { shownResult: null };
+    const next = { ...s.shownResult, ...change };
+    if ("row" in change && !("pinnedRows" in change)) {
+      next.pinnedRows = change.row === null || change.row === undefined ? [] : [change.row];
+    }
+    return { shownResult: next };
+  });
 
-export const setResultHeight = (resultHeight: number) => useStore.setState({ resultHeight });
+/** Toggles `row` in the multi-row line plot (up to 4 pinned rows). */
+export const togglePinnedRow = (row: number) =>
+  useStore.setState((s) => {
+    if (!s.shownResult) return { shownResult: null };
+    const prev =
+      s.shownResult.pinnedRows && s.shownResult.pinnedRows.length > 0
+        ? s.shownResult.pinnedRows
+        : s.shownResult.row !== null
+          ? [s.shownResult.row]
+          : [];
+    const next = prev.includes(row) ? prev.filter((r) => r !== row) : [...prev, row].slice(-4);
+    return {
+      shownResult: {
+        ...s.shownResult,
+        pinnedRows: next,
+        row: next.length > 0 ? next[next.length - 1] : null,
+      },
+    };
+  });
+
+export const setHeatmapOptions = (change: Partial<HeatmapOptions>) =>
+  useStore.setState((s) => ({ heatmapOptions: { ...s.heatmapOptions, ...change } }));
+
+export const setResultHeight = (resultHeight: number | null) => useStore.setState({ resultHeight });
+export const setResultWidth = (resultWidth: number | null) => useStore.setState({ resultWidth });
+
+export function setResultDock(resultDock: ResultDock) {
+  saveResultDock(resultDock);
+  useStore.setState({ resultDock });
+}
+
+export function setRowPlotHeight(rowPlotHeight: number) {
+  const clamped = Math.round(Math.max(56, Math.min(320, rowPlotHeight)));
+  saveRowPlotHeight(clamped);
+  useStore.setState({ rowPlotHeight: clamped });
+}
+
+export function setRowPlotPosition(rowPlotPosition: RowPlotPosition) {
+  saveRowPlotPosition(rowPlotPosition);
+  useStore.setState({ rowPlotPosition });
+}
+
+export function setSplitRecording(splitRecording: SplitRecording | null) {
+  useStore.setState((s) => {
+    if (!splitRecording) return { splitRecording: null };
+    if (splitRecording.fingerprint === s.activeTab) return { splitRecording: null };
+    return {
+      splitRecording: {
+        ...splitRecording,
+        ratio: Math.max(0.25, Math.min(0.75, splitRecording.ratio)),
+      },
+    };
+  });
+}
+
+export const closeSplitRecording = () => useStore.setState({ splitRecording: null });
+
+export function swapSplitRecordings() {
+  useStore.setState((s) => {
+    const split = s.splitRecording;
+    if (!split || !s.activeTab || split.fingerprint === s.activeTab) return s;
+    return {
+      ...enter(s, split.fingerprint),
+      splitRecording: { ...split, fingerprint: s.activeTab },
+    };
+  });
+}
+
+export const setPanelDrag = (panelDrag: PanelDrag) => useStore.setState({ panelDrag });
 
 export const togglePanel = (panel: keyof State["panels"]) =>
   useStore.setState((s) => ({ panels: { ...s.panels, [panel]: !s.panels[panel] } }));

@@ -1,0 +1,30 @@
+[workspace]
+resolver = "2"
+members = [
+    "packages/dda-rs",
+    "packages/ddalab-cli",
+    "packages/ddalab-py",
+    "packages/ddalab-wasm",
+]
+
+[workspace.package]
+version = "2.9.0"
+edition = "2021"
+authors = ["DDALAB Contributors"]
+license = "MIT"
+repository = "https://github.com/sdraeger/DDALAB"
+homepage = "https://ddalab.org/"
+
+# Used by cargo-dist for release binaries.
+[profile.dist]
+inherits = "release"
+
+# Used by ddalab-wasm for compact browser binaries while keeping `[profile.release]`
+# unwind-safe for native `catch_unwind` in CUDA/GPU fallback paths.
+[profile.wasm-release]
+inherits = "release"
+lto = true
+opt-level = 3
+codegen-units = 1
+panic = "abort"
+strip = "symbols"

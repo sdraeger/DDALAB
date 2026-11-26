@@ -151,7 +151,7 @@ export function discovered<T extends { path: string }>(recordings: T[], root: st
       parts.length - 1 <= MAX_DEPTH &&
       !parts.some((part) => part.startsWith(".") || SKIPPED.includes(part)) &&
       /_i?eeg$/.test(stem) &&
-      ["edf", "bdf", "vhdr", "set"].includes(extension.toLowerCase())
+      ["edf", "bdf", "vhdr", "set", "fif", "nwb"].includes(extension.toLowerCase())
     );
   });
   return kept.sort((a, b) => byComponents(a.path, b.path));

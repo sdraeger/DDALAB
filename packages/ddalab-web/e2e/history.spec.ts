@@ -10,6 +10,7 @@ import { bundleDir } from "./global-setup";
 import { showFixture } from "./resultFixture";
 import { expect, hasStorage, hasWebGL2, NO_STORAGE, NO_WEBGL2, type Page, test } from "./test";
 
+const REPO_ROOT = fileURLToPath(new URL("../../..", import.meta.url));
 const DDA_RS = fileURLToPath(new URL("../../dda-rs/", import.meta.url));
 const fixturePath = (name: string) => join(DDA_RS, "tests/fixtures", name);
 const BRAINVISION = ["fixture.vhdr", "fixture.eeg", "fixture.vmrk"];
@@ -51,7 +52,7 @@ function runCommand(command: string, replace?: [RegExp, string]) {
   for (const name of BRAINVISION) copyFileSync(fixturePath(name), join(dir, name));
   execFileSync("sh", ["-c", replace ? command.replace(...replace) : command], {
     cwd: dir,
-    env: { ...process.env, PATH: `${join(DDA_RS, "target/release")}:${process.env.PATH}` },
+    env: { ...process.env, PATH: `${join(REPO_ROOT, "target/release")}:${process.env.PATH}` },
     stdio: "pipe",
   });
   return dir;

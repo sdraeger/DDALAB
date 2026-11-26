@@ -341,7 +341,9 @@ useStore.subscribe((now, before) => {
   }
   const channels = () =>
     Object.keys(now.recordings).some(
-      (id) => now.recordings[id].selectedChannels !== before.recordings[id]?.selectedChannels,
+      (id) =>
+        now.recordings[id].selectedChannels !== before.recordings[id]?.selectedChannels ||
+        now.recordings[id].viewedChannels !== before.recordings[id]?.viewedChannels,
     );
   if (
     now.tabs !== before.tabs ||

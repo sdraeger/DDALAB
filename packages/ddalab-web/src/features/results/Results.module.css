@@ -11,12 +11,70 @@
   background: var(--ground);
 }
 
+.result[data-dock="top"] {
+  border-top: 0;
+  border-bottom: var(--hairline-width) solid var(--hairline);
+}
+
+.result[data-dock="right"] {
+  width: 42%;
+  min-width: 260px;
+  max-width: 72%;
+  min-height: 0;
+  border-top: 0;
+  border-left: var(--hairline-width) solid var(--hairline);
+}
+
+.result[data-dock="left"] {
+  width: 42%;
+  min-width: 260px;
+  max-width: 72%;
+  min-height: 0;
+  border-top: 0;
+  border-right: var(--hairline-width) solid var(--hairline);
+}
+
+.dockGrip {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin-left: -4px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-small);
+  background: transparent;
+  color: var(--muted);
+  cursor: grab;
+  touch-action: none;
+  transition-property: background-color, color;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
+}
+
+.dockGrip:active {
+  cursor: grabbing;
+}
+
+.dockGrip svg {
+  width: 14px;
+  height: 14px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .dockGrip:hover {
+    background: var(--chrome-hover);
+    color: var(--ink);
+  }
+}
+
 .bar {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  height: calc(var(--hit) + 8px);
-  padding: 0 var(--space-2) 0 var(--space-3);
+  height: calc(var(--hit) + 10px);
+  padding: 4px var(--space-2) 4px var(--space-3);
   border-bottom: var(--hairline-width) solid var(--hairline);
   background: var(--chrome);
   white-space: nowrap;
@@ -32,23 +90,25 @@
 
 .tabs {
   display: flex;
-  align-self: flex-end;
-  gap: 2px;
+  align-items: center;
+  gap: 4px;
 }
 
 .tab {
-  height: calc(var(--hit) + 2px);
-  margin-bottom: -1px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: calc(var(--hit) - 2px);
   padding: 0 var(--space-3);
   border: var(--hairline-width) solid transparent;
-  border-bottom: 0;
-  border-radius: var(--radius) var(--radius) 0 0;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--muted);
   font-size: var(--text-small);
   font-variant-caps: all-small-caps;
   font-weight: var(--weight-strong);
   letter-spacing: 0.06em;
+  line-height: 1;
   cursor: pointer;
   transition-property: color, background-color, border-color;
   transition-duration: var(--motion-duration);
@@ -56,7 +116,8 @@
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .tab:hover {
+  .tab:hover:not([data-active]) {
+    background: var(--chrome-hover);
     color: var(--ink);
   }
 }
@@ -65,7 +126,7 @@
   border-color: var(--hairline);
   background: var(--ground);
   color: var(--ink);
-  box-shadow: inset 0 2px var(--primary);
+  box-shadow: 0 1px 2px rgb(10 18 28 / 0.1);
 }
 
 .toggles {
@@ -73,6 +134,9 @@
 }
 
 .toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   height: calc(var(--hit) - 4px);
   margin-left: -1px;
   padding: 0 var(--space-2);
@@ -80,6 +144,7 @@
   background: var(--ground);
   color: var(--muted);
   font-size: var(--text-small);
+  line-height: 1;
   cursor: pointer;
   transition-property: color, background-color, border-color;
   transition-duration: var(--motion-duration);
@@ -156,13 +221,68 @@
 
 .colorBar small {
   color: var(--muted);
+  font-family: var(--font-mono);
   font-size: 11px;
+}
+
+.displayMenu {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 220px;
+}
+
+.customRange {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  font-size: var(--text-small);
+  color: var(--muted);
+}
+
+.customRange input {
+  min-width: 0;
+  height: var(--hit);
+  padding: 0 var(--space-2);
+  border: var(--hairline-width) solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--ground);
+  color: var(--ink);
+  font: inherit;
+  text-align: right;
+}
+
+.checkRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: calc(var(--hit) - 4px);
+  font-size: var(--text-small);
+  cursor: pointer;
+}
+
+.rowLegend {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rowDot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 4px;
+  border-radius: 50%;
+  vertical-align: middle;
 }
 
 .ramp {
   width: 128px;
   height: 10px;
   border: var(--hairline-width) solid var(--hairline);
+  border-radius: var(--radius-pill);
 }
 
 /* The ramp is the color map's button: a press target around it, and a ring on focus. */
@@ -196,6 +316,7 @@
 .swatch {
   height: 10px;
   border: var(--hairline-width) solid var(--hairline);
+  border-radius: var(--radius-pill);
 }
 
 .mapItem .swatch {
@@ -226,10 +347,19 @@
   letter-spacing: 0.06em;
 }
 
-/* A phone's bar drops the facts and shortens the color bar: the tabs, the color bar and Close keep 360 px. */
+/* A phone's bar drops the facts and dock grip and shortens the color bar: tabs, color bar, display menu and Close keep 360 px. */
 @container bar (width < 480px) {
   .bar {
-    gap: var(--space-2);
+    gap: var(--space-1);
+    padding: 4px var(--space-1);
+  }
+
+  .dockGrip {
+    display: none;
+  }
+
+  .tab {
+    padding: 0 var(--space-2);
   }
 
   .facts {
@@ -241,7 +371,7 @@
   }
 
   .ramp {
-    width: 48px;
+    width: 36px;
   }
 }
 
@@ -254,6 +384,13 @@
   outline-offset: -2px;
 }
 
+.panel[data-dock="left"],
+.panel[data-dock="right"] {
+  flex: 1 1 0;
+  min-height: 0;
+  grid-template-rows: minmax(80px, 1fr) auto;
+}
+
 /* Rows of 24 px up to a third of the window; past that the rows share the height. On a phone, where the result has the
    screen to itself (Shell.module.css), rows of a fingertip up to half of it. */
 .gutter,
@@ -261,13 +398,13 @@
   height: var(--plot-height, clamp(56px, calc(var(--rows) * 24px), 32vh));
 }
 
-/* The top edge, which sets the height (ResultPanel.tsx): a line in the primary color while it is hovered or focused. */
+/* The inner edge, which sets the size (ResultPanel.tsx): a line in the primary color while it is hovered or focused. */
 .resize {
   position: absolute;
   top: -4px;
   right: 0;
   left: 0;
-  z-index: 1;
+  z-index: 2;
   height: 8px;
   margin: 0;
   border: 0;
@@ -275,13 +412,44 @@
   touch-action: none;
 }
 
+.resize[data-dock="top"] {
+  top: auto;
+  bottom: -4px;
+}
+
+.resize[data-dock="right"] {
+  top: 0;
+  right: auto;
+  bottom: 0;
+  left: -4px;
+  width: 8px;
+  height: auto;
+  cursor: col-resize;
+}
+
+.resize[data-dock="left"] {
+  top: 0;
+  right: -4px;
+  bottom: 0;
+  left: auto;
+  width: 8px;
+  height: auto;
+  cursor: col-resize;
+}
+
 .resize::after {
   position: absolute;
   inset: 3px 0;
+  border-radius: var(--radius-pill);
   background: var(--primary);
   opacity: 0;
   content: "";
   transition: opacity var(--motion-duration) var(--motion-ease);
+}
+
+.resize[data-dock="left"]::after,
+.resize[data-dock="right"]::after {
+  inset: 0 3px;
 }
 
 .resize:hover::after,
@@ -482,8 +650,110 @@
   line-height: 14px;
 }
 
+.rowGutterTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.rowSwap {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-small);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition-property: background-color, color;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
+}
+
+.rowSwap svg {
+  width: 12px;
+  height: 12px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .rowSwap:hover {
+    background: var(--chrome-hover);
+    color: var(--ink);
+  }
+}
+
 .rowCell {
+  position: relative;
   border-top: var(--hairline-width) solid var(--hairline);
+}
+
+.rowCell[data-position="above"] {
+  border-top: 0;
+  border-bottom: var(--hairline-width) solid var(--hairline);
+}
+
+.rowResize {
+  position: absolute;
+  top: -4px;
+  right: 0;
+  left: 0;
+  z-index: 2;
+  height: 8px;
+  margin: 0;
+  border: 0;
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.rowCell[data-position="above"] .rowResize {
+  top: auto;
+  bottom: -4px;
+}
+
+.rowResize::after {
+  position: absolute;
+  inset: 3px 0;
+  border-radius: var(--radius-pill);
+  background: var(--primary);
+  opacity: 0;
+  content: "";
+  transition: opacity var(--motion-duration) var(--motion-ease);
+}
+
+.rowResize:hover::after,
+.rowResize:focus-visible::after {
+  opacity: 1;
+}
+
+.rowResize:focus-visible {
+  outline: none;
+}
+
+.snapBadge {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-3);
+  z-index: 6;
+  padding: 2px var(--space-2);
+  border: var(--hairline-width) solid var(--hairline);
+  border-radius: var(--radius-pill);
+  background: var(--ground);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: var(--weight-medium);
+  box-shadow: 0 4px 12px rgb(10 18 28 / 0.16);
+  pointer-events: none;
+}
+
+.snapBadge[data-snapped] {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-ink);
 }
 
 .rowCanvas {
@@ -523,4 +793,11 @@
   padding: var(--space-3);
   color: var(--event);
   font-size: var(--text-small);
+}
+
+.panel[data-dock="left"] .gutter,
+.panel[data-dock="left"] .plot,
+.panel[data-dock="right"] .gutter,
+.panel[data-dock="right"] .plot {
+  height: 100%;
 }

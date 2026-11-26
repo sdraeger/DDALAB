@@ -1,12 +1,13 @@
 /* Clipped: a panel that rises into place from below the window edge (base.css) never scrolls the page. The bar is
    44 px high, or takes the title bar area (below). */
 .shell {
-  --library-width: 248px;
-  --inspector-width: 304px;
+  --library-width: var(--library-open-width, 288px);
+  --inspector-width: var(--inspector-open-width, 348px);
   --bar-height: calc(var(--titlebar-y, 0px) + max(32px, var(--titlebar-height, 44px)));
   display: grid;
   height: 100%;
   overflow: clip;
+  background: var(--chrome);
   grid-template-rows: var(--bar-height) minmax(0, 1fr) auto;
   grid-template-columns: var(--library-width) minmax(0, 1fr) var(--inspector-width);
   grid-template-areas:
@@ -161,11 +162,14 @@
 }
 
 .library {
+  position: relative;
   grid-area: library;
   min-height: 0;
+  margin: 6px 0 6px 6px;
   overflow-y: auto;
-  border-right: var(--hairline-width) solid var(--hairline);
-  background: var(--chrome);
+  border: var(--hairline-width) solid var(--hairline);
+  border-radius: var(--radius-lg);
+  background: var(--ground);
 }
 
 .center {
@@ -174,16 +178,86 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  margin: 6px;
+  overflow: clip;
+  border: var(--hairline-width) solid var(--hairline);
+  border-radius: var(--radius-lg);
   background: var(--ground);
 }
 
 .inspector {
+  position: relative;
   grid-area: inspector;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-left: var(--hairline-width) solid var(--hairline);
-  background: var(--chrome);
+  margin: 6px 6px 6px 0;
+  overflow: clip;
+  border: var(--hairline-width) solid var(--hairline);
+  border-radius: var(--radius-lg);
+  background: var(--ground);
+}
+
+/* Draggable edge handles on the inner border of both desktop sidebars. */
+.resizeLeft,
+.resizeRight {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  z-index: 4;
+  width: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+  transition: background-color var(--motion-duration) var(--motion-ease);
+}
+
+.resizeLeft {
+  right: 0;
+}
+
+.resizeRight {
+  left: 0;
+}
+
+.resizeLeft:hover,
+.resizeRight:hover,
+.resizeLeft:focus-visible,
+.resizeRight:focus-visible {
+  background: color-mix(in srgb, var(--primary) 45%, transparent);
+  outline: 0;
+}
+
+.snapBadge {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-3);
+  z-index: 8;
+  padding: 2px var(--space-2);
+  border: var(--hairline-width) solid var(--hairline);
+  border-radius: var(--radius-pill);
+  background: var(--ground);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: var(--weight-medium);
+  box-shadow: 0 4px 12px rgb(10 18 28 / 0.16);
+  pointer-events: none;
+}
+
+.snapBadgeLeft {
+  right: auto;
+  left: var(--space-3);
+}
+
+.snapBadge[data-snapped] {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-ink);
 }
 
 /* A closed panel stays mounted (the library keeps listening for dropped files) but leaves the layout. */
@@ -200,12 +274,232 @@
   text-align: center;
 }
 
-/* The phone's parts (Shell.tsx): in a wider window the waveform and the result stack in the center, the controls of
-   the wide bar show, and the view bar and the hint for an empty Results view do not. */
-.waveform,
+/* The dockable workspace inside TabPanel: stacks or side-docks the waveform and DDA result. */
+.workspace {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.workspace[data-result-dock="top"] {
+  flex-direction: column-reverse;
+}
+
+.workspace[data-result-dock="right"] {
+  flex-direction: row;
+}
+
+.workspace[data-result-dock="left"] {
+  flex-direction: row-reverse;
+}
+
+.waveform {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
 .results,
 .wide {
   display: contents;
+}
+
+/* Split-view container for two open recordings side-by-side or stacked. */
+.splitContainer {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+}
+
+.splitContainer[data-dir="horizontal"] {
+  flex-direction: row;
+}
+
+.splitContainer[data-dir="vertical"] {
+  flex-direction: column;
+}
+
+.splitPane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.splitHeader {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  height: 30px;
+  padding: 0 var(--space-2) 0 var(--space-3);
+  border-bottom: var(--hairline-width) solid var(--hairline);
+  background: var(--chrome);
+  font-size: var(--text-small);
+}
+
+.splitDot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--primary);
+}
+
+.splitTitle {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.splitFocus {
+  min-width: 0;
+  padding: 2px var(--space-2);
+  margin-left: calc(-1 * var(--space-2));
+  border: 0;
+  border-radius: var(--radius-small);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-weight: var(--weight-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transition-property: background-color, color;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .splitFocus:hover {
+    background: var(--chrome-hover);
+    color: var(--ink);
+  }
+}
+
+.splitActions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.splitAction {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-small);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition-property: background-color, color;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
+}
+
+.splitAction svg {
+  width: 13px;
+  height: 13px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .splitAction:hover {
+    background: var(--chrome-hover);
+    color: var(--ink);
+  }
+}
+
+.splitHandle {
+  position: relative;
+  flex: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--hairline);
+  touch-action: none;
+  transition: background-color var(--motion-duration) var(--motion-ease);
+}
+
+.splitHandle[data-dir="horizontal"] {
+  width: 5px;
+  cursor: col-resize;
+}
+
+.splitHandle[data-dir="vertical"] {
+  height: 5px;
+  cursor: row-resize;
+}
+
+.splitHandle:hover,
+.splitHandle:focus-visible {
+  background: var(--primary);
+  outline: 0;
+}
+
+/* Translucent rounded magnetic drop-zone preview during tab or result-panel drags. */
+.dropOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  padding: var(--space-2);
+  pointer-events: none;
+}
+
+.dropPreview {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--primary);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  backdrop-filter: blur(2px);
+  transition-property: opacity, transform, background-color, border-color;
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-ease);
+}
+
+.dropPreview[data-zone="center"] {
+  inset: var(--space-3);
+}
+
+.dropPreview[data-zone="left"] {
+  inset: var(--space-2) 52% var(--space-2) var(--space-2);
+}
+
+.dropPreview[data-zone="right"] {
+  inset: var(--space-2) var(--space-2) var(--space-2) 52%;
+}
+
+.dropPreview[data-zone="top"] {
+  inset: var(--space-2) var(--space-2) 54% var(--space-2);
+}
+
+.dropPreview[data-zone="bottom"] {
+  inset: 54% var(--space-2) var(--space-2) var(--space-2);
+}
+
+.dropLabel {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--primary);
+  color: var(--primary-ink);
+  font-size: var(--text-small);
+  font-weight: var(--weight-strong);
+  box-shadow: 0 6px 18px rgb(10 18 28 / 0.22);
 }
 
 .views,
@@ -236,7 +530,9 @@
   .wide,
   .name,
   .paging,
-  .divider {
+  .divider,
+  .resizeLeft,
+  .resizeRight {
     display: none;
   }
 
@@ -248,7 +544,13 @@
   .center,
   .inspector {
     grid-area: view;
+    margin: 0;
     border: 0;
+    border-radius: 0;
+  }
+
+  .workspace[data-result-dock] {
+    flex-direction: column;
   }
 
   /* The center stays laid out under the library and the inspector, which cover it while it is inert (Shell.tsx): the

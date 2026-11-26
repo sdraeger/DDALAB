@@ -7,11 +7,11 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 import { instantiateCore } from "./abi";
-import { cliCommand } from "./cliCommand";
+import { cliCommand, pythonSnippet } from "./cliCommand";
 import type { DDARequest } from "./types";
 
 const FIXTURES = fileURLToPath(new URL("../../../dda-rs/tests/fixtures/", import.meta.url));
-const CLI_DIR = fileURLToPath(new URL("../../../dda-rs/target/release/", import.meta.url));
+const CLI_DIR = fileURLToPath(new URL("../../../../target/release/", import.meta.url));
 /** Skipped without the native binary, except in CI, which builds it first and must not skip. */
 const noCli = !existsSync(join(CLI_DIR, "ddalab")) && !process.env.CI;
 
@@ -134,4 +134,20 @@ test("names_the_reference_of_the_run", () => {
   const laplacian = words({ kind: "laplacian", electrodes_tsv: "name\tx\ty\tz\n", name: "pos.tsv" });
   expect(laplacian).toContain("--reference laplacian --electrodes=pos.tsv");
   expect(words(undefined)).not.toContain("--reference");
+});
+
+test("python_snippet_reproduces_request_and_reference", () => {
+  const code = pythonSnippet(request, "r.edf", { kind: "average" }, { startS: 1, endS: 5 });
+  expect(code).toContain("import ddalab");
+  expect(code).toContain('    "r.edf",');
+  expect(code).toContain('    variants=["ST", "CT", "CD", "DE", "SY"],');
+  expect(code).toContain("    channels=[0, 1],");
+  expect(code).toContain("    wl=200,");
+  expect(code).toContain("    ws=100,");
+  expect(code).toContain("    delays=[7, 10],");
+  expect(code).toContain("    ct_pairs=[(0, 1)],");
+  expect(code).toContain("    cd_pairs=[(0, 1), (1, 0)],");
+  expect(code).toContain("    start=1,");
+  expect(code).toContain("    end=5,");
+  expect(code).toContain('    reference="average",');
 });

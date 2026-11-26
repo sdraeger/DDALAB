@@ -3,6 +3,8 @@ name: DDALAB Web
 on:
   pull_request:
     paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
       - "packages/ddalab-web/**"
       - "packages/ddalab-wasm/**"
       - "packages/dda-rs/**"
@@ -12,6 +14,8 @@ on:
     tags: ["v*"]
     # GitHub does not evaluate path filters for pushes of tags.
     paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
       - "packages/ddalab-web/**"
       - "packages/ddalab-wasm/**"
       - "packages/dda-rs/**"
@@ -49,10 +53,6 @@ jobs:
         # A tag publishes this build: it restores no cache another run could have written.
         if: github.ref_type != 'tag'
         uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          workspaces: |
-            packages/dda-rs -> target
-            packages/ddalab-wasm -> target
 
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -73,8 +73,8 @@ jobs:
 
       # Unit tests compare exports with the native CLI and fail under CI when it is missing.
       - name: Build the native CLI
-        working-directory: packages/dda-rs
-        run: cargo build --release --locked
+        working-directory: .
+        run: cargo build --release --locked -p dda-rs --bin ddalab
 
       - name: Unit tests
         run: npx vitest run
@@ -145,10 +145,6 @@ jobs:
 
       - name: Cache Rust artifacts
         uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          workspaces: |
-            packages/dda-rs -> target
-            packages/ddalab-wasm -> target
 
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -164,8 +160,8 @@ jobs:
         run: npm run build:wasm
 
       - name: Build the native CLI
-        working-directory: packages/dda-rs
-        run: cargo build --release --locked
+        working-directory: .
+        run: cargo build --release --locked -p dda-rs --bin ddalab
 
       - name: Install the browser
         run: scripts/install-browsers.sh ${{ matrix.browser }}
