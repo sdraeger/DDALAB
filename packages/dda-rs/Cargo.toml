@@ -16,6 +16,7 @@ include = [
 	"README.md",
 	"LICENSE",
 	"src/**/*.rs",
+	"src/**/*.wgsl",
 	"src/bin/**/*.rs",
 	"tests/**/*.rs",
 	"tests/fixtures/**",
