@@ -137,9 +137,9 @@ test("vhdr_without_eeg_errors", async ({ page }) => {
 });
 
 test("unsupported_format_reason", async ({ page }) => {
-  await files(page).setInputFiles(upload("scan.fif", Buffer.from("not a recording")));
+  await files(page).setInputFiles(upload("scan.xdf", Buffer.from("not a recording")));
   await expect(page.getByRole("alert")).toHaveText(
-    "FIFF files are not supported yet; DDALAB reads EDF, BDF, BrainVision, EEGLAB and delimited text",
+    "XDF files are not supported yet; DDALAB reads EDF, BDF, BrainVision, EEGLAB, FIFF, NWB and delimited text",
   );
 });
 

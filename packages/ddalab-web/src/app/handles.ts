@@ -65,17 +65,45 @@ export async function beside(root: FileSystemDirectoryHandle, file: FileSystemFi
   return { files, handles: { files: handles, root }, choice: prefix + (path.at(-1) as string) };
 }
 
+/**
+ * Handles whose `queryPermission` never answered: Chromium can leave an IndexedDB handle orphaned so its permission
+ * calls hang forever. Once detected, callers drop the dead handle and fall back to a picker.
+ */
+const unresponsive = new WeakSet<FileSystemHandle>();
+const QUERY_TIMEOUT_MS = 1000;
+
+/** Whether `handle` hung on a permission query in this session and should not be awaited again. */
+export const isUnresponsive = (handle: FileSystemHandle) => unresponsive.has(handle);
+
 /** Whether `handle` may be read now, without asking. */
 export async function permitted(handle: FileSystemHandle): Promise<boolean> {
+  if (unresponsive.has(handle)) return false;
   const own = handle as FileSystemHandle & Partial<Permissions>;
-  return (await own.queryPermission?.({ mode: "read" }).catch(() => undefined)) === "granted";
+  if (!own.queryPermission) return false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const answer = await Promise.race([
+      own.queryPermission({ mode: "read" }).catch(() => undefined),
+      new Promise<"timeout">((resolve) => {
+        timer = setTimeout(() => resolve("timeout"), QUERY_TIMEOUT_MS);
+      }),
+    ]);
+    if (answer === "timeout") {
+      unresponsive.add(handle);
+      return false;
+    }
+    return answer === "granted";
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
- * Asks the user for read access to `handle`, which only a click allows: the answer, or `lapsed` when the browser
- * refused to ask because the click was too long ago.
+ * Asks the user for read access to `handle`, which only a click allows: the answer, `lapsed` when the browser refused
+ * to ask because the click was too long ago, or `unresponsive` when the handle is already known to hang.
  */
-export async function ask(handle: FileSystemHandle): Promise<PermissionState | "lapsed"> {
+export async function ask(handle: FileSystemHandle): Promise<PermissionState | "lapsed" | "unresponsive"> {
+  if (unresponsive.has(handle)) return "unresponsive";
   const own = handle as FileSystemHandle & Partial<Permissions>;
   try {
     return (await own.requestPermission?.({ mode: "read" })) ?? "denied";

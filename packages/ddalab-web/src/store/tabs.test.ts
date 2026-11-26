@@ -19,6 +19,7 @@ import {
 import {
   filesSource,
   forgetTab,
+  hasHandles,
   loadTabs,
   matchFiles,
   moveTab,
@@ -456,4 +457,8 @@ test("a_recording_reattached_in_the_background_keeps_its_tabs_channels", () => {
   expect(remembered().tabs.find((t) => t.fingerprint === "fa")?.saved?.selectedChannels).toEqual([1, 2]);
   selectTab("fa");
   expect(useStore.getState().recordings.A.selectedChannels).toEqual([1, 2]);
+});
+
+test("has_handles_is_false_when_file_list_is_empty", () => {
+  expect(hasHandles({ kind: "files", files: [] })).toBe(false);
 });

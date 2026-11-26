@@ -34,8 +34,9 @@ import {
   reattachFrom,
   requestAccess,
 } from "../../app/tabs";
+import { messageOf } from "../../core/words";
 import { closeSplitRecording, setPanelDrag, setSplitRecording, useStore } from "../../store/store";
-import { hasHandles, moveTab, selectTab, shortNames, type Tab } from "../../store/tabs";
+import { hasHandles, moveTab, selectTab, setReason, shortNames, type Tab } from "../../store/tabs";
 import controls from "../../styles/controls.module.css";
 import { ALT, KEYS, LINUX_NOTE } from "./keys";
 // Bundled with the strip: as a chunk of its own it split shared code out of the entry, which grew the initial JS.
@@ -58,6 +59,13 @@ export const announcer = (element: HTMLElement | null) => {
 };
 /** The tab the last Reattach picker was opened for. */
 let target: string | null = null;
+/** Listeners notified after a Reattach attempt settles so DetachedNote refreshes its remaining-clicks count. */
+const promptListeners = new Set<() => void>();
+function notifyPrompts(attempt: Promise<unknown> | undefined) {
+  void attempt?.finally(() => {
+    for (const refresh of promptListeners) refresh();
+  });
+}
 
 /** Moves the tab of `fingerprint` one place left (-1) or right (1) and says where it is now. */
 export function moveBy(fingerprint: string | null, by: -1 | 1) {
@@ -87,7 +95,11 @@ export function moveBy(fingerprint: string | null, by: -1 | 1) {
  */
 function reattach(tab: Tab, kind?: "folder" | "files", supersede = false): Promise<unknown> | undefined {
   if (!kind && tab.source?.kind === "url") return attachUrl(tab, supersede);
-  if (!kind && hasHandles(tab.source)) return requestAccess(tab, supersede);
+  if (!kind && hasHandles(tab.source)) {
+    return requestAccess(tab, supersede).then((result) =>
+      result === "fallback" ? reattach(tab, pickerFor(tab), supersede) : undefined,
+    );
+  }
   const picker = kind ?? pickerFor(tab);
   target = tab.fingerprint;
   // The browser's own pickers (Chromium) give handles, which the next visit reattaches through on its own.
@@ -95,7 +107,17 @@ function reattach(tab: Tab, kind?: "folder" | "files", supersede = false): Promi
   if (!native) return void inputs[picker]?.click();
   return native().then(
     (chosen) => chosen && reattachFrom(chosen.files, tab.fingerprint, chosen.handles),
-    () => {}, // the user closed the picker
+    (error) => {
+      if ((error as Error)?.name === "AbortError") return; // the user closed the picker
+      if ((error as Error)?.name === "SecurityError") {
+        setReason(
+          tab.fingerprint,
+          `Click Reattach again to choose ${picker === "folder" ? "the folder" : "the files"}`,
+        );
+        return;
+      }
+      setReason(tab.fingerprint, `${tab.name} could not be read: ${messageOf(error)}`);
+    },
   );
 }
 
@@ -263,7 +285,7 @@ export const TabStrip = memo(function TabStrip() {
             aria-label={`Reattach, ${detached.length} detached`}
             onClick={() => {
               selectTab(next.fingerprint);
-              void reattach(next);
+              notifyPrompts(reattach(next));
             }}
           >
             <Link2 aria-hidden />
@@ -437,10 +459,17 @@ export function DetachedNote({ fingerprint, brief }: { fingerprint: string; brie
   );
 }
 
-/** The prompts `tab` still needs (promptsLeft), counted again after each `after(attempt)`. */
+/** The prompts `tab` still needs (promptsLeft), counted again after each Reattach attempt settles. */
 function usePromptsLeft(tab: Tab | undefined) {
   const [left, setLeft] = useState(0);
   const [round, setRound] = useState(0);
+  useEffect(() => {
+    const refresh = () => setRound((n) => n + 1);
+    promptListeners.add(refresh);
+    return () => {
+      promptListeners.delete(refresh);
+    };
+  }, []);
   useEffect(() => {
     let live = true;
     if (tab && round >= 0) void promptsLeft(tab).then((n) => live && setLeft(n));
@@ -448,8 +477,7 @@ function usePromptsLeft(tab: Tab | undefined) {
       live = false;
     };
   }, [tab, round]);
-  const after = (attempt: Promise<unknown> | undefined) =>
-    void attempt?.finally(() => setRound((n) => n + 1));
+  const after = (attempt: Promise<unknown> | undefined) => notifyPrompts(attempt);
   return { left, after };
 }
 

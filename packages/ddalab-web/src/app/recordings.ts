@@ -305,8 +305,18 @@ export async function pickFiles(
 export async function reopen(entry: RecentEntry & { handle: FileSystemHandle }): Promise<Outcome> {
   const handle = entry.handle as FileSystemFileHandle;
   try {
-    if (!(await permitted(handle)) && (await ask(handle)) !== "granted") {
-      return { kind: "error", message: `Read access to ${entry.primary} was not granted`, folder: false };
+    if (!(await permitted(handle))) {
+      const answer = await ask(handle);
+      if (answer === "unresponsive") {
+        return {
+          kind: "error",
+          message: `The saved link for ${entry.primary} expired; use Open files to open it again`,
+          folder: false,
+        };
+      }
+      if (answer !== "granted") {
+        return { kind: "error", message: `Read access to ${entry.primary} was not granted`, folder: false };
+      }
     }
     return await openFiles([await handle.getFile()], {
       expect: entry.fingerprint,

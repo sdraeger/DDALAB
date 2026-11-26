@@ -71,7 +71,8 @@ export function idOf(fingerprint: string, recordings = useStore.getState().recor
 export const hasHandles = (source: TabSource | null) =>
   source !== null &&
   source.kind !== "url" &&
-  ((source.kind === "files" && source.root !== undefined) || sought(source).every((f) => f.handle));
+  ((source.kind === "files" && source.root !== undefined) ||
+    (sought(source).length > 0 && sought(source).every((f) => f.handle)));
 
 /**
  * The source of a recording opened from `files`, of which the core used `used` (the primary first). `handles` maps

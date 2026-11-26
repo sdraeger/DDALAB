@@ -23,7 +23,7 @@ import {
   tabOf,
   updateTab,
 } from "../store/tabs";
-import { ask, fileAt, permitted } from "./handles";
+import { ask, fileAt, isUnresponsive, permitted } from "./handles";
 import { closeRecording, engine, type FileHandles, openFiles, openInput } from "./recordings";
 
 /** The tabs whose recording is not open. */
@@ -200,6 +200,33 @@ async function viaHandles(source: Local) {
   return { files: await Promise.all(handles.map((h) => h.getFile())), handles: { files: handles } };
 }
 
+/** Drops any handles marked unresponsive from the stored tab so future Reattach clicks open a picker directly. */
+function dropDeadHandles(fingerprint: string) {
+  const tab = tabOf(fingerprint);
+  if (!tab || !local(tab.source)) return;
+  const source = tab.source;
+  if (source.kind === "project") {
+    if (source.project.handle && isUnresponsive(source.project.handle)) {
+      updateTab(fingerprint, {
+        source: { kind: "project", project: { ...source.project, handle: undefined } },
+      });
+    }
+    return;
+  }
+  const deadRoot = source.root !== undefined && isUnresponsive(source.root);
+  const deadFile = source.files.some((f) => f.handle !== undefined && isUnresponsive(f.handle));
+  if (!deadRoot && !deadFile) return;
+  updateTab(fingerprint, {
+    source: {
+      kind: "files",
+      root: deadRoot ? undefined : source.root,
+      files: source.files.map((f) =>
+        f.handle && isUnresponsive(f.handle) ? { ...f, handle: undefined } : f,
+      ),
+    },
+  });
+}
+
 /**
  * Reattaches `tab` when it needs no prompt: by URL, or through handles that may still be read. An attempt under way
  * goes on, unless `supersede` (Retry) stops it.
@@ -211,8 +238,10 @@ function attachQuietly(tab: Tab, supersede = false) {
   return attempt(fingerprint, supersede, async (signal) => {
     try {
       const read = await viaHandles(source);
-      const match = read && matchOf(source, read.files);
-      if (signal.aborted || !read || !match || !tabOf(fingerprint)) return;
+      if (signal.aborted || !tabOf(fingerprint)) return;
+      if (!read) return dropDeadHandles(fingerprint);
+      const match = matchOf(source, read.files);
+      if (!match) return setReason(fingerprint, `${tab.name} was renamed or moved since it was opened`);
       if ("reason" in match) return setReason(fingerprint, match.reason);
       await attachMatch(tab, match, read.files, read.handles, false, signal);
     } catch (error) {
@@ -236,25 +265,46 @@ async function attachAllQuietly(first?: string | null, supersede?: string) {
 /** The prompts `tab` still needs, a click each: 1 for its folder, else one per file not allowed yet. */
 export async function promptsLeft(tab: Tab): Promise<number> {
   if (!local(tab.source) || !hasHandles(tab.source)) return 0;
-  const allowed = await Promise.all(handlesOf(tab.source).map(permitted));
+  const handles = handlesOf(tab.source);
+  const allowed = await Promise.all(handles.map(permitted));
+  if (handles.some(isUnresponsive)) {
+    dropDeadHandles(tab.fingerprint);
+    return 0;
+  }
   return allowed.filter((ok) => !ok).length;
 }
 
 /**
  * Asks for read access to one handle of `tab`: its folder's, else the first of its files' not granted yet. A click must
  * call it, and asks one question: a recording of loose files takes a click per file. Every tab the grant covers then
- * reattaches; with `supersede` (Retry) this tab's attempt under way is stopped and made again.
+ * reattaches; with `supersede` (Retry) this tab's attempt under way is stopped and made again. Returns `"fallback"`
+ * when a stored handle hung so the caller can open a file or folder picker instead.
  */
-export async function requestAccess(tab: Tab, supersede = false) {
-  if (!local(tab.source)) return;
+export async function requestAccess(tab: Tab, supersede = false): Promise<"ok" | "fallback"> {
+  if (!local(tab.source)) return "ok";
   for (const handle of handlesOf(tab.source)) {
     if (await permitted(handle)) continue;
+    if (isUnresponsive(handle)) {
+      dropDeadHandles(tab.fingerprint);
+      return "fallback";
+    }
     const answer = await ask(handle);
-    if (answer === "lapsed") return setReason(tab.fingerprint, "Click Reattach again to let the browser ask");
-    if (answer !== "granted") return setReason(tab.fingerprint, "Permission not granted");
+    if (answer === "unresponsive") {
+      dropDeadHandles(tab.fingerprint);
+      return "fallback";
+    }
+    if (answer === "lapsed") {
+      setReason(tab.fingerprint, "Click Reattach again to let the browser ask");
+      return "ok";
+    }
+    if (answer !== "granted") {
+      setReason(tab.fingerprint, "Permission not granted");
+      return "ok";
+    }
     break;
   }
   await attachAllQuietly(tab.fingerprint, supersede ? tab.fingerprint : undefined);
+  return "ok";
 }
 
 /** The picker that finds `tab`'s files: the folder one when they came from a folder. */

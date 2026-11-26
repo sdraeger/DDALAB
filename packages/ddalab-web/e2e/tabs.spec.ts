@@ -843,3 +843,42 @@ test("a_pick_during_quiet_reattaches_gets_a_recording_of_its_own", async ({ page
   expect(closed).toHaveLength(1);
   expect(closed).not.toContain(ids[0]);
 });
+
+test("an_unresponsive_stored_handle_falls_back_to_the_picker", async ({ page, browserName }) => {
+  test.skip(browserName !== "chromium", "FileSystemHandles persist only in Chromium");
+  const edf = base64Of(fixturePath("fixture.edf"));
+  const files = { "recordings/a/fixture.edf": edf };
+  await stubPickers(page, files);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open folder" }).click();
+  await openFromTree(page, "recordings", ["fixture.edf"]);
+  await expect(tabs(page)).toHaveText(["fixture.edf"]);
+  await flush(page);
+
+  // Simulate Chromium's dead IndexedDB handle bug where queryPermission hangs forever.
+  await page.addInitScript(() => {
+    const prototype = FileSystemHandle.prototype as unknown as {
+      queryPermission(): Promise<string>;
+      requestPermission(): Promise<string>;
+    };
+    const origQuery = prototype.queryPermission;
+    let first = true;
+    prototype.queryPermission = function () {
+      if (first) return new Promise(() => {});
+      return origQuery.call(this);
+    };
+    const origShow = (window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> })
+      .showDirectoryPicker;
+    (
+      window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }
+    ).showDirectoryPicker = async () => {
+      first = false;
+      return origShow();
+    };
+  });
+  await page.reload();
+  await expect(tabs(page)).toHaveText(["fixture.edf, detached"]);
+  // After the dead handle times out, Reattach opens the folder picker directly and reattaches the recording.
+  await page.getByRole("button", { name: "Reattach", exact: true }).click();
+  await expect(tabs(page)).toHaveText(["fixture.edf"], { timeout: 10_000 });
+});
