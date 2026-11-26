@@ -371,7 +371,7 @@ checksum = "4583a4551df46e2792f82ceeac45e850d2e2d5debba0b91f102385cda5b11f06"
 
 [[package]]
 name = "dda-rs"
-version = "2.10.1"
+version = "2.10.2"
 dependencies = [
  "assert_cmd",
  "chrono",
@@ -402,14 +402,14 @@ dependencies = [
 
 [[package]]
 name = "ddalab"
-version = "2.10.1"
+version = "2.10.2"
 dependencies = [
  "dda-rs",
 ]
 
 [[package]]
 name = "ddalab-py"
-version = "2.10.1"
+version = "2.10.2"
 dependencies = [
  "clap",
  "dda-rs",
@@ -420,7 +420,7 @@ dependencies = [
 
 [[package]]
 name = "ddalab-wasm"
-version = "2.10.1"
+version = "2.10.2"
 dependencies = [
  "dda-rs",
  "serde",
