@@ -3,7 +3,18 @@
 import Check from "lucide-react/dist/esm/icons/check.mjs";
 import Eye from "lucide-react/dist/esm/icons/eye.mjs";
 import EyeOff from "lucide-react/dist/esm/icons/eye-off.mjs";
-import { lazy, memo, Suspense, useCallback, useId, useMemo, useRef, useState, useTransition } from "react";
+import {
+  lazy,
+  memo,
+  Suspense,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { MiddleText } from "../../app/MiddleText";
 import { closeRecording, engine } from "../../app/recordings";
 import { assessChannelQuality, type ChannelQuality, qualitySummary } from "../../core/quality";
@@ -498,6 +509,19 @@ function ChannelList(props: {
   const [height, setHeight] = useState(0);
   const lastClicked = useRef<number | null>(null);
   const shiftHeld = useRef(false);
+  const settleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(settleTimer.current), []);
+  const snapToRow = useCallback(
+    (element: HTMLDivElement) => {
+      const whole = Math.round(element.scrollTop / row) * row;
+      if (Math.abs(whole - element.scrollTop) < 0.5) return;
+      const rect = element.getBoundingClientRect();
+      const offscreen = rect.bottom <= 0 || rect.top >= window.innerHeight;
+      const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+      element.scrollTo({ top: whole, behavior: reduced || offscreen ? "instant" : "smooth" });
+    },
+    [row],
+  );
   const measure = useCallback((element: HTMLDivElement | null) => {
     if (!element) return;
     const observer = new ResizeObserver(() => setHeight(element.clientHeight));
@@ -514,15 +538,17 @@ function ChannelList(props: {
       // Page keys scroll this list instead of paging the recording.
       data-own-keys
       ref={measure}
-      onScroll={(event) => setTop(Math.floor(event.currentTarget.scrollTop / row))}
+      onScroll={(event) => {
+        const element = event.currentTarget;
+        setTop(Math.floor(element.scrollTop / row));
+        clearTimeout(settleTimer.current);
+        settleTimer.current = setTimeout(() => snapToRow(element), 140);
+      }}
       // At rest the list shows whole rows: none half hidden at its edge under the search field. CSS snapping would
       // snap to the rendered rows only, which a jump down the virtual list leaves behind.
       onScrollEnd={(event) => {
-        const element = event.currentTarget;
-        const whole = Math.round(element.scrollTop / row) * row;
-        if (Math.abs(whole - element.scrollTop) < 0.5) return;
-        const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-        element.scrollTo({ top: whole, behavior: reduced ? "instant" : "smooth" });
+        clearTimeout(settleTimer.current);
+        snapToRow(event.currentTarget);
       }}
     >
       <ul aria-label="Channels" className={styles.list} style={{ height: shown.length * row }}>

@@ -145,6 +145,12 @@
   }
 }
 
+@container commandbar (width < 1008px) {
+  .view {
+    gap: var(--space-3);
+  }
+}
+
 @container commandbar (width < 1584px) {
   .shell[data-inspector="closed"] .scales {
     display: none;
